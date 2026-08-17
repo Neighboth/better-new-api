@@ -26,6 +26,13 @@ import {
 import { completeAssistantTiming } from '../message/message-timing-utils'
 import { hasMessageContent } from '../message/message-utils'
 import {
+  extractInlineImages,
+  type ImageStore,
+  resolveInlineImages,
+  stripImageRefs,
+} from './image-store'
+import {
+  imageStoreSchema,
   MAX_LOADED_MESSAGE_CHARS,
   MAX_LOADED_MESSAGES_CHARS,
   MAX_STORED_MESSAGES,
@@ -92,6 +99,33 @@ function trimMessages(messages: Message[]): Message[] {
   }
 
   return messages.slice(-MAX_STORED_MESSAGES)
+}
+
+function readImageStore(): ImageStore {
+  try {
+    const saved = readStoredValue(STORAGE_KEYS.IMAGES)
+    if (!saved) return {}
+
+    return imageStoreSchema.parse(unwrapStoredValue(saved))
+  } catch {
+    localStorage.removeItem(STORAGE_KEYS.IMAGES)
+    return {}
+  }
+}
+
+function writeImageStore(images: ImageStore): boolean {
+  try {
+    if (Object.keys(images).length === 0) {
+      localStorage.removeItem(STORAGE_KEYS.IMAGES)
+      return true
+    }
+
+    writeStoredValue(STORAGE_KEYS.IMAGES, images)
+    return true
+  } catch {
+    localStorage.removeItem(STORAGE_KEYS.IMAGES)
+    return false
+  }
 }
 
 function getMessageSize(message: Message): number {
@@ -343,7 +377,8 @@ export function loadMessages(): Message[] | null {
     const saved = readStoredMessagesValue()
     if (!saved) return null
 
-    const parsed = messagesSchema.parse(unwrapStoredValue(saved)) as Message[]
+    const stored = messagesSchema.parse(unwrapStoredValue(saved)) as Message[]
+    const parsed = resolveInlineImages(stored, readImageStore())
     const normalized = parsed.map(normalizeStoredMessageForLoad)
     const normalizedChanged = normalized.some(
       (message, index) => message !== parsed[index]
@@ -374,8 +409,12 @@ export function loadMessages(): Message[] | null {
  */
 export function saveMessages(messages: Message[]): void {
   try {
-    const trimmed = trimMessages(messages)
-    const parsed = messagesSchema.parse(trimmed) as Message[]
+    const extraction = extractInlineImages(trimMessages(messages))
+    const imagesStored = writeImageStore(extraction.images)
+    const persistable = imagesStored
+      ? extraction.messages
+      : stripImageRefs(extraction.messages)
+    const parsed = messagesSchema.parse(persistable) as Message[]
     writeStoredValue(STORAGE_KEYS.MESSAGES, parsed)
   } catch (error) {
     // eslint-disable-next-line no-console
@@ -391,6 +430,7 @@ export function clearPlaygroundData(): void {
     localStorage.removeItem(STORAGE_KEYS.CONFIG)
     localStorage.removeItem(STORAGE_KEYS.PARAMETER_ENABLED)
     localStorage.removeItem(STORAGE_KEYS.MESSAGES)
+    localStorage.removeItem(STORAGE_KEYS.IMAGES)
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error('Failed to clear playground data:', error)

@@ -21,10 +21,14 @@ import { z } from 'zod'
 export const STORAGE_VERSION = 1
 export const MAX_STORED_MESSAGES = 100
 export const MAX_STORED_MESSAGES_BYTES = 1024 * 1024
+// Inline images live in their own storage entry, so they get their own budget.
+export const MAX_STORED_IMAGE_BYTES = 1536 * 1024
+export const MAX_STORED_IMAGES_BYTES = 4 * 1024 * 1024
 export const MAX_LOADED_MESSAGES_CHARS = 120_000
 export const MAX_LOADED_MESSAGE_CHARS = 40_000
 
 export const playgroundConfigSchema = z.object({
+  mode: z.enum(['text', 'image']).optional(),
   model: z.string().optional(),
   group: z.string().optional(),
   temperature: z.number().optional(),
@@ -58,6 +62,12 @@ const messageVersionSchema = z.object({
   content: z.string(),
 })
 
+const attachmentSchema = z.object({
+  url: z.string(),
+  mediaType: z.string().optional(),
+  filename: z.string().optional(),
+})
+
 const sourceSchema = z.object({
   href: z.string(),
   title: z.string(),
@@ -75,6 +85,7 @@ const messageSchema = z.object({
   key: z.string(),
   from: messageRoleSchema,
   versions: z.array(messageVersionSchema).min(1),
+  attachments: z.array(attachmentSchema).optional(),
   createdAt: z.number().optional(),
   startedAt: z.number().optional(),
   completedAt: z.number().optional(),
@@ -89,3 +100,5 @@ const messageSchema = z.object({
 })
 
 export const messagesSchema = z.array(messageSchema)
+
+export const imageStoreSchema = z.record(z.string(), z.string())
