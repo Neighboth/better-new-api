@@ -53,8 +53,11 @@ export function BlogPostPage(props: BlogPostPageProps) {
   const reactions = data?.success ? data.data.reactions : {}
 
   useEffect(() => {
-    if (post?.title) {
-      document.title = post.title
+    if (!post?.title) return
+    const previousTitle = document.title
+    document.title = post.title
+    return () => {
+      document.title = previousTitle
     }
   }, [post?.title])
 
@@ -150,7 +153,7 @@ export function BlogPostPage(props: BlogPostPageProps) {
             likeCount={post.like_count}
             dislikeCount={post.dislike_count}
             myReaction={reactions[`post:${post.id}`] ?? 0}
-            onChanged={() => void refetch()}
+            onChanged={() => refetch()}
           />
         </div>
 
@@ -161,7 +164,7 @@ export function BlogPostPage(props: BlogPostPageProps) {
             postId={post.id}
             comments={data.data.comments}
             reactions={reactions}
-            onChanged={() => void refetch()}
+            onChanged={() => refetch()}
           />
         )}
       </article>

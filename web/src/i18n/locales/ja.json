@@ -5465,6 +5465,6 @@
     "Test captcha": "CAPTCHA をテスト",
     "Configure a captcha provider first": "先に CAPTCHA プロバイダーを設定してください",
     "Captcha verified successfully": "CAPTCHA の検証に成功しました",
-    "Opens the verification popup exactly as your users will see it, with every configured provider.": "設定済みのすべてのプロバイダーで、ユーザーに表示されるのと同じ確認ポップアップを開きます。"
+    "Opens the verification popup for the selected provider, exactly as your users will see it.": "選択したプロバイダーの確認ポップアップを、ユーザーに表示されるのと同じように開きます。"
   }
 }

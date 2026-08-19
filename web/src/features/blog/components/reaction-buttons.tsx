@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { ThumbsDown, ThumbsUp } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -34,18 +35,23 @@ type ReactionButtonsProps = {
   dislikeCount: number
   myReaction: number
   size?: 'default' | 'sm'
-  onChanged?: () => void
+  onChanged?: () => void | Promise<unknown>
 }
 
 export function ReactionButtons(props: ReactionButtonsProps) {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
+  const [pending, setPending] = useState(false)
 
   const react = async (value: 1 | -1) => {
     if (!user) {
       toast.info(t('Please sign in to react'))
       return
     }
+    // Serialize clicks: firing a second reaction while the first is in
+    // flight makes the counters race.
+    if (pending) return
+    setPending(true)
     try {
       const res =
         props.targetType === 'post'
@@ -55,9 +61,11 @@ export function ReactionButtons(props: ReactionButtonsProps) {
         toast.error(res.message || t('Operation failed'))
         return
       }
-      props.onChanged?.()
+      await Promise.resolve(props.onChanged?.())
     } catch {
       toast.error(t('Operation failed'))
+    } finally {
+      setPending(false)
     }
   }
 
@@ -75,6 +83,7 @@ export function ReactionButtons(props: ReactionButtonsProps) {
           props.myReaction === 1 && 'text-primary'
         )}
         onClick={() => void react(1)}
+        disabled={pending}
         aria-label={t('Like')}
         aria-pressed={props.myReaction === 1}
       >
@@ -92,6 +101,7 @@ export function ReactionButtons(props: ReactionButtonsProps) {
           props.myReaction === -1 && 'text-destructive'
         )}
         onClick={() => void react(-1)}
+        disabled={pending}
         aria-label={t('Dislike')}
         aria-pressed={props.myReaction === -1}
       >

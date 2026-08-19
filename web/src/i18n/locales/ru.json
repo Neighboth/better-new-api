@@ -5465,6 +5465,6 @@
     "Test captcha": "Проверить капчу",
     "Configure a captcha provider first": "Сначала настройте провайдера капчи",
     "Captcha verified successfully": "Капча успешно пройдена",
-    "Opens the verification popup exactly as your users will see it, with every configured provider.": "Открывает окно проверки точно так, как его увидят пользователи, со всеми настроенными провайдерами."
+    "Opens the verification popup for the selected provider, exactly as your users will see it.": "Открывает окно проверки выбранного провайдера точно так, как его увидят пользователи."
   }
 }

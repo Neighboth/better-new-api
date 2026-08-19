@@ -195,9 +195,11 @@ func RenderIndexPage(indexPage []byte) []byte {
 		page = replaceMeta(page, `name="description"`, html.EscapeString(description))
 	}
 
-	// Favicon.
+	// Favicon. The built HTML can contain more than one rel=icon link (the
+	// bundler injects its own), and browsers honor the LAST one, so every
+	// occurrence must be replaced.
 	if icon != "" {
-		page = replaceLinkHref(page, `rel="icon"`, html.EscapeString(icon))
+		page = replaceAllLinkHrefs(page, `rel="icon"`, html.EscapeString(icon))
 	}
 
 	// Extra tags go right before </head>.
@@ -276,6 +278,30 @@ func replaceLinkHref(page, attr, href string) string {
 		return page
 	}
 	return page[:hrefStart] + href + page[hrefStart+hrefEnd:]
+}
+
+// replaceAllLinkHrefs applies replaceLinkHref to every matching link tag.
+func replaceAllLinkHrefs(page, attr, href string) string {
+	needle := "<link " + attr
+	var out strings.Builder
+	rest := page
+	for {
+		idx := strings.Index(rest, needle)
+		if idx < 0 {
+			out.WriteString(rest)
+			break
+		}
+		tagEnd := strings.Index(rest[idx:], ">")
+		if tagEnd < 0 {
+			out.WriteString(rest)
+			break
+		}
+		tagEnd += idx + 1
+		out.WriteString(rest[:idx])
+		out.WriteString(replaceLinkHref(rest[idx:tagEnd], attr, href))
+		rest = rest[tagEnd:]
+	}
+	return out.String()
 }
 
 // ServeIndex renders the SPA shell with SEO metadata applied. Rendering is

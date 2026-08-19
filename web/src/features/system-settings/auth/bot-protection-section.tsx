@@ -118,33 +118,19 @@ export function BotProtectionSection({
 
   const openCaptchaTest = () => {
     const values = form.getValues()
-    const keys: Record<string, string> = {
-      turnstile: values.TurnstileSiteKey ?? '',
-      recaptcha: values.RecaptchaSiteKey ?? '',
-      hcaptcha: values.HCaptchaSiteKey ?? '',
-      image: '',
-    }
-    const types: CaptchaProviderOption['type'][] = [
-      'turnstile',
-      'recaptcha',
-      'hcaptcha',
-      'image',
-    ]
-    const providers: CaptchaProviderOption[] = []
-    const ordered =
-      values.CaptchaType === 'off'
-        ? types
-        : [values.CaptchaType, ...types.filter((p) => p !== values.CaptchaType)]
-    for (const type of ordered) {
-      if (type === 'image' || keys[type]) {
-        providers.push({ type, siteKey: keys[type] })
-      }
-    }
-    if (providers.length === 0) {
+    if (values.CaptchaType === 'off') {
       toast.error(t('Configure a captcha provider first'))
       return
     }
-    setTestProviders(providers)
+    const siteKeys: Record<string, string | undefined> = {
+      turnstile: values.TurnstileSiteKey,
+      recaptcha: values.RecaptchaSiteKey,
+      hcaptcha: values.HCaptchaSiteKey,
+      image: '',
+    }
+    setTestProviders([
+      { type: values.CaptchaType, siteKey: siteKeys[values.CaptchaType] ?? '' },
+    ])
     setTestOpen(true)
   }
 
@@ -311,7 +297,7 @@ export function BotProtectionSection({
             </Button>
             <p className='text-muted-foreground mt-2 text-sm'>
               {t(
-                'Opens the verification popup exactly as your users will see it, with every configured provider.'
+                'Opens the verification popup for the selected provider, exactly as your users will see it.'
               )}
             </p>
           </div>

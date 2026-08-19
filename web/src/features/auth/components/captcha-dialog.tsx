@@ -78,7 +78,7 @@ export function CaptchaDialog({
         toast.error(t('Failed to load captcha'))
         return current
       }
-      toast.info(t('Captcha failed to load, trying another verification'))
+      // Silently fall back to the next configured provider.
       return current + 1
     })
     setToken('')

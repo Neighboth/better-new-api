@@ -3,6 +3,7 @@ package model
 import (
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -163,10 +164,19 @@ func GetUserBlogReactions(userId int, postId int64) (map[string]int, error) {
 	return result, nil
 }
 
+// SetBlogReaction is serialized process-wide: two rapid clicks (like then
+// dislike) must never read the same pre-update state and double-apply the
+// counter deltas. Counters are recomputed from the reaction rows at the end
+// of every mutation, so they stay correct (and self-heal) no matter what.
+var blogReactionMutex sync.Mutex
+
 // SetBlogReaction upserts/toggles a reaction and keeps the denormalized
 // counters on the target row in sync. Returns the user's resulting value
 // (0 when the reaction was removed).
 func SetBlogReaction(userId int, postId int64, targetType string, targetId int64, value int) (int, error) {
+	blogReactionMutex.Lock()
+	defer blogReactionMutex.Unlock()
+
 	result := 0
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var existing BlogReaction
@@ -176,53 +186,38 @@ func SetBlogReaction(userId int, postId int64, targetType string, targetId int64
 			return findErr
 		}
 
-		var counterColumn string
-		if value == 1 {
-			counterColumn = "like_count"
-		} else {
-			counterColumn = "dislike_count"
-		}
-		target := blogReactionTarget(targetType)
-
-		if findErr == gorm.ErrRecordNotFound {
+		switch {
+		case findErr == gorm.ErrRecordNotFound:
 			if err := tx.Create(&BlogReaction{BlogId: postId, TargetType: targetType, TargetId: targetId, UserId: userId, Value: value}).Error; err != nil {
 				return err
 			}
-			if err := tx.Model(target).Where("id = ?", targetId).
-				UpdateColumn(counterColumn, gorm.Expr(counterColumn+" + 1")).Error; err != nil {
-				return err
-			}
 			result = value
-			return nil
-		}
-
-		if existing.Value == value {
+		case existing.Value == value:
 			// Toggle off.
 			if err := tx.Delete(&existing).Error; err != nil {
 				return err
 			}
-			return tx.Model(target).Where("id = ?", targetId).
-				UpdateColumn(counterColumn, gorm.Expr(counterColumn+" - 1")).Error
+		default:
+			// Switch sides.
+			if err := tx.Model(&existing).Update("value", value).Error; err != nil {
+				return err
+			}
+			result = value
 		}
 
-		// Switch sides.
-		if err := tx.Model(&existing).Update("value", value).Error; err != nil {
+		var likeCount, dislikeCount int64
+		if err := tx.Model(&BlogReaction{}).
+			Where("target_type = ? AND target_id = ? AND value = 1", targetType, targetId).
+			Count(&likeCount).Error; err != nil {
 			return err
 		}
-		oldColumn := "like_count"
-		if existing.Value == -1 {
-			oldColumn = "dislike_count"
-		}
-		if err := tx.Model(target).Where("id = ?", targetId).
-			UpdateColumn(oldColumn, gorm.Expr(oldColumn+" - 1")).Error; err != nil {
+		if err := tx.Model(&BlogReaction{}).
+			Where("target_type = ? AND target_id = ? AND value = -1", targetType, targetId).
+			Count(&dislikeCount).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(target).Where("id = ?", targetId).
-			UpdateColumn(counterColumn, gorm.Expr(counterColumn+" + 1")).Error; err != nil {
-			return err
-		}
-		result = value
-		return nil
+		return tx.Model(blogReactionTarget(targetType)).Where("id = ?", targetId).
+			Updates(map[string]any{"like_count": likeCount, "dislike_count": dislikeCount}).Error
 	})
 	return result, err
 }

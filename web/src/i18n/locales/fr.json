@@ -5465,6 +5465,6 @@
     "Test captcha": "Tester le captcha",
     "Configure a captcha provider first": "Configurez d'abord un fournisseur de captcha",
     "Captcha verified successfully": "Captcha vérifié avec succès",
-    "Opens the verification popup exactly as your users will see it, with every configured provider.": "Ouvre la fenêtre de vérification exactement comme vos utilisateurs la verront, avec tous les fournisseurs configurés."
+    "Opens the verification popup for the selected provider, exactly as your users will see it.": "Ouvre la fenêtre de vérification du fournisseur sélectionné, exactement comme vos utilisateurs la verront."
   }
 }

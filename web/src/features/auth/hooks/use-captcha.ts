@@ -33,8 +33,8 @@ export type CaptchaProviderOption = {
 }
 
 const FALLBACK_ORDER: ActiveCaptchaType[] = [
-  'turnstile',
   'recaptcha',
+  'turnstile',
   'hcaptcha',
   'image',
 ]

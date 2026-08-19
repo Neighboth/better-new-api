@@ -5465,6 +5465,6 @@
     "Test captcha": "Kiểm tra captcha",
     "Configure a captcha provider first": "Hãy cấu hình nhà cung cấp captcha trước",
     "Captcha verified successfully": "Xác minh captcha thành công",
-    "Opens the verification popup exactly as your users will see it, with every configured provider.": "Mở popup xác minh đúng như người dùng sẽ thấy, với mọi nhà cung cấp đã cấu hình."
+    "Opens the verification popup for the selected provider, exactly as your users will see it.": "Mở popup xác minh của nhà cung cấp đã chọn, đúng như người dùng sẽ thấy."
   }
 }

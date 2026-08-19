@@ -46,10 +46,10 @@ func SetApiRouter(router *gin.Engine) {
 		// Public blog (read) + member interactions + admin management
 		blogRoute := apiRouter.Group("/blog")
 		{
-			blogRoute.GET("/posts", middleware.CriticalRateLimit(), controller.GetBlogPosts)
-			blogRoute.GET("/posts/:id", middleware.CriticalRateLimit(), middleware.TryUserAuth(), controller.GetBlogPost)
+			blogRoute.GET("/posts", controller.GetBlogPosts)
+			blogRoute.GET("/posts/:id", middleware.TryUserAuth(), controller.GetBlogPost)
 			blogUserRoute := blogRoute.Group("/")
-			blogUserRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit())
+			blogUserRoute.Use(middleware.UserAuth())
 			{
 				blogUserRoute.POST("/posts/:id/comments", controller.CreateBlogComment)
 				blogUserRoute.DELETE("/posts/:id/comments/:commentId", controller.DeleteBlogComment)

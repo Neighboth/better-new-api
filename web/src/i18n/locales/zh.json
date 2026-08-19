@@ -5465,6 +5465,6 @@
     "Test captcha": "测试验证码",
     "Configure a captcha provider first": "请先配置验证码提供商",
     "Captcha verified successfully": "验证码验证成功",
-    "Opens the verification popup exactly as your users will see it, with every configured provider.": "以用户视角打开验证弹窗，包含所有已配置的提供商。"
+    "Opens the verification popup for the selected provider, exactly as your users will see it.": "以用户视角打开所选提供商的验证弹窗。"
   }
 }
