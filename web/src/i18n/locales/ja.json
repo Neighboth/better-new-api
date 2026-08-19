@@ -5461,10 +5461,11 @@
     "hCaptcha": "hCaptcha",
     "Off (no captcha)": "オフ（CAPTCHA なし）",
     "Image captcha (built-in)": "画像 CAPTCHA（組み込み）",
-    "If the selected captcha fails to load or its quota runs out, automatically fall back to the other configured providers, ending with the built-in image captcha. Select each provider above to enter its keys.": "選択した CAPTCHA の読み込みに失敗したりクォータが切れた場合、設定済みの他のプロバイダーに自動的にフォールバックし、最後に組み込み画像 CAPTCHA を使用します。各プロバイダーを上で選択してキーを入力してください。",
     "Test captcha": "CAPTCHA をテスト",
     "Configure a captcha provider first": "先に CAPTCHA プロバイダーを設定してください",
     "Captcha verified successfully": "CAPTCHA の検証に成功しました",
-    "Opens the verification popup for the selected provider, exactly as your users will see it.": "選択したプロバイダーの確認ポップアップを、ユーザーに表示されるのと同じように開きます。"
+    "Opens the verification popup for the selected provider, exactly as your users will see it.": "選択したプロバイダーの確認ポップアップを、ユーザーに表示されるのと同じように開きます。",
+    "If the selected captcha fails to load or its quota runs out, automatically fall back to the other configured providers, ending with the built-in image captcha. Select each provider below to enter its keys.": "選択した CAPTCHA の読み込みに失敗したりクォータが切れた場合、設定済みの他のプロバイダーに自動的にフォールバックし、最後に組み込み画像 CAPTCHA を使用します。各プロバイダーを下で選択してキーを入力してください。",
+    "Enable captcha": "CAPTCHA を有効化"
   }
 }

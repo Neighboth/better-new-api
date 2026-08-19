@@ -5461,10 +5461,11 @@
     "hCaptcha": "hCaptcha",
     "Off (no captcha)": "Tắt (không captcha)",
     "Image captcha (built-in)": "Captcha hình ảnh (tích hợp)",
-    "If the selected captcha fails to load or its quota runs out, automatically fall back to the other configured providers, ending with the built-in image captcha. Select each provider above to enter its keys.": "Nếu captcha đã chọn không tải được hoặc hết hạn mức, tự động chuyển sang các nhà cung cấp đã cấu hình khác, cuối cùng là captcha hình ảnh tích hợp. Chọn từng nhà cung cấp ở trên để nhập khóa.",
     "Test captcha": "Kiểm tra captcha",
     "Configure a captcha provider first": "Hãy cấu hình nhà cung cấp captcha trước",
     "Captcha verified successfully": "Xác minh captcha thành công",
-    "Opens the verification popup for the selected provider, exactly as your users will see it.": "Mở popup xác minh của nhà cung cấp đã chọn, đúng như người dùng sẽ thấy."
+    "Opens the verification popup for the selected provider, exactly as your users will see it.": "Mở popup xác minh của nhà cung cấp đã chọn, đúng như người dùng sẽ thấy.",
+    "If the selected captcha fails to load or its quota runs out, automatically fall back to the other configured providers, ending with the built-in image captcha. Select each provider below to enter its keys.": "Nếu captcha đã chọn không tải được hoặc hết hạn mức, tự động chuyển sang các nhà cung cấp đã cấu hình khác, cuối cùng là captcha hình ảnh tích hợp. Chọn từng nhà cung cấp ở dưới để nhập khóa.",
+    "Enable captcha": "Bật captcha"
   }
 }

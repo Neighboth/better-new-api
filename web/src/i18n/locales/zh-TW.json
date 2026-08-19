@@ -5461,10 +5461,11 @@
     "hCaptcha": "hCaptcha",
     "Off (no captcha)": "關閉（無驗證碼）",
     "Image captcha (built-in)": "圖片驗證碼（內建）",
-    "If the selected captcha fails to load or its quota runs out, automatically fall back to the other configured providers, ending with the built-in image captcha. Select each provider above to enter its keys.": "當所選驗證碼載入失敗或額度用盡時，自動回退到其他已設定的提供商，最後使用內建圖片驗證碼。請在上方選擇各個提供商以填寫其金鑰。",
     "Test captcha": "測試驗證碼",
     "Configure a captcha provider first": "請先設定驗證碼提供商",
     "Captcha verified successfully": "驗證碼驗證成功",
-    "Opens the verification popup for the selected provider, exactly as your users will see it.": "以使用者視角開啟所選提供商的驗證彈窗。"
+    "Opens the verification popup for the selected provider, exactly as your users will see it.": "以使用者視角開啟所選提供商的驗證彈窗。",
+    "If the selected captcha fails to load or its quota runs out, automatically fall back to the other configured providers, ending with the built-in image captcha. Select each provider below to enter its keys.": "當所選驗證碼載入失敗或額度用盡時，自動回退到其他已設定的提供商，最後使用內建圖片驗證碼。請在下方選擇各個提供商以填寫其金鑰。",
+    "Enable captcha": "啟用驗證碼"
   }
 }

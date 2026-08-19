@@ -5461,10 +5461,11 @@
     "hCaptcha": "hCaptcha",
     "Off (no captcha)": "关闭（无验证码）",
     "Image captcha (built-in)": "图片验证码（内置）",
-    "If the selected captcha fails to load or its quota runs out, automatically fall back to the other configured providers, ending with the built-in image captcha. Select each provider above to enter its keys.": "当所选验证码加载失败或额度用尽时，自动回退到其他已配置的提供商，最后使用内置图片验证码。请在上方选择各个提供商以填写其密钥。",
     "Test captcha": "测试验证码",
     "Configure a captcha provider first": "请先配置验证码提供商",
     "Captcha verified successfully": "验证码验证成功",
-    "Opens the verification popup for the selected provider, exactly as your users will see it.": "以用户视角打开所选提供商的验证弹窗。"
+    "Opens the verification popup for the selected provider, exactly as your users will see it.": "以用户视角打开所选提供商的验证弹窗。",
+    "If the selected captcha fails to load or its quota runs out, automatically fall back to the other configured providers, ending with the built-in image captcha. Select each provider below to enter its keys.": "当所选验证码加载失败或额度用尽时，自动回退到其他已配置的提供商，最后使用内置图片验证码。请在下方选择各个提供商以填写其密钥。",
+    "Enable captcha": "启用验证码"
   }
 }

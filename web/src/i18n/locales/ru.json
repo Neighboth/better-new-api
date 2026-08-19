@@ -5461,10 +5461,11 @@
     "hCaptcha": "hCaptcha",
     "Off (no captcha)": "Выкл. (без капчи)",
     "Image captcha (built-in)": "Графическая капча (встроенная)",
-    "If the selected captcha fails to load or its quota runs out, automatically fall back to the other configured providers, ending with the built-in image captcha. Select each provider above to enter its keys.": "Если выбранная капча не загружается или её квота исчерпана, автоматически используются другие настроенные провайдеры, последним — встроенная графическая капча. Выберите каждого провайдера выше, чтобы ввести его ключи.",
     "Test captcha": "Проверить капчу",
     "Configure a captcha provider first": "Сначала настройте провайдера капчи",
     "Captcha verified successfully": "Капча успешно пройдена",
-    "Opens the verification popup for the selected provider, exactly as your users will see it.": "Открывает окно проверки выбранного провайдера точно так, как его увидят пользователи."
+    "Opens the verification popup for the selected provider, exactly as your users will see it.": "Открывает окно проверки выбранного провайдера точно так, как его увидят пользователи.",
+    "If the selected captcha fails to load or its quota runs out, automatically fall back to the other configured providers, ending with the built-in image captcha. Select each provider below to enter its keys.": "Если выбранная капча не загружается или её квота исчерпана, автоматически используются другие настроенные провайдеры, последним — встроенная графическая капча. Выберите каждого провайдера ниже, чтобы ввести его ключи.",
+    "Enable captcha": "Включить капчу"
   }
 }

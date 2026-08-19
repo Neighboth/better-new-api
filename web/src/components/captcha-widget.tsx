@@ -25,6 +25,7 @@ declare global {
         element: HTMLElement,
         options: Record<string, unknown>
       ) => number
+      ready?: (callback: () => void) => void
     }
     hcaptcha?: {
       render: (
@@ -63,11 +64,15 @@ function useCaptchaScript(
       script.async = true
       script.defer = true
       script.addEventListener('load', () => render())
-      script.addEventListener('error', () => onLoadError?.())
+      script.addEventListener('error', () => {
+        script.remove()
+        onLoadError?.()
+      })
       document.head.appendChild(script)
       return
     }
-    // Script tag exists but not loaded yet — poll briefly.
+    // Script tag exists but not loaded yet — poll briefly, then give up and
+    // remove the dead tag so the next attempt re-injects a fresh one.
     const startedAt = Date.now()
     const timer = window.setInterval(() => {
       if (isReady()) {
@@ -75,6 +80,7 @@ function useCaptchaScript(
         render()
       } else if (Date.now() - startedAt > 10000) {
         window.clearInterval(timer)
+        existing.remove()
         onLoadError?.()
       }
     }, 200)
@@ -96,16 +102,25 @@ export function RecaptchaWidget({
     'https://www.google.com/recaptcha/api.js?render=explicit',
     () => Boolean(window.grecaptcha?.render),
     () => {
-      if (!ref.current || !window.grecaptcha) return
-      try {
-        window.grecaptcha.render(ref.current, {
-          sitekey: siteKey,
-          callback: (token: string) => onVerify(token),
-          'expired-callback': () => onExpire?.(),
-          'error-callback': () => onError?.(),
-        })
-      } catch {
-        onError?.()
+      // With render=explicit the API can be present before it is ready;
+      // grecaptcha.ready() is the only safe point to call render().
+      const doRender = () => {
+        if (!ref.current || !window.grecaptcha) return
+        try {
+          window.grecaptcha.render(ref.current, {
+            sitekey: siteKey,
+            callback: (token: string) => onVerify(token),
+            'expired-callback': () => onExpire?.(),
+            'error-callback': () => onError?.(),
+          })
+        } catch {
+          onError?.()
+        }
+      }
+      if (window.grecaptcha?.ready) {
+        window.grecaptcha.ready(doRender)
+      } else {
+        doRender()
       }
     },
     onError,

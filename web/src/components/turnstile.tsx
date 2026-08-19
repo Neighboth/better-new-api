@@ -63,11 +63,29 @@ export function Turnstile({
       return
     }
     const scriptId = 'cf-turnstile'
+
     const existing = document.querySelector(`#${scriptId}`)
     if (existing) {
+      // Tag exists from an earlier mount: listen for completion, but never
+      // wait forever — on timeout drop the dead tag so a retry re-injects.
+      const giveUp = () => {
+        window.clearInterval(pollTimer)
+        existing.remove()
+        onError?.()
+      }
+      const pollTimer = window.setInterval(() => {
+        if (window.turnstile) {
+          window.clearInterval(pollTimer)
+          render()
+        }
+      }, 200)
+      const timeout = window.setTimeout(giveUp, 10000)
       existing.addEventListener('load', render, { once: true })
-      existing.addEventListener('error', () => onError?.(), { once: true })
-      return
+      existing.addEventListener('error', giveUp, { once: true })
+      return () => {
+        window.clearInterval(pollTimer)
+        window.clearTimeout(timeout)
+      }
     }
     const s = document.createElement('script')
     s.id = scriptId
@@ -76,7 +94,10 @@ export function Turnstile({
     s.async = true
     s.defer = true
     s.addEventListener('load', render)
-    s.addEventListener('error', () => onError?.())
+    s.addEventListener('error', () => {
+      s.remove()
+      onError?.()
+    })
     document.head.appendChild(s)
   }, [siteKey, onVerify, onExpire, onError])
 

@@ -5461,10 +5461,11 @@
     "hCaptcha": "hCaptcha",
     "Off (no captcha)": "Désactivé (pas de captcha)",
     "Image captcha (built-in)": "Captcha image (intégré)",
-    "If the selected captcha fails to load or its quota runs out, automatically fall back to the other configured providers, ending with the built-in image captcha. Select each provider above to enter its keys.": "Si le captcha sélectionné ne se charge pas ou si son quota est épuisé, bascule automatiquement vers les autres fournisseurs configurés, en terminant par le captcha image intégré. Sélectionnez chaque fournisseur ci-dessus pour saisir ses clés.",
     "Test captcha": "Tester le captcha",
     "Configure a captcha provider first": "Configurez d'abord un fournisseur de captcha",
     "Captcha verified successfully": "Captcha vérifié avec succès",
-    "Opens the verification popup for the selected provider, exactly as your users will see it.": "Ouvre la fenêtre de vérification du fournisseur sélectionné, exactement comme vos utilisateurs la verront."
+    "Opens the verification popup for the selected provider, exactly as your users will see it.": "Ouvre la fenêtre de vérification du fournisseur sélectionné, exactement comme vos utilisateurs la verront.",
+    "If the selected captcha fails to load or its quota runs out, automatically fall back to the other configured providers, ending with the built-in image captcha. Select each provider below to enter its keys.": "Si le captcha sélectionné ne se charge pas ou si son quota est épuisé, bascule automatiquement vers les autres fournisseurs configurés, en terminant par le captcha image intégré. Sélectionnez chaque fournisseur ci-dessous pour saisir ses clés.",
+    "Enable captcha": "Activer le captcha"
   }
 }
