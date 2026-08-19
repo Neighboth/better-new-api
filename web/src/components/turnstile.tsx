@@ -30,6 +30,7 @@ interface TurnstileProps {
   siteKey: string
   onVerify: (token: string) => void
   onExpire?: () => void
+  onError?: () => void
   className?: string
 }
 
@@ -37,6 +38,7 @@ export function Turnstile({
   siteKey,
   onVerify,
   onExpire,
+  onError,
   className,
 }: TurnstileProps) {
   const ref = useRef<HTMLDivElement | null>(null)
@@ -48,11 +50,11 @@ export function Turnstile({
         window.turnstile.render(ref.current, {
           sitekey: siteKey,
           callback: (token: string) => onVerify(token),
-          'error-callback': () => onExpire?.(),
+          'error-callback': () => (onError ?? onExpire)?.(),
           'expired-callback': () => onExpire?.(),
         })
       } catch {
-        /* empty */
+        onError?.()
       }
     }
 
@@ -61,16 +63,22 @@ export function Turnstile({
       return
     }
     const scriptId = 'cf-turnstile'
-    if (document.getElementById(scriptId)) return
+    const existing = document.querySelector(`#${scriptId}`)
+    if (existing) {
+      existing.addEventListener('load', render, { once: true })
+      existing.addEventListener('error', () => onError?.(), { once: true })
+      return
+    }
     const s = document.createElement('script')
     s.id = scriptId
     s.src =
       'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
     s.async = true
     s.defer = true
-    s.onload = () => render()
+    s.addEventListener('load', render)
+    s.addEventListener('error', () => onError?.())
     document.head.appendChild(s)
-  }, [siteKey, onVerify, onExpire])
+  }, [siteKey, onVerify, onExpire, onError])
 
   return <div ref={ref} className={className} />
 }

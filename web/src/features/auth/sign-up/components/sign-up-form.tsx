@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -26,7 +26,6 @@ import type { z } from 'zod'
 
 import { Dialog } from '@/components/dialog'
 import { PasswordInput } from '@/components/password-input'
-import { Turnstile } from '@/components/turnstile'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -39,12 +38,16 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { register, wechatLoginByCode } from '@/features/auth/api'
-import { LegalConsent } from '@/features/auth/components/legal-consent'
-import { OAuthProviders } from '@/features/auth/components/oauth-providers'
+import { CaptchaDialog } from '@/features/auth/components/captcha-dialog'
+import {
+  OtherLoginDialog,
+  OtherLoginTrigger,
+} from '@/features/auth/components/other-login-dialog'
+import { TermsFooter } from '@/features/auth/components/terms-footer'
 import { registerFormSchema } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
+import { useCaptcha } from '@/features/auth/hooks/use-captcha'
 import { useEmailVerification } from '@/features/auth/hooks/use-email-verification'
-import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
 import {
   getAffiliateCode,
   saveAffiliateCode,
@@ -54,6 +57,8 @@ import { isAuthBundle } from '@/lib/api'
 import { getServerErrorMessageKey } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
+type CaptchaAction = 'register' | 'send-code'
+
 export function SignUpForm({
   className,
   ...props
@@ -61,31 +66,22 @@ export function SignUpForm({
   const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(false)
   const [verificationCode, setVerificationCode] = useState('')
-  const [agreedToLegal, setAgreedToLegal] = useState(false)
   const [wechatCode, setWeChatCode] = useState('')
   const [isWeChatDialogOpen, setIsWeChatDialogOpen] = useState(false)
   const [isWeChatSubmitting, setIsWeChatSubmitting] = useState(false)
-  const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
-  const legalConsentErrorMessage = t('Please agree to the legal terms first')
+  const [isOtherLoginOpen, setIsOtherLoginOpen] = useState(false)
+  const [isCaptchaOpen, setIsCaptchaOpen] = useState(false)
+  const pendingCaptchaAction = useRef<CaptchaAction>('register')
 
   const { status } = useStatus()
-  const {
-    isTurnstileEnabled,
-    turnstileSiteKey,
-    turnstileToken,
-    setTurnstileToken,
-    validateTurnstile,
-  } = useTurnstile()
+  const { isCaptchaEnabled, providers } = useCaptcha()
   const { redirectToLogin, handleLoginSuccess } = useAuthRedirect()
   const {
     isSending: isSendingCode,
     secondsLeft,
     isActive,
     sendCode,
-  } = useEmailVerification({
-    turnstileToken,
-    validateTurnstile,
-  })
+  } = useEmailVerification()
 
   const form = useForm<z.infer<typeof registerFormSchema>>({
     resolver: zodResolver(registerFormSchema),
@@ -99,15 +95,20 @@ export function SignUpForm({
 
   const emailValue = form.watch('email')
   const emailVerificationRequired = !!status?.email_verification
-  const hasUserAgreement = Boolean(status?.user_agreement_enabled)
-  const hasPrivacyPolicy = Boolean(status?.privacy_policy_enabled)
-  const requiresLegalConsent = hasUserAgreement || hasPrivacyPolicy
   const oauthRegisterEnabled =
     status?.oauth_register_enabled ??
     status?.data?.oauth_register_enabled ??
     true
   const hasWeChatLogin = Boolean(status?.wechat_login)
-  const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
+  const hasOAuthLogin = Boolean(
+    status?.github_oauth ||
+    status?.discord_oauth ||
+    status?.oidc_enabled ||
+    status?.linuxdo_oauth ||
+    status?.telegram_oauth ||
+    (status?.custom_oauth_providers?.length ?? 0) > 0
+  )
+  const hasOtherLoginMethods = hasWeChatLogin || hasOAuthLogin
 
   const wechatQrCodeUrl = useMemo(() => {
     return (
@@ -124,14 +125,6 @@ export function SignUpForm({
   }, [status])
 
   useEffect(() => {
-    if (requiresLegalConsent) {
-      setAgreedToLegal(false)
-    } else {
-      setAgreedToLegal(true)
-    }
-  }, [requiresLegalConsent])
-
-  useEffect(() => {
     const aff = new URLSearchParams(window.location.search).get('aff')?.trim()
     if (aff) {
       saveAffiliateCode(aff)
@@ -139,11 +132,6 @@ export function SignUpForm({
   }, [])
 
   async function onSubmit(data: z.infer<typeof registerFormSchema>) {
-    if (requiresLegalConsent && !agreedToLegal) {
-      toast.error(legalConsentErrorMessage)
-      return
-    }
-
     // Validate email verification if required
     if (emailVerificationRequired) {
       if (!data.email) {
@@ -156,8 +144,19 @@ export function SignUpForm({
       }
     }
 
-    if (!validateTurnstile()) return
+    if (isCaptchaEnabled) {
+      pendingCaptchaAction.current = 'register'
+      setIsCaptchaOpen(true)
+      return
+    }
+    await doRegister(data, '', '')
+  }
 
+  async function doRegister(
+    data: z.infer<typeof registerFormSchema>,
+    captchaToken: string,
+    captchaProvider: string
+  ) {
     setIsLoading(true)
     try {
       const res = await register({
@@ -166,7 +165,8 @@ export function SignUpForm({
         email: data.email || undefined,
         verification_code: verificationCode || undefined,
         aff_code: getAffiliateCode(),
-        turnstile: turnstileToken,
+        turnstile: captchaToken,
+        captcha_provider: captchaProvider,
       })
 
       if (res?.success) {
@@ -174,27 +174,46 @@ export function SignUpForm({
         redirectToLogin()
       } else {
         toast.error(res?.message || t('Failed to create account'))
+        reopenCaptcha('register')
       }
     } catch {
       // Errors are handled by global interceptor
+      reopenCaptcha('register')
     } finally {
       setIsLoading(false)
     }
   }
 
+  /** A rejected request invalidates the captcha token, so re-open the dialog. */
+  function reopenCaptcha(action: CaptchaAction) {
+    if (!isCaptchaEnabled) return
+    pendingCaptchaAction.current = action
+    setIsCaptchaOpen(true)
+  }
+
   async function handleSendVerificationCode() {
-    if (await sendCode(emailValue || '')) {
-      setTurnstileToken('')
-      setTurnstileWidgetKey((current) => current + 1)
+    if (isCaptchaEnabled) {
+      if (!emailValue) {
+        toast.error(t('Please enter your email first'))
+        return
+      }
+      pendingCaptchaAction.current = 'send-code'
+      setIsCaptchaOpen(true)
+      return
     }
+    await sendCode(emailValue || '')
+  }
+
+  function handleCaptchaVerified(token: string, provider: string) {
+    if (pendingCaptchaAction.current === 'send-code') {
+      void sendCode(emailValue || '', token, provider)
+      return
+    }
+    void form.handleSubmit((data) => doRegister(data, token, provider))()
   }
 
   const handleOpenWeChatDialog = () => {
-    if (requiresLegalConsent && !agreedToLegal) {
-      toast.error(legalConsentErrorMessage)
-      return
-    }
-
+    setIsOtherLoginOpen(false)
     setIsWeChatDialogOpen(true)
   }
 
@@ -270,10 +289,7 @@ export function SignUpForm({
             <FormItem>
               <FormLabel>{t('Password')}</FormLabel>
               <FormControl>
-                <PasswordInput
-                  placeholder={t('Enter password (8-20 characters)')}
-                  {...field}
-                />
+                <PasswordInput placeholder={t('Enter password')} {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -331,13 +347,7 @@ export function SignUpForm({
               <Button
                 variant='outline'
                 type='button'
-                disabled={
-                  isLoading ||
-                  isSendingCode ||
-                  isActive ||
-                  !emailValue ||
-                  !turnstileReady
-                }
+                disabled={isLoading || isSendingCode || isActive || !emailValue}
                 onClick={handleSendVerificationCode}
               >
                 {verificationCodeAction}
@@ -346,48 +356,42 @@ export function SignUpForm({
           </>
         )}
 
-        {/* Turnstile */}
-        {isTurnstileEnabled && (
-          <div className='mt-2'>
-            <Turnstile
-              key={turnstileWidgetKey}
-              siteKey={turnstileSiteKey}
-              onVerify={setTurnstileToken}
-            />
-          </div>
-        )}
-
-        <LegalConsent
-          status={status}
-          checked={agreedToLegal}
-          onCheckedChange={setAgreedToLegal}
-          className='mt-1'
-        />
-
         {/* Submit Button */}
         <Button
           type='submit'
           className='mt-2 w-full justify-center gap-2'
-          disabled={
-            isLoading ||
-            (requiresLegalConsent && !agreedToLegal) ||
-            !turnstileReady
-          }
+          disabled={isLoading}
         >
           {isLoading ? <Loader2 className='h-4 w-4 animate-spin' /> : null}
           {t('Create account')}
         </Button>
 
-        {oauthRegisterEnabled && (
-          <OAuthProviders
-            status={status}
-            disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
-            onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
-            isWeChatLoading={isWeChatSubmitting}
-            className='pt-2'
+        {/* Legal text + alternative methods */}
+        <TermsFooter variant='sign-up' status={status} />
+        {hasOtherLoginMethods && oauthRegisterEnabled && (
+          <OtherLoginTrigger
+            onClick={() => setIsOtherLoginOpen(true)}
+            disabled={isLoading}
           />
         )}
       </form>
+
+      <OtherLoginDialog
+        open={isOtherLoginOpen}
+        onOpenChange={setIsOtherLoginOpen}
+        variant='sign-up'
+        status={status}
+        disabled={isLoading}
+        onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
+        isWeChatLoading={isWeChatSubmitting}
+      />
+
+      <CaptchaDialog
+        open={isCaptchaOpen}
+        onOpenChange={setIsCaptchaOpen}
+        providers={providers}
+        onVerified={handleCaptchaVerified}
+      />
 
       {hasWeChatLogin && (
         <Dialog
@@ -414,42 +418,43 @@ export function SignUpForm({
               <Button
                 type='button'
                 onClick={handleWeChatLogin}
-                disabled={
-                  isWeChatSubmitting ||
-                  !wechatCode.trim() ||
-                  (requiresLegalConsent && !agreedToLegal)
-                }
-                className='gap-2'
+                disabled={isWeChatSubmitting || !wechatCode.trim()}
               >
                 {isWeChatSubmitting ? (
-                  <Loader2 className='h-4 w-4 animate-spin' />
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
                 ) : null}
-                {t('Confirm')}
+                {t('Sign in')}
               </Button>
             </>
           }
         >
-          {wechatQrCodeUrl ? (
-            <div className='flex justify-center'>
+          <div className='flex flex-col items-center gap-3'>
+            {wechatQrCodeUrl ? (
               <img
                 src={wechatQrCodeUrl}
-                alt={t('WeChat login QR code')}
-                className='h-40 w-40 rounded-md border object-contain'
+                alt={t('WeChat QR code')}
+                className='h-40 w-40 rounded-md border object-cover'
               />
-            </div>
-          ) : (
-            <p className='text-muted-foreground text-sm'>
-              {t('QR code is not configured. Please contact support.')}
-            </p>
-          )}
+            ) : (
+              <p className='text-muted-foreground text-sm'>
+                {t('WeChat QR code is not configured yet.')}
+              </p>
+            )}
+          </div>
           <div className='grid gap-2'>
             <Label htmlFor='wechat-code'>{t('Verification code')}</Label>
             <Input
               id='wechat-code'
-              placeholder={t('Enter the verification code')}
+              placeholder={t('Enter the code you received')}
               value={wechatCode}
               onChange={(event) => setWeChatCode(event.target.value)}
-              autoComplete='one-time-code'
+              disabled={isWeChatSubmitting}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void handleWeChatLogin()
+                }
+              }}
             />
           </div>
         </Dialog>

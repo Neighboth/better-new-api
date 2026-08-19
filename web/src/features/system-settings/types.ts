@@ -119,6 +119,18 @@ export type SiteSettings = {
   HeaderNavModules: string
   SidebarModulesAdmin: string
   CustomNavItems: string
+  SEOTitlePrefix: string
+  SEODescription: string
+  SEOKeywords: string
+  SEOSocialImage: string
+  RobotsPolicy: 'allow_all' | 'block_all' | 'block_ai' | 'custom'
+  RobotsCustomRules: string
+  SitemapCustomUrls: string
+  LLMSTxt: string
+  LLMSFullTxt: string
+  BlogEnabled: boolean
+  AdSenseClientId: string
+  AdSenseSlotId: string
 }
 
 export type AuthSettings = {
@@ -158,6 +170,12 @@ export type AuthSettings = {
   TurnstileCheckEnabled: boolean
   TurnstileSiteKey: string
   TurnstileSecretKey: string
+  CaptchaType: 'off' | 'turnstile' | 'recaptcha' | 'hcaptcha' | 'image'
+  CaptchaFallbackEnabled: boolean
+  RecaptchaSiteKey: string
+  RecaptchaSecretKey: string
+  HCaptchaSiteKey: string
+  HCaptchaSecretKey: string
   'passkey.enabled': boolean
   'passkey.rp_display_name': string
   'passkey.rp_id': string

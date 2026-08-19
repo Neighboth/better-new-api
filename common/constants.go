@@ -118,6 +118,62 @@ var WeChatAccountQRCodeImageURL = ""
 var TurnstileSiteKey = ""
 var TurnstileSecretKey = ""
 
+// CaptchaType selects the human verification provider: off, turnstile,
+// recaptcha, hcaptcha or image. Empty means "not configured", in which case
+// the legacy TurnstileCheckEnabled flag decides.
+var CaptchaType = ""
+var RecaptchaSiteKey = ""
+var RecaptchaSecretKey = ""
+var HCaptchaSiteKey = ""
+var HCaptchaSecretKey = ""
+
+const (
+	CaptchaTypeOff       = "off"
+	CaptchaTypeTurnstile = "turnstile"
+	CaptchaTypeRecaptcha = "recaptcha"
+	CaptchaTypeHCaptcha  = "hcaptcha"
+	CaptchaTypeImage     = "image"
+)
+
+// GetEffectiveCaptchaType resolves which captcha provider is active. An
+// explicitly configured CaptchaType wins; otherwise the legacy Turnstile
+// toggle is honored for backward compatibility.
+func GetEffectiveCaptchaType() string {
+	switch CaptchaType {
+	case CaptchaTypeTurnstile, CaptchaTypeRecaptcha, CaptchaTypeHCaptcha, CaptchaTypeImage:
+		return CaptchaType
+	case CaptchaTypeOff:
+		return CaptchaTypeOff
+	}
+	if TurnstileCheckEnabled && TurnstileSiteKey != "" {
+		return CaptchaTypeTurnstile
+	}
+	return CaptchaTypeOff
+}
+
+// IsCaptchaProviderConfigured reports whether the given provider has all the
+// keys it needs. The self-hosted image captcha needs no keys and is always
+// available as the last-resort fallback.
+func IsCaptchaProviderConfigured(provider string) bool {
+	switch provider {
+	case CaptchaTypeTurnstile:
+		return TurnstileSiteKey != "" && TurnstileSecretKey != ""
+	case CaptchaTypeRecaptcha:
+		return RecaptchaSiteKey != "" && RecaptchaSecretKey != ""
+	case CaptchaTypeHCaptcha:
+		return HCaptchaSiteKey != "" && HCaptchaSecretKey != ""
+	case CaptchaTypeImage:
+		return true
+	}
+	return false
+}
+
+// CaptchaFallbackEnabled reports whether the admin allows falling back to a
+// different captcha provider when the primary one fails to load.
+func CaptchaFallbackEnabled() bool {
+	return OptionMap["CaptchaFallbackEnabled"] == "true"
+}
+
 var TelegramBotToken = ""
 var TelegramBotName = ""
 

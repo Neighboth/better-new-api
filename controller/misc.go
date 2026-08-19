@@ -72,6 +72,13 @@ func GetStatus(c *gin.Context) {
 		"server_address":              system_setting.ServerAddress,
 		"turnstile_check":             common.TurnstileCheckEnabled,
 		"turnstile_site_key":          common.TurnstileSiteKey,
+		"captcha_type":                common.GetEffectiveCaptchaType(),
+		"captcha_fallback":            common.CaptchaFallbackEnabled(),
+		"recaptcha_site_key":          common.RecaptchaSiteKey,
+		"hcaptcha_site_key":           common.HCaptchaSiteKey,
+		"blog_enabled":                common.OptionMap["BlogEnabled"] == "true",
+		"adsense_client_id":           common.OptionMap["AdSenseClientId"],
+		"adsense_slot_id":             common.OptionMap["AdSenseSlotId"],
 		"docs_link":                   operation_setting.GetGeneralSetting().DocsLink,
 		"quota_per_unit":              common.QuotaPerUnit,
 		// 兼容旧前端：保留 display_in_currency，同时提供新的 quota_display_type

@@ -43,8 +43,9 @@ import type {
 // User login with username and password
 export async function login(payload: LoginPayload) {
   const turnstile = payload.turnstile ?? ''
+  const captchaProvider = payload.captcha_provider ?? ''
   const res = await api.post<LoginResponse>(
-    `/api/user/login?turnstile=${turnstile}`,
+    `/api/user/login?turnstile=${turnstile}&captcha_provider=${captchaProvider}`,
     {
       username: payload.username,
       password: payload.password,
@@ -119,10 +120,11 @@ export async function logout(): Promise<ApiResponse> {
 // Send password reset email
 export async function sendPasswordResetEmail(
   email: string,
-  turnstile?: string
+  turnstile?: string,
+  captchaProvider?: string
 ): Promise<ApiResponse> {
   const res = await api.get('/api/reset_password', {
-    params: { email, turnstile },
+    params: { email, turnstile, captcha_provider: captchaProvider },
   })
   return res.data
 }
@@ -183,7 +185,10 @@ export async function telegramLogin(
 // User registration
 export async function register(payload: RegisterPayload): Promise<ApiResponse> {
   const res = await api.post(`/api/user/register`, payload, {
-    params: { turnstile: payload.turnstile ?? '' },
+    params: {
+      turnstile: payload.turnstile ?? '',
+      captcha_provider: payload.captcha_provider ?? '',
+    },
   })
   return res.data
 }
@@ -191,10 +196,11 @@ export async function register(payload: RegisterPayload): Promise<ApiResponse> {
 // Send email verification code
 export async function sendEmailVerification(
   email: string,
-  turnstile?: string
+  turnstile?: string,
+  captchaProvider?: string
 ): Promise<ApiResponse> {
   const res = await api.get('/api/verification', {
-    params: { email, turnstile },
+    params: { email, turnstile, captcha_provider: captchaProvider },
   })
   return res.data
 }

@@ -107,10 +107,15 @@ const AUTH_SECTIONS = [
     build: (settings: AuthSettings) => (
       <BotProtectionSection
         defaultValues={{
-          TurnstileCheckEnabled: settings.TurnstileCheckEnabled,
+          CaptchaType: settings.CaptchaType || 'off',
           TurnstileSiteKey: settings.TurnstileSiteKey,
           TurnstileSecretKey: settings.TurnstileSecretKey,
+          RecaptchaSiteKey: settings.RecaptchaSiteKey,
+          RecaptchaSecretKey: settings.RecaptchaSecretKey,
+          HCaptchaSiteKey: settings.HCaptchaSiteKey,
+          HCaptchaSecretKey: settings.HCaptchaSecretKey,
         }}
+        captchaFallbackEnabled={settings.CaptchaFallbackEnabled}
       />
     ),
   },

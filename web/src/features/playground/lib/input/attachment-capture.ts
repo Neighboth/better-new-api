@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { toPng } from 'html-to-image'
+
 const CAPTURE_MIME_TYPE = 'image/png'
 
 const TEXT_LIKE_EXTENSIONS = [
@@ -147,6 +149,22 @@ export async function captureScreenshotFile(): Promise<File> {
   } finally {
     stopMediaStream(stream)
   }
+}
+
+/**
+ * Fallback for browsers/environments without getDisplayMedia (e.g. insecure
+ * HTTP origins): renders the current page to a PNG so the screenshot button
+ * still produces an image instead of failing outright.
+ */
+export async function capturePageSnapshotFile(): Promise<File> {
+  const target =
+    (document.querySelector('main') as HTMLElement | null) ?? document.body
+  const dataUrl = await toPng(target, { cacheBust: true })
+  const response = await fetch(dataUrl)
+  const blob = await response.blob()
+  return new File([blob], buildCaptureFileName('screen'), {
+    type: CAPTURE_MIME_TYPE,
+  })
 }
 
 async function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {

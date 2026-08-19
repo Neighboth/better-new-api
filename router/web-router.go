@@ -2,7 +2,6 @@ package router
 
 import (
 	"embed"
-	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -25,6 +24,18 @@ func SetWebRouter(router *gin.Engine, assets WebAssets) {
 	router.Use(gzip.Gzip(gzip.DefaultCompression))
 	router.Use(middleware.GlobalWebRateLimit())
 	router.Use(middleware.Cache())
+
+	// SEO endpoints must be registered before the static file server so they
+	// win even if a same-named file ever lands in the build output.
+	router.GET("/robots.txt", controller.BuildRobotsTxt)
+	router.GET("/llms.txt", controller.GetLLMSTxt)
+	router.GET("/llms-full.txt", controller.GetLLMSFullTxt)
+	router.GET("/full-llms.txt", controller.GetLLMSFullTxt)
+	router.GET("/sitemap.xml", controller.GetSitemapXML)
+	router.GET("/blog/:id", func(c *gin.Context) {
+		controller.ServeBlogIndex(c, assets.IndexPage)
+	})
+
 	router.Use(static.Serve("/", frontendFS))
 	router.NoRoute(func(c *gin.Context) {
 		c.Set(middleware.RouteTagKey, "web")
@@ -32,7 +43,6 @@ func SetWebRouter(router *gin.Engine, assets WebAssets) {
 			controller.RelayNotFound(c)
 			return
 		}
-		c.Header("Cache-Control", "no-cache")
-		c.Data(http.StatusOK, "text/html; charset=utf-8", assets.IndexPage)
+		controller.ServeIndex(c, assets.IndexPage)
 	})
 }

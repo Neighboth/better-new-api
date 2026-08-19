@@ -813,6 +813,21 @@ func UpdateSelf(c *gin.Context) {
 		return
 	}
 
+	// 头像 URL 更新请求（允许清空，故不走 struct Updates）
+	if avatarUrl, avatarExists := requestData["avatar_url"]; avatarExists {
+		if avatarStr, ok := avatarUrl.(string); ok && len(avatarStr) <= 512 {
+			if err := model.DB.Model(&model.User{}).Where("id = ?", c.GetInt("id")).Update("avatar_url", avatarStr).Error; err != nil {
+				common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
+				return
+			}
+		}
+		delete(requestData, "avatar_url")
+		if len(requestData) == 0 {
+			common.ApiSuccessI18n(c, i18n.MsgUpdateSuccess, nil)
+			return
+		}
+	}
+
 	// 检查是否是语言偏好更新请求
 	if language, langExists := requestData["language"]; langExists {
 		userId := c.GetInt("id")
@@ -864,6 +879,7 @@ func UpdateSelf(c *gin.Context) {
 		Username:    user.Username,
 		Password:    user.Password,
 		DisplayName: user.DisplayName,
+		AvatarUrl:   user.AvatarUrl,
 	}
 	if user.Password == "$I_LOVE_U" {
 		user.Password = "" // rollback to what it should be

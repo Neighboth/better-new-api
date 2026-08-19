@@ -33,6 +33,8 @@ import { NoticeSection } from '../maintenance/notice-section'
 import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
 import type { SiteSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { BlogSection } from './blog-section'
+import { SEOSection } from './seo-section'
 
 const SITE_SECTIONS = [
   {
@@ -104,6 +106,38 @@ const SITE_SECTIONS = [
         />
       )
     },
+  },
+  {
+    id: 'seo',
+    titleKey: 'SEO',
+    build: (settings: SiteSettings) => (
+      <SEOSection
+        defaultValues={{
+          SEOTitlePrefix: settings.SEOTitlePrefix,
+          SEODescription: settings.SEODescription,
+          SEOKeywords: settings.SEOKeywords,
+          SEOSocialImage: settings.SEOSocialImage,
+          RobotsPolicy: settings.RobotsPolicy,
+          RobotsCustomRules: settings.RobotsCustomRules,
+          SitemapCustomUrls: settings.SitemapCustomUrls,
+          LLMSTxt: settings.LLMSTxt,
+          LLMSFullTxt: settings.LLMSFullTxt,
+        }}
+      />
+    ),
+  },
+  {
+    id: 'blog-ads',
+    titleKey: 'Blog & Ads',
+    build: (settings: SiteSettings) => (
+      <BlogSection
+        defaultValues={{
+          BlogEnabled: settings.BlogEnabled,
+          AdSenseClientId: settings.AdSenseClientId,
+          AdSenseSlotId: settings.AdSenseSlotId,
+        }}
+      />
+    ),
   },
 ] as const
 

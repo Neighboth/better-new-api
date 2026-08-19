@@ -45,6 +45,7 @@ import {
 
 import {
   buildTextFileSnippet,
+  capturePageSnapshotFile,
   captureScreenshotFile,
   isCameraCaptureSupported,
   isImageFile,
@@ -70,13 +71,12 @@ export function PlaygroundAttachmentMenu(props: PlaygroundAttachmentMenuProps) {
   const [cameraOpen, setCameraOpen] = useState(false)
 
   const handleScreenshot = async () => {
-    if (!isScreenCaptureSupported()) {
-      toast.error(t('Screen capture is not supported in this browser'))
-      return
-    }
-
     try {
-      const file = await captureScreenshotFile()
+      // getDisplayMedia needs a secure context; fall back to a snapshot of the
+      // current page so the button works over plain HTTP too.
+      const file = isScreenCaptureSupported()
+        ? await captureScreenshotFile()
+        : await capturePageSnapshotFile()
       attachments.add([file])
     } catch (error) {
       if (error instanceof DOMException && error.name === 'NotAllowedError') {

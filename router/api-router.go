@@ -41,6 +41,30 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/rankings", middleware.HeaderNavModuleAuth("rankings"), controller.GetRankings)
 		apiRouter.GET("/verification", middleware.EmailVerificationRateLimit(), middleware.TurnstileCheck(), controller.SendEmailVerification)
 		apiRouter.GET("/reset_password", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), controller.SendPasswordResetEmail)
+		apiRouter.GET("/captcha/image", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.TryUserAuth(), controller.GetImageCaptcha)
+
+		// Public blog (read) + member interactions + admin management
+		blogRoute := apiRouter.Group("/blog")
+		{
+			blogRoute.GET("/posts", middleware.CriticalRateLimit(), controller.GetBlogPosts)
+			blogRoute.GET("/posts/:id", middleware.CriticalRateLimit(), middleware.TryUserAuth(), controller.GetBlogPost)
+			blogUserRoute := blogRoute.Group("/")
+			blogUserRoute.Use(middleware.UserAuth(), middleware.CriticalRateLimit())
+			{
+				blogUserRoute.POST("/posts/:id/comments", controller.CreateBlogComment)
+				blogUserRoute.DELETE("/posts/:id/comments/:commentId", controller.DeleteBlogComment)
+				blogUserRoute.POST("/posts/:id/reactions", controller.ReactBlog)
+				blogUserRoute.POST("/posts/:id/comments/:commentId/reactions", controller.ReactBlog)
+			}
+			blogAdminRoute := blogRoute.Group("/manage")
+			blogAdminRoute.Use(middleware.AdminAuth())
+			{
+				blogAdminRoute.GET("/posts", controller.GetAllBlogPosts)
+				blogAdminRoute.POST("/posts", controller.CreateBlogPost)
+				blogAdminRoute.PUT("/posts/:id", controller.UpdateBlogPost)
+				blogAdminRoute.DELETE("/posts/:id", controller.DeleteBlogPost)
+			}
+		}
 		apiRouter.POST("/user/reset", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ResetPassword)
 		// OAuth routes - specific routes must come before :provider wildcard
 		apiRouter.POST("/oauth/state", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.TryUserAuth(), anonymousRequestBodyLimit, controller.GenerateOAuthCode)

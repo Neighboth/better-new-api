@@ -26,6 +26,7 @@ export interface LoginPayload {
   username: string
   password: string
   turnstile?: string
+  captcha_provider?: string
 }
 
 export interface TwoFAPayload {
@@ -40,16 +41,19 @@ export interface RegisterPayload {
   verification_code?: string
   aff_code?: string
   turnstile?: string
+  captcha_provider?: string
 }
 
 export interface PasswordResetPayload {
   email: string
   turnstile?: string
+  captcha_provider?: string
 }
 
 export interface EmailVerificationPayload {
   email: string
   turnstile?: string
+  captcha_provider?: string
 }
 
 export interface BindEmailPayload {
@@ -118,6 +122,13 @@ export interface SystemStatus {
     WeChatAccountQRCodeImageURL?: string
     turnstile_check?: boolean
     turnstile_site_key?: string
+    captcha_type?: 'off' | 'turnstile' | 'recaptcha' | 'hcaptcha' | 'image'
+    captcha_fallback?: boolean
+    recaptcha_site_key?: string
+    hcaptcha_site_key?: string
+    blog_enabled?: boolean
+    adsense_client_id?: string
+    adsense_slot_id?: string
     email_verification?: boolean
     self_use_mode_enabled?: boolean
     display_in_currency?: boolean
@@ -163,6 +174,12 @@ export interface SystemStatus {
   WeChatAccountQRCodeImageURL?: string
   turnstile_check?: boolean
   turnstile_site_key?: string
+  captcha_type?: 'off' | 'turnstile' | 'recaptcha' | 'hcaptcha' | 'image'
+  recaptcha_site_key?: string
+  hcaptcha_site_key?: string
+  blog_enabled?: boolean
+  adsense_client_id?: string
+  adsense_slot_id?: string
   email_verification?: boolean
   self_use_mode_enabled?: boolean
   display_in_currency?: boolean

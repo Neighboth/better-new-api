@@ -129,8 +129,26 @@ func InitOptionMap() {
 	common.OptionMap["WeChatServerAddress"] = ""
 	common.OptionMap["WeChatServerToken"] = ""
 	common.OptionMap["WeChatAccountQRCodeImageURL"] = ""
-	common.OptionMap["TurnstileSiteKey"] = ""
-	common.OptionMap["TurnstileSecretKey"] = ""
+	common.OptionMap["TurnstileSiteKey"] = common.TurnstileSiteKey
+	common.OptionMap["TurnstileSecretKey"] = common.TurnstileSecretKey
+	common.OptionMap["CaptchaType"] = common.CaptchaType
+	common.OptionMap["RecaptchaSiteKey"] = common.RecaptchaSiteKey
+	common.OptionMap["RecaptchaSecretKey"] = common.RecaptchaSecretKey
+	common.OptionMap["HCaptchaSiteKey"] = common.HCaptchaSiteKey
+	common.OptionMap["HCaptchaSecretKey"] = common.HCaptchaSecretKey
+	common.OptionMap["SEOTitlePrefix"] = ""
+	common.OptionMap["SEODescription"] = ""
+	common.OptionMap["SEOKeywords"] = ""
+	common.OptionMap["SEOSocialImage"] = ""
+	common.OptionMap["RobotsPolicy"] = "allow_all"
+	common.OptionMap["RobotsCustomRules"] = ""
+	common.OptionMap["LLMSTxt"] = ""
+	common.OptionMap["LLMSFullTxt"] = ""
+	common.OptionMap["SitemapCustomUrls"] = ""
+	common.OptionMap["AdSenseClientId"] = ""
+	common.OptionMap["AdSenseSlotId"] = ""
+	common.OptionMap["BlogEnabled"] = "false"
+	common.OptionMap["CaptchaFallbackEnabled"] = "false"
 	common.OptionMap["QuotaForNewUser"] = strconv.Itoa(common.QuotaForNewUser)
 	common.OptionMap["QuotaForInviter"] = strconv.Itoa(common.QuotaForInviter)
 	common.OptionMap["QuotaForInvitee"] = strconv.Itoa(common.QuotaForInvitee)
@@ -527,6 +545,21 @@ func updateOptionMap(key string, value string) (err error) {
 		common.TurnstileSiteKey = value
 	case "TurnstileSecretKey":
 		common.TurnstileSecretKey = value
+	case "CaptchaType":
+		switch value {
+		case common.CaptchaTypeOff, common.CaptchaTypeTurnstile, common.CaptchaTypeRecaptcha, common.CaptchaTypeHCaptcha, common.CaptchaTypeImage:
+			common.CaptchaType = value
+		default:
+			common.CaptchaType = ""
+		}
+	case "RecaptchaSiteKey":
+		common.RecaptchaSiteKey = value
+	case "RecaptchaSecretKey":
+		common.RecaptchaSecretKey = value
+	case "HCaptchaSiteKey":
+		common.HCaptchaSiteKey = value
+	case "HCaptchaSecretKey":
+		common.HCaptchaSecretKey = value
 	case "QuotaForNewUser":
 		common.QuotaForNewUser, _ = strconv.Atoi(value)
 	case "QuotaForInviter":

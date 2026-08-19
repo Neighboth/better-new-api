@@ -17,10 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import * as z from 'zod'
+
+import { CaptchaDialog } from '@/features/auth/components/captcha-dialog'
+import type { CaptchaProviderOption } from '@/features/auth/hooks/use-captcha'
 
 import {
   Form,
@@ -31,7 +35,16 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 
 import {
@@ -43,23 +56,50 @@ import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 
+const captchaProviders = [
+  'off',
+  'turnstile',
+  'recaptcha',
+  'hcaptcha',
+  'image',
+] as const
+
 const botProtectionSchema = z.object({
-  TurnstileCheckEnabled: z.boolean(),
+  CaptchaType: z.enum(captchaProviders),
   TurnstileSiteKey: z.string().optional(),
   TurnstileSecretKey: z.string().optional(),
+  RecaptchaSiteKey: z.string().optional(),
+  RecaptchaSecretKey: z.string().optional(),
+  HCaptchaSiteKey: z.string().optional(),
+  HCaptchaSecretKey: z.string().optional(),
 })
 
 type BotProtectionFormValues = z.infer<typeof botProtectionSchema>
 
 type BotProtectionSectionProps = {
   defaultValues: BotProtectionFormValues
+  captchaFallbackEnabled: boolean
+}
+
+const providerLabels: Record<(typeof captchaProviders)[number], string> = {
+  off: 'Off (no captcha)',
+  turnstile: 'Cloudflare Turnstile',
+  recaptcha: 'Google reCAPTCHA v2',
+  hcaptcha: 'hCaptcha',
+  image: 'Image captcha (built-in)',
 }
 
 export function BotProtectionSection({
   defaultValues,
+  captchaFallbackEnabled,
 }: BotProtectionSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
+  const [fallbackEnabled, setFallbackEnabled] = useState(captchaFallbackEnabled)
+  const [testProviders, setTestProviders] = useState<CaptchaProviderOption[]>(
+    []
+  )
+  const [testOpen, setTestOpen] = useState(false)
 
   const form = useForm<BotProtectionFormValues>({
     resolver: zodResolver(botProtectionSchema),
@@ -69,6 +109,44 @@ export function BotProtectionSection({
   useEffect(() => {
     form.reset(defaultValues)
   }, [defaultValues, form])
+
+  useEffect(() => {
+    setFallbackEnabled(captchaFallbackEnabled)
+  }, [captchaFallbackEnabled])
+
+  const selectedProvider = form.watch('CaptchaType')
+
+  const openCaptchaTest = () => {
+    const values = form.getValues()
+    const keys: Record<string, string> = {
+      turnstile: values.TurnstileSiteKey ?? '',
+      recaptcha: values.RecaptchaSiteKey ?? '',
+      hcaptcha: values.HCaptchaSiteKey ?? '',
+      image: '',
+    }
+    const types: CaptchaProviderOption['type'][] = [
+      'turnstile',
+      'recaptcha',
+      'hcaptcha',
+      'image',
+    ]
+    const providers: CaptchaProviderOption[] = []
+    const ordered =
+      values.CaptchaType === 'off'
+        ? types
+        : [values.CaptchaType, ...types.filter((p) => p !== values.CaptchaType)]
+    for (const type of ordered) {
+      if (type === 'image' || keys[type]) {
+        providers.push({ type, siteKey: keys[type] })
+      }
+    }
+    if (providers.length === 0) {
+      toast.error(t('Configure a captcha provider first'))
+      return
+    }
+    setTestProviders(providers)
+    setTestOpen(true)
+  }
 
   const onSubmit = async (data: BotProtectionFormValues) => {
     const updates = Object.entries(data).filter(
@@ -81,6 +159,61 @@ export function BotProtectionSection({
     }
   }
 
+  const providerKeyFields = (
+    siteKeyField:
+      | 'TurnstileSiteKey'
+      | 'RecaptchaSiteKey'
+      | 'HCaptchaSiteKey',
+    secretKeyField:
+      | 'TurnstileSecretKey'
+      | 'RecaptchaSecretKey'
+      | 'HCaptchaSecretKey',
+    providerName: string
+  ) => (
+    <>
+      <FormField
+        control={form.control}
+        name={siteKeyField}
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>{t('Site Key')}</FormLabel>
+            <FormControl>
+              <Input
+                placeholder={t('Your {{provider}} site key', {
+                  provider: providerName,
+                })}
+                autoComplete='off'
+                {...field}
+              />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      <FormField
+        control={form.control}
+        name={secretKeyField}
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>{t('Secret Key')}</FormLabel>
+            <FormControl>
+              <Input
+                type='password'
+                placeholder={t('Your {{provider}} secret key', {
+                  provider: providerName,
+                })}
+                autoComplete='new-password'
+                {...field}
+              />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+    </>
+  )
+
   return (
     <SettingsSection title={t('Bot Protection')}>
       <Form {...form}>
@@ -89,67 +222,111 @@ export function BotProtectionSection({
             onSave={form.handleSubmit(onSubmit)}
             isSaving={updateOption.isPending}
           />
-          <FormField
-            control={form.control}
-            name='TurnstileCheckEnabled'
-            render={({ field }) => (
-              <SettingsSwitchItem>
-                <SettingsSwitchContent>
-                  <FormLabel>{t('Enable Turnstile')}</FormLabel>
-                  <FormDescription>
-                    {t(
-                      'Protect login and registration with Cloudflare Turnstile'
-                    )}
-                  </FormDescription>
-                </SettingsSwitchContent>
-                <FormControl>
-                  <Switch
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-              </SettingsSwitchItem>
-            )}
-          />
 
           <FormField
             control={form.control}
-            name='TurnstileSiteKey'
+            name='CaptchaType'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t('Site Key')}</FormLabel>
-                <FormControl>
-                  <Input
-                    placeholder={t('Your Turnstile site key')}
-                    autoComplete='off'
-                    {...field}
-                  />
-                </FormControl>
+                <FormLabel>{t('Captcha provider')}</FormLabel>
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent alignItemWithTrigger={false}>
+                    {captchaProviders.map((provider) => (
+                      <SelectItem key={provider} value={provider}>
+                        {t(providerLabels[provider])}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormDescription>
+                  {t(
+                    'Protect login, registration, email verification and password reset with a captcha. The challenge appears in a popup when the user submits the form.'
+                  )}
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
           />
 
-          <FormField
-            control={form.control}
-            name='TurnstileSecretKey'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t('Secret Key')}</FormLabel>
-                <FormControl>
-                  <Input
-                    type='password'
-                    placeholder={t('Your Turnstile secret key')}
-                    autoComplete='new-password'
-                    {...field}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
+          {selectedProvider === 'turnstile' &&
+            providerKeyFields(
+              'TurnstileSiteKey',
+              'TurnstileSecretKey',
+              'Turnstile'
             )}
-          />
+          {selectedProvider === 'recaptcha' &&
+            providerKeyFields(
+              'RecaptchaSiteKey',
+              'RecaptchaSecretKey',
+              'reCAPTCHA'
+            )}
+          {selectedProvider === 'hcaptcha' &&
+            providerKeyFields(
+              'HCaptchaSiteKey',
+              'HCaptchaSecretKey',
+              'hCaptcha'
+            )}
+          {selectedProvider === 'image' && (
+            <FormDescription>
+              {t(
+                'The image captcha is generated on the server and needs no external keys.'
+              )}
+            </FormDescription>
+          )}
+
+          <SettingsSwitchItem>
+            <SettingsSwitchContent>
+              <Label>{t('Enable captcha fallback')}</Label>
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'If the selected captcha fails to load or its quota runs out, automatically fall back to the other configured providers, ending with the built-in image captcha. Select each provider above to enter its keys.'
+                )}
+              </p>
+            </SettingsSwitchContent>
+            <Switch
+              checked={fallbackEnabled}
+              onCheckedChange={(checked) => {
+                setFallbackEnabled(checked)
+                void updateOption.mutateAsync({
+                  key: 'CaptchaFallbackEnabled',
+                  value: String(checked),
+                })
+              }}
+            />
+          </SettingsSwitchItem>
+
+          <div>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={openCaptchaTest}
+              disabled={selectedProvider === 'off'}
+            >
+              {t('Test captcha')}
+            </Button>
+            <p className='text-muted-foreground mt-2 text-sm'>
+              {t(
+                'Opens the verification popup exactly as your users will see it, with every configured provider.'
+              )}
+            </p>
+          </div>
         </SettingsForm>
       </Form>
+
+      <CaptchaDialog
+        open={testOpen}
+        onOpenChange={setTestOpen}
+        providers={testProviders}
+        onVerified={() => {
+          setTestOpen(false)
+          toast.success(t('Captcha verified successfully'))
+        }}
+      />
     </SettingsSection>
   )
 }

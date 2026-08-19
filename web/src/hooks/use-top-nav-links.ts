@@ -97,15 +97,20 @@ export function useTopNavLinks(): TopNavLink[] {
     }
   }
 
+  // Blog
+  if (status?.blog_enabled) {
+    links.push({ title: t('Blogs'), href: '/blog' })
+  }
+
   // About
   if (modules?.about !== false) {
     links.push({ title: t('About'), href: '/about' })
   }
 
-  // Admin-configured custom entries
+  // Admin-configured custom entries — public pages, no login required
   customNavItems.forEach((item) => {
     if (item.placement !== 'header' && item.placement !== 'both') return
-    links.push({ title: item.label, href: item.url, requiresAuth: !isAuthed })
+    links.push({ title: item.label, href: item.url })
   })
 
   return links

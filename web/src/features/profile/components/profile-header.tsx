@@ -16,18 +16,32 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Activity, BarChart3, WalletCards } from 'lucide-react'
+import { Activity, BarChart3, Pencil, WalletCards } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { StatusBadge } from '@/components/status-badge'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatCompactNumber, formatQuota } from '@/lib/format'
 import { getRoleLabel } from '@/lib/roles'
 
+import { updateUserProfile } from '../api'
 import { getDisplayName } from '../lib'
 import type { UserProfile } from '../types'
 
@@ -38,10 +52,47 @@ import type { UserProfile } from '../types'
 interface ProfileHeaderProps {
   profile: UserProfile | null
   loading: boolean
+  onProfileUpdate?: () => void
 }
 
-export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
+export function ProfileHeader({
+  profile,
+  loading,
+  onProfileUpdate,
+}: ProfileHeaderProps) {
   const { t } = useTranslation()
+  const [editOpen, setEditOpen] = useState(false)
+  const [displayNameInput, setDisplayNameInput] = useState('')
+  const [avatarUrlInput, setAvatarUrlInput] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const openEdit = () => {
+    if (!profile) return
+    setDisplayNameInput(profile.display_name || '')
+    setAvatarUrlInput(profile.avatar_url || '')
+    setEditOpen(true)
+  }
+
+  const saveEdit = async () => {
+    setSaving(true)
+    try {
+      const res = await updateUserProfile({
+        display_name: displayNameInput.trim(),
+        avatar_url: avatarUrlInput.trim(),
+      })
+      if (!res.success) {
+        toast.error(res.message || t('Update failed'))
+        return
+      }
+      toast.success(t('Profile updated'))
+      setEditOpen(false)
+      onProfileUpdate?.()
+    } catch {
+      toast.error(t('Update failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -119,6 +170,9 @@ export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
       <CardContent className='p-3 sm:p-5'>
         <div className='flex items-center gap-3 text-left sm:gap-4'>
           <Avatar className='ring-background h-12 w-12 rounded-xl text-sm ring-2 sm:h-16 sm:w-16 sm:rounded-2xl sm:text-lg sm:ring-4'>
+            {profile.avatar_url ? (
+              <AvatarImage src={profile.avatar_url} alt={displayName} />
+            ) : null}
             <AvatarFallback
               className='rounded-xl font-semibold text-white sm:rounded-2xl'
               style={avatarFallbackStyle}
@@ -132,6 +186,16 @@ export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
               <h1 className='truncate text-xl font-semibold tracking-tight sm:text-2xl'>
                 {displayName}
               </h1>
+              <Button
+                type='button'
+                variant='ghost'
+                size='icon'
+                className='h-7 w-7'
+                aria-label={t('Edit profile')}
+                onClick={openEdit}
+              >
+                <Pencil className='h-3.5 w-3.5' />
+              </Button>
               <StatusBadge
                 label={roleLabel}
                 variant='neutral'
@@ -185,6 +249,50 @@ export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
           ))}
         </div>
       </div>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('Edit profile')}</DialogTitle>
+            <DialogDescription>
+              {t('Your display name and avatar are shown next to your blog comments.')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className='space-y-4'>
+            <div className='space-y-2'>
+              <Label htmlFor='profile-display-name'>{t('Display name')}</Label>
+              <Input
+                id='profile-display-name'
+                value={displayNameInput}
+                onChange={(event) => setDisplayNameInput(event.target.value)}
+                maxLength={20}
+              />
+            </div>
+            <div className='space-y-2'>
+              <Label htmlFor='profile-avatar-url'>{t('Avatar image URL')}</Label>
+              <Input
+                id='profile-avatar-url'
+                value={avatarUrlInput}
+                onChange={(event) => setAvatarUrlInput(event.target.value)}
+                placeholder='https://example.com/avatar.png'
+                maxLength={512}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => setEditOpen(false)}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button type='button' onClick={() => void saveEdit()} disabled={saving}>
+              {saving ? t('Saving...') : t('Save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }

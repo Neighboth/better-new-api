@@ -20,7 +20,7 @@ import { createFileRoute } from '@tanstack/react-router'
 
 import { CustomNavPage } from '@/features/custom-nav'
 
-export const Route = createFileRoute('/_authenticated/custom/$navId')({
+export const Route = createFileRoute('/custom/$navId')({
   component: CustomNavRoute,
 })
 

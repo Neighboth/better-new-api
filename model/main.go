@@ -292,8 +292,14 @@ func migrateDB() error {
 		&SystemTaskLock{},
 		&CasbinRule{},
 		&AuthzRole{},
+		&BlogPost{},
+		&BlogComment{},
+		&BlogReaction{},
 	)
 	if err != nil {
+		return err
+	}
+	if err := normalizeLegacyBlogTables(); err != nil {
 		return err
 	}
 	if err := InitializeUserAuthVersions(); err != nil {

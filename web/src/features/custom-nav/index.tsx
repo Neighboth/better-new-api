@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
 
-import { SectionPageLayout } from '@/components/layout'
+import { PublicLayout } from '@/components/layout'
 import { RichContent } from '@/components/rich-content'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { isSafeCustomNavUrl } from '@/features/system-settings/maintenance/custom-nav-config'
@@ -35,30 +35,32 @@ export function CustomNavPage(props: CustomNavPageProps) {
 
   if (!item) {
     return (
-      <SectionPageLayout>
-        <SectionPageLayout.Title>{t('Not Found')}</SectionPageLayout.Title>
-        <SectionPageLayout.Content>
+      <PublicLayout>
+        <div className='mx-auto max-w-3xl space-y-4'>
+          <h1 className='text-2xl font-semibold'>{t('Not Found')}</h1>
           <Alert variant='destructive'>
             <AlertDescription>
               {t('This page is not available.')}
             </AlertDescription>
           </Alert>
-        </SectionPageLayout.Content>
-      </SectionPageLayout>
+        </div>
+      </PublicLayout>
     )
   }
 
   return (
-    <SectionPageLayout fixedContent={item.contentType === 'url'}>
-      <SectionPageLayout.Title>{item.label}</SectionPageLayout.Title>
-      <SectionPageLayout.Content>
-        <CustomNavContent
-          contentType={item.contentType}
-          content={item.content}
-          title={item.label}
-        />
-      </SectionPageLayout.Content>
-    </SectionPageLayout>
+    <PublicLayout>
+      <div className='mx-auto flex h-full w-full max-w-5xl flex-col gap-4'>
+        <h1 className='text-2xl font-semibold'>{item.label}</h1>
+        <div className={item.contentType === 'url' ? 'min-h-[70vh] flex-1' : ''}>
+          <CustomNavContent
+            contentType={item.contentType}
+            content={item.content}
+            title={item.label}
+          />
+        </div>
+      </div>
+    </PublicLayout>
   )
 }
 

@@ -39,6 +39,8 @@ export interface UserProfile {
   username: string
   /** Display name */
   display_name: string
+  /** Avatar image URL */
+  avatar_url?: string
   /** User role (1=普通用户, 10=管理员, 100=超级管理员) */
   role: number
   /** Email address */
@@ -125,6 +127,7 @@ export interface UserSettings {
  */
 export interface UpdateUserRequest {
   display_name?: string
+  avatar_url?: string
   password?: string
   original_password?: string
 }

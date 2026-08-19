@@ -37,6 +37,18 @@ const defaultSiteSettings: SiteSettings = {
   HeaderNavModules: '',
   SidebarModulesAdmin: '',
   CustomNavItems: '',
+  SEOTitlePrefix: '',
+  SEODescription: '',
+  SEOKeywords: '',
+  SEOSocialImage: '',
+  RobotsPolicy: 'allow_all',
+  RobotsCustomRules: '',
+  SitemapCustomUrls: '',
+  LLMSTxt: '',
+  LLMSFullTxt: '',
+  BlogEnabled: false,
+  AdSenseClientId: '',
+  AdSenseSlotId: '',
 }
 
 export function SiteSettings() {

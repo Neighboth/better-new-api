@@ -28,6 +28,14 @@ const (
 	MsgBatchTooMany      = "common.batch_too_many"
 )
 
+// Captcha messages
+const (
+	MsgCaptchaTokenRequired    = "captcha.token_required"
+	MsgCaptchaImageInvalid     = "captcha.image_invalid"
+	MsgCaptchaVerifyFailed     = "captcha.verify_failed"
+	MsgCaptchaProviderMismatch = "captcha.provider_mismatch"
+)
+
 // Auth middleware messages
 const (
 	MsgAuthNotLoggedIn           = "auth.not_logged_in"

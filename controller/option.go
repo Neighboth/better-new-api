@@ -76,6 +76,18 @@ func buildCompletionRatioMetaValue(optionValues map[string]string) string {
 	return string(jsonBytes)
 }
 
+// Captcha keys are returned to admins so the bot-protection settings form can
+// show the currently saved values instead of empty boxes. This endpoint is
+// behind AdminAuth, and site keys are public by design.
+var captchaSettingKeys = map[string]bool{
+	"TurnstileSiteKey":   true,
+	"TurnstileSecretKey": true,
+	"RecaptchaSiteKey":   true,
+	"RecaptchaSecretKey": true,
+	"HCaptchaSiteKey":    true,
+	"HCaptchaSecretKey":  true,
+}
+
 func GetOptions(c *gin.Context) {
 	var options []*model.Option
 	optionValues := make(map[string]string)
@@ -85,11 +97,12 @@ func GetOptions(c *gin.Context) {
 			continue
 		}
 		value := common.Interface2String(v)
-		isSensitiveKey := strings.HasSuffix(k, "Token") ||
+		isSensitiveKey := (strings.HasSuffix(k, "Token") ||
 			strings.HasSuffix(k, "Secret") ||
 			strings.HasSuffix(k, "Key") ||
 			strings.HasSuffix(k, "secret") ||
-			strings.HasSuffix(k, "api_key")
+			strings.HasSuffix(k, "api_key")) &&
+			!captchaSettingKeys[k]
 		if isSensitiveKey {
 			continue
 		}
