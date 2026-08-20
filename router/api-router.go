@@ -61,6 +61,8 @@ func SetApiRouter(router *gin.Engine) {
 			blogAdminRoute := blogRoute.Group("/manage")
 			blogAdminRoute.Use(middleware.AdminAuth())
 			{
+				blogAdminRoute.GET("/settings", controller.GetBlogSettings)
+				blogAdminRoute.PUT("/settings", controller.UpdateBlogSettings)
 				blogAdminRoute.GET("/posts", controller.GetAllBlogPosts)
 				blogAdminRoute.POST("/posts", controller.CreateBlogPost)
 				blogAdminRoute.PUT("/posts/:id", controller.UpdateBlogPost)

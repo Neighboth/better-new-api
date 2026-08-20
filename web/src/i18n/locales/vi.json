@@ -5490,6 +5490,10 @@
     "Every ad needs an image URL and a target URL": "Mỗi quảng cáo cần URL hình ảnh và URL đích",
     "Ad IDs must be unique": "ID quảng cáo phải duy nhất",
     "Each ad needs an image URL, a target URL and an ID. The image is stretched to exactly fill the banner slot, and clicks open the URL in a new tab. The ID is only visible here and in impression stats.": "Mỗi quảng cáo cần URL hình ảnh, URL đích và ID. Hình ảnh lấp đầy vị trí banner, nhấp vào mở URL trong tab mới. ID chỉ hiển thị ở đây và trong thống kê.",
-    "Manage posts from the Blog section in the sidebar.": "Quản lý bài viết từ mục Blog trong thanh bên."
+    "Manage posts from the Blog section in the sidebar.": "Quản lý bài viết từ mục Blog trong thanh bên.",
+    "Blog Management": "Quản lý blog",
+    "Blog enabled": "Đã bật blog",
+    "Blog disabled": "Đã tắt blog",
+    "When off, public blog pages return an error.": "Khi tắt, các trang blog công khai sẽ trả về lỗi."
   }
 }

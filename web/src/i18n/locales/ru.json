@@ -5490,6 +5490,10 @@
     "Every ad needs an image URL and a target URL": "Для каждого баннера нужны URL изображения и целевой URL",
     "Ad IDs must be unique": "ID баннеров должны быть уникальными",
     "Each ad needs an image URL, a target URL and an ID. The image is stretched to exactly fill the banner slot, and clicks open the URL in a new tab. The ID is only visible here and in impression stats.": "Для каждого баннера нужны URL изображения, целевой URL и ID. Изображение заполняет слот целиком, клик открывает URL в новой вкладке. ID виден только здесь и в статистике показов.",
-    "Manage posts from the Blog section in the sidebar.": "Управление записями — в разделе «Блог» на боковой панели."
+    "Manage posts from the Blog section in the sidebar.": "Управление записями — в разделе «Блог» на боковой панели.",
+    "Blog Management": "Управление блогом",
+    "Blog enabled": "Блог включён",
+    "Blog disabled": "Блог выключен",
+    "When off, public blog pages return an error.": "Когда выключен, публичные страницы блога возвращают ошибку."
   }
 }

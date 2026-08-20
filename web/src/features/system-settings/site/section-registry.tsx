@@ -34,7 +34,6 @@ import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
 import type { SiteSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 import { AdsSection } from './ads-section'
-import { BlogSection } from './blog-section'
 import { SEOSection } from './seo-section'
 
 const SITE_SECTIONS = [
@@ -125,13 +124,6 @@ const SITE_SECTIONS = [
           LLMSFullTxt: settings.LLMSFullTxt,
         }}
       />
-    ),
-  },
-  {
-    id: 'blog',
-    titleKey: 'Blog',
-    build: (settings: SiteSettings) => (
-      <BlogSection defaultValues={{ BlogEnabled: settings.BlogEnabled }} />
     ),
   },
   {

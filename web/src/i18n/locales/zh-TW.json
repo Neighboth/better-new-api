@@ -5490,6 +5490,10 @@
     "Every ad needs an image URL and a target URL": "每個廣告都需要圖片 URL 和目標 URL",
     "Ad IDs must be unique": "廣告 ID 必須唯一",
     "Each ad needs an image URL, a target URL and an ID. The image is stretched to exactly fill the banner slot, and clicks open the URL in a new tab. The ID is only visible here and in impression stats.": "每個廣告需要圖片 URL、目標 URL 和 ID。圖片會拉伸以填滿橫幅位置，點擊後在新分頁開啟目標 URL。ID 僅在此處和展示統計中可見。",
-    "Manage posts from the Blog section in the sidebar.": "在側邊欄的「部落格」區塊中管理文章。"
+    "Manage posts from the Blog section in the sidebar.": "在側邊欄的「部落格」區塊中管理文章。",
+    "Blog Management": "部落格管理",
+    "Blog enabled": "部落格已啟用",
+    "Blog disabled": "部落格已停用",
+    "When off, public blog pages return an error.": "關閉後，公開部落格頁面將回傳錯誤。"
   }
 }

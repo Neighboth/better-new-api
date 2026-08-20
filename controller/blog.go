@@ -139,6 +139,31 @@ func sanitizeBlogPostRequest(req *blogPostRequest) {
 	req.SeoDescription = strings.TrimSpace(req.SeoDescription)
 }
 
+// GetBlogSettings exposes the blog on/off switch to admins. Kept on the blog
+// routes (AdminAuth) because /api/option requires RootAuth and would lock
+// regular admins out of blog management.
+func GetBlogSettings(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    gin.H{"enabled": blogEnabled()},
+	})
+}
+
+func UpdateBlogSettings(c *gin.Context) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	if err := model.UpdateOption("BlogEnabled", strconv.FormatBool(req.Enabled)); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 // GetAllBlogPosts lists every post (including drafts) for administrators.
 func GetAllBlogPosts(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))

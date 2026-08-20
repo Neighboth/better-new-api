@@ -18,8 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { MessageSquare, Pencil, Plus, Trash2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -31,6 +31,12 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { api } from '@/lib/api'
+
+import {
+  fetchBlogPost,
+  deleteBlogComment,
+  type BlogComment,
+} from '@/features/blog/api'
 
 export type BlogPostItem = {
   id: number
@@ -59,9 +65,45 @@ export function BlogManager() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
+  const [blogEnabled, setBlogEnabled] = useState<boolean | null>(null)
   const [editingPost, setEditingPost] = useState<BlogPostItem | null>(null)
   const [isEditorOpen, setIsEditorOpen] = useState(false)
   const [postForm, setPostForm] = useState(emptyPostForm)
+  const [commentsPostId, setCommentsPostId] = useState<number | null>(null)
+
+  // Blog on/off toggle lives on the blog admin API so regular admins (not
+  // only the root user) can manage the blog.
+  const { data: settings } = useQuery({
+    queryKey: ['admin-blog-settings'],
+    queryFn: async () => {
+      const res = await api.get('/api/blog/manage/settings')
+      if (!res.data?.success) {
+        throw new Error(res.data?.message || 'failed')
+      }
+      return res.data.data as { enabled: boolean }
+    },
+  })
+
+  useEffect(() => {
+    if (settings) {
+      setBlogEnabled(settings.enabled)
+    }
+  }, [settings])
+
+  const toggleBlog = useMutation({
+    mutationFn: async (enabled: boolean) =>
+      api.put('/api/blog/manage/settings', { enabled }),
+    onSuccess: (res, enabled) => {
+      if (!res.data?.success) {
+        toast.error(res.data?.message || t('Update failed'))
+        return
+      }
+      setBlogEnabled(enabled)
+      toast.success(enabled ? t('Blog enabled') : t('Blog disabled'))
+      void queryClient.invalidateQueries({ queryKey: ['admin-blog-settings'] })
+    },
+    onError: () => toast.error(t('Update failed')),
+  })
 
   const { data: postsData, isLoading: isLoadingPosts } = useQuery({
     queryKey: ['admin-blog-posts'],
@@ -136,8 +178,21 @@ export function BlogManager() {
 
   return (
     <div className='space-y-4 py-2'>
-      <div className='flex items-center justify-between'>
-        <Label className='text-base'>{t('Blog posts')}</Label>
+      <div className='flex items-center justify-between gap-3'>
+        <div className='flex items-center gap-3'>
+          <Switch
+            checked={blogEnabled === true}
+            disabled={blogEnabled === null || toggleBlog.isPending}
+            onCheckedChange={(checked) => toggleBlog.mutate(checked)}
+            aria-label={t('Enable blog')}
+          />
+          <div>
+            <Label>{t('Enable blog')}</Label>
+            <p className='text-muted-foreground text-sm'>
+              {t('When off, public blog pages return an error.')}
+            </p>
+          </div>
+        </div>
         <Button type='button' size='sm' onClick={openNewPost}>
           <Plus className='me-1 h-4 w-4' />
           {t('New post')}
@@ -170,6 +225,15 @@ export function BlogManager() {
                 </p>
               </div>
               <div className='flex items-center gap-1'>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='icon'
+                  onClick={() => setCommentsPostId(post.id)}
+                  aria-label={t('Comments')}
+                >
+                  <MessageSquare className='h-4 w-4' />
+                </Button>
                 <Button
                   type='button'
                   variant='ghost'
@@ -299,6 +363,95 @@ export function BlogManager() {
           <Label>{t('Published')}</Label>
         </div>
       </Dialog>
+
+      <CommentsDialog
+        postId={commentsPostId}
+        onClose={() => setCommentsPostId(null)}
+      />
     </div>
+  )
+}
+
+/** Admin comment moderation for one post: list + delete. */
+function CommentsDialog(props: { postId: number | null; onClose: () => void }) {
+  const { t } = useTranslation()
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['admin-blog-comments', props.postId],
+    queryFn: () => fetchBlogPost(String(props.postId)),
+    enabled: props.postId !== null,
+  })
+
+  const deleteComment = useMutation({
+    mutationFn: (commentId: number) =>
+      deleteBlogComment(props.postId ?? 0, commentId),
+    onSuccess: (res) => {
+      if (!res.success) {
+        toast.error(res.message || t('Failed to delete comment'))
+        return
+      }
+      toast.success(t('Comment deleted'))
+      void refetch()
+    },
+    onError: () => toast.error(t('Failed to delete comment')),
+  })
+
+  const comments: BlogComment[] = data?.success ? (data.data.comments ?? []) : []
+
+  return (
+    <Dialog
+      open={props.postId !== null}
+      onOpenChange={(open) => {
+        if (!open) props.onClose()
+      }}
+      title={t('Comments')}
+      contentClassName='max-w-xl'
+      headerClassName='text-left'
+      contentHeight='auto'
+      bodyClassName='space-y-3'
+    >
+      {isLoading && (
+        <p className='text-muted-foreground text-sm'>{t('Loading...')}</p>
+      )}
+      {!isLoading && comments.length === 0 && (
+        <p className='text-muted-foreground text-sm'>
+          {t('No comments yet. Be the first!')}
+        </p>
+      )}
+      {comments.map((comment) => (
+        <div
+          key={comment.id}
+          className='flex items-start justify-between gap-3 rounded-md border p-2'
+        >
+          <div className='min-w-0 flex-1'>
+            <p className='text-xs font-medium'>
+              {comment.username}
+              {comment.parent_id ? ` · ${t('Reply')} #${comment.parent_id}` : ''}
+              <span className='text-muted-foreground font-normal'>
+                {' '}
+                · {dayjs(comment.created_at).format('YYYY-MM-DD HH:mm')}
+              </span>
+            </p>
+            <p className='mt-1 text-sm break-words whitespace-pre-wrap'>
+              {comment.content}
+            </p>
+          </div>
+          <Button
+            type='button'
+            variant='ghost'
+            size='icon'
+            disabled={deleteComment.isPending}
+            onClick={() => {
+              if (window.confirm(t('Delete comment'))) {
+                deleteComment.mutate(comment.id)
+              }
+            }}
+            aria-label={t('Delete comment')}
+          >
+            <Trash2 className='h-4 w-4' />
+          </Button>
+        </div>
+      ))}
+    </Dialog>
   )
 }

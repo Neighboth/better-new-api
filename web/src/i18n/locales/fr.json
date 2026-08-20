@@ -5490,6 +5490,10 @@
     "Every ad needs an image URL and a target URL": "Chaque annonce nécessite une URL d'image et une URL cible",
     "Ad IDs must be unique": "Les IDs doivent être uniques",
     "Each ad needs an image URL, a target URL and an ID. The image is stretched to exactly fill the banner slot, and clicks open the URL in a new tab. The ID is only visible here and in impression stats.": "Chaque annonce nécessite une URL d'image, une URL cible et un ID. L'image remplit exactement l'emplacement de la bannière et les clics ouvrent l'URL dans un nouvel onglet. L'ID n'est visible qu'ici et dans les stats d'impressions.",
-    "Manage posts from the Blog section in the sidebar.": "Gérez les articles depuis la section Blog de la barre latérale."
+    "Manage posts from the Blog section in the sidebar.": "Gérez les articles depuis la section Blog de la barre latérale.",
+    "Blog Management": "Gestion du blog",
+    "Blog enabled": "Blog activé",
+    "Blog disabled": "Blog désactivé",
+    "When off, public blog pages return an error.": "Désactivé, les pages publiques du blog renvoient une erreur."
   }
 }

@@ -138,8 +138,8 @@ export function useSidebarData(): SidebarData {
           icon: Users,
         },
         {
-          title: t('Blog'),
-          url: '/blog',
+          title: t('Blog Management'),
+          url: '/blog-management',
           icon: Newspaper,
         },
         {

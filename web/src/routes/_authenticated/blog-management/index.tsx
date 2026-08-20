@@ -22,7 +22,7 @@ import { BlogAdmin } from '@/features/blog-admin'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
-export const Route = createFileRoute('/_authenticated/blog/')({
+export const Route = createFileRoute('/_authenticated/blog-management/')({
   beforeLoad: () => {
     const { auth } = useAuthStore.getState()
 

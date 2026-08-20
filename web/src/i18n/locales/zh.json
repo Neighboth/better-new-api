@@ -5490,6 +5490,10 @@
     "Every ad needs an image URL and a target URL": "每个广告都需要图片 URL 和目标 URL",
     "Ad IDs must be unique": "广告 ID 必须唯一",
     "Each ad needs an image URL, a target URL and an ID. The image is stretched to exactly fill the banner slot, and clicks open the URL in a new tab. The ID is only visible here and in impression stats.": "每个广告需要图片 URL、目标 URL 和 ID。图片会被拉伸以填满横幅位置，点击后在新标签页打开目标 URL。ID 仅在此处和展示统计中可见。",
-    "Manage posts from the Blog section in the sidebar.": "在侧边栏的“博客”板块中管理文章。"
+    "Manage posts from the Blog section in the sidebar.": "在侧边栏的“博客”板块中管理文章。",
+    "Blog Management": "博客管理",
+    "Blog enabled": "博客已启用",
+    "Blog disabled": "博客已停用",
+    "When off, public blog pages return an error.": "关闭后，公开博客页面将返回错误。"
   }
 }

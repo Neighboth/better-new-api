@@ -5490,6 +5490,10 @@
     "Every ad needs an image URL and a target URL": "各広告には画像 URL とリンク先 URL が必要です",
     "Ad IDs must be unique": "広告 ID は一意である必要があります",
     "Each ad needs an image URL, a target URL and an ID. The image is stretched to exactly fill the banner slot, and clicks open the URL in a new tab. The ID is only visible here and in impression stats.": "各広告には画像 URL、リンク先 URL、ID が必要です。画像はバナー枠いっぱいに表示され、クリックで新しいタブに開きます。ID はここと統計にのみ表示されます。",
-    "Manage posts from the Blog section in the sidebar.": "記事の管理はサイドバーのブログセクションから行います。"
+    "Manage posts from the Blog section in the sidebar.": "記事の管理はサイドバーのブログセクションから行います。",
+    "Blog Management": "ブログ管理",
+    "Blog enabled": "ブログを有効化しました",
+    "Blog disabled": "ブログを無効化しました",
+    "When off, public blog pages return an error.": "オフの場合、公開ブログページはエラーを返します。"
   }
 }

@@ -5490,6 +5490,10 @@
     "Every ad needs an image URL and a target URL": "Every ad needs an image URL and a target URL",
     "Ad IDs must be unique": "Ad IDs must be unique",
     "Each ad needs an image URL, a target URL and an ID. The image is stretched to exactly fill the banner slot, and clicks open the URL in a new tab. The ID is only visible here and in impression stats.": "Each ad needs an image URL, a target URL and an ID. The image is stretched to exactly fill the banner slot, and clicks open the URL in a new tab. The ID is only visible here and in impression stats.",
-    "Manage posts from the Blog section in the sidebar.": "Manage posts from the Blog section in the sidebar."
+    "Manage posts from the Blog section in the sidebar.": "Manage posts from the Blog section in the sidebar.",
+    "Blog Management": "Blog Management",
+    "Blog enabled": "Blog enabled",
+    "Blog disabled": "Blog disabled",
+    "When off, public blog pages return an error.": "When off, public blog pages return an error."
   }
 }
