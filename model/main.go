@@ -295,6 +295,7 @@ func migrateDB() error {
 		&BlogPost{},
 		&BlogComment{},
 		&BlogReaction{},
+		&AdImpression{},
 	)
 	if err != nil {
 		return err

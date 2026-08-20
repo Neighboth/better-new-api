@@ -33,6 +33,7 @@ import { NoticeSection } from '../maintenance/notice-section'
 import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
 import type { SiteSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { AdsSection } from './ads-section'
 import { BlogSection } from './blog-section'
 import { SEOSection } from './seo-section'
 
@@ -127,14 +128,23 @@ const SITE_SECTIONS = [
     ),
   },
   {
-    id: 'blog-ads',
-    titleKey: 'Blog & Ads',
+    id: 'blog',
+    titleKey: 'Blog',
     build: (settings: SiteSettings) => (
-      <BlogSection
+      <BlogSection defaultValues={{ BlogEnabled: settings.BlogEnabled }} />
+    ),
+  },
+  {
+    id: 'ads',
+    titleKey: 'Ads',
+    build: (settings: SiteSettings) => (
+      <AdsSection
         defaultValues={{
-          BlogEnabled: settings.BlogEnabled,
+          AdsEnabled: settings.AdsEnabled,
+          AdsMode: settings.AdsMode,
           AdSenseClientId: settings.AdSenseClientId,
           AdSenseSlotId: settings.AdSenseSlotId,
+          CustomAds: settings.CustomAds,
         }}
       />
     ),

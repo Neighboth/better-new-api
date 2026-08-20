@@ -28,20 +28,13 @@ func GetBlogPosts(c *gin.Context) {
 	if blogDisabled(c) {
 		return
 	}
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "12"))
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 50 {
-		pageSize = 12
-	}
-	posts, err := model.GetBlogPosts(page, pageSize, true)
+	posts, err := model.GetPublishedBlogPostSummaries()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-	total, _ := model.GetBlogPostCount(true)
+	// Oldest first in the payload; the client reverses it so the newest post
+	// renders top-left.
 	items := make([]gin.H, 0, len(posts))
 	for _, post := range posts {
 		items = append(items, gin.H{
@@ -56,10 +49,8 @@ func GetBlogPosts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"items":     items,
-			"total":     total,
-			"page":      page,
-			"page_size": pageSize,
+			"items": items,
+			"total": len(items),
 		},
 	})
 }

@@ -30,7 +30,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useStatus } from '@/hooks/use-status'
 
 import { fetchBlogPost } from './api'
-import { AdSenseBlock } from './components/adsense-block'
+import { BlogAds } from './components/blog-ads-block'
 import { BlogComments } from './components/comments'
 import { ReactionButtons } from './components/reaction-buttons'
 
@@ -109,6 +109,7 @@ export function BlogPostPage(props: BlogPostPageProps) {
   return (
     <PublicLayout>
       <article className='mx-auto w-full max-w-3xl space-y-6'>
+        <BlogAds />
         <Link
           to='/blog'
           className='text-muted-foreground hover:text-primary inline-flex items-center gap-1 text-sm'
@@ -128,7 +129,6 @@ export function BlogPostPage(props: BlogPostPageProps) {
             ))}
           </div>
         </header>
-
         {post.cover_image ? (
           <img
             src={post.cover_image}
@@ -137,7 +137,7 @@ export function BlogPostPage(props: BlogPostPageProps) {
           />
         ) : null}
 
-        <AdSenseBlock />
+        
 
         <RichContent
           content={post.content}
@@ -157,7 +157,7 @@ export function BlogPostPage(props: BlogPostPageProps) {
           />
         </div>
 
-        <AdSenseBlock />
+        
 
         {data?.success && (
           <BlogComments
@@ -167,6 +167,7 @@ export function BlogPostPage(props: BlogPostPageProps) {
             onChanged={() => refetch()}
           />
         )}
+        <BlogAds />
       </article>
     </PublicLayout>
   )

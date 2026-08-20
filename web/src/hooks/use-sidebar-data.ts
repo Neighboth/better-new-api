@@ -26,6 +26,7 @@ import {
   LayoutDashboard,
   ListTodo,
   MessageSquare,
+  Newspaper,
   Radio,
   ServerCog,
   Settings,
@@ -135,6 +136,11 @@ export function useSidebarData(): SidebarData {
           title: t('Users'),
           url: '/users',
           icon: Users,
+        },
+        {
+          title: t('Blog'),
+          url: '/blog',
+          icon: Newspaper,
         },
         {
           title: t('Redemption Codes'),

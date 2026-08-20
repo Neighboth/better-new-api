@@ -127,8 +127,6 @@ export interface SystemStatus {
     recaptcha_site_key?: string
     hcaptcha_site_key?: string
     blog_enabled?: boolean
-    adsense_client_id?: string
-    adsense_slot_id?: string
     email_verification?: boolean
     self_use_mode_enabled?: boolean
     display_in_currency?: boolean
@@ -178,8 +176,6 @@ export interface SystemStatus {
   recaptcha_site_key?: string
   hcaptcha_site_key?: string
   blog_enabled?: boolean
-  adsense_client_id?: string
-  adsense_slot_id?: string
   email_verification?: boolean
   self_use_mode_enabled?: boolean
   display_in_currency?: boolean

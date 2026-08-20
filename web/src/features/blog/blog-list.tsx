@@ -19,25 +19,15 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import dayjs from 'dayjs'
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationNext,
-  PaginationPrevious,
-} from '@/components/ui/pagination'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useStatus } from '@/hooks/use-status'
 
 import { fetchBlogPosts, type BlogPost } from './api'
-
-const PAGE_SIZE = 12
 
 const LOADING_SKELETON_KEYS = ['s1', 's2', 's3', 's4', 's5', 's6']
 
@@ -83,13 +73,12 @@ function BlogPostCard(props: { post: BlogPost }) {
 export function BlogListPage() {
   const { t } = useTranslation()
   const { status } = useStatus()
-  const [page, setPage] = useState(1)
 
   const blogEnabled = Boolean(status?.blog_enabled)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['blog-posts', page],
-    queryFn: () => fetchBlogPosts(page, PAGE_SIZE),
+    queryKey: ['blog-posts'],
+    queryFn: () => fetchBlogPosts(),
     enabled: blogEnabled,
   })
 
@@ -106,9 +95,8 @@ export function BlogListPage() {
     )
   }
 
-  const posts = data?.items ?? []
-  const total = data?.total ?? 0
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  // The API returns posts oldest-first (ascending id); newest goes top-left.
+  const posts = [...(data?.items ?? [])].reverse()
 
   return (
     <PublicLayout>
@@ -136,32 +124,6 @@ export function BlogListPage() {
               <BlogPostCard key={post.id} post={post} />
             ))}
           </div>
-        )}
-
-        {totalPages > 1 && (
-          <Pagination>
-            <PaginationContent>
-              <PaginationItem>
-                <PaginationPrevious
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  aria-disabled={page <= 1}
-                  className={page <= 1 ? 'pointer-events-none opacity-50' : ''}
-                />
-              </PaginationItem>
-              <PaginationItem className='text-muted-foreground px-2 text-sm'>
-                {page} / {totalPages}
-              </PaginationItem>
-              <PaginationItem>
-                <PaginationNext
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  aria-disabled={page >= totalPages}
-                  className={
-                    page >= totalPages ? 'pointer-events-none opacity-50' : ''
-                  }
-                />
-              </PaginationItem>
-            </PaginationContent>
-          </Pagination>
         )}
       </div>
     </PublicLayout>

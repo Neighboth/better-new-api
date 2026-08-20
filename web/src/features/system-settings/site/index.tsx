@@ -49,6 +49,9 @@ const defaultSiteSettings: SiteSettings = {
   BlogEnabled: false,
   AdSenseClientId: '',
   AdSenseSlotId: '',
+  AdsEnabled: false,
+  AdsMode: 'both',
+  CustomAds: '[]',
 }
 
 export function SiteSettings() {

@@ -149,6 +149,8 @@ func InitOptionMap() {
 	common.OptionMap["AdSenseSlotId"] = ""
 	common.OptionMap["BlogEnabled"] = "false"
 	common.OptionMap["CaptchaFallbackEnabled"] = "false"
+	common.OptionMap["AdsEnabled"] = "false"
+	common.OptionMap["AdsMode"] = "both"
 	common.OptionMap["QuotaForNewUser"] = strconv.Itoa(common.QuotaForNewUser)
 	common.OptionMap["QuotaForInviter"] = strconv.Itoa(common.QuotaForInviter)
 	common.OptionMap["QuotaForInvitee"] = strconv.Itoa(common.QuotaForInvitee)
@@ -299,6 +301,10 @@ func updateOptionMap(key string, value string) (err error) {
 		delete(common.OptionMap, key)
 		common.OptionMapRWMutex.Unlock()
 		return nil
+	}
+	// Whitelist enumerated values so typos cannot wedge the ads pipeline.
+	if key == "AdsMode" && value != "adsense" && value != "custom" && value != "both" {
+		value = "both"
 	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()

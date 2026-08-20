@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
 // BlogPost is an admin-authored article rendered on the public blog pages.
@@ -80,6 +82,31 @@ func GetBlogPosts(page int, pageSize int, publishedOnly bool) ([]*BlogPost, erro
 		tx = tx.Where("published = ?", true)
 	}
 	err := tx.Offset((page - 1) * pageSize).Limit(pageSize).Find(&posts).Error
+	return posts, err
+}
+
+// AdImpression logs one shown ad (custom image or AdSense unit) so admins can
+// audit counts and download the rows as CSV.
+type AdImpression struct {
+	Id        int64     `json:"id" gorm:"primaryKey"`
+	AdId      string    `json:"ad_id" gorm:"type:varchar(128);index"`
+	IsAdsense bool      `json:"is_adsense"`
+	Ip        string    `json:"ip" gorm:"type:varchar(64)"`
+	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`
+}
+
+func RecordAdImpression(adId string, isAdsense bool, ip string) {
+	if len(adId) > 128 || len(ip) > 64 {
+		return
+	}
+	if err := DB.Create(&AdImpression{AdId: adId, IsAdsense: isAdsense, Ip: ip}).Error; err != nil {
+		common.SysError("failed to record ad impression: " + err.Error())
+	}
+}
+
+func GetPublishedBlogPostSummaries() ([]*BlogPost, error) {
+	var posts []*BlogPost
+	err := DB.Where("published = ?", true).Order("id ASC").Find(&posts).Error
 	return posts, err
 }
 

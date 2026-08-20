@@ -131,6 +131,9 @@ export type SiteSettings = {
   BlogEnabled: boolean
   AdSenseClientId: string
   AdSenseSlotId: string
+  AdsEnabled: boolean
+  AdsMode: 'adsense' | 'custom' | 'both'
+  CustomAds: string
 }
 
 export type AuthSettings = {

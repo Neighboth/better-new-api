@@ -68,12 +68,38 @@ type ApiResult<T> = {
   data: T
 }
 
-export async function fetchBlogPosts(page: number, pageSize = 12) {
+export async function fetchBlogPosts() {
   const res = await api.get<ApiResult<{ items: BlogPost[]; total: number }>>(
-    '/api/blog/posts',
-    { params: { page, page_size: pageSize } }
+    '/api/blog/posts'
   )
   return res.data.data
+}
+
+export type CustomAd = {
+  id: string
+  image: string
+  url: string
+}
+
+export type BlogAdsConfig = {
+  enabled: boolean
+  mode: 'adsense' | 'custom' | 'both' | string
+  adsense_client_id: string
+  adsense_slot_id: string
+  custom_ads: CustomAd[]
+}
+
+export async function fetchBlogAds(): Promise<BlogAdsConfig> {
+  const res = await api.get<ApiResult<BlogAdsConfig>>('/api/blog/ads')
+  return res.data.data
+}
+
+export async function trackAdImpression(id: string): Promise<void> {
+  try {
+    await api.post('/api/blog/ads/impressions', { id })
+  } catch {
+    /* impressions are best-effort */
+  }
 }
 
 export async function fetchBlogPost(id: string) {

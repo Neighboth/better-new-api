@@ -47,6 +47,8 @@ func SetApiRouter(router *gin.Engine) {
 		blogRoute := apiRouter.Group("/blog")
 		{
 			blogRoute.GET("/posts", controller.GetBlogPosts)
+			blogRoute.GET("/ads", controller.GetAdsStatus)
+			blogRoute.POST("/ads/impressions", controller.TrackAdImpression)
 			blogRoute.GET("/posts/:id", middleware.TryUserAuth(), controller.GetBlogPost)
 			blogUserRoute := blogRoute.Group("/")
 			blogUserRoute.Use(middleware.UserAuth())
@@ -63,6 +65,8 @@ func SetApiRouter(router *gin.Engine) {
 				blogAdminRoute.POST("/posts", controller.CreateBlogPost)
 				blogAdminRoute.PUT("/posts/:id", controller.UpdateBlogPost)
 				blogAdminRoute.DELETE("/posts/:id", controller.DeleteBlogPost)
+				blogAdminRoute.GET("/ads/stats", controller.GetAdImpressionStats)
+				blogAdminRoute.GET("/ads/impressions.csv", controller.DownloadAdImpressionsCSV)
 			}
 		}
 		apiRouter.POST("/user/reset", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ResetPassword)
