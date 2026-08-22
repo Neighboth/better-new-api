@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,6 +24,95 @@ func blogDisabled(c *gin.Context) bool {
 	return true
 }
 
+// localizedBlogText resolves one text field of a post for the requested
+// language: stored translation first, on-the-fly machine translation second,
+// the English base last. The result is always displayable.
+func localizedBlogText(base, stored, lang string) string {
+	if lang == "" || lang == common.DefaultContentLanguage {
+		return base
+	}
+	if strings.TrimSpace(stored) != "" {
+		return stored
+	}
+	if strings.TrimSpace(base) == "" {
+		return ""
+	}
+	return service.TranslateText(common.DefaultContentLanguage, lang, base)
+}
+
+type localizedBlogFields struct {
+	title   string
+	summary string
+	content string
+	seoDesc string
+	tags    []string
+}
+
+func localizeBlogPost(post *model.BlogPost, lang string) localizedBlogFields {
+	fields := localizedBlogFields{
+		title:   post.Title,
+		summary: post.Summary,
+		content: post.Content,
+		seoDesc: post.SeoDescription,
+		tags:    post.TagList(),
+	}
+	if lang == "" || lang == common.DefaultContentLanguage {
+		return fields
+	}
+	var stored model.BlogPostI18n
+	if tr, ok := post.TranslationMap()[lang]; ok {
+		stored = tr
+	}
+	fields.title = localizedBlogText(post.Title, stored.Title, lang)
+	fields.summary = localizedBlogText(post.Summary, stored.Summary, lang)
+	fields.content = localizedBlogText(post.Content, stored.Content, lang)
+	fields.seoDesc = localizedBlogText(post.SeoDescription, stored.SeoDescription, lang)
+	if stored.Tags != "" {
+		localized := model.BlogPost{Tags: stored.Tags}
+		fields.tags = localized.TagList()
+	} else if len(fields.tags) > 0 {
+		joined := service.TranslateText(common.DefaultContentLanguage, lang, strings.Join(fields.tags, ", "))
+		fields.tags = (&model.BlogPost{Tags: joined}).TagList()
+	}
+	return fields
+}
+
+// storedBlogFields merges only the admin-provided translations over the
+// English base. Unlike localizeBlogPost it never calls machine translation,
+// so crawler-facing HTML rendering stays offline and fast.
+func storedBlogFields(post *model.BlogPost, lang string) localizedBlogFields {
+	fields := localizedBlogFields{
+		title:   post.Title,
+		summary: post.Summary,
+		content: post.Content,
+		seoDesc: post.SeoDescription,
+		tags:    post.TagList(),
+	}
+	if lang == "" || lang == common.DefaultContentLanguage {
+		return fields
+	}
+	tr, ok := post.TranslationMap()[lang]
+	if !ok {
+		return fields
+	}
+	if tr.Title != "" {
+		fields.title = tr.Title
+	}
+	if tr.Summary != "" {
+		fields.summary = tr.Summary
+	}
+	if tr.Content != "" {
+		fields.content = tr.Content
+	}
+	if tr.SeoDescription != "" {
+		fields.seoDesc = tr.SeoDescription
+	}
+	if tr.Tags != "" {
+		fields.tags = (&model.BlogPost{Tags: tr.Tags}).TagList()
+	}
+	return fields
+}
+
 // GetBlogPosts lists published posts for the public blog page.
 func GetBlogPosts(c *gin.Context) {
 	if blogDisabled(c) {
@@ -33,16 +123,18 @@ func GetBlogPosts(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
+	lang := contentLangFromRequest(c)
 	// Oldest first in the payload; the client reverses it so the newest post
 	// renders top-left.
 	items := make([]gin.H, 0, len(posts))
 	for _, post := range posts {
+		fields := localizeBlogPost(post, lang)
 		items = append(items, gin.H{
 			"id":         post.Id,
-			"title":      post.Title,
-			"summary":    post.Summary,
+			"title":      fields.title,
+			"summary":    fields.summary,
 			"cover":      post.CoverImage,
-			"tags":       post.TagList(),
+			"tags":       fields.tags,
 			"created_at": post.CreatedAt,
 		})
 	}
@@ -71,6 +163,8 @@ func GetBlogPost(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "post not found"})
 		return
 	}
+	lang := contentLangFromRequest(c)
+	fields := localizeBlogPost(post, lang)
 	comments, err := model.GetBlogComments(post.Id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
@@ -104,12 +198,12 @@ func GetBlogPost(c *gin.Context) {
 		"data": gin.H{
 			"post": gin.H{
 				"id":              post.Id,
-				"title":           post.Title,
-				"summary":         post.Summary,
-				"content":         post.Content,
+				"title":           fields.title,
+				"summary":         fields.summary,
+				"content":         fields.content,
 				"cover_image":     post.CoverImage,
-				"tags":            post.TagList(),
-				"seo_description": post.SeoDescription,
+				"tags":            fields.tags,
+				"seo_description": fields.seoDesc,
 				"like_count":      post.LikeCount,
 				"dislike_count":   post.DislikeCount,
 				"created_at":      post.CreatedAt,
@@ -122,13 +216,14 @@ func GetBlogPost(c *gin.Context) {
 }
 
 type blogPostRequest struct {
-	Title          string `json:"title"`
-	Summary        string `json:"summary"`
-	Content        string `json:"content"`
-	CoverImage     string `json:"cover_image"`
-	Tags           string `json:"tags"`
-	SeoDescription string `json:"seo_description"`
-	Published      bool   `json:"published"`
+	Title          string                        `json:"title"`
+	Summary        string                        `json:"summary"`
+	Content        string                        `json:"content"`
+	CoverImage     string                        `json:"cover_image"`
+	Tags           string                        `json:"tags"`
+	SeoDescription string                        `json:"seo_description"`
+	Translations   map[string]model.BlogPostI18n `json:"translations"`
+	Published      bool                          `json:"published"`
 }
 
 func sanitizeBlogPostRequest(req *blogPostRequest) {
@@ -211,6 +306,7 @@ func CreateBlogPost(c *gin.Context) {
 		SeoDescription: req.SeoDescription,
 		Published:      req.Published,
 	}
+	post.EncodeTranslations(req.Translations)
 	if err := model.CreateBlogPost(post); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
@@ -244,6 +340,7 @@ func UpdateBlogPost(c *gin.Context) {
 		SeoDescription: req.SeoDescription,
 		Published:      req.Published,
 	}
+	post.EncodeTranslations(req.Translations)
 	if err := model.UpdateBlogPost(post); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return

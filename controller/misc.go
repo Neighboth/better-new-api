@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -191,31 +192,57 @@ func GetNotice(c *gin.Context) {
 	return
 }
 
+// localizeI18nText resolves a language-scoped text: the stored map entry
+// wins, then on-the-fly machine translation, then the English base.
+func localizeI18nText(base string, translations map[string]string, lang string) string {
+	if lang == "" || lang == common.DefaultContentLanguage {
+		return base
+	}
+	if stored := strings.TrimSpace(translations[lang]); stored != "" {
+		return stored
+	}
+	if strings.TrimSpace(base) == "" {
+		return ""
+	}
+	return service.TranslateText(common.DefaultContentLanguage, lang, base)
+}
+
 func GetAbout(c *gin.Context) {
+	lang := contentLangFromRequest(c)
 	common.OptionMapRWMutex.RLock()
-	defer common.OptionMapRWMutex.RUnlock()
+	base := common.OptionMap["About"]
+	i18nRaw := common.OptionMap["AboutI18n"]
+	common.OptionMapRWMutex.RUnlock()
+	translations := map[string]string{}
+	if i18nRaw != "" {
+		if err := common.Unmarshal([]byte(i18nRaw), &translations); err != nil {
+			translations = map[string]string{}
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    common.OptionMap["About"],
+		"data":    localizeI18nText(base, translations, lang),
 	})
 	return
 }
 
 func GetUserAgreement(c *gin.Context) {
+	settings := system_setting.GetLegalSettings()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    system_setting.GetLegalSettings().UserAgreement,
+		"data":    localizeI18nText(settings.UserAgreement, settings.UserAgreementI18n, contentLangFromRequest(c)),
 	})
 	return
 }
 
 func GetPrivacyPolicy(c *gin.Context) {
+	settings := system_setting.GetLegalSettings()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    system_setting.GetLegalSettings().PrivacyPolicy,
+		"data":    localizeI18nText(settings.PrivacyPolicy, settings.PrivacyPolicyI18n, contentLangFromRequest(c)),
 	})
 	return
 }

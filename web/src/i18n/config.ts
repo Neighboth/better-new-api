@@ -20,6 +20,11 @@ import i18n from 'i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
 import { initReactI18next } from 'react-i18next'
 
+import { ensureAutoLanguageBundle } from './auto-translate'
+import {
+  contentToInterfaceLanguage,
+  extractLanguagePrefix,
+} from './content-languages'
 import { convertDetectedLanguage } from './languages'
 import en from './locales/en.json'
 import fr from './locales/fr.json'
@@ -39,13 +44,34 @@ export const resources = {
   zhTW,
 } as const
 
+// Public pages are also served under language-prefixed URLs (/tr/...).
+// Detect the prefix before i18next reads its stored language, map it onto
+// the interface language, then strip it so the router sees plain paths.
+if (typeof window !== 'undefined') {
+  const { lang, strippedPath } = extractLanguagePrefix(window.location.pathname)
+  if (lang) {
+    try {
+      localStorage.setItem('i18nextLng', contentToInterfaceLanguage(lang))
+    } catch {
+      // storage unavailable; the prefix still applies for this page load
+    }
+    window.history.replaceState(
+      null,
+      '',
+      strippedPath + window.location.search + window.location.hash
+    )
+  }
+}
+
 i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
     resources,
     fallbackLng: 'en',
-    supportedLngs: ['en', 'zhCN', 'fr', 'ru', 'ja', 'vi', 'zhTW'],
+    // No supportedLngs: any content language code is accepted. Languages
+    // without a static locale file fall back to English keys until the
+    // machine-translated bundle arrives (see auto-translate.ts).
     load: 'currentOnly',
     nsSeparator: false, // Allow literal colons in keys (e.g., URLs, labels)
     debug: import.meta.env.DEV,
@@ -60,5 +86,10 @@ i18n
       convertDetectedLanguage,
     },
   })
+
+i18n.on('languageChanged', (lng) => {
+  void ensureAutoLanguageBundle(i18n, lng)
+})
+void ensureAutoLanguageBundle(i18n, i18n.language)
 
 export default i18n

@@ -16,18 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export const INTERFACE_LANGUAGE_OPTIONS = [
-  { code: 'zhCN', flag: '🇨🇳', label: '简体中文' },
-  { code: 'en', flag: '🇬🇧', label: 'English' },
-  { code: 'fr', flag: '🇫🇷', label: 'Français' },
-  { code: 'ru', flag: '🇷🇺', label: 'Русский' },
-  { code: 'ja', flag: '🇯🇵', label: '日本語' },
-  { code: 'vi', flag: '🇻🇳', label: 'Tiếng Việt' },
-  { code: 'zhTW', flag: '🇹🇼', label: '繁體中文' },
-] as const
+import {
+  CONTENT_LANGUAGES,
+  contentToInterfaceLanguage,
+  normalizeContentLanguage,
+} from './content-languages'
 
-export type InterfaceLanguageCode =
-  (typeof INTERFACE_LANGUAGE_OPTIONS)[number]['code']
+// All content languages can drive the interface: the seven bundled locales
+// are used directly, the rest are machine-translated at runtime (see
+// auto-translate.ts), so the picker offers every supported language.
+export const INTERFACE_LANGUAGE_OPTIONS = CONTENT_LANGUAGES.map((lang) => ({
+  code: contentToInterfaceLanguage(lang.code),
+  flag: lang.flag,
+  label: lang.native,
+})) as { code: string; flag: string; label: string }[]
+
+export type InterfaceLanguageCode = string
 
 /**
  * Flag emoji for an interface language code. Falls back to a globe so the
@@ -57,9 +61,16 @@ export function normalizeInterfaceLanguage(value?: string | null): string {
     normalized = 'zhCN'
   }
 
-  return INTERFACE_LANGUAGE_OPTIONS.some((lang) => lang.code === normalized)
-    ? normalized
-    : 'en'
+  if (INTERFACE_LANGUAGE_OPTIONS.some((lang) => lang.code === normalized)) {
+    return normalized
+  }
+  // Content languages without a bundled locale keep their code; the runtime
+  // auto-translation bundle covers them.
+  const contentCode = normalizeContentLanguage(normalized)
+  if (contentCode) {
+    return contentToInterfaceLanguage(contentCode)
+  }
+  return 'en'
 }
 
 /**

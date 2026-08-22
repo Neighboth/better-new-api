@@ -113,9 +113,9 @@ function EmptyAboutState() {
 }
 
 export function About() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { data, isLoading } = useQuery({
-    queryKey: ['about-content'],
+    queryKey: ['about-content', i18n.language],
     queryFn: getAboutContent,
   })
 

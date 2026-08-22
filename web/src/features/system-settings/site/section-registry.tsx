@@ -34,6 +34,7 @@ import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
 import type { SiteSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 import { AdsSection } from './ads-section'
+import { MultilingualContentSection } from './multilingual-content-section'
 import { SEOSection } from './seo-section'
 
 const SITE_SECTIONS = [
@@ -122,6 +123,24 @@ const SITE_SECTIONS = [
           SitemapCustomUrls: settings.SitemapCustomUrls,
           LLMSTxt: settings.LLMSTxt,
           LLMSFullTxt: settings.LLMSFullTxt,
+        }}
+      />
+    ),
+  },
+  {
+    id: 'multilingual',
+    titleKey: 'Multilingual content',
+    build: (settings: SiteSettings) => (
+      <MultilingualContentSection
+        defaultValues={{
+          seoLanguages: settings.SEOLanguages,
+          seoLocalized: settings.SEOLocalized,
+          aboutBase: settings.About,
+          aboutI18n: settings.AboutI18n,
+          userAgreementBase: settings['legal.user_agreement'],
+          userAgreementI18n: settings['legal.user_agreement_i18n'],
+          privacyPolicyBase: settings['legal.privacy_policy'],
+          privacyPolicyI18n: settings['legal.privacy_policy_i18n'],
         }}
       />
     ),

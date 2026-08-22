@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { useStatus } from '@/hooks/use-status'
 
@@ -25,9 +26,10 @@ import { getPricing } from '../api'
 
 export function usePricingData() {
   const { status } = useStatus()
+  const { i18n } = useTranslation()
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['pricing'],
+    queryKey: ['pricing', i18n.language],
     queryFn: getPricing,
     staleTime: 5 * 60 * 1000,
   })

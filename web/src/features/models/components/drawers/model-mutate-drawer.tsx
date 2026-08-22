@@ -85,12 +85,14 @@ import { createModel, updateModel, getModel, getVendors } from '../../api'
 import { getNameRuleOptions, ENDPOINT_TEMPLATES } from '../../constants'
 import { modelsQueryKeys, vendorsQueryKeys, parseModelTags } from '../../lib'
 import type { Model } from '../../types'
+import { DescriptionI18nEditor } from './description-i18n-editor'
 
 // Extended schema for ratio configuration (internal form state only)
 const extendedModelFormSchema = z.object({
   id: z.number().optional(),
   model_name: z.string().min(1, 'Model name is required'),
   description: z.string(),
+  description_i18n: z.string(),
   icon: z.string(),
   tags: z.array(z.string()),
   vendor_id: z.number().optional(),
@@ -363,6 +365,7 @@ export function ModelMutateDrawer({
     defaultValues: {
       model_name: '',
       description: '',
+      description_i18n: '',
       icon: '',
       tags: [],
       vendor_id: undefined,
@@ -431,6 +434,7 @@ export function ModelMutateDrawer({
         id: model.id,
         model_name: model.model_name,
         description: model.description || '',
+        description_i18n: model.description_i18n || '',
         icon: model.icon || '',
         tags: parseModelTags(model.tags),
         vendor_id: model.vendor_id,
@@ -456,6 +460,7 @@ export function ModelMutateDrawer({
       form.reset({
         model_name: modelName,
         description: '',
+        description_i18n: '',
         icon: '',
         tags: [],
         vendor_id: undefined,
@@ -789,6 +794,31 @@ export function ModelMutateDrawer({
                         {...field}
                       />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='description_i18n'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('Description translations (optional)')}
+                    </FormLabel>
+                    <FormControl>
+                      <DescriptionI18nEditor
+                        value={field.value}
+                        baseText={form.watch('description')}
+                        onChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormDescription className='text-xs'>
+                      {t(
+                        'Per-language descriptions shown on the pricing page. Technical names are never translated automatically.'
+                      )}
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

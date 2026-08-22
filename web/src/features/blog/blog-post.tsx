@@ -39,12 +39,12 @@ type BlogPostPageProps = {
 }
 
 export function BlogPostPage(props: BlogPostPageProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { status } = useStatus()
   const blogEnabled = Boolean(status?.blog_enabled)
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['blog-post', props.postId],
+    queryKey: ['blog-post', props.postId, i18n.language],
     queryFn: () => fetchBlogPost(props.postId),
     enabled: blogEnabled,
   })
@@ -137,8 +137,6 @@ export function BlogPostPage(props: BlogPostPageProps) {
           />
         ) : null}
 
-        
-
         <RichContent
           content={post.content}
           mode='markdown'
@@ -156,8 +154,6 @@ export function BlogPostPage(props: BlogPostPageProps) {
             onChanged={() => refetch()}
           />
         </div>
-
-        
 
         {data?.success && (
           <BlogComments

@@ -16,11 +16,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import i18n from '@/i18n/config'
+import { interfaceToContentLanguage } from '@/i18n/content-languages'
 import { api } from '@/lib/api'
 
 import type { AboutResponse } from './types'
 
+function currentContentLanguage(): string {
+  return interfaceToContentLanguage(i18n.language)
+}
+
 export async function getAboutContent() {
-  const res = await api.get<AboutResponse>('/api/about')
+  const res = await api.get<AboutResponse>('/api/about', {
+    params: { lang: currentContentLanguage() },
+  })
   return res.data
 }

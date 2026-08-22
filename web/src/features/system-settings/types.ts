@@ -121,6 +121,11 @@ export type SiteSettings = {
   CustomNavItems: string
   SEOTitlePrefix: string
   SEODescription: string
+  SEOLocalized: string
+  SEOLanguages: string
+  AboutI18n: string
+  'legal.user_agreement_i18n': string
+  'legal.privacy_policy_i18n': string
   SEOKeywords: string
   SEOSocialImage: string
   RobotsPolicy: 'allow_all' | 'block_all' | 'block_ai' | 'custom'

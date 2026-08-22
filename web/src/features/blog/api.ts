@@ -16,7 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import i18n from '@/i18n/config'
+import { interfaceToContentLanguage } from '@/i18n/content-languages'
 import { api } from '@/lib/api'
+
+function currentContentLanguage(): string {
+  return interfaceToContentLanguage(i18n.language)
+}
 
 export type BlogPost = {
   id: number
@@ -70,7 +76,8 @@ type ApiResult<T> = {
 
 export async function fetchBlogPosts() {
   const res = await api.get<ApiResult<{ items: BlogPost[]; total: number }>>(
-    '/api/blog/posts'
+    '/api/blog/posts',
+    { params: { lang: currentContentLanguage() } }
   )
   return res.data.data
 }
@@ -104,7 +111,8 @@ export async function trackAdImpression(id: string): Promise<void> {
 
 export async function fetchBlogPost(id: string) {
   const res = await api.get<ApiResult<BlogPostResponse>>(
-    `/api/blog/posts/${id}`
+    `/api/blog/posts/${id}`,
+    { params: { lang: currentContentLanguage() } }
   )
   return res.data
 }

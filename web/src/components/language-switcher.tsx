@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Check, Languages } from 'lucide-react'
-import { useCallback } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -27,59 +27,86 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+
 import {
-  INTERFACE_LANGUAGE_OPTIONS,
-  normalizeInterfaceLanguage,
-} from '@/i18n/languages'
-import { api } from '@/lib/api'
-import { cn } from '@/lib/utils'
-import { useAuthStore } from '@/stores/auth-store'
+  CONTENT_LANGUAGES,
+  contentToInterfaceLanguage,
+  interfaceToContentLanguage,
+} from '../i18n/content-languages'
 
 export function LanguageSwitcher() {
   const { i18n, t } = useTranslation()
-  const user = useAuthStore((s) => s.auth.user)
-  const currentLanguage = normalizeInterfaceLanguage(i18n.language)
-  const handleChangeLanguage = useCallback(
-    async (code: string) => {
-      await i18n.changeLanguage(code)
-      if (user) {
-        try {
-          await api.put('/api/user/self', { language: code })
-        } catch {
-          // Best-effort persistence; don't block the UI on failure
-        }
-      }
-    },
-    [i18n, user]
-  )
+  const [query, setQuery] = useState('')
+  const currentContentCode = interfaceToContentLanguage(i18n.language)
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return CONTENT_LANGUAGES
+    return CONTENT_LANGUAGES.filter(
+      (lang) =>
+        lang.name.toLowerCase().includes(needle) ||
+        lang.native.toLowerCase().includes(needle) ||
+        lang.code.toLowerCase().includes(needle)
+    )
+  }, [query])
+
+  const handleChange = (contentCode: string) => {
+    if (contentCode === currentContentCode) return
+    const interfaceCode = contentToInterfaceLanguage(contentCode)
+    try {
+      localStorage.setItem('i18nextLng', interfaceCode)
+    } catch {
+      // storage unavailable; the URL prefix still pins the language
+    }
+    // Navigate to the language-prefixed URL so SEO stays language-scoped and
+    // the server renders localized meta tags. The boot code in i18n/config.ts
+    // strips the prefix again for the router.
+    const path = window.location.pathname || '/'
+    window.location.assign(
+      `/${contentCode}${path}${window.location.search}${window.location.hash}`
+    )
+  }
 
   return (
-    <DropdownMenu modal={false}>
+    <DropdownMenu onOpenChange={(open) => !open && setQuery('')}>
       <DropdownMenuTrigger
-        render={<Button variant='ghost' size='icon' className='h-9 w-9' />}
+        render={<Button variant='ghost' size='icon' className='rounded-full' />}
       >
-        <Languages aria-hidden='true' className='h-4 w-4' />
+        <Languages className='h-5 w-5' aria-hidden='true' />
         <span className='sr-only'>{t('Change language')}</span>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align='end'>
-        {INTERFACE_LANGUAGE_OPTIONS.map((lang) => (
-          <DropdownMenuItem
-            key={lang.code}
-            onClick={() => handleChangeLanguage(lang.code)}
-          >
-            <span aria-hidden='true' className='me-2 text-base leading-none'>
-              {lang.flag}
-            </span>
-            {lang.label}
-            <Check
-              size={14}
-              className={cn(
-                'ms-auto',
-                currentLanguage !== lang.code && 'hidden'
+      <DropdownMenuContent align='end' className='w-56'>
+        <div className='p-1'>
+          <input
+            type='text'
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t('Search language')}
+            aria-label={t('Search language')}
+            className='border-input bg-background placeholder:text-muted-foreground focus:border-primary mb-1 w-full rounded-md border px-2 py-1 text-sm outline-none'
+          />
+        </div>
+        <div className='max-h-72 overflow-y-auto'>
+          {filtered.map((language) => (
+            <DropdownMenuItem
+              key={language.code}
+              onClick={() => handleChange(language.code)}
+            >
+              <span aria-hidden='true' className='me-2'>
+                {language.flag}
+              </span>
+              <span className='flex-1 truncate'>{language.native}</span>
+              {language.code === currentContentCode && (
+                <Check className='ms-2 h-4 w-4' aria-hidden='true' />
               )}
-            />
-          </DropdownMenuItem>
-        ))}
+            </DropdownMenuItem>
+          ))}
+          {filtered.length === 0 && (
+            <div className='text-muted-foreground px-2 py-3 text-center text-sm'>
+              {t('No results found.')}
+            </div>
+          )}
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   )

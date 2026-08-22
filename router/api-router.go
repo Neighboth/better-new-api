@@ -29,6 +29,8 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/user-agreement", controller.GetUserAgreement)
 		apiRouter.GET("/privacy-policy", controller.GetPrivacyPolicy)
 		apiRouter.GET("/about", controller.GetAbout)
+		apiRouter.GET("/languages", controller.GetContentLanguages)
+		apiRouter.POST("/translate", middleware.AdminAuth(), middleware.GlobalWebRateLimit(), controller.TranslateContent)
 		//apiRouter.GET("/midjourney", controller.GetMidjourney)
 		apiRouter.GET("/home_page_content", controller.GetHomePageContent)
 		apiRouter.GET("/pricing", middleware.HeaderNavModuleAuth("pricing"), controller.GetPricing)
@@ -69,6 +71,8 @@ func SetApiRouter(router *gin.Engine) {
 				blogAdminRoute.DELETE("/posts/:id", controller.DeleteBlogPost)
 				blogAdminRoute.GET("/ads/stats", controller.GetAdImpressionStats)
 				blogAdminRoute.GET("/ads/impressions.csv", controller.DownloadAdImpressionsCSV)
+				blogAdminRoute.GET("/ai/models", controller.GetBlogAIModels)
+				blogAdminRoute.POST("/ai/generate", controller.GenerateBlogPostWithAI)
 			}
 		}
 		apiRouter.POST("/user/reset", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ResetPassword)

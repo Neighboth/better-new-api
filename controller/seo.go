@@ -39,6 +39,110 @@ func seoOption(key string) string {
 	return strings.TrimSpace(common.OptionMap[key])
 }
 
+// seoLanguagesDefault is used when the SEOLanguages option has not been
+// configured yet: the interface languages that already ship translations.
+var seoLanguagesDefault = []string{"en", "zh-CN", "zh-TW", "fr", "ru", "ja", "vi"}
+
+// GetSEOLanguages returns the normalized content languages the site advertises
+// (hreflang alternates, AI blog translations, language-scoped SEO fields).
+// English is always first.
+func GetSEOLanguages() []string {
+	raw := seoOption("SEOLanguages")
+	langs := []string{common.DefaultContentLanguage}
+	seen := map[string]struct{}{common.DefaultContentLanguage: {}}
+	source := seoLanguagesDefault
+	if raw != "" {
+		source = strings.Split(raw, ",")
+	}
+	for _, code := range source {
+		normalized := common.NormalizeContentLanguage(code)
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		langs = append(langs, normalized)
+	}
+	return langs
+}
+
+// seoLocalizedEntry holds the language-scoped overrides stored in the
+// SEOLocalized option: {"tr": {"title_prefix": "...", "description": "...",
+// "keywords": "..."}}. English keeps using the base options so existing
+// settings keep working unchanged.
+type seoLocalizedEntry struct {
+	TitlePrefix string `json:"title_prefix"`
+	Description string `json:"description"`
+	Keywords    string `json:"keywords"`
+}
+
+func seoLocalizedFor(lang string) seoLocalizedEntry {
+	if lang == "" || lang == common.DefaultContentLanguage {
+		return seoLocalizedEntry{}
+	}
+	raw := seoOption("SEOLocalized")
+	if raw == "" {
+		return seoLocalizedEntry{}
+	}
+	var all map[string]seoLocalizedEntry
+	if err := common.Unmarshal([]byte(raw), &all); err != nil {
+		return seoLocalizedEntry{}
+	}
+	entry, _ := all[lang]
+	return entry
+}
+
+// injectHreflang writes <link rel="alternate"> tags for every configured
+// language plus x-default (English), matching the language-prefixed URLs the
+// site serves. pagePath is the request path without the language prefix.
+func injectHreflang(page, base, pagePath string) string {
+	if base == "" {
+		return page
+	}
+	if pagePath == "" {
+		pagePath = "/"
+	}
+	var b strings.Builder
+	for _, lang := range GetSEOLanguages() {
+		b.WriteString(`<link rel="alternate" hreflang="` + html.EscapeString(lang) + `" href="` + html.EscapeString(base+"/"+lang+pagePath) + `" />` + "\n    ")
+	}
+	b.WriteString(`<link rel="alternate" hreflang="x-default" href="` + html.EscapeString(base+"/"+common.DefaultContentLanguage+pagePath) + `" />` + "\n    ")
+	idx := strings.Index(page, "</head>")
+	if idx < 0 {
+		return page
+	}
+	return page[:idx] + "    " + b.String() + page[idx:]
+}
+
+// setHTMLLang rewrites the <html lang="..."> attribute so crawlers and
+// browsers see the served language.
+func setHTMLLang(page, lang string) string {
+	if lang == "" {
+		return page
+	}
+	idx := strings.Index(page, "<html")
+	if idx < 0 {
+		return page
+	}
+	tagEnd := strings.Index(page[idx:], ">")
+	if tagEnd < 0 {
+		return page
+	}
+	tag := page[idx : idx+tagEnd]
+	if !strings.Contains(tag, `lang="`) {
+		return page[:idx+tagEnd] + ` lang="` + html.EscapeString(lang) + `"` + page[idx+tagEnd:]
+	}
+	start := strings.Index(tag, `lang="`) + len(`lang="`)
+	end := strings.Index(tag[start:], `"`)
+	if end < 0 {
+		return page
+	}
+	newTag := tag[:start] + html.EscapeString(lang) + tag[start+end:]
+	return page[:idx] + newTag + page[idx+tagEnd:]
+}
+
 func siteBaseURL(c *gin.Context) string {
 	if base := strings.TrimRight(system_setting.ServerAddress, "/"); base != "" {
 		return base
@@ -167,19 +271,30 @@ func GetSitemapXML(c *gin.Context) {
 
 // RenderIndexPage injects the configured SEO metadata into the SPA shell so
 // crawlers see the site name, icon and description in the first HTML response
-// instead of the build-time defaults.
-func RenderIndexPage(indexPage []byte) []byte {
+// instead of the build-time defaults. lang selects the language-scoped
+// overrides (SEOLocalized); "" or "en" keeps the base options.
+func RenderIndexPage(indexPage []byte, lang string) []byte {
 	siteName := common.SystemName
 	if siteName == "" {
 		siteName = "New API"
 	}
+	localized := seoLocalizedFor(lang)
 	prefix := seoOption("SEOTitlePrefix")
+	if localized.TitlePrefix != "" {
+		prefix = localized.TitlePrefix
+	}
 	title := siteName
 	if prefix != "" {
 		title = siteName + " - " + prefix
 	}
 	description := seoOption("SEODescription")
+	if localized.Description != "" {
+		description = localized.Description
+	}
 	keywords := seoOption("SEOKeywords")
+	if localized.Keywords != "" {
+		keywords = localized.Keywords
+	}
 	socialImage := seoOption("SEOSocialImage")
 	icon := common.Logo
 	if icon == "" {
@@ -224,6 +339,9 @@ func RenderIndexPage(indexPage []byte) []byte {
 		extra.WriteString(`<meta name="twitter:description" content="` + html.EscapeString(description) + `" />` + "\n    ")
 	}
 
+	if lang != "" {
+		page = setHTMLLang(page, lang)
+	}
 	idx := strings.Index(page, "</head>")
 	if idx >= 0 {
 		page = page[:idx] + "    " + extra.String() + page[idx:]
@@ -304,12 +422,27 @@ func replaceAllLinkHrefs(page, attr, href string) string {
 	return out.String()
 }
 
+// servePagePath returns the request path without the language prefix, for
+// building hreflang alternates.
+func servePagePath(c *gin.Context) string {
+	if path, exists := c.Get("content_path"); exists {
+		if p, ok := path.(string); ok && p != "" {
+			return p
+		}
+	}
+	return c.Request.URL.Path
+}
+
 // ServeIndex renders the SPA shell with SEO metadata applied. Rendering is
 // cheap (a few string replacements) and always reflects the latest settings,
 // so there is no caching here beyond the caller's Cache-Control header.
 func ServeIndex(c *gin.Context, indexPage []byte) {
+	langValue, _ := c.Get("content_lang")
+	langCode, _ := langValue.(string)
+	page := string(RenderIndexPage(indexPage, langCode))
+	page = injectHreflang(page, siteBaseURL(c), servePagePath(c))
 	c.Header("Cache-Control", "no-cache")
-	c.Data(http.StatusOK, "text/html; charset=utf-8", RenderIndexPage(indexPage))
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(page))
 }
 
 // BlogPostIndex renders the SPA shell with post-specific SEO meta for the
@@ -331,12 +464,17 @@ func ServeBlogIndex(c *gin.Context, indexPage []byte) {
 		return
 	}
 
-	page := RenderIndexPage(indexPage)
+	langValue, _ := c.Get("content_lang")
+	langCode, _ := langValue.(string)
+	// Crawler HTML uses stored translations only (base English as fallback) so
+	// bot traffic never fans out into machine translation calls.
+	fields := storedBlogFields(post, langCode)
+	page := RenderIndexPage(indexPage, langCode)
 	siteName := common.SystemName
-	title := post.Title + " - " + siteName
-	description := post.SeoDescription
+	title := fields.title + " - " + siteName
+	description := fields.seoDesc
 	if description == "" {
-		description = post.Summary
+		description = fields.summary
 	}
 
 	pageStr := string(page)
@@ -354,6 +492,7 @@ func ServeBlogIndex(c *gin.Context, indexPage []byte) {
 		pageStr = replaceMeta(pageStr, `name="twitter:image"`, html.EscapeString(post.CoverImage))
 	}
 	pageStr = replaceMeta(pageStr, `property="og:type"`, "article")
+	pageStr = injectHreflang(pageStr, siteBaseURL(c), servePagePath(c))
 
 	c.Header("Cache-Control", "no-cache")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", bytes.TrimSpace([]byte(pageStr)))

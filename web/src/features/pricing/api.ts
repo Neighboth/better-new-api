@@ -16,9 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import i18n from '@/i18n/config'
+import { interfaceToContentLanguage } from '@/i18n/content-languages'
 import { api } from '@/lib/api'
 
 import type { PricingData } from './types'
+
+function currentContentLanguage(): string {
+  return interfaceToContentLanguage(i18n.language)
+}
 
 // ----------------------------------------------------------------------------
 // Pricing APIs
@@ -26,6 +32,8 @@ import type { PricingData } from './types'
 
 // Get model pricing data
 export async function getPricing(): Promise<PricingData> {
-  const res = await api.get('/api/pricing')
+  const res = await api.get('/api/pricing', {
+    params: { lang: currentContentLanguage() },
+  })
   return res.data
 }

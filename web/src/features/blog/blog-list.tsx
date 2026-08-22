@@ -71,13 +71,13 @@ function BlogPostCard(props: { post: BlogPost }) {
 }
 
 export function BlogListPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { status } = useStatus()
 
   const blogEnabled = Boolean(status?.blog_enabled)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['blog-posts'],
+    queryKey: ['blog-posts', i18n.language],
     queryFn: () => fetchBlogPosts(),
     enabled: blogEnabled,
   })

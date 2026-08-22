@@ -5,6 +5,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -57,6 +58,17 @@ func GetPricing(c *gin.Context) {
 
 	usableGroup = service.GetUserUsableGroups(group)
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
+
+	// Serve the description in the requested content language when an admin
+	// provided one; the English base stays the fallback. Missing languages
+	// are machine-translated client-side through /api/translate.
+	if lang := common.NormalizeContentLanguage(c.Query("lang")); lang != "" && lang != common.DefaultContentLanguage {
+		for i := range pricing {
+			if translated, ok := pricing[i].DescriptionI18n[lang]; ok && strings.TrimSpace(translated) != "" {
+				pricing[i].Description = translated
+			}
+		}
+	}
 	// check groupRatio contains usableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		if _, ok := usableGroup[group]; !ok {

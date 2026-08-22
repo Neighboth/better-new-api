@@ -22,18 +22,21 @@ type BoundChannel struct {
 }
 
 type Model struct {
-	Id           int            `json:"id"`
-	ModelName    string         `json:"model_name" gorm:"size:128;not null;uniqueIndex:uk_model_name_delete_at,priority:1"`
-	Description  string         `json:"description,omitempty" gorm:"type:text"`
-	Icon         string         `json:"icon,omitempty" gorm:"type:varchar(128)"`
-	Tags         string         `json:"tags,omitempty" gorm:"type:varchar(255)"`
-	VendorID     int            `json:"vendor_id,omitempty" gorm:"index"`
-	Endpoints    string         `json:"endpoints,omitempty" gorm:"type:text"`
-	Status       int            `json:"status" gorm:"default:1"`
-	SyncOfficial int            `json:"sync_official" gorm:"default:1"`
-	CreatedTime  int64          `json:"created_time" gorm:"bigint"`
-	UpdatedTime  int64          `json:"updated_time" gorm:"bigint"`
-	DeletedAt    gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:uk_model_name_delete_at,priority:2"`
+	Id          int    `json:"id"`
+	ModelName   string `json:"model_name" gorm:"size:128;not null;uniqueIndex:uk_model_name_delete_at,priority:1"`
+	Description string `json:"description,omitempty" gorm:"type:text"`
+	// DescriptionI18n holds optional per-language descriptions as a JSON
+	// object {"tr": "...", "fr": "..."}; Description stays the English base.
+	DescriptionI18n string         `json:"description_i18n,omitempty" gorm:"type:text"`
+	Icon            string         `json:"icon,omitempty" gorm:"type:varchar(128)"`
+	Tags            string         `json:"tags,omitempty" gorm:"type:varchar(255)"`
+	VendorID        int            `json:"vendor_id,omitempty" gorm:"index"`
+	Endpoints       string         `json:"endpoints,omitempty" gorm:"type:text"`
+	Status          int            `json:"status" gorm:"default:1"`
+	SyncOfficial    int            `json:"sync_official" gorm:"default:1"`
+	CreatedTime     int64          `json:"created_time" gorm:"bigint"`
+	UpdatedTime     int64          `json:"updated_time" gorm:"bigint"`
+	DeletedAt       gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:uk_model_name_delete_at,priority:2"`
 
 	BoundChannels []BoundChannel `json:"bound_channels,omitempty" gorm:"-"`
 	EnableGroups  []string       `json:"enable_groups,omitempty" gorm:"-"`
@@ -42,6 +45,19 @@ type Model struct {
 
 	MatchedModels []string `json:"matched_models,omitempty" gorm:"-"`
 	MatchedCount  int      `json:"matched_count,omitempty" gorm:"-"`
+}
+
+// DescriptionI18nMap decodes the per-language description JSON.
+func (mi *Model) DescriptionI18nMap() map[string]string {
+	out := map[string]string{}
+	raw := strings.TrimSpace(mi.DescriptionI18n)
+	if raw == "" {
+		return out
+	}
+	if err := common.Unmarshal([]byte(raw), &out); err != nil {
+		return map[string]string{}
+	}
+	return out
 }
 
 func (mi *Model) Insert() error {
@@ -78,7 +94,7 @@ func (mi *Model) Update() error {
 	mi.UpdatedTime = common.GetTimestamp()
 	// 使用 Select 强制更新所有字段，包括零值
 	return DB.Model(&Model{}).Where("id = ?", mi.Id).
-		Select("model_name", "description", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "updated_time").
+		Select("model_name", "description", "description_i18n", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "updated_time").
 		Updates(mi).Error
 }
 

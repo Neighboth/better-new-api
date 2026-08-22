@@ -12,19 +12,76 @@ import (
 )
 
 // BlogPost is an admin-authored article rendered on the public blog pages.
+// BlogPostI18n holds the localized variant of a post's text fields. Empty
+// fields fall back to the English base on the post itself.
+type BlogPostI18n struct {
+	Title          string `json:"title,omitempty"`
+	Summary        string `json:"summary,omitempty"`
+	Content        string `json:"content,omitempty"`
+	SeoDescription string `json:"seo_description,omitempty"`
+	Tags           string `json:"tags,omitempty"`
+}
+
 type BlogPost struct {
-	Id             int64     `json:"id" gorm:"primaryKey"`
-	Title          string    `json:"title" gorm:"type:varchar(255);not null"`
-	Summary        string    `json:"summary" gorm:"type:text"`
-	Content        string    `json:"content" gorm:"type:text"`
-	CoverImage     string    `json:"cover_image" gorm:"type:varchar(512)"`
-	Tags           string    `json:"tags" gorm:"type:varchar(512)"` // comma separated
-	SeoDescription string    `json:"seo_description" gorm:"type:varchar(512)"`
-	Published      bool      `json:"published" gorm:"default:false;index"`
-	LikeCount      int       `json:"like_count" gorm:"default:0"`
-	DislikeCount   int       `json:"dislike_count" gorm:"default:0"`
-	CreatedAt      time.Time `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt      time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+	Id             int64  `json:"id" gorm:"primaryKey"`
+	Title          string `json:"title" gorm:"type:varchar(255);not null"`
+	Summary        string `json:"summary" gorm:"type:text"`
+	Content        string `json:"content" gorm:"type:text"`
+	CoverImage     string `json:"cover_image" gorm:"type:varchar(512)"`
+	Tags           string `json:"tags" gorm:"type:varchar(512)"` // comma separated
+	SeoDescription string `json:"seo_description" gorm:"type:varchar(512)"`
+	// Translations is a JSON object keyed by content language code
+	// ("tr", "fr", ...) with BlogPostI18n values. English stays in the base
+	// columns above so existing single-language posts keep working unchanged.
+	Translations string    `json:"translations" gorm:"type:text"`
+	Published    bool      `json:"published" gorm:"default:false;index"`
+	LikeCount    int       `json:"like_count" gorm:"default:0"`
+	DislikeCount int       `json:"dislike_count" gorm:"default:0"`
+	CreatedAt    time.Time `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt    time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+// TranslationMap decodes the Translations JSON column.
+func (post *BlogPost) TranslationMap() map[string]BlogPostI18n {
+	out := map[string]BlogPostI18n{}
+	if strings.TrimSpace(post.Translations) == "" {
+		return out
+	}
+	if err := common.Unmarshal([]byte(post.Translations), &out); err != nil {
+		common.SysError("failed to decode blog translations for post " + strconv.FormatInt(post.Id, 10) + ": " + err.Error())
+		return map[string]BlogPostI18n{}
+	}
+	return out
+}
+
+// EncodeTranslations serializes the map back into the Translations column.
+func (post *BlogPost) EncodeTranslations(translations map[string]BlogPostI18n) {
+	cleaned := map[string]BlogPostI18n{}
+	for lang, tr := range translations {
+		code := common.NormalizeContentLanguage(lang)
+		if code == "" || code == common.DefaultContentLanguage {
+			continue
+		}
+		tr.Title = strings.TrimSpace(tr.Title)
+		tr.Summary = strings.TrimSpace(tr.Summary)
+		tr.SeoDescription = strings.TrimSpace(tr.SeoDescription)
+		tr.Tags = strings.TrimSpace(tr.Tags)
+		if tr.Title == "" && tr.Summary == "" && strings.TrimSpace(tr.Content) == "" && tr.SeoDescription == "" && tr.Tags == "" {
+			continue
+		}
+		cleaned[code] = tr
+	}
+	if len(cleaned) == 0 {
+		post.Translations = ""
+		return
+	}
+	data, err := common.Marshal(cleaned)
+	if err != nil {
+		common.SysError("failed to encode blog translations: " + err.Error())
+		post.Translations = ""
+		return
+	}
+	post.Translations = string(data)
 }
 
 // BlogComment is a member comment on a blog post; ParentId enables replies.
@@ -128,6 +185,7 @@ func UpdateBlogPost(post *BlogPost) error {
 		"cover_image":     post.CoverImage,
 		"tags":            post.Tags,
 		"seo_description": post.SeoDescription,
+		"translations":    post.Translations,
 		"published":       post.Published,
 	}).Error
 }
