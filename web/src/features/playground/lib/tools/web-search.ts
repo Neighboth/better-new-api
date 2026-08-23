@@ -18,8 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { ERROR_MESSAGES } from '../../constants'
 
-import { getToolProviderKeys } from './provider-keys'
-
 const TAVILY_SEARCH_URL = 'https://api.tavily.com/search'
 const FIRECRAWL_SEARCH_URL = 'https://api.firecrawl.dev/v1/search'
 const SEARCH_TIMEOUT_MS = 20_000
@@ -43,12 +41,11 @@ function withTimeout(signal: AbortSignal | undefined): AbortSignal {
 async function postJson(
   url: string,
   body: Record<string, unknown>,
-  signal: AbortSignal | undefined,
-  headers: Record<string, string> = {}
+  signal: AbortSignal | undefined
 ): Promise<unknown> {
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...headers },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
     signal: withTimeout(signal),
   })
@@ -95,15 +92,13 @@ function normalizeResults(items: unknown): WebSearchResultItem[] {
     .filter((item): item is WebSearchResultItem => Boolean(item))
 }
 
-// Calls go straight from the browser; the server never proxies third-party
-// traffic. Requests are keyless by default — an optional user-provided API
-// key (stored in localStorage) is attached when present.
+// Calls go straight from the browser, keyless; the server never proxies
+// third-party traffic.
 async function searchWithTavily(
   query: string,
   maxResults: number,
   signal: AbortSignal | undefined
 ): Promise<WebSearchResultItem[]> {
-  const apiKey = getToolProviderKeys().tavily
   const data = (await postJson(
     TAVILY_SEARCH_URL,
     {
@@ -111,7 +106,6 @@ async function searchWithTavily(
       max_results: maxResults,
       search_depth: 'basic',
       include_answer: false,
-      ...(apiKey ? { api_key: apiKey } : {}),
     },
     signal
   )) as { results?: unknown }
@@ -124,12 +118,10 @@ async function searchWithFirecrawl(
   maxResults: number,
   signal: AbortSignal | undefined
 ): Promise<WebSearchResultItem[]> {
-  const apiKey = getToolProviderKeys().firecrawl
   const data = (await postJson(
     FIRECRAWL_SEARCH_URL,
     { query, limit: maxResults },
-    signal,
-    apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
+    signal
   )) as { data?: unknown }
 
   return normalizeResults(data?.data)
@@ -137,7 +129,8 @@ async function searchWithFirecrawl(
 
 /**
  * Search the web from the browser, falling back to the next provider when one
- * fails (rate limit, outage, keyless quota exhausted, ...).
+ * fails (rate limit, outage, keyless quota exhausted, ...). Firecrawl goes
+ * first because its keyless tier is the most reliable.
  */
 export async function searchWebWithFallback(
   query: string,
@@ -145,8 +138,8 @@ export async function searchWebWithFallback(
   signal?: AbortSignal
 ): Promise<WebSearchOutcome> {
   const providers = [
-    { name: 'tavily' as const, run: searchWithTavily },
     { name: 'firecrawl' as const, run: searchWithFirecrawl },
+    { name: 'tavily' as const, run: searchWithTavily },
   ]
 
   const errors: string[] = []

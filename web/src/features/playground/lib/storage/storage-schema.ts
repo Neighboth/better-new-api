@@ -46,6 +46,11 @@ export const toolsEnabledSchema = z.object({
   update_plan: z.boolean().optional(),
 })
 
+export const thinkingSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  level: z.enum(['lite', 'low', 'medium', 'high', 'ultra']).optional(),
+})
+
 export const parameterEnabledSchema = z.object({
   temperature: z.boolean().optional(),
   top_p: z.boolean().optional(),
@@ -101,6 +106,15 @@ const toolEventSchema = z.object({
   error: z.string().optional(),
   startedAt: z.number().optional(),
   completedAt: z.number().optional(),
+  anchor: z.number().optional(),
+})
+
+const thoughtBlockSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  anchor: z.number(),
+  startedAt: z.number().optional(),
+  completedAt: z.number().optional(),
 })
 
 const messageSchema = z.object({
@@ -114,6 +128,7 @@ const messageSchema = z.object({
   durationMs: z.number().optional(),
   sources: z.array(sourceSchema).optional(),
   toolEvents: z.array(toolEventSchema).optional(),
+  thoughts: z.array(thoughtBlockSchema).optional(),
   plan: z.array(planStepSchema).optional(),
   activeTool: z.string().nullable().optional(),
   reasoning: reasoningSchema.optional(),

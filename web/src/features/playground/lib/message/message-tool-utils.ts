@@ -16,24 +16,32 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { nanoid } from 'nanoid'
+
 import type {
   Message,
   MessageAttachment,
   PlanStep,
   ToolEvent,
 } from '../../types'
+import { getCurrentVersion } from './message-utils'
 
 /**
  * Record a tool call that just started executing on the assistant message and
  * flag the tool as actively used so the UI can show a "using tool" indicator.
+ * The anchor pins the call to its position in the streamed content.
  */
 export function applyToolEventStart(
   message: Message,
   event: ToolEvent
 ): Message {
+  const contentLength = getCurrentVersion(message).content.length
   return {
     ...message,
-    toolEvents: [...(message.toolEvents ?? []), event],
+    toolEvents: [
+      ...(message.toolEvents ?? []),
+      { ...event, anchor: event.anchor ?? contentLength },
+    ],
     activeTool: event.name,
   }
 }
@@ -45,6 +53,7 @@ export type ToolEventFinish = {
   plan?: PlanStep[]
   attachments?: MessageAttachment[]
   sources?: { href: string; title: string }[]
+  thought?: string
 }
 
 /**
@@ -70,6 +79,19 @@ export function applyToolEventFinish(
 
   const updated: Message = { ...message, toolEvents }
 
+  if (finish.thought) {
+    const event = toolEvents.find((item) => item.id === toolCallId)
+    updated.thoughts = [
+      ...(message.thoughts ?? []),
+      {
+        id: nanoid(),
+        content: finish.thought,
+        anchor: event?.anchor ?? getCurrentVersion(message).content.length,
+        startedAt: event?.startedAt,
+        completedAt: event?.completedAt,
+      },
+    ]
+  }
   if (finish.plan) {
     updated.plan = finish.plan
   }

@@ -21,7 +21,11 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { sendChatCompletion } from '../api'
-import { ERROR_MESSAGES, MAX_TOOL_ROUNDS } from '../constants'
+import {
+  ERROR_MESSAGES,
+  MAX_MODEL_FALLBACKS,
+  MAX_TOOL_ROUNDS,
+} from '../constants'
 import {
   applyStreamingChunk,
   applyToolEventFinish,
@@ -29,11 +33,13 @@ import {
   buildApiTranscript,
   buildChatApiPayload,
   buildPlaygroundToolDefinitions,
+  buildThinkingSystemPrompt,
   executePlaygroundTool,
   isPlaygroundToolId,
   mergeToolCallDeltas,
   parseToolArguments,
   summarizeToolCallArguments,
+  supportsNativeThinking,
   updateAssistantMessageWithError,
   updateLastAssistantMessage,
   parseRequestErrorDetails,
@@ -47,9 +53,11 @@ import type {
   ChatCompletionMessage,
   ChatCompletionTool,
   Message,
+  ModelOption,
   PlaygroundConfig,
   ParameterEnabled,
   PlaygroundToolsEnabled,
+  ThinkingLevel,
   ToolCall,
   ToolCallDelta,
 } from '../types'
@@ -59,6 +67,10 @@ interface UseChatHandlerOptions {
   config: PlaygroundConfig
   parameterEnabled: ParameterEnabled
   toolsEnabled: PlaygroundToolsEnabled
+  /** Available chat models for silent error fallback. */
+  models: ModelOption[]
+  thinkingEnabled: boolean
+  thinkingLevel: ThinkingLevel
   onMessageUpdate: (updater: (prev: Message[]) => Message[]) => void
 }
 
@@ -96,6 +108,9 @@ export function useChatHandler({
   config,
   parameterEnabled,
   toolsEnabled,
+  models,
+  thinkingEnabled,
+  thinkingLevel,
   onMessageUpdate,
 }: UseChatHandlerOptions) {
   const { t } = useTranslation()
@@ -106,6 +121,20 @@ export function useChatHandler({
   const transcriptRef = useRef<ChatCompletionMessage[] | null>(null)
   const toolsRef = useRef<ChatCompletionTool[]>([])
   const roundStateRef = useRef<RoundState>({ content: '', toolCalls: [] })
+  // Silent error fallback: same-model retry first, then other models.
+  const modelOverrideRef = useRef<string | null>(null)
+  const fallbackStateRef = useRef<{
+    tried: Set<string>
+    retriedCurrent: boolean
+  }>({
+    tried: new Set(),
+    retriedCurrent: false,
+  })
+  const currentRoundRef = useRef(0)
+  const modelsRef = useRef<ModelOption[]>(models)
+  useEffect(() => {
+    modelsRef.current = models
+  }, [models])
   // Latest round starter, used by the tool loop to kick off the next round
   // without a circular useCallback dependency.
   const startRoundRef = useRef<
@@ -329,7 +358,11 @@ export function useChatHandler({
           const outcome = await executePlaygroundTool(
             toolName,
             call.function.arguments,
-            { config, signal: abortController.signal }
+            {
+              config,
+              models: modelsRef.current,
+              signal: abortController.signal,
+            }
           )
           if (!isCurrent()) return
 
@@ -348,6 +381,7 @@ export function useChatHandler({
                 plan: outcome.plan,
                 attachments: outcome.attachments,
                 sources: outcome.sources,
+                thought: outcome.thought,
               })
             )
           })
@@ -396,11 +430,53 @@ export function useChatHandler({
     [flushStreamUpdates, onMessageUpdate, runToolCalls]
   )
 
+  /**
+   * Pick the next model for silent error recovery: one immediate retry of the
+   * current model (the gateway then routes to another channel hosting it),
+   * then other available models. Returns null when nothing is left to try.
+   */
+  const pickFallbackModel = useCallback((): string | null => {
+    const state = fallbackStateRef.current
+    const currentModel = modelOverrideRef.current ?? config.model
+
+    if (!state.retriedCurrent) {
+      state.retriedCurrent = true
+      return currentModel
+    }
+
+    // `tried` always contains the originally selected model; the rest are
+    // fallbacks already attempted.
+    if (state.tried.size - 1 >= MAX_MODEL_FALLBACKS) {
+      return null
+    }
+
+    for (const model of modelsRef.current) {
+      if (state.tried.has(model.value)) {
+        continue
+      }
+      state.tried.add(model.value)
+      return model.value
+    }
+
+    return null
+  }, [config.model])
+
   // Handle stream error
   const handleStreamError = useCallback(
     (generation: number, error: string, errorCode?: string) => {
       if (generation !== requestGenerationRef.current) return
       flushStreamUpdates(generation)
+
+      // Silent recovery: retry with another channel/model before the user
+      // ever sees an error.
+      const fallbackModel = pickFallbackModel()
+      if (fallbackModel) {
+        modelOverrideRef.current = fallbackModel
+        roundStateRef.current.toolCalls = []
+        startRoundRef.current?.(generation, currentRoundRef.current)
+        return
+      }
+
       setIsRequesting(false)
       const displayError = getDisplayError(error)
       toast.error(displayError)
@@ -415,7 +491,7 @@ export function useChatHandler({
         )
       })
     },
-    [flushStreamUpdates, getDisplayError, onMessageUpdate, t]
+    [flushStreamUpdates, getDisplayError, onMessageUpdate, pickFallbackModel, t]
   )
 
   // Start a streaming request for one round of the tool loop
@@ -424,9 +500,13 @@ export function useChatHandler({
       const transcript = transcriptRef.current
       if (!transcript) return
 
+      currentRoundRef.current = round
+      const effectiveConfig = modelOverrideRef.current
+        ? { ...config, model: modelOverrideRef.current }
+        : config
       const payload = buildChatApiPayload(
         transcript,
-        config,
+        effectiveConfig,
         parameterEnabled,
         toolsRef.current
       )
@@ -455,9 +535,13 @@ export function useChatHandler({
       const transcript = transcriptRef.current
       if (!transcript) return
 
+      currentRoundRef.current = round
+      const effectiveConfig = modelOverrideRef.current
+        ? { ...config, model: modelOverrideRef.current }
+        : config
       const payload = buildChatApiPayload(
         transcript,
-        config,
+        effectiveConfig,
         parameterEnabled,
         toolsRef.current
       )
@@ -565,13 +649,41 @@ export function useChatHandler({
       abortControllerRef.current = null
       discardPendingStreamUpdates(generation)
       stopStream()
+
+      // Force thinking only when the model cannot reason natively; native
+      // reasoning models are left untouched either way.
+      const forceThink =
+        thinkingEnabled && !supportsNativeThinking(config.model)
+
       transcriptRef.current = buildApiTranscript(messages)
-      toolsRef.current = buildPlaygroundToolDefinitions(toolsEnabled)
+      if (forceThink) {
+        transcriptRef.current.unshift({
+          role: 'system',
+          content: buildThinkingSystemPrompt(thinkingLevel),
+        })
+      }
+      toolsRef.current = buildPlaygroundToolDefinitions(
+        toolsEnabled,
+        forceThink
+      )
       roundStateRef.current = { content: '', toolCalls: [] }
+      modelOverrideRef.current = null
+      fallbackStateRef.current = {
+        tried: new Set([config.model]),
+        retriedCurrent: false,
+      }
+      currentRoundRef.current = 0
       setIsRequesting(true)
       startRoundRef.current?.(generation, 0)
     },
-    [toolsEnabled, stopStream, discardPendingStreamUpdates]
+    [
+      config.model,
+      thinkingEnabled,
+      thinkingLevel,
+      toolsEnabled,
+      stopStream,
+      discardPendingStreamUpdates,
+    ]
   )
 
   // Stop generation

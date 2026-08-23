@@ -73,45 +73,6 @@ export function normalizePlanSteps(input: unknown): PlanStep[] {
     .filter((step): step is PlanStep => Boolean(step))
 }
 
-export function togglePlanStep(steps: PlanStep[], stepId: string): PlanStep[] {
-  return steps.map((step) =>
-    step.id === stepId
-      ? {
-          ...step,
-          status: step.status === 'completed' ? 'pending' : 'completed',
-        }
-      : step
-  )
-}
-
-export function renamePlanStep(
-  steps: PlanStep[],
-  stepId: string,
-  title: string
-): PlanStep[] {
-  const trimmed = title.trim()
-  if (!trimmed) {
-    return steps
-  }
-
-  return steps.map((step) =>
-    step.id === stepId ? { ...step, title: trimmed } : step
-  )
-}
-
-export function removePlanStep(steps: PlanStep[], stepId: string): PlanStep[] {
-  return steps.filter((step) => step.id !== stepId)
-}
-
-export function appendPlanStep(steps: PlanStep[], title: string): PlanStep[] {
-  const trimmed = title.trim()
-  if (!trimmed) {
-    return steps
-  }
-
-  return [...steps, { id: nanoid(), title: trimmed, status: 'pending' }]
-}
-
 export function getPlanProgress(steps: PlanStep[]): {
   completed: number
   total: number

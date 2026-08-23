@@ -234,6 +234,8 @@ export const STATIC_I18N_KEYS = [
   'Web search',
   'Page fetch',
   'Plan update',
+  'Thinking',
+  'No image generation model is available',
   'Awaiting Approval',
   'Responded',
   'Denied',

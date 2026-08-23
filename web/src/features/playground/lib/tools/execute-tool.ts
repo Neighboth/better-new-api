@@ -20,11 +20,13 @@ import { generateImages } from '../../api'
 import { ERROR_MESSAGES, MAX_TOOL_RESULT_CHARS } from '../../constants'
 import type {
   MessageAttachment,
+  ModelOption,
   PlanStep,
   PlaygroundConfig,
   PlaygroundToolId,
 } from '../../types'
 import { toGeneratedImageAttachments } from '../message/image-message-utils'
+import { isImageCapableModel, pickImageModel } from '../model-capabilities'
 import { parseRequestErrorDetails } from '../streaming/request-error-utils'
 import { fetchPageWithFallback, isFetchablePageUrl } from './page-fetch'
 import { normalizePlanSteps } from './plan-utils'
@@ -41,16 +43,20 @@ export interface ToolExecutionOutcome {
   content: string
   /** Short human-readable summary shown on the tool event badge. */
   summary?: string
-  /** Latest plan snapshot rendered as an editable table. */
+  /** Latest plan snapshot rendered as a read-only table. */
   plan?: PlanStep[]
   /** Generated images attached to the assistant message. */
   attachments?: MessageAttachment[]
   /** Search hit links surfaced in the message sources block. */
   sources?: { href: string; title: string }[]
+  /** Reasoning text recorded by the think tool, shown as a thought block. */
+  thought?: string
 }
 
 export interface ToolExecutionContext {
   config: PlaygroundConfig
+  /** Available chat models, used to fall back to an image-capable one. */
+  models?: ModelOption[]
   signal?: AbortSignal
 }
 
@@ -71,40 +77,55 @@ async function executeGenerateImage(
     throw new Error(ERROR_MESSAGES.IMAGE_PROMPT_REQUIRED)
   }
 
-  try {
-    const response = await generateImages(
-      {
-        model: ctx.config.model,
-        group: ctx.config.group,
-        prompt,
-        n: 1,
-      },
-      ctx.signal
-    )
-    const attachments = toGeneratedImageAttachments(response, prompt)
-    if (attachments.length === 0) {
-      throw new Error(ERROR_MESSAGES.IMAGE_EMPTY_RESULT)
-    }
-
-    return {
-      // Base64 payloads stay out of the transcript: the image is already
-      // rendered in the chat, the model only needs to know it succeeded.
-      content: JSON.stringify({
-        note: 'The generated image is displayed to the user in the chat.',
-        images: attachments.map((attachment) =>
-          attachment.url.startsWith('data:') ? '[inline image]' : attachment.url
-        ),
-      }),
-      summary: prompt,
-      attachments,
-    }
-  } catch (error) {
-    if (ctx.signal?.aborted) {
-      throw error
-    }
-    const { errorMessage } = parseRequestErrorDetails(error)
-    throw new Error(errorMessage)
+  // The selected chat model often cannot generate images (400/503 from the
+  // relay). Fall back to an image-capable model from the user's list.
+  const candidates = [ctx.config.model]
+  const fallbackModel = pickImageModel(ctx.models ?? [], ctx.config.model)
+  if (fallbackModel && fallbackModel !== ctx.config.model) {
+    candidates.push(fallbackModel)
   }
+
+  let lastError: unknown = null
+  for (const model of candidates) {
+    try {
+      const response = await generateImages(
+        { model, group: ctx.config.group, prompt, n: 1 },
+        ctx.signal
+      )
+      const attachments = toGeneratedImageAttachments(response, prompt)
+      if (attachments.length === 0) {
+        throw new Error(ERROR_MESSAGES.IMAGE_EMPTY_RESULT)
+      }
+
+      return {
+        // Base64 payloads stay out of the transcript: the image is already
+        // rendered in the chat, the model only needs to know it succeeded.
+        content: JSON.stringify({
+          note: 'The generated image is displayed to the user in the chat.',
+          model,
+          images: attachments.map((attachment) =>
+            attachment.url.startsWith('data:')
+              ? '[inline image]'
+              : attachment.url
+          ),
+        }),
+        summary: prompt,
+        attachments,
+      }
+    } catch (error) {
+      if (ctx.signal?.aborted) {
+        throw error
+      }
+      lastError = error
+    }
+  }
+
+  if (!fallbackModel && !isImageCapableModel(ctx.config.model)) {
+    throw new Error(ERROR_MESSAGES.IMAGE_MODEL_UNAVAILABLE)
+  }
+
+  const { errorMessage } = parseRequestErrorDetails(lastError)
+  throw new Error(errorMessage)
 }
 
 async function executeWebSearch(
@@ -157,6 +178,18 @@ async function executeFetchPage(
   }
 }
 
+function executeThink(args: Record<string, unknown>): ToolExecutionOutcome {
+  const thought = getStringArg(args, 'thought')
+  if (!thought) {
+    throw new Error(ERROR_MESSAGES.TOOL_ARGS_INVALID)
+  }
+
+  return {
+    content: JSON.stringify({ recorded: true }),
+    thought,
+  }
+}
+
 function executeUpdatePlan(
   args: Record<string, unknown>
 ): ToolExecutionOutcome {
@@ -194,5 +227,7 @@ export async function executePlaygroundTool(
       return executeFetchPage(args, ctx)
     case 'update_plan':
       return executeUpdatePlan(args)
+    case 'think':
+      return executeThink(args)
   }
 }

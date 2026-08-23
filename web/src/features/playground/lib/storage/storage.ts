@@ -22,6 +22,7 @@ import type {
   ParameterEnabled,
   PlaygroundToolsEnabled,
   Message,
+  ThinkingLevel,
 } from '../../types'
 import {
   finalizeMessage,
@@ -46,6 +47,7 @@ import {
   messagesSchema,
   parameterEnabledSchema,
   playgroundConfigSchema,
+  thinkingSettingsSchema,
   toolsEnabledSchema,
 } from './storage-schema'
 
@@ -425,6 +427,40 @@ export function saveToolsEnabled(
 }
 
 /**
+ * Load forced-thinking settings from localStorage
+ */
+export function loadThinkingSettings(): {
+  enabled?: boolean
+  level?: ThinkingLevel
+} {
+  try {
+    const saved = readStoredValue(STORAGE_KEYS.THINKING)
+    if (!saved) return {}
+
+    return thinkingSettingsSchema.parse(unwrapStoredValue(saved))
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to load thinking settings:', error)
+  }
+  return {}
+}
+
+/**
+ * Save forced-thinking settings to localStorage
+ */
+export function saveThinkingSettings(settings: {
+  enabled: boolean
+  level: ThinkingLevel
+}): void {
+  try {
+    writeStoredValue(STORAGE_KEYS.THINKING, settings)
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to save thinking settings:', error)
+  }
+}
+
+/**
  * Load messages from localStorage
  */
 export function loadMessages(): Message[] | null {
@@ -485,6 +521,7 @@ export function clearPlaygroundData(): void {
     localStorage.removeItem(STORAGE_KEYS.CONFIG)
     localStorage.removeItem(STORAGE_KEYS.PARAMETER_ENABLED)
     localStorage.removeItem(STORAGE_KEYS.TOOLS_ENABLED)
+    localStorage.removeItem(STORAGE_KEYS.THINKING)
     localStorage.removeItem(STORAGE_KEYS.MESSAGES)
     localStorage.removeItem(STORAGE_KEYS.IMAGES)
   } catch (error) {

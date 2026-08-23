@@ -32,12 +32,11 @@ import {
 import type {
   ParameterEnabled,
   PlaygroundConfig,
-  PlaygroundToolId,
-  PlaygroundToolsEnabled,
+  ThinkingLevel,
 } from '../../types'
 import { PlaygroundAttachmentMenu } from './playground-attachment-menu'
 import { PlaygroundParameterPanel } from './playground-parameter-panel'
-import { PlaygroundToolsMenu } from './playground-tools-menu'
+import { PlaygroundThinkingControls } from './playground-thinking-controls'
 
 type PlaygroundInputToolsProps = {
   config: PlaygroundConfig
@@ -53,8 +52,10 @@ type PlaygroundInputToolsProps = {
     value: boolean
   ) => void
   parameterEnabled: ParameterEnabled
-  toolsEnabled: PlaygroundToolsEnabled
-  onToolsEnabledChange: (tool: PlaygroundToolId, value: boolean) => void
+  thinking: { enabled: boolean; level: ThinkingLevel }
+  onThinkingChange: (
+    patch: Partial<{ enabled: boolean; level: ThinkingLevel }>
+  ) => void
 }
 
 export function PlaygroundInputTools(props: PlaygroundInputToolsProps) {
@@ -67,10 +68,11 @@ export function PlaygroundInputTools(props: PlaygroundInputToolsProps) {
         onAppendText={props.onAppendText}
       />
 
-      <PlaygroundToolsMenu
+      <PlaygroundThinkingControls
         disabled={props.disabled}
-        onToolsEnabledChange={props.onToolsEnabledChange}
-        toolsEnabled={props.toolsEnabled}
+        enabled={props.thinking.enabled}
+        level={props.thinking.level}
+        onChange={props.onThinkingChange}
       />
 
       <PlaygroundParameterPanel

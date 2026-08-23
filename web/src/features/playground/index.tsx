@@ -16,30 +16,21 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback } from 'react'
-
 import { PlaygroundChat } from './components/chat/playground-chat'
 import { PlaygroundInput } from './components/input/playground-input'
-import type { PlanTableAction } from './components/message/playground-plan-table'
+import { DEFAULT_TOOLS_ENABLED } from './constants'
 import {
   useChatHandler,
   usePlaygroundConversation,
   usePlaygroundOptions,
   usePlaygroundState,
 } from './hooks'
-import {
-  appendPlanStep,
-  removePlanStep,
-  renamePlanStep,
-  togglePlanStep,
-} from './lib'
-import type { Message } from './types'
 
 export function Playground() {
   const {
     config,
     parameterEnabled,
-    toolsEnabled,
+    thinking,
     messages,
     isLoadingMessages,
     models,
@@ -49,14 +40,17 @@ export function Playground() {
     setGroups,
     updateConfig,
     updateParameterEnabled,
-    updateToolsEnabled,
+    updateThinking,
     clearMessages,
   } = usePlaygroundState()
 
   const { sendChat, stopGeneration, isGenerating } = useChatHandler({
     config,
     parameterEnabled,
-    toolsEnabled,
+    toolsEnabled: DEFAULT_TOOLS_ENABLED,
+    models,
+    thinkingEnabled: thinking.enabled,
+    thinkingLevel: thinking.level,
     onMessageUpdate: updateMessages,
   })
 
@@ -79,37 +73,6 @@ export function Playground() {
     stopGeneration()
     clearMessages()
   }
-
-  const handlePlanAction = useCallback(
-    (message: Message, action: PlanTableAction) => {
-      updateMessages((prev) =>
-        prev.map((item) => {
-          if (item.key !== message.key || !item.plan) {
-            return item
-          }
-
-          let plan = item.plan
-          switch (action.type) {
-            case 'toggle':
-              plan = togglePlanStep(plan, action.stepId)
-              break
-            case 'rename':
-              plan = renamePlanStep(plan, action.stepId, action.title)
-              break
-            case 'remove':
-              plan = removePlanStep(plan, action.stepId)
-              break
-            case 'add':
-              plan = appendPlanStep(plan, action.title)
-              break
-          }
-
-          return { ...item, plan }
-        })
-      )
-    },
-    [updateMessages]
-  )
 
   const isBusy = isGenerating
 
@@ -137,7 +100,6 @@ export function Playground() {
           onCancelEdit={handleEditOpenChange}
           onSaveEdit={(newContent) => applyEdit(newContent, false)}
           onSaveEditAndSubmit={(newContent) => applyEdit(newContent, true)}
-          onPlanAction={handlePlanAction}
         />
       </div>
 
@@ -159,9 +121,9 @@ export function Playground() {
           onParameterEnabledChange={updateParameterEnabled}
           onStop={stopGeneration}
           onSubmit={handleSendMessage}
-          onToolsEnabledChange={updateToolsEnabled}
+          onThinkingChange={updateThinking}
           parameterEnabled={parameterEnabled}
-          toolsEnabled={toolsEnabled}
+          thinking={thinking}
         />
       </div>
     </div>

@@ -28,21 +28,16 @@ import {
   buildChatApiPayload,
 } from '../streaming/payload-builder'
 import { fetchPageWithFallback, isFetchablePageUrl } from '../tools/page-fetch'
-import {
-  getToolProviderKeys,
-  setToolProviderKeys,
-} from '../tools/provider-keys'
-import {
-  appendPlanStep,
-  normalizePlanSteps,
-  togglePlanStep,
-} from '../tools/plan-utils'
+import { normalizePlanSteps } from '../tools/plan-utils'
 import {
   mergeToolCallDeltas,
   parseToolArguments,
   truncateToolResult,
 } from '../tools/tool-call-utils'
-import { buildPlaygroundToolDefinitions } from '../tools/tool-definitions'
+import {
+  buildPlaygroundToolDefinitions,
+  buildThinkingSystemPrompt,
+} from '../tools/tool-definitions'
 import { searchWebWithFallback } from '../tools/web-search'
 
 function mockFetchSequence(
@@ -63,45 +58,20 @@ function mockFetchSequence(
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  window.localStorage.clear()
-})
-
-describe('tool provider keys', () => {
-  it('round-trips keys through localStorage and strips empties', () => {
-    setToolProviderKeys({ tavily: ' tvly-abc ', firecrawl: '' })
-    expect(getToolProviderKeys()).toEqual({ tavily: 'tvly-abc' })
-  })
-
-  it('removes the stored entry when every key is cleared', () => {
-    setToolProviderKeys({ tavily: 'tvly-abc', firecrawl: 'fc-1' })
-    setToolProviderKeys({ tavily: '', firecrawl: '' })
-    expect(getToolProviderKeys()).toEqual({})
-    expect(window.localStorage.getItem('playground_tool_api_keys')).toBeNull()
-  })
-
-  it('sends the Tavily key in the request body when configured', async () => {
-    setToolProviderKeys({ tavily: 'tvly-secret', firecrawl: '' })
-    let capturedBody = ''
-    vi.stubGlobal('fetch', async (_input: RequestInfo | URL, init?: RequestInit) => {
-      capturedBody = String(init?.body ?? '')
-      return new Response(JSON.stringify({ results: [{ url: 'https://a.com' }] }), {
-        status: 200,
-      })
-    })
-
-    await searchWebWithFallback('q', 1)
-    expect(capturedBody).toContain('tvly-secret')
-  })
 })
 
 describe('searchWebWithFallback', () => {
-  it('returns Tavily results when the first provider succeeds', async () => {
+  it('returns Firecrawl results when the first provider succeeds', async () => {
     mockFetchSequence([
       () =>
         new Response(
           JSON.stringify({
-            results: [
-              { title: 'Docs', url: 'https://example.com', content: 'info' },
+            data: [
+              {
+                title: 'Docs',
+                url: 'https://example.com',
+                description: 'info',
+              },
             ],
           }),
           { status: 200 }
@@ -110,23 +80,23 @@ describe('searchWebWithFallback', () => {
 
     const outcome = await searchWebWithFallback('new-api', 3)
 
-    expect(outcome.provider).toBe('tavily')
+    expect(outcome.provider).toBe('firecrawl')
     expect(outcome.results).toEqual([
       { title: 'Docs', url: 'https://example.com', snippet: 'info' },
     ])
   })
 
-  it('falls back to Firecrawl when Tavily rejects the request', async () => {
+  it('falls back to Tavily when Firecrawl rejects the request', async () => {
     const calls = mockFetchSequence([
       () => new Response('forbidden', { status: 403 }),
       () =>
         new Response(
           JSON.stringify({
-            data: [
+            results: [
               {
-                url: 'https://firecrawl.dev',
-                title: 'Firecrawl result',
-                description: 'scraping API',
+                url: 'https://tavily.com',
+                title: 'Tavily result',
+                content: 'search API',
               },
             ],
           }),
@@ -134,18 +104,18 @@ describe('searchWebWithFallback', () => {
         ),
     ])
 
-    const outcome = await searchWebWithFallback('firecrawl', 3)
+    const outcome = await searchWebWithFallback('tavily', 3)
 
-    expect(outcome.provider).toBe('firecrawl')
+    expect(outcome.provider).toBe('tavily')
     expect(outcome.results).toEqual([
       {
-        title: 'Firecrawl result',
-        url: 'https://firecrawl.dev',
-        snippet: 'scraping API',
+        title: 'Tavily result',
+        url: 'https://tavily.com',
+        snippet: 'search API',
       },
     ])
-    expect(calls[0]).toContain('tavily.com')
-    expect(calls[1]).toContain('firecrawl.dev')
+    expect(calls[0]).toContain('firecrawl.dev')
+    expect(calls[1]).toContain('tavily.com')
   })
 
   it('reports both provider errors when each one fails', async () => {
@@ -157,17 +127,19 @@ describe('searchWebWithFallback', () => {
     ])
 
     await expect(searchWebWithFallback('anything', 2)).rejects.toThrow(
-      /tavily: network down; firecrawl: HTTP 502/
+      /firecrawl: network down; tavily: HTTP 502/
     )
   })
 
   it('treats an empty result set as a failure and falls back', async () => {
     const calls = mockFetchSequence([
-      () => new Response(JSON.stringify({ results: [] }), { status: 200 }),
+      () => new Response(JSON.stringify({ data: [] }), { status: 200 }),
       () =>
         new Response(
           JSON.stringify({
-            data: [{ url: 'https://example.com', title: 'Hit', content: 'x' }],
+            results: [
+              { url: 'https://example.com', title: 'Hit', content: 'x' },
+            ],
           }),
           { status: 200 }
         ),
@@ -175,38 +147,36 @@ describe('searchWebWithFallback', () => {
 
     const outcome = await searchWebWithFallback('query', 2)
 
-    expect(outcome.provider).toBe('firecrawl')
+    expect(outcome.provider).toBe('tavily')
     expect(calls).toHaveLength(2)
   })
 })
 
 describe('fetchPageWithFallback', () => {
-  it('returns Tavily extracted content on success', async () => {
-    mockFetchSequence([
+  it('returns Jina reader content on success', async () => {
+    mockFetchSequence([() => new Response('# Hello', { status: 200 })])
+
+    const page = await fetchPageWithFallback('https://example.com')
+
+    expect(page.provider).toBe('jina')
+    expect(page.content).toBe('# Hello')
+  })
+
+  it('falls back to Tavily when the Jina reader fails', async () => {
+    const calls = mockFetchSequence([
+      () => new Response('nope', { status: 500 }),
       () =>
         new Response(
-          JSON.stringify({ results: [{ raw_content: '# Hello' }] }),
+          JSON.stringify({ results: [{ raw_content: 'page body' }] }),
           { status: 200 }
         ),
     ])
 
-    const page = await fetchPageWithFallback('https://example.com')
-
-    expect(page.provider).toBe('tavily')
-    expect(page.content).toBe('# Hello')
-  })
-
-  it('falls back to r.jina.ai when Tavily finds nothing', async () => {
-    const calls = mockFetchSequence([
-      () => new Response(JSON.stringify({ results: [] }), { status: 200 }),
-      () => new Response('page body', { status: 200 }),
-    ])
-
     const page = await fetchPageWithFallback('https://example.com/docs')
 
-    expect(page.provider).toBe('jina')
+    expect(page.provider).toBe('tavily')
     expect(page.content).toBe('page body')
-    expect(calls[1]).toBe('https://r.jina.ai/https://example.com/docs')
+    expect(calls[0]).toBe('https://r.jina.ai/https://example.com/docs')
   })
 
   it('rejects when every provider fails', async () => {
@@ -216,7 +186,7 @@ describe('fetchPageWithFallback', () => {
     ])
 
     await expect(fetchPageWithFallback('https://example.com')).rejects.toThrow(
-      /tavily: HTTP 500; jina: HTTP 404/
+      /jina: HTTP 500; tavily: HTTP 404/
     )
   })
 })
@@ -305,14 +275,6 @@ describe('plan utils', () => {
     expect(steps[1]).toMatchObject({ title: 'write', status: 'pending' })
     expect(steps[2]).toMatchObject({ title: 'ship', status: 'pending' })
   })
-
-  it('lets the user toggle a step between done and pending', () => {
-    const plan = appendPlanStep([], 'draft')
-    const completed = togglePlanStep(plan, plan[0].id)
-    expect(completed[0].status).toBe('completed')
-    const reopened = togglePlanStep(completed, plan[0].id)
-    expect(reopened[0].status).toBe('pending')
-  })
 })
 
 describe('buildPlaygroundToolDefinitions', () => {
@@ -328,6 +290,32 @@ describe('buildPlaygroundToolDefinitions', () => {
       'generate_image',
       'web_search',
     ])
+  })
+
+  it('adds the think tool only when forced thinking is on', () => {
+    const base = {
+      generate_image: false,
+      web_search: false,
+      fetch_page: false,
+      update_plan: false,
+    }
+
+    expect(
+      buildPlaygroundToolDefinitions(base).map((tool) => tool.function.name)
+    ).toEqual([])
+    expect(
+      buildPlaygroundToolDefinitions(base, true).map(
+        (tool) => tool.function.name
+      )
+    ).toEqual(['think'])
+  })
+})
+
+describe('buildThinkingSystemPrompt', () => {
+  it('embeds the depth instruction of the selected level', () => {
+    expect(buildThinkingSystemPrompt('lite')).toContain('extremely brief')
+    expect(buildThinkingSystemPrompt('ultra')).toContain('exhaustively')
+    expect(buildThinkingSystemPrompt('medium')).toContain('moderate detail')
   })
 })
 

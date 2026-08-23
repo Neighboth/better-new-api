@@ -21,18 +21,22 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   DEFAULT_CONFIG,
   DEFAULT_PARAMETER_ENABLED,
+  DEFAULT_THINKING_ENABLED,
+  DEFAULT_THINKING_LEVEL,
   DEFAULT_TOOLS_ENABLED,
 } from '../constants'
 import {
   saveConfig,
   saveParameterEnabled,
   saveToolsEnabled,
+  saveThinkingSettings,
   saveMessages,
   applyMessageStateUpdate,
   getInitialParameterEnabled,
   getInitialPlaygroundConfig,
   getInitialToolsEnabled,
   loadMessages,
+  loadThinkingSettings,
   type MessageStateUpdater,
 } from '../lib'
 import type {
@@ -43,6 +47,7 @@ import type {
   PlaygroundToolsEnabled,
   ModelOption,
   GroupOption,
+  ThinkingLevel,
 } from '../types'
 
 const MESSAGE_SAVE_DEBOUNCE_MS = 500
@@ -63,6 +68,17 @@ export function usePlaygroundState() {
   const [toolsEnabled, setToolsEnabled] = useState<PlaygroundToolsEnabled>(
     getInitialToolsEnabled
   )
+
+  const [thinking, setThinking] = useState<{
+    enabled: boolean
+    level: ThinkingLevel
+  }>(() => {
+    const saved = loadThinkingSettings()
+    return {
+      enabled: saved.enabled ?? DEFAULT_THINKING_ENABLED,
+      level: saved.level ?? DEFAULT_THINKING_LEVEL,
+    }
+  })
 
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoadingMessages, setIsLoadingMessages] = useState(true)
@@ -156,6 +172,18 @@ export function usePlaygroundState() {
     []
   )
 
+  // Update forced-thinking settings with automatic save
+  const updateThinking = useCallback(
+    (patch: Partial<{ enabled: boolean; level: ThinkingLevel }>) => {
+      setThinking((prev) => {
+        const updated = { ...prev, ...patch }
+        saveThinkingSettings(updated)
+        return updated
+      })
+    },
+    []
+  )
+
   // Update messages with automatic save
   const updateMessages = useCallback(
     (updater: MessageStateUpdater) => {
@@ -188,6 +216,7 @@ export function usePlaygroundState() {
     config,
     parameterEnabled,
     toolsEnabled,
+    thinking,
     messages,
     isLoadingMessages,
     models,
@@ -201,6 +230,7 @@ export function usePlaygroundState() {
     updateConfig,
     updateParameterEnabled,
     updateToolsEnabled,
+    updateThinking,
     updateMessages,
     clearMessages,
     resetConfig,

@@ -17,8 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { ERROR_MESSAGES, MAX_TOOL_RESULT_CHARS } from '../../constants'
-
-import { getToolProviderKeys } from './provider-keys'
 import { truncateToolResult } from './tool-call-utils'
 
 const TAVILY_EXTRACT_URL = 'https://api.tavily.com/extract'
@@ -49,14 +47,10 @@ async function fetchWithTavily(
   url: string,
   signal: AbortSignal | undefined
 ): Promise<string> {
-  const apiKey = getToolProviderKeys().tavily
   const response = await fetch(TAVILY_EXTRACT_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      urls: [url],
-      ...(apiKey ? { api_key: apiKey } : {}),
-    }),
+    body: JSON.stringify({ urls: [url] }),
     signal: withTimeout(signal),
   })
 
@@ -100,16 +94,17 @@ async function fetchWithJina(
 }
 
 /**
- * Fetch readable page content from the browser, falling back to the Jina
- * reader when the Tavily extractor fails.
+ * Fetch readable page content from the browser, falling back to the next
+ * provider when one fails. The Jina reader goes first because it works
+ * keyless most reliably.
  */
 export async function fetchPageWithFallback(
   url: string,
   signal?: AbortSignal
 ): Promise<PageFetchOutcome> {
   const providers = [
-    { name: 'tavily' as const, run: fetchWithTavily },
     { name: 'jina' as const, run: fetchWithJina },
+    { name: 'tavily' as const, run: fetchWithTavily },
   ]
 
   const errors: string[] = []

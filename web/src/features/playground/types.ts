@@ -40,8 +40,15 @@ export type PlaygroundToolId =
   | 'web_search'
   | 'fetch_page'
   | 'update_plan'
+  | 'think'
 
-export type PlaygroundToolsEnabled = Record<PlaygroundToolId, boolean>
+// Tools that are always offered to the model. `think` is added dynamically
+// when the user forces thinking on a model without native reasoning.
+export type AlwaysOnToolId = Exclude<PlaygroundToolId, 'think'>
+
+export type PlaygroundToolsEnabled = Record<AlwaysOnToolId, boolean>
+
+export type ThinkingLevel = 'lite' | 'low' | 'medium' | 'high' | 'ultra'
 
 export type PlanStepStatus = 'pending' | 'in_progress' | 'completed'
 
@@ -62,6 +69,21 @@ export interface ToolEvent {
   error?: string
   startedAt?: number
   completedAt?: number
+  /**
+   * Character offset into the assistant content where the call happened, so
+   * transient indicators render at the usage position instead of the top.
+   */
+  anchor?: number
+}
+
+/** A think-tool thought rendered exactly like a native reasoning block. */
+export interface ThoughtBlock {
+  id: string
+  content: string
+  /** Character offset into the assistant content where the thought occurred. */
+  anchor: number
+  startedAt?: number
+  completedAt?: number
 }
 
 export interface Message {
@@ -75,6 +97,7 @@ export interface Message {
   durationMs?: number
   sources?: { href: string; title: string }[]
   toolEvents?: ToolEvent[]
+  thoughts?: ThoughtBlock[]
   plan?: PlanStep[]
   activeTool?: string | null
   reasoning?: {

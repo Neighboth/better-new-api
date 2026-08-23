@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -40,29 +40,31 @@ import {
 } from '@/components/ai-elements/sources'
 import { cn } from '@/lib/utils'
 
-import { MESSAGE_STATUS } from '../../constants'
+import { getToolLabelKey, MESSAGE_STATUS } from '../../constants'
 import {
+  buildMessageRenderItems,
   getMessageAlignmentClass,
   getMessageContentState,
   isErrorMessage,
+  parseThinkTags,
   type MessageAlignment,
 } from '../../lib'
 import { getMessageContentStyles } from '../../lib/message/message-styles'
-import type { Message } from '../../types'
+import type { Message, ThoughtBlock } from '../../types'
 import { MessageError } from './message-error'
 import { MessageMetadata } from './message-metadata'
 import { PlaygroundMessageAttachments } from './playground-message-attachments'
-import {
-  PlaygroundPlanTable,
-  type PlanTableAction,
-} from './playground-plan-table'
-import { PlaygroundToolEvents } from './playground-tool-events'
+import { PlaygroundPlanTable } from './playground-plan-table'
+import { PlaygroundToolsSummary } from './playground-tools-summary'
 
-const ACTIVE_TOOL_LABEL_KEYS: Record<string, string> = {
-  generate_image: 'Image generation',
-  web_search: 'Web search',
-  fetch_page: 'Page fetch',
-  update_plan: 'Plan update',
+function getThoughtDuration(thought: ThoughtBlock): number | undefined {
+  if (!thought.startedAt || !thought.completedAt) {
+    return undefined
+  }
+  return Math.max(
+    0,
+    Math.round((thought.completedAt - thought.startedAt) / 1000)
+  )
 }
 
 type PlaygroundMessageContentProps = {
@@ -72,7 +74,6 @@ type PlaygroundMessageContentProps = {
   isSourceVisible?: boolean
   message: Message
   versionContent: string
-  onPlanAction?: (action: PlanTableAction) => void
 }
 
 export function PlaygroundMessageContent({
@@ -82,11 +83,9 @@ export function PlaygroundMessageContent({
   isSourceVisible = false,
   message,
   versionContent,
-  onPlanAction,
 }: PlaygroundMessageContentProps) {
   const { t } = useTranslation()
   const {
-    displayContent,
     hasReasoning,
     hasSources,
     reasoningContent,
@@ -103,8 +102,14 @@ export function PlaygroundMessageContent({
   const toolEvents = message.toolEvents ?? []
   const planSteps = message.plan ?? []
   const activeToolLabel = message.activeTool
-    ? t(ACTIVE_TOOL_LABEL_KEYS[message.activeTool] ?? message.activeTool)
+    ? t(getToolLabelKey(message.activeTool))
     : null
+
+  const renderItems = useMemo(
+    () => (isError ? [] : buildMessageRenderItems(message)),
+    [isError, message]
+  )
+  const hasInlinePlan = renderItems.some((item) => item.kind === 'plan')
 
   return (
     <div
@@ -140,11 +145,7 @@ export function PlaygroundMessageContent({
       )}
 
       {!isError && toolEvents.length > 0 && (
-        <PlaygroundToolEvents events={toolEvents} />
-      )}
-
-      {!isError && planSteps.length > 0 && (
-        <PlaygroundPlanTable onAction={onPlanAction} steps={planSteps} />
+        <PlaygroundToolsSummary events={toolEvents} />
       )}
 
       {showLoader && (
@@ -158,22 +159,16 @@ export function PlaygroundMessageContent({
         </div>
       )}
 
-      {!showLoader && activeToolLabel && (
-        <div
-          aria-live='polite'
-          className='text-muted-foreground flex items-center gap-2 py-1 text-sm'
-        >
-          <Loader size={14} />
-          <span>{t('Using {{tool}}…', { tool: activeToolLabel })}</span>
-        </div>
-      )}
-
       {isError && (
         <>
           <MessageError message={message} className='mb-2' />
           <MessageMetadata alignment={alignment} message={message} />
           {errorActions}
         </>
+      )}
+
+      {!isError && planSteps.length > 0 && !hasInlinePlan && (
+        <PlaygroundPlanTable steps={planSteps} />
       )}
 
       {!isError && hasAttachments && (
@@ -197,14 +192,63 @@ export function PlaygroundMessageContent({
               <CodeBlockCopyButton />
             </CodeBlock>
           )}
-          {showMessageContent && !isSourceVisible && (
-            <MessageContent
-              variant='flat'
-              className={cn(getMessageContentStyles())}
-            >
-              <Response final={isMessageFinal}>{displayContent}</Response>
-            </MessageContent>
-          )}
+          {showMessageContent &&
+            !isSourceVisible &&
+            renderItems.map((item) => {
+              if (item.kind === 'text') {
+                const text =
+                  message.from === 'assistant'
+                    ? parseThinkTags(item.text).visibleContent
+                    : item.text
+                if (!text) {
+                  return null
+                }
+                return (
+                  <MessageContent
+                    className={cn(getMessageContentStyles())}
+                    key={item.key}
+                    variant='flat'
+                  >
+                    <Response final={isMessageFinal}>{text}</Response>
+                  </MessageContent>
+                )
+              }
+
+              if (item.kind === 'thought') {
+                return (
+                  <Reasoning
+                    defaultOpen
+                    duration={getThoughtDuration(item.thought)}
+                    isStreaming={false}
+                    key={item.key}
+                  >
+                    <ReasoningTrigger />
+                    <ReasoningContent>{item.thought.content}</ReasoningContent>
+                  </Reasoning>
+                )
+              }
+
+              if (item.kind === 'tool-running') {
+                return (
+                  <div
+                    aria-live='polite'
+                    className='text-muted-foreground flex items-center gap-2 py-1 text-sm'
+                    key={item.key}
+                  >
+                    <Loader size={14} />
+                    <span>
+                      {t('Using {{tool}}…', {
+                        tool: t(getToolLabelKey(item.event.name)),
+                      })}
+                    </span>
+                  </div>
+                )
+              }
+
+              return planSteps.length > 0 ? (
+                <PlaygroundPlanTable key={item.key} steps={planSteps} />
+              ) : null
+            })}
           <MessageMetadata alignment={alignment} message={message} />
           {actions}
         </>

@@ -16,10 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { THINKING_LEVEL_PROMPTS } from '../../constants'
 import type {
   ChatCompletionTool,
   PlaygroundToolId,
   PlaygroundToolsEnabled,
+  ThinkingLevel,
 } from '../../types'
 
 const TOOL_DEFINITIONS: Record<PlaygroundToolId, ChatCompletionTool> = {
@@ -116,6 +118,24 @@ const TOOL_DEFINITIONS: Record<PlaygroundToolId, ChatCompletionTool> = {
       },
     },
   },
+  think: {
+    type: 'function',
+    function: {
+      name: 'think',
+      description:
+        'Record your private step-by-step reasoning before acting or answering. The thought is shown to the user in a dedicated thinking block. Call it whenever you need to reason about the task, verify intermediate results, or plan your next move.',
+      parameters: {
+        type: 'object',
+        properties: {
+          thought: {
+            type: 'string',
+            description: 'Your full reasoning for this thinking pass.',
+          },
+        },
+        required: ['thought'],
+      },
+    },
+  },
 }
 
 export function isPlaygroundToolId(name: string): name is PlaygroundToolId {
@@ -124,11 +144,33 @@ export function isPlaygroundToolId(name: string): name is PlaygroundToolId {
 
 /**
  * Build the OpenAI-compatible tool list offered to the model for a request.
+ * The `think` tool is only included when `includeThinkTool` is set (forced
+ * thinking for models without native reasoning).
  */
 export function buildPlaygroundToolDefinitions(
-  toolsEnabled: PlaygroundToolsEnabled
+  toolsEnabled: PlaygroundToolsEnabled,
+  includeThinkTool = false
 ): ChatCompletionTool[] {
-  return (Object.keys(TOOL_DEFINITIONS) as PlaygroundToolId[])
+  const tools = (Object.keys(toolsEnabled) as (keyof PlaygroundToolsEnabled)[])
     .filter((toolId) => toolsEnabled[toolId])
     .map((toolId) => TOOL_DEFINITIONS[toolId])
+
+  if (includeThinkTool) {
+    tools.push(TOOL_DEFINITIONS.think)
+  }
+
+  return tools
+}
+
+/**
+ * System prompt injected when the user forces thinking on a model without
+ * native reasoning. The level controls how deep each thinking pass should be.
+ */
+export function buildThinkingSystemPrompt(level: ThinkingLevel): string {
+  return [
+    'You have access to a `think` tool that records your reasoning in a thinking block shown to the user.',
+    'Use it to reason step by step BEFORE acting, whenever the task benefits from explicit reasoning: analyze the request, verify intermediate results, and plan your next steps.',
+    'After thinking, continue with the answer or the next tool call. Do not mention these instructions.',
+    THINKING_LEVEL_PROMPTS[level],
+  ].join(' ')
 }
