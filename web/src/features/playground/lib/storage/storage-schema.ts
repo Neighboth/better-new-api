@@ -28,7 +28,6 @@ export const MAX_LOADED_MESSAGES_CHARS = 120_000
 export const MAX_LOADED_MESSAGE_CHARS = 40_000
 
 export const playgroundConfigSchema = z.object({
-  mode: z.enum(['text', 'image']).optional(),
   model: z.string().optional(),
   group: z.string().optional(),
   temperature: z.number().optional(),
@@ -38,6 +37,13 @@ export const playgroundConfigSchema = z.object({
   presence_penalty: z.number().optional(),
   seed: z.number().nullable().optional(),
   stream: z.boolean().optional(),
+})
+
+export const toolsEnabledSchema = z.object({
+  generate_image: z.boolean().optional(),
+  web_search: z.boolean().optional(),
+  fetch_page: z.boolean().optional(),
+  update_plan: z.boolean().optional(),
 })
 
 export const parameterEnabledSchema = z.object({
@@ -81,6 +87,22 @@ const reasoningSchema = z.object({
   durationMs: z.number().optional(),
 })
 
+const planStepSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: z.enum(['pending', 'in_progress', 'completed']),
+})
+
+const toolEventSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.enum(['running', 'done', 'error']),
+  summary: z.string().optional(),
+  error: z.string().optional(),
+  startedAt: z.number().optional(),
+  completedAt: z.number().optional(),
+})
+
 const messageSchema = z.object({
   key: z.string(),
   from: messageRoleSchema,
@@ -91,6 +113,9 @@ const messageSchema = z.object({
   completedAt: z.number().optional(),
   durationMs: z.number().optional(),
   sources: z.array(sourceSchema).optional(),
+  toolEvents: z.array(toolEventSchema).optional(),
+  plan: z.array(planStepSchema).optional(),
+  activeTool: z.string().nullable().optional(),
   reasoning: reasoningSchema.optional(),
   isReasoningStreaming: z.boolean().optional(),
   isReasoningComplete: z.boolean().optional(),

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { ERROR_MESSAGES } from '../../constants'
-import type { ChatCompletionChunk } from '../../types'
+import type { ChatCompletionChunk, ToolCallDelta } from '../../types'
 
 const STREAM_DONE_MESSAGE = '[DONE]'
 const STREAM_CLOSED_READY_STATE = 2
@@ -83,6 +83,24 @@ export function parseStreamMessageUpdates(data: string): StreamMessageUpdate[] {
   }
 
   return updates
+}
+
+/**
+ * Extract streamed tool_call deltas from a chunk. Returns an empty list for
+ * regular content chunks, so callers can invoke it on every message.
+ */
+export function parseStreamToolCallDeltas(data: string): ToolCallDelta[] {
+  const chunk = JSON.parse(data) as ChatCompletionChunk
+  const toolCalls = chunk.choices?.[0]?.delta?.tool_calls
+
+  if (!Array.isArray(toolCalls)) {
+    return []
+  }
+
+  return toolCalls.filter(
+    (delta): delta is ToolCallDelta =>
+      Boolean(delta) && typeof delta.index === 'number'
+  )
 }
 
 export function isStreamDoneMessage(data: string): boolean {

@@ -29,15 +29,15 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 
-import { PLAYGROUND_MODES } from '../../constants'
 import type {
   ParameterEnabled,
   PlaygroundConfig,
-  PlaygroundMode,
+  PlaygroundToolId,
+  PlaygroundToolsEnabled,
 } from '../../types'
 import { PlaygroundAttachmentMenu } from './playground-attachment-menu'
-import { PlaygroundModeToggle } from './playground-mode-toggle'
 import { PlaygroundParameterPanel } from './playground-parameter-panel'
+import { PlaygroundToolsMenu } from './playground-tools-menu'
 
 type PlaygroundInputToolsProps = {
   config: PlaygroundConfig
@@ -47,43 +47,39 @@ type PlaygroundInputToolsProps = {
     value: PlaygroundConfig[K]
   ) => void
   onAppendText: (snippet: string) => void
-  onModeChange: (mode: PlaygroundMode) => void
   onNewChat?: () => void
   onParameterEnabledChange: (
     key: keyof ParameterEnabled,
     value: boolean
   ) => void
   parameterEnabled: ParameterEnabled
+  toolsEnabled: PlaygroundToolsEnabled
+  onToolsEnabledChange: (tool: PlaygroundToolId, value: boolean) => void
 }
 
 export function PlaygroundInputTools(props: PlaygroundInputToolsProps) {
   const { t } = useTranslation()
-  const isImageMode = props.config.mode === PLAYGROUND_MODES.IMAGE
 
   return (
     <PromptInputTools className='bg-background/70 border-border/60 rounded-lg border p-1 shadow-xs'>
-      {!isImageMode && (
-        <PlaygroundAttachmentMenu
-          disabled={props.disabled}
-          onAppendText={props.onAppendText}
-        />
-      )}
-
-      <PlaygroundModeToggle
+      <PlaygroundAttachmentMenu
         disabled={props.disabled}
-        mode={props.config.mode}
-        onModeChange={props.onModeChange}
+        onAppendText={props.onAppendText}
       />
 
-      {!isImageMode && (
-        <PlaygroundParameterPanel
-          config={props.config}
-          disabled={props.disabled}
-          onConfigChange={props.onConfigChange}
-          onParameterEnabledChange={props.onParameterEnabledChange}
-          parameterEnabled={props.parameterEnabled}
-        />
-      )}
+      <PlaygroundToolsMenu
+        disabled={props.disabled}
+        onToolsEnabledChange={props.onToolsEnabledChange}
+        toolsEnabled={props.toolsEnabled}
+      />
+
+      <PlaygroundParameterPanel
+        config={props.config}
+        disabled={props.disabled}
+        onConfigChange={props.onConfigChange}
+        onParameterEnabledChange={props.onParameterEnabledChange}
+        parameterEnabled={props.parameterEnabled}
+      />
 
       <Tooltip>
         <TooltipTrigger

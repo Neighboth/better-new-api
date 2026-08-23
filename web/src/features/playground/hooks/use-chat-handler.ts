@@ -21,10 +21,19 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { sendChatCompletion } from '../api'
-import { ERROR_MESSAGES } from '../constants'
+import { ERROR_MESSAGES, MAX_TOOL_ROUNDS } from '../constants'
 import {
   applyStreamingChunk,
-  buildChatCompletionPayload,
+  applyToolEventFinish,
+  applyToolEventStart,
+  buildApiTranscript,
+  buildChatApiPayload,
+  buildPlaygroundToolDefinitions,
+  executePlaygroundTool,
+  isPlaygroundToolId,
+  mergeToolCallDeltas,
+  parseToolArguments,
+  summarizeToolCallArguments,
   updateAssistantMessageWithError,
   updateLastAssistantMessage,
   parseRequestErrorDetails,
@@ -34,12 +43,22 @@ import {
   isAssistantMessageFinal,
   isAssistantMessagePending,
 } from '../lib'
-import type { Message, PlaygroundConfig, ParameterEnabled } from '../types'
+import type {
+  ChatCompletionMessage,
+  ChatCompletionTool,
+  Message,
+  PlaygroundConfig,
+  ParameterEnabled,
+  PlaygroundToolsEnabled,
+  ToolCall,
+  ToolCallDelta,
+} from '../types'
 import { useStreamRequest } from './use-stream-request'
 
 interface UseChatHandlerOptions {
   config: PlaygroundConfig
   parameterEnabled: ParameterEnabled
+  toolsEnabled: PlaygroundToolsEnabled
   onMessageUpdate: (updater: (prev: Message[]) => Message[]) => void
 }
 
@@ -50,6 +69,13 @@ type PendingStreamChunks = {
   generation: number
   content: string
   reasoning: string
+}
+
+// Per-round accumulator: the text and tool calls streamed in the current
+// request, so a tool_call round can be appended to the API transcript.
+type RoundState = {
+  content: string
+  toolCalls: ToolCall[]
 }
 
 function mergePendingStreamChunk(
@@ -69,6 +95,7 @@ function mergePendingStreamChunk(
 export function useChatHandler({
   config,
   parameterEnabled,
+  toolsEnabled,
   onMessageUpdate,
 }: UseChatHandlerOptions) {
   const { t } = useTranslation()
@@ -76,6 +103,14 @@ export function useChatHandler({
   const [isRequesting, setIsRequesting] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
   const requestGenerationRef = useRef(0)
+  const transcriptRef = useRef<ChatCompletionMessage[] | null>(null)
+  const toolsRef = useRef<ChatCompletionTool[]>([])
+  const roundStateRef = useRef<RoundState>({ content: '', toolCalls: [] })
+  // Latest round starter, used by the tool loop to kick off the next round
+  // without a circular useCallback dependency.
+  const startRoundRef = useRef<
+    ((generation: number, round: number) => void) | null
+  >(null)
   const pendingStreamChunksRef = useRef<PendingStreamChunks>({
     generation: 0,
     content: '',
@@ -191,6 +226,14 @@ export function useChatHandler({
     (generation: number, type: 'reasoning' | 'content', chunk: string) => {
       if (generation !== requestGenerationRef.current) return
       if (pendingStreamChunksRef.current.generation !== generation) return
+      if (type === 'content') {
+        // Keep the raw per-round text so a tool_call round can be replayed
+        // into the API transcript with its tool_calls.
+        roundStateRef.current.content = mergePendingStreamChunk(
+          roundStateRef.current.content,
+          chunk
+        )
+      }
       pendingStreamChunksRef.current[type] = mergePendingStreamChunk(
         pendingStreamChunksRef.current[type],
         chunk
@@ -200,11 +243,146 @@ export function useChatHandler({
     [scheduleStreamFlush]
   )
 
+  // Accumulate streamed tool_call deltas for the current round
+  const handleToolCallDelta = useCallback(
+    (generation: number, deltas: ToolCallDelta[]) => {
+      if (generation !== requestGenerationRef.current) return
+      roundStateRef.current.toolCalls = mergeToolCallDeltas(
+        roundStateRef.current.toolCalls,
+        deltas
+      )
+    },
+    []
+  )
+
+  // Execute the tool calls of a finished round, then continue the loop
+  const runToolCalls = useCallback(
+    async (generation: number, round: number) => {
+      const transcript = transcriptRef.current
+      if (!transcript) return
+
+      const { content, toolCalls } = roundStateRef.current
+      roundStateRef.current = { content: '', toolCalls: [] }
+      transcript.push({
+        role: 'assistant',
+        content: content || null,
+        tool_calls: toolCalls,
+      })
+
+      const abortController = new AbortController()
+      abortControllerRef.current?.abort()
+      abortControllerRef.current = abortController
+
+      const isCurrent = () =>
+        requestGenerationRef.current === generation &&
+        !abortController.signal.aborted
+
+      for (const call of toolCalls) {
+        if (!isCurrent()) return
+
+        const parsedArgs = parseToolArguments(call.function.arguments)
+        const toolName = isPlaygroundToolId(call.function.name)
+          ? call.function.name
+          : null
+
+        onMessageUpdate((prev) => {
+          if (!isCurrent()) return prev
+          return updateLastAssistantMessage(prev, (message) =>
+            applyToolEventStart(message, {
+              id: call.id,
+              name: call.function.name,
+              status: 'running',
+              summary: summarizeToolCallArguments(parsedArgs),
+              startedAt: Date.now(),
+            })
+          )
+        })
+
+        const finishWithError = (errorText: string) => {
+          transcript.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            name: call.function.name,
+            content: JSON.stringify({ error: errorText }),
+          })
+          onMessageUpdate((prev) => {
+            if (!isCurrent()) return prev
+            return updateLastAssistantMessage(prev, (message) =>
+              applyToolEventFinish(message, call.id, {
+                status: 'error',
+                error: errorText,
+              })
+            )
+          })
+        }
+
+        if (!toolName || !parsedArgs) {
+          finishWithError(
+            toolName
+              ? 'Invalid tool arguments'
+              : `Unknown tool: ${call.function.name}`
+          )
+          continue
+        }
+
+        try {
+          const outcome = await executePlaygroundTool(
+            toolName,
+            call.function.arguments,
+            { config, signal: abortController.signal }
+          )
+          if (!isCurrent()) return
+
+          transcript.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            name: toolName,
+            content: outcome.content,
+          })
+          onMessageUpdate((prev) => {
+            if (!isCurrent()) return prev
+            return updateLastAssistantMessage(prev, (message) =>
+              applyToolEventFinish(message, call.id, {
+                status: 'done',
+                summary: outcome.summary,
+                plan: outcome.plan,
+                attachments: outcome.attachments,
+                sources: outcome.sources,
+              })
+            )
+          })
+        } catch (error) {
+          if (!isCurrent()) return
+          finishWithError(
+            error instanceof Error
+              ? error.message
+              : t(ERROR_MESSAGES.TOOL_CALL_FAILED)
+          )
+        }
+      }
+
+      if (!isCurrent()) return
+      startRoundRef.current?.(generation, round + 1)
+    },
+    [config, onMessageUpdate, t]
+  )
+
   // Handle stream complete
   const handleStreamComplete = useCallback(
-    (generation: number) => {
+    (generation: number, round: number) => {
       if (generation !== requestGenerationRef.current) return
       flushStreamUpdates(generation)
+
+      const toolCalls = roundStateRef.current.toolCalls
+      if (
+        toolCalls.length > 0 &&
+        round < MAX_TOOL_ROUNDS &&
+        transcriptRef.current
+      ) {
+        void runToolCalls(generation, round)
+        return
+      }
+
       setIsRequesting(false)
       onMessageUpdate((prev) => {
         if (generation !== requestGenerationRef.current) return prev
@@ -215,7 +393,7 @@ export function useChatHandler({
         )
       })
     },
-    [flushStreamUpdates, onMessageUpdate]
+    [flushStreamUpdates, onMessageUpdate, runToolCalls]
   )
 
   // Handle stream error
@@ -240,57 +418,55 @@ export function useChatHandler({
     [flushStreamUpdates, getDisplayError, onMessageUpdate, t]
   )
 
-  // Send streaming chat request
-  const sendStreamingChat = useCallback(
-    (messages: Message[]) => {
-      const generation = requestGenerationRef.current + 1
-      requestGenerationRef.current = generation
-      abortControllerRef.current?.abort()
-      abortControllerRef.current = null
-      discardPendingStreamUpdates(generation)
-      setIsRequesting(true)
-      const payload = buildChatCompletionPayload(
-        messages,
+  // Start a streaming request for one round of the tool loop
+  const startStreamRound = useCallback(
+    (generation: number, round: number) => {
+      const transcript = transcriptRef.current
+      if (!transcript) return
+
+      const payload = buildChatApiPayload(
+        transcript,
         config,
-        parameterEnabled
+        parameterEnabled,
+        toolsRef.current
       )
       void sendStreamRequest(
         payload,
         (type, chunk) => handleStreamUpdate(generation, type, chunk),
-        () => handleStreamComplete(generation),
-        (error, errorCode) => handleStreamError(generation, error, errorCode)
+        () => handleStreamComplete(generation, round),
+        (error, errorCode) => handleStreamError(generation, error, errorCode),
+        (deltas) => handleToolCallDelta(generation, deltas)
       )
     },
     [
       config,
       parameterEnabled,
       sendStreamRequest,
-      discardPendingStreamUpdates,
       handleStreamUpdate,
       handleStreamComplete,
       handleStreamError,
+      handleToolCallDelta,
     ]
   )
 
-  // Send non-streaming chat request
-  const sendNonStreamingChat = useCallback(
-    async (messages: Message[]) => {
-      const payload = buildChatCompletionPayload(
-        messages,
-        config,
-        parameterEnabled
-      )
-      const generation = requestGenerationRef.current + 1
-      const abortController = new AbortController()
+  // Run a non-streaming request for one round of the tool loop
+  const runNonStreamingRound = useCallback(
+    async (generation: number, round: number) => {
+      const transcript = transcriptRef.current
+      if (!transcript) return
 
-      requestGenerationRef.current = generation
-      stopStream()
-      discardPendingStreamUpdates(generation)
+      const payload = buildChatApiPayload(
+        transcript,
+        config,
+        parameterEnabled,
+        toolsRef.current
+      )
+      const abortController = new AbortController()
       abortControllerRef.current?.abort()
       abortControllerRef.current = abortController
+      let continued = false
 
       try {
-        setIsRequesting(true)
         const response = await sendChatCompletion(
           payload,
           abortController.signal
@@ -304,6 +480,35 @@ export function useChatHandler({
 
         if (!hasChatCompletionChoice(response)) {
           handleStreamError(generation, ERROR_MESSAGES.API_REQUEST_ERROR)
+          return
+        }
+
+        const choice = response.choices[0]
+        const toolCalls = choice.message.tool_calls ?? []
+
+        if (toolCalls.length > 0 && round < MAX_TOOL_ROUNDS) {
+          const choiceContent = choice.message.content ?? ''
+          const choiceReasoning = choice.message.reasoning_content
+          roundStateRef.current = { content: choiceContent, toolCalls }
+          onMessageUpdate((prev) => {
+            if (requestGenerationRef.current !== generation) return prev
+            return updateLastAssistantMessage(prev, (message) => {
+              let updated = message
+              if (choiceReasoning) {
+                updated = applyStreamingChunk(
+                  updated,
+                  'reasoning',
+                  choiceReasoning
+                )
+              }
+              if (choiceContent) {
+                updated = applyStreamingChunk(updated, 'content', choiceContent)
+              }
+              return updated
+            })
+          })
+          continued = true
+          await runToolCalls(generation, round)
           return
         }
 
@@ -329,32 +534,44 @@ export function useChatHandler({
         const { errorCode, errorMessage } = parseRequestErrorDetails(error)
         handleStreamError(generation, errorMessage, errorCode)
       } finally {
-        if (requestGenerationRef.current === generation) {
+        // A continued round installs its own controller; only release ours.
+        if (abortControllerRef.current === abortController) {
           abortControllerRef.current = null
+        }
+        if (!continued && requestGenerationRef.current === generation) {
           setIsRequesting(false)
         }
       }
     },
-    [
-      config,
-      parameterEnabled,
-      stopStream,
-      discardPendingStreamUpdates,
-      onMessageUpdate,
-      handleStreamError,
-    ]
+    [config, parameterEnabled, onMessageUpdate, handleStreamError, runToolCalls]
   )
+
+  useEffect(() => {
+    startRoundRef.current = (generation, round) => {
+      if (config.stream) {
+        startStreamRound(generation, round)
+      } else {
+        void runNonStreamingRound(generation, round)
+      }
+    }
+  })
 
   // Send chat request (stream or non-stream based on config)
   const sendChat = useCallback(
     (messages: Message[]) => {
-      if (config.stream) {
-        sendStreamingChat(messages)
-      } else {
-        sendNonStreamingChat(messages)
-      }
+      const generation = requestGenerationRef.current + 1
+      requestGenerationRef.current = generation
+      abortControllerRef.current?.abort()
+      abortControllerRef.current = null
+      discardPendingStreamUpdates(generation)
+      stopStream()
+      transcriptRef.current = buildApiTranscript(messages)
+      toolsRef.current = buildPlaygroundToolDefinitions(toolsEnabled)
+      roundStateRef.current = { content: '', toolCalls: [] }
+      setIsRequesting(true)
+      startRoundRef.current?.(generation, 0)
     },
-    [config.stream, sendStreamingChat, sendNonStreamingChat]
+    [toolsEnabled, stopStream, discardPendingStreamUpdates]
   )
 
   // Stop generation
@@ -364,6 +581,8 @@ export function useChatHandler({
     const idleGeneration = stoppedGeneration + 1
     requestGenerationRef.current = idleGeneration
     discardPendingStreamUpdates(idleGeneration)
+    transcriptRef.current = null
+    roundStateRef.current = { content: '', toolCalls: [] }
     stopStream()
     abortControllerRef.current?.abort()
     abortControllerRef.current = null

@@ -42,6 +42,7 @@ import { MessageActions } from '../message/message-actions'
 import { MessageErrorActions } from '../message/message-error-actions'
 import { PlaygroundMessageContent } from '../message/playground-message-content'
 import { PlaygroundMessageEditor } from '../message/playground-message-editor'
+import type { PlanTableAction } from '../message/playground-plan-table'
 import { PlaygroundEmptyState } from './playground-empty-state'
 
 const MAX_RENDERED_HISTORY_MESSAGES = 24
@@ -60,6 +61,7 @@ interface PlaygroundChatProps {
   onCancelEdit?: (open: boolean) => void
   onSaveEditAndSubmit?: (newContent: string) => void
   messageLayoutMode?: PlaygroundMessageLayoutMode
+  onPlanAction?: (message: MessageType, action: PlanTableAction) => void
 }
 
 export function PlaygroundChat({
@@ -76,6 +78,7 @@ export function PlaygroundChat({
   onCancelEdit,
   onSaveEditAndSubmit,
   messageLayoutMode = 'alternating',
+  onPlanAction,
 }: PlaygroundChatProps) {
   const { t } = useTranslation()
   const [editText, setEditText] = useState('')
@@ -163,6 +166,11 @@ export function PlaygroundChat({
               }
               isSourceVisible={isSourceVisible}
               message={message}
+              onPlanAction={
+                onPlanAction
+                  ? (action) => onPlanAction(message, action)
+                  : undefined
+              }
               errorActions={
                 isError ? (
                   <MessageErrorActions

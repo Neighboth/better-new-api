@@ -52,6 +52,18 @@ import type { Message } from '../../types'
 import { MessageError } from './message-error'
 import { MessageMetadata } from './message-metadata'
 import { PlaygroundMessageAttachments } from './playground-message-attachments'
+import {
+  PlaygroundPlanTable,
+  type PlanTableAction,
+} from './playground-plan-table'
+import { PlaygroundToolEvents } from './playground-tool-events'
+
+const ACTIVE_TOOL_LABEL_KEYS: Record<string, string> = {
+  generate_image: 'Image generation',
+  web_search: 'Web search',
+  fetch_page: 'Page fetch',
+  update_plan: 'Plan update',
+}
 
 type PlaygroundMessageContentProps = {
   actions: ReactNode
@@ -60,6 +72,7 @@ type PlaygroundMessageContentProps = {
   isSourceVisible?: boolean
   message: Message
   versionContent: string
+  onPlanAction?: (action: PlanTableAction) => void
 }
 
 export function PlaygroundMessageContent({
@@ -69,6 +82,7 @@ export function PlaygroundMessageContent({
   isSourceVisible = false,
   message,
   versionContent,
+  onPlanAction,
 }: PlaygroundMessageContentProps) {
   const { t } = useTranslation()
   const {
@@ -86,6 +100,11 @@ export function PlaygroundMessageContent({
   const isMessageFinal =
     message.status !== MESSAGE_STATUS.LOADING &&
     message.status !== MESSAGE_STATUS.STREAMING
+  const toolEvents = message.toolEvents ?? []
+  const planSteps = message.plan ?? []
+  const activeToolLabel = message.activeTool
+    ? t(ACTIVE_TOOL_LABEL_KEYS[message.activeTool] ?? message.activeTool)
+    : null
 
   return (
     <div
@@ -120,12 +139,32 @@ export function PlaygroundMessageContent({
         </Reasoning>
       )}
 
+      {!isError && toolEvents.length > 0 && (
+        <PlaygroundToolEvents events={toolEvents} />
+      )}
+
+      {!isError && planSteps.length > 0 && (
+        <PlaygroundPlanTable onAction={onPlanAction} steps={planSteps} />
+      )}
+
       {showLoader && (
         <div className='flex items-center gap-2 py-2'>
           <Loader />
           <Shimmer className='text-sm' duration={1}>
-            {t('Responding...')}
+            {activeToolLabel
+              ? t('Using {{tool}}…', { tool: activeToolLabel })
+              : t('Responding...')}
           </Shimmer>
+        </div>
+      )}
+
+      {!showLoader && activeToolLabel && (
+        <div
+          aria-live='polite'
+          className='text-muted-foreground flex items-center gap-2 py-1 text-sm'
+        >
+          <Loader size={14} />
+          <span>{t('Using {{tool}}…', { tool: activeToolLabel })}</span>
         </div>
       )}
 

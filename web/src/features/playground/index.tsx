@@ -20,21 +20,26 @@ import { useCallback } from 'react'
 
 import { PlaygroundChat } from './components/chat/playground-chat'
 import { PlaygroundInput } from './components/input/playground-input'
-import { PLAYGROUND_MODES } from './constants'
+import type { PlanTableAction } from './components/message/playground-plan-table'
 import {
   useChatHandler,
-  useImageHandler,
   usePlaygroundConversation,
   usePlaygroundOptions,
   usePlaygroundState,
 } from './hooks'
-import { getLastUserPrompt } from './lib'
+import {
+  appendPlanStep,
+  removePlanStep,
+  renamePlanStep,
+  togglePlanStep,
+} from './lib'
 import type { Message } from './types'
 
 export function Playground() {
   const {
     config,
     parameterEnabled,
+    toolsEnabled,
     messages,
     isLoadingMessages,
     models,
@@ -44,37 +49,16 @@ export function Playground() {
     setGroups,
     updateConfig,
     updateParameterEnabled,
+    updateToolsEnabled,
     clearMessages,
   } = usePlaygroundState()
 
   const { sendChat, stopGeneration, isGenerating } = useChatHandler({
     config,
     parameterEnabled,
+    toolsEnabled,
     onMessageUpdate: updateMessages,
   })
-
-  const {
-    generateImage,
-    stopGeneration: stopImageGeneration,
-    isGeneratingImage,
-  } = useImageHandler({
-    config,
-    onMessageUpdate: updateMessages,
-  })
-
-  const isImageMode = config.mode === PLAYGROUND_MODES.IMAGE
-
-  const sendConversation = useCallback(
-    (nextMessages: Message[]) => {
-      if (isImageMode) {
-        void generateImage(getLastUserPrompt(nextMessages))
-        return
-      }
-
-      sendChat(nextMessages)
-    },
-    [generateImage, isImageMode, sendChat]
-  )
 
   const {
     editingMessageKey,
@@ -87,17 +71,47 @@ export function Playground() {
   } = usePlaygroundConversation({
     messages,
     updateMessages,
-    sendChat: sendConversation,
+    sendChat,
   })
 
   const handleNewChat = () => {
     handleEditOpenChange(false)
     stopGeneration()
-    stopImageGeneration()
     clearMessages()
   }
 
-  const isBusy = isGenerating || isGeneratingImage
+  const handlePlanAction = useCallback(
+    (message: Message, action: PlanTableAction) => {
+      updateMessages((prev) =>
+        prev.map((item) => {
+          if (item.key !== message.key || !item.plan) {
+            return item
+          }
+
+          let plan = item.plan
+          switch (action.type) {
+            case 'toggle':
+              plan = togglePlanStep(plan, action.stepId)
+              break
+            case 'rename':
+              plan = renamePlanStep(plan, action.stepId, action.title)
+              break
+            case 'remove':
+              plan = removePlanStep(plan, action.stepId)
+              break
+            case 'add':
+              plan = appendPlanStep(plan, action.title)
+              break
+          }
+
+          return { ...item, plan }
+        })
+      )
+    },
+    [updateMessages]
+  )
+
+  const isBusy = isGenerating
 
   const { isLoadingModels } = usePlaygroundOptions({
     currentGroup: config.group,
@@ -123,6 +137,7 @@ export function Playground() {
           onCancelEdit={handleEditOpenChange}
           onSaveEdit={(newContent) => applyEdit(newContent, false)}
           onSaveEditAndSubmit={(newContent) => applyEdit(newContent, true)}
+          onPlanAction={handlePlanAction}
         />
       </div>
 
@@ -139,13 +154,14 @@ export function Playground() {
           models={models}
           onGroupChange={(value) => updateConfig('group', value)}
           onConfigChange={updateConfig}
-          onModeChange={(mode) => updateConfig('mode', mode)}
           onModelChange={(value) => updateConfig('model', value)}
           onNewChat={handleNewChat}
           onParameterEnabledChange={updateParameterEnabled}
-          onStop={isImageMode ? stopImageGeneration : stopGeneration}
+          onStop={stopGeneration}
           onSubmit={handleSendMessage}
+          onToolsEnabledChange={updateToolsEnabled}
           parameterEnabled={parameterEnabled}
+          toolsEnabled={toolsEnabled}
         />
       </div>
     </div>

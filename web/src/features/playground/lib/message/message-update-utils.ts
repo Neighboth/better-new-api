@@ -40,6 +40,7 @@ export function updateAssistantMessageWithError(
       ...updatedMessage,
       status: MESSAGE_STATUS.ERROR,
       isReasoningStreaming: false,
+      activeTool: null,
       errorCode: errorCode || null,
     })
   })

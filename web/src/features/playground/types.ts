@@ -34,6 +34,36 @@ export interface MessageAttachment {
   filename?: string
 }
 
+// Playground tool types
+export type PlaygroundToolId =
+  | 'generate_image'
+  | 'web_search'
+  | 'fetch_page'
+  | 'update_plan'
+
+export type PlaygroundToolsEnabled = Record<PlaygroundToolId, boolean>
+
+export type PlanStepStatus = 'pending' | 'in_progress' | 'completed'
+
+export interface PlanStep {
+  id: string
+  title: string
+  status: PlanStepStatus
+}
+
+export type ToolEventStatus = 'running' | 'done' | 'error'
+
+export interface ToolEvent {
+  id: string
+  /** Tool name as called by the model; may be an unknown tool. */
+  name: string
+  status: ToolEventStatus
+  summary?: string
+  error?: string
+  startedAt?: number
+  completedAt?: number
+}
+
 export interface Message {
   key: string
   from: MessageRole
@@ -44,6 +74,9 @@ export interface Message {
   completedAt?: number
   durationMs?: number
   sources?: { href: string; title: string }[]
+  toolEvents?: ToolEvent[]
+  plan?: PlanStep[]
+  activeTool?: string | null
   reasoning?: {
     content: string
     duration: number
@@ -59,9 +92,32 @@ export interface Message {
 }
 
 // API payload types
+export interface ToolCallFunction {
+  name: string
+  arguments: string
+}
+
+export interface ToolCall {
+  id: string
+  type: 'function'
+  function: ToolCallFunction
+}
+
 export interface ChatCompletionMessage {
-  role: MessageRole
-  content: string | ContentPart[]
+  role: MessageRole | 'tool'
+  content: string | ContentPart[] | null
+  tool_calls?: ToolCall[]
+  tool_call_id?: string
+  name?: string
+}
+
+export interface ChatCompletionTool {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: Record<string, unknown>
+  }
 }
 
 export interface ContentPart {
@@ -83,6 +139,18 @@ export interface ChatCompletionRequest {
   frequency_penalty?: number
   presence_penalty?: number
   seed?: number
+  tools?: ChatCompletionTool[]
+  tool_choice?: 'auto'
+}
+
+export interface ToolCallDelta {
+  index: number
+  id?: string
+  type?: string
+  function?: {
+    name?: string
+    arguments?: string
+  }
 }
 
 export interface ChatCompletionChunk {
@@ -96,6 +164,7 @@ export interface ChatCompletionChunk {
       role?: MessageRole
       content?: string
       reasoning_content?: string
+      tool_calls?: ToolCallDelta[]
     }
     finish_reason: string | null
   }>
@@ -112,6 +181,7 @@ export interface ChatCompletionResponse {
       role: MessageRole
       content: string
       reasoning_content?: string
+      tool_calls?: ToolCall[]
     }
     finish_reason: string
   }>
@@ -139,10 +209,7 @@ export interface ImageGenerationResponse {
 }
 
 // Configuration types
-export type PlaygroundMode = 'text' | 'image'
-
 export interface PlaygroundConfig {
-  mode: PlaygroundMode
   model: string
   group: string
   temperature: number

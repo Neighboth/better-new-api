@@ -16,7 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { PlaygroundConfig, ParameterEnabled } from './types'
+import type {
+  PlaygroundConfig,
+  ParameterEnabled,
+  PlaygroundToolsEnabled,
+} from './types'
 
 // Message constants
 export const MESSAGE_ROLES = {
@@ -44,11 +48,18 @@ export const API_ENDPOINTS = {
 // only selected when the backend confirms it is available for the user.
 export const DEFAULT_GROUP = 'default' as const
 
-// Playground generation modes
-export const PLAYGROUND_MODES = {
-  TEXT: 'text',
-  IMAGE: 'image',
-} as const
+// Playground tool loop limits
+export const MAX_TOOL_ROUNDS = 5
+export const MAX_TOOL_RESULT_CHARS = 12_000
+
+// Default tool availability — every tool is offered to the model, which
+// decides on its own whether to call it.
+export const DEFAULT_TOOLS_ENABLED: PlaygroundToolsEnabled = {
+  generate_image: true,
+  web_search: true,
+  fetch_page: true,
+  update_plan: true,
+}
 
 // Attachment limits for playground image inputs
 export const ATTACHMENT_ACCEPT = 'image/*' as const
@@ -57,7 +68,6 @@ export const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024
 
 // Default configuration
 export const DEFAULT_CONFIG: PlaygroundConfig = {
-  mode: PLAYGROUND_MODES.TEXT,
   model: 'gpt-4o',
   group: DEFAULT_GROUP,
   temperature: 0.7,
@@ -84,6 +94,7 @@ export const STORAGE_KEYS = {
   IMAGES: 'playground_images',
   MESSAGES: 'playground_messages',
   PARAMETER_ENABLED: 'playground_parameter_enabled',
+  TOOLS_ENABLED: 'playground_tools_enabled',
 } as const
 
 // Error messages
@@ -94,8 +105,15 @@ export const ERROR_MESSAGES = {
   STREAM_START_ERROR: 'Error establishing connection',
   CONNECTION_CLOSED: 'Connection closed',
   INTERRUPTED: 'Generation was interrupted',
-  IMAGE_GENERATION_ERROR: 'Image generation failed',
   IMAGE_EMPTY_RESULT: 'The model did not return an image',
+  TOOL_CALL_FAILED: 'Tool call failed',
+  TOOL_ARGS_INVALID: 'Invalid tool arguments',
+  IMAGE_PROMPT_REQUIRED: 'Missing image prompt',
+  SEARCH_QUERY_REQUIRED: 'Missing search query',
+  PAGE_URL_INVALID: 'Invalid page URL',
+  PLAN_STEPS_REQUIRED: 'Plan must contain at least one step',
+  WEB_SEARCH_FAILED: 'Web search failed',
+  PAGE_FETCH_FAILED: 'Failed to fetch the page',
 } as const
 
 // Message action button styles

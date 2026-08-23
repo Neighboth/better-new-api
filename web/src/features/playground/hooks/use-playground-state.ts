@@ -18,14 +18,20 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { DEFAULT_CONFIG, DEFAULT_PARAMETER_ENABLED } from '../constants'
+import {
+  DEFAULT_CONFIG,
+  DEFAULT_PARAMETER_ENABLED,
+  DEFAULT_TOOLS_ENABLED,
+} from '../constants'
 import {
   saveConfig,
   saveParameterEnabled,
+  saveToolsEnabled,
   saveMessages,
   applyMessageStateUpdate,
   getInitialParameterEnabled,
   getInitialPlaygroundConfig,
+  getInitialToolsEnabled,
   loadMessages,
   type MessageStateUpdater,
 } from '../lib'
@@ -33,6 +39,8 @@ import type {
   Message,
   PlaygroundConfig,
   ParameterEnabled,
+  PlaygroundToolId,
+  PlaygroundToolsEnabled,
   ModelOption,
   GroupOption,
 } from '../types'
@@ -50,6 +58,10 @@ export function usePlaygroundState() {
 
   const [parameterEnabled, setParameterEnabled] = useState<ParameterEnabled>(
     getInitialParameterEnabled
+  )
+
+  const [toolsEnabled, setToolsEnabled] = useState<PlaygroundToolsEnabled>(
+    getInitialToolsEnabled
   )
 
   const [messages, setMessages] = useState<Message[]>([])
@@ -132,6 +144,18 @@ export function usePlaygroundState() {
     []
   )
 
+  // Update tool availability with automatic save
+  const updateToolsEnabled = useCallback(
+    (key: PlaygroundToolId, value: boolean) => {
+      setToolsEnabled((prev) => {
+        const updated = { ...prev, [key]: value }
+        saveToolsEnabled(updated)
+        return updated
+      })
+    },
+    []
+  )
+
   // Update messages with automatic save
   const updateMessages = useCallback(
     (updater: MessageStateUpdater) => {
@@ -153,14 +177,17 @@ export function usePlaygroundState() {
   const resetConfig = useCallback(() => {
     setConfig(DEFAULT_CONFIG)
     setParameterEnabled(DEFAULT_PARAMETER_ENABLED)
+    setToolsEnabled(DEFAULT_TOOLS_ENABLED)
     saveConfig(DEFAULT_CONFIG)
     saveParameterEnabled(DEFAULT_PARAMETER_ENABLED)
+    saveToolsEnabled(DEFAULT_TOOLS_ENABLED)
   }, [])
 
   return {
     // State
     config,
     parameterEnabled,
+    toolsEnabled,
     messages,
     isLoadingMessages,
     models,
@@ -173,6 +200,7 @@ export function usePlaygroundState() {
     // Actions
     updateConfig,
     updateParameterEnabled,
+    updateToolsEnabled,
     updateMessages,
     clearMessages,
     resetConfig,

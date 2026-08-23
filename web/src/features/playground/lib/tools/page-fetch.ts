@@ -1,0 +1,135 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { ERROR_MESSAGES, MAX_TOOL_RESULT_CHARS } from '../../constants'
+
+import { getToolProviderKeys } from './provider-keys'
+import { truncateToolResult } from './tool-call-utils'
+
+const TAVILY_EXTRACT_URL = 'https://api.tavily.com/extract'
+const JINA_READER_BASE_URL = 'https://r.jina.ai/'
+const FETCH_TIMEOUT_MS = 25_000
+
+export interface PageFetchOutcome {
+  provider: 'tavily' | 'jina'
+  url: string
+  content: string
+}
+
+function withTimeout(signal: AbortSignal | undefined): AbortSignal {
+  const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS)
+  return signal ? AbortSignal.any([signal, timeout]) : timeout
+}
+
+export function isFetchablePageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+async function fetchWithTavily(
+  url: string,
+  signal: AbortSignal | undefined
+): Promise<string> {
+  const apiKey = getToolProviderKeys().tavily
+  const response = await fetch(TAVILY_EXTRACT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      urls: [url],
+      ...(apiKey ? { api_key: apiKey } : {}),
+    }),
+    signal: withTimeout(signal),
+  })
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+
+  const data = (await response.json()) as { results?: unknown }
+  const first = Array.isArray(data?.results) ? data.results[0] : undefined
+  const content =
+    first && typeof first === 'object'
+      ? (first as Record<string, unknown>).raw_content
+      : undefined
+
+  if (typeof content !== 'string' || !content.trim()) {
+    throw new Error('empty page content')
+  }
+
+  return content
+}
+
+async function fetchWithJina(
+  url: string,
+  signal: AbortSignal | undefined
+): Promise<string> {
+  const response = await fetch(`${JINA_READER_BASE_URL}${url}`, {
+    headers: { Accept: 'text/plain' },
+    signal: withTimeout(signal),
+  })
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+
+  const content = await response.text()
+  if (!content.trim()) {
+    throw new Error('empty page content')
+  }
+
+  return content
+}
+
+/**
+ * Fetch readable page content from the browser, falling back to the Jina
+ * reader when the Tavily extractor fails.
+ */
+export async function fetchPageWithFallback(
+  url: string,
+  signal?: AbortSignal
+): Promise<PageFetchOutcome> {
+  const providers = [
+    { name: 'tavily' as const, run: fetchWithTavily },
+    { name: 'jina' as const, run: fetchWithJina },
+  ]
+
+  const errors: string[] = []
+  for (const provider of providers) {
+    try {
+      const content = await provider.run(url, signal)
+      return {
+        provider: provider.name,
+        url,
+        content: truncateToolResult(content.trim(), MAX_TOOL_RESULT_CHARS),
+      }
+    } catch (error) {
+      if (signal?.aborted) {
+        throw error
+      }
+      errors.push(
+        `${provider.name}: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+  }
+
+  throw new Error(`${ERROR_MESSAGES.PAGE_FETCH_FAILED} (${errors.join('; ')})`)
+}

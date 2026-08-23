@@ -98,6 +98,9 @@ export function applyStreamingChunk(
         content: reasoning.content + appendableChunk,
       },
       isReasoningStreaming: true,
+      // Fresh output means the tool execution phase is over; drop the
+      // "using tool" indicator as soon as the message continues.
+      activeTool: null,
       status: MESSAGE_STATUS.STREAMING,
     }
   }
@@ -110,6 +113,7 @@ export function applyStreamingChunk(
     ...(contentMessage.isReasoningStreaming
       ? contentMessage
       : completeReasoningTiming(contentMessage)),
+    activeTool: null,
     status: MESSAGE_STATUS.STREAMING,
   }
 }
@@ -143,6 +147,14 @@ export function finalizeMessage(
         }
       : undefined,
     isReasoningStreaming: false,
+    // Finalization ends every in-flight tool interaction; anything still
+    // marked running was interrupted.
+    activeTool: null,
+    toolEvents: message.toolEvents?.map((event) =>
+      event.status === 'running'
+        ? { ...event, status: 'error' as const, completedAt: Date.now() }
+        : event
+    ),
   }
 
   return completeReasoningTiming(finalized)
