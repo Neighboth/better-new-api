@@ -74,6 +74,12 @@ export interface ToolEvent {
    * transient indicators render at the usage position instead of the top.
    */
   anchor?: number
+  /** Raw arguments JSON of the call, kept for API transcript replay. */
+  arguments?: string
+  /** Tool result payload sent back to the model, kept for transcript replay. */
+  result?: string
+  /** Plan snapshot produced by this update_plan call. */
+  plan?: PlanStep[]
 }
 
 /** A think-tool thought rendered exactly like a native reasoning block. */
@@ -164,6 +170,7 @@ export interface ChatCompletionRequest {
   seed?: number
   tools?: ChatCompletionTool[]
   tool_choice?: 'auto'
+  reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high'
 }
 
 export interface ToolCallDelta {

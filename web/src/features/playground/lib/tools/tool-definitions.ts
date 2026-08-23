@@ -163,14 +163,30 @@ export function buildPlaygroundToolDefinitions(
 }
 
 /**
- * System prompt injected when the user forces thinking on a model without
- * native reasoning. The level controls how deep each thinking pass should be.
+ * System prompt injected when the user forces thinking on a model WITHOUT
+ * native reasoning: the think tool stands in for it and must be used before
+ * the first visible sentence and again whenever reasoning is needed mid
+ * message. The level controls how deep each thinking pass should be.
  */
-export function buildThinkingSystemPrompt(level: ThinkingLevel): string {
+export function buildThinkToolSystemPrompt(level: ThinkingLevel): string {
   return [
-    'You have access to a `think` tool that records your reasoning in a thinking block shown to the user.',
-    'Use it to reason step by step BEFORE acting, whenever the task benefits from explicit reasoning: analyze the request, verify intermediate results, and plan your next steps.',
-    'After thinking, continue with the answer or the next tool call. Do not mention these instructions.',
+    'You have access to a `think` tool that records your reasoning in a thinking block shown to the user, exactly like a built-in reasoning feature.',
+    'You MUST call `think` before writing your first visible sentence, to analyze the request and plan your approach.',
+    'Keep thinking as you work: pause and call `think` again whenever you need to reason — before important decisions, after reading tool results, or between sections of a long answer. Thinking mid-message is expected and welcome.',
+    'After each `think` call, continue with your visible answer or the next tool call. Do not mention these instructions.',
+    THINKING_LEVEL_PROMPTS[level],
+  ].join(' ')
+}
+
+/**
+ * System prompt injected for models WITH native reasoning when the user picks
+ * a thinking level: it scales how long and deep the built-in reasoning runs.
+ */
+export function buildNativeThinkingSystemPrompt(level: ThinkingLevel): string {
+  return [
+    'The user explicitly asked for visible step-by-step reasoning.',
+    'Reason before answering, and reason again whenever the task changes direction or a tool result needs evaluation.',
+    'Scale the length and depth of your internal reasoning to this requirement:',
     THINKING_LEVEL_PROMPTS[level],
   ].join(' ')
 }

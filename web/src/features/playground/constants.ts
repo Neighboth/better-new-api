@@ -77,18 +77,30 @@ export const THINKING_LEVELS: ThinkingLevel[] = [
 ]
 
 export const THINKING_LEVEL_PROMPTS: Record<ThinkingLevel, string> = {
-  lite: 'Keep each thinking pass extremely brief: one or two sentences only.',
-  low: 'Keep each thinking pass short: a few sentences covering only the key considerations.',
-  medium: 'Think step by step with moderate detail before acting or answering.',
-  high: 'Think deeply and thoroughly: explore alternatives, edge cases, and verify your approach before acting or answering.',
+  lite: 'Keep every thinking pass very short: one or two sentences only.',
+  low: 'Keep every thinking pass brief: a few sentences covering only the key considerations.',
+  medium: 'Think with moderate depth: one solid, focused paragraph per pass.',
+  high: 'Think deeply: write several detailed paragraphs per pass, weighing alternatives, edge cases, and potential mistakes before deciding.',
   ultra:
-    'Think exhaustively: decompose the problem, weigh multiple approaches, verify assumptions, and double-check conclusions before acting or answering.',
+    'Think exhaustively: write long, multi-paragraph passes that fully decompose the problem, explore multiple approaches, verify every assumption, and double-check each conclusion before moving on.',
 }
 
-// Silent fallback: how many alternative models to try before surfacing an
-// error. The same model gets one immediate retry first (the gateway then
-// routes to a different channel hosting it).
-export const MAX_MODEL_FALLBACKS = 4
+// Maps the five playground levels onto the OpenAI reasoning_effort parameter
+// used for models with native reasoning.
+export const THINKING_LEVEL_REASONING_EFFORT: Record<
+  ThinkingLevel,
+  'minimal' | 'low' | 'medium' | 'high'
+> = {
+  lite: 'minimal',
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  ultra: 'high',
+}
+
+// Nudge appended when a model finishes tool work without writing an answer.
+export const FINAL_ANSWER_NUDGE =
+  'You have gathered enough information. Now write the complete final answer for the user in visible text. Do not call any more tools.'
 
 // Display labels (i18n keys) for tool names.
 export const TOOL_LABEL_KEYS: Record<string, string> = {

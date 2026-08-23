@@ -100,7 +100,6 @@ export function PlaygroundMessageContent({
     message.status !== MESSAGE_STATUS.LOADING &&
     message.status !== MESSAGE_STATUS.STREAMING
   const toolEvents = message.toolEvents ?? []
-  const planSteps = message.plan ?? []
   const activeToolLabel = message.activeTool
     ? t(getToolLabelKey(message.activeTool))
     : null
@@ -109,7 +108,7 @@ export function PlaygroundMessageContent({
     () => (isError ? [] : buildMessageRenderItems(message)),
     [isError, message]
   )
-  const hasInlinePlan = renderItems.some((item) => item.kind === 'plan')
+  const hasNonTextItems = renderItems.some((item) => item.kind !== 'text')
 
   return (
     <div
@@ -167,92 +166,88 @@ export function PlaygroundMessageContent({
         </>
       )}
 
-      {!isError && planSteps.length > 0 && !hasInlinePlan && (
-        <PlaygroundPlanTable steps={planSteps} />
-      )}
-
       {!isError && hasAttachments && (
         <PlaygroundMessageAttachments attachments={attachments} />
       )}
 
-      {!isError && (showMessageContent || hasAttachments) && (
-        <>
-          {showMessageContent && isSourceVisible && (
-            <CodeBlock
-              code={versionContent}
-              className='my-0 group-[.is-assistant]:w-full group-[.is-assistant]:max-w-[78ch]'
-              collapsedLines={24}
-              defaultCollapsed={false}
-              language='markdown'
-              maxExpandedLines={48}
-              showLineNumbers
-              showToolbar
-              title={t('Raw response')}
-            >
-              <CodeBlockCopyButton />
-            </CodeBlock>
-          )}
-          {showMessageContent &&
-            !isSourceVisible &&
-            renderItems.map((item) => {
-              if (item.kind === 'text') {
-                const text =
-                  message.from === 'assistant'
-                    ? parseThinkTags(item.text).visibleContent
-                    : item.text
-                if (!text) {
-                  return null
+      {!isError &&
+        (showMessageContent || hasAttachments || hasNonTextItems) && (
+          <>
+            {showMessageContent && isSourceVisible && (
+              <CodeBlock
+                code={versionContent}
+                className='my-0 group-[.is-assistant]:w-full group-[.is-assistant]:max-w-[78ch]'
+                collapsedLines={24}
+                defaultCollapsed={false}
+                language='markdown'
+                maxExpandedLines={48}
+                showLineNumbers
+                showToolbar
+                title={t('Raw response')}
+              >
+                <CodeBlockCopyButton />
+              </CodeBlock>
+            )}
+            {!isSourceVisible &&
+              renderItems.map((item) => {
+                if (item.kind === 'text') {
+                  const text =
+                    message.from === 'assistant'
+                      ? parseThinkTags(item.text).visibleContent
+                      : item.text
+                  if (!text || !showMessageContent) {
+                    return null
+                  }
+                  return (
+                    <MessageContent
+                      className={cn(getMessageContentStyles())}
+                      key={item.key}
+                      variant='flat'
+                    >
+                      <Response final={isMessageFinal}>{text}</Response>
+                    </MessageContent>
+                  )
                 }
-                return (
-                  <MessageContent
-                    className={cn(getMessageContentStyles())}
-                    key={item.key}
-                    variant='flat'
-                  >
-                    <Response final={isMessageFinal}>{text}</Response>
-                  </MessageContent>
-                )
-              }
 
-              if (item.kind === 'thought') {
-                return (
-                  <Reasoning
-                    defaultOpen
-                    duration={getThoughtDuration(item.thought)}
-                    isStreaming={false}
-                    key={item.key}
-                  >
-                    <ReasoningTrigger />
-                    <ReasoningContent>{item.thought.content}</ReasoningContent>
-                  </Reasoning>
-                )
-              }
+                if (item.kind === 'thought') {
+                  return (
+                    <Reasoning
+                      defaultOpen
+                      duration={getThoughtDuration(item.thought)}
+                      isStreaming={false}
+                      key={item.key}
+                    >
+                      <ReasoningTrigger />
+                      <ReasoningContent>
+                        {item.thought.content}
+                      </ReasoningContent>
+                    </Reasoning>
+                  )
+                }
 
-              if (item.kind === 'tool-running') {
-                return (
-                  <div
-                    aria-live='polite'
-                    className='text-muted-foreground flex items-center gap-2 py-1 text-sm'
-                    key={item.key}
-                  >
-                    <Loader size={14} />
-                    <span>
-                      {t('Using {{tool}}…', {
-                        tool: t(getToolLabelKey(item.event.name)),
-                      })}
-                    </span>
-                  </div>
-                )
-              }
+                if (item.kind === 'tool-running') {
+                  return (
+                    <div
+                      aria-live='polite'
+                      className='text-muted-foreground flex items-center gap-2 py-1 text-sm'
+                      key={item.key}
+                    >
+                      <Loader size={14} />
+                      <span>
+                        {t('Using {{tool}}…', {
+                          tool: t(getToolLabelKey(item.event.name)),
+                        })}
+                      </span>
+                    </div>
+                  )
+                }
 
-              return planSteps.length > 0 ? (
-                <PlaygroundPlanTable key={item.key} steps={planSteps} />
-              ) : null
-            })}
-          <MessageMetadata alignment={alignment} message={message} />
-          {actions}
-        </>
-      )}
+                return <PlaygroundPlanTable key={item.key} steps={item.steps} />
+              })}
+            <MessageMetadata alignment={alignment} message={message} />
+            {actions}
+          </>
+        )}
     </div>
   )
 }

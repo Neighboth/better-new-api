@@ -107,6 +107,9 @@ const toolEventSchema = z.object({
   startedAt: z.number().optional(),
   completedAt: z.number().optional(),
   anchor: z.number().optional(),
+  arguments: z.string().optional(),
+  result: z.string().optional(),
+  plan: z.array(planStepSchema).optional(),
 })
 
 const thoughtBlockSchema = z.object({

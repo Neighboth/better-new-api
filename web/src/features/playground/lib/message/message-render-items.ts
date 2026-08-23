@@ -16,13 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { Message, ThoughtBlock, ToolEvent } from '../../types'
+import type { Message, PlanStep, ThoughtBlock, ToolEvent } from '../../types'
 
 export type MessageRenderItem =
   | { kind: 'text'; key: string; text: string }
   | { kind: 'thought'; key: string; thought: ThoughtBlock }
   | { kind: 'tool-running'; key: string; event: ToolEvent }
-  | { kind: 'plan'; key: string }
+  | { kind: 'plan'; key: string; steps: PlanStep[] }
 
 /**
  * Merge thoughts that are only separated by tool calls or whitespace: two
@@ -75,14 +75,33 @@ export function buildMessageRenderItems(message: Message): MessageRenderItem[] {
     (event) => event.status === 'running'
   )
 
+  // Every update_plan call renders its own snapshot table at the position it
+  // was made, so the history of plan changes stays visible.
   const planEvents = (message.toolEvents ?? []).filter(
-    (event) => event.name === 'update_plan'
+    (event) => event.name === 'update_plan' && event.status !== 'running'
   )
-  const lastPlanEvent = planEvents.at(-1)
-  const planAnchor =
-    message.plan && lastPlanEvent
-      ? clampAnchor(lastPlanEvent.anchor, content.length)
-      : null
+  const planItems = planEvents.flatMap((event, order) => {
+    const steps =
+      event.plan ?? (order === planEvents.length - 1 ? message.plan : undefined)
+    if (!steps?.length) {
+      return []
+    }
+    return [
+      {
+        anchor: clampAnchor(event.anchor, content.length),
+        order: thoughts.length + runningEvents.length + order,
+        item: { kind: 'plan' as const, key: `plan-${event.id}`, steps },
+      },
+    ]
+  })
+  // Legacy messages only keep the latest plan on the message itself.
+  if (planItems.length === 0 && message.plan?.length) {
+    planItems.push({
+      anchor: content.length,
+      order: thoughts.length + runningEvents.length,
+      item: { kind: 'plan' as const, key: 'plan-legacy', steps: message.plan },
+    })
+  }
 
   type Positioned = {
     anchor: number
@@ -100,15 +119,7 @@ export function buildMessageRenderItems(message: Message): MessageRenderItem[] {
       order: thoughts.length + order,
       item: { kind: 'tool-running' as const, key: event.id, event },
     })),
-    ...(planAnchor !== null
-      ? [
-          {
-            anchor: planAnchor,
-            order: thoughts.length + runningEvents.length,
-            item: { kind: 'plan' as const, key: 'plan' },
-          },
-        ]
-      : []),
+    ...planItems,
   ].sort((a, b) => a.anchor - b.anchor || a.order - b.order)
 
   const items: MessageRenderItem[] = []

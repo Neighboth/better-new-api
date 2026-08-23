@@ -111,20 +111,73 @@ describe('buildMessageRenderItems', () => {
     expect(items.map(itemShape)).toEqual([{ kind: 'text', text: 'all done' }])
   })
 
-  it('anchors the plan table to the last update_plan call', () => {
+  it('renders a snapshot table at every update_plan call position', () => {
     const message = assistantMessage('planning... executing')
+    message.plan = [{ id: 's2', title: 'step two', status: 'in_progress' }]
+    message.toolEvents = [
+      {
+        id: 'c1',
+        name: 'update_plan',
+        status: 'done',
+        anchor: 3,
+        plan: [{ id: 's1', title: 'step one', status: 'completed' }],
+      },
+      {
+        id: 'c2',
+        name: 'update_plan',
+        status: 'done',
+        anchor: 11,
+        plan: [{ id: 's2', title: 'step two', status: 'in_progress' }],
+      },
+    ]
+
+    const items = buildMessageRenderItems(message)
+    const planItems = items.filter((item) => item.kind === 'plan')
+
+    expect(planItems).toHaveLength(2)
+    expect(planItems[0]).toMatchObject({
+      kind: 'plan',
+      steps: [{ title: 'step one' }],
+    })
+    expect(planItems[1]).toMatchObject({
+      kind: 'plan',
+      steps: [{ title: 'step two' }],
+    })
+    // Both tables appear at their own call positions, not just the latest.
+    expect(items.map(itemShape)).toEqual([
+      { kind: 'text', text: 'pla' },
+      { kind: 'plan', text: undefined },
+      { kind: 'text', text: 'nning...' },
+      { kind: 'plan', text: undefined },
+      { kind: 'text', text: ' executing' },
+    ])
+  })
+
+  it('uses the event anchor with the latest message plan when snapshots are missing', () => {
+    const message = assistantMessage('working')
     message.plan = [{ id: 's1', title: 'step', status: 'pending' }]
     message.toolEvents = [
-      { id: 'c1', name: 'update_plan', status: 'done', anchor: 3 },
-      { id: 'c2', name: 'update_plan', status: 'done', anchor: 11 },
+      { id: 'c1', name: 'update_plan', status: 'done', anchor: 2 },
     ]
 
     const items = buildMessageRenderItems(message)
 
     expect(items.map(itemShape)).toEqual([
-      { kind: 'text', text: 'planning...' },
+      { kind: 'text', text: 'wo' },
       { kind: 'plan', text: undefined },
-      { kind: 'text', text: ' executing' },
+      { kind: 'text', text: 'rking' },
+    ])
+  })
+
+  it('falls back to the message-level plan when no plan events exist', () => {
+    const message = assistantMessage('working')
+    message.plan = [{ id: 's1', title: 'step', status: 'pending' }]
+
+    const items = buildMessageRenderItems(message)
+
+    expect(items.map(itemShape)).toEqual([
+      { kind: 'text', text: 'working' },
+      { kind: 'plan', text: undefined },
     ])
   })
 

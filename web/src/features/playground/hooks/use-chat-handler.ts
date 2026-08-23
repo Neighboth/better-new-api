@@ -23,8 +23,9 @@ import { toast } from 'sonner'
 import { sendChatCompletion } from '../api'
 import {
   ERROR_MESSAGES,
-  MAX_MODEL_FALLBACKS,
+  FINAL_ANSWER_NUDGE,
   MAX_TOOL_ROUNDS,
+  THINKING_LEVEL_REASONING_EFFORT,
 } from '../constants'
 import {
   applyStreamingChunk,
@@ -32,8 +33,9 @@ import {
   applyToolEventStart,
   buildApiTranscript,
   buildChatApiPayload,
+  buildNativeThinkingSystemPrompt,
   buildPlaygroundToolDefinitions,
-  buildThinkingSystemPrompt,
+  buildThinkToolSystemPrompt,
   executePlaygroundTool,
   isPlaygroundToolId,
   mergeToolCallDeltas,
@@ -121,7 +123,7 @@ export function useChatHandler({
   const transcriptRef = useRef<ChatCompletionMessage[] | null>(null)
   const toolsRef = useRef<ChatCompletionTool[]>([])
   const roundStateRef = useRef<RoundState>({ content: '', toolCalls: [] })
-  // Silent error fallback: same-model retry first, then other models.
+  // Silent error fallback: same-model retry first, then every other model.
   const modelOverrideRef = useRef<string | null>(null)
   const fallbackStateRef = useRef<{
     tried: Set<string>
@@ -131,6 +133,13 @@ export function useChatHandler({
     retriedCurrent: false,
   })
   const currentRoundRef = useRef(0)
+  // Set once any visible content was produced; an empty final round then
+  // triggers a forced-answer round instead of completing silently.
+  const producedTextRef = useRef(false)
+  const forcedAnswerRoundRef = useRef(false)
+  const reasoningEffortRef = useRef<
+    'minimal' | 'low' | 'medium' | 'high' | null
+  >(null)
   const modelsRef = useRef<ModelOption[]>(models)
   useEffect(() => {
     modelsRef.current = models
@@ -262,6 +271,9 @@ export function useChatHandler({
           roundStateRef.current.content,
           chunk
         )
+        if (chunk.trim()) {
+          producedTextRef.current = true
+        }
       }
       pendingStreamChunksRef.current[type] = mergePendingStreamChunk(
         pendingStreamChunksRef.current[type],
@@ -280,6 +292,66 @@ export function useChatHandler({
         roundStateRef.current.toolCalls,
         deltas
       )
+    },
+    []
+  )
+
+  /**
+   * Pick the next model for silent error recovery: one immediate retry of the
+   * current model (the gateway then routes to another channel hosting it),
+   * then every other available model, one by one. Returns null when nothing
+   * is left to try.
+   */
+  const pickFallbackModel = useCallback((): string | null => {
+    const state = fallbackStateRef.current
+    const currentModel = modelOverrideRef.current ?? config.model
+
+    if (!state.retriedCurrent) {
+      state.retriedCurrent = true
+      return currentModel
+    }
+
+    for (const model of modelsRef.current) {
+      if (state.tried.has(model.value)) {
+        continue
+      }
+      state.tried.add(model.value)
+      return model.value
+    }
+
+    return null
+  }, [config.model])
+
+  /**
+   * Silently retry the current round with the next fallback model. Returns
+   * false when every candidate has been exhausted.
+   */
+  const retryWithFallbackModel = useCallback(
+    (generation: number): boolean => {
+      const fallbackModel = pickFallbackModel()
+      if (!fallbackModel) {
+        return false
+      }
+      modelOverrideRef.current = fallbackModel
+      roundStateRef.current.toolCalls = []
+      startRoundRef.current?.(generation, currentRoundRef.current)
+      return true
+    },
+    [pickFallbackModel]
+  )
+
+  /**
+   * The model stopped without writing an answer: inject a nudge and run one
+   * final round with tools disabled so it must respond in visible text.
+   */
+  const forceFinalAnswerRound = useCallback(
+    (generation: number, round: number) => {
+      const transcript = transcriptRef.current
+      if (!transcript) return
+      forcedAnswerRoundRef.current = true
+      transcript.push({ role: 'user', content: FINAL_ANSWER_NUDGE })
+      roundStateRef.current = { content: '', toolCalls: [] }
+      startRoundRef.current?.(generation, round + 1)
     },
     []
   )
@@ -323,16 +395,18 @@ export function useChatHandler({
               status: 'running',
               summary: summarizeToolCallArguments(parsedArgs),
               startedAt: Date.now(),
+              arguments: call.function.arguments,
             })
           )
         })
 
         const finishWithError = (errorText: string) => {
+          const resultPayload = JSON.stringify({ error: errorText })
           transcript.push({
             role: 'tool',
             tool_call_id: call.id,
             name: call.function.name,
-            content: JSON.stringify({ error: errorText }),
+            content: resultPayload,
           })
           onMessageUpdate((prev) => {
             if (!isCurrent()) return prev
@@ -340,6 +414,7 @@ export function useChatHandler({
               applyToolEventFinish(message, call.id, {
                 status: 'error',
                 error: errorText,
+                result: resultPayload,
               })
             )
           })
@@ -382,6 +457,7 @@ export function useChatHandler({
                 attachments: outcome.attachments,
                 sources: outcome.sources,
                 thought: outcome.thought,
+                result: outcome.content,
               })
             )
           })
@@ -408,13 +484,35 @@ export function useChatHandler({
       flushStreamUpdates(generation)
 
       const toolCalls = roundStateRef.current.toolCalls
+      const roundContent = roundStateRef.current.content.trim()
+
       if (
         toolCalls.length > 0 &&
         round < MAX_TOOL_ROUNDS &&
+        !forcedAnswerRoundRef.current &&
         transcriptRef.current
       ) {
         void runToolCalls(generation, round)
         return
+      }
+
+      // Tool rounds exhausted but the model still only calls tools, or the
+      // final round produced no visible text after earlier tool work: force
+      // one answer-only round.
+      if (
+        (toolCalls.length > 0 || roundContent === '') &&
+        !forcedAnswerRoundRef.current &&
+        (producedTextRef.current || toolCalls.length > 0)
+      ) {
+        forceFinalAnswerRound(generation, round)
+        return
+      }
+
+      // The model returned nothing at all: silently try another model.
+      if (roundContent === '' && !producedTextRef.current) {
+        if (retryWithFallbackModel(generation)) {
+          return
+        }
       }
 
       setIsRequesting(false)
@@ -427,39 +525,14 @@ export function useChatHandler({
         )
       })
     },
-    [flushStreamUpdates, onMessageUpdate, runToolCalls]
+    [
+      flushStreamUpdates,
+      forceFinalAnswerRound,
+      onMessageUpdate,
+      retryWithFallbackModel,
+      runToolCalls,
+    ]
   )
-
-  /**
-   * Pick the next model for silent error recovery: one immediate retry of the
-   * current model (the gateway then routes to another channel hosting it),
-   * then other available models. Returns null when nothing is left to try.
-   */
-  const pickFallbackModel = useCallback((): string | null => {
-    const state = fallbackStateRef.current
-    const currentModel = modelOverrideRef.current ?? config.model
-
-    if (!state.retriedCurrent) {
-      state.retriedCurrent = true
-      return currentModel
-    }
-
-    // `tried` always contains the originally selected model; the rest are
-    // fallbacks already attempted.
-    if (state.tried.size - 1 >= MAX_MODEL_FALLBACKS) {
-      return null
-    }
-
-    for (const model of modelsRef.current) {
-      if (state.tried.has(model.value)) {
-        continue
-      }
-      state.tried.add(model.value)
-      return model.value
-    }
-
-    return null
-  }, [config.model])
 
   // Handle stream error
   const handleStreamError = useCallback(
@@ -469,11 +542,7 @@ export function useChatHandler({
 
       // Silent recovery: retry with another channel/model before the user
       // ever sees an error.
-      const fallbackModel = pickFallbackModel()
-      if (fallbackModel) {
-        modelOverrideRef.current = fallbackModel
-        roundStateRef.current.toolCalls = []
-        startRoundRef.current?.(generation, currentRoundRef.current)
+      if (retryWithFallbackModel(generation)) {
         return
       }
 
@@ -491,7 +560,13 @@ export function useChatHandler({
         )
       })
     },
-    [flushStreamUpdates, getDisplayError, onMessageUpdate, pickFallbackModel, t]
+    [
+      flushStreamUpdates,
+      getDisplayError,
+      onMessageUpdate,
+      retryWithFallbackModel,
+      t,
+    ]
   )
 
   // Start a streaming request for one round of the tool loop
@@ -508,8 +583,11 @@ export function useChatHandler({
         transcript,
         effectiveConfig,
         parameterEnabled,
-        toolsRef.current
+        forcedAnswerRoundRef.current ? [] : toolsRef.current
       )
+      if (reasoningEffortRef.current) {
+        payload.reasoning_effort = reasoningEffortRef.current
+      }
       void sendStreamRequest(
         payload,
         (type, chunk) => handleStreamUpdate(generation, type, chunk),
@@ -543,8 +621,11 @@ export function useChatHandler({
         transcript,
         effectiveConfig,
         parameterEnabled,
-        toolsRef.current
+        forcedAnswerRoundRef.current ? [] : toolsRef.current
       )
+      if (reasoningEffortRef.current) {
+        payload.reasoning_effort = reasoningEffortRef.current
+      }
       const abortController = new AbortController()
       abortControllerRef.current?.abort()
       abortControllerRef.current = abortController
@@ -569,11 +650,18 @@ export function useChatHandler({
 
         const choice = response.choices[0]
         const toolCalls = choice.message.tool_calls ?? []
+        const choiceContent = choice.message.content ?? ''
 
-        if (toolCalls.length > 0 && round < MAX_TOOL_ROUNDS) {
-          const choiceContent = choice.message.content ?? ''
+        if (
+          toolCalls.length > 0 &&
+          round < MAX_TOOL_ROUNDS &&
+          !forcedAnswerRoundRef.current
+        ) {
           const choiceReasoning = choice.message.reasoning_content
           roundStateRef.current = { content: choiceContent, toolCalls }
+          if (choiceContent.trim()) {
+            producedTextRef.current = true
+          }
           onMessageUpdate((prev) => {
             if (requestGenerationRef.current !== generation) return prev
             return updateLastAssistantMessage(prev, (message) => {
@@ -594,6 +682,29 @@ export function useChatHandler({
           continued = true
           await runToolCalls(generation, round)
           return
+        }
+
+        if (choiceContent.trim()) {
+          producedTextRef.current = true
+        }
+
+        // Tool rounds exhausted or no answer written: force one final round.
+        if (
+          (toolCalls.length > 0 || choiceContent.trim() === '') &&
+          !forcedAnswerRoundRef.current &&
+          (producedTextRef.current || toolCalls.length > 0)
+        ) {
+          continued = true
+          forceFinalAnswerRound(generation, round)
+          return
+        }
+
+        // The model returned nothing at all: silently try another model.
+        if (choiceContent.trim() === '' && !producedTextRef.current) {
+          if (retryWithFallbackModel(generation)) {
+            continued = true
+            return
+          }
         }
 
         onMessageUpdate((prev) => {
@@ -627,7 +738,15 @@ export function useChatHandler({
         }
       }
     },
-    [config, parameterEnabled, onMessageUpdate, handleStreamError, runToolCalls]
+    [
+      config,
+      parameterEnabled,
+      onMessageUpdate,
+      handleStreamError,
+      forceFinalAnswerRound,
+      retryWithFallbackModel,
+      runToolCalls,
+    ]
   )
 
   useEffect(() => {
@@ -650,24 +769,33 @@ export function useChatHandler({
       discardPendingStreamUpdates(generation)
       stopStream()
 
-      // Force thinking only when the model cannot reason natively; native
-      // reasoning models are left untouched either way.
-      const forceThink =
-        thinkingEnabled && !supportsNativeThinking(config.model)
+      // Thinking: native reasoning models get a depth-scaled system prompt
+      // plus reasoning_effort; other models get the think tool instead, with
+      // the same depth requirement, so the result looks identical.
+      const hasNativeThinking = supportsNativeThinking(config.model)
+      const useThinkTool = thinkingEnabled && !hasNativeThinking
 
       transcriptRef.current = buildApiTranscript(messages)
-      if (forceThink) {
+      if (thinkingEnabled) {
         transcriptRef.current.unshift({
           role: 'system',
-          content: buildThinkingSystemPrompt(thinkingLevel),
+          content: hasNativeThinking
+            ? buildNativeThinkingSystemPrompt(thinkingLevel)
+            : buildThinkToolSystemPrompt(thinkingLevel),
         })
       }
+      reasoningEffortRef.current =
+        thinkingEnabled && hasNativeThinking
+          ? THINKING_LEVEL_REASONING_EFFORT[thinkingLevel]
+          : null
       toolsRef.current = buildPlaygroundToolDefinitions(
         toolsEnabled,
-        forceThink
+        useThinkTool
       )
       roundStateRef.current = { content: '', toolCalls: [] }
       modelOverrideRef.current = null
+      producedTextRef.current = false
+      forcedAnswerRoundRef.current = false
       fallbackStateRef.current = {
         tried: new Set([config.model]),
         retriedCurrent: false,

@@ -54,6 +54,8 @@ export type ToolEventFinish = {
   attachments?: MessageAttachment[]
   sources?: { href: string; title: string }[]
   thought?: string
+  /** Result payload sent to the model, kept for transcript replay. */
+  result?: string
 }
 
 /**
@@ -73,6 +75,8 @@ export function applyToolEventFinish(
           summary: finish.summary ?? event.summary,
           error: finish.error,
           completedAt: Date.now(),
+          result: finish.result ?? event.result,
+          plan: finish.plan ?? event.plan,
         }
       : event
   )

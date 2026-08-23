@@ -26,42 +26,84 @@ import type {
 } from '../../types'
 import { formatMessageForAPI, isValidMessage } from '../message/message-utils'
 
+// Tool results replayed into the transcript are capped so old turns never
+// blow up the context window.
+const MAX_REPLAYED_TOOL_RESULT_CHARS = 4_000
+
 /**
  * Convert display messages into the API transcript used by chat requests and
- * by the client-side tool loop. Tool events recorded on assistant messages are
- * folded into a compact annotation so later turns keep tool context.
+ * by the client-side tool loop. Assistant messages with recorded tool calls
+ * are replayed in the standard assistant tool_calls + tool message format,
+ * split at the content position where each call happened.
  */
 export function buildApiTranscript(
   messages: Message[]
 ): ChatCompletionMessage[] {
-  return messages.filter(isValidMessage).map((message) => {
+  const transcript: ChatCompletionMessage[] = []
+
+  for (const message of messages.filter(isValidMessage)) {
     const apiMessage = formatMessageForAPI(message)
-    const toolEvents = message.toolEvents ?? []
+    const replayable = (message.toolEvents ?? []).filter(
+      (event) => event.arguments != null && event.result != null
+    )
 
     if (
       message.from !== 'assistant' ||
-      toolEvents.length === 0 ||
+      replayable.length === 0 ||
       typeof apiMessage.content !== 'string'
     ) {
-      return apiMessage
+      transcript.push(apiMessage)
+      continue
     }
 
-    const lines = toolEvents.map((event) => {
-      const detail = event.error ?? event.summary ?? ''
-      return `- ${event.name} (${event.status})${detail ? `: ${detail}` : ''}`
-    })
-    const annotation = [
-      '[Tools used in this turn — call them again if you need fresh data]',
-      ...lines,
-    ].join('\n')
+    const content = apiMessage.content
+    const sorted = [...replayable].sort(
+      (a, b) => (a.anchor ?? 0) - (b.anchor ?? 0)
+    )
 
-    return {
-      ...apiMessage,
-      content: apiMessage.content
-        ? `${apiMessage.content}\n\n${annotation}`
-        : annotation,
+    // Group events that happened at the same content position so they replay
+    // as one assistant turn with parallel tool calls.
+    const groups = new Map<number, typeof sorted>()
+    for (const event of sorted) {
+      const anchor = Math.max(0, Math.min(event.anchor ?? 0, content.length))
+      const group = groups.get(anchor) ?? []
+      group.push(event)
+      groups.set(anchor, group)
     }
-  })
+
+    let cursor = 0
+    for (const [anchor, events] of groups) {
+      transcript.push({
+        role: 'assistant',
+        content: content.slice(cursor, anchor) || null,
+        tool_calls: events.map((event) => ({
+          id: event.id,
+          type: 'function',
+          function: { name: event.name, arguments: event.arguments ?? '{}' },
+        })),
+      })
+      for (const event of events) {
+        const result = event.result ?? ''
+        transcript.push({
+          role: 'tool',
+          tool_call_id: event.id,
+          name: event.name,
+          content:
+            result.length > MAX_REPLAYED_TOOL_RESULT_CHARS
+              ? `${result.slice(0, MAX_REPLAYED_TOOL_RESULT_CHARS)}\n[truncated]`
+              : result,
+        })
+      }
+      cursor = anchor
+    }
+
+    const rest = content.slice(cursor)
+    if (rest) {
+      transcript.push({ role: 'assistant', content: rest })
+    }
+  }
+
+  return transcript
 }
 
 /**

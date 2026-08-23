@@ -29,7 +29,7 @@ export interface WebSearchResultItem {
 }
 
 export interface WebSearchOutcome {
-  provider: 'tavily' | 'firecrawl'
+  provider: 'firecrawl' | 'tavily' | 'duckduckgo' | 'wikipedia'
   results: WebSearchResultItem[]
 }
 
@@ -127,10 +127,120 @@ async function searchWithFirecrawl(
   return normalizeResults(data?.data)
 }
 
+// DuckDuckGo instant-answer API: keyless and CORS-friendly, but only returns
+// hits for queries with an encyclopedic answer, so it is a late fallback.
+async function searchWithDuckDuckGo(
+  query: string,
+  maxResults: number,
+  signal: AbortSignal | undefined
+): Promise<WebSearchResultItem[]> {
+  const response = await fetch(
+    `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&no_redirect=1`,
+    { signal: withTimeout(signal) }
+  )
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+
+  const data = (await response.json()) as {
+    AbstractText?: unknown
+    AbstractURL?: unknown
+    Heading?: unknown
+    RelatedTopics?: unknown
+  }
+
+  const results: WebSearchResultItem[] = []
+  if (typeof data.AbstractText === 'string' && data.AbstractText.trim()) {
+    results.push({
+      title:
+        typeof data.Heading === 'string' && data.Heading ? data.Heading : query,
+      url: typeof data.AbstractURL === 'string' ? data.AbstractURL : '',
+      snippet: data.AbstractText.trim(),
+    })
+  }
+
+  const collectTopics = (topics: unknown): void => {
+    if (!Array.isArray(topics) || results.length >= maxResults) {
+      return
+    }
+    for (const topic of topics) {
+      if (results.length >= maxResults) {
+        return
+      }
+      if (!topic || typeof topic !== 'object') {
+        continue
+      }
+      const record = topic as Record<string, unknown>
+      if (Array.isArray(record.Topics)) {
+        collectTopics(record.Topics)
+        continue
+      }
+      if (
+        typeof record.Text === 'string' &&
+        typeof record.FirstURL === 'string'
+      ) {
+        const [title, ...rest] = record.Text.split(' - ')
+        results.push({
+          title: title.trim() || record.FirstURL,
+          url: record.FirstURL,
+          snippet: rest.join(' - ').trim() || record.Text,
+        })
+      }
+    }
+  }
+  collectTopics(data.RelatedTopics)
+
+  return results.slice(0, maxResults).filter((item) => item.url)
+}
+
+// Wikipedia opensearch: keyless, CORS-enabled via origin=*, decent last
+// resort for general knowledge queries.
+async function searchWithWikipedia(
+  query: string,
+  maxResults: number,
+  signal: AbortSignal | undefined
+): Promise<WebSearchResultItem[]> {
+  const response = await fetch(
+    `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=${maxResults}&namespace=0&format=json&origin=*`,
+    { signal: withTimeout(signal) }
+  )
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+
+  const data = (await response.json()) as unknown
+  if (!Array.isArray(data) || data.length < 4) {
+    return []
+  }
+
+  const [titles, descriptions, urls] = [
+    data[1],
+    data[2],
+    data[3],
+  ] as unknown[][]
+  if (!Array.isArray(titles) || !Array.isArray(urls)) {
+    return []
+  }
+
+  return titles
+    .map(
+      (title, index): WebSearchResultItem => ({
+        title: typeof title === 'string' ? title : String(title),
+        url: typeof urls[index] === 'string' ? (urls[index] as string) : '',
+        snippet:
+          Array.isArray(descriptions) && typeof descriptions[index] === 'string'
+            ? (descriptions[index] as string)
+            : '',
+      })
+    )
+    .filter((item) => item.url)
+    .slice(0, maxResults)
+}
+
 /**
  * Search the web from the browser, falling back to the next provider when one
- * fails (rate limit, outage, keyless quota exhausted, ...). Firecrawl goes
- * first because its keyless tier is the most reliable.
+ * fails (rate limit, outage, keyless quota exhausted, empty results, ...).
+ * Firecrawl goes first because its keyless tier is the most reliable.
  */
 export async function searchWebWithFallback(
   query: string,
@@ -140,6 +250,8 @@ export async function searchWebWithFallback(
   const providers = [
     { name: 'firecrawl' as const, run: searchWithFirecrawl },
     { name: 'tavily' as const, run: searchWithTavily },
+    { name: 'duckduckgo' as const, run: searchWithDuckDuckGo },
+    { name: 'wikipedia' as const, run: searchWithWikipedia },
   ]
 
   const errors: string[] = []

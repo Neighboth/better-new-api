@@ -35,8 +35,9 @@ import {
   truncateToolResult,
 } from '../tools/tool-call-utils'
 import {
+  buildNativeThinkingSystemPrompt,
   buildPlaygroundToolDefinitions,
-  buildThinkingSystemPrompt,
+  buildThinkToolSystemPrompt,
 } from '../tools/tool-definitions'
 import { searchWebWithFallback } from '../tools/web-search'
 
@@ -118,16 +119,18 @@ describe('searchWebWithFallback', () => {
     expect(calls[1]).toContain('tavily.com')
   })
 
-  it('reports both provider errors when each one fails', async () => {
+  it('reports provider errors when every provider fails', async () => {
     mockFetchSequence([
       () => {
         throw new Error('network down')
       },
       () => new Response('bad gateway', { status: 502 }),
+      () => new Response('down', { status: 503 }),
+      () => new Response('down', { status: 503 }),
     ])
 
     await expect(searchWebWithFallback('anything', 2)).rejects.toThrow(
-      /firecrawl: network down; tavily: HTTP 502/
+      /firecrawl: network down; tavily: HTTP 502; duckduckgo: HTTP 503; wikipedia: HTTP 503/
     )
   })
 
@@ -149,6 +152,64 @@ describe('searchWebWithFallback', () => {
 
     expect(outcome.provider).toBe('tavily')
     expect(calls).toHaveLength(2)
+  })
+
+  it('falls back to DuckDuckGo instant answers', async () => {
+    const calls = mockFetchSequence([
+      () => new Response('limited', { status: 429 }),
+      () => new Response('unauthorized', { status: 401 }),
+      () =>
+        new Response(
+          JSON.stringify({
+            Heading: 'new-api',
+            AbstractText: 'An AI gateway project.',
+            AbstractURL: 'https://example.com/new-api',
+            RelatedTopics: [],
+          }),
+          { status: 200 }
+        ),
+    ])
+
+    const outcome = await searchWebWithFallback('new-api', 3)
+
+    expect(outcome.provider).toBe('duckduckgo')
+    expect(outcome.results).toEqual([
+      {
+        title: 'new-api',
+        url: 'https://example.com/new-api',
+        snippet: 'An AI gateway project.',
+      },
+    ])
+    expect(calls[2]).toContain('api.duckduckgo.com')
+  })
+
+  it('uses Wikipedia opensearch as the last resort', async () => {
+    mockFetchSequence([
+      () => new Response('limited', { status: 429 }),
+      () => new Response('unauthorized', { status: 401 }),
+      () => new Response(JSON.stringify({}), { status: 200 }),
+      () =>
+        new Response(
+          JSON.stringify([
+            'new-api',
+            ['New API'],
+            ['AI gateway'],
+            ['https://en.wikipedia.org/wiki/New_API'],
+          ]),
+          { status: 200 }
+        ),
+    ])
+
+    const outcome = await searchWebWithFallback('new-api', 3)
+
+    expect(outcome.provider).toBe('wikipedia')
+    expect(outcome.results).toEqual([
+      {
+        title: 'New API',
+        url: 'https://en.wikipedia.org/wiki/New_API',
+        snippet: 'AI gateway',
+      },
+    ])
   })
 })
 
@@ -183,11 +244,47 @@ describe('fetchPageWithFallback', () => {
     mockFetchSequence([
       () => new Response('nope', { status: 500 }),
       () => new Response('nope', { status: 404 }),
+      () => new Response('nope', { status: 502 }),
+      () => new Response('nope', { status: 403 }),
     ])
 
     await expect(fetchPageWithFallback('https://example.com')).rejects.toThrow(
-      /jina: HTTP 500; tavily: HTTP 404/
+      /jina: HTTP 500; tavily: HTTP 404; allorigins: HTTP 502; direct: HTTP 403/
     )
+  })
+
+  it('falls back to the CORS proxy and converts HTML to text', async () => {
+    const calls = mockFetchSequence([
+      () => new Response('limited', { status: 429 }),
+      () => new Response('unauthorized', { status: 401 }),
+      () =>
+        new Response(
+          '<!doctype html><html><body><script>var x=1</script><h1>Hello</h1><p>World</p></body></html>',
+          { status: 200 }
+        ),
+    ])
+
+    const page = await fetchPageWithFallback('https://example.com/page')
+
+    expect(page.provider).toBe('allorigins')
+    expect(page.content).toContain('Hello')
+    expect(page.content).toContain('World')
+    expect(page.content).not.toContain('var x=1')
+    expect(calls[2]).toContain('api.allorigins.win')
+  })
+
+  it('tries a direct fetch as the last resort', async () => {
+    mockFetchSequence([
+      () => new Response('limited', { status: 429 }),
+      () => new Response('unauthorized', { status: 401 }),
+      () => new Response('down', { status: 503 }),
+      () => new Response('plain text content', { status: 200 }),
+    ])
+
+    const page = await fetchPageWithFallback('https://example.com/feed.txt')
+
+    expect(page.provider).toBe('direct')
+    expect(page.content).toBe('plain text content')
   })
 })
 
@@ -311,11 +408,20 @@ describe('buildPlaygroundToolDefinitions', () => {
   })
 })
 
-describe('buildThinkingSystemPrompt', () => {
+describe('thinking system prompts', () => {
   it('embeds the depth instruction of the selected level', () => {
-    expect(buildThinkingSystemPrompt('lite')).toContain('extremely brief')
-    expect(buildThinkingSystemPrompt('ultra')).toContain('exhaustively')
-    expect(buildThinkingSystemPrompt('medium')).toContain('moderate detail')
+    expect(buildThinkToolSystemPrompt('lite')).toContain('very short')
+    expect(buildThinkToolSystemPrompt('ultra')).toContain('exhaustively')
+    expect(buildThinkToolSystemPrompt('medium')).toContain('moderate depth')
+    expect(buildNativeThinkingSystemPrompt('high')).toContain(
+      'several detailed paragraphs'
+    )
+  })
+
+  it('forces the think tool before the first sentence and mid-message', () => {
+    const prompt = buildThinkToolSystemPrompt('medium')
+    expect(prompt).toContain('MUST call `think` before writing your first')
+    expect(prompt).toContain('mid-message')
   })
 })
 
@@ -361,27 +467,93 @@ describe('buildChatApiPayload tools', () => {
   })
 })
 
-describe('buildApiTranscript tool annotation', () => {
-  it('folds recorded tool events into assistant content for later turns', () => {
+describe('buildApiTranscript tool replay', () => {
+  it('replays recorded tool calls in standard tool_calls format', () => {
     const user = createUserMessage('find news', 1)
     const assistant = createLoadingAssistantMessage(1)
-    assistant.versions[0].content = 'Here is what I found.'
+    assistant.versions[0].content = 'Let me search. Here is what I found.'
     assistant.status = 'complete'
     const toolEvent: ToolEvent = {
       id: 'call_1',
       name: 'web_search',
       status: 'done',
-      summary: 'latest new-api release',
-      startedAt: 1,
+      anchor: 15,
+      arguments: '{"query":"new-api"}',
+      result: '{"results":[]}',
     }
     assistant.toolEvents = [toolEvent]
 
     const transcript = buildApiTranscript([user, assistant])
 
+    expect(transcript).toHaveLength(4)
+    expect(transcript[1]).toEqual({
+      role: 'assistant',
+      content: 'Let me search. ',
+      tool_calls: [
+        {
+          id: 'call_1',
+          type: 'function',
+          function: { name: 'web_search', arguments: '{"query":"new-api"}' },
+        },
+      ],
+    })
+    expect(transcript[2]).toEqual({
+      role: 'tool',
+      tool_call_id: 'call_1',
+      name: 'web_search',
+      content: '{"results":[]}',
+    })
+    expect(transcript[3]).toEqual({
+      role: 'assistant',
+      content: 'Here is what I found.',
+    })
+    expect(JSON.stringify(transcript)).not.toContain('Tools used in this turn')
+  })
+
+  it('groups parallel calls at the same position into one assistant turn', () => {
+    const assistant = createLoadingAssistantMessage(1)
+    assistant.versions[0].content = 'done'
+    assistant.status = 'complete'
+    assistant.toolEvents = [
+      {
+        id: 'a',
+        name: 'web_search',
+        status: 'done',
+        anchor: 0,
+        arguments: '{}',
+        result: 'r1',
+      },
+      {
+        id: 'b',
+        name: 'fetch_page',
+        status: 'done',
+        anchor: 0,
+        arguments: '{}',
+        result: 'r2',
+      },
+    ]
+
+    const transcript = buildApiTranscript([assistant])
+
+    expect(transcript).toHaveLength(4)
+    expect(transcript[0].tool_calls).toHaveLength(2)
+    expect(transcript[1].role).toBe('tool')
+    expect(transcript[2].role).toBe('tool')
+    expect(transcript[3].content).toBe('done')
+  })
+
+  it('leaves messages without replay data untouched', () => {
+    const user = createUserMessage('hi', 1)
+    const assistant = createLoadingAssistantMessage(1)
+    assistant.versions[0].content = 'answer'
+    assistant.status = 'complete'
+    assistant.toolEvents = [
+      { id: 'call_1', name: 'web_search', status: 'done', anchor: 0 },
+    ]
+
+    const transcript = buildApiTranscript([user, assistant])
+
     expect(transcript).toHaveLength(2)
-    const assistantContent = transcript[1].content as string
-    expect(assistantContent).toContain('Here is what I found.')
-    expect(assistantContent).toContain('web_search (done)')
-    expect(assistantContent).toContain('latest new-api release')
+    expect(transcript[1]).toEqual({ role: 'assistant', content: 'answer' })
   })
 })
