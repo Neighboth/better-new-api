@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -40,18 +40,32 @@ import {
 } from '@/components/ai-elements/sources'
 import { cn } from '@/lib/utils'
 
-import { MESSAGE_STATUS } from '../../constants'
+import { getToolLabelKey, MESSAGE_STATUS } from '../../constants'
 import {
+  buildMessageRenderItems,
   getMessageAlignmentClass,
   getMessageContentState,
   isErrorMessage,
+  parseThinkTags,
   type MessageAlignment,
 } from '../../lib'
 import { getMessageContentStyles } from '../../lib/message/message-styles'
-import type { Message } from '../../types'
+import type { Message, ThoughtBlock } from '../../types'
 import { MessageError } from './message-error'
 import { MessageMetadata } from './message-metadata'
 import { PlaygroundMessageAttachments } from './playground-message-attachments'
+import { PlaygroundPlanTable } from './playground-plan-table'
+import { PlaygroundToolsSummary } from './playground-tools-summary'
+
+function getThoughtDuration(thought: ThoughtBlock): number | undefined {
+  if (!thought.startedAt || !thought.completedAt) {
+    return undefined
+  }
+  return Math.max(
+    0,
+    Math.round((thought.completedAt - thought.startedAt) / 1000)
+  )
+}
 
 type PlaygroundMessageContentProps = {
   actions: ReactNode
@@ -72,7 +86,6 @@ export function PlaygroundMessageContent({
 }: PlaygroundMessageContentProps) {
   const { t } = useTranslation()
   const {
-    displayContent,
     hasReasoning,
     hasSources,
     reasoningContent,
@@ -86,6 +99,16 @@ export function PlaygroundMessageContent({
   const isMessageFinal =
     message.status !== MESSAGE_STATUS.LOADING &&
     message.status !== MESSAGE_STATUS.STREAMING
+  const toolEvents = message.toolEvents ?? []
+  const activeToolLabel = message.activeTool
+    ? t(getToolLabelKey(message.activeTool))
+    : null
+
+  const renderItems = useMemo(
+    () => (isError ? [] : buildMessageRenderItems(message)),
+    [isError, message]
+  )
+  const hasNonTextItems = renderItems.some((item) => item.kind !== 'text')
 
   return (
     <div
@@ -120,11 +143,17 @@ export function PlaygroundMessageContent({
         </Reasoning>
       )}
 
+      {!isError && toolEvents.length > 0 && (
+        <PlaygroundToolsSummary events={toolEvents} />
+      )}
+
       {showLoader && (
         <div className='flex items-center gap-2 py-2'>
           <Loader />
           <Shimmer className='text-sm' duration={1}>
-            {t('Responding...')}
+            {activeToolLabel
+              ? t('Using {{tool}}…', { tool: activeToolLabel })
+              : t('Responding...')}
           </Shimmer>
         </div>
       )}
@@ -141,35 +170,84 @@ export function PlaygroundMessageContent({
         <PlaygroundMessageAttachments attachments={attachments} />
       )}
 
-      {!isError && (showMessageContent || hasAttachments) && (
-        <>
-          {showMessageContent && isSourceVisible && (
-            <CodeBlock
-              code={versionContent}
-              className='my-0 group-[.is-assistant]:w-full group-[.is-assistant]:max-w-[78ch]'
-              collapsedLines={24}
-              defaultCollapsed={false}
-              language='markdown'
-              maxExpandedLines={48}
-              showLineNumbers
-              showToolbar
-              title={t('Raw response')}
-            >
-              <CodeBlockCopyButton />
-            </CodeBlock>
-          )}
-          {showMessageContent && !isSourceVisible && (
-            <MessageContent
-              variant='flat'
-              className={cn(getMessageContentStyles())}
-            >
-              <Response final={isMessageFinal}>{displayContent}</Response>
-            </MessageContent>
-          )}
-          <MessageMetadata alignment={alignment} message={message} />
-          {actions}
-        </>
-      )}
+      {!isError &&
+        (showMessageContent || hasAttachments || hasNonTextItems) && (
+          <>
+            {showMessageContent && isSourceVisible && (
+              <CodeBlock
+                code={versionContent}
+                className='my-0 group-[.is-assistant]:w-full group-[.is-assistant]:max-w-[78ch]'
+                collapsedLines={24}
+                defaultCollapsed={false}
+                language='markdown'
+                maxExpandedLines={48}
+                showLineNumbers
+                showToolbar
+                title={t('Raw response')}
+              >
+                <CodeBlockCopyButton />
+              </CodeBlock>
+            )}
+            {!isSourceVisible &&
+              renderItems.map((item) => {
+                if (item.kind === 'text') {
+                  const text =
+                    message.from === 'assistant'
+                      ? parseThinkTags(item.text).visibleContent
+                      : item.text
+                  if (!text || !showMessageContent) {
+                    return null
+                  }
+                  return (
+                    <MessageContent
+                      className={cn(getMessageContentStyles())}
+                      key={item.key}
+                      variant='flat'
+                    >
+                      <Response final={isMessageFinal}>{text}</Response>
+                    </MessageContent>
+                  )
+                }
+
+                if (item.kind === 'thought') {
+                  return (
+                    <Reasoning
+                      defaultOpen
+                      duration={getThoughtDuration(item.thought)}
+                      isStreaming={false}
+                      key={item.key}
+                    >
+                      <ReasoningTrigger />
+                      <ReasoningContent>
+                        {item.thought.content}
+                      </ReasoningContent>
+                    </Reasoning>
+                  )
+                }
+
+                if (item.kind === 'tool-running') {
+                  return (
+                    <div
+                      aria-live='polite'
+                      className='text-muted-foreground flex items-center gap-2 py-1 text-sm'
+                      key={item.key}
+                    >
+                      <Loader size={14} />
+                      <span>
+                        {t('Using {{tool}}…', {
+                          tool: t(getToolLabelKey(item.event.name)),
+                        })}
+                      </span>
+                    </div>
+                  )
+                }
+
+                return <PlaygroundPlanTable key={item.key} steps={item.steps} />
+              })}
+            <MessageMetadata alignment={alignment} message={message} />
+            {actions}
+          </>
+        )}
     </div>
   )
 }

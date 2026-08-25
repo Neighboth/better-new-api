@@ -21,10 +21,27 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { sendChatCompletion } from '../api'
-import { ERROR_MESSAGES } from '../constants'
+import {
+  ERROR_MESSAGES,
+  FINAL_ANSWER_NUDGE,
+  MAX_TOOL_ROUNDS,
+  THINKING_LEVEL_REASONING_EFFORT,
+} from '../constants'
 import {
   applyStreamingChunk,
-  buildChatCompletionPayload,
+  applyToolEventFinish,
+  applyToolEventStart,
+  buildApiTranscript,
+  buildChatApiPayload,
+  buildNativeThinkingSystemPrompt,
+  buildPlaygroundToolDefinitions,
+  buildThinkToolSystemPrompt,
+  executePlaygroundTool,
+  isPlaygroundToolId,
+  mergeToolCallDeltas,
+  parseToolArguments,
+  summarizeToolCallArguments,
+  supportsNativeThinking,
   updateAssistantMessageWithError,
   updateLastAssistantMessage,
   parseRequestErrorDetails,
@@ -34,12 +51,28 @@ import {
   isAssistantMessageFinal,
   isAssistantMessagePending,
 } from '../lib'
-import type { Message, PlaygroundConfig, ParameterEnabled } from '../types'
+import type {
+  ChatCompletionMessage,
+  ChatCompletionTool,
+  Message,
+  ModelOption,
+  PlaygroundConfig,
+  ParameterEnabled,
+  PlaygroundToolsEnabled,
+  ThinkingLevel,
+  ToolCall,
+  ToolCallDelta,
+} from '../types'
 import { useStreamRequest } from './use-stream-request'
 
 interface UseChatHandlerOptions {
   config: PlaygroundConfig
   parameterEnabled: ParameterEnabled
+  toolsEnabled: PlaygroundToolsEnabled
+  /** Available chat models for silent error fallback. */
+  models: ModelOption[]
+  thinkingEnabled: boolean
+  thinkingLevel: ThinkingLevel
   onMessageUpdate: (updater: (prev: Message[]) => Message[]) => void
 }
 
@@ -50,6 +83,13 @@ type PendingStreamChunks = {
   generation: number
   content: string
   reasoning: string
+}
+
+// Per-round accumulator: the text and tool calls streamed in the current
+// request, so a tool_call round can be appended to the API transcript.
+type RoundState = {
+  content: string
+  toolCalls: ToolCall[]
 }
 
 function mergePendingStreamChunk(
@@ -69,6 +109,10 @@ function mergePendingStreamChunk(
 export function useChatHandler({
   config,
   parameterEnabled,
+  toolsEnabled,
+  models,
+  thinkingEnabled,
+  thinkingLevel,
   onMessageUpdate,
 }: UseChatHandlerOptions) {
   const { t } = useTranslation()
@@ -76,6 +120,35 @@ export function useChatHandler({
   const [isRequesting, setIsRequesting] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
   const requestGenerationRef = useRef(0)
+  const transcriptRef = useRef<ChatCompletionMessage[] | null>(null)
+  const toolsRef = useRef<ChatCompletionTool[]>([])
+  const roundStateRef = useRef<RoundState>({ content: '', toolCalls: [] })
+  // Silent error fallback: same-model retry first, then every other model.
+  const modelOverrideRef = useRef<string | null>(null)
+  const fallbackStateRef = useRef<{
+    tried: Set<string>
+    retriedCurrent: boolean
+  }>({
+    tried: new Set(),
+    retriedCurrent: false,
+  })
+  const currentRoundRef = useRef(0)
+  // Set once any visible content was produced; an empty final round then
+  // triggers a forced-answer round instead of completing silently.
+  const producedTextRef = useRef(false)
+  const forcedAnswerRoundRef = useRef(false)
+  const reasoningEffortRef = useRef<
+    'minimal' | 'low' | 'medium' | 'high' | null
+  >(null)
+  const modelsRef = useRef<ModelOption[]>(models)
+  useEffect(() => {
+    modelsRef.current = models
+  }, [models])
+  // Latest round starter, used by the tool loop to kick off the next round
+  // without a circular useCallback dependency.
+  const startRoundRef = useRef<
+    ((generation: number, round: number) => void) | null
+  >(null)
   const pendingStreamChunksRef = useRef<PendingStreamChunks>({
     generation: 0,
     content: '',
@@ -191,6 +264,17 @@ export function useChatHandler({
     (generation: number, type: 'reasoning' | 'content', chunk: string) => {
       if (generation !== requestGenerationRef.current) return
       if (pendingStreamChunksRef.current.generation !== generation) return
+      if (type === 'content') {
+        // Keep the raw per-round text so a tool_call round can be replayed
+        // into the API transcript with its tool_calls.
+        roundStateRef.current.content = mergePendingStreamChunk(
+          roundStateRef.current.content,
+          chunk
+        )
+        if (chunk.trim()) {
+          producedTextRef.current = true
+        }
+      }
       pendingStreamChunksRef.current[type] = mergePendingStreamChunk(
         pendingStreamChunksRef.current[type],
         chunk
@@ -200,11 +284,237 @@ export function useChatHandler({
     [scheduleStreamFlush]
   )
 
+  // Accumulate streamed tool_call deltas for the current round
+  const handleToolCallDelta = useCallback(
+    (generation: number, deltas: ToolCallDelta[]) => {
+      if (generation !== requestGenerationRef.current) return
+      roundStateRef.current.toolCalls = mergeToolCallDeltas(
+        roundStateRef.current.toolCalls,
+        deltas
+      )
+    },
+    []
+  )
+
+  /**
+   * Pick the next model for silent error recovery: one immediate retry of the
+   * current model (the gateway then routes to another channel hosting it),
+   * then every other available model, one by one. Returns null when nothing
+   * is left to try.
+   */
+  const pickFallbackModel = useCallback((): string | null => {
+    const state = fallbackStateRef.current
+    const currentModel = modelOverrideRef.current ?? config.model
+
+    if (!state.retriedCurrent) {
+      state.retriedCurrent = true
+      return currentModel
+    }
+
+    for (const model of modelsRef.current) {
+      if (state.tried.has(model.value)) {
+        continue
+      }
+      state.tried.add(model.value)
+      return model.value
+    }
+
+    return null
+  }, [config.model])
+
+  /**
+   * Silently retry the current round with the next fallback model. Returns
+   * false when every candidate has been exhausted.
+   */
+  const retryWithFallbackModel = useCallback(
+    (generation: number): boolean => {
+      const fallbackModel = pickFallbackModel()
+      if (!fallbackModel) {
+        return false
+      }
+      modelOverrideRef.current = fallbackModel
+      roundStateRef.current.toolCalls = []
+      startRoundRef.current?.(generation, currentRoundRef.current)
+      return true
+    },
+    [pickFallbackModel]
+  )
+
+  /**
+   * The model stopped without writing an answer: inject a nudge and run one
+   * final round with tools disabled so it must respond in visible text.
+   */
+  const forceFinalAnswerRound = useCallback(
+    (generation: number, round: number) => {
+      const transcript = transcriptRef.current
+      if (!transcript) return
+      forcedAnswerRoundRef.current = true
+      transcript.push({ role: 'user', content: FINAL_ANSWER_NUDGE })
+      roundStateRef.current = { content: '', toolCalls: [] }
+      startRoundRef.current?.(generation, round + 1)
+    },
+    []
+  )
+
+  // Execute the tool calls of a finished round, then continue the loop
+  const runToolCalls = useCallback(
+    async (generation: number, round: number) => {
+      const transcript = transcriptRef.current
+      if (!transcript) return
+
+      const { content, toolCalls } = roundStateRef.current
+      roundStateRef.current = { content: '', toolCalls: [] }
+      transcript.push({
+        role: 'assistant',
+        content: content || null,
+        tool_calls: toolCalls,
+      })
+
+      const abortController = new AbortController()
+      abortControllerRef.current?.abort()
+      abortControllerRef.current = abortController
+
+      const isCurrent = () =>
+        requestGenerationRef.current === generation &&
+        !abortController.signal.aborted
+
+      for (const call of toolCalls) {
+        if (!isCurrent()) return
+
+        const parsedArgs = parseToolArguments(call.function.arguments)
+        const toolName = isPlaygroundToolId(call.function.name)
+          ? call.function.name
+          : null
+
+        onMessageUpdate((prev) => {
+          if (!isCurrent()) return prev
+          return updateLastAssistantMessage(prev, (message) =>
+            applyToolEventStart(message, {
+              id: call.id,
+              name: call.function.name,
+              status: 'running',
+              summary: summarizeToolCallArguments(parsedArgs),
+              startedAt: Date.now(),
+              arguments: call.function.arguments,
+            })
+          )
+        })
+
+        const finishWithError = (errorText: string) => {
+          const resultPayload = JSON.stringify({ error: errorText })
+          transcript.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            name: call.function.name,
+            content: resultPayload,
+          })
+          onMessageUpdate((prev) => {
+            if (!isCurrent()) return prev
+            return updateLastAssistantMessage(prev, (message) =>
+              applyToolEventFinish(message, call.id, {
+                status: 'error',
+                error: errorText,
+                result: resultPayload,
+              })
+            )
+          })
+        }
+
+        if (!toolName || !parsedArgs) {
+          finishWithError(
+            toolName
+              ? 'Invalid tool arguments'
+              : `Unknown tool: ${call.function.name}`
+          )
+          continue
+        }
+
+        try {
+          const outcome = await executePlaygroundTool(
+            toolName,
+            call.function.arguments,
+            {
+              config,
+              models: modelsRef.current,
+              signal: abortController.signal,
+            }
+          )
+          if (!isCurrent()) return
+
+          transcript.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            name: toolName,
+            content: outcome.content,
+          })
+          onMessageUpdate((prev) => {
+            if (!isCurrent()) return prev
+            return updateLastAssistantMessage(prev, (message) =>
+              applyToolEventFinish(message, call.id, {
+                status: 'done',
+                summary: outcome.summary,
+                plan: outcome.plan,
+                attachments: outcome.attachments,
+                sources: outcome.sources,
+                thought: outcome.thought,
+                result: outcome.content,
+              })
+            )
+          })
+        } catch (error) {
+          if (!isCurrent()) return
+          finishWithError(
+            error instanceof Error
+              ? error.message
+              : t(ERROR_MESSAGES.TOOL_CALL_FAILED)
+          )
+        }
+      }
+
+      if (!isCurrent()) return
+      startRoundRef.current?.(generation, round + 1)
+    },
+    [config, onMessageUpdate, t]
+  )
+
   // Handle stream complete
   const handleStreamComplete = useCallback(
-    (generation: number) => {
+    (generation: number, round: number) => {
       if (generation !== requestGenerationRef.current) return
       flushStreamUpdates(generation)
+
+      const toolCalls = roundStateRef.current.toolCalls
+      const roundContent = roundStateRef.current.content.trim()
+
+      if (
+        toolCalls.length > 0 &&
+        round < MAX_TOOL_ROUNDS &&
+        !forcedAnswerRoundRef.current &&
+        transcriptRef.current
+      ) {
+        void runToolCalls(generation, round)
+        return
+      }
+
+      // Tool rounds exhausted but the model still only calls tools, or the
+      // final round produced no visible text after earlier tool work: force
+      // one answer-only round.
+      if (
+        (toolCalls.length > 0 || roundContent === '') &&
+        !forcedAnswerRoundRef.current &&
+        (producedTextRef.current || toolCalls.length > 0)
+      ) {
+        forceFinalAnswerRound(generation, round)
+        return
+      }
+
+      // The model returned nothing at all: silently try another model.
+      if (roundContent === '' && !producedTextRef.current) {
+        if (retryWithFallbackModel(generation)) {
+          return
+        }
+      }
+
       setIsRequesting(false)
       onMessageUpdate((prev) => {
         if (generation !== requestGenerationRef.current) return prev
@@ -215,7 +525,13 @@ export function useChatHandler({
         )
       })
     },
-    [flushStreamUpdates, onMessageUpdate]
+    [
+      flushStreamUpdates,
+      forceFinalAnswerRound,
+      onMessageUpdate,
+      retryWithFallbackModel,
+      runToolCalls,
+    ]
   )
 
   // Handle stream error
@@ -223,6 +539,13 @@ export function useChatHandler({
     (generation: number, error: string, errorCode?: string) => {
       if (generation !== requestGenerationRef.current) return
       flushStreamUpdates(generation)
+
+      // Silent recovery: retry with another channel/model before the user
+      // ever sees an error.
+      if (retryWithFallbackModel(generation)) {
+        return
+      }
+
       setIsRequesting(false)
       const displayError = getDisplayError(error)
       toast.error(displayError)
@@ -237,60 +560,78 @@ export function useChatHandler({
         )
       })
     },
-    [flushStreamUpdates, getDisplayError, onMessageUpdate, t]
+    [
+      flushStreamUpdates,
+      getDisplayError,
+      onMessageUpdate,
+      retryWithFallbackModel,
+      t,
+    ]
   )
 
-  // Send streaming chat request
-  const sendStreamingChat = useCallback(
-    (messages: Message[]) => {
-      const generation = requestGenerationRef.current + 1
-      requestGenerationRef.current = generation
-      abortControllerRef.current?.abort()
-      abortControllerRef.current = null
-      discardPendingStreamUpdates(generation)
-      setIsRequesting(true)
-      const payload = buildChatCompletionPayload(
-        messages,
-        config,
-        parameterEnabled
+  // Start a streaming request for one round of the tool loop
+  const startStreamRound = useCallback(
+    (generation: number, round: number) => {
+      const transcript = transcriptRef.current
+      if (!transcript) return
+
+      currentRoundRef.current = round
+      const effectiveConfig = modelOverrideRef.current
+        ? { ...config, model: modelOverrideRef.current }
+        : config
+      const payload = buildChatApiPayload(
+        transcript,
+        effectiveConfig,
+        parameterEnabled,
+        forcedAnswerRoundRef.current ? [] : toolsRef.current
       )
+      if (reasoningEffortRef.current) {
+        payload.reasoning_effort = reasoningEffortRef.current
+      }
       void sendStreamRequest(
         payload,
         (type, chunk) => handleStreamUpdate(generation, type, chunk),
-        () => handleStreamComplete(generation),
-        (error, errorCode) => handleStreamError(generation, error, errorCode)
+        () => handleStreamComplete(generation, round),
+        (error, errorCode) => handleStreamError(generation, error, errorCode),
+        (deltas) => handleToolCallDelta(generation, deltas)
       )
     },
     [
       config,
       parameterEnabled,
       sendStreamRequest,
-      discardPendingStreamUpdates,
       handleStreamUpdate,
       handleStreamComplete,
       handleStreamError,
+      handleToolCallDelta,
     ]
   )
 
-  // Send non-streaming chat request
-  const sendNonStreamingChat = useCallback(
-    async (messages: Message[]) => {
-      const payload = buildChatCompletionPayload(
-        messages,
-        config,
-        parameterEnabled
-      )
-      const generation = requestGenerationRef.current + 1
-      const abortController = new AbortController()
+  // Run a non-streaming request for one round of the tool loop
+  const runNonStreamingRound = useCallback(
+    async (generation: number, round: number) => {
+      const transcript = transcriptRef.current
+      if (!transcript) return
 
-      requestGenerationRef.current = generation
-      stopStream()
-      discardPendingStreamUpdates(generation)
+      currentRoundRef.current = round
+      const effectiveConfig = modelOverrideRef.current
+        ? { ...config, model: modelOverrideRef.current }
+        : config
+      const payload = buildChatApiPayload(
+        transcript,
+        effectiveConfig,
+        parameterEnabled,
+        forcedAnswerRoundRef.current ? [] : toolsRef.current
+      )
+      if (reasoningEffortRef.current) {
+        payload.reasoning_effort = reasoningEffortRef.current
+      }
+      const abortController = new AbortController()
       abortControllerRef.current?.abort()
       abortControllerRef.current = abortController
+      let continued = false
 
       try {
-        setIsRequesting(true)
         const response = await sendChatCompletion(
           payload,
           abortController.signal
@@ -305,6 +646,65 @@ export function useChatHandler({
         if (!hasChatCompletionChoice(response)) {
           handleStreamError(generation, ERROR_MESSAGES.API_REQUEST_ERROR)
           return
+        }
+
+        const choice = response.choices[0]
+        const toolCalls = choice.message.tool_calls ?? []
+        const choiceContent = choice.message.content ?? ''
+
+        if (
+          toolCalls.length > 0 &&
+          round < MAX_TOOL_ROUNDS &&
+          !forcedAnswerRoundRef.current
+        ) {
+          const choiceReasoning = choice.message.reasoning_content
+          roundStateRef.current = { content: choiceContent, toolCalls }
+          if (choiceContent.trim()) {
+            producedTextRef.current = true
+          }
+          onMessageUpdate((prev) => {
+            if (requestGenerationRef.current !== generation) return prev
+            return updateLastAssistantMessage(prev, (message) => {
+              let updated = message
+              if (choiceReasoning) {
+                updated = applyStreamingChunk(
+                  updated,
+                  'reasoning',
+                  choiceReasoning
+                )
+              }
+              if (choiceContent) {
+                updated = applyStreamingChunk(updated, 'content', choiceContent)
+              }
+              return updated
+            })
+          })
+          continued = true
+          await runToolCalls(generation, round)
+          return
+        }
+
+        if (choiceContent.trim()) {
+          producedTextRef.current = true
+        }
+
+        // Tool rounds exhausted or no answer written: force one final round.
+        if (
+          (toolCalls.length > 0 || choiceContent.trim() === '') &&
+          !forcedAnswerRoundRef.current &&
+          (producedTextRef.current || toolCalls.length > 0)
+        ) {
+          continued = true
+          forceFinalAnswerRound(generation, round)
+          return
+        }
+
+        // The model returned nothing at all: silently try another model.
+        if (choiceContent.trim() === '' && !producedTextRef.current) {
+          if (retryWithFallbackModel(generation)) {
+            continued = true
+            return
+          }
         }
 
         onMessageUpdate((prev) => {
@@ -329,8 +729,11 @@ export function useChatHandler({
         const { errorCode, errorMessage } = parseRequestErrorDetails(error)
         handleStreamError(generation, errorMessage, errorCode)
       } finally {
-        if (requestGenerationRef.current === generation) {
+        // A continued round installs its own controller; only release ours.
+        if (abortControllerRef.current === abortController) {
           abortControllerRef.current = null
+        }
+        if (!continued && requestGenerationRef.current === generation) {
           setIsRequesting(false)
         }
       }
@@ -338,23 +741,77 @@ export function useChatHandler({
     [
       config,
       parameterEnabled,
-      stopStream,
-      discardPendingStreamUpdates,
       onMessageUpdate,
       handleStreamError,
+      forceFinalAnswerRound,
+      retryWithFallbackModel,
+      runToolCalls,
     ]
   )
+
+  useEffect(() => {
+    startRoundRef.current = (generation, round) => {
+      if (config.stream) {
+        startStreamRound(generation, round)
+      } else {
+        void runNonStreamingRound(generation, round)
+      }
+    }
+  })
 
   // Send chat request (stream or non-stream based on config)
   const sendChat = useCallback(
     (messages: Message[]) => {
-      if (config.stream) {
-        sendStreamingChat(messages)
-      } else {
-        sendNonStreamingChat(messages)
+      const generation = requestGenerationRef.current + 1
+      requestGenerationRef.current = generation
+      abortControllerRef.current?.abort()
+      abortControllerRef.current = null
+      discardPendingStreamUpdates(generation)
+      stopStream()
+
+      // Thinking: native reasoning models get a depth-scaled system prompt
+      // plus reasoning_effort; other models get the think tool instead, with
+      // the same depth requirement, so the result looks identical.
+      const hasNativeThinking = supportsNativeThinking(config.model)
+      const useThinkTool = thinkingEnabled && !hasNativeThinking
+
+      transcriptRef.current = buildApiTranscript(messages)
+      if (thinkingEnabled) {
+        transcriptRef.current.unshift({
+          role: 'system',
+          content: hasNativeThinking
+            ? buildNativeThinkingSystemPrompt(thinkingLevel)
+            : buildThinkToolSystemPrompt(thinkingLevel),
+        })
       }
+      reasoningEffortRef.current =
+        thinkingEnabled && hasNativeThinking
+          ? THINKING_LEVEL_REASONING_EFFORT[thinkingLevel]
+          : null
+      toolsRef.current = buildPlaygroundToolDefinitions(
+        toolsEnabled,
+        useThinkTool
+      )
+      roundStateRef.current = { content: '', toolCalls: [] }
+      modelOverrideRef.current = null
+      producedTextRef.current = false
+      forcedAnswerRoundRef.current = false
+      fallbackStateRef.current = {
+        tried: new Set([config.model]),
+        retriedCurrent: false,
+      }
+      currentRoundRef.current = 0
+      setIsRequesting(true)
+      startRoundRef.current?.(generation, 0)
     },
-    [config.stream, sendStreamingChat, sendNonStreamingChat]
+    [
+      config.model,
+      thinkingEnabled,
+      thinkingLevel,
+      toolsEnabled,
+      stopStream,
+      discardPendingStreamUpdates,
+    ]
   )
 
   // Stop generation
@@ -364,6 +821,8 @@ export function useChatHandler({
     const idleGeneration = stoppedGeneration + 1
     requestGenerationRef.current = idleGeneration
     discardPendingStreamUpdates(idleGeneration)
+    transcriptRef.current = null
+    roundStateRef.current = { content: '', toolCalls: [] }
     stopStream()
     abortControllerRef.current?.abort()
     abortControllerRef.current = null

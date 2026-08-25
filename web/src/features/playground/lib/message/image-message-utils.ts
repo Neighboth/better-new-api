@@ -16,14 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { MESSAGE_ROLES } from '../../constants'
-import type {
-  ImageGenerationResponse,
-  Message,
-  MessageAttachment,
-} from '../../types'
-import { completeAssistantMessage } from './message-streaming-utils'
-import { getMessageContent, updateCurrentVersionContent } from './message-utils'
+import type { ImageGenerationResponse, MessageAttachment } from '../../types'
 
 const GENERATED_IMAGE_MEDIA_TYPE = 'image/png'
 
@@ -52,33 +45,6 @@ export function toGeneratedImageAttachments(
     .filter((attachment): attachment is MessageAttachment =>
       Boolean(attachment)
     )
-}
-
-/**
- * Attach generated images to an assistant message and mark it complete.
- */
-export function applyGeneratedImages(
-  message: Message,
-  attachments: MessageAttachment[]
-): Message {
-  return completeAssistantMessage({
-    ...updateCurrentVersionContent(message, ''),
-    attachments,
-  })
-}
-
-/**
- * Get the most recent user prompt, used as the image generation prompt.
- */
-export function getLastUserPrompt(messages: Message[]): string {
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index]
-    if (message.from === MESSAGE_ROLES.USER) {
-      return getMessageContent(message)
-    }
-  }
-
-  return ''
 }
 
 function toDataUrl(base64?: string): string | undefined {

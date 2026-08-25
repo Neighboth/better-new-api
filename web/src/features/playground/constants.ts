@@ -16,7 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { PlaygroundConfig, ParameterEnabled } from './types'
+import type {
+  PlaygroundConfig,
+  ParameterEnabled,
+  PlaygroundToolsEnabled,
+  ThinkingLevel,
+} from './types'
 
 // Message constants
 export const MESSAGE_ROLES = {
@@ -44,11 +49,71 @@ export const API_ENDPOINTS = {
 // only selected when the backend confirms it is available for the user.
 export const DEFAULT_GROUP = 'default' as const
 
-// Playground generation modes
-export const PLAYGROUND_MODES = {
-  TEXT: 'text',
-  IMAGE: 'image',
-} as const
+// Playground tool loop limits
+export const MAX_TOOL_ROUNDS = 5
+export const MAX_TOOL_RESULT_CHARS = 12_000
+
+// Default tool availability — these tools are always offered to the model,
+// which decides on its own whether to call them. The `think` tool is offered
+// separately when the user forces thinking on a non-reasoning model.
+export const DEFAULT_TOOLS_ENABLED: PlaygroundToolsEnabled = {
+  generate_image: true,
+  web_search: true,
+  fetch_page: true,
+  update_plan: true,
+}
+
+// Forced-thinking defaults. The level text is injected into the system prompt
+// so the model knows how deeply to reason inside the `think` tool.
+export const DEFAULT_THINKING_ENABLED = false
+export const DEFAULT_THINKING_LEVEL: ThinkingLevel = 'medium'
+
+export const THINKING_LEVELS: ThinkingLevel[] = [
+  'lite',
+  'low',
+  'medium',
+  'high',
+  'ultra',
+]
+
+export const THINKING_LEVEL_PROMPTS: Record<ThinkingLevel, string> = {
+  lite: 'Keep every thinking pass very short: one or two sentences only.',
+  low: 'Keep every thinking pass brief: a few sentences covering only the key considerations.',
+  medium: 'Think with moderate depth: one solid, focused paragraph per pass.',
+  high: 'Think deeply: write several detailed paragraphs per pass, weighing alternatives, edge cases, and potential mistakes before deciding.',
+  ultra:
+    'Think exhaustively: write long, multi-paragraph passes that fully decompose the problem, explore multiple approaches, verify every assumption, and double-check each conclusion before moving on.',
+}
+
+// Maps the five playground levels onto the OpenAI reasoning_effort parameter
+// used for models with native reasoning.
+export const THINKING_LEVEL_REASONING_EFFORT: Record<
+  ThinkingLevel,
+  'minimal' | 'low' | 'medium' | 'high'
+> = {
+  lite: 'minimal',
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  ultra: 'high',
+}
+
+// Nudge appended when a model finishes tool work without writing an answer.
+export const FINAL_ANSWER_NUDGE =
+  'You have gathered enough information. Now write the complete final answer for the user in visible text. Do not call any more tools.'
+
+// Display labels (i18n keys) for tool names.
+export const TOOL_LABEL_KEYS: Record<string, string> = {
+  generate_image: 'Image generation',
+  web_search: 'Web search',
+  fetch_page: 'Page fetch',
+  update_plan: 'Plan update',
+  think: 'Thinking',
+}
+
+export function getToolLabelKey(name: string): string {
+  return TOOL_LABEL_KEYS[name] ?? name
+}
 
 // Attachment limits for playground image inputs
 export const ATTACHMENT_ACCEPT = 'image/*' as const
@@ -57,7 +122,6 @@ export const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024
 
 // Default configuration
 export const DEFAULT_CONFIG: PlaygroundConfig = {
-  mode: PLAYGROUND_MODES.TEXT,
   model: 'gpt-4o',
   group: DEFAULT_GROUP,
   temperature: 0.7,
@@ -84,6 +148,8 @@ export const STORAGE_KEYS = {
   IMAGES: 'playground_images',
   MESSAGES: 'playground_messages',
   PARAMETER_ENABLED: 'playground_parameter_enabled',
+  TOOLS_ENABLED: 'playground_tools_enabled',
+  THINKING: 'playground_thinking',
 } as const
 
 // Error messages
@@ -94,8 +160,16 @@ export const ERROR_MESSAGES = {
   STREAM_START_ERROR: 'Error establishing connection',
   CONNECTION_CLOSED: 'Connection closed',
   INTERRUPTED: 'Generation was interrupted',
-  IMAGE_GENERATION_ERROR: 'Image generation failed',
   IMAGE_EMPTY_RESULT: 'The model did not return an image',
+  IMAGE_MODEL_UNAVAILABLE: 'No image generation model is available',
+  TOOL_CALL_FAILED: 'Tool call failed',
+  TOOL_ARGS_INVALID: 'Invalid tool arguments',
+  IMAGE_PROMPT_REQUIRED: 'Missing image prompt',
+  SEARCH_QUERY_REQUIRED: 'Missing search query',
+  PAGE_URL_INVALID: 'Invalid page URL',
+  PLAN_STEPS_REQUIRED: 'Plan must contain at least one step',
+  WEB_SEARCH_FAILED: 'Web search failed',
+  PAGE_FETCH_FAILED: 'Failed to fetch the page',
 } as const
 
 // Message action button styles

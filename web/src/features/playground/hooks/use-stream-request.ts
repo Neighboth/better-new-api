@@ -28,8 +28,9 @@ import {
   isStreamDoneMessage,
   parseStreamErrorDetails,
   parseStreamMessageUpdates,
+  parseStreamToolCallDeltas,
 } from '../lib'
-import type { ChatCompletionRequest } from '../types'
+import type { ChatCompletionRequest, ToolCallDelta } from '../types'
 
 interface StreamEventSource {
   readyState?: number
@@ -45,6 +46,7 @@ interface StreamRequestCallbacks {
   onUpdate: (type: 'reasoning' | 'content', chunk: string) => void
   onComplete: () => void
   onError: (error: string, errorCode?: string) => void
+  onToolCallDelta?: (deltas: ToolCallDelta[]) => void
 }
 
 interface StreamRequestControllerRuntime {
@@ -126,6 +128,11 @@ export function createStreamRequestController(
         for (const update of updates) {
           callbacks.onUpdate(update.type, update.chunk)
         }
+
+        const toolCallDeltas = parseStreamToolCallDeltas(data)
+        if (toolCallDeltas.length > 0) {
+          callbacks.onToolCallDelta?.(toolCallDeltas)
+        }
       } catch (error) {
         // eslint-disable-next-line no-console
         console.error('Failed to parse SSE message:', error)
@@ -206,12 +213,14 @@ export function useStreamRequest() {
       payload: ChatCompletionRequest,
       onUpdate: (type: 'reasoning' | 'content', chunk: string) => void,
       onComplete: () => void,
-      onError: (error: string, errorCode?: string) => void
+      onError: (error: string, errorCode?: string) => void,
+      onToolCallDelta?: (deltas: ToolCallDelta[]) => void
     ) =>
       controllerRef.current?.send(payload, {
         onUpdate,
         onComplete,
         onError,
+        onToolCallDelta,
       }),
     []
   )

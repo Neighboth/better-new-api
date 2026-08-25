@@ -16,25 +16,21 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback } from 'react'
-
 import { PlaygroundChat } from './components/chat/playground-chat'
 import { PlaygroundInput } from './components/input/playground-input'
-import { PLAYGROUND_MODES } from './constants'
+import { DEFAULT_TOOLS_ENABLED } from './constants'
 import {
   useChatHandler,
-  useImageHandler,
   usePlaygroundConversation,
   usePlaygroundOptions,
   usePlaygroundState,
 } from './hooks'
-import { getLastUserPrompt } from './lib'
-import type { Message } from './types'
 
 export function Playground() {
   const {
     config,
     parameterEnabled,
+    thinking,
     messages,
     isLoadingMessages,
     models,
@@ -44,37 +40,19 @@ export function Playground() {
     setGroups,
     updateConfig,
     updateParameterEnabled,
+    updateThinking,
     clearMessages,
   } = usePlaygroundState()
 
   const { sendChat, stopGeneration, isGenerating } = useChatHandler({
     config,
     parameterEnabled,
+    toolsEnabled: DEFAULT_TOOLS_ENABLED,
+    models,
+    thinkingEnabled: thinking.enabled,
+    thinkingLevel: thinking.level,
     onMessageUpdate: updateMessages,
   })
-
-  const {
-    generateImage,
-    stopGeneration: stopImageGeneration,
-    isGeneratingImage,
-  } = useImageHandler({
-    config,
-    onMessageUpdate: updateMessages,
-  })
-
-  const isImageMode = config.mode === PLAYGROUND_MODES.IMAGE
-
-  const sendConversation = useCallback(
-    (nextMessages: Message[]) => {
-      if (isImageMode) {
-        void generateImage(getLastUserPrompt(nextMessages))
-        return
-      }
-
-      sendChat(nextMessages)
-    },
-    [generateImage, isImageMode, sendChat]
-  )
 
   const {
     editingMessageKey,
@@ -87,17 +65,16 @@ export function Playground() {
   } = usePlaygroundConversation({
     messages,
     updateMessages,
-    sendChat: sendConversation,
+    sendChat,
   })
 
   const handleNewChat = () => {
     handleEditOpenChange(false)
     stopGeneration()
-    stopImageGeneration()
     clearMessages()
   }
 
-  const isBusy = isGenerating || isGeneratingImage
+  const isBusy = isGenerating
 
   const { isLoadingModels } = usePlaygroundOptions({
     currentGroup: config.group,
@@ -139,13 +116,14 @@ export function Playground() {
           models={models}
           onGroupChange={(value) => updateConfig('group', value)}
           onConfigChange={updateConfig}
-          onModeChange={(mode) => updateConfig('mode', mode)}
           onModelChange={(value) => updateConfig('model', value)}
           onNewChat={handleNewChat}
           onParameterEnabledChange={updateParameterEnabled}
-          onStop={isImageMode ? stopImageGeneration : stopGeneration}
+          onStop={stopGeneration}
           onSubmit={handleSendMessage}
+          onThinkingChange={updateThinking}
           parameterEnabled={parameterEnabled}
+          thinking={thinking}
         />
       </div>
     </div>

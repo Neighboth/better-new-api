@@ -229,6 +229,25 @@ export const STATIC_I18N_KEYS = [
   'Match models containing this name',
   'Match models ending with this name',
 
+  // Playground tools (dynamic labels and error constants)
+  'Image generation',
+  'Web search',
+  'Page fetch',
+  'Plan update',
+  'Thinking',
+  'No image generation model is available',
+  'Awaiting Approval',
+  'Responded',
+  'Denied',
+  'Tool call failed',
+  'Invalid tool arguments',
+  'Missing image prompt',
+  'Missing search query',
+  'Invalid page URL',
+  'Plan must contain at least one step',
+  'Web search failed',
+  'Failed to fetch the page',
+
   // Playground parameter controls
   'Temperature',
   'Top P',

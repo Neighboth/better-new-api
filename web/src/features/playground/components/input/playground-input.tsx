@@ -31,7 +31,6 @@ import {
   ATTACHMENT_ACCEPT,
   MAX_ATTACHMENTS,
   MAX_ATTACHMENT_SIZE_BYTES,
-  PLAYGROUND_MODES,
 } from '../../constants'
 import {
   countUnsupportedFiles,
@@ -44,7 +43,7 @@ import type {
   GroupOption,
   ParameterEnabled,
   PlaygroundConfig,
-  PlaygroundMode,
+  ThinkingLevel,
 } from '../../types'
 import { PlaygroundInputAttachments } from './playground-input-attachments'
 import { PlaygroundInputControls } from './playground-input-controls'
@@ -70,19 +69,21 @@ interface PlaygroundInputProps {
     key: K,
     value: PlaygroundConfig[K]
   ) => void
-  onModeChange: (mode: PlaygroundMode) => void
   onNewChat?: () => void
   onParameterEnabledChange: (
     key: keyof ParameterEnabled,
     value: boolean
   ) => void
   parameterEnabled: ParameterEnabled
+  thinking: { enabled: boolean; level: ThinkingLevel }
+  onThinkingChange: (
+    patch: Partial<{ enabled: boolean; level: ThinkingLevel }>
+  ) => void
 }
 
 export function PlaygroundInput(props: PlaygroundInputProps) {
   const { t } = useTranslation()
   const [text, setText] = useState('')
-  const isImageMode = props.config.mode === PLAYGROUND_MODES.IMAGE
 
   const appendText = (snippet: string) => {
     setText(
@@ -94,13 +95,6 @@ export function PlaygroundInput(props: PlaygroundInputProps) {
     const submittableText = getSubmittableInputText(message, props.disabled)
 
     if (submittableText === null) return
-
-    if (isImageMode) {
-      if (!submittableText.trim()) return
-      props.onSubmit({ text: submittableText })
-      setText('')
-      return
-    }
 
     const unsupportedCount = countUnsupportedFiles(message.files)
     if (unsupportedCount > 0) {
@@ -125,7 +119,7 @@ export function PlaygroundInput(props: PlaygroundInputProps) {
         onError={(error) => toast.error(error.message)}
         onSubmit={handleSubmit}
       >
-        {!isImageMode && <PlaygroundInputAttachments />}
+        <PlaygroundInputAttachments />
 
         <PromptInputTextarea
           autoComplete='off'
@@ -135,11 +129,7 @@ export function PlaygroundInput(props: PlaygroundInputProps) {
           className='min-h-20 px-5 pt-4 pb-3 leading-7 md:min-h-24 md:text-base'
           disabled={props.disabled}
           onChange={(event) => setText(event.target.value)}
-          placeholder={
-            isImageMode
-              ? t('Describe the image you want to generate')
-              : t('Ask anything')
-          }
+          placeholder={t('Ask anything')}
           value={text}
         />
 
@@ -162,10 +152,11 @@ export function PlaygroundInput(props: PlaygroundInputProps) {
                 disabled={props.disabled}
                 onAppendText={appendText}
                 onConfigChange={props.onConfigChange}
-                onModeChange={props.onModeChange}
                 onNewChat={props.onNewChat}
                 onParameterEnabledChange={props.onParameterEnabledChange}
+                onThinkingChange={props.onThinkingChange}
                 parameterEnabled={props.parameterEnabled}
+                thinking={props.thinking}
               />
             }
           />

@@ -19,13 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { describe, expect, it } from 'vitest'
 
 import { getSubmittableInputText } from '../input/input-control-utils'
-import { appendUserMessagePair } from '../message/conversation-message-utils'
-import {
-  applyGeneratedImages,
-  getLastUserPrompt,
-  toGeneratedImageAttachments,
-} from '../message/image-message-utils'
-import { createLoadingAssistantMessage } from '../message/message-utils'
+import { toGeneratedImageAttachments } from '../message/image-message-utils'
 
 describe('toGeneratedImageAttachments', () => {
   it('uses the hosted url when the provider returns one', () => {
@@ -55,34 +49,6 @@ describe('toGeneratedImageAttachments', () => {
   it('returns nothing when the response carries no image', () => {
     expect(toGeneratedImageAttachments({}, 'prompt')).toEqual([])
     expect(toGeneratedImageAttachments({ data: [{}] }, 'prompt')).toEqual([])
-  })
-})
-
-describe('applyGeneratedImages', () => {
-  it('attaches images to the assistant message and clears its loading state', () => {
-    const pending = createLoadingAssistantMessage(1)
-
-    const completed = applyGeneratedImages(pending, [
-      { url: 'https://cdn.example.com/a.png', mediaType: 'image/png' },
-    ])
-
-    expect(completed.attachments).toHaveLength(1)
-    expect(completed.status).not.toBe('loading')
-  })
-})
-
-describe('getLastUserPrompt', () => {
-  it('returns the most recent user prompt for image generation', () => {
-    const messages = appendUserMessagePair(
-      appendUserMessagePair([], 'first prompt'),
-      'second prompt'
-    )
-
-    expect(getLastUserPrompt(messages)).toBe('second prompt')
-  })
-
-  it('returns an empty string when no user message exists', () => {
-    expect(getLastUserPrompt([])).toBe('')
   })
 })
 

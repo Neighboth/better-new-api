@@ -17,7 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { MESSAGE_STATUS, STORAGE_KEYS } from '../../constants'
-import type { PlaygroundConfig, ParameterEnabled, Message } from '../../types'
+import type {
+  PlaygroundConfig,
+  ParameterEnabled,
+  PlaygroundToolsEnabled,
+  Message,
+  ThinkingLevel,
+} from '../../types'
 import {
   finalizeMessage,
   isAssistantMessagePending,
@@ -41,6 +47,8 @@ import {
   messagesSchema,
   parameterEnabledSchema,
   playgroundConfigSchema,
+  thinkingSettingsSchema,
+  toolsEnabledSchema,
 } from './storage-schema'
 
 type StoredEnvelope<T> = {
@@ -257,7 +265,19 @@ function normalizeStoredMessageForLoad(message: Message): Message {
     changed = true
   }
 
-  const normalized = changed ? { ...message, versions, reasoning } : message
+  let normalized = changed ? { ...message, versions, reasoning } : message
+
+  // Tool execution state is transient: a persisted "using tool" indicator or a
+  // still-running tool event means the page was closed mid-request.
+  if (normalized.activeTool || hasRunningToolEvent(normalized)) {
+    normalized = {
+      ...normalized,
+      activeTool: null,
+      toolEvents: normalized.toolEvents?.map((event) =>
+        event.status === 'running' ? { ...event, status: 'error' } : event
+      ),
+    }
+  }
 
   if (!isAssistantMessagePending(normalized)) {
     return normalized
@@ -284,6 +304,12 @@ function normalizeStoredMessageForLoad(message: Message): Message {
       isReasoningStreaming: false,
     },
     completedAt
+  )
+}
+
+function hasRunningToolEvent(message: Message): boolean {
+  return Boolean(
+    message.toolEvents?.some((event) => event.status === 'running')
   )
 }
 
@@ -370,6 +396,71 @@ export function saveParameterEnabled(
 }
 
 /**
+ * Load tool availability toggles from localStorage
+ */
+export function loadToolsEnabled(): Partial<PlaygroundToolsEnabled> {
+  try {
+    const saved = readStoredValue(STORAGE_KEYS.TOOLS_ENABLED)
+    if (!saved) return {}
+
+    return toolsEnabledSchema.parse(unwrapStoredValue(saved))
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to load tools enabled:', error)
+  }
+  return {}
+}
+
+/**
+ * Save tool availability toggles to localStorage
+ */
+export function saveToolsEnabled(
+  toolsEnabled: Partial<PlaygroundToolsEnabled>
+): void {
+  try {
+    const parsed = toolsEnabledSchema.parse(toolsEnabled)
+    writeStoredValue(STORAGE_KEYS.TOOLS_ENABLED, parsed)
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to save tools enabled:', error)
+  }
+}
+
+/**
+ * Load forced-thinking settings from localStorage
+ */
+export function loadThinkingSettings(): {
+  enabled?: boolean
+  level?: ThinkingLevel
+} {
+  try {
+    const saved = readStoredValue(STORAGE_KEYS.THINKING)
+    if (!saved) return {}
+
+    return thinkingSettingsSchema.parse(unwrapStoredValue(saved))
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to load thinking settings:', error)
+  }
+  return {}
+}
+
+/**
+ * Save forced-thinking settings to localStorage
+ */
+export function saveThinkingSettings(settings: {
+  enabled: boolean
+  level: ThinkingLevel
+}): void {
+  try {
+    writeStoredValue(STORAGE_KEYS.THINKING, settings)
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to save thinking settings:', error)
+  }
+}
+
+/**
  * Load messages from localStorage
  */
 export function loadMessages(): Message[] | null {
@@ -429,6 +520,8 @@ export function clearPlaygroundData(): void {
   try {
     localStorage.removeItem(STORAGE_KEYS.CONFIG)
     localStorage.removeItem(STORAGE_KEYS.PARAMETER_ENABLED)
+    localStorage.removeItem(STORAGE_KEYS.TOOLS_ENABLED)
+    localStorage.removeItem(STORAGE_KEYS.THINKING)
     localStorage.removeItem(STORAGE_KEYS.MESSAGES)
     localStorage.removeItem(STORAGE_KEYS.IMAGES)
   } catch (error) {
