@@ -23,6 +23,24 @@ func blogDisabled(c *gin.Context) bool {
 	return true
 }
 
+// preferredBlogLocale picks the visitor's language from the Accept-Language
+// header; the Go server proactively localizes the initial HTML, matching the
+// language the browser advertises rather than always serving English.
+func preferredBlogLocale(c *gin.Context) string {
+	header := c.GetHeader("Accept-Language")
+	if header == "" {
+		return "en"
+	}
+	parts := strings.Split(header, ",")
+	for _, part := range parts {
+		code := strings.TrimSpace(strings.Split(part, ";")[0])
+		if code != "" {
+			return model.NormalizeBlogLocale(code)
+		}
+	}
+	return "en"
+}
+
 // GetBlogPosts lists published posts for the public blog page.
 func GetBlogPosts(c *gin.Context) {
 	if blogDisabled(c) {
@@ -35,15 +53,25 @@ func GetBlogPosts(c *gin.Context) {
 	}
 	// Oldest first in the payload; the client reverses it so the newest post
 	// renders top-left.
+	locale := preferredBlogLocale(c)
 	items := make([]gin.H, 0, len(posts))
 	for _, post := range posts {
+		localized := post.ResolveBlogContent(locale)
 		items = append(items, gin.H{
 			"id":         post.Id,
-			"title":      post.Title,
-			"summary":    post.Summary,
+			"title":      localized.Title,
+			"summary":    localized.Summary,
 			"cover":      post.CoverImage,
-			"tags":       post.TagList(),
+			"tags":       splitBlogTags(localized.Tags),
 			"created_at": post.CreatedAt,
+			"seo_description": localized.SeoDescription,
+			"localizations":    gin.H{
+				"titles":            mustUnmarshalBlogLocalized(post.Titles),
+				"summaries":         mustUnmarshalBlogLocalized(post.Summaries),
+				"contents":         mustUnmarshalBlogLocalized(post.Contents),
+				"tags_list":         mustUnmarshalBlogLocalized(post.TagsList),
+				"seo_descriptions": mustUnmarshalBlogLocalized(post.SeoDescriptions),
+			},
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -53,6 +81,23 @@ func GetBlogPosts(c *gin.Context) {
 			"total": len(items),
 		},
 	})
+}
+
+// Oldest first in the payload; the client reverses it so the newest post
+// renders top-left.
+
+// splitBlogTags mirrors model.TagList semantics for localized comma-separated
+// tags, without requiring the legacy scalar column.
+
+func splitBlogTags(tags string) []string {
+	var result []string
+	for _, tag := range strings.Split(tags, ",") {
+		tag = strings.TrimSpace(tag)
+		if tag != "" {
+			result = append(result, tag)
+		}
+	}
+	return result
 }
 
 // GetBlogPost returns one published post with its comments and, for signed-in
@@ -71,6 +116,8 @@ func GetBlogPost(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "post not found"})
 		return
 	}
+	locale := preferredBlogLocale(c)
+	localized := post.ResolveBlogContent(locale)
 	comments, err := model.GetBlogComments(post.Id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
@@ -104,16 +151,23 @@ func GetBlogPost(c *gin.Context) {
 		"data": gin.H{
 			"post": gin.H{
 				"id":              post.Id,
-				"title":           post.Title,
-				"summary":         post.Summary,
-				"content":         post.Content,
+				"title":           localized.Title,
+				"summary":         localized.Summary,
+				"content":         localized.Content,
 				"cover_image":     post.CoverImage,
-				"tags":            post.TagList(),
-				"seo_description": post.SeoDescription,
+				"tags":            splitBlogTags(localized.Tags),
+				"seo_description": localized.SeoDescription,
 				"like_count":      post.LikeCount,
 				"dislike_count":   post.DislikeCount,
 				"created_at":      post.CreatedAt,
 				"updated_at":      post.UpdatedAt,
+				"localizations":   gin.H{
+					"titles":            mustUnmarshalBlogLocalized(post.Titles),
+					"summaries":         mustUnmarshalBlogLocalized(post.Summaries),
+					"contents":         mustUnmarshalBlogLocalized(post.Contents),
+					"tags_list":         mustUnmarshalBlogLocalized(post.TagsList),
+					"seo_descriptions": mustUnmarshalBlogLocalized(post.SeoDescriptions),
+				},
 			},
 			"comments":  commentItems,
 			"reactions": reactions,
@@ -129,6 +183,12 @@ type blogPostRequest struct {
 	Tags           string `json:"tags"`
 	SeoDescription string `json:"seo_description"`
 	Published      bool   `json:"published"`
+	// Per-language localized fields;keyed by locale ("en", "tr", ...).
+	Titles         map[string]string`json:"titles"`
+	Summaries      map[string]string`json:"summaries"`
+	Contents       map[string]string`json:"contents"`
+	TagsList       map[string]string`json:"tags_list"`
+	SeoDescriptions map[string]string`json:"seo_descriptions"`
 }
 
 func sanitizeBlogPostRequest(req *blogPostRequest) {
@@ -180,15 +240,53 @@ func GetAllBlogPosts(c *gin.Context) {
 		return
 	}
 	total, _ := model.GetBlogPostCount(false)
+	localeItems := make([]gin.H, 0, len(posts))
+	for _, post := range posts {
+		localeItems = append(localeItems, gin.H{
+			"id":              post.Id,
+			"title":            post.Title,
+			"summary":          post.Summary,
+			"content":          post.Content,
+			"cover_image":      post.CoverImage,
+			"tags":             post.Tags,
+			"seo_description":  post.SeoDescription,
+			"published":        post.Published,
+			"created_at":       post.CreatedAt,
+			"updated_at":       post.UpdatedAt,
+			"localizations":    gin.H{
+				"titles":            mustUnmarshalBlogLocalized(post.Titles),
+				"summaries":         mustUnmarshalBlogLocalized(post.Summaries),
+				"contents":         mustUnmarshalBlogLocalized(post.Contents),
+				"tags_list":         mustUnmarshalBlogLocalized(post.TagsList),
+				"seo_descriptions": mustUnmarshalBlogLocalized(post.SeoDescriptions),
+			},
+		})
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"items":     posts,
+			"items":     localeItems,
 			"total":     total,
 			"page":      page,
 			"page_size": pageSize,
 		},
 	})
+}
+
+// mustUnmarshalBlogLocalized parses a persisted locale JSON column back into
+// a map so admins can edit per-language values; on corruption it falls
+// back to an empty map rather than failing the whole list request.
+func mustUnmarshalBlogLocalized(raw string) map[string]string {
+	result := make(map[string]string)
+	if trimmed := strings.TrimSpace(raw); trimmed != "" {
+		var values map[string]string
+		if err := common.Unmarshal([]byte(trimmed), &values); err == nil {
+			for locale, value := range values {
+				result[model.NormalizeBlogLocale(locale)] = value
+			}
+		}
+	}
+	return result
 }
 
 func CreateBlogPost(c *gin.Context) {
@@ -210,6 +308,10 @@ func CreateBlogPost(c *gin.Context) {
 		Tags:           req.Tags,
 		SeoDescription: req.SeoDescription,
 		Published:      req.Published,
+	}
+	if len(req.Titles)+len(req.Summaries)+len(req.Contents)+len(req.TagsList)+len(req.SeoDescriptions) > 0 {
+		post.SetLocalized(req.Titles, req.Summaries, req.Contents, req.TagsList, req.SeoDescriptions)
+
 	}
 	if err := model.CreateBlogPost(post); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
@@ -243,6 +345,10 @@ func UpdateBlogPost(c *gin.Context) {
 		Tags:           req.Tags,
 		SeoDescription: req.SeoDescription,
 		Published:      req.Published,
+	}
+	if len(req.Titles)+len(req.Summaries)+len(req.Contents)+len(req.TagsList)+len(req.SeoDescriptions) > 0 {
+		post.SetLocalized(req.Titles, req.Summaries, req.Contents, req.TagsList, req.SeoDescriptions)
+
 	}
 	if err := model.UpdateBlogPost(post); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})

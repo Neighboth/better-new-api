@@ -22,9 +22,17 @@ import { CustomNavPage } from '@/features/custom-nav'
 
 export const Route = createFileRoute('/custom/$navId')({
   component: CustomNavRoute,
+  validateSearch: (search: Record<string, unknown>): CustomNavSearch => ({
+    view: search.view === 'header' ? 'header' : 'sidebar',
+  }),
 })
+
+type CustomNavSearch = {
+  view: 'sidebar' | 'header'
+}
 
 function CustomNavRoute() {
   const { navId } = Route.useParams()
-  return <CustomNavPage navId={navId} />
+  const { view } = Route.useSearch()
+  return <CustomNavPage navId={navId} view={view} />
 }

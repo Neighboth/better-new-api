@@ -39,6 +39,7 @@ var (
 type CustomNavItem struct {
 	Id             string            `json:"id"`
 	Labels         map[string]string `json:"labels"`
+	Contents       map[string]string `json:"contents"`
 	Icon           string            `json:"icon"`
 	Placement      string            `json:"placement"`
 	SidebarSection string            `json:"sidebarSection"`
@@ -89,13 +90,19 @@ func ValidateCustomNavItems(raw string) error {
 		}
 
 		content := strings.TrimSpace(item.Content)
-		if content == "" {
+		hasContents := false
+		for _, value := range item.Contents {
+			if len(value) > CustomNavMaxContentLength {
+				return fmt.Errorf("自定义导航项 %s 的内容过长", id)
+			}
+			if strings.TrimSpace(value) != "" {
+				hasContents = true
+			}
+		}
+		if content == "" && !hasContents {
 			return fmt.Errorf("自定义导航项 %s 的内容不能为空", id)
 		}
-		if len(item.Content) > CustomNavMaxContentLength {
-			return fmt.Errorf("自定义导航项 %s 的内容过长", id)
-		}
-		if item.ContentType == "url" && !isValidCustomNavURL(content) {
+		if item.ContentType == "url" && (!isValidCustomNavURL(content) && !hasContents) {
 			return fmt.Errorf("自定义导航项 %s 的链接必须是 http(s) 地址", id)
 		}
 	}

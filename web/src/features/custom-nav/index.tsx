@@ -16,22 +16,28 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
-import { PublicLayout } from '@/components/layout'
+import { AuthenticatedLayout, PublicLayout } from '@/components/layout'
 import { RichContent } from '@/components/rich-content'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { isSafeCustomNavUrl } from '@/features/system-settings/maintenance/custom-nav-config'
 import { useCustomNavItems } from '@/hooks/use-custom-nav-items'
+import { useAuthStore } from '@/stores/auth-store'
 
 type CustomNavPageProps = {
   navId: string
+  view?: 'sidebar' | 'header'
 }
 
 export function CustomNavPage(props: CustomNavPageProps) {
   const { t } = useTranslation()
   const items = useCustomNavItems()
   const item = items.find((candidate) => candidate.id === props.navId)
+  const navigate = useNavigate()
+  const isSidebarView = props.view !== 'header'
+  const isAuthenticated = useAuthStore((state) => !!state.auth.user)
 
   if (!item) {
     return (
@@ -48,18 +54,46 @@ export function CustomNavPage(props: CustomNavPageProps) {
     )
   }
 
-  return (
-    <PublicLayout>
-      <div className='mx-auto flex h-full w-full max-w-5xl flex-col gap-4'>
-        <h1 className='text-2xl font-semibold'>{item.label}</h1>
-        <div className={item.contentType === 'url' ? 'min-h-[70vh] flex-1' : ''}>
-          <CustomNavContent
-            contentType={item.contentType}
-            content={item.content}
-            title={item.label}
-          />
+  // The sidebar layout is only meaningful for signed-in users; route
+  // visitors to sign-in with a return path so the context is preserved.
+
+  if (isSidebarView && !isAuthenticated) {
+    void navigate({
+      to: '/sign-in',
+      search: { redirect: window.location.href },
+    })
+    return null
+  }
+
+  const title = item.label
+  const content = item.content
+  const body = (
+    <div className={item.contentType === 'url' ? 'min-h-[70vh] flex-1' : ''}>
+      <CustomNavContent
+        contentType={item.contentType}
+        content={content}
+        title={title}
+      />
+    </div>
+  )
+
+  if (isSidebarView) {
+    return (
+      <AuthenticatedLayout>
+        <div className='h-full min-h-0 w-full overflow-y-auto p-4'>
+          {body}
         </div>
-      </div>
+      </AuthenticatedLayout>
+    )
+  }
+
+  return (
+    <PublicLayout showMainContainer={false}>
+      <main className='min-h-svh w-full'>
+        <div className='mx-auto w-full max-w-5xl px-4 py-6'>
+          {body}
+        </div>
+      </main>
     </PublicLayout>
   )
 }

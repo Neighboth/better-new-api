@@ -13,16 +13,24 @@ import (
 
 // BlogPost is an admin-authored article rendered on the public blog pages.
 type BlogPost struct {
-	Id             int64     `json:"id" gorm:"primaryKey"`
-	Title          string    `json:"title" gorm:"type:varchar(255);not null"`
-	Summary        string    `json:"summary" gorm:"type:text"`
-	Content        string    `json:"content" gorm:"type:text"`
-	CoverImage     string    `json:"cover_image" gorm:"type:varchar(512)"`
-	Tags           string    `json:"tags" gorm:"type:varchar(512)"` // comma separated
-	SeoDescription string    `json:"seo_description" gorm:"type:varchar(512)"`
-	Published      bool      `json:"published" gorm:"default:false;index"`
-	LikeCount      int       `json:"like_count" gorm:"default:0"`
-	DislikeCount   int       `json:"dislike_count" gorm:"default:0"`
+	Id             int64  `json:"id" gorm:"primaryKey"`
+	Title          string  `json:"title" gorm:"type:varchar(255);not null"`
+	Summary        string  `json:"summary" gorm:"type:text"`
+	Content        string  `json:"content" gorm:"type:text"`
+	CoverImage     string  `json:"cover_image" gorm:"type:varchar(512)"`
+	Tags           string  `json:"tags" gorm:"type:varchar(512)"` // comma separated
+	SeoDescription string  `json:"seo_description" gorm:"type:varchar(512)"`
+	// Per-language localized fields. Each value is a JSON object keyed by
+	// locale (e.g. {"en": "...", "tr": "..."}); English is the fallback
+	// used when a visitor's language has no dedicated entry.
+	Titles         string  `json:"titles" gorm:"type:text"`
+	Summaries      string  `json:"summaries" gorm:"type:text"`
+	Contents       string  `json:"contents" gorm:"type:text"`
+	TagsList       string  `json:"tags_list" gorm:"type:text"`
+	SeoDescriptions string `json:"seo_descriptions" gorm:"type:text"`
+	Published      bool    `json:"published" gorm:"default:false;index"`
+	LikeCount      int     `json:"like_count" gorm:"default:0"`
+	DislikeCount   int     `json:"dislike_count" gorm:"default:0"`
 	CreatedAt      time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt      time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 }
@@ -64,6 +72,144 @@ func (post *BlogPost) TagList() []string {
 		}
 	}
 	return tags
+}
+
+// SetLocalized serializes per-locale maps into the raw JSON string columns and
+// keeps the scalar columns as the English fallback so legacy consumers keep
+// working unchanged.
+func (post *BlogPost) SetLocalized(titles, summaries, contents, tagsList, seoDescriptions map[string]string) {
+	if title, ok := titles[modelEnglishLocale]; ok {
+		post.Title = strings.TrimSpace(title)
+	}
+	if summary, ok := summaries[modelEnglishLocale]; ok {
+		post.Summary = strings.TrimSpace(summary)
+	}
+	if content, ok := contents[modelEnglishLocale]; ok {
+		post.Content = strings.TrimSpace(content)
+	}
+	if tags, ok := tagsList[modelEnglishLocale]; ok {
+		post.Tags = strings.TrimSpace(tags)
+	}
+	if seo, ok := seoDescriptions[modelEnglishLocale]; ok {
+		post.SeoDescription = strings.TrimSpace(seo)
+	}
+	post.Titles = marshalBlogLocalized(titles)
+	post.Summaries = marshalBlogLocalized(summaries)
+
+	post.Contents = marshalBlogLocalized(contents)
+	post.TagsList = marshalBlogLocalized(tagsList)
+	post.SeoDescriptions = marshalBlogLocalized(seoDescriptions)
+}
+
+const modelEnglishLocale = "en"
+
+func marshalBlogLocalized(values map[string]string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	normalized := make(map[string]string, len(values))
+	for locale, value := range values {
+		normalized[NormalizeBlogLocale(locale)] = strings.TrimSpace(value)
+	}
+	data, err := common.Marshal(normalized)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// NormalizeBlogLocale maps a user-provided or browser-detected locale onto
+// this project's blog locale keys (en, zhCN, zhTW, fr, ja, ru, vi).
+func NormalizeBlogLocale(locale string) string {
+	trimmed := strings.TrimSpace(locale)
+	if trimmed == "" {
+		return "en"
+	}
+	lower := strings.ToLower(strings.ReplaceAll(trimmed, "_", "-"))
+	switch lower {
+	case "zh-cn", "zh-hans", "zh", "zhcn":
+		return "zhCN"
+	case "zh-tw", "zh-hk", "zh-mo", "zh-hant", "zhtw":
+		return "zhTW"
+	}
+	if len(lower) > 2 {
+		lower = lower[:2]
+	}
+	switch lower {
+	case "zh":
+		return "zhCN"
+	case "en", "fr", "ja", "ru", "vi":
+		return lower
+	}
+	return "en"
+}
+
+// NormalizeBlogLocaleMap normalizes the keys of a raw JSON locale map (the
+// form stored on disk) and seeds the `en` fallback from legacy scalar columns.
+
+func NormalizeBlogLocaleMap(raw string, fallback string) map[string]string {
+	result := parseBlogLocalizedJSON(raw)
+	result["en"] = strings.TrimSpace(result["en"])
+	if result["en"] == "" {
+		result["en"] = fallback
+	}
+	return result
+}
+
+func parseBlogLocalizedJSON(raw string) map[string]string {
+	result := make(map[string]string)
+	if trimmed := strings.TrimSpace(raw); trimmed != "" {
+		var values map[string]string
+		if err := common.Unmarshal([]byte(trimmed), &values); err == nil {
+			for locale, value := range values {
+				result[NormalizeBlogLocale(locale)] = value
+			}
+		}
+	}
+	return result
+}
+
+// ResolveBlogLocale returns the best-matching locale for a visitor: their
+// language if present, otherwise English.
+func ResolveBlogLocale(preferred string, available map[string]string) string {
+	locale := NormalizeBlogLocale(preferred)
+	if _, ok := available[locale]; ok {
+		return locale
+	}
+	if _, ok := available["en"]; ok {
+		return "en"
+	}
+	return locale
+
+}
+
+// ResolveBlogLocalized picks the per-locale value matching a visitor's
+// language, falling back to English or the scalar column when absent.dom
+func ResolveBlogLocalized(preferred, rawJson, scalar string) string {
+	available := NormalizeBlogLocaleMap(rawJson, scalar)
+	locale := ResolveBlogLocale(preferred, available)
+	return strings.TrimSpace(available[locale])
+}
+
+// BlogLocalizedContent bundles the resolved per-locale fields for one post.
+type BlogLocalizedContent struct {
+	Title         string
+	Summary        string
+	Content        string
+	Tags           string
+	SeoDescription string
+}
+
+// ResolveBlogContent computes the locale-specific fields for a post, falling
+// back to the legacy scalar columns when no per-locale value exists.
+func (post *BlogPost) ResolveBlogContent(preferred string) BlogLocalizedContent {
+	return BlogLocalizedContent{
+		Title:         ResolveBlogLocalized(preferred, post.Titles, post.Title),
+		Summary:        ResolveBlogLocalized(preferred, post.Summaries, post.Summary),
+		Content:        ResolveBlogLocalized(preferred, post.Contents, post.Content),
+		Tags:           ResolveBlogLocalized(preferred, post.TagsList, post.Tags),
+		SeoDescription: ResolveBlogLocalized(preferred, post.SeoDescriptions, post.SeoDescription),
+	}
 }
 
 func GetBlogPostCount(publishedOnly bool) (int64, error) {
@@ -122,13 +268,18 @@ func CreateBlogPost(post *BlogPost) error {
 
 func UpdateBlogPost(post *BlogPost) error {
 	return DB.Model(&BlogPost{}).Where("id = ?", post.Id).Updates(map[string]any{
-		"title":           post.Title,
-		"summary":         post.Summary,
-		"content":         post.Content,
-		"cover_image":     post.CoverImage,
+		"title":            post.Title,
+		"summary":          post.Summary,
+		"content":          post.Content,
+		"cover_image":      post.CoverImage,
 		"tags":            post.Tags,
-		"seo_description": post.SeoDescription,
-		"published":       post.Published,
+		"seo_description":  post.SeoDescription,
+		"titles":           post.Titles,
+		"summaries":       post.Summaries,
+		"contents":         post.Contents,
+		"tags_list":        post.TagsList,
+		"seo_descriptions": post.SeoDescriptions,
+		"published":        post.Published,
 	}).Error
 }
 

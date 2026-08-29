@@ -18,6 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 
+export type BlogPostLocalizations = {
+  titles?: Record<string, string>
+  summaries?: Record<string, string>
+  contents?: Record<string, string>
+  tags_list?: Record<string, string>
+  seo_descriptions?: Record<string, string>
+}
+
 export type BlogPost = {
   id: number
   title: string
@@ -25,6 +33,8 @@ export type BlogPost = {
   cover: string
   tags: string[]
   created_at: string
+  seo_description?: string
+  localizations?: BlogPostLocalizations
 }
 
 export type BlogPostDetail = {
@@ -39,6 +49,7 @@ export type BlogPostDetail = {
   dislike_count: number
   created_at: string
   updated_at: string
+  localizations?: BlogPostLocalizations
 }
 
 export type BlogComment = {

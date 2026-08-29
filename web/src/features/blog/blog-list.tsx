@@ -26,6 +26,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useStatus } from '@/hooks/use-status'
+import { useSeoMeta } from '@/hooks/use-seo-meta'
 
 import { fetchBlogPosts, type BlogPost } from './api'
 
@@ -82,6 +83,28 @@ export function BlogListPage() {
     enabled: blogEnabled,
   })
 
+  // The API returns posts oldest-first (ascending id); newest goes top-left.
+
+  const posts = [...(data?.items ?? [])].reverse()
+
+  // Language-aware SEO for the blog index: the render already chooses the
+  // requesting user's language,and the per-language hreflang alternatives are
+  // derived from the latest post's localized fields so Google can serve the
+  // right language per user.
+
+  useSeoMeta({
+    title: t('Blog'),
+    description: t('News, updates and articles.'),
+    localizedTitles: {
+      ...(posts[0]?.localizations?.titles ?? {}),
+      en: t('Blog'),
+    },
+    localizedDescriptions: {
+      ...(posts[0]?.localizations?.seo_descriptions ?? {}),
+      en: t('News, updates and articles.'),
+    },
+  })
+
   if (!blogEnabled) {
     return (
       <PublicLayout>
@@ -94,10 +117,6 @@ export function BlogListPage() {
       </PublicLayout>
     )
   }
-
-  // The API returns posts oldest-first (ascending id); newest goes top-left.
-  const posts = [...(data?.items ?? [])].reverse()
-
   return (
     <PublicLayout>
       <div className='mx-auto w-full max-w-6xl space-y-6'>

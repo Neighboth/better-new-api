@@ -40,7 +40,6 @@ export function Playground() {
     setGroups,
     updateConfig,
     updateParameterEnabled,
-    updateThinking,
     clearMessages,
   } = usePlaygroundState()
 
@@ -49,7 +48,7 @@ export function Playground() {
     parameterEnabled,
     toolsEnabled: DEFAULT_TOOLS_ENABLED,
     models,
-    thinkingEnabled: thinking.enabled,
+    thinkingEnabled: false,
     thinkingLevel: thinking.level,
     onMessageUpdate: updateMessages,
   })
@@ -121,9 +120,7 @@ export function Playground() {
           onParameterEnabledChange={updateParameterEnabled}
           onStop={stopGeneration}
           onSubmit={handleSendMessage}
-          onThinkingChange={updateThinking}
           parameterEnabled={parameterEnabled}
-          thinking={thinking}
         />
       </div>
     </div>
