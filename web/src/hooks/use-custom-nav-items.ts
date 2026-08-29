@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 
 import {
   parseCustomNavItems,
+  resolveCustomNavContent,
   resolveCustomNavLabel,
   type CustomNavItem,
 } from '@/features/system-settings/maintenance/custom-nav-config'
@@ -30,11 +31,13 @@ import { useAuthStore } from '@/stores/auth-store'
 
 export type ResolvedCustomNavItem = CustomNavItem & {
   label: string
+  content: string
   url: string
 }
 
-export function buildCustomNavUrl(id: string): string {
-  return `/custom/${id}`
+export function buildCustomNavUrl(id: string, view?: 'sidebar' | 'header'): string {
+  const base = `/custom/${id}`
+  return view ? `${base}?view=${view}` : base
 }
 
 /**
@@ -58,6 +61,7 @@ export function useCustomNavItems(): ResolvedCustomNavItem[] {
       .map((item) => ({
         ...item,
         label: resolveCustomNavLabel(item, language),
+        content: resolveCustomNavContent(item, language),
         url: buildCustomNavUrl(item.id),
       }))
   }, [raw, language, isAdmin])

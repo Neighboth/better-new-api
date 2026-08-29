@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { SystemBehaviorSection } from '../general/system-behavior-section'
+import { RelayFallbackSection } from '../general/relay-fallback-section'
 import { EmailSettingsSection } from '../integrations/email-settings-section'
 import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section'
 import { WorkerSettingsSection } from '../integrations/worker-settings-section'
@@ -36,6 +37,22 @@ const OPERATIONS_SECTIONS = [
           DefaultCollapseSidebar: settings.DefaultCollapseSidebar,
           DemoSiteEnabled: settings.DemoSiteEnabled,
           SelfUseModeEnabled: settings.SelfUseModeEnabled,
+        }}
+      />
+      ),
+    },
+    {
+      id: 'relay-fallback',
+    titleKey: 'Relay Fallback',
+    build: (settings: OperationsSettings) => (
+      <RelayFallbackSection
+        defaultValues={{
+          enable_fallback:
+            settings['relay_fallback_setting.enable_fallback'] ?? false,
+          fallback_models:
+            settings['relay_fallback_setting.fallback_models'] ?? '',
+          fallback_system_prompt:
+            settings['relay_fallback_setting.fallback_system_prompt'] ?? '',
         }}
       />
     ),

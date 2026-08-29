@@ -32,6 +32,7 @@ function buildItem(overrides: Partial<CustomNavItem> = {}): CustomNavItem {
   return {
     id: 'docs',
     labels: { en: 'Docs' },
+    contents: {},
     icon: 'FiBook',
     placement: 'sidebar',
     sidebarSection: 'general',

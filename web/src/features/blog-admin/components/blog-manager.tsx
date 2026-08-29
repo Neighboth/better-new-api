@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
-import { MessageSquare, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Loader2, MessageSquare, Pencil, Plus, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -28,8 +28,17 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { INTERFACE_LANGUAGE_OPTIONS } from '@/i18n/languages'
 import { api } from '@/lib/api'
 
 import {
@@ -37,6 +46,20 @@ import {
   deleteBlogComment,
   type BlogComment,
 } from '@/features/blog/api'
+import { sendChatCompletion } from '@/features/playground/api'
+
+import {
+  BLOG_LOCALE_CODES,
+  blogLocalizationsFromPayload,
+  emptyBlogPostForm,
+  hasAnyLocalizedContent,
+  type BlogLocalizedMap,
+  type BlogPostForm,
+} from '../lib/blog-post-form'
+import {
+  buildBlogAiSystemPrompt,
+  parseBlogAiResponse,
+} from '../lib/blog-ai'
 
 export type BlogPostItem = {
   id: number
@@ -49,16 +72,13 @@ export type BlogPostItem = {
   published: boolean
   created_at: string
   updated_at: string
-}
-
-const emptyPostForm = {
-  title: '',
-  summary: '',
-  content: '',
-  cover_image: '',
-  tags: '',
-  seo_description: '',
-  published: true,
+  localizations?: {
+    titles?: Record<string, string>
+    summaries?: Record<string, string>
+    contents?: Record<string, string>
+    tags_list?: Record<string, string>
+    seo_descriptions?: Record<string, string>
+  }
 }
 
 export function BlogManager() {
@@ -68,8 +88,14 @@ export function BlogManager() {
   const [blogEnabled, setBlogEnabled] = useState<boolean | null>(null)
   const [editingPost, setEditingPost] = useState<BlogPostItem | null>(null)
   const [isEditorOpen, setIsEditorOpen] = useState(false)
-  const [postForm, setPostForm] = useState(emptyPostForm)
+  const [postForm, setPostForm] = useState<BlogPostForm>(emptyBlogPostForm())
+  const [activeLanguage, setActiveLanguage] = useState('en')
   const [commentsPostId, setCommentsPostId] = useState<number | null>(null)
+  const [isAiOpen, setIsAiOpen] = useState(false)
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiRefinePrompt, setAiRefinePrompt] = useState('')
+  const [aiModel, setAiModel] = useState('')
+  const [aiGenerating, setAiGenerating] = useState(false)
 
   // Blog on/off toggle lives on the blog admin API so regular admins (not
   // only the root user) can manage the blog.
@@ -121,7 +147,7 @@ export function BlogManager() {
 
   const savePost = useMutation({
     mutationFn: async () => {
-      const payload = { ...postForm }
+      const payload = buildSavePayload(postForm)
       if (editingPost) {
         return api.put(`/api/blog/manage/posts/${editingPost.id}`, payload)
       }
@@ -135,7 +161,8 @@ export function BlogManager() {
       toast.success(t('Post saved'))
       setIsEditorOpen(false)
       setEditingPost(null)
-      setPostForm(emptyPostForm)
+      setPostForm(emptyBlogPostForm())
+      setActiveLanguage('en')
       void invalidatePosts()
     },
     onError: () => toast.error(t('Failed to save post')),
@@ -156,7 +183,8 @@ export function BlogManager() {
 
   const openNewPost = () => {
     setEditingPost(null)
-    setPostForm(emptyPostForm)
+    setPostForm(emptyBlogPostForm())
+    setActiveLanguage('en')
     setIsEditorOpen(true)
   }
 
@@ -170,11 +198,102 @@ export function BlogManager() {
       tags: post.tags,
       seo_description: post.seo_description,
       published: post.published,
+      ...blogLocalizationsFromPayload(post.localizations),
     })
+    setActiveLanguage('en')
     setIsEditorOpen(true)
   }
 
   const posts = postsData?.items ?? []
+
+  // All user-visible models (across every group the admin belongs to) for
+  // the blog AI generator; no group param means the backend aggregates groups.
+  const { data: aiModels } = useQuery({
+    queryKey: ['admin-blog-ai-models'],
+    queryFn: async () => {
+      const res = await api.get('/api/user/models')
+      if (!res.data?.success || !Array.isArray(res.data.data)) {
+        return [] as string[]
+      }
+      return res.data.data as string[]
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+
+  /** Run the AI generator: full generate for a brand-new post, refined edit
+  * when a draft already exists. */
+  const runAiGeneration = async (kind: 'generate' | 'refine') => {
+    const prompt = kind === 'generate' ? aiPrompt.trim() : aiRefinePrompt.trim()
+    const model = aiModel || aiModels?.[0] || ''
+    if (!prompt) {
+      toast.error(t('Enter a prompt first'))
+      return
+    }
+    if (!model) {
+      toast.error(t('No AI model available'))
+      return
+    }
+    setAiGenerating(true)
+    try {
+      const hasDraft = hasAnyLocalizedContent(postForm)
+      const systemParts: string[] = [buildBlogAiSystemPrompt()]
+      if (kind === 'refine') {
+        systemParts.push(
+          'The admin already has a draft below (JSON, same schema. Edit/improve ONLY the requested parts of that draft and return the complete updated JSON (no missing keys).'
+        )
+        systemParts.push(`CURRENT DRAFT:${JSON.stringify(draftToAiJson(postForm))}`)
+      } else {
+        if (hasDraft) {
+          systemParts.push(
+            'You are also given a current draft below (JSON, same schema. Improve it per the user instructions and return the complete updated JSON with no missing keys.'
+          )
+          systemParts.push(`CURRENT DRAFT:${JSON.stringify(draftToAiJson(postForm))}`)
+        }
+      }
+      let userRequest = prompt
+      if (kind === 'generate') {
+        userRequest = prompt.includes('\n') ? prompt : `Write a blog post about: ${prompt}` 
+      }
+      systemParts.push(`USER REQUEST:\n${userRequest}`)
+
+      const res = await sendChatCompletion({
+        model,
+        messages: [
+          { role: 'system', content: systemParts.join('\n\n') },
+        ],
+        stream: false,
+        temperature: 0.7,
+      })
+      const content = res.choices?.[0]?.message?.content
+      const parsed = content ? parseBlogAiResponse(content) : null
+      if (!parsed) {
+        toast.error(t('AI returned an unparseable response. Try again.'))
+        return
+      }
+      setPostForm((current) => ({
+        ...current,
+        ...parsed,
+        title: parsed.titles.en || current.title,
+        summary: parsed.summaries.en || current.summary,
+        content: parsed.contents.en || current.content,
+        tags: parsed.tags_list.en || current.tags,
+        seo_description: parsed.seo_descriptions.en || current.seo_description,
+      }))
+      toast.success(kind === 'generate' ? t('Draft generated. Review or edit it below.') : t('Draft updated. Review or edit it below.'))
+      if (kind === 'generate') {
+        setAiPrompt('')
+        setAiRefinePrompt('')
+        setIsAiOpen(false)
+        setIsEditorOpen(true)
+      } else {
+        setAiRefinePrompt('')
+      }
+    } catch {
+      toast.error(t('AI generation failed'))
+    } finally {
+      setAiGenerating(false)
+    }
+  }
 
   return (
     <div className='space-y-4 py-2'>
@@ -193,10 +312,16 @@ export function BlogManager() {
             </p>
           </div>
         </div>
+        <div className='flex items-center gap-2'>
+        <Button type='button' size='sm' variant='outline' onClick={() => { setEditingPost(null); setPostForm(emptyBlogPostForm()); setActiveLanguage('en'); setIsAiOpen(true); }}>
+          <Sparkles className='me-1 h-4 w-4' />
+          {t('Generate with AI')}
+        </Button>
         <Button type='button' size='sm' onClick={openNewPost}>
           <Plus className='me-1 h-4 w-4' />
           {t('New post')}
         </Button>
+      </div>
       </div>
 
       {isLoadingPosts && (
@@ -294,25 +419,6 @@ export function BlogManager() {
         }
       >
         <div className='grid gap-2'>
-          <Label>{t('Title')}</Label>
-          <Input
-            value={postForm.title}
-            onChange={(event) =>
-              setPostForm({ ...postForm, title: event.target.value })
-            }
-          />
-        </div>
-        <div className='grid gap-2'>
-          <Label>{t('Summary')}</Label>
-          <Textarea
-            rows={2}
-            value={postForm.summary}
-            onChange={(event) =>
-              setPostForm({ ...postForm, summary: event.target.value })
-            }
-          />
-        </div>
-        <div className='grid gap-2'>
           <Label>{t('Cover image URL')}</Label>
           <Input
             value={postForm.cover_image}
@@ -323,45 +429,132 @@ export function BlogManager() {
           />
         </div>
         <div className='grid gap-2'>
-          <Label>{t('Tags (comma separated)')}</Label>
-          <Input
-            value={postForm.tags}
-            placeholder={t('news, update')}
-            onChange={(event) =>
-              setPostForm({ ...postForm, tags: event.target.value })
-            }
-          />
-        </div>
-        <div className='grid gap-2'>
-          <Label>{t('SEO description')}</Label>
-          <Textarea
-            rows={2}
-            value={postForm.seo_description}
-            onChange={(event) =>
-              setPostForm({ ...postForm, seo_description: event.target.value })
-            }
-          />
-        </div>
-        <div className='grid gap-2'>
-          <Label>{t('Content (Markdown)')}</Label>
-          <Textarea
-            rows={12}
-            value={postForm.content}
-            className='font-mono text-xs'
-            onChange={(event) =>
-              setPostForm({ ...postForm, content: event.target.value })
-            }
-          />
-        </div>
-        <div className='flex items-center gap-2'>
-          <Switch
-            checked={postForm.published}
-            onCheckedChange={(checked) =>
-              setPostForm({ ...postForm, published: checked })
-            }
-          />
           <Label>{t('Published')}</Label>
+          <div className='flex items-center gap-2'>
+            <Switch
+              checked={postForm.published}
+              onCheckedChange={(checked) =>
+                setPostForm({ ...postForm, published: checked })
+              }
+            />
+            <span className='text-muted-foreground text-sm'>{t('Draft posts are hidden from the public site.')}</span>
+          </div>
         </div>
+
+        <Tabs value={activeLanguage} onValueChange={setActiveLanguage}>
+          <TabsList className='flex w-full flex-wrap gap-1'>
+            {INTERFACE_LANGUAGE_OPTIONS.map((lang) => (
+              <TabsTrigger key={lang.code} value={lang.code} className='text-xs'>
+                {lang.flag} {lang.code}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          {INTERFACE_LANGUAGE_OPTIONS.map((lang) => (
+            <TabsContent key={lang.code} value={lang.code} className='mt-4 space-y-4'>
+              <PostLanguageFields
+                langCode={lang.code}
+                languageLabel={lang.label}
+                form={postForm}
+                onChange={(patch: Partial<BlogPostForm>) =>
+                  setPostForm((current) => ({ ...current, ...patch }))
+                }
+              />
+            </TabsContent>
+          ))}
+        </Tabs>
+      </Dialog>
+
+      <Dialog
+        open={isAiOpen}
+        onOpenChange={setIsAiOpen}
+        title={t('Generate blog post with AI')}
+        contentClassName='max-w-xl'
+        headerClassName='text-left'
+        contentHeight='auto'
+        bodyClassName='space-y-4'
+        footer={
+          <>
+            <Button
+              type='button'
+              variant='ghost'
+              onClick={() => setIsAiOpen(false)}
+            >
+              {t('Cancel')}
+            </Button>
+            {hasAnyLocalizedContent(postForm) && (
+              <Button
+                type='button'
+                variant='outline'
+                disabled={aiGenerating}
+                onClick={() => runAiGeneration('refine')}
+              >
+                {aiGenerating ? (
+                  <Loader2 className='h-4 w-4 animate-spin' />
+                ) : (
+                  <Wand2 className='h-4 w-4' />
+                )}
+                {t('Regenerate draft')}
+              </Button>
+            )}
+            <Button
+              type='button'
+              disabled={aiGenerating}
+              onClick={() => runAiGeneration('generate')}
+            >
+              {aiGenerating ? (
+                <>
+                  <Loader2 className='me-1 h-4 w-4 animate-spin' />
+                  {t('Generating...')}
+                </>
+              ) : (
+                <>
+                  <Sparkles className='me-1 h-4 w-4' />
+                  {t('Generate')}
+                </>
+              )}
+            </Button>
+          </>
+        }
+      >
+        <div className='grid gap-2'>
+          <Label>{t('Model')}</Label>
+          <Select value={aiModel} onValueChange={(value) => setAiModel(value ?? '')}>
+            <SelectTrigger>
+              <SelectValue placeholder={t('Select a model')} />
+            </SelectTrigger>
+            <SelectContent>
+              {(aiModels ?? []).map((model) => (
+                <SelectItem key={model} value={model}>
+                  {model}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className='grid gap-2'>
+          <Label>{t('Prompt')}</Label>
+          <Textarea
+            rows={6}
+            value={aiPrompt}
+            placeholder={t('Describe the blog post you want, including topic, audience, tone, and any specific points to cover.')}
+            onChange={(event) => setAiPrompt(event.target.value)}
+          />
+          <p className='text-muted-foreground text-xs'>
+            {t('The AI writes title, summary, tags, SEO description,and full content for every supported language.')}
+          </p>
+        </div>
+        {hasAnyLocalizedContent(postForm) && (
+          <div className='grid gap-2'>
+            <Label>{t('Refine draft')}</Label>
+            <Textarea
+              rows={3}
+              value={aiRefinePrompt}
+              placeholder={t('Optional: tell the AI what to change in the current draft, e.g. "Make the intro more technical".')}
+              onChange={(event) => setAiRefinePrompt(event.target.value)}
+            />
+          </div>
+        )}
       </Dialog>
 
       <CommentsDialog
@@ -454,4 +647,148 @@ function CommentsDialog(props: { postId: number | null; onClose: () => void }) {
       ))}
     </Dialog>
   )
+}
+
+/** Per-language editor fields for one blog post locale. */
+function PostLanguageFields(props: {
+  langCode: string
+  languageLabel: string
+  form: BlogPostForm
+  onChange: (patch: Partial<BlogPostForm>) => void
+}) {
+  const { t } = useTranslation()
+
+  const setLocalized = (key: 'titles' | 'summaries' | 'contents' | 'tags_list' | 'seo_descriptions', value: string) => {
+    props.onChange({
+      [key]: {
+        ...props.form[key],
+        [props.langCode]: value,
+      },
+    } as Partial<BlogPostForm>)
+  }
+
+  const langFlag =
+    INTERFACE_LANGUAGE_OPTIONS.find((lang) => lang.code === props.langCode)?.flag ?? ''
+
+  return (
+    <div className='space-y-4'>
+      <div className='grid gap-2'>
+        <Label>
+          <span className='me-1'>{langFlag}</span>
+          {t('Title')}
+        </Label>
+        <Input
+          value={props.form.titles[props.langCode] ?? ''}
+          onChange={(event) => setLocalized('titles', event.target.value)}
+        />
+      </div>
+      <div className='grid gap-2'>
+        <Label>{t('Summary')}</Label>
+        <Textarea
+          rows={2}
+          value={props.form.summaries[props.langCode] ?? ''}
+          onChange={(event) => setLocalized('summaries', event.target.value)}
+        />
+      </div>
+      <div className='grid gap-2'>
+        <Label>{t('Tags (comma separated)')}</Label>
+        <Input
+          value={props.form.tags_list[props.langCode] ?? ''}
+          placeholder={t('news, update')}
+          onChange={(event) => setLocalized('tags_list', event.target.value)}
+        />
+      </div>
+      <div className='grid gap-2'>
+        <Label>{t('SEO description')}</Label>
+        <Textarea
+          rows={2}
+          value={props.form.seo_descriptions[props.langCode] ?? ''}
+          onChange={(event) => setLocalized('seo_descriptions', event.target.value)}
+        />
+      </div>
+      <div className='grid gap-2'>
+        <Label>{t('Content (Markdown)')}</Label>
+        <Textarea
+          rows={12}
+          value={props.form.contents[props.langCode] ?? ''}
+          className='font-mono text-xs'
+          onChange={(event) => setLocalized('contents', event.target.value)}
+        />
+      </div>
+      <p className='text-muted-foreground text-xs'>
+        {props.langCode === 'en'
+          ? t('The English version also acts as the fallback shown to readers when no localized version exists.') : t('Filled content is shown to readers who browse the site in this language.')}
+      </p>
+    </div>
+  )
+}
+
+/** Serialize the form into the admin API payload, keeping the English values
+  * mirrored into the legacy scalar fields so older consumers still work. */
+function buildSavePayload(form: BlogPostForm) {
+  const title = form.titles.en ?? form.title
+  const summary = form.summaries.en ?? form.summary
+  const content = form.contents.en ?? form.content
+  const tags = form.tags_list.en ?? form.tags
+  const seo_description = form.seo_descriptions.en ?? form.seo_description
+  const titleMap: BlogLocalizedMap = {}
+  const summaryMap: BlogLocalizedMap = {}
+  const contentMap: BlogLocalizedMap = {}
+  const tagsMap: BlogLocalizedMap = {}
+  const seoMap: BlogLocalizedMap = {}
+  for (const code of BLOG_LOCALE_CODES) {
+    const v = (field: 'titles' | 'summaries' | 'contents' | 'tags_list' | 'seo_descriptions') =>
+      (form[field][code] ?? '').trim()
+    if (v('titles')) titleMap[code] = v('titles')
+    if (v('summaries')) summaryMap[code] = v('summaries')
+    if (v('contents')) contentMap[code] = v('contents')
+    if (v('tags_list')) tagsMap[code] = v('tags_list')
+    if (v('seo_descriptions')) seoMap[code] = v('seo_descriptions')
+  }
+
+  return {
+    title,
+    summary,
+    content,
+    tags,
+    seo_description,
+    published: form.published,
+    cover_image: form.cover_image,
+    localizations: {
+      titles: titleMap,
+      summaries: summaryMap,
+      contents: contentMap,
+      tags_list: tagsMap,
+      seo_descriptions: seoMap,
+    },
+  }
+}
+
+/** Snapshot the current localized draft into the JSON schema the AI consumes. */
+function draftToAiJson(form: BlogPostForm) {
+  const title = form.titles.en ?? form.title ?? ''
+  const summary = form.summaries.en ?? form.summary ?? ''
+  const content = form.contents.en ?? form.content ?? ''
+  const tags = form.tags_list.en ?? form.tags ?? ''
+  const seo_description = form.seo_descriptions.en ?? form.seo_description ?? ''
+  const titleMap: BlogLocalizedMap = {}
+  const summaryMap: BlogLocalizedMap = {}
+  const contentMap: BlogLocalizedMap = {}
+  const tagsMap: BlogLocalizedMap = {}
+  const seoMap: BlogLocalizedMap = {}
+  for (const code of BLOG_LOCALE_CODES) {
+    titleMap[code] = form.titles[code] ?? (code === 'en' ? title : '')
+    summaryMap[code] = form.summaries[code] ?? (code === 'en' ? summary : '')
+    contentMap[code] = form.contents[code] ?? (code === 'en' ? content : '')
+    tagsMap[code] = form.tags_list[code] ?? (code === 'en' ? tags : '')
+    seoMap[code] = form.seo_descriptions[code] ?? (code === 'en' ? seo_description : '')
+  }
+
+  return {
+    title: titleMap,
+    summary: summaryMap,
+    content: contentMap,
+    tags: tagsMap,
+    seo_description: seoMap,
+  }
 }

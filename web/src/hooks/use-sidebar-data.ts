@@ -39,7 +39,7 @@ import { useTranslation } from 'react-i18next'
 
 import { getCustomNavIcon } from '@/components/custom-nav-icon'
 import type { NavGroup, SidebarData } from '@/components/layout/types'
-import { useCustomNavItems } from '@/hooks/use-custom-nav-items'
+import { buildCustomNavUrl, useCustomNavItems } from '@/hooks/use-custom-nav-items'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -177,7 +177,7 @@ export function useSidebarData(): SidebarData {
 
     group.items.push({
       title: item.label,
-      url: item.url,
+      url: buildCustomNavUrl(item.id, 'sidebar'),
       icon: getCustomNavIcon(item.icon),
     })
   })

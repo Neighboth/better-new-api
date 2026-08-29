@@ -43,7 +43,6 @@ import type {
   GroupOption,
   ParameterEnabled,
   PlaygroundConfig,
-  ThinkingLevel,
 } from '../../types'
 import { PlaygroundInputAttachments } from './playground-input-attachments'
 import { PlaygroundInputControls } from './playground-input-controls'
@@ -75,10 +74,6 @@ interface PlaygroundInputProps {
     value: boolean
   ) => void
   parameterEnabled: ParameterEnabled
-  thinking: { enabled: boolean; level: ThinkingLevel }
-  onThinkingChange: (
-    patch: Partial<{ enabled: boolean; level: ThinkingLevel }>
-  ) => void
 }
 
 export function PlaygroundInput(props: PlaygroundInputProps) {
@@ -154,9 +149,7 @@ export function PlaygroundInput(props: PlaygroundInputProps) {
                 onConfigChange={props.onConfigChange}
                 onNewChat={props.onNewChat}
                 onParameterEnabledChange={props.onParameterEnabledChange}
-                onThinkingChange={props.onThinkingChange}
                 parameterEnabled={props.parameterEnabled}
-                thinking={props.thinking}
               />
             }
           />

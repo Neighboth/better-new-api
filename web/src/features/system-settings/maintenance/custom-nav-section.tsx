@@ -71,6 +71,7 @@ function stripDraftKey(item: DraftItem): CustomNavItem {
   return {
     id: item.id,
     labels: item.labels,
+    contents: item.contents,
     icon: item.icon,
     placement: item.placement,
     sidebarSection: item.sidebarSection,
@@ -140,6 +141,16 @@ export function CustomNavSection({
     )
   }
 
+  const updateContent = (index: number, code: string, value: string) => {
+    setDraft((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index
+          ? { ...item, contents: { ...item.contents, [code]: value } }
+          : item
+      )
+    )
+  }
+
   const addItem = () => {
     setDraft((current) =>
       current.length >= CUSTOM_NAV_MAX_ITEMS
@@ -164,6 +175,12 @@ export function CustomNavSection({
           .map(([code, label]) => [code, label.trim()] as const)
           .filter(([, label]) => label.length > 0)
       ),
+      contents: Object.fromEntries(
+        Object.entries(draftItem.contents)
+          .map(([code, value]) => [code, value.trim()] as const)
+          .filter(([, value]) => value.length > 0)
+      ),
+      content: draftItem.content.trim() || draftItem.contents.en || '',
     }))
 
     const errors = validateCustomNavItems(normalized)
@@ -373,14 +390,25 @@ export function CustomNavSection({
                   placeholder='https://example.com/docs'
                 />
               ) : (
-                <Textarea
-                  id={`custom-nav-content-${index}`}
-                  rows={6}
-                  value={item.content}
-                  onChange={(event) =>
-                    updateItem(index, { content: event.target.value })
-                  }
-                />
+                <div className='grid gap-4 md:grid-cols-2'>
+                  {INTERFACE_LANGUAGE_OPTIONS.map((option) => (
+                    <div key={option.code} className='flex flex-col gap-2'>
+                      <Label
+                        htmlFor={`custom-nav-content-${index}-${option.code}`}
+                      >
+                        {option.label}
+                      </Label>
+                      <Textarea
+                        id={`custom-nav-content-${index}-${option.code}`}
+                        rows={6}
+                        value={item.contents[option.code] ?? ''}
+                        onChange={(event) =>
+                          updateContent(index, option.code, event.target.value)
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           </div>

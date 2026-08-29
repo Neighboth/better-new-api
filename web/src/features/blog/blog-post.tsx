@@ -33,6 +33,7 @@ import { fetchBlogPost } from './api'
 import { BlogAds } from './components/blog-ads-block'
 import { BlogComments } from './components/comments'
 import { ReactionButtons } from './components/reaction-buttons'
+import { useSeoMeta } from '@/hooks/use-seo-meta'
 
 type BlogPostPageProps = {
   postId: string
@@ -60,6 +61,15 @@ export function BlogPostPage(props: BlogPostPageProps) {
       document.title = previousTitle
     }
   }, [post?.title])
+
+  // Language-aware SEO： Google indexes this page in the language of the
+  // requesting user (the backend already localizes the content by header）。
+  useSeoMeta({
+    title: post?.title ?? '',
+    description: post?.seo_description,
+    localizedTitles: post?.localizations?.titles,
+    localizedDescriptions: post?.localizations?.seo_descriptions,
+  })
 
   if (!blogEnabled) {
     return (

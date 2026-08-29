@@ -388,6 +388,9 @@ export type OperationsSettings = {
   'perf_metrics_setting.flush_interval': number
   'perf_metrics_setting.bucket_time': 'hour' | 'minute' | '5min'
   'perf_metrics_setting.retention_days': number
+  'relay_fallback_setting.enable_fallback': boolean
+  'relay_fallback_setting.fallback_models': string
+  'relay_fallback_setting.fallback_system_prompt': string
 }
 
 export type SecuritySettings = {

@@ -39,6 +39,7 @@ export type CustomNavContentType = (typeof CUSTOM_NAV_CONTENT_TYPES)[number]
 export type CustomNavItem = {
   id: string
   labels: Record<string, string>
+  contents: Record<string, string>
   icon: string
   placement: CustomNavPlacement
   sidebarSection: CustomNavSidebarSection
@@ -74,6 +75,19 @@ function parseEnumValue<T extends string>(
   return allowed.includes(raw as T) ? (raw as T) : fallback
 }
 
+function parseStringMap(raw: unknown): Record<string, string> {
+  if (!isRecord(raw)) return {}
+
+  const result: Record<string, string> = {}
+  for (const code of LANGUAGE_CODES) {
+    const value = raw[code]
+    if (typeof value === 'string' && value.trim()) {
+      result[code] = value.trim()
+    }
+  }
+  return result
+}
+
 /**
  * Label for the active interface language, falling back to English and then to
  * any configured language so a button is never rendered without a name.
@@ -87,6 +101,24 @@ export function resolveCustomNavLabel(
     item.labels.en ??
     Object.values(item.labels)[0] ??
     item.id
+  )
+}
+
+/**
+ * Content for the active interface language. Falls back to English, then to
+ * a legacy single-language value and finally to any configured per-language
+ * value so content is never empty when the admin filled at least one field.
+ */
+export function resolveCustomNavContent(
+  item: CustomNavItem,
+  language: string
+): string {
+  return (
+    item.contents[language] ??
+    item.contents.en ??
+    item.content ??
+    Object.values(item.contents)[0] ??
+    ''
   )
 }
 
@@ -111,13 +143,15 @@ export function parseCustomNavItems(
       const labels = parseLabels(raw.labels)
       if (Object.keys(labels).length === 0) continue
 
+      const contents = parseStringMap(raw.contents)
       const content = typeof raw.content === 'string' ? raw.content : ''
-      if (!content.trim()) continue
+      if (!content.trim() && Object.keys(contents).length === 0) continue
 
       seen.add(id)
       items.push({
         id,
         labels,
+        contents,
         icon: typeof raw.icon === 'string' ? raw.icon.trim() : '',
         placement: parseEnumValue(
           raw.placement,
@@ -193,15 +227,20 @@ export function validateCustomNavItems(
       errors.set(item.id, 'label')
       continue
     }
-    if (!item.content.trim()) {
+    const contentValues = Object.values(item.contents).filter((v) => v.trim())
+    const primaryContent = item.content.trim() || contentValues[0] || ''
+    if (!primaryContent && contentValues.length === 0) {
       errors.set(item.id, 'content')
       continue
     }
-    if (item.content.length > CUSTOM_NAV_MAX_CONTENT_LENGTH) {
+    if (
+      item.content.length > CUSTOM_NAV_MAX_CONTENT_LENGTH ||
+      contentValues.some((v) => v.length > CUSTOM_NAV_MAX_CONTENT_LENGTH)
+    ) {
       errors.set(item.id, 'content-length')
       continue
     }
-    if (item.contentType === 'url' && !isSafeCustomNavUrl(item.content)) {
+    if (item.contentType === 'url' && !isSafeCustomNavUrl(primaryContent)) {
       errors.set(item.id, 'url')
     }
   }
@@ -213,6 +252,7 @@ export function createCustomNavItem(index: number): CustomNavItem {
   return {
     id: `custom-${index + 1}`,
     labels: {},
+    contents: {},
     icon: '',
     placement: 'sidebar',
     sidebarSection: 'general',
