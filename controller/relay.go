@@ -126,6 +126,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
+	fbState := newFallbackState(relayInfo)
+	if err := applyFallbackSystemPrompt(c, relayInfo, fbState); err != nil {
+		logger.LogWarn(c, fmt.Sprintf("failed to apply fallback system prompt: %s", err.Error()))
+	}
+
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	needCountToken := constant.CountToken
 	// Avoid building huge CombineText (strings.Join) when token counting and sensitive check are both disabled.
@@ -155,8 +160,34 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 	if err != nil {
-		newAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
-		return
+		// If the originally requested model has no price configured, try the
+		// admin-configured fallback model chain before failing with 400.
+		if fbState != nil && fbState.on {
+			origModel := relayInfo.OriginModelName
+			for {
+				cand, ok := fbState.currentModel()
+				if !ok {
+					break
+				}
+				fbState.advance()
+				if cand == "" {
+					continue
+				}
+				logRelayFallback(c, origModel, cand)
+				if switchErr := switchRelayModel(c, relayInfo, cand); switchErr != nil {
+					continue
+				}
+				if pd, pErr := helper.ModelPriceHelper(c, relayInfo, tokens, meta); pErr == nil {
+					priceData = pd
+					err = nil
+					break
+				}
+			}
+		}
+		if err != nil {
+			newAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
+			return
+		}
 	}
 
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
@@ -195,9 +226,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		relayInfo.RetryIndex = retryParam.GetRetry()
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
-			logger.LogError(c, channelErr.Error())
-			newAPIError = channelErr
-			break
+			// Kanallarda bu model yoksa fallback modele geç (varsa.
+			if !advanceFallbackModel(c, relayInfo, retryParam, fbState) {
+				newAPIError = channelErr
+				break
+			}
+			continue
 		}
 		addUsedChannel(c, channel.Id)
 		if billingErr := service.PrepareTieredBillingForSelectedGroup(c, relayInfo); billingErr != nil {
@@ -239,7 +273,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
 		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
-			break
+			// Retry hakkı bitti: sıradaki fallback modele geç.
+			if !advanceFallbackModel(c, relayInfo, retryParam, fbState) {
+				break
+			}
+			continue
 		}
 	}
 
