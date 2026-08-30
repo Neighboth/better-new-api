@@ -940,6 +940,9 @@ func UpdateSelf(c *gin.Context) {
 		DisplayName: user.DisplayName,
 		AvatarUrl:   user.AvatarUrl,
 	}
+	if cleanUser.AvatarUrl == "" {
+		cleanUser.AvatarUrl = originUser.AvatarUrl
+	}
 	if user.Password == "$I_LOVE_U" {
 		user.Password = "" // rollback to what it should be
 		cleanUser.Password = ""

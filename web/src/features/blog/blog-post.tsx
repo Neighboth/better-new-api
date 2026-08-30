@@ -119,7 +119,7 @@ export function BlogPostPage(props: BlogPostPageProps) {
   return (
     <PublicLayout>
       <article className='mx-auto w-full max-w-3xl space-y-6'>
-        <BlogAds />
+        <BlogAds position='top' />
         <Link
           to='/blog'
           className='text-muted-foreground hover:text-primary inline-flex items-center gap-1 text-sm'
@@ -147,8 +147,6 @@ export function BlogPostPage(props: BlogPostPageProps) {
           />
         ) : null}
 
-        
-
         <RichContent
           content={post.content}
           mode='markdown'
@@ -167,8 +165,6 @@ export function BlogPostPage(props: BlogPostPageProps) {
           />
         </div>
 
-        
-
         {data?.success && (
           <BlogComments
             postId={post.id}
@@ -177,7 +173,7 @@ export function BlogPostPage(props: BlogPostPageProps) {
             onChanged={() => refetch()}
           />
         )}
-        <BlogAds />
+        <BlogAds position='bottom' />
       </article>
     </PublicLayout>
   )

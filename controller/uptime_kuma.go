@@ -58,10 +58,81 @@ func fetchGroupData(ctx context.Context, client *http.Client, groupConfig map[st
 	url, _ := groupConfig["url"].(string)
 	slug, _ := groupConfig["slug"].(string)
 	categoryName, _ := groupConfig["categoryName"].(string)
+	providerType, _ := groupConfig["type"].(string)
+	apiKey, _ := groupConfig["apiKey"].(string)
 
 	result := UptimeGroupResult{
 		CategoryName: categoryName,
 		Monitors:     []Monitor{},
+	}
+
+	// Handle Instatus
+	if providerType == "instatus" || strings.Contains(url, "instatus.com") {
+		instatusURL := url
+		if !strings.HasSuffix(instatusURL, "/summary.json") {
+			instatusURL = strings.TrimSuffix(instatusURL, "/") + "/summary.json"
+		}
+		var instatusData struct {
+			Page struct {
+				Name   string `json:"name"`
+				Status string `json:"status"`
+			} `json:"page"`
+			Components []struct {
+				Name   string `json:"name"`
+				Status string `json:"status"`
+			} `json:"components"`
+		}
+		if err := getAndDecode(ctx, client, instatusURL, &instatusData); err == nil {
+			for _, comp := range instatusData.Components {
+				st := 1
+				if strings.ToUpper(comp.Status) != "OPERATIONAL" && strings.ToUpper(comp.Status) != "UP" {
+					st = 0
+				}
+				result.Monitors = append(result.Monitors, Monitor{
+					Name:   comp.Name,
+					Status: st,
+					Uptime: 100,
+				})
+			}
+			return result
+		}
+	}
+
+	// Handle UptimeRobot API
+	if providerType == "uptimerobot" || apiKey != "" || strings.Contains(url, "uptimerobot.com") {
+		reqURL := "https://api.uptimerobot.com/v2/getMonitors"
+		postBody := strings.NewReader("api_key=" + apiKey + "&format=json&custom_uptime_ratios=30")
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, postBody)
+		if err == nil {
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			resp, err := client.Do(req)
+			if err == nil && resp.StatusCode == http.StatusOK {
+				var urData struct {
+					Monitors []struct {
+						FriendlyName string  `json:"friendly_name"`
+						Status       int     `json:"status"`
+						UptimeRatio  string  `json:"custom_uptime_ratio"`
+					} `json:"monitors"`
+				}
+				if json.NewDecoder(resp.Body).Decode(&urData) == nil {
+					resp.Body.Close()
+					for _, m := range urData.Monitors {
+						st := 0
+						if m.Status == 2 { // 2 = Up in UptimeRobot
+							st = 1
+						}
+						up, _ := strconv.ParseFloat(m.UptimeRatio, 64)
+						result.Monitors = append(result.Monitors, Monitor{
+							Name:   m.FriendlyName,
+							Status: st,
+							Uptime: up,
+						})
+					}
+					return result
+				}
+				resp.Body.Close()
+			}
+		}
 	}
 
 	if url == "" || slug == "" {

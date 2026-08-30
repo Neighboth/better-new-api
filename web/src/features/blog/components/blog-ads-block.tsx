@@ -28,12 +28,12 @@ declare global {
   }
 }
 
-// Ad slots render as low-height, wide banners, two side by side per row.
+// Ad slots render as compact, responsive banners side by side.
 const BLOG_AD_BANNER_CLASS =
-  'flex h-[90px] w-full items-center justify-center overflow-hidden rounded-md border md:h-[110px]'
+  'flex h-[60px] sm:h-[75px] md:h-[90px] w-full items-center justify-center overflow-hidden rounded-md border'
 
-/** Four blog ad slots: two above the post, two below. */
-export function BlogAds() {
+/** Render blog ad slots: position can be 'top' (first 2) or 'bottom' (last 2). */
+export function BlogAds({ position = 'top' }: { position?: 'top' | 'bottom' }) {
   const { data } = useQuery({
     queryKey: ['blog-ads'],
     queryFn: fetchBlogAds,
@@ -46,12 +46,10 @@ export function BlogAds() {
   const slots = pickBlogAdSlots(data.custom_ads ?? [], adsenseAvailable, data.mode)
   if (slots.length === 0) return null
 
-  return (
-    <>
-      <BlogAdRow slots={slots.slice(0, 2)} config={data} />
-      <BlogAdRow slots={slots.slice(2, 4)} config={data} isBottom />
-    </>
-  )
+  const activeSlots = position === 'top' ? slots.slice(0, 2) : slots.slice(2, 4)
+  if (activeSlots.length === 0) return null
+
+  return <BlogAdRow slots={activeSlots} config={data} isBottom={position === 'bottom'} />
 }
 
 function BlogAdRow(props: {

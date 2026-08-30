@@ -498,20 +498,21 @@ export function SystemFilesSection() {
               />
             )}
           </div>
-          <DialogFooter className='flex items-center justify-between'>
+          <DialogFooter className='flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between'>
             <Button
               type='button'
               variant='outline'
+              className='w-full sm:w-auto'
               onClick={() => window.open(`/${editorPath}`, '_blank')}
             >
               <Eye className='me-1 h-4 w-4' />
               {t('Preview in new tab')}
             </Button>
-            <div className='flex items-center gap-2'>
-              <Button variant='outline' onClick={() => setEditorOpen(false)}>
+            <div className='flex w-full items-center justify-end gap-2 sm:w-auto'>
+              <Button variant='outline' className='flex-1 sm:flex-none' onClick={() => setEditorOpen(false)}>
                 {t('Cancel')}
               </Button>
-              <Button onClick={() => void handleSaveContent()}>
+              <Button className='flex-1 sm:flex-none' onClick={() => void handleSaveContent()}>
                 <Save className='me-1 h-4 w-4' />
                 {t('Save File')}
               </Button>

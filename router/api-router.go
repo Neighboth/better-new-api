@@ -385,6 +385,7 @@ func SetApiRouter(router *gin.Engine) {
 			vendorRoute.POST("/", controller.CreateVendorMeta)
 			vendorRoute.PUT("/", controller.UpdateVendorMeta)
 			vendorRoute.DELETE("/:id", controller.DeleteVendorMeta)
+			vendorRoute.POST("/upload", controller.UploadVendorLogo)
 		}
 
 		modelsRoute := apiRouter.Group("/models")

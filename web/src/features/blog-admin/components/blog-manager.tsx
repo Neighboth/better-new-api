@@ -540,10 +540,11 @@ export function BlogManager() {
         contentHeight='auto'
         bodyClassName='space-y-4'
         footer={
-          <div className='flex w-full items-center justify-between gap-2'>
+          <div className='flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between'>
             <Button
               type='button'
               variant='outline'
+              className='w-full sm:w-auto'
               disabled={aiTranslating || savePost.isPending}
               onClick={runAiTranslation}
             >
@@ -554,16 +555,18 @@ export function BlogManager() {
               )}
               {t('Translate to other languages with AI')}
             </Button>
-            <div className='flex items-center gap-2'>
+            <div className='flex w-full items-center justify-end gap-2 sm:w-auto'>
               <Button
                 type='button'
                 variant='outline'
+                className='flex-1 sm:flex-none'
                 onClick={() => setIsEditorOpen(false)}
               >
                 {t('Cancel')}
               </Button>
               <Button
                 type='button'
+                className='flex-1 sm:flex-none'
                 disabled={
                   savePost.isPending ||
                   !hasAnyTitleAndContent(postForm)

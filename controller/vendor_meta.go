@@ -1,7 +1,13 @@
 package controller
 
 import (
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -116,9 +122,49 @@ func DeleteVendorMeta(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	v, err := model.GetVendorByID(id)
+	if err == nil && v.IsBuiltin {
+		common.ApiErrorMsg(c, "Sisteme gömülü (Builtin) vendorlar silinemez.")
+		return
+	}
 	if err := model.DB.Delete(&model.Vendor{}, id).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	common.ApiSuccess(c, nil)
+}
+
+// UploadVendorLogo handles uploading a vendor logo image file
+func UploadVendorLogo(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "No file uploaded: " + err.Error()})
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".webp" && ext != ".svg" {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Unsupported file format"})
+		return
+	}
+
+	uploadDir := filepath.Join("uploads", "vendors")
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to create upload directory: " + err.Error()})
+		return
+	}
+
+	fileName := fmt.Sprintf("%d_%s%s", time.Now().UnixNano(), common.GetRandomString(6), ext)
+	dst := filepath.Join(uploadDir, fileName)
+
+	if err := c.SaveUploadedFile(file, dst); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to save file: " + err.Error()})
+		return
+	}
+
+	url := "/uploads/vendors/" + fileName
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    url,
+	})
 }
