@@ -51,12 +51,19 @@ export function RelayFallbackSection({
   useResetForm(form, defaultValues)
 
   const onSubmit = async (data: FallbackFormValues) => {
+    const keyMap: Record<keyof FallbackFormValues, string> = {
+      enable_fallback: 'relay_fallback_setting.enable_fallback',
+      fallback_models: 'relay_fallback_setting.fallback_models',
+      fallback_system_prompt: 'relay_fallback_setting.fallback_system_prompt',
+    }
+
     const updates = Object.entries(data).filter(
       ([key, value]) => value !== defaultValues[key as keyof FallbackFormValues]
     )
 
     for (const [key, value] of updates) {
-      await updateOption.mutateAsync({ key, value })
+      const optionKey = keyMap[key as keyof FallbackFormValues]
+      await updateOption.mutateAsync({ key: optionKey, value })
     }
   }
 

@@ -1,9 +1,13 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -155,4 +159,68 @@ func csvEscape(value string) string {
 		return value
 	}
 	return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
+}
+
+// UploadAdImage handles uploading an image file for custom ads.
+func UploadAdImage(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "No file uploaded: " + err.Error()})
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".webp" && ext != ".gif" && ext != ".svg" {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Unsupported file format"})
+		return
+	}
+
+	uploadDir := filepath.Join("uploads", "ads")
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to create upload directory: " + err.Error()})
+		return
+	}
+
+	fileName := fmt.Sprintf("%d_%s%s", time.Now().UnixNano(), common.GetRandomString(6), ext)
+	dst := filepath.Join(uploadDir, fileName)
+
+	if err := c.SaveUploadedFile(file, dst); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to save file: " + err.Error()})
+		return
+	}
+
+	url := "/uploads/ads/" + fileName
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    url,
+	})
+}
+
+// CleanupUnusedAdImages compares stored CustomAds and removes any /uploads/ads/ files no longer referenced.
+func CleanupUnusedAdImages(newCustomAdsJson string) {
+	var newAds []customAd
+	_ = common.UnmarshalJsonStr(newCustomAdsJson, &newAds)
+
+	activeUploads := make(map[string]bool)
+	for _, ad := range newAds {
+		if strings.HasPrefix(ad.Image, "/uploads/ads/") {
+			activeUploads[filepath.Base(ad.Image)] = true
+		}
+	}
+
+	uploadDir := filepath.Join("uploads", "ads")
+	entries, err := os.ReadDir(uploadDir)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !activeUploads[name] {
+			_ = os.Remove(filepath.Join(uploadDir, name))
+		}
+	}
 }

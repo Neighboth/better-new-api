@@ -18,8 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
-import { Download, Plus, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Download, Plus, Trash2, Upload } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -102,6 +102,8 @@ const AD_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,63}$/
 export function AdsSection({ defaultValues }: AdsSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null)
 
   const form = useForm<AdsFormValues>({
     resolver: zodResolver(adsSchema),
@@ -195,6 +197,27 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
 
   const removeCustomAd = (index: number) => {
     setCustomAds((current) => current.filter((_, i) => i !== index))
+  }
+
+  const handleFileUpload = async (index: number, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    setUploadingIndex(index)
+    try {
+      const res = await api.post('/api/blog/manage/ads/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      if (res.data?.success && res.data?.data) {
+        updateCustomAd(index, 'image', res.data.data)
+        toast.success(t('Image uploaded successfully'))
+      } else {
+        toast.error(res.data?.message || t('Failed to upload image'))
+      }
+    } catch {
+      toast.error(t('Failed to upload image'))
+    } finally {
+      setUploadingIndex(null)
+    }
   }
 
   const showAdsenseFields = adsMode === 'adsense' || adsMode === 'both'
@@ -350,13 +373,28 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                         </div>
                         <div>
                           <Label className='text-xs'>{t('Image URL')}</Label>
-                          <Input
-                            value={ad.image}
-                            onChange={(event) =>
-                              updateCustomAd(index, 'image', event.target.value)
-                            }
-                            placeholder='https://example.com/banner.png'
-                          />
+                          <div className='flex items-center gap-2'>
+                            <Input
+                              value={ad.image}
+                              onChange={(event) =>
+                                updateCustomAd(index, 'image', event.target.value)
+                              }
+                              placeholder='https://example.com/banner.png or upload'
+                            />
+                            <Button
+                              type='button'
+                              variant='outline'
+                              size='sm'
+                              disabled={uploadingIndex === index}
+                              onClick={() => {
+                                setUploadingIndex(index)
+                                fileInputRef.current?.click()
+                              }}
+                            >
+                              <Upload className='me-1 h-4 w-4' />
+                              {t('Upload')}
+                            </Button>
+                          </div>
                         </div>
                         <div>
                           <Label className='text-xs'>{t('Target URL')}</Label>
@@ -439,6 +477,19 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
           )}
         </SettingsForm>
       </Form>
+      <input
+        type='file'
+        ref={fileInputRef}
+        className='hidden'
+        accept='image/*'
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file && uploadingIndex !== null) {
+            void handleFileUpload(uploadingIndex, file)
+          }
+          e.target.value = ''
+        }}
+      />
     </SettingsSection>
   )
 }

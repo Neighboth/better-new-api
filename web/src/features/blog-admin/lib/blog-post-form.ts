@@ -89,6 +89,17 @@ export function hasAnyLocalizedContent(form: BlogPostForm): boolean {
   ].some((value) => value.trim().length > 0)
 }
 
+/** Check if at least one language (or scalar) has non-empty title and content. */
+export function hasAnyTitleAndContent(form: BlogPostForm): boolean {
+  if (form.title.trim() && form.content.trim()) return true
+  for (const code of BLOG_LOCALE_CODES) {
+    if ((form.titles[code] ?? '').trim() && (form.contents[code] ?? '').trim()) {
+      return true
+    }
+  }
+  return false
+}
+
 /** Move raw admin-payload item localizations into the form state. */
 export function blogLocalizationsFromPayload(
   localizations: {

@@ -178,6 +178,7 @@ export function useSidebarData(): SidebarData {
     group.items.push({
       title: item.label,
       url: buildCustomNavUrl(item.id, 'sidebar'),
+      activeUrls: [`/custom/${item.id}`],
       icon: getCustomNavIcon(item.icon),
     })
   })
