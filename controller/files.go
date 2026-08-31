@@ -32,6 +32,44 @@ func sanitizeRelPath(relPath string) (string, error) {
 	return clean, nil
 }
 
+// scanDirectoryToDB recursively scans disk directory and syncs metadata to DB
+func syncDiskDirToDB(baseDir string, prefix string) {
+	_ = filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || path == baseDir {
+			return nil
+		}
+		rel, err := filepath.Rel(baseDir, path)
+		if err != nil {
+			return nil
+		}
+		relPath := filepath.ToSlash(rel)
+		if prefix != "" {
+			relPath = prefix + "/" + relPath
+		}
+		var fileRecord model.ManagedFile
+		res := model.DB.Where("path = ?", relPath).First(&fileRecord)
+		now := common.GetTimestamp()
+		if res.RowsAffected == 0 {
+			fileRecord = model.ManagedFile{
+				Path:      relPath,
+				Name:      info.Name(),
+				IsDir:     info.IsDir(),
+				Size:      info.Size(),
+				CreatedAt: now,
+				UpdatedAt: now,
+			}
+			if !info.IsDir() {
+				data, err := os.ReadFile(path)
+				if err == nil && len(data) < 10*1024*1024 { // max 10MB stored in DB
+					fileRecord.Content = data
+				}
+			}
+			model.DB.Create(&fileRecord)
+		}
+		return nil
+	})
+}
+
 // ListManagedFiles returns file metadata for admin
 func ListManagedFiles(c *gin.Context) {
 	if err := ensureManagedFilesDir(); err != nil {
@@ -39,8 +77,14 @@ func ListManagedFiles(c *gin.Context) {
 		return
 	}
 
+	// Sync disk files from managed_files and uploads
+	syncDiskDirToDB(managedFilesDir, "")
+	if _, err := os.Stat("uploads"); err == nil {
+		syncDiskDirToDB("uploads", "uploads")
+	}
+
 	var files []model.ManagedFile
-	if err := model.DB.Order("is_dir DESC, name ASC").Find(&files).Error; err != nil {
+	if err := model.DB.Omit("content").Order("is_dir DESC, name ASC").Find(&files).Error; err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
@@ -108,6 +152,8 @@ func UploadManagedFile(c *gin.Context) {
 		return
 	}
 
+	fileBytes, _ := os.ReadFile(fullPath)
+
 	var fileRecord model.ManagedFile
 	res := model.DB.Where("path = ?", cleanPath).First(&fileRecord)
 	now := common.GetTimestamp()
@@ -117,12 +163,14 @@ func UploadManagedFile(c *gin.Context) {
 			Name:      filepath.Base(cleanPath),
 			IsDir:     false,
 			Size:      file.Size,
+			Content:   fileBytes,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
 		model.DB.Create(&fileRecord)
 	} else {
 		fileRecord.Size = file.Size
+		fileRecord.Content = fileBytes
 		fileRecord.UpdatedAt = now
 		model.DB.Save(&fileRecord)
 	}
@@ -139,11 +187,22 @@ func GetManagedFileContent(c *gin.Context) {
 		return
 	}
 
-	fullPath := filepath.Join(managedFilesDir, cleanPath)
+	var fullPath string
+	if strings.HasPrefix(cleanPath, "uploads/") {
+		fullPath = cleanPath
+	} else {
+		fullPath = filepath.Join(managedFilesDir, cleanPath)
+	}
 	content, err := os.ReadFile(fullPath)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
-		return
+		// Fallback to reading from DB Content column if file on disk was lost
+		var mf model.ManagedFile
+		if model.DB.Where("path = ?", cleanPath).First(&mf).RowsAffected > 0 && len(mf.Content) > 0 {
+			content = mf.Content
+		} else {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -169,20 +228,28 @@ func SaveManagedFileContent(c *gin.Context) {
 		return
 	}
 
-	fullPath := filepath.Join(managedFilesDir, cleanPath)
-	if err := os.WriteFile(fullPath, []byte(req.Content), 0644); err != nil {
+	var fullPath string
+	if strings.HasPrefix(cleanPath, "uploads/") {
+		fullPath = cleanPath
+	} else {
+		fullPath = filepath.Join(managedFilesDir, cleanPath)
+	}
+
+	contentBytes := []byte(req.Content)
+	if err := os.WriteFile(fullPath, contentBytes, 0644); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 
 	info, _ := os.Stat(fullPath)
-	size := int64(len(req.Content))
+	size := int64(len(contentBytes))
 	if info != nil {
 		size = info.Size()
 	}
 
 	model.DB.Model(&model.ManagedFile{}).Where("path = ?", cleanPath).Updates(map[string]interface{}{
 		"size":       size,
+		"content":    contentBytes,
 		"updated_at": common.GetTimestamp(),
 	})
 

@@ -415,17 +415,41 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
               <div className='space-y-3 border-t pt-4'>
                 <div className='flex items-center justify-between'>
                   <Label className='text-base'>{t('Ad impressions')}</Label>
-                  <Button
-                    type='button'
-                    size='sm'
-                    variant='outline'
-                    onClick={() =>
-                      (window.location.href = '/api/blog/manage/ads/impressions.csv')
-                    }
-                  >
-                    <Download className='me-1 h-4 w-4' />
-                    {t('Download CSV')}
-                  </Button>
+                  <div className='flex items-center gap-2'>
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='outline'
+                      onClick={async () => {
+                        if (!confirm(t('Are you sure you want to clear all ad stats?'))) return
+                        try {
+                          const res = await api.delete('/api/blog/manage/ads/stats/clear')
+                          if (res.data?.success) {
+                            toast.success(t('Ad stats cleared successfully'))
+                            statsQuery.refetch()
+                          } else {
+                            toast.error(res.data?.message || t('Failed to clear stats'))
+                          }
+                        } catch {
+                          toast.error(t('Failed to clear stats'))
+                        }
+                      }}
+                    >
+                      <Trash2 className='me-1 h-4 w-4' />
+                      {t('Clear Stats')}
+                    </Button>
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='outline'
+                      onClick={() =>
+                        (window.location.href = '/api/blog/manage/ads/impressions.csv')
+                      }
+                    >
+                      <Download className='me-1 h-4 w-4' />
+                      {t('Download CSV')}
+                    </Button>
+                  </div>
                 </div>
                 {statsQuery.isLoading && (
                   <p className='text-muted-foreground text-sm'>

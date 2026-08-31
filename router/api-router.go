@@ -68,6 +68,7 @@ func SetApiRouter(router *gin.Engine) {
 				blogAdminRoute.PUT("/posts/:id", controller.UpdateBlogPost)
 				blogAdminRoute.DELETE("/posts/:id", controller.DeleteBlogPost)
 				blogAdminRoute.GET("/ads/stats", controller.GetAdImpressionStats)
+				blogAdminRoute.DELETE("/ads/stats/clear", controller.ClearAdImpressionStats)
 				blogAdminRoute.GET("/ads/impressions.csv", controller.DownloadAdImpressionsCSV)
 				blogAdminRoute.POST("/ads/upload", controller.UploadAdImage)
 			}

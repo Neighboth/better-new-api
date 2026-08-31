@@ -128,6 +128,15 @@ func GetAdImpressionStats(c *gin.Context) {
 	})
 }
 
+// ClearAdImpressionStats deletes all recorded ad impressions.
+func ClearAdImpressionStats(c *gin.Context) {
+	if err := model.DB.Exec("DELETE FROM ad_impressions").Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 // DownloadAdImpressionsCSV exports raw impression rows as CSV for the admin.
 func DownloadAdImpressionsCSV(c *gin.Context) {
 	var logs []model.AdImpression

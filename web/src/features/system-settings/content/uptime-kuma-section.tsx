@@ -49,6 +49,13 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 import { SettingsSwitchField } from '../components/settings-form-layout'
 import { SettingsSection } from '../components/settings-section'
@@ -57,6 +64,7 @@ import { useUpdateOption } from '../hooks/use-update-option'
 type UptimeKumaGroup = {
   id: number
   categoryName: string
+  provider?: string
   url: string
   slug: string
 }
@@ -72,6 +80,7 @@ const createUptimeKumaSchema = (t: (key: string) => string) =>
       .string()
       .min(1, { error: t('Category name is required') })
       .max(50, { error: t('Category name must be less than 50 characters') }),
+    provider: z.enum(['uptime_kuma', 'uptime_robot', 'instatus']),
     url: z.string().url({ error: t('Must be a valid URL') }),
     slug: z
       .string()
@@ -105,6 +114,7 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
     resolver: zodResolver(uptimeKumaSchema),
     defaultValues: {
       categoryName: '',
+      provider: 'uptime_kuma',
       url: '',
       slug: '',
     },
@@ -147,6 +157,7 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
     setEditingGroup(null)
     form.reset({
       categoryName: '',
+      provider: 'uptime_kuma',
       url: '',
       slug: '',
     })
@@ -157,6 +168,7 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
     setEditingGroup(group)
     form.reset({
       categoryName: group.categoryName,
+      provider: (group.provider as 'uptime_kuma' | 'uptime_robot' | 'instatus') || 'uptime_kuma',
       url: group.url,
       slug: group.slug,
     })
@@ -238,7 +250,7 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
   }
 
   return (
-    <SettingsSection title={t('Uptime Kuma')}>
+    <SettingsSection title={t('Uptime Monitoring')}>
       <div className='space-y-4'>
         <div className='flex flex-wrap items-center justify-between gap-2'>
           <div className='flex flex-wrap items-center gap-2'>
@@ -306,6 +318,17 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
               header: t('Category Name'),
               cellClassName: 'font-medium',
               cell: (group) => group.categoryName,
+            },
+            {
+              id: 'provider',
+              header: t('Provider'),
+              cellClassName: 'capitalize text-sm text-muted-foreground',
+              cell: (group) => {
+                const p = group.provider || 'uptime_kuma'
+                if (p === 'uptime_robot') return 'Uptime Robot'
+                if (p === 'instatus') return 'Instatus'
+                return 'Uptime Kuma'
+              },
             },
             {
               id: 'url',
@@ -387,6 +410,28 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
                       'Display name for this monitoring group (max 50 characters)'
                     )}
                   </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='provider'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Provider')}</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent alignItemWithTrigger={false}>
+                      <SelectItem value='uptime_kuma'>Uptime Kuma</SelectItem>
+                      <SelectItem value='uptime_robot'>Uptime Robot</SelectItem>
+                      <SelectItem value='instatus'>Instatus</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}
