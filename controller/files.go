@@ -3,7 +3,6 @@ package controller
 import (
 	"crypto/sha256"
 	"fmt"
-	"html"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -232,14 +231,6 @@ func UpdateManagedFileSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// escapeLike Wildcard escapes _ and % for SQL LIKE queries
-func escapeLike(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "_", "\\_")
-	s = strings.ReplaceAll(s, "%", "\\%")
-	return s
-}
-
 // DeleteManagedFile removes a file/directory from disk and DB
 func DeleteManagedFile(c *gin.Context) {
 	relPath := c.Query("path")
@@ -252,8 +243,7 @@ func DeleteManagedFile(c *gin.Context) {
 	fullPath := filepath.Join(managedFilesDir, cleanPath)
 	_ = os.RemoveAll(fullPath)
 
-	escapedPrefix := escapeLike(cleanPath) + "/%"
-	model.DB.Where("path = ? OR path LIKE ? ESCAPE '\\'", cleanPath, escapedPrefix).Delete(&model.ManagedFile{})
+	model.DB.Where("path = ? OR path LIKE ?", cleanPath, cleanPath+"/%").Delete(&model.ManagedFile{})
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
@@ -284,21 +274,13 @@ func RenameManagedFile(c *gin.Context) {
 		return
 	}
 
-	// Update DB records for exact item and all children if directory
-	now := common.GetTimestamp()
-	var records []model.ManagedFile
-	escapedOld := escapeLike(oldClean) + "/%"
-	model.DB.Where("path = ? OR path LIKE ? ESCAPE '\\'", oldClean, escapedOld).Find(&records)
-
-	for _, rec := range records {
-		if rec.Path == oldClean {
-			rec.Path = newClean
-			rec.Name = filepath.Base(newClean)
-		} else if strings.HasPrefix(rec.Path, oldClean+"/") {
-			rec.Path = newClean + strings.TrimPrefix(rec.Path, oldClean)
-		}
-		rec.UpdatedAt = now
-		model.DB.Save(&rec)
+	// Update DB records
+	var record model.ManagedFile
+	if model.DB.Where("path = ?", oldClean).First(&record).RowsAffected > 0 {
+		record.Path = newClean
+		record.Name = filepath.Base(newClean)
+		record.UpdatedAt = common.GetTimestamp()
+		model.DB.Save(&record)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
@@ -394,10 +376,7 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 
 func renderAuthPage(c *gin.Context, relPath string, mf model.ManagedFile, errorMsg string) {
 	c.Header("Content-Type", "text/html; charset=utf-8")
-	escapedPath := html.EscapeString(relPath)
-	escapedErr := html.EscapeString(errorMsg)
-
-	htmlContent := fmt.Sprintf(`<!DOCTYPE html>
+	html := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
 	<meta charset="utf-8">
@@ -439,10 +418,10 @@ func renderAuthPage(c *gin.Context, relPath string, mf model.ManagedFile, errorM
 	</script>
 </body>
 </html>`,
-		escapedPath, escapedPath,
+		relPath, relPath,
 		func() string {
-			if escapedErr != "" {
-				return fmt.Sprintf(`<div class="error">%s</div>`, escapedErr)
+			if errorMsg != "" {
+				return fmt.Sprintf(`<div class="error">%s</div>`, errorMsg)
 			}
 			return ""
 		}(),
@@ -465,5 +444,5 @@ func renderAuthPage(c *gin.Context, relPath string, mf model.ManagedFile, errorM
 		}(),
 	)
 
-	c.String(http.StatusOK, htmlContent)
+	c.String(http.StatusOK, html)
 }

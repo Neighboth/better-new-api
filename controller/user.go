@@ -941,7 +941,9 @@ func UpdateSelf(c *gin.Context) {
 		AvatarUrl:   user.AvatarUrl,
 	}
 	if cleanUser.AvatarUrl == "" {
-		cleanUser.AvatarUrl = originUser.AvatarUrl
+		if existingUser, err := model.GetUserById(cleanUser.Id, false); err == nil {
+			cleanUser.AvatarUrl = existingUser.AvatarUrl
+		}
 	}
 	if user.Password == "$I_LOVE_U" {
 		user.Password = "" // rollback to what it should be
