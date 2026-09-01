@@ -16,10 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { RotateCcw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { api } from '@/lib/api'
 
 import { SystemInstancesPanel } from './components/system-instances-panel'
 import { SystemTasksPanel } from './components/system-tasks-panel'
@@ -37,6 +41,30 @@ export function SystemInfo() {
           </Badge>
         </span>
       </SectionPageLayout.Title>
+      <SectionPageLayout.Actions>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          className='text-destructive hover:text-destructive'
+          onClick={async () => {
+            if (!confirm(t('Are you sure you want to reset all performance health metrics data?'))) return
+            try {
+              const res = await api.delete('/api/perf_metrics')
+              if (res.data?.success) {
+                toast.success(t('Performance metrics reset successfully'))
+              } else {
+                toast.error(res.data?.message || t('Failed to reset metrics'))
+              }
+            } catch {
+              toast.error(t('Failed to reset metrics'))
+            }
+          }}
+        >
+          <RotateCcw className='mr-1.5 h-4 w-4' />
+          {t('Reset Performance Health Data')}
+        </Button>
+      </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='space-y-4'>
           <SystemInstancesPanel />
