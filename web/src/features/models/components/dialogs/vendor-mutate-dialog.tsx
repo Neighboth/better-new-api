@@ -24,6 +24,8 @@ import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { Upload } from 'lucide-react'
+
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import {
@@ -37,6 +39,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { api } from '@/lib/api'
 
 import { createVendor, updateVendor } from '../../api'
 import { vendorsQueryKeys, modelsQueryKeys } from '../../lib'
@@ -200,15 +203,45 @@ export function VendorMutateDialog({
             name='icon'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t('Icon')}</FormLabel>
-                <FormControl>
-                  <Input
-                    placeholder={t('OpenAI, Anthropic, Google, etc.')}
-                    {...field}
-                  />
-                </FormControl>
+                <FormLabel>{t('Icon / Logo')}</FormLabel>
+                <div className='flex items-center gap-2'>
+                  <FormControl>
+                    <Input
+                      placeholder={t('OpenAI, Anthropic, Google or image URL')}
+                      {...field}
+                    />
+                  </FormControl>
+                  <label className='inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md bg-secondary px-3 py-2 text-xs font-medium text-secondary-foreground shadow-xs hover:bg-secondary/80'>
+                    <Upload className='mr-1.5 h-3.5 w-3.5' />
+                    {t('Upload')}
+                    <input
+                      type='file'
+                      accept='image/*'
+                      className='hidden'
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        const formData = new FormData()
+                        formData.append('file', file)
+                        try {
+                          const res = await api.post('/api/vendors/upload', formData, {
+                            headers: { 'Content-Type': 'multipart/form-data' },
+                          })
+                          if (res.data?.success && res.data?.data) {
+                            field.onChange(res.data.data)
+                            toast.success(t('Logo uploaded successfully'))
+                          } else {
+                            toast.error(res.data?.message || t('Failed to upload logo'))
+                          }
+                        } catch {
+                          toast.error(t('Failed to upload logo'))
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
                 <FormDescription>
-                  {t('@lobehub/icons key name')}
+                  {t('@lobehub/icons key name or uploaded logo URL')}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

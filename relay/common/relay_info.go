@@ -229,6 +229,14 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 		channelMeta.SupportStreamOptions = true
 	}
 
+	if channelMeta.ChannelSetting.SystemPrompt != "" {
+		sp := channelMeta.ChannelSetting.SystemPrompt
+		sp = strings.ReplaceAll(sp, "${modelid}", info.OriginModelName)
+		sp = strings.ReplaceAll(sp, "${model_id}", info.OriginModelName)
+		sp = strings.ReplaceAll(sp, "${model}", info.OriginModelName)
+		channelMeta.ChannelSetting.SystemPrompt = sp
+	}
+
 	info.ChannelMeta = channelMeta
 
 	// Channel identity feeds the converter options snapshot (e.g.

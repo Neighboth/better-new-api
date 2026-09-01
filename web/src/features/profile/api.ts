@@ -211,11 +211,18 @@ export async function getCheckinStatus(
  * Perform daily checkin
  */
 export async function performCheckin(
-  turnstileToken?: string
+  turnstileToken?: string,
+  captchaProvider?: string
 ): Promise<ApiResponse<CheckinResponse>> {
-  const url = turnstileToken
-    ? `/api/user/checkin?turnstile=${encodeURIComponent(turnstileToken)}`
-    : '/api/user/checkin'
+  const params = new URLSearchParams()
+  if (turnstileToken) {
+    params.append('turnstile', turnstileToken)
+  }
+  if (captchaProvider) {
+    params.append('captcha_provider', captchaProvider)
+  }
+  const queryString = params.toString()
+  const url = queryString ? `/api/user/checkin?${queryString}` : '/api/user/checkin'
   const res = await api.post(url)
   return res.data
 }

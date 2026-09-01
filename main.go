@@ -185,6 +185,8 @@ func main() {
 			},
 		})
 	}))
+	server.Static("/uploads", "./uploads")
+	server.Use(controller.ServeManagedFileMiddleware())
 	// This will cause SSE not to work!!!
 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
 	server.Use(middleware.RequestId())

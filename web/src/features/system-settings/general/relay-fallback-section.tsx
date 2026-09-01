@@ -51,12 +51,19 @@ export function RelayFallbackSection({
   useResetForm(form, defaultValues)
 
   const onSubmit = async (data: FallbackFormValues) => {
+    const keyMap: Record<keyof FallbackFormValues, string> = {
+      enable_fallback: 'relay_fallback_setting.enable_fallback',
+      fallback_models: 'relay_fallback_setting.fallback_models',
+      fallback_system_prompt: 'relay_fallback_setting.fallback_system_prompt',
+    }
+
     const updates = Object.entries(data).filter(
       ([key, value]) => value !== defaultValues[key as keyof FallbackFormValues]
     )
 
     for (const [key, value] of updates) {
-      await updateOption.mutateAsync({ key, value })
+      const optionKey = keyMap[key as keyof FallbackFormValues]
+      await updateOption.mutateAsync({ key: optionKey, value })
     }
   }
 
@@ -120,7 +127,7 @@ export function RelayFallbackSection({
                   />
                 </FormControl>
                 <FormDescription>
-                  {t('Prepended to the system message; useful for routing or safety constraints.')}
+                  {t('Prepended to system message. You can use variables ${modelid}, ${model_id}, or ${model} which will be automatically replaced with the requested model ID.')}
                 </FormDescription>
               </FormItem>
             )}

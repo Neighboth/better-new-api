@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -780,6 +782,63 @@ func AdminClearUserBinding(c *gin.Context) {
 	})
 }
 
+func UploadAvatar(c *gin.Context) {
+	userId := c.GetInt("id")
+	user, err := model.GetUserById(userId, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "No file uploaded: " + err.Error()})
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".webp" && ext != ".gif" {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Unsupported file format"})
+		return
+	}
+
+	uploadDir := filepath.Join("uploads", "avatars")
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to create upload directory: " + err.Error()})
+		return
+	}
+
+	fileName := fmt.Sprintf("%d_%d_%s%s", userId, time.Now().UnixNano(), common.GetRandomString(6), ext)
+	dst := filepath.Join(uploadDir, fileName)
+
+	if err := c.SaveUploadedFile(file, dst); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to save file: " + err.Error()})
+		return
+	}
+
+	newAvatarUrl := "/uploads/avatars/" + fileName
+
+	CleanupUserAvatarFile(user.AvatarUrl)
+
+	if err := model.DB.Model(&model.User{}).Where("id = ?", userId).Update("avatar_url", newAvatarUrl).Error; err != nil {
+		common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    newAvatarUrl,
+	})
+}
+
+func CleanupUserAvatarFile(avatarUrl string) {
+	if strings.HasPrefix(avatarUrl, "/uploads/avatars/") {
+		fileName := filepath.Base(avatarUrl)
+		filePath := filepath.Join("uploads", "avatars", fileName)
+		_ = os.Remove(filePath)
+	}
+}
+
 func UpdateSelf(c *gin.Context) {
 	var requestData map[string]interface{}
 	if err := common.DecodeJson(c.Request.Body, &requestData); err != nil {
@@ -881,6 +940,11 @@ func UpdateSelf(c *gin.Context) {
 		DisplayName: user.DisplayName,
 		AvatarUrl:   user.AvatarUrl,
 	}
+	if cleanUser.AvatarUrl == "" {
+		if existingUser, err := model.GetUserById(cleanUser.Id, false); err == nil {
+			cleanUser.AvatarUrl = existingUser.AvatarUrl
+		}
+	}
 	if user.Password == "$I_LOVE_U" {
 		user.Password = "" // rollback to what it should be
 		cleanUser.Password = ""
@@ -979,6 +1043,7 @@ func DeleteUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
 		return
 	}
+	CleanupUserAvatarFile(originUser.AvatarUrl)
 	err = model.HardDeleteUserById(id)
 	if err != nil {
 		common.ApiError(c, err)
@@ -1004,6 +1069,7 @@ func DeleteSelf(c *gin.Context) {
 		return
 	}
 
+	CleanupUserAvatarFile(user.AvatarUrl)
 	err := model.DeleteUserById(id)
 	if err != nil {
 		common.ApiError(c, err)

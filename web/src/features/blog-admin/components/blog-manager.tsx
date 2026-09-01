@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
-import { Loader2, MessageSquare, Pencil, Plus, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { Languages, Loader2, MessageSquare, Pencil, Plus, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -53,6 +53,7 @@ import {
   blogLocalizationsFromPayload,
   emptyBlogPostForm,
   hasAnyLocalizedContent,
+  hasAnyTitleAndContent,
   type BlogLocalizedMap,
   type BlogPostForm,
 } from '../lib/blog-post-form'
@@ -96,6 +97,7 @@ export function BlogManager() {
   const [aiRefinePrompt, setAiRefinePrompt] = useState('')
   const [aiModel, setAiModel] = useState('')
   const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiTranslating, setAiTranslating] = useState(false)
 
   // Blog on/off toggle lives on the blog admin API so regular admins (not
   // only the root user) can manage the blog.
@@ -252,14 +254,14 @@ export function BlogManager() {
       }
       let userRequest = prompt
       if (kind === 'generate') {
-        userRequest = prompt.includes('\n') ? prompt : `Write a blog post about: ${prompt}` 
+        userRequest = prompt.includes('\n') ? prompt : `Write a blog post about: ${prompt}`
       }
-      systemParts.push(`USER REQUEST:\n${userRequest}`)
 
       const res = await sendChatCompletion({
         model,
         messages: [
           { role: 'system', content: systemParts.join('\n\n') },
+          { role: 'user', content: userRequest },
         ],
         stream: false,
         temperature: 0.7,
@@ -292,6 +294,148 @@ export function BlogManager() {
       toast.error(t('AI generation failed'))
     } finally {
       setAiGenerating(false)
+    }
+  }
+
+  const runAiTranslation = async () => {
+    const model = aiModel || aiModels?.[0] || ''
+    if (!model) {
+      toast.error(t('No AI model available'))
+      return
+    }
+
+    // Determine source language
+    let srcLang = activeLanguage
+    const getVal = (code: string, key: 'titles' | 'summaries' | 'contents' | 'tags_list' | 'seo_descriptions') =>
+      (postForm[key][code] ?? '').trim()
+
+    if (!getVal(srcLang, 'titles') && !getVal(srcLang, 'contents')) {
+      // Find any language with content
+      const found = BLOG_LOCALE_CODES.find((code) => getVal(code, 'titles') || getVal(code, 'contents'))
+      if (found) {
+        srcLang = found
+      } else if (postForm.title || postForm.content) {
+        srcLang = 'en'
+      } else {
+        toast.error(t('Please enter Title and Content in at least one language before translating.'))
+        return
+      }
+    }
+
+    const srcTitle = getVal(srcLang, 'titles') || postForm.title
+    const srcSummary = getVal(srcLang, 'summaries') || postForm.summary
+    const srcContent = getVal(srcLang, 'contents') || postForm.content
+    const srcTags = getVal(srcLang, 'tags_list') || postForm.tags
+    const srcSeo = getVal(srcLang, 'seo_descriptions') || postForm.seo_description
+
+    if (!srcTitle || !srcContent) {
+      toast.error(t('Please enter Title and Content in at least one language before translating.'))
+      return
+    }
+
+    const sourcePayload: Record<string, string> = { title: srcTitle, content: srcContent }
+    if (srcSummary) sourcePayload.summary = srcSummary
+    if (srcTags) sourcePayload.tags = srcTags
+    if (srcSeo) sourcePayload.seo_description = srcSeo
+
+    const targetLangs = BLOG_LOCALE_CODES.filter((code) => code !== srcLang)
+
+    setAiTranslating(true)
+    try {
+      const systemPrompt = [
+        `You are an expert translator. The user provides blog post fields in source language code "${srcLang}".`,
+        `Translate the provided fields into all target languages: ${targetLangs.join(', ')}.`,
+        'CRITICAL RULES:',
+        '1. ONLY translate the fields present in the source object. If a field (e.g. summary, tags, or seo_description) is NOT provided in the source object, DO NOT generate or translate it for target languages.',
+        '2. Return ONLY a single valid JSON object matching this structure:',
+        JSON.stringify({
+          titles: targetLangs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}),
+          summaries: srcSummary ? targetLangs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}) : undefined,
+          contents: targetLangs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}),
+          tags_list: srcTags ? targetLangs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}) : undefined,
+          seo_descriptions: srcSeo ? targetLangs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}) : undefined,
+        }),
+      ].join('\n\n')
+
+      const res = await sendChatCompletion({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: JSON.stringify(sourcePayload) },
+        ],
+        stream: false,
+        temperature: 0.3,
+      })
+
+      const content = res.choices?.[0]?.message?.content
+      if (!content) {
+        toast.error(t('Translation failed'))
+        return
+      }
+
+      let text = content.trim()
+      const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+      if (fenceMatch) text = fenceMatch[1].trim()
+      const parsed = JSON.parse(text)
+
+      setPostForm((current) => {
+        const nextTitles = { ...current.titles }
+        const nextSummaries = { ...current.summaries }
+        const nextContents = { ...current.contents }
+        const nextTags = { ...current.tags_list }
+        const nextSeo = { ...current.seo_descriptions }
+
+        if (parsed.titles && typeof parsed.titles === 'object') {
+          for (const code of targetLangs) {
+            if (typeof parsed.titles[code] === 'string' && parsed.titles[code].trim()) {
+              nextTitles[code] = parsed.titles[code].trim()
+            }
+          }
+        }
+        if (srcSummary && parsed.summaries && typeof parsed.summaries === 'object') {
+          for (const code of targetLangs) {
+            if (typeof parsed.summaries[code] === 'string' && parsed.summaries[code].trim()) {
+              nextSummaries[code] = parsed.summaries[code].trim()
+            }
+          }
+        }
+        if (parsed.contents && typeof parsed.contents === 'object') {
+          for (const code of targetLangs) {
+            if (typeof parsed.contents[code] === 'string' && parsed.contents[code].trim()) {
+              nextContents[code] = parsed.contents[code].trim()
+            }
+          }
+        }
+        if (srcTags && parsed.tags_list && typeof parsed.tags_list === 'object') {
+          for (const code of targetLangs) {
+            if (typeof parsed.tags_list[code] === 'string' && parsed.tags_list[code].trim()) {
+              nextTags[code] = parsed.tags_list[code].trim()
+            }
+          }
+        }
+        if (srcSeo && parsed.seo_descriptions && typeof parsed.seo_descriptions === 'object') {
+          for (const code of targetLangs) {
+            if (typeof parsed.seo_descriptions[code] === 'string' && parsed.seo_descriptions[code].trim()) {
+              nextSeo[code] = parsed.seo_descriptions[code].trim()
+            }
+          }
+        }
+
+        return {
+          ...current,
+          titles: nextTitles,
+          summaries: nextSummaries,
+          contents: nextContents,
+          tags_list: nextTags,
+          seo_descriptions: nextSeo,
+        }
+      })
+
+      toast.success(t('Translation completed! You can review or edit each language tab before saving.'))
+    } catch {
+      toast.error(t('Translation failed'))
+    } finally {
+      setAiTranslating(false)
     }
   }
 
@@ -396,26 +540,43 @@ export function BlogManager() {
         contentHeight='auto'
         bodyClassName='space-y-4'
         footer={
-          <>
+          <div className='flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between'>
             <Button
               type='button'
               variant='outline'
-              onClick={() => setIsEditorOpen(false)}
+              className='w-full sm:w-auto'
+              disabled={aiTranslating || savePost.isPending}
+              onClick={runAiTranslation}
             >
-              {t('Cancel')}
+              {aiTranslating ? (
+                <Loader2 className='me-1 h-4 w-4 animate-spin' />
+              ) : (
+                <Languages className='me-1 h-4 w-4' />
+              )}
+              {t('Translate to other languages with AI')}
             </Button>
-            <Button
-              type='button'
-              disabled={
-                savePost.isPending ||
-                !postForm.title.trim() ||
-                !postForm.content.trim()
-              }
-              onClick={() => savePost.mutate()}
-            >
-              {t('Save')}
-            </Button>
-          </>
+            <div className='flex w-full items-center justify-end gap-2 sm:w-auto'>
+              <Button
+                type='button'
+                variant='outline'
+                className='flex-1 sm:flex-none'
+                onClick={() => setIsEditorOpen(false)}
+              >
+                {t('Cancel')}
+              </Button>
+              <Button
+                type='button'
+                className='flex-1 sm:flex-none'
+                disabled={
+                  savePost.isPending ||
+                  !hasAnyTitleAndContent(postForm)
+                }
+                onClick={() => savePost.mutate()}
+              >
+                {t('Save')}
+              </Button>
+            </div>
+          </div>
         }
       >
         <div className='grid gap-2'>
@@ -726,11 +887,20 @@ function PostLanguageFields(props: {
 /** Serialize the form into the admin API payload, keeping the English values
   * mirrored into the legacy scalar fields so older consumers still work. */
 function buildSavePayload(form: BlogPostForm) {
-  const title = form.titles.en ?? form.title
-  const summary = form.summaries.en ?? form.summary
-  const content = form.contents.en ?? form.content
-  const tags = form.tags_list.en ?? form.tags
-  const seo_description = form.seo_descriptions.en ?? form.seo_description
+  const getFirstNonEmpty = (key: 'titles' | 'summaries' | 'contents' | 'tags_list' | 'seo_descriptions', scalar: string) => {
+    if (form[key].en && form[key].en.trim()) return form[key].en.trim()
+    if (scalar && scalar.trim()) return scalar.trim()
+    for (const code of BLOG_LOCALE_CODES) {
+      if (form[key][code] && form[key][code].trim()) return form[key][code].trim()
+    }
+    return ''
+  }
+
+  const title = getFirstNonEmpty('titles', form.title)
+  const summary = getFirstNonEmpty('summaries', form.summary)
+  const content = getFirstNonEmpty('contents', form.content)
+  const tags = getFirstNonEmpty('tags_list', form.tags)
+  const seo_description = getFirstNonEmpty('seo_descriptions', form.seo_description)
   const titleMap: BlogLocalizedMap = {}
   const summaryMap: BlogLocalizedMap = {}
   const contentMap: BlogLocalizedMap = {}

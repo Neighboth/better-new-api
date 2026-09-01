@@ -16,8 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Activity, BarChart3, Pencil, WalletCards } from 'lucide-react'
-import { useState } from 'react'
+import { Activity, BarChart3, Pencil, Upload, WalletCards } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { api } from '@/lib/api'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -61,10 +62,33 @@ export function ProfileHeader({
   onProfileUpdate,
 }: ProfileHeaderProps) {
   const { t } = useTranslation()
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [displayNameInput, setDisplayNameInput] = useState('')
   const [avatarUrlInput, setAvatarUrlInput] = useState('')
   const [saving, setSaving] = useState(false)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+
+  const handleAvatarUpload = async (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    setUploadingAvatar(true)
+    try {
+      const res = await api.post('/api/user/avatar/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      if (res.data?.success && res.data?.data) {
+        setAvatarUrlInput(res.data.data)
+        toast.success(t('Avatar uploaded successfully'))
+      } else {
+        toast.error(res.data?.message || t('Failed to upload avatar'))
+      }
+    } catch {
+      toast.error(t('Failed to upload avatar'))
+    } finally {
+      setUploadingAvatar(false)
+    }
+  }
 
   const openEdit = () => {
     if (!profile) return
@@ -270,13 +294,25 @@ export function ProfileHeader({
             </div>
             <div className='space-y-2'>
               <Label htmlFor='profile-avatar-url'>{t('Avatar image URL')}</Label>
-              <Input
-                id='profile-avatar-url'
-                value={avatarUrlInput}
-                onChange={(event) => setAvatarUrlInput(event.target.value)}
-                placeholder='https://example.com/avatar.png'
-                maxLength={512}
-              />
+              <div className='flex items-center gap-2'>
+                <Input
+                  id='profile-avatar-url'
+                  value={avatarUrlInput}
+                  onChange={(event) => setAvatarUrlInput(event.target.value)}
+                  placeholder='https://example.com/avatar.png'
+                  maxLength={512}
+                />
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  disabled={uploadingAvatar}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className='me-1 h-4 w-4' />
+                  {t('Upload')}
+                </Button>
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -293,6 +329,19 @@ export function ProfileHeader({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <input
+        type='file'
+        ref={fileInputRef}
+        className='hidden'
+        accept='image/*'
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) {
+            void handleAvatarUpload(file)
+          }
+          e.target.value = ''
+        }}
+      />
     </Card>
   )
 }

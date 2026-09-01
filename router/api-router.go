@@ -68,7 +68,9 @@ func SetApiRouter(router *gin.Engine) {
 				blogAdminRoute.PUT("/posts/:id", controller.UpdateBlogPost)
 				blogAdminRoute.DELETE("/posts/:id", controller.DeleteBlogPost)
 				blogAdminRoute.GET("/ads/stats", controller.GetAdImpressionStats)
+				blogAdminRoute.DELETE("/ads/stats/clear", controller.ClearAdImpressionStats)
 				blogAdminRoute.GET("/ads/impressions.csv", controller.DownloadAdImpressionsCSV)
+				blogAdminRoute.POST("/ads/upload", controller.UploadAdImage)
 			}
 		}
 		apiRouter.POST("/user/reset", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ResetPassword)
@@ -119,6 +121,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/self", controller.GetSelf)
 				selfRoute.GET("/models", controller.GetUserModels)
 				selfRoute.PUT("/self", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.UpdateSelf)
+				selfRoute.POST("/avatar/upload", controller.UploadAvatar)
 				selfRoute.DELETE("/self", controller.DeleteSelf)
 				selfRoute.GET("/token", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("access-token"), middleware.DisableCache(), controller.GenerateAccessToken)
 				selfRoute.GET("/passkey", controller.PasskeyStatus)
@@ -233,6 +236,19 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.POST("/waffo-pancake/save", controller.SaveWaffoPancake)
 			optionRoute.POST("/waffo-pancake/subscription-product", controller.CreateWaffoPancakeSubscriptionProduct)
 			optionRoute.GET("/waffo-pancake/subscription-product-options", controller.ListWaffoPancakeSubscriptionProductOptions)
+		}
+
+		// Managed Files (admin only)
+		managedFilesRoute := apiRouter.Group("/files")
+		managedFilesRoute.Use(middleware.AdminAuth())
+		{
+			managedFilesRoute.GET("/", controller.ListManagedFiles)
+			managedFilesRoute.POST("/upload", controller.UploadManagedFile)
+			managedFilesRoute.GET("/content", controller.GetManagedFileContent)
+			managedFilesRoute.POST("/content", controller.SaveManagedFileContent)
+			managedFilesRoute.POST("/settings", controller.UpdateManagedFileSettings)
+			managedFilesRoute.DELETE("/", controller.DeleteManagedFile)
+			managedFilesRoute.POST("/rename", controller.RenameManagedFile)
 		}
 
 		// Custom OAuth provider management (root only)
@@ -370,6 +386,7 @@ func SetApiRouter(router *gin.Engine) {
 			vendorRoute.POST("/", controller.CreateVendorMeta)
 			vendorRoute.PUT("/", controller.UpdateVendorMeta)
 			vendorRoute.DELETE("/:id", controller.DeleteVendorMeta)
+			vendorRoute.POST("/upload", controller.UploadVendorLogo)
 		}
 
 		modelsRoute := apiRouter.Group("/models")
