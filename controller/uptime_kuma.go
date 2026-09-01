@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"net/http"
 	"strconv"
@@ -14,6 +15,18 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
 )
+
+type rssFeed struct {
+	XMLName xml.Name `xml:"rss"`
+	Channel struct {
+		Title string `xml:"title"`
+		Items []struct {
+			Title       string `xml:"title"`
+			Description string `xml:"description"`
+			PubDate     string `xml:"pubDate"`
+		} `xml:"item"`
+	} `xml:"channel"`
+}
 
 const (
 	requestTimeout   = 30 * time.Second
@@ -68,9 +81,9 @@ func fetchGroupData(ctx context.Context, client *http.Client, groupConfig map[st
 
 	// Handle Instatus
 	if providerType == "instatus" || strings.Contains(url, "instatus.com") {
-		instatusURL := url
-		if !strings.HasSuffix(instatusURL, "/summary.json") {
-			instatusURL = strings.TrimSuffix(instatusURL, "/") + "/summary.json"
+		instatusJSONURL := url
+		if !strings.HasSuffix(instatusJSONURL, "/summary.json") {
+			instatusJSONURL = strings.TrimSuffix(instatusJSONURL, "/") + "/summary.json"
 		}
 		var instatusData struct {
 			Page struct {
@@ -82,7 +95,7 @@ func fetchGroupData(ctx context.Context, client *http.Client, groupConfig map[st
 				Status string `json:"status"`
 			} `json:"components"`
 		}
-		if err := getAndDecode(ctx, client, instatusURL, &instatusData); err == nil {
+		if err := getAndDecode(ctx, client, instatusJSONURL, &instatusData); err == nil && len(instatusData.Components) > 0 {
 			for _, comp := range instatusData.Components {
 				st := 1
 				if strings.ToUpper(comp.Status) != "OPERATIONAL" && strings.ToUpper(comp.Status) != "UP" {
@@ -95,6 +108,41 @@ func fetchGroupData(ctx context.Context, client *http.Client, groupConfig map[st
 				})
 			}
 			return result
+		}
+
+		// Fallback to RSS parsing (e.g. https://pixrouter.instatus.com/history.rss)
+		rssURL := url
+		if !strings.HasSuffix(rssURL, ".rss") {
+			rssURL = strings.TrimSuffix(rssURL, "/") + "/history.rss"
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rssURL, nil)
+		if err == nil {
+			resp, err := client.Do(req)
+			if err == nil && resp.StatusCode == http.StatusOK {
+				var feed rssFeed
+				if xml.NewDecoder(resp.Body).Decode(&feed) == nil {
+					resp.Body.Close()
+					channelTitle := feed.Channel.Title
+					if channelTitle == "" {
+						channelTitle = categoryName
+					}
+					st := 1
+					if len(feed.Channel.Items) > 0 {
+						// Check latest item description
+						latest := strings.ToLower(feed.Channel.Items[0].Title + " " + feed.Channel.Items[0].Description)
+						if strings.Contains(latest, "outage") || strings.Contains(latest, "degraded") || strings.Contains(latest, "down") {
+							st = 0
+						}
+					}
+					result.Monitors = append(result.Monitors, Monitor{
+						Name:   channelTitle,
+						Status: st,
+						Uptime: 100,
+					})
+					return result
+				}
+				resp.Body.Close()
+			}
 		}
 	}
 

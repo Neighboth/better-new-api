@@ -60,7 +60,8 @@ func GetAdsStatus(c *gin.Context) {
 // TrackAdImpression records one impression per shown ad into its own table.
 func TrackAdImpression(c *gin.Context) {
 	var req struct {
-		ID string `json:"id"`
+		ID       string `json:"id"`
+		Referrer string `json:"referrer"`
 	}
 	if err := common.DecodeJson(c.Request.Body, &req); err != nil || req.ID == "" {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "invalid id"})
@@ -83,7 +84,17 @@ func TrackAdImpression(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "unknown ad"})
 		return
 	}
-	model.RecordAdImpression(req.ID, adsense, c.ClientIP())
+
+	referrer := req.Referrer
+	if referrer == "" {
+		referrer = c.Request.Referer()
+	}
+	userAgent := c.Request.UserAgent()
+	userId := c.GetInt("id")
+	username := c.GetString("username")
+	isMember := userId > 0
+
+	model.RecordAdImpression(req.ID, adsense, c.ClientIP(), referrer, userAgent, isMember, userId, username)
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
@@ -122,9 +133,45 @@ func GetAdImpressionStats(c *gin.Context) {
 			"unique_ips":  row.UniqueIPs,
 		})
 	}
+
+	// Fetch detailed recent logs
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	keyword := c.Query("keyword")
+	adId := c.Query("ad_id")
+
+	tx := model.DB.Model(&model.AdImpression{})
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		tx = tx.Where("ip LIKE ? OR referrer LIKE ? OR user_agent LIKE ? OR username LIKE ?", like, like, like, like)
+	}
+	if adId != "" {
+		tx = tx.Where("ad_id = ?", adId)
+	}
+
+	var logsTotal int64
+	tx.Count(&logsTotal)
+
+	var recentLogs []model.AdImpression
+	tx.Order("created_at DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&recentLogs)
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    gin.H{"items": items, "total": total},
+		"data": gin.H{
+			"items":      items,
+			"total":      total,
+			"logs":       recentLogs,
+			"logs_total": logsTotal,
+			"page":       page,
+			"page_size":  pageSize,
+		},
 	})
 }
 
@@ -145,7 +192,7 @@ func DownloadAdImpressionsCSV(c *gin.Context) {
 		return
 	}
 	var b strings.Builder
-	b.WriteString("id,ad_id,is_adsense,ip,created_at\n")
+	b.WriteString("id,ad_id,is_adsense,ip,referrer,user_agent,is_member,user_id,username,created_at\n")
 	for _, log := range logs {
 		b.WriteString(strconv.FormatInt(log.Id, 10))
 		b.WriteByte(',')
@@ -154,6 +201,16 @@ func DownloadAdImpressionsCSV(c *gin.Context) {
 		b.WriteString(strconv.FormatBool(log.IsAdsense))
 		b.WriteByte(',')
 		b.WriteString(csvEscape(log.Ip))
+		b.WriteByte(',')
+		b.WriteString(csvEscape(log.Referrer))
+		b.WriteByte(',')
+		b.WriteString(csvEscape(log.UserAgent))
+		b.WriteByte(',')
+		b.WriteString(strconv.FormatBool(log.IsMember))
+		b.WriteByte(',')
+		b.WriteString(strconv.Itoa(log.UserId))
+		b.WriteByte(',')
+		b.WriteString(csvEscape(log.Username))
 		b.WriteByte(',')
 		b.WriteString(log.CreatedAt.Format("2006-01-02 15:04:05"))
 		b.WriteByte('\n')

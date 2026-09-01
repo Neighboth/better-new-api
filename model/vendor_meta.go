@@ -54,6 +54,56 @@ func (v *Vendor) Delete() error {
 	return DB.Delete(v).Error
 }
 
+// InitBuiltinVendors 确保内置供应商在数据库中初始化
+func InitBuiltinVendors() {
+	builtinVendors := []struct {
+		Name     string
+		Icon     string
+		Keywords string
+	}{
+		{"OpenAI", "OpenAI", "gpt, dall-e, whisper, o1, o3, text-embedding, tts"},
+		{"Anthropic", "Claude.Color", "claude"},
+		{"Google", "Gemini.Color", "gemini, palm"},
+		{"Mistral", "Mistral.Color", "mistral, codestral, pixtral, ministral"},
+		{"DeepSeek", "DeepSeek.Color", "deepseek"},
+		{"Moonshot", "Moonshot", "moonshot, kimi"},
+		{"xAI", "XAI", "grok"},
+		{"Meta", "Ollama", "llama"},
+		{"Cohere", "Cohere.Color", "command, embed"},
+		{"Cloudflare", "Cloudflare.Color", "@cf/"},
+		{"智谱", "Zhipu.Color", "chatglm, glm-"},
+		{"阿里巴巴", "Qwen.Color", "qwen"},
+		{"MiniMax", "Minimax.Color", "abab, minimax"},
+		{"百度", "Wenxin.Color", "ernie"},
+		{"讯飞", "Spark.Color", "spark"},
+		{"腾讯", "Hunyuan.Color", "hunyuan"},
+		{"零一万物", "Yi.Color", "yi-"},
+		{"Jina", "Jina", "jina"},
+		{"字节跳动", "Doubao.Color", "doubao"},
+		{"快手", "Kling.Color", "kling"},
+		{"即梦", "Jimeng.Color", "jimeng"},
+		{"Vidu", "Vidu", "vidu"},
+	}
+
+	for _, bv := range builtinVendors {
+		var existing Vendor
+		if err := DB.Where("name = ?", bv.Name).First(&existing).Error; err != nil {
+			v := Vendor{
+				Name:        bv.Name,
+				Icon:        bv.Icon,
+				Keywords:    bv.Keywords,
+				IsBuiltin:   true,
+				Status:      1,
+				CreatedTime: common.GetTimestamp(),
+				UpdatedTime: common.GetTimestamp(),
+			}
+			_ = DB.Create(&v).Error
+		} else if !existing.IsBuiltin {
+			DB.Model(&existing).Update("is_builtin", true)
+		}
+	}
+}
+
 // GetVendorByID 根据 ID 获取供应商
 func GetVendorByID(id int) (*Vendor, error) {
 	var v Vendor

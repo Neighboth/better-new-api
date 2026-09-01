@@ -515,6 +515,7 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"id":                user.Id,
 		"username":          user.Username,
 		"display_name":      user.DisplayName,
+		"avatar_url":        user.AvatarUrl,
 		"role":              user.Role,
 		"status":            user.Status,
 		"email":             user.Email,

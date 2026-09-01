@@ -87,6 +87,8 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
 
+	firstTokenTimer := time.NewTimer(10 * time.Second)
+
 	var (
 		stopChan    = make(chan bool, 3) // 增加缓冲区避免阻塞
 		scanner     = NewStreamScanner(resp.Body)
@@ -125,6 +127,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		cleanupOnce.Do(func() {
 			cancel()
 			stop()
+			if firstTokenTimer != nil {
+				firstTokenTimer.Stop()
+			}
 			if resp.Body != nil {
 				_ = resp.Body.Close()
 			}
@@ -145,6 +150,24 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	SetEventStreamHeaders(c)
 
 	ctx = context.WithValue(ctx, "stop_chan", stopChan)
+
+	// 10 second first token timeout goroutine
+	wg.Add(1)
+	gopool.Go(func() {
+		defer wg.Done()
+		select {
+		case <-firstTokenTimer.C:
+			if info.ReceivedResponseCount == 0 && !info.HasSendResponse() {
+				logger.LogWarn(c, "first token timeout (10s), triggering fallback")
+				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, fmt.Errorf("first token timeout (10s)"))
+				stop()
+			}
+		case <-ctx.Done():
+			return
+		case <-stopChan:
+			return
+		}
+	})
 
 	// Handle ping data sending with improved error handling
 	if pingEnabled && pingTicker != nil {
@@ -265,6 +288,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			if !strings.HasPrefix(data, "[DONE]") {
 				info.SetFirstResponseTime()
 				info.ReceivedResponseCount++
+				if firstTokenTimer != nil {
+					firstTokenTimer.Stop()
+				}
 
 				select {
 				case dataChan <- data:

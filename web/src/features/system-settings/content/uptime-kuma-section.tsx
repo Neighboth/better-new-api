@@ -209,6 +209,8 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
     setEditingGroup(null)
   }
 
+  const selectedProvider = form.watch('provider')
+
   const handleSubmitForm = (values: UptimeKumaFormValues) => {
     if (editingGroup) {
       setGroups((prev) =>
@@ -332,7 +334,7 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
             },
             {
               id: 'url',
-              header: t('Uptime Kuma URL'),
+              header: t('URL / Endpoint'),
               cellClassName: 'text-primary max-w-xs truncate font-mono text-sm',
               cell: (group) => group.url,
             },
@@ -364,8 +366,8 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
         onOpenChange={setShowDialog}
         title={
           editingGroup
-            ? t('Edit Uptime Kuma Group')
-            : t('Add Uptime Kuma Group')
+            ? t('Edit Monitoring Group')
+            : t('Add Monitoring Group')
         }
         description={t(
           'Configure monitoring status page groups for the dashboard'
@@ -441,15 +443,29 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
               name='url'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Uptime Kuma URL')}</FormLabel>
+                  <FormLabel>
+                    {selectedProvider === 'uptime_robot'
+                      ? t('Uptime Robot URL / Feed')
+                      : selectedProvider === 'instatus'
+                      ? t('Instatus Page / RSS URL')
+                      : t('Status Page Base URL')}
+                  </FormLabel>
                   <FormControl>
                     <Input
-                      placeholder={t('https://status.example.com')}
+                      placeholder={
+                        selectedProvider === 'instatus'
+                          ? 'https://pixrouter.instatus.com/history.rss'
+                          : 'https://status.example.com'
+                      }
                       {...field}
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('Base URL of your Uptime Kuma instance')}
+                    {selectedProvider === 'uptime_robot'
+                      ? t('Uptime Robot status page or RSS feed URL')
+                      : selectedProvider === 'instatus'
+                      ? t('Instatus page URL or RSS feed (e.g. https://pixrouter.instatus.com/history.rss)')
+                      : t('Base URL of your Uptime Kuma instance')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -460,14 +476,18 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
               name='slug'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Status Page Slug')}</FormLabel>
+                  <FormLabel>
+                    {selectedProvider === 'uptime_robot'
+                      ? t('API Key / Slug')
+                      : t('Status Page Slug')}
+                  </FormLabel>
                   <FormControl>
                     <Input placeholder={t('my-status')} {...field} />
                   </FormControl>
                   <FormDescription>
-                    {t('The slug is appended to the URL:')} {'{url}'}
-                    {t('/status/')}
-                    {'{slug}'}
+                    {selectedProvider === 'uptime_robot'
+                      ? t('Uptime Robot Main/Monitor API key (ur123456-...) or slug')
+                      : t('The status page slug configured in your provider settings')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
