@@ -122,10 +122,15 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
   const adsEnabled = form.watch('AdsEnabled')
   const adsMode = form.watch('AdsMode')
 
+  const [logKeyword, setLogKeyword] = useState('')
+  const [logPage, setLogPage] = useState(1)
+
   const statsQuery = useQuery({
-    queryKey: ['admin-ad-stats'],
+    queryKey: ['admin-ad-stats', logKeyword, logPage],
     queryFn: async () => {
-      const res = await api.get('/api/blog/manage/ads/stats')
+      const res = await api.get('/api/blog/manage/ads/stats', {
+        params: { keyword: logKeyword, page: logPage, page_size: 15 },
+      })
       if (!res.data?.success) {
         throw new Error(res.data?.message || 'failed')
       }
@@ -137,6 +142,21 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
           unique_ips: number
         }[]
         total: number
+        logs?: {
+          id: number
+          ad_id: string
+          is_adsense: boolean
+          ip: string
+          referrer: string
+          user_agent: string
+          is_member: boolean
+          user_id: number
+          username: string
+          created_at: string
+        }[]
+        logs_total?: number
+        page?: number
+        page_size?: number
       }
     },
   })
@@ -442,9 +462,24 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                       type='button'
                       size='sm'
                       variant='outline'
-                      onClick={() =>
-                        (window.location.href = '/api/blog/manage/ads/impressions.csv')
-                      }
+                      onClick={async () => {
+                        try {
+                          const response = await api.get('/api/blog/manage/ads/impressions.csv', {
+                            responseType: 'blob',
+                          })
+                          const url = window.URL.createObjectURL(new Blob([response.data]))
+                          const link = document.createElement('a')
+                          link.href = url
+                          link.setAttribute('download', 'ad-impressions.csv')
+                          document.body.appendChild(link)
+                          link.click()
+                          link.remove()
+                          window.URL.revokeObjectURL(url)
+                          toast.success(t('CSV downloaded successfully'))
+                        } catch {
+                          toast.error(t('Failed to download CSV'))
+                        }
+                      }}
                     >
                       <Download className='me-1 h-4 w-4' />
                       {t('Download CSV')}
@@ -457,44 +492,139 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                   </p>
                 )}
                 {stats && (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{t('Ad')}</TableHead>
-                        <TableHead className='text-right'>
-                          {t('Impressions')}
-                        </TableHead>
-                        <TableHead className='text-right'>
-                          {t('Unique IPs')}
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {stats.items.map((row) => (
-                        <TableRow key={`${row.is_adsense}-${row.ad_id}`}>
-                          <TableCell className='font-mono text-xs'>
-                            {row.is_adsense ? 'AdSense' : row.ad_id}
-                          </TableCell>
-                          <TableCell className='text-right'>
-                            {row.impressions}
-                          </TableCell>
-                          <TableCell className='text-right'>
-                            {row.unique_ips}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {stats.items.length === 0 && (
+                  <div className='space-y-4'>
+                    <Table>
+                      <TableHeader>
                         <TableRow>
-                          <TableCell
-                            colSpan={3}
-                            className='text-muted-foreground text-center'
-                          >
-                            {t('No impressions yet.')}
-                          </TableCell>
+                          <TableHead>{t('Ad')}</TableHead>
+                          <TableHead className='text-right'>
+                            {t('Impressions')}
+                          </TableHead>
+                          <TableHead className='text-right'>
+                            {t('Unique IPs')}
+                          </TableHead>
                         </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {stats.items.map((row) => (
+                          <TableRow key={`${row.is_adsense}-${row.ad_id}`}>
+                            <TableCell className='font-mono text-xs'>
+                              {row.is_adsense ? 'AdSense' : row.ad_id}
+                            </TableCell>
+                            <TableCell className='text-right'>
+                              {row.impressions}
+                            </TableCell>
+                            <TableCell className='text-right'>
+                              {row.unique_ips}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {stats.items.length === 0 && (
+                          <TableRow>
+                            <TableCell
+                              colSpan={3}
+                              className='text-muted-foreground text-center'
+                            >
+                              {t('No impressions yet.')}
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+
+                    <div className='border-t pt-4 space-y-3'>
+                      <div className='flex items-center justify-between gap-3'>
+                        <Label className='text-sm font-semibold'>{t('Detailed Impression Logs')}</Label>
+                        <Input
+                          placeholder={t('Search IP, Referrer, User Agent, Username...')}
+                          value={logKeyword}
+                          onChange={(e) => {
+                            setLogKeyword(e.target.value)
+                            setLogPage(1)
+                          }}
+                          className='max-w-xs h-8 text-xs'
+                        />
+                      </div>
+
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{t('Time')}</TableHead>
+                            <TableHead>{t('Ad ID')}</TableHead>
+                            <TableHead>{t('IP')}</TableHead>
+                            <TableHead>{t('Member / User')}</TableHead>
+                            <TableHead>{t('Referrer / Source')}</TableHead>
+                            <TableHead>{t('User Agent')}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {stats.logs?.map((log) => (
+                            <TableRow key={log.id}>
+                              <TableCell className='text-xs tabular-nums text-muted-foreground whitespace-nowrap'>
+                                {new Date(log.created_at).toLocaleString()}
+                              </TableCell>
+                              <TableCell className='font-mono text-xs'>
+                                {log.is_adsense ? 'AdSense' : log.ad_id}
+                              </TableCell>
+                              <TableCell className='font-mono text-xs whitespace-nowrap'>
+                                {log.ip || '-'}
+                              </TableCell>
+                              <TableCell className='text-xs'>
+                                {log.is_member ? (
+                                  <span className='font-medium text-blue-500'>
+                                    {log.username || `User #${log.user_id}`}
+                                  </span>
+                                ) : (
+                                  <span className='text-muted-foreground'>{t('Guest')}</span>
+                                )}
+                              </TableCell>
+                              <TableCell className='text-xs max-w-[180px] truncate text-muted-foreground' title={log.referrer}>
+                                {log.referrer || '-'}
+                              </TableCell>
+                              <TableCell className='text-xs max-w-[200px] truncate text-muted-foreground' title={log.user_agent}>
+                                {log.user_agent || '-'}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          {(!stats.logs || stats.logs.length === 0) && (
+                            <TableRow>
+                              <TableCell colSpan={6} className='text-center text-muted-foreground py-4 text-xs'>
+                                {t('No detailed logs available.')}
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+
+                      {(stats.logs_total ?? 0) > 15 && (
+                        <div className='flex items-center justify-between text-xs text-muted-foreground pt-2'>
+                          <span>
+                            {t('Page')} {logPage} / {Math.ceil((stats.logs_total ?? 0) / 15)}
+                          </span>
+                          <div className='flex items-center gap-2'>
+                            <Button
+                              type='button'
+                              variant='outline'
+                              size='sm'
+                              disabled={logPage <= 1}
+                              onClick={() => setLogPage((p) => Math.max(1, p - 1))}
+                            >
+                              {t('Previous')}
+                            </Button>
+                            <Button
+                              type='button'
+                              variant='outline'
+                              size='sm'
+                              disabled={logPage * 15 >= (stats.logs_total ?? 0)}
+                              onClick={() => setLogPage((p) => p + 1)}
+                            >
+                              {t('Next')}
+                            </Button>
+                          </div>
+                        </div>
                       )}
-                    </TableBody>
-                  </Table>
+                    </div>
+                  </div>
                 )}
               </div>
             </>

@@ -22,6 +22,7 @@ import { useMemo } from 'react'
 import { useStatus } from '@/hooks/use-status'
 
 import { getPricing } from '../api'
+import { getRankings } from '../../rankings/api'
 
 export function usePricingData() {
   const { status } = useStatus()
@@ -29,6 +30,12 @@ export function usePricingData() {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['pricing'],
     queryFn: getPricing,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: rankingsData } = useQuery({
+    queryKey: ['pricing-rankings'],
+    queryFn: () => getRankings('month'),
     staleTime: 5 * 60 * 1000,
   })
 
@@ -42,6 +49,18 @@ export function usePricingData() {
     [status?.usd_exchange_rate, priceRate]
   )
 
+  const rankMap = useMemo(() => {
+    const map = new Map<string, number>()
+    if (rankingsData?.data?.models) {
+      rankingsData.data.models.forEach((m) => {
+        if (m.model_name) {
+          map.set(m.model_name, m.rank)
+        }
+      })
+    }
+    return map
+  }, [rankingsData])
+
   const models = useMemo(() => {
     if (!data?.data || !data?.vendors) return []
 
@@ -54,13 +73,14 @@ export function usePricingData() {
       return {
         ...model,
         key: model.model_name,
+        rank: rankMap.get(model.model_name) ?? 999999,
         vendor_name: vendor?.name,
         vendor_icon: vendor?.icon,
         vendor_description: vendor?.description,
         group_ratio: data.group_ratio,
       }
     })
-  }, [data])
+  }, [data, rankMap])
 
   return {
     models,

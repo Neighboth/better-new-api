@@ -254,6 +254,8 @@ export function SystemFilesSection() {
   }
 
   const allItems = filesQuery.data ?? []
+  const isCurrentFolderReadOnly = currentFolder === 'uploads' || currentFolder.startsWith('uploads/')
+
   // Filter items in current folder
   const currentItems = allItems.filter((item) => {
     if (!currentFolder) {
@@ -293,6 +295,11 @@ export function SystemFilesSection() {
                 </div>
               )
             })}
+            {isCurrentFolderReadOnly && (
+              <span className='ml-2 rounded bg-amber-500/10 px-2 py-0.5 text-xs text-amber-600 dark:text-amber-400'>
+                {t('Read-Only')}
+              </span>
+            )}
           </div>
 
           <div className='flex items-center gap-2'>
@@ -300,6 +307,7 @@ export function SystemFilesSection() {
               type='button'
               variant='outline'
               size='sm'
+              disabled={isCurrentFolderReadOnly}
               onClick={() => setNewFolderOpen(true)}
             >
               <FolderPlus className='me-1 h-4 w-4' />
@@ -308,6 +316,7 @@ export function SystemFilesSection() {
             <Button
               type='button'
               size='sm'
+              disabled={isCurrentFolderReadOnly}
               onClick={() => fileInputRef.current?.click()}
             >
               <Upload className='me-1 h-4 w-4' />
@@ -398,42 +407,46 @@ export function SystemFilesSection() {
                             variant='ghost'
                             size='icon'
                             onClick={() => void handleOpenEdit(item.path)}
-                            title={t('Edit / Preview Content')}
+                            title={item.path.startsWith('uploads') ? t('View Content') : t('Edit / Preview Content')}
                           >
-                            <Pencil className='h-4 w-4' />
+                            <Eye className='h-4 w-4' />
                           </Button>
                         )}
-                        <Button
-                          type='button'
-                          variant='ghost'
-                          size='icon'
-                          onClick={() => handleOpenProt(item)}
-                          title={t('Security & Password')}
-                        >
-                          <Lock className='h-4 w-4' />
-                        </Button>
-                        <Button
-                          type='button'
-                          variant='ghost'
-                          size='icon'
-                          onClick={() => {
-                            setRenameOldPath(item.path)
-                            setRenameNewName(item.name)
-                            setRenameOpen(true)
-                          }}
-                          title={t('Rename')}
-                        >
-                          <Pencil className='h-4 w-4' />
-                        </Button>
-                        <Button
-                          type='button'
-                          variant='ghost'
-                          size='icon'
-                          onClick={() => void handleDelete(item.path)}
-                          title={t('Delete')}
-                        >
-                          <Trash2 className='h-4 w-4' />
-                        </Button>
+                        {!item.path.startsWith('uploads') && (
+                          <>
+                            <Button
+                              type='button'
+                              variant='ghost'
+                              size='icon'
+                              onClick={() => handleOpenProt(item)}
+                              title={t('Security & Password')}
+                            >
+                              <Lock className='h-4 w-4' />
+                            </Button>
+                            <Button
+                              type='button'
+                              variant='ghost'
+                              size='icon'
+                              onClick={() => {
+                                setRenameOldPath(item.path)
+                                setRenameNewName(item.name)
+                                setRenameOpen(true)
+                              }}
+                              title={t('Rename')}
+                            >
+                              <Pencil className='h-4 w-4' />
+                            </Button>
+                            <Button
+                              type='button'
+                              variant='ghost'
+                              size='icon'
+                              onClick={() => void handleDelete(item.path)}
+                              title={t('Delete')}
+                            >
+                              <Trash2 className='h-4 w-4' />
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

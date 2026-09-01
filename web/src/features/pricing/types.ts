@@ -30,6 +30,7 @@ export type PricingVendor = {
 export type PricingModel = {
   id: number
   model_name: string
+  rank?: number
   description?: string
   icon?: string
   vendor_id?: number

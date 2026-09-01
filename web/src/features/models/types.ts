@@ -62,6 +62,8 @@ export interface Vendor {
   name: string
   description?: string
   icon?: string
+  keywords?: string
+  is_builtin?: boolean
   status: number
   created_time: number
   updated_time: number
@@ -250,6 +252,7 @@ export const vendorFormSchema = z.object({
   name: z.string().min(1, 'Vendor name is required'),
   description: z.string().default(''),
   icon: z.string().default(''),
+  keywords: z.string().default(''),
   status: z.number().default(1),
 })
 

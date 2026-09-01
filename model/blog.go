@@ -238,14 +238,34 @@ type AdImpression struct {
 	AdId      string    `json:"ad_id" gorm:"type:varchar(128);index"`
 	IsAdsense bool      `json:"is_adsense"`
 	Ip        string    `json:"ip" gorm:"type:varchar(64)"`
+	Referrer  string    `json:"referrer" gorm:"type:varchar(512)"`
+	UserAgent string    `json:"user_agent" gorm:"type:varchar(512)"`
+	IsMember  bool      `json:"is_member"`
+	UserId    int       `json:"user_id"`
+	Username  string    `json:"username" gorm:"type:varchar(64)"`
 	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`
 }
 
-func RecordAdImpression(adId string, isAdsense bool, ip string) {
+func RecordAdImpression(adId string, isAdsense bool, ip string, referrer string, userAgent string, isMember bool, userId int, username string) {
 	if len(adId) > 128 || len(ip) > 64 {
 		return
 	}
-	if err := DB.Create(&AdImpression{AdId: adId, IsAdsense: isAdsense, Ip: ip}).Error; err != nil {
+	if len(referrer) > 512 {
+		referrer = referrer[:512]
+	}
+	if len(userAgent) > 512 {
+		userAgent = userAgent[:512]
+	}
+	if err := DB.Create(&AdImpression{
+		AdId:      adId,
+		IsAdsense: isAdsense,
+		Ip:        ip,
+		Referrer:  referrer,
+		UserAgent: userAgent,
+		IsMember:  isMember,
+		UserId:    userId,
+		Username:  username,
+	}).Error; err != nil {
 		common.SysError("failed to record ad impression: " + err.Error())
 	}
 }

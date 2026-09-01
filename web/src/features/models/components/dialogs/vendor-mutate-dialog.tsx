@@ -69,6 +69,7 @@ export function VendorMutateDialog({
       name: '',
       description: '',
       icon: '',
+      keywords: '',
       status: 1,
     },
   })
@@ -81,6 +82,7 @@ export function VendorMutateDialog({
         name: currentVendor.name,
         description: currentVendor.description || '',
         icon: currentVendor.icon || '',
+        keywords: currentVendor.keywords || '',
         status: currentVendor.status || 1,
       })
     } else if (open && !isEdit) {
@@ -88,6 +90,7 @@ export function VendorMutateDialog({
         name: '',
         description: '',
         icon: '',
+        keywords: '',
         status: 1,
       })
     }
@@ -169,11 +172,34 @@ export function VendorMutateDialog({
                 <FormControl>
                   <Input
                     placeholder={t('OpenAI, Anthropic, etc.')}
+                    disabled={currentVendor?.is_builtin}
                     {...field}
                   />
                 </FormControl>
                 <FormDescription>
-                  {t('The unique name for this vendor')}
+                  {currentVendor?.is_builtin
+                    ? t('Built-in vendor names cannot be changed, but you can configure "if contains" keywords, logos, and descriptions below.')
+                    : t('The unique name for this vendor')}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='keywords'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('If Model Contains Filter (Keywords)')}</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder={t('mistral, codestral, pixtral')}
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('Comma-separated list of strings. Models containing any of these keywords will be automatically assigned to this vendor.')}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

@@ -116,15 +116,10 @@ export function sortModels(
 
   switch (sortBy) {
     case SORT_OPTIONS.POPULARITY: {
-      const popularKeywords = ['gpt-4o', 'claude-3-5', 'deepseek', 'gemini-2', 'gpt-4', 'claude-3', 'o1', 'o3']
       sorted.sort((a, b) => {
-        const aName = (a.model_name || '').toLowerCase()
-        const bName = (b.model_name || '').toLowerCase()
-        const aRank = popularKeywords.findIndex((k) => aName.includes(k))
-        const bRank = popularKeywords.findIndex((k) => bName.includes(k))
-        if (aRank !== -1 && bRank !== -1) return aRank - bRank
-        if (aRank !== -1) return -1
-        if (bRank !== -1) return 1
+        const aRank = a.rank ?? 999999
+        const bRank = b.rank ?? 999999
+        if (aRank !== bRank) return aRank - bRank
         return (a.id || 0) - (b.id || 0)
       })
       break

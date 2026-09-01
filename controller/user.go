@@ -515,6 +515,7 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"id":                user.Id,
 		"username":          user.Username,
 		"display_name":      user.DisplayName,
+		"avatar_url":        user.AvatarUrl,
 		"role":              user.Role,
 		"status":            user.Status,
 		"email":             user.Email,
@@ -802,21 +803,32 @@ func UploadAvatar(c *gin.Context) {
 		return
 	}
 
-	uploadDir := filepath.Join("uploads", "avatars")
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to create upload directory: " + err.Error()})
+	f, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to read file: " + err.Error()})
 		return
 	}
+	defer f.Close()
+
+	fileBytes := make([]byte, file.Size)
+	_, _ = f.Read(fileBytes)
 
 	fileName := fmt.Sprintf("%d_%d_%s%s", userId, time.Now().UnixNano(), common.GetRandomString(6), ext)
-	dst := filepath.Join(uploadDir, fileName)
+	relPath := "uploads/avatars/" + fileName
 
-	if err := c.SaveUploadedFile(file, dst); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to save file: " + err.Error()})
-		return
+	now := common.GetTimestamp()
+	mf := model.ManagedFile{
+		Path:      relPath,
+		Name:      fileName,
+		IsDir:     false,
+		Size:      file.Size,
+		Content:   fileBytes,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
+	model.DB.Create(&mf)
 
-	newAvatarUrl := "/uploads/avatars/" + fileName
+	newAvatarUrl := "/" + relPath
 
 	CleanupUserAvatarFile(user.AvatarUrl)
 
@@ -832,6 +844,11 @@ func UploadAvatar(c *gin.Context) {
 }
 
 func CleanupUserAvatarFile(avatarUrl string) {
+	if avatarUrl == "" {
+		return
+	}
+	cleanPath := strings.TrimPrefix(avatarUrl, "/")
+	model.DB.Where("path = ?", cleanPath).Delete(&model.ManagedFile{})
 	if strings.HasPrefix(avatarUrl, "/uploads/avatars/") {
 		fileName := filepath.Base(avatarUrl)
 		filePath := filepath.Join("uploads", "avatars", fileName)
@@ -874,10 +891,17 @@ func UpdateSelf(c *gin.Context) {
 
 	// 头像 URL 更新请求（允许清空，故不走 struct Updates）
 	if avatarUrl, avatarExists := requestData["avatar_url"]; avatarExists {
-		if avatarStr, ok := avatarUrl.(string); ok && len(avatarStr) <= 512 {
-			if err := model.DB.Model(&model.User{}).Where("id = ?", c.GetInt("id")).Update("avatar_url", avatarStr).Error; err != nil {
-				common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
-				return
+		userId := c.GetInt("id")
+		if existingUser, err := model.GetUserById(userId, false); err == nil {
+			avatarStr, _ := avatarUrl.(string)
+			if existingUser.AvatarUrl != avatarStr {
+				CleanupUserAvatarFile(existingUser.AvatarUrl)
+			}
+			if len(avatarStr) <= 512 {
+				if err := model.DB.Model(&model.User{}).Where("id = ?", userId).Update("avatar_url", avatarStr).Error; err != nil {
+					common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
+					return
+				}
 			}
 		}
 		delete(requestData, "avatar_url")

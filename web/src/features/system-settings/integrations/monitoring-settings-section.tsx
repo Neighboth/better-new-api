@@ -17,12 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { RotateCcw } from 'lucide-react'
 import { useEffect, useMemo, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
 
+import { Button } from '@/components/ui/button'
 import {
   Form,
   FormControl,
@@ -32,6 +34,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import { api } from '@/lib/api'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -209,13 +212,37 @@ export function MonitoringSettingsSection({
             )}
           />
 
-          <div>
-            <h4 className='font-medium'>{t('Model performance metrics')}</h4>
-            <p className='text-muted-foreground mt-1 text-xs'>
-              {t(
-                'Collect relay latency and success-rate metrics for the model square.'
-              )}
-            </p>
+          <div className='flex items-center justify-between gap-3 border-t pt-4'>
+            <div>
+              <h4 className='font-medium'>{t('Model performance metrics')}</h4>
+              <p className='text-muted-foreground mt-1 text-xs'>
+                {t(
+                  'Collect relay latency and success-rate metrics for the model square.'
+                )}
+              </p>
+            </div>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              className='text-destructive hover:text-destructive shrink-0'
+              onClick={async () => {
+                if (!confirm(t('Are you sure you want to reset all performance health metrics data?'))) return
+                try {
+                  const res = await api.delete('/api/perf_metrics')
+                  if (res.data?.success) {
+                    toast.success(t('Performance metrics reset successfully'))
+                  } else {
+                    toast.error(res.data?.message || t('Failed to reset metrics'))
+                  }
+                } catch {
+                  toast.error(t('Failed to reset metrics'))
+                }
+              }}
+            >
+              <RotateCcw className='mr-1.5 h-4 w-4' />
+              {t('Reset Performance Health Data')}
+            </Button>
           </div>
 
           <div className='grid grid-cols-1 gap-4 md:grid-cols-4'>

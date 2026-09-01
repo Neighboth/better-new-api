@@ -77,12 +77,14 @@ func initDefaultVendorMapping(metaMap map[string]*Model, vendorMap map[int]*Vend
 		}
 
 		// 匹配供应商
-		vendorID := 0
 		modelLower := strings.ToLower(modelName)
-		for pattern, vendorName := range defaultVendorRules {
-			if strings.Contains(modelLower, pattern) {
-				vendorID = getOrCreateVendor(vendorName, vendorMap)
-				break
+		vendorID := matchVendorByKeywords(modelLower, vendorMap)
+		if vendorID == 0 {
+			for pattern, vendorName := range defaultVendorRules {
+				if strings.Contains(modelLower, pattern) {
+					vendorID = getOrCreateVendor(vendorName, vendorMap)
+					break
+				}
 			}
 		}
 
@@ -94,6 +96,22 @@ func initDefaultVendorMapping(metaMap map[string]*Model, vendorMap map[int]*Vend
 			NameRule:  NameRuleExact,
 		}
 	}
+}
+
+func matchVendorByKeywords(modelLower string, vendorMap map[int]*Vendor) int {
+	for id, vendor := range vendorMap {
+		if vendor.Keywords == "" {
+			continue
+		}
+		keywords := strings.Split(vendor.Keywords, ",")
+		for _, kw := range keywords {
+			kw = strings.TrimSpace(strings.ToLower(kw))
+			if kw != "" && strings.Contains(modelLower, kw) {
+				return id
+			}
+		}
+	}
+	return 0
 }
 
 // 查找或创建供应商

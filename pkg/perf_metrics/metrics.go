@@ -28,6 +28,10 @@ func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens i
 	if info == nil {
 		return
 	}
+	modelName := info.RequestedModelName
+	if modelName == "" {
+		modelName = info.OriginModelName
+	}
 	now := time.Now()
 	hasTtft := info.IsStream && info.HasSendResponse()
 	ttftMs := int64(0)
@@ -43,7 +47,7 @@ func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens i
 		generationMs = latencyMs
 	}
 	Record(Sample{
-		Model:        info.OriginModelName,
+		Model:        modelName,
 		Group:        info.UsingGroup,
 		LatencyMs:    latencyMs,
 		TtftMs:       ttftMs,

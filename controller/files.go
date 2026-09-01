@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,14 +71,28 @@ func syncDiskDirToDB(baseDir string, prefix string) {
 	})
 }
 
+func ensureUploadFoldersExist() {
+	now := common.GetTimestamp()
+	dirs := []string{"uploads", "uploads/avatars", "uploads/ads", "uploads/vendors"}
+	for _, dir := range dirs {
+		var mf model.ManagedFile
+		if model.DB.Where("path = ?", dir).First(&mf).RowsAffected == 0 {
+			model.DB.Create(&model.ManagedFile{
+				Path:      dir,
+				Name:      filepath.Base(dir),
+				IsDir:     true,
+				CreatedAt: now,
+				UpdatedAt: now,
+			})
+		}
+	}
+}
+
 // ListManagedFiles returns file metadata for admin
 func ListManagedFiles(c *gin.Context) {
-	if err := ensureManagedFilesDir(); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
-		return
-	}
+	ensureUploadFoldersExist()
 
-	// Sync disk files from managed_files and uploads
+	// Sync disk files from managed_files and uploads if present
 	syncDiskDirToDB(managedFilesDir, "")
 	if _, err := os.Stat("uploads"); err == nil {
 		syncDiskDirToDB("uploads", "uploads")
@@ -96,12 +111,12 @@ func ListManagedFiles(c *gin.Context) {
 }
 
 // UploadManagedFile handles file upload or directory creation
-func UploadManagedFile(c *gin.Context) {
-	if err := ensureManagedFilesDir(); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
-		return
-	}
+func isReadOnlyPath(path string) bool {
+	clean := strings.TrimPrefix(filepath.ToSlash(path), "/")
+	return clean == "uploads" || strings.HasPrefix(clean, "uploads/")
+}
 
+func UploadManagedFile(c *gin.Context) {
 	isDir := c.PostForm("is_dir") == "true"
 	targetPath := c.PostForm("path") // e.g. "deneme.html" or "folder1/test.txt"
 	cleanPath, err := sanitizeRelPath(targetPath)
@@ -110,19 +125,17 @@ func UploadManagedFile(c *gin.Context) {
 		return
 	}
 
+	if isReadOnlyPath(cleanPath) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Uploads directory is read-only"})
+		return
+	}
+
 	if cleanPath == "" {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Path cannot be empty"})
 		return
 	}
 
-	fullPath := filepath.Join(managedFilesDir, cleanPath)
-
 	if isDir {
-		if err := os.MkdirAll(fullPath, 0755); err != nil {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
-			return
-		}
-
 		var fileRecord model.ManagedFile
 		model.DB.Where("path = ?", cleanPath).FirstOrCreate(&fileRecord, model.ManagedFile{
 			Path:      cleanPath,
@@ -136,23 +149,23 @@ func UploadManagedFile(c *gin.Context) {
 		return
 	}
 
-	file, err := c.FormFile("file")
+	fileHeader, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "No file provided: " + err.Error()})
 		return
 	}
 
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+	f, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to read file: " + err.Error()})
 		return
 	}
+	defer f.Close()
 
-	if err := c.SaveUploadedFile(file, fullPath); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
-		return
-	}
+	fileBytes := make([]byte, fileHeader.Size)
+	_, _ = f.Read(fileBytes)
 
-	fileBytes, _ := os.ReadFile(fullPath)
+	// File content is stored 100% in database DB. No physical files/folders created on disk.
 
 	var fileRecord model.ManagedFile
 	res := model.DB.Where("path = ?", cleanPath).First(&fileRecord)
@@ -162,14 +175,14 @@ func UploadManagedFile(c *gin.Context) {
 			Path:      cleanPath,
 			Name:      filepath.Base(cleanPath),
 			IsDir:     false,
-			Size:      file.Size,
+			Size:      fileHeader.Size,
 			Content:   fileBytes,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
 		model.DB.Create(&fileRecord)
 	} else {
-		fileRecord.Size = file.Size
+		fileRecord.Size = fileHeader.Size
 		fileRecord.Content = fileBytes
 		fileRecord.UpdatedAt = now
 		model.DB.Save(&fileRecord)
@@ -187,6 +200,16 @@ func GetManagedFileContent(c *gin.Context) {
 		return
 	}
 
+	var mf model.ManagedFile
+	if model.DB.Where("path = ?", cleanPath).First(&mf).RowsAffected > 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    string(mf.Content),
+		})
+		return
+	}
+
+	// Fallback to disk read
 	var fullPath string
 	if strings.HasPrefix(cleanPath, "uploads/") {
 		fullPath = cleanPath
@@ -195,14 +218,8 @@ func GetManagedFileContent(c *gin.Context) {
 	}
 	content, err := os.ReadFile(fullPath)
 	if err != nil {
-		// Fallback to reading from DB Content column if file on disk was lost
-		var mf model.ManagedFile
-		if model.DB.Where("path = ?", cleanPath).First(&mf).RowsAffected > 0 && len(mf.Content) > 0 {
-			content = mf.Content
-		} else {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
-			return
-		}
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -228,30 +245,34 @@ func SaveManagedFileContent(c *gin.Context) {
 		return
 	}
 
-	var fullPath string
-	if strings.HasPrefix(cleanPath, "uploads/") {
-		fullPath = cleanPath
-	} else {
-		fullPath = filepath.Join(managedFilesDir, cleanPath)
-	}
-
-	contentBytes := []byte(req.Content)
-	if err := os.WriteFile(fullPath, contentBytes, 0644); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+	if isReadOnlyPath(cleanPath) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Uploads directory is read-only"})
 		return
 	}
 
-	info, _ := os.Stat(fullPath)
+	contentBytes := []byte(req.Content)
 	size := int64(len(contentBytes))
-	if info != nil {
-		size = info.Size()
-	}
 
-	model.DB.Model(&model.ManagedFile{}).Where("path = ?", cleanPath).Updates(map[string]interface{}{
-		"size":       size,
-		"content":    contentBytes,
-		"updated_at": common.GetTimestamp(),
-	})
+	now := common.GetTimestamp()
+	var record model.ManagedFile
+	if model.DB.Where("path = ?", cleanPath).First(&record).RowsAffected == 0 {
+		fileRecord := model.ManagedFile{
+			Path:      cleanPath,
+			Name:      filepath.Base(cleanPath),
+			IsDir:     false,
+			Size:      size,
+			Content:   contentBytes,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		model.DB.Create(&fileRecord)
+	} else {
+		model.DB.Model(&record).Updates(map[string]interface{}{
+			"size":       size,
+			"content":    contentBytes,
+			"updated_at": now,
+		})
+	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
@@ -271,6 +292,11 @@ func UpdateManagedFileSettings(c *gin.Context) {
 	cleanPath, err := sanitizeRelPath(req.Path)
 	if err != nil || cleanPath == "" {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid path"})
+		return
+	}
+
+	if isReadOnlyPath(cleanPath) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Uploads directory is read-only"})
 		return
 	}
 
@@ -298,7 +324,7 @@ func UpdateManagedFileSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// DeleteManagedFile removes a file/directory from disk and DB
+// DeleteManagedFile removes a file/directory from DB
 func DeleteManagedFile(c *gin.Context) {
 	relPath := c.Query("path")
 	cleanPath, err := sanitizeRelPath(relPath)
@@ -307,15 +333,12 @@ func DeleteManagedFile(c *gin.Context) {
 		return
 	}
 
-	fullPath := filepath.Join(managedFilesDir, cleanPath)
-	_ = os.RemoveAll(fullPath)
-
 	model.DB.Where("path = ? OR path LIKE ?", cleanPath, cleanPath+"/%").Delete(&model.ManagedFile{})
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// RenameManagedFile renames a file/directory
+// RenameManagedFile renames a file/directory in DB
 func RenameManagedFile(c *gin.Context) {
 	var req struct {
 		OldPath string `json:"old_path"`
@@ -333,15 +356,11 @@ func RenameManagedFile(c *gin.Context) {
 		return
 	}
 
-	oldFull := filepath.Join(managedFilesDir, oldClean)
-	newFull := filepath.Join(managedFilesDir, newClean)
-
-	if err := os.Rename(oldFull, newFull); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+	if isReadOnlyPath(oldClean) || isReadOnlyPath(newClean) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Uploads directory is read-only"})
 		return
 	}
 
-	// Update DB records
 	var record model.ManagedFile
 	if model.DB.Where("path = ?", oldClean).First(&record).RowsAffected > 0 {
 		record.Path = newClean
@@ -362,8 +381,7 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 			strings.HasPrefix(reqPath, "/v1") ||
 			strings.HasPrefix(reqPath, "/pg") ||
 			strings.HasPrefix(reqPath, "/mj") ||
-			strings.HasPrefix(reqPath, "/suno") ||
-			strings.HasPrefix(reqPath, "/uploads") {
+			strings.HasPrefix(reqPath, "/suno") {
 			c.Next()
 			return
 		}
@@ -374,16 +392,20 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		fullPath := filepath.Join(managedFilesDir, cleanPath)
-		info, err := os.Stat(fullPath)
-		if err != nil || info.IsDir() {
+		var mf model.ManagedFile
+		res := model.DB.Where("path = ?", cleanPath).First(&mf)
+		if res.RowsAffected == 0 {
+			// Fallback check physical file on disk
+			fullPath := filepath.Join(managedFilesDir, cleanPath)
+			info, err := os.Stat(fullPath)
+			if err != nil || info.IsDir() {
+				c.Next()
+				return
+			}
+		} else if mf.IsDir {
 			c.Next()
 			return
 		}
-
-		// File exists! Check password and captcha requirements.
-		var mf model.ManagedFile
-		model.DB.Where("path = ?", cleanPath).First(&mf)
 
 		// Also check parent directories for protection
 		if mf.Password == "" && !mf.EnableCaptcha {
@@ -411,10 +433,8 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 				submittedPass := c.PostForm("password")
 
 				if mf.EnableCaptcha {
-					captchaId := c.PostForm("captcha_id")
-					captchaAns := c.PostForm("captcha_ans")
-					if captchaId == "" || captchaAns == "" || !captcha.Verify(captchaId, captchaAns) {
-						renderAuthPage(c, cleanPath, mf, "Invalid Captcha")
+					if !verifyManagedFileCaptcha(c) {
+						renderAuthPage(c, cleanPath, mf, "Captcha Verification Failed")
 						c.Abort()
 						return
 					}
@@ -435,80 +455,226 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 			}
 		}
 
-		// Serve static file
+		// Serve file content from DB or disk
+		if len(mf.Content) > 0 {
+			contentType := http.DetectContentType(mf.Content)
+			if strings.HasSuffix(cleanPath, ".css") {
+				contentType = "text/css; charset=utf-8"
+			} else if strings.HasSuffix(cleanPath, ".js") {
+				contentType = "application/javascript; charset=utf-8"
+			} else if strings.HasSuffix(cleanPath, ".html") {
+				contentType = "text/html; charset=utf-8"
+			} else if strings.HasSuffix(cleanPath, ".svg") {
+				contentType = "image/svg+xml"
+			}
+			c.Data(http.StatusOK, contentType, mf.Content)
+			c.Abort()
+			return
+		}
+
+		fullPath := filepath.Join(managedFilesDir, cleanPath)
 		http.ServeFile(c.Writer, c.Request, fullPath)
 		c.Abort()
 	}
 }
 
+func verifyManagedFileCaptcha(c *gin.Context) bool {
+	captchaType := common.GetEffectiveCaptchaType()
+	if captchaType == common.CaptchaTypeOff {
+		return true
+	}
+
+	token := c.PostForm("captcha_token")
+	if token == "" {
+		token = c.PostForm("cf-turnstile-response")
+	}
+	if token == "" {
+		token = c.PostForm("g-recaptcha-response")
+	}
+	if token == "" {
+		token = c.PostForm("h-captcha-response")
+	}
+
+	if token == "" {
+		captchaId := c.PostForm("captcha_id")
+		captchaAns := c.PostForm("captcha_ans")
+		if captchaId != "" && captchaAns != "" {
+			return captcha.Verify(captchaId, captchaAns)
+		}
+		return false
+	}
+
+	provider := c.PostForm("captcha_provider")
+	if provider == "" {
+		provider = captchaType
+	}
+
+	if provider == common.CaptchaTypeImage {
+		parts := strings.SplitN(token, ":", 2)
+		if len(parts) == 2 {
+			return captcha.Verify(parts[0], parts[1])
+		}
+		captchaId := c.PostForm("captcha_id")
+		captchaAns := c.PostForm("captcha_ans")
+		if captchaId != "" && captchaAns != "" {
+			return captcha.Verify(captchaId, captchaAns)
+		}
+		return false
+	}
+
+	var verifyURL, secret string
+	switch provider {
+	case common.CaptchaTypeTurnstile:
+		verifyURL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+		secret = common.TurnstileSecretKey
+	case common.CaptchaTypeRecaptcha:
+		verifyURL = "https://www.google.com/recaptcha/api/siteverify"
+		secret = common.RecaptchaSecretKey
+	case common.CaptchaTypeHCaptcha:
+		verifyURL = "https://hcaptcha.com/siteverify"
+		secret = common.HCaptchaSecretKey
+	default:
+		return false
+	}
+
+	if secret == "" {
+		return false
+	}
+
+	resp, err := http.PostForm(verifyURL, url.Values{
+		"secret":   {secret},
+		"response": {token},
+		"remoteip": {c.ClientIP()},
+	})
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Success bool `json:"success"`
+	}
+	if err := common.DecodeJson(resp.Body, &result); err != nil {
+		return false
+	}
+	return result.Success
+}
+
 func renderAuthPage(c *gin.Context, relPath string, mf model.ManagedFile, errorMsg string) {
+	captchaType := common.GetEffectiveCaptchaType()
+	if captchaType == common.CaptchaTypeOff && common.TurnstileSiteKey != "" {
+		captchaType = common.CaptchaTypeTurnstile
+	}
+
+	var captchaScript, captchaHTML string
+	if mf.EnableCaptcha && captchaType != common.CaptchaTypeOff {
+		switch captchaType {
+		case common.CaptchaTypeTurnstile:
+			captchaScript = `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>`
+			captchaHTML = fmt.Sprintf(`
+				<div class="captcha-box flex justify-center my-3">
+					<div class="cf-turnstile" data-sitekey="%s"></div>
+					<input type="hidden" name="captcha_provider" value="turnstile" />
+				</div>`, common.TurnstileSiteKey)
+		case common.CaptchaTypeRecaptcha:
+			captchaScript = `<script src="https://www.google.com/recaptcha/api.js" async defer></script>`
+			captchaHTML = fmt.Sprintf(`
+				<div class="captcha-box flex justify-center my-3">
+					<div class="g-recaptcha" data-sitekey="%s"></div>
+					<input type="hidden" name="captcha_provider" value="recaptcha" />
+				</div>`, common.RecaptchaSiteKey)
+		case common.CaptchaTypeHCaptcha:
+			captchaScript = `<script src="https://js.hcaptcha.com/1/api.js" async defer></script>`
+			captchaHTML = fmt.Sprintf(`
+				<div class="captcha-box flex justify-center my-3">
+					<div class="h-captcha" data-sitekey="%s"></div>
+					<input type="hidden" name="captcha_provider" value="hcaptcha" />
+				</div>`, common.HCaptchaSiteKey)
+		default: // image captcha fallback
+			captchaHTML = `
+				<div class="captcha-box my-3 text-center">
+					<input type="hidden" id="captcha-id" name="captcha_id" />
+					<div class="flex items-center justify-center gap-2 mb-2">
+						<img id="captcha-img" class="h-10 rounded border cursor-pointer" onclick="refreshCaptcha()" title="Click to refresh" src="" />
+					</div>
+					<input type="text" name="captcha_ans" placeholder="Enter captcha code" class="w-full px-3 py-2 border rounded-lg bg-zinc-950/50 border-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary" required />
+					<input type="hidden" name="captcha_provider" value="image" />
+				</div>
+				<script>
+					function refreshCaptcha() {
+						fetch('/api/captcha/image').then(r => r.json()).then(d => {
+							if(d.success) {
+								document.getElementById('captcha-img').src = d.data.image;
+								document.getElementById('captcha-id').value = d.data.captcha_id;
+							}
+						});
+					}
+					window.addEventListener("DOMContentLoaded", refreshCaptcha);
+				</script>`
+		}
+	}
+
+	systemName := common.SystemName
+	if systemName == "" {
+		systemName = "New API"
+	}
+
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	html := fmt.Sprintf(`<!DOCTYPE html>
-<html>
+<html lang="en" class="dark">
 <head>
 	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>Protected File - %s</title>
+	<script src="https://cdn.tailwindcss.com"></script>
+	%s
 	<style>
-		body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f4f5; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-		.card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 340px; text-align: center; }
-		h2 { margin-top: 0; color: #18181b; font-size: 1.25rem; }
-		p { color: #71717a; font-size: 0.875rem; margin-bottom: 1.5rem; }
-		input { width: 100%%; padding: 0.625rem; margin-bottom: 1rem; border: 1px solid #e4e4e7; border-radius: 6px; box-sizing: border-box; font-size: 0.875rem; }
-		button { width: 100%%; padding: 0.625rem; background: #18181b; color: white; border: none; border-radius: 6px; font-size: 0.875rem; cursor: pointer; font-weight: 500; }
-		button:hover { background: #27272a; }
-		.error { color: #ef4444; font-size: 0.875rem; margin-bottom: 1rem; }
-		.captcha-box { margin-bottom: 1rem; }
-		img.captcha-img { height: 50px; border: 1px solid #e4e4e7; border-radius: 6px; cursor: pointer; }
+		body { background-color: #09090b; color: #f4f4f5; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 	</style>
 </head>
-<body>
-	<div class="card">
-		<h2>Access Protected File</h2>
-		<p>%s</p>
+<body class="flex min-h-screen items-center justify-center p-4">
+	<div class="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900/90 p-6 shadow-2xl backdrop-blur-xl">
+		<div class="text-center mb-6">
+			<div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-800/80 text-zinc-200 border border-zinc-700/50 shadow-inner">
+				<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+			</div>
+			<h1 class="text-lg font-semibold tracking-tight text-white">%s</h1>
+			<p class="text-xs text-zinc-400 mt-1 font-mono truncate">/%s</p>
+		</div>
+
 		%s
-		<form method="POST">
+
+		<form method="POST" class="space-y-4">
 			<input type="hidden" name="managed_file_auth" value="1" />
 			%s
 			%s
-			<button type="submit">Submit</button>
+			<button type="submit" class="w-full rounded-lg bg-zinc-100 px-4 py-2.5 text-sm font-medium text-zinc-950 hover:bg-white transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 focus:ring-offset-zinc-900">
+				Access File
+			</button>
 		</form>
 	</div>
-	<script>
-		function refreshCaptcha() {
-			fetch('/api/captcha/image').then(r => r.json()).then(d => {
-				if(d.success) {
-					document.getElementById('captcha-img').src = d.data.image;
-					document.getElementById('captcha-id').value = d.data.captcha_id;
-				}
-			});
-		}
-	</script>
 </body>
 </html>`,
-		relPath, relPath,
+		relPath,
+		captchaScript,
+		systemName,
+		relPath,
 		func() string {
 			if errorMsg != "" {
-				return fmt.Sprintf(`<div class="error">%s</div>`, errorMsg)
+				return fmt.Sprintf(`<div class="mb-4 rounded-lg bg-red-500/10 p-3 text-center text-xs font-medium text-red-400 border border-red-500/20">%s</div>`, errorMsg)
 			}
 			return ""
 		}(),
 		func() string {
 			if mf.Password != "" {
-				return `<input type="password" name="password" placeholder="Enter password" required />`
+				return `<div class="space-y-1">
+					<label class="text-xs font-medium text-zinc-300">Password</label>
+					<input type="password" name="password" placeholder="Enter file password" class="w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-600" required />
+				</div>`
 			}
 			return ""
 		}(),
-		func() string {
-			if mf.EnableCaptcha {
-				return `<div class="captcha-box">
-					<input type="hidden" id="captcha-id" name="captcha_id" />
-					<img id="captcha-img" class="captcha-img" onclick="refreshCaptcha()" title="Click to refresh" src="" />
-					<input type="text" name="captcha_ans" placeholder="Captcha code" required />
-				</div>
-				<script>window.addEventListener("DOMContentLoaded", refreshCaptcha);</script>`
-			}
-			return ""
-		}(),
+		captchaHTML,
 	)
 
 	c.String(http.StatusOK, html)
