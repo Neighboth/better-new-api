@@ -3,7 +3,6 @@ package controller
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -98,13 +97,24 @@ func UpdateVendorMeta(c *gin.Context) {
 		common.ApiErrorMsg(c, "缺少供应商 ID")
 		return
 	}
-	// 名称冲突检查
-	if dup, err := model.IsVendorNameDuplicated(v.Id, v.Name); err != nil {
+
+	existing, err := model.GetVendorByID(v.Id)
+	if err != nil {
 		common.ApiError(c, err)
 		return
-	} else if dup {
-		common.ApiErrorMsg(c, "供应商名称已存在")
-		return
+	}
+
+	if existing.IsBuiltin {
+		v.Name = existing.Name
+		v.IsBuiltin = true
+	} else {
+		if dup, err := model.IsVendorNameDuplicated(v.Id, v.Name); err != nil {
+			common.ApiError(c, err)
+			return
+		} else if dup {
+			common.ApiErrorMsg(c, "供应商名称已存在")
+			return
+		}
 	}
 
 	if err := v.Update(); err != nil {
@@ -148,21 +158,32 @@ func UploadVendorLogo(c *gin.Context) {
 		return
 	}
 
-	uploadDir := filepath.Join("uploads", "vendors")
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to create upload directory: " + err.Error()})
+	f, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to read file: " + err.Error()})
 		return
 	}
+	defer f.Close()
+
+	fileBytes := make([]byte, file.Size)
+	_, _ = f.Read(fileBytes)
 
 	fileName := fmt.Sprintf("%d_%s%s", time.Now().UnixNano(), common.GetRandomString(6), ext)
-	dst := filepath.Join(uploadDir, fileName)
+	relPath := "uploads/vendors/" + fileName
 
-	if err := c.SaveUploadedFile(file, dst); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to save file: " + err.Error()})
-		return
+	now := common.GetTimestamp()
+	mf := model.ManagedFile{
+		Path:      relPath,
+		Name:      fileName,
+		IsDir:     false,
+		Size:      file.Size,
+		Content:   fileBytes,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
+	model.DB.Create(&mf)
 
-	url := "/uploads/vendors/" + fileName
+	url := "/" + relPath
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    url,

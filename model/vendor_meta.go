@@ -1,6 +1,8 @@
 package model
 
 import (
+	"errors"
+
 	"github.com/QuantumNous/new-api/common"
 
 	"gorm.io/gorm"
@@ -51,6 +53,9 @@ func (v *Vendor) Update() error {
 
 // Delete 软删除供应商
 func (v *Vendor) Delete() error {
+	if v.IsBuiltin {
+		return errors.New("built-in vendors cannot be deleted")
+	}
 	return DB.Delete(v).Error
 }
 

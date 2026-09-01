@@ -172,11 +172,14 @@ export function VendorMutateDialog({
                 <FormControl>
                   <Input
                     placeholder={t('OpenAI, Anthropic, etc.')}
+                    disabled={currentVendor?.is_builtin}
                     {...field}
                   />
                 </FormControl>
                 <FormDescription>
-                  {t('The unique name for this vendor')}
+                  {currentVendor?.is_builtin
+                    ? t('Built-in vendor names cannot be changed, but you can configure "if contains" keywords, logos, and descriptions below.')
+                    : t('The unique name for this vendor')}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

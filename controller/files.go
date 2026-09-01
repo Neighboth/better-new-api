@@ -71,14 +71,28 @@ func syncDiskDirToDB(baseDir string, prefix string) {
 	})
 }
 
+func ensureUploadFoldersExist() {
+	now := common.GetTimestamp()
+	dirs := []string{"uploads", "uploads/avatars", "uploads/ads", "uploads/vendors"}
+	for _, dir := range dirs {
+		var mf model.ManagedFile
+		if model.DB.Where("path = ?", dir).First(&mf).RowsAffected == 0 {
+			model.DB.Create(&model.ManagedFile{
+				Path:      dir,
+				Name:      filepath.Base(dir),
+				IsDir:     true,
+				CreatedAt: now,
+				UpdatedAt: now,
+			})
+		}
+	}
+}
+
 // ListManagedFiles returns file metadata for admin
 func ListManagedFiles(c *gin.Context) {
-	if err := ensureManagedFilesDir(); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
-		return
-	}
+	ensureUploadFoldersExist()
 
-	// Sync disk files from managed_files and uploads
+	// Sync disk files from managed_files and uploads if present
 	syncDiskDirToDB(managedFilesDir, "")
 	if _, err := os.Stat("uploads"); err == nil {
 		syncDiskDirToDB("uploads", "uploads")
@@ -151,11 +165,7 @@ func UploadManagedFile(c *gin.Context) {
 	fileBytes := make([]byte, fileHeader.Size)
 	_, _ = f.Read(fileBytes)
 
-	// Best-effort optional disk save so existing code/static handlers can read if needed
-	fullPath := filepath.Join(managedFilesDir, cleanPath)
-	if os.MkdirAll(filepath.Dir(fullPath), 0755) == nil {
-		_ = os.WriteFile(fullPath, fileBytes, 0644)
-	}
+	// File content is stored 100% in database DB. No physical files/folders created on disk.
 
 	var fileRecord model.ManagedFile
 	res := model.DB.Where("path = ?", cleanPath).First(&fileRecord)
@@ -240,30 +250,29 @@ func SaveManagedFileContent(c *gin.Context) {
 		return
 	}
 
-	var fullPath string
-	if strings.HasPrefix(cleanPath, "uploads/") {
-		fullPath = cleanPath
-	} else {
-		fullPath = filepath.Join(managedFilesDir, cleanPath)
-	}
-
 	contentBytes := []byte(req.Content)
-	if err := os.WriteFile(fullPath, contentBytes, 0644); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
-		return
-	}
-
-	info, _ := os.Stat(fullPath)
 	size := int64(len(contentBytes))
-	if info != nil {
-		size = info.Size()
-	}
 
-	model.DB.Model(&model.ManagedFile{}).Where("path = ?", cleanPath).Updates(map[string]interface{}{
-		"size":       size,
-		"content":    contentBytes,
-		"updated_at": common.GetTimestamp(),
-	})
+	now := common.GetTimestamp()
+	var record model.ManagedFile
+	if model.DB.Where("path = ?", cleanPath).First(&record).RowsAffected == 0 {
+		fileRecord := model.ManagedFile{
+			Path:      cleanPath,
+			Name:      filepath.Base(cleanPath),
+			IsDir:     false,
+			Size:      size,
+			Content:   contentBytes,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		model.DB.Create(&fileRecord)
+	} else {
+		model.DB.Model(&record).Updates(map[string]interface{}{
+			"size":       size,
+			"content":    contentBytes,
+			"updated_at": now,
+		})
+	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
@@ -315,7 +324,7 @@ func UpdateManagedFileSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// DeleteManagedFile removes a file/directory from disk and DB
+// DeleteManagedFile removes a file/directory from DB
 func DeleteManagedFile(c *gin.Context) {
 	relPath := c.Query("path")
 	cleanPath, err := sanitizeRelPath(relPath)
@@ -324,15 +333,12 @@ func DeleteManagedFile(c *gin.Context) {
 		return
 	}
 
-	fullPath := filepath.Join(managedFilesDir, cleanPath)
-	_ = os.RemoveAll(fullPath)
-
 	model.DB.Where("path = ? OR path LIKE ?", cleanPath, cleanPath+"/%").Delete(&model.ManagedFile{})
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// RenameManagedFile renames a file/directory
+// RenameManagedFile renames a file/directory in DB
 func RenameManagedFile(c *gin.Context) {
 	var req struct {
 		OldPath string `json:"old_path"`
@@ -355,15 +361,6 @@ func RenameManagedFile(c *gin.Context) {
 		return
 	}
 
-	oldFull := filepath.Join(managedFilesDir, oldClean)
-	newFull := filepath.Join(managedFilesDir, newClean)
-
-	if err := os.Rename(oldFull, newFull); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
-		return
-	}
-
-	// Update DB records
 	var record model.ManagedFile
 	if model.DB.Where("path = ?", oldClean).First(&record).RowsAffected > 0 {
 		record.Path = newClean
@@ -384,8 +381,7 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 			strings.HasPrefix(reqPath, "/v1") ||
 			strings.HasPrefix(reqPath, "/pg") ||
 			strings.HasPrefix(reqPath, "/mj") ||
-			strings.HasPrefix(reqPath, "/suno") ||
-			strings.HasPrefix(reqPath, "/uploads") {
+			strings.HasPrefix(reqPath, "/suno") {
 			c.Next()
 			return
 		}
@@ -566,6 +562,9 @@ func verifyManagedFileCaptcha(c *gin.Context) bool {
 
 func renderAuthPage(c *gin.Context, relPath string, mf model.ManagedFile, errorMsg string) {
 	captchaType := common.GetEffectiveCaptchaType()
+	if captchaType == common.CaptchaTypeOff && common.TurnstileSiteKey != "" {
+		captchaType = common.CaptchaTypeTurnstile
+	}
 
 	var captchaScript, captchaHTML string
 	if mf.EnableCaptcha && captchaType != common.CaptchaTypeOff {

@@ -241,21 +241,32 @@ func UploadAdImage(c *gin.Context) {
 		return
 	}
 
-	uploadDir := filepath.Join("uploads", "ads")
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to create upload directory: " + err.Error()})
+	f, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to read file: " + err.Error()})
 		return
 	}
+	defer f.Close()
+
+	fileBytes := make([]byte, file.Size)
+	_, _ = f.Read(fileBytes)
 
 	fileName := fmt.Sprintf("%d_%s%s", time.Now().UnixNano(), common.GetRandomString(6), ext)
-	dst := filepath.Join(uploadDir, fileName)
+	relPath := "uploads/ads/" + fileName
 
-	if err := c.SaveUploadedFile(file, dst); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to save file: " + err.Error()})
-		return
+	now := common.GetTimestamp()
+	mf := model.ManagedFile{
+		Path:      relPath,
+		Name:      fileName,
+		IsDir:     false,
+		Size:      file.Size,
+		Content:   fileBytes,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
+	model.DB.Create(&mf)
 
-	url := "/uploads/ads/" + fileName
+	url := "/" + relPath
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    url,
