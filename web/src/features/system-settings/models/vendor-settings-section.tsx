@@ -91,7 +91,7 @@ export function VendorSettingsSection() {
 
   return (
     <Card>
-      <CardHeader variant='expanded'>
+      <CardHeader>
         <div className='flex items-center justify-between'>
           <div>
             <CardTitle>{t('Vendor Management')}</CardTitle>
@@ -105,7 +105,7 @@ export function VendorSettingsSection() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent variant='expanded'>
+      <CardContent>
         {isLoading ? (
           <div className='flex h-32 items-center justify-center'>
             <Loader2 className='h-6 w-6 animate-spin text-muted-foreground' />
