@@ -265,7 +265,8 @@ export function BlogManager() {
         ],
         stream: false,
         temperature: 0.7,
-      })
+        response_format: { type: 'json_object' }
+      }, undefined, 900000)
       const content = res.choices?.[0]?.message?.content
       const parsed = content ? parseBlogAiResponse(content) : null
       if (!parsed) {
@@ -365,7 +366,8 @@ export function BlogManager() {
         ],
         stream: false,
         temperature: 0.3,
-      })
+        response_format: { type: 'json_object' }
+      }, undefined, 900000)
 
       const content = res.choices?.[0]?.message?.content
       if (!content) {

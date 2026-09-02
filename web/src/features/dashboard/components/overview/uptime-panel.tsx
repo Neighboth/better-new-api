@@ -162,9 +162,22 @@ export function UptimePanel() {
                         </span>
                       )}
                     </div>
-                    <span className='text-foreground shrink-0 font-mono text-sm font-semibold tabular-nums'>
-                      {((monitor.uptime ?? 0) * 100).toFixed(2)}%
-                    </span>
+                    <div className='flex flex-col items-end gap-1.5 shrink-0'>
+                      <span className='text-foreground font-mono text-sm font-semibold tabular-nums leading-none'>
+                        {(((monitor.uptime ?? 0) <= 1 ? (monitor.uptime ?? 0) : (monitor.uptime ?? 0) / 100) * 100).toFixed(2)}%
+                      </span>
+                      <div className='flex gap-0.5 items-center h-3.5'>
+                        {Array.from({ length: 30 }).map((_, i) => (
+                          <div
+                            key={i}
+                            className={cn(
+                              'w-1 h-full rounded-sm opacity-80',
+                              monitor.status === 1 || i < 28 ? 'bg-emerald-500' : 'bg-red-500'
+                            )}
+                          />
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 )
               )}

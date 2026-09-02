@@ -33,12 +33,17 @@ import type {
  */
 export async function sendChatCompletion(
   payload: ChatCompletionRequest,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  timeout?: number
 ): Promise<ChatCompletionResponse> {
-  const res = await api.post(API_ENDPOINTS.CHAT_COMPLETIONS, payload, {
+  const config: Record<string, unknown> = {
     signal,
     skipErrorHandler: true,
-  } as Record<string, unknown>)
+  }
+  if (timeout) {
+    config.timeout = timeout
+  }
+  const res = await api.post(API_ENDPOINTS.CHAT_COMPLETIONS, payload, config)
   return res.data
 }
 

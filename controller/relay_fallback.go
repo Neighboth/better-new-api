@@ -176,16 +176,17 @@ func applyFallbackSystemPrompt(c *gin.Context, info *relaycommon.RelayInfo, s *f
 	if err := common.Unmarshal(data, &raw); err != nil {
 		return fmt.Errorf("fallback: inject system prompt: %w", err)
 	}
-	messages, ok := raw["messages"].([]interface{})
-	if !ok {
-		return nil
-	}
-	for _, m := range messages {
-		if mm, ok := m.(map[string]interface{}); ok && mm["role"] == "system" {
-			return nil
+
+	if messages, ok := raw["messages"].([]interface{}); ok {
+		for _, m := range messages {
+			if mm, ok := m.(map[string]interface{}); ok && mm["role"] == "system" {
+				return nil
+			}
 		}
+		raw["messages"] = append([]interface{}{map[string]interface{}{"role": "system", "content": prompt}}, messages...)
+	} else if sys, ok := raw["system"].(string); ok {
+		raw["system"] = prompt + "\n" + sys
 	}
-	raw["messages"] = append([]interface{}{map[string]interface{}{"role": "system", "content": prompt}}, messages...)
 	updated, err := common.Marshal(raw)
 	if err != nil {
 		return err
