@@ -561,56 +561,106 @@ func verifyManagedFileCaptcha(c *gin.Context) bool {
 }
 
 func renderAuthPage(c *gin.Context, relPath string, mf model.ManagedFile, errorMsg string) {
-	captchaType := common.GetEffectiveCaptchaType()
-	if captchaType == common.CaptchaTypeOff && common.TurnstileSiteKey != "" {
-		captchaType = common.CaptchaTypeTurnstile
-	}
-
 	var captchaScript, captchaHTML string
-	if mf.EnableCaptcha && captchaType != common.CaptchaTypeOff {
-		switch captchaType {
-		case common.CaptchaTypeTurnstile:
-			captchaScript = `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>`
-			captchaHTML = fmt.Sprintf(`
-				<div class="captcha-box flex justify-center my-3">
-					<div class="cf-turnstile" data-sitekey="%s"></div>
-					<input type="hidden" name="captcha_provider" value="turnstile" />
-				</div>`, common.TurnstileSiteKey)
-		case common.CaptchaTypeRecaptcha:
-			captchaScript = `<script src="https://www.google.com/recaptcha/api.js" async defer></script>`
-			captchaHTML = fmt.Sprintf(`
-				<div class="captcha-box flex justify-center my-3">
-					<div class="g-recaptcha" data-sitekey="%s"></div>
-					<input type="hidden" name="captcha_provider" value="recaptcha" />
-				</div>`, common.RecaptchaSiteKey)
-		case common.CaptchaTypeHCaptcha:
-			captchaScript = `<script src="https://js.hcaptcha.com/1/api.js" async defer></script>`
-			captchaHTML = fmt.Sprintf(`
-				<div class="captcha-box flex justify-center my-3">
-					<div class="h-captcha" data-sitekey="%s"></div>
-					<input type="hidden" name="captcha_provider" value="hcaptcha" />
-				</div>`, common.HCaptchaSiteKey)
-		default: // image captcha fallback
-			captchaHTML = `
-				<div class="captcha-box my-3 text-center">
-					<input type="hidden" id="captcha-id" name="captcha_id" />
-					<div class="flex items-center justify-center gap-2 mb-2">
-						<img id="captcha-img" class="h-10 rounded border cursor-pointer" onclick="refreshCaptcha()" title="Click to refresh" src="" />
-					</div>
-					<input type="text" name="captcha_ans" placeholder="Enter captcha code" class="w-full px-3 py-2 border rounded-lg bg-zinc-950/50 border-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary" required />
-					<input type="hidden" name="captcha_provider" value="image" />
-				</div>
-				<script>
-					function refreshCaptcha() {
-						fetch('/api/captcha/image').then(r => r.json()).then(d => {
-							if(d.success) {
-								document.getElementById('captcha-img').src = d.data.image;
-								document.getElementById('captcha-id').value = d.data.captcha_id;
+	if mf.EnableCaptcha {
+		if common.CaptchaFallbackEnabled() {
+			captchaScript = fmt.Sprintf(`
+			<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"></script>
+			<script src="https://js.hcaptcha.com/1/api.js?render=explicit" async defer></script>
+			<script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer></script>
+			<script>
+				const providers = [
+					{ id: 'turnstile', key: '%s', init: (el) => turnstile.render(el, {sitekey: '%s'}) },
+					{ id: 'hcaptcha', key: '%s', init: (el) => hcaptcha.render(el, {sitekey: '%s'}) },
+					{ id: 'recaptcha', key: '%s', init: (el) => grecaptcha.render(el, {sitekey: '%s'}) }
+				];
+				document.addEventListener('DOMContentLoaded', () => {
+					const box = document.getElementById('dynamic-captcha');
+					const providerInput = document.getElementById('captcha_provider');
+					for (let p of providers) {
+						if (p.key) {
+							try {
+								p.init(box);
+								providerInput.value = p.id;
+								return;
+							} catch (e) {
+								console.warn(p.id + ' failed to load', e);
+							}
+						}
+					}
+
+					// Built-in image fallback
+					box.innerHTML = '<img id="captcha-img" class="border rounded cursor-pointer h-12 mx-auto" onclick="refreshCaptcha()" title="Click to refresh" /><input type="hidden" id="captcha-id" name="captcha_id" /><input type="text" id="captcha_ans" name="captcha_ans" class="px-3 py-2 border rounded text-sm w-48 text-center mt-2 mx-auto block" placeholder="Enter characters" required />';
+					providerInput.value = 'image';
+					refreshCaptcha();
+				});
+				function refreshCaptcha() {
+					fetch('/api/captcha/image?t=' + Date.now())
+						.then(r => r.json())
+						.then(data => {
+							if (data.success && document.getElementById('captcha-img')) {
+								document.getElementById('captcha-img').src = data.data.image;
+								document.getElementById('captcha-id').value = data.data.captcha_id;
 							}
 						});
-					}
-					window.addEventListener("DOMContentLoaded", refreshCaptcha);
-				</script>`
+				}
+			</script>`, common.TurnstileSiteKey, common.TurnstileSiteKey, common.HCaptchaSiteKey, common.HCaptchaSiteKey, common.RecaptchaSiteKey, common.RecaptchaSiteKey)
+			captchaHTML = `
+				<div class="captcha-box my-3">
+					<div id="dynamic-captcha" class="flex justify-center flex-col"></div>
+					<input type="hidden" id="captcha_provider" name="captcha_provider" value="" />
+				</div>`
+		} else {
+			captchaType := common.GetEffectiveCaptchaType()
+			if captchaType == common.CaptchaTypeOff && common.TurnstileSiteKey != "" {
+				captchaType = common.CaptchaTypeTurnstile
+			}
+			if captchaType != common.CaptchaTypeOff {
+				switch captchaType {
+				case common.CaptchaTypeTurnstile:
+					captchaScript = `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>`
+					captchaHTML = fmt.Sprintf(`
+						<div class="captcha-box flex justify-center my-3">
+							<div class="cf-turnstile" data-sitekey="%s"></div>
+							<input type="hidden" name="captcha_provider" value="turnstile" />
+						</div>`, common.TurnstileSiteKey)
+				case common.CaptchaTypeRecaptcha:
+					captchaScript = `<script src="https://www.google.com/recaptcha/api.js" async defer></script>`
+					captchaHTML = fmt.Sprintf(`
+						<div class="captcha-box flex justify-center my-3">
+							<div class="g-recaptcha" data-sitekey="%s"></div>
+							<input type="hidden" name="captcha_provider" value="recaptcha" />
+						</div>`, common.RecaptchaSiteKey)
+				case common.CaptchaTypeHCaptcha:
+					captchaScript = `<script src="https://js.hcaptcha.com/1/api.js" async defer></script>`
+					captchaHTML = fmt.Sprintf(`
+						<div class="captcha-box flex justify-center my-3">
+							<div class="h-captcha" data-sitekey="%s"></div>
+							<input type="hidden" name="captcha_provider" value="hcaptcha" />
+						</div>`, common.HCaptchaSiteKey)
+				default: // image captcha fallback
+					captchaHTML = `
+						<div class="captcha-box my-3 text-center">
+							<input type="hidden" id="captcha-id" name="captcha_id" />
+							<div class="flex items-center justify-center gap-2 mb-2">
+								<img id="captcha-img" class="h-10 rounded border cursor-pointer" onclick="refreshCaptcha()" title="Click to refresh" src="" />
+							</div>
+							<input type="text" name="captcha_ans" placeholder="Enter captcha code" class="w-full px-3 py-2 border rounded-lg bg-zinc-950/50 border-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary" required />
+							<input type="hidden" name="captcha_provider" value="image" />
+						</div>
+						<script>
+							function refreshCaptcha() {
+								fetch('/api/captcha/image').then(r => r.json()).then(d => {
+									if(d.success) {
+										document.getElementById('captcha-img').src = d.data.image;
+										document.getElementById('captcha-id').value = d.data.captcha_id;
+									}
+								});
+							}
+							window.addEventListener("DOMContentLoaded", refreshCaptcha);
+						</script>`
+				}
+			}
 		}
 	}
 
