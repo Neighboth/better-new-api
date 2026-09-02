@@ -64,6 +64,7 @@ import { useUpdateOption } from '../hooks/use-update-option'
 type UptimeKumaGroup = {
   id: number
   categoryName: string
+  customName?: string
   provider?: string
   url: string
   slug: string
@@ -80,7 +81,8 @@ const createUptimeKumaSchema = (t: (key: string) => string) =>
       .string()
       .min(1, { error: t('Category name is required') })
       .max(50, { error: t('Category name must be less than 50 characters') }),
-    provider: z.enum(['uptime_kuma', 'uptime_robot', 'instatus']),
+    provider: z.enum(['uptime_kuma', 'instatus']),
+    customName: z.string().optional(),
     url: z.string().url({ error: t('Must be a valid URL') }),
     slug: z
       .string()
@@ -115,6 +117,7 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
     defaultValues: {
       categoryName: '',
       provider: 'uptime_kuma',
+      customName: '',
       url: '',
       slug: '',
     },
@@ -158,6 +161,7 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
     form.reset({
       categoryName: '',
       provider: 'uptime_kuma',
+      customName: '',
       url: '',
       slug: '',
     })
@@ -168,6 +172,7 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
     setEditingGroup(group)
     form.reset({
       categoryName: group.categoryName,
+      customName: group.customName || '',
       provider: (group.provider as 'uptime_kuma' | 'uptime_robot' | 'instatus') || 'uptime_kuma',
       url: group.url,
       slug: group.slug,
@@ -327,7 +332,6 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
               cellClassName: 'capitalize text-sm text-muted-foreground',
               cell: (group) => {
                 const p = group.provider || 'uptime_kuma'
-                if (p === 'uptime_robot') return 'Uptime Robot'
                 if (p === 'instatus') return 'Instatus'
                 return 'Uptime Kuma'
               },
@@ -418,6 +422,22 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
             />
             <FormField
               control={form.control}
+              name='customName'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Uptime Name (Optional)')}</FormLabel>
+                  <FormControl>
+                    <Input placeholder={t('My Services')} {...field} />
+                  </FormControl>
+                  <FormDescription>
+                    {t('Custom name to display instead of the default group/channel name')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
               name='provider'
               render={({ field }) => (
                 <FormItem>
@@ -430,7 +450,6 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
                     </FormControl>
                     <SelectContent alignItemWithTrigger={false}>
                       <SelectItem value='uptime_kuma'>Uptime Kuma</SelectItem>
-                      <SelectItem value='uptime_robot'>Uptime Robot</SelectItem>
                       <SelectItem value='instatus'>Instatus</SelectItem>
                     </SelectContent>
                   </Select>
@@ -444,11 +463,7 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>
-                    {selectedProvider === 'uptime_robot'
-                      ? t('Uptime Robot URL / Feed')
-                      : selectedProvider === 'instatus'
-                      ? t('Instatus Page / RSS URL')
-                      : t('Status Page Base URL')}
+                    {selectedProvider === 'instatus' ? t('Instatus Page / RSS URL') : t('Status Page Base URL')}
                   </FormLabel>
                   <FormControl>
                     <Input
@@ -461,11 +476,7 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
                     />
                   </FormControl>
                   <FormDescription>
-                    {selectedProvider === 'uptime_robot'
-                      ? t('Uptime Robot status page or RSS feed URL')
-                      : selectedProvider === 'instatus'
-                      ? t('Instatus page URL or RSS feed (e.g. https://pixrouter.instatus.com/history.rss)')
-                      : t('Base URL of your Uptime Kuma instance')}
+                    {selectedProvider === 'instatus' ? t('Instatus page URL or RSS feed (e.g. https://example.instatus.com/history.rss)') : t('Base URL of your Uptime Kuma instance')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -477,17 +488,13 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>
-                    {selectedProvider === 'uptime_robot'
-                      ? t('API Key / Slug')
-                      : t('Status Page Slug')}
+                    {t('Status Page Slug')}
                   </FormLabel>
                   <FormControl>
                     <Input placeholder={t('my-status')} {...field} />
                   </FormControl>
                   <FormDescription>
-                    {selectedProvider === 'uptime_robot'
-                      ? t('Uptime Robot Main/Monitor API key (ur123456-...) or slug')
-                      : t('The status page slug configured in your provider settings')}
+                    {t('The status page slug configured in your provider settings')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

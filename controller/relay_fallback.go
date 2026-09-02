@@ -4,13 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
@@ -21,8 +19,6 @@ import (
 
 type fallbackState struct {
 	models []string
-	all    []string
-	random []string
 	idx    int
 	orig   string
 	on     bool
@@ -49,8 +45,6 @@ func newFallbackState(info *relaycommon.RelayInfo) *fallbackState {
 	}
 }
 
-// currentModel returns the next model candidate for the current phase. ok=false
-// means the fallback chain is exhausted and the caller should give up.
 func (s *fallbackState) currentModel() (string, bool) {
 	if s == nil || !s.on {
 		return "", false
@@ -58,30 +52,9 @@ func (s *fallbackState) currentModel() (string, bool) {
 	if s.idx < len(s.models) {
 		return s.models[s.idx], true
 	}
-	// Arbitrary phase: lazily build the shuffled model list once.
-
-	if len(s.random) == 0 {
-		tmp := s.all
-		if len(tmp) == 0 {
-			tmp = model.GetEnabledModels()
-		}
-		for _, m := range tmp {
-			if m != s.orig {
-				s.random = append(s.random, m)
-			}
-		}
-		rand.Shuffle(len(s.random), func(i, j int) {
-			s.random[i], s.random[j] = s.random[j], s.random[i]
-		})
-	}
-	idx := s.idx - len(s.models)
-	if idx >= len(s.random) {
-		return "", false
-	}
-	return s.random[idx], true
+	return "", false
 }
 
-// advance moves the fallback chain to the next candidate.
 func (s *fallbackState) advance() bool {
 	if s == nil || !s.on {
 		return false
@@ -90,14 +63,9 @@ func (s *fallbackState) advance() bool {
 		s.idx++
 		return true
 	}
-	s.idx += 1
-	_, ok := s.currentModel()
-	return ok
+	return false
 }
 
-// switchRelayModel rewrites the model name in the request body so subsequent
-// relay attempts target the new model. The body rewrite is authoritative
-// because adaptors read the raw body stream.
 func switchRelayModel(c *gin.Context, info *relaycommon.RelayInfo, newModel string) error {
 	if newModel == "" {
 		return errors.New("fallback model is empty")
@@ -141,8 +109,6 @@ func switchRelayModel(c *gin.Context, info *relaycommon.RelayInfo, newModel stri
 	return nil
 }
 
-// applyFallbackSystemPrompt injects the admin-defined system prompt as the
-// first system message（if one does not already exist. Applies once per request.
 func applyFallbackSystemPrompt(c *gin.Context, info *relaycommon.RelayInfo, s *fallbackState) error {
 	if s == nil || !s.on || s.done {
 		return nil
@@ -158,7 +124,6 @@ func applyFallbackSystemPrompt(c *gin.Context, info *relaycommon.RelayInfo, s *f
 
 	switch req := info.Request.(type) {
 	case *dto.GeneralOpenAIRequest:
-
 		if !hasSystemMessage(req.Messages, req.GetSystemRoleName()) {
 			req.Messages = append([]dto.Message{{Role: req.GetSystemRoleName(), Content: prompt}}, req.Messages...)
 		}
@@ -210,15 +175,9 @@ func hasSystemMessage(messages []dto.Message, systemRole string) bool {
 	return false
 }
 
-// logRelayFallback records model switches for the request log.
-
 func logRelayFallback(c *gin.Context, from, to string) {
 	logger.LogInfo(c, fmt.Sprintf("relay fallback: model %s -> %s", from, to))
 }
-
-// isPriceNotConfiguredError detects the "model price not configured" error so
-// the pre-flight pricing step can fall back to a configured model instead of
-// returning 400 immediately an.
 
 func isPriceNotConfiguredError(err error) bool {
 	if err == nil {
@@ -228,12 +187,11 @@ func isPriceNotConfiguredError(err error) bool {
 	return strings.Contains(msg, "price not configured") || strings.Contains(msg, "价格未配置") || strings.Contains(msg, "尚未由管理员配置")
 }
 
-// advanceFallbackModel switches the relay target to the next fallback model
-// and resets the retry budget. Returns false when no candidate remains.
 func advanceFallbackModel(c *gin.Context, relayInfo *relaycommon.RelayInfo, retryParam *service.RetryParam, fb *fallbackState) bool {
 	if fb == nil || !fb.on {
 		return false
 	}
+
 	cand, ok := fb.currentModel()
 	if !ok || cand == "" {
 		return false

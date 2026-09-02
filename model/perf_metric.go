@@ -128,3 +128,6 @@ func PerfMetricStartTime(hours int) int64 {
 	}
 	return time.Now().Add(-time.Duration(hours) * time.Hour).Unix()
 }
+func DeleteAllPerfMetrics() error {
+	return DB.Exec("DELETE FROM perf_metrics").Error
+}

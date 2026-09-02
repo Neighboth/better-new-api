@@ -430,3 +430,9 @@ func mergeRedisActiveBuckets(merged map[bucketKey]counters, params QueryParams, 
 func redisBucketKey(key bucketKey) string {
 	return fmt.Sprintf("perf:%s:%s:%d", key.model, key.group, key.bucketTs)
 }
+func ResetAll() {
+	hotBuckets.Range(func(key, value any) bool {
+		hotBuckets.Delete(key)
+		return true
+	})
+}

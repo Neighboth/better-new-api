@@ -104,7 +104,7 @@ export function UptimePanel() {
           {t('Uptime')}
         </span>
       }
-      description={t('Grouped monitor status from Uptime Kuma')}
+      description={t('Grouped monitor status')}
       loading={loading}
       empty={!groups.length}
       emptyMessage={t('No uptime monitoring configured')}
@@ -128,11 +128,11 @@ export function UptimePanel() {
       <ScrollArea className='h-80'>
         <div>
           {groups.map((group, groupIdx) => (
-            <div key={group.categoryName}>
+            <div key={group.customName || group.categoryName}>
               <div className='bg-muted/30 border-border/60 border-b px-3 py-2 sm:px-5'>
                 <div className='flex items-center gap-2'>
                   <h4 className='text-muted-foreground text-xs font-semibold tracking-wider uppercase'>
-                    {group.categoryName}
+                    {group.customName || group.categoryName}
                   </h4>
                   <span className='text-muted-foreground/40 font-mono text-xs tabular-nums'>
                     {group.monitors?.length || 0}
@@ -166,7 +166,7 @@ export function UptimePanel() {
                       <span className='text-foreground font-mono text-sm font-semibold tabular-nums leading-none'>
                         {(((monitor.uptime ?? 0) <= 1 ? (monitor.uptime ?? 0) : (monitor.uptime ?? 0) / 100) * 100).toFixed(2)}%
                       </span>
-                      <div className='flex gap-0.5 items-center h-3.5'>
+                      <div className='flex gap-0.5 items-center h-3.5 flex-nowrap'>
                         {Array.from({ length: 30 }).map((_, i) => (
                           <div
                             key={i}
