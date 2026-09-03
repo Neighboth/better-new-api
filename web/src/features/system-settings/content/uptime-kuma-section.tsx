@@ -84,15 +84,7 @@ const createUptimeKumaSchema = (t: (key: string) => string) =>
     provider: z.enum(['uptime_kuma', 'instatus']),
     customName: z.string().optional(),
     url: z.string().url({ error: t('Must be a valid URL') }),
-    slug: z
-      .string()
-      .min(1, { error: t('Slug is required') })
-      .max(100, { error: t('Slug must be less than 100 characters') })
-      .regex(/^[a-zA-Z0-9_-]+$/, {
-        error: t(
-          'Slug can only contain letters, numbers, hyphens, and underscores'
-        ),
-      }),
+    slug: z.string().optional(),
   })
 
 type UptimeKumaFormValues = z.infer<ReturnType<typeof createUptimeKumaSchema>>
@@ -170,10 +162,11 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
 
   const handleEdit = (group: UptimeKumaGroup) => {
     setEditingGroup(group)
+    const p = (group.provider as 'uptime_kuma' | 'uptime_robot' | 'instatus') || 'uptime_kuma'
     form.reset({
       categoryName: group.categoryName,
       customName: group.customName || '',
-      provider: (group.provider as 'uptime_kuma' | 'uptime_robot' | 'instatus') || 'uptime_kuma',
+      provider: p === 'uptime_robot' ? 'uptime_kuma' : p,
       url: group.url,
       slug: group.slug,
     })
@@ -217,16 +210,17 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
   const selectedProvider = form.watch('provider')
 
   const handleSubmitForm = (values: UptimeKumaFormValues) => {
+    const formattedValues = { ...values, slug: values.slug || '' }
     if (editingGroup) {
       setGroups((prev) =>
         prev.map((item) =>
-          item.id === editingGroup.id ? { ...item, ...values } : item
+          item.id === editingGroup.id ? { ...item, ...formattedValues } : item
         )
       )
       toast.success(t('Group updated. Click "Save Settings" to apply.'))
     } else {
       const newId = Math.max(...groups.map((item) => item.id), 0) + 1
-      setGroups((prev) => [...prev, { id: newId, ...values }])
+      setGroups((prev) => [...prev, { id: newId, ...formattedValues }])
       toast.success(t('Group added. Click "Save Settings" to apply.'))
     }
     setHasChanges(true)
@@ -482,24 +476,26 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name='slug'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    {t('Status Page Slug')}
-                  </FormLabel>
-                  <FormControl>
-                    <Input placeholder={t('my-status')} {...field} />
-                  </FormControl>
-                  <FormDescription>
-                    {t('The status page slug configured in your provider settings')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {selectedProvider !== 'instatus' && (
+              <FormField
+                control={form.control}
+                name='slug'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('Status Page Slug')}
+                    </FormLabel>
+                    <FormControl>
+                      <Input placeholder={t('my-status')} {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      {t('The status page slug configured in your provider settings')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
           </form>
         </Form>
       </Dialog>
