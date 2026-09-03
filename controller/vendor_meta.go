@@ -169,7 +169,7 @@ func UploadVendorLogo(c *gin.Context) {
 	_, _ = f.Read(fileBytes)
 
 	fileName := fmt.Sprintf("%d_%s%s", time.Now().UnixNano(), common.GetRandomString(6), ext)
-	relPath := "uploads/vendors/" + fileName
+	relPath := "managed_files/vendors/" + fileName
 
 	now := common.GetTimestamp()
 	mf := model.ManagedFile{

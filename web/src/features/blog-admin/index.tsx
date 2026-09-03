@@ -26,10 +26,10 @@ export function BlogAdmin() {
   const { t } = useTranslation()
 
   return (
-    <SectionPageLayout fixedContent>
+    <SectionPageLayout>
       <SectionPageLayout.Title>{t('Blog')}</SectionPageLayout.Title>
       <SectionPageLayout.Content>
-        <div className='mx-auto w-full max-w-3xl overflow-auto'>
+        <div className='mx-auto w-full max-w-3xl'>
           <BlogManager />
         </div>
       </SectionPageLayout.Content>

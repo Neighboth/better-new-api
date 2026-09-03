@@ -125,7 +125,9 @@ func fetchGroupData(ctx context.Context, client *http.Client, groupConfig map[st
 				if xml.NewDecoder(resp.Body).Decode(&feed) == nil {
 					resp.Body.Close()
 					channelTitle := feed.Channel.Title
-					if channelTitle == "" {
+					if result.CustomName != "" {
+						channelTitle = result.CustomName
+					} else if channelTitle == "" {
 						channelTitle = categoryName
 					}
 					st := 1

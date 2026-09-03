@@ -84,15 +84,7 @@ const createUptimeKumaSchema = (t: (key: string) => string) =>
     provider: z.enum(['uptime_kuma', 'instatus']),
     customName: z.string().optional(),
     url: z.string().url({ error: t('Must be a valid URL') }),
-    slug: z
-      .string()
-      .min(1, { error: t('Slug is required') })
-      .max(100, { error: t('Slug must be less than 100 characters') })
-      .regex(/^[a-zA-Z0-9_-]+$/, {
-        error: t(
-          'Slug can only contain letters, numbers, hyphens, and underscores'
-        ),
-      }),
+    slug: z.string().optional(),
   })
 
 type UptimeKumaFormValues = z.infer<ReturnType<typeof createUptimeKumaSchema>>
@@ -482,24 +474,26 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name='slug'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    {t('Status Page Slug')}
-                  </FormLabel>
-                  <FormControl>
-                    <Input placeholder={t('my-status')} {...field} />
-                  </FormControl>
-                  <FormDescription>
-                    {t('The status page slug configured in your provider settings')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {selectedProvider !== 'instatus' && (
+              <FormField
+                control={form.control}
+                name='slug'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('Status Page Slug')}
+                    </FormLabel>
+                    <FormControl>
+                      <Input placeholder={t('my-status')} {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      {t('The status page slug configured in your provider settings')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
           </form>
         </Form>
       </Dialog>

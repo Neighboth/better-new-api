@@ -47,6 +47,11 @@ import {
   type BlogComment,
 } from '@/features/blog/api'
 import { sendChatCompletion } from '@/features/playground/api'
+import { createStreamRequestController } from '@/features/playground/hooks/use-stream-request'
+import { getFreshAuthHeaders } from '@/lib/api'
+import { API_ENDPOINTS } from '@/features/playground/constants'
+import { SSE } from 'sse.js'
+import type { StreamEventSource } from '@/features/playground/hooks/use-stream-request'
 
 import {
   BLOG_LOCALE_CODES,
@@ -224,6 +229,46 @@ export function BlogManager() {
 
   /** Run the AI generator: full generate for a brand-new post, refined edit
   * when a draft already exists. */
+  const runAiStreamWithController = async (
+    payload: any,
+    onStart: () => void,
+    onSuccess: (fullContent: string) => void,
+    onError: () => void
+  ) => {
+    let text = ''
+    onStart()
+    const controller = createStreamRequestController({
+      getHeaders: getFreshAuthHeaders,
+      createSource: (reqPayload, headers) =>
+        new SSE(API_ENDPOINTS.CHAT_COMPLETIONS, {
+          headers,
+          method: 'POST',
+          payload: JSON.stringify(reqPayload),
+        }) as StreamEventSource,
+      setStreaming: () => {}, // unused
+    })
+
+    try {
+      await controller.send(payload, {
+        onUpdate: (type, chunk) => {
+          if (type === 'content') {
+            text += chunk
+          }
+        },
+        onComplete: () => {
+          onSuccess(text)
+        },
+        onError: (errStr) => {
+          toast.error(errStr || t('Generation failed.'))
+          onError()
+        },
+      })
+    } catch (e: any) {
+      toast.error(e.message || t('Generation failed.'))
+      onError()
+    }
+  }
+
   const runAiGeneration = async (kind: 'generate' | 'refine') => {
     const prompt = kind === 'generate' ? aiPrompt.trim() : aiRefinePrompt.trim()
     const model = aiModel || aiModels?.[0] || ''
@@ -235,67 +280,68 @@ export function BlogManager() {
       toast.error(t('No AI model available'))
       return
     }
-    setAiGenerating(true)
-    try {
-      const hasDraft = hasAnyLocalizedContent(postForm)
-      const systemParts: string[] = [buildBlogAiSystemPrompt()]
-      if (kind === 'refine') {
+    const hasDraft = hasAnyLocalizedContent(postForm)
+    const systemParts: string[] = [buildBlogAiSystemPrompt()]
+    if (kind === 'refine') {
+      systemParts.push(
+        'The admin already has a draft below (JSON, same schema. Edit/improve ONLY the requested parts of that draft and return the complete updated JSON (no missing keys).'
+      )
+      systemParts.push(`CURRENT DRAFT:${JSON.stringify(draftToAiJson(postForm))}`)
+    } else {
+      if (hasDraft) {
         systemParts.push(
-          'The admin already has a draft below (JSON, same schema. Edit/improve ONLY the requested parts of that draft and return the complete updated JSON (no missing keys).'
+          'You are also given a current draft below (JSON, same schema. Improve it per the user instructions and return the complete updated JSON with no missing keys.'
         )
         systemParts.push(`CURRENT DRAFT:${JSON.stringify(draftToAiJson(postForm))}`)
-      } else {
-        if (hasDraft) {
-          systemParts.push(
-            'You are also given a current draft below (JSON, same schema. Improve it per the user instructions and return the complete updated JSON with no missing keys.'
-          )
-          systemParts.push(`CURRENT DRAFT:${JSON.stringify(draftToAiJson(postForm))}`)
-        }
       }
-      let userRequest = prompt
-      if (kind === 'generate') {
-        userRequest = prompt.includes('\n') ? prompt : `Write a blog post about: ${prompt}`
-      }
-
-      const res = await sendChatCompletion({
-        model,
-        messages: [
-          { role: 'system', content: systemParts.join('\n\n') },
-          { role: 'user', content: userRequest },
-        ],
-        stream: false,
-        temperature: 0.7,
-        response_format: { type: 'json_object' }
-      }, undefined, 900000)
-      const content = res.choices?.[0]?.message?.content
-      const parsed = content ? parseBlogAiResponse(content) : null
-      if (!parsed) {
-        toast.error(t('AI returned an unparseable response. Try again.'))
-        return
-      }
-      setPostForm((current) => ({
-        ...current,
-        ...parsed,
-        title: parsed.titles.en || current.title,
-        summary: parsed.summaries.en || current.summary,
-        content: parsed.contents.en || current.content,
-        tags: parsed.tags_list.en || current.tags,
-        seo_description: parsed.seo_descriptions.en || current.seo_description,
-      }))
-      toast.success(kind === 'generate' ? t('Draft generated. Review or edit it below.') : t('Draft updated. Review or edit it below.'))
-      if (kind === 'generate') {
-        setAiPrompt('')
-        setAiRefinePrompt('')
-        setIsAiOpen(false)
-        setIsEditorOpen(true)
-      } else {
-        setAiRefinePrompt('')
-      }
-    } catch {
-      toast.error(t('AI generation failed'))
-    } finally {
-      setAiGenerating(false)
     }
+    let userRequest = prompt
+    if (kind === 'generate') {
+      userRequest = prompt.includes('\n') ? prompt : `Write a blog post about: ${prompt}`
+    }
+
+    const payload = {
+      model,
+      messages: [
+        { role: 'system', content: systemParts.join('\n\n') },
+        { role: 'user', content: userRequest },
+      ],
+      stream: true,
+      temperature: 0.7,
+      response_format: { type: 'json_object' },
+    }
+
+    runAiStreamWithController(
+      payload,
+      () => setAiGenerating(true),
+      (content) => {
+        setAiGenerating(false)
+        const parsed = content ? parseBlogAiResponse(content) : null
+        if (!parsed) {
+          toast.error(t('AI returned an unparseable response. Try again.'))
+          return
+        }
+        setPostForm((current) => ({
+          ...current,
+          ...parsed,
+          title: parsed.titles.en || current.title,
+          summary: parsed.summaries.en || current.summary,
+          content: parsed.contents.en || current.content,
+          tags: parsed.tags_list.en || current.tags,
+          seo_description: parsed.seo_descriptions.en || current.seo_description,
+        }))
+        toast.success(kind === 'generate' ? t('Draft generated. Review or edit it below.') : t('Draft updated. Review or edit it below.'))
+        if (kind === 'generate') {
+          setAiPrompt('')
+          setAiRefinePrompt('')
+          setIsAiOpen(false)
+          setIsEditorOpen(true)
+        } else {
+          setAiRefinePrompt('')
+        }
+      },
+      () => setAiGenerating(false)
+    )
   }
 
   const runAiTranslation = async () => {
