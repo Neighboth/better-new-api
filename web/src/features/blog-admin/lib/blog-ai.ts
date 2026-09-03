@@ -24,14 +24,11 @@ const BLOG_AI_LANGUAGE_PROMPT = INTERFACE_LANGUAGE_OPTIONS.map(
   (lang) => `  "${lang.code}": "${lang.label}" (language: ${lang.code})`
 ).join('\n')
 
-/**
- * Build the system prompt that instructs the model to produce a complete,
- * per-language blog post matching the site's supported locales.
- */
 export function buildBlogAiSystemPrompt(): string {
   return [
     'You are an expert multilingual content writer. Write a complete blog post for a tech product company (an AI API gateway/platform).',
-    'Respond ONLY with a single valid JSON object - no markdown fences, no commentary, no trailing commas.',
+    'Respond ONLY with a single valid JSON object. Do not include markdown fences, do not output any reasoning/thinking logic, do not include any commentary, and no trailing commas.',
+    'Your output MUST start exactly with { and end with }.',
     'The JSON must have exactly these keys:',
     JSON.stringify(
       {
@@ -56,11 +53,6 @@ export function buildBlogAiSystemPrompt(): string {
   ].join('\n')
 }
 
-/**
- * Parse the model's response text (which may be wrapped in code fences)
- * into a per-language blog post draft. Returns null when the output is
- * unusable to avoid clobbering the admin's existing draft.on bad input.
- */
 function sanitizeLocaleValues(
   raw: unknown
 ): Record<string, string> {
@@ -76,7 +68,6 @@ function sanitizeLocaleValues(
     }
   }
 
-  // Some models flatten the object into a plain string lane (single-language).
   if (typeof raw === 'string' && raw.trim()) {
     result.en = raw.trim()
   }
@@ -94,6 +85,15 @@ export function parseBlogAiResponse(
     let text = rawText.trim()
     const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
     if (fenceMatch) text = fenceMatch[1].trim()
+
+    text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+
+    const firstBrace = text.indexOf('{')
+    const lastBrace = text.lastIndexOf('}')
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      text = text.slice(firstBrace, lastBrace + 1)
+    }
+
     const parsed: unknown = JSON.parse(text)
 
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
@@ -111,7 +111,8 @@ export function parseBlogAiResponse(
       tags_list: sanitizeLocaleValues(obj.tags),
       seo_descriptions: sanitizeLocaleValues(obj.seo_description),
     }
-  } catch {
+  } catch (err) {
+    console.error("AI Blog parsing error:", err, rawText)
     return null
   }
 }

@@ -50,7 +50,7 @@ export function SystemInfo() {
           onClick={async () => {
             if (!confirm(t('Are you sure you want to reset all performance health metrics data?'))) return
             try {
-              const res = await api.delete('/api/perf_metrics')
+              const res = await api.delete('/api/perf-metrics')
               if (res.data?.success) {
                 toast.success(t('Performance metrics reset successfully'))
               } else {

@@ -381,7 +381,8 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 			strings.HasPrefix(reqPath, "/v1") ||
 			strings.HasPrefix(reqPath, "/pg") ||
 			strings.HasPrefix(reqPath, "/mj") ||
-			strings.HasPrefix(reqPath, "/suno") {
+			strings.HasPrefix(reqPath, "/suno") ||
+			strings.HasPrefix(reqPath, "/uploads") {
 			c.Next()
 			return
 		}

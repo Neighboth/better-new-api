@@ -45,6 +45,7 @@ type Monitor struct {
 
 type UptimeGroupResult struct {
 	CategoryName string    `json:"categoryName"`
+	CustomName   string    `json:"customName,omitempty"`
 	Monitors     []Monitor `json:"monitors"`
 }
 
@@ -76,6 +77,7 @@ func fetchGroupData(ctx context.Context, client *http.Client, groupConfig map[st
 
 	result := UptimeGroupResult{
 		CategoryName: categoryName,
+		CustomName:   getMapString(groupConfig, "customName"),
 		Monitors:     []Monitor{},
 	}
 
@@ -271,4 +273,12 @@ func GetUptimeKumaStatus(c *gin.Context) {
 
 	g.Wait()
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": results})
+}
+func getMapString(m map[string]interface{}, key string) string {
+	if val, ok := m[key]; ok {
+		if str, ok := val.(string); ok {
+			return str
+		}
+	}
+	return ""
 }

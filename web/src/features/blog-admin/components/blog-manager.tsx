@@ -358,18 +358,23 @@ export function BlogManager() {
         }),
       ].join('\n\n')
 
-      const res = await sendChatCompletion({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: JSON.stringify(sourcePayload) },
-        ],
-        stream: false,
-        temperature: 0.3,
-        response_format: { type: 'json_object' }
-      }, undefined, 900000)
-
-      const content = res.choices?.[0]?.message?.content
+      let content = ''
+      try {
+        const res = await sendChatCompletion({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: JSON.stringify(sourcePayload) },
+          ],
+          stream: false,
+          temperature: 0.3,
+          response_format: { type: 'json_object' }
+        }, undefined, 900000)
+        content = res.choices?.[0]?.message?.content || ''
+      } catch (err: any) {
+        toast.error(err.response?.data?.error?.message || err.message || t('Translation failed.'))
+        return
+      }
       if (!content) {
         toast.error(t('Translation failed'))
         return
