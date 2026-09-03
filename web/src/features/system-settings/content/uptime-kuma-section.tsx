@@ -162,10 +162,11 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
 
   const handleEdit = (group: UptimeKumaGroup) => {
     setEditingGroup(group)
+    const p = (group.provider as 'uptime_kuma' | 'uptime_robot' | 'instatus') || 'uptime_kuma'
     form.reset({
       categoryName: group.categoryName,
       customName: group.customName || '',
-      provider: (group.provider as 'uptime_kuma' | 'uptime_robot' | 'instatus') || 'uptime_kuma',
+      provider: p === 'uptime_robot' ? 'uptime_kuma' : p,
       url: group.url,
       slug: group.slug,
     })
@@ -209,16 +210,17 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
   const selectedProvider = form.watch('provider')
 
   const handleSubmitForm = (values: UptimeKumaFormValues) => {
+    const formattedValues = { ...values, slug: values.slug || '' }
     if (editingGroup) {
       setGroups((prev) =>
         prev.map((item) =>
-          item.id === editingGroup.id ? { ...item, ...values } : item
+          item.id === editingGroup.id ? { ...item, ...formattedValues } : item
         )
       )
       toast.success(t('Group updated. Click "Save Settings" to apply.'))
     } else {
       const newId = Math.max(...groups.map((item) => item.id), 0) + 1
-      setGroups((prev) => [...prev, { id: newId, ...values }])
+      setGroups((prev) => [...prev, { id: newId, ...formattedValues }])
       toast.success(t('Group added. Click "Save Settings" to apply.'))
     }
     setHasChanges(true)

@@ -32,7 +32,7 @@ import {
 } from '../lib'
 import type { ChatCompletionRequest, ToolCallDelta } from '../types'
 
-interface StreamEventSource {
+export interface StreamEventSource {
   readyState?: number
   addEventListener: (
     type: string,

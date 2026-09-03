@@ -171,6 +171,7 @@ export interface ChatCompletionRequest {
   tools?: ChatCompletionTool[]
   tool_choice?: 'auto'
   reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high'
+  response_format?: { type: 'json_object' | 'text' }
 }
 
 export interface ToolCallDelta {
