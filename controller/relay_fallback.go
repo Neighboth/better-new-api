@@ -201,6 +201,9 @@ func advanceFallbackModel(c *gin.Context, relayInfo *relaycommon.RelayInfo, retr
 		logger.LogError(c, err.Error())
 		return false
 	}
+	if err := applyFallbackSystemPrompt(c, relayInfo, fb); err != nil {
+		logger.LogWarn(c, fmt.Sprintf("failed to apply fallback system prompt: %s", err.Error()))
+	}
 	retryParam.ModelName = cand
 	retryParam.SetRetry(0)
 	fb.advance()
