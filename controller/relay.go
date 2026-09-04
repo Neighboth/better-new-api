@@ -127,9 +127,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	fbState := newFallbackState(relayInfo)
-	if err := applyFallbackSystemPrompt(c, relayInfo, fbState); err != nil {
-		logger.LogWarn(c, fmt.Sprintf("failed to apply fallback system prompt: %s", err.Error()))
-	}
 
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	needCountToken := constant.CountToken
