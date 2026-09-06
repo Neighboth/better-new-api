@@ -71,15 +71,16 @@ type SEOSectionProps = {
   defaultValues: SEOFormValues
 }
 
-const robotsPolicyLabels: Record<(typeof robotsPolicies)[number], string> = {
-  allow_all: 'Allow every crawler (fully open)',
-  block_all: 'Block every crawler',
-  block_ai: 'Allow search engines, block AI training crawlers',
-  custom: 'Custom rules (paste robots.txt content below)',
-}
+const getRobotsPolicyLabels = (t: (key: string) => string): Record<(typeof robotsPolicies)[number], string> => ({
+  allow_all: t('Allow every crawler (fully open)'),
+  block_all: t('Block every crawler'),
+  block_ai: t('Allow search engines, block AI training crawlers'),
+  custom: t('Custom rules (paste robots.txt content below)'),
+})
 
 export function SEOSection({ defaultValues }: SEOSectionProps) {
   const { t } = useTranslation()
+  const robotsPolicyLabels = getRobotsPolicyLabels(t)
   const updateOption = useUpdateOption()
 
   const form = useForm<SEOFormValues>({

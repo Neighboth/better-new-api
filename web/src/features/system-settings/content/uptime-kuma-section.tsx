@@ -463,8 +463,8 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
                     <Input
                       placeholder={
                         selectedProvider === 'instatus'
-                          ? 'https://pixrouter.instatus.com/history.rss'
-                          : 'https://status.example.com'
+                          ? t('https://pixrouter.instatus.com/history.rss')
+                          : t('https://status.example.com')
                       }
                       {...field}
                     />

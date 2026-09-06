@@ -104,7 +104,7 @@ export function RelayFallbackSection({
                 <FormControl>
                   <Input
                     {...field}
-                    placeholder='gpt-4o-mini, gemini-2.0-flash'
+                    placeholder={t('gpt-4o-mini, gemini-2.0-flash')}
                   />
                 </FormControl>
                 <FormDescription>

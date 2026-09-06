@@ -32,8 +32,17 @@ import { fetchBlogPosts, type BlogPost } from './api'
 
 const LOADING_SKELETON_KEYS = ['s1', 's2', 's3', 's4', 's5', 's6']
 
+import { normalizeInterfaceLanguage } from '@/i18n/languages'
+
 function BlogPostCard(props: { post: BlogPost }) {
+  const { i18n } = useTranslation()
   const post = props.post
+  const lang = normalizeInterfaceLanguage(i18n.language)
+
+  const title = post.localizations?.titles?.[lang] || post.title
+  const summary = post.localizations?.summaries?.[lang] || post.summary
+  const tagsListStr = post.localizations?.tags_list?.[lang]
+  const tags = tagsListStr ? tagsListStr.split(',').map((t) => t.trim()).filter(Boolean) : (post.tags ?? [])
 
   return (
     <Link to='/blog/$postId' params={{ postId: String(post.id) }}>
@@ -41,22 +50,22 @@ function BlogPostCard(props: { post: BlogPost }) {
         {post.cover ? (
           <img
             src={post.cover}
-            alt={post.title}
+            alt={title}
             className='-mt-4 aspect-video w-full object-cover'
             loading='lazy'
           />
         ) : null}
         <CardHeader className='space-y-1'>
-          <CardTitle className='line-clamp-2 text-base'>{post.title}</CardTitle>
+          <CardTitle className='line-clamp-2 text-base'>{title}</CardTitle>
         </CardHeader>
         <CardContent className='space-y-3'>
-          {post.summary ? (
+          {summary ? (
             <p className='text-muted-foreground line-clamp-3 text-sm'>
-              {post.summary}
+              {summary}
             </p>
           ) : null}
           <div className='flex flex-wrap items-center gap-2'>
-            {(post.tags ?? []).map((tag) => (
+            {tags.map((tag) => (
               <Badge key={tag} variant='secondary'>
                 {tag}
               </Badge>

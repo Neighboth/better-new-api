@@ -755,7 +755,7 @@ export function BlogManager() {
             onChange={(event) => setAiPrompt(event.target.value)}
           />
           <p className='text-muted-foreground text-xs'>
-            {t('The AI writes title, summary, tags, SEO description,and full content for every supported language.')}
+            {t('The AI writes title, summary, tags, SEO description, and full content for every supported language.')}
           </p>
         </div>
         {hasAnyLocalizedContent(postForm) && (

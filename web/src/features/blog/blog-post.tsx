@@ -34,13 +34,14 @@ import { BlogAds } from './components/blog-ads-block'
 import { BlogComments } from './components/comments'
 import { ReactionButtons } from './components/reaction-buttons'
 import { useSeoMeta } from '@/hooks/use-seo-meta'
+import { normalizeInterfaceLanguage } from '@/i18n/languages'
 
 type BlogPostPageProps = {
   postId: string
 }
 
 export function BlogPostPage(props: BlogPostPageProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { status } = useStatus()
   const blogEnabled = Boolean(status?.blog_enabled)
 
@@ -53,20 +54,27 @@ export function BlogPostPage(props: BlogPostPageProps) {
   const post = data?.success ? data.data.post : null
   const reactions = data?.success ? data.data.reactions : {}
 
+  const lang = normalizeInterfaceLanguage(i18n.language)
+  const title = post?.localizations?.titles?.[lang] || post?.title || ''
+  const content = post?.localizations?.contents?.[lang] || post?.content || ''
+  const seoDescription = post?.localizations?.seo_descriptions?.[lang] || post?.seo_description
+  const tagsListStr = post?.localizations?.tags_list?.[lang]
+  const tags = tagsListStr ? tagsListStr.split(',').map((t) => t.trim()).filter(Boolean) : (post?.tags ?? [])
+
   useEffect(() => {
-    if (!post?.title) return
+    if (!title) return
     const previousTitle = document.title
-    document.title = post.title
+    document.title = title
     return () => {
       document.title = previousTitle
     }
-  }, [post?.title])
+  }, [title])
 
   // Language-aware SEO： Google indexes this page in the language of the
   // requesting user (the backend already localizes the content by header）。
   useSeoMeta({
-    title: post?.title ?? '',
-    description: post?.seo_description,
+    title,
+    description: seoDescription,
     localizedTitles: post?.localizations?.titles,
     localizedDescriptions: post?.localizations?.seo_descriptions,
   })
@@ -129,10 +137,10 @@ export function BlogPostPage(props: BlogPostPageProps) {
         </Link>
 
         <header className='space-y-3'>
-          <h1 className='text-3xl font-bold'>{post.title}</h1>
+          <h1 className='text-3xl font-bold'>{title}</h1>
           <div className='text-muted-foreground flex flex-wrap items-center gap-3 text-sm'>
             <span>{dayjs(post.created_at).format('YYYY-MM-DD')}</span>
-            {(post.tags ?? []).map((tag) => (
+            {tags.map((tag) => (
               <Badge key={tag} variant='secondary'>
                 {tag}
               </Badge>
@@ -142,13 +150,13 @@ export function BlogPostPage(props: BlogPostPageProps) {
         {post.cover_image ? (
           <img
             src={post.cover_image}
-            alt={post.title}
+            alt={title}
             className='w-full rounded-lg border object-cover'
           />
         ) : null}
 
         <RichContent
-          content={post.content}
+          content={content}
           mode='markdown'
           className='max-w-none'
         />
