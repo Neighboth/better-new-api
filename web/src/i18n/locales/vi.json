@@ -5562,14 +5562,8 @@
     "Enable Captcha Challenge": "Bật thử thách Captcha",
     "Require captcha verification before serving this file or folder.": "Yêu cầu xác minh captcha trước khi phục vụ tệp hoặc thư mục này.",
     "New Name": "Tên mới",
-    "URL / Endpoint": "URL / Điểm cuối"
-  },
-  "Relay Fallback": "Relay Fallback",
-  "Enable Relay Fallback": "Enable Relay Fallback",
-  "When the requested model fails or has no price configured, try the fallback models below.": "When the requested model fails or has no price configured, try the fallback models below.",
-  "Fallback Models": "Fallback Models",
-  "Comma-separated model names attempted in order after the original model.": "Comma-separated model names attempted in order after the original model.",
-  "Fallback System Prompt": "Fallback System Prompt",
-  "Optional system prompt applied to every relay attempt": "Optional system prompt applied to every relay attempt",
-  "Prepended to the system message; useful for routing or safety constraints.": "Prepended to the system message; useful for routing or safety constraints."
+    "URL / Endpoint": "URL / Điểm cuối",
+    "When the requested model fails or has no price configured, try the fallback models below.": "When the requested model fails or has no price configured, try the fallback models below.",
+    "Prepended to the system message; useful for routing or safety constraints.": "Prepended to the system message; useful for routing or safety constraints."
+  }
 }
