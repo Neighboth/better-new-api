@@ -240,16 +240,18 @@ func GetAllBlogPosts(c *gin.Context) {
 		return
 	}
 	total, _ := model.GetBlogPostCount(false)
+	locale := preferredBlogLocale(c)
 	localeItems := make([]gin.H, 0, len(posts))
 	for _, post := range posts {
+		localized := post.ResolveBlogContent(locale)
 		localeItems = append(localeItems, gin.H{
 			"id":              post.Id,
-			"title":            post.Title,
-			"summary":          post.Summary,
-			"content":          post.Content,
+			"title":            localized.Title,
+			"summary":          localized.Summary,
+			"content":          localized.Content,
 			"cover_image":      post.CoverImage,
-			"tags":             post.Tags,
-			"seo_description":  post.SeoDescription,
+			"tags":             splitBlogTags(localized.Tags),
+			"seo_description":  localized.SeoDescription,
 			"published":        post.Published,
 			"created_at":       post.CreatedAt,
 			"updated_at":       post.UpdatedAt,
