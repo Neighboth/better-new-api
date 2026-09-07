@@ -21,6 +21,7 @@ import dayjs from 'dayjs'
 import { Languages, Loader2, MessageSquare, Pencil, Plus, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Markdown } from '@/components/ui/markdown'
 import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
@@ -197,6 +198,13 @@ export function BlogManager() {
 
   const openEditPost = (post: BlogPostItem) => {
     setEditingPost(post)
+    const localizations = blogLocalizationsFromPayload(post.localizations)
+    if (!localizations.titles.en && post.title) localizations.titles.en = post.title
+    if (!localizations.summaries.en && post.summary) localizations.summaries.en = post.summary
+    if (!localizations.contents.en && post.content) localizations.contents.en = post.content
+    if (!localizations.tags_list.en && post.tags) localizations.tags_list.en = post.tags
+    if (!localizations.seo_descriptions.en && post.seo_description) localizations.seo_descriptions.en = post.seo_description
+
     setPostForm({
       title: post.title,
       summary: post.summary,
@@ -205,7 +213,7 @@ export function BlogManager() {
       tags: post.tags,
       seo_description: post.seo_description,
       published: post.published,
-      ...blogLocalizationsFromPayload(post.localizations),
+      ...localizations,
     })
     setActiveLanguage('en')
     setIsEditorOpen(true)
@@ -871,6 +879,7 @@ function PostLanguageFields(props: {
   onChange: (patch: Partial<BlogPostForm>) => void
 }) {
   const { t } = useTranslation()
+  const [isPreview, setIsPreview] = useState(false)
 
   const setLocalized = (key: 'titles' | 'summaries' | 'contents' | 'tags_list' | 'seo_descriptions', value: string) => {
     props.onChange({
@@ -921,13 +930,24 @@ function PostLanguageFields(props: {
         />
       </div>
       <div className='grid gap-2'>
-        <Label>{t('Content (Markdown)')}</Label>
-        <Textarea
-          rows={12}
-          value={props.form.contents[props.langCode] ?? ''}
-          className='font-mono text-xs'
-          onChange={(event) => setLocalized('contents', event.target.value)}
-        />
+        <div className='flex items-center justify-between'>
+          <Label>{t('Content (Markdown)')}</Label>
+          <Button type='button' variant='ghost' size='sm' onClick={() => setIsPreview(!isPreview)}>
+            {isPreview ? t('Edit') : t('Preview')}
+          </Button>
+        </div>
+        {isPreview ? (
+          <div className='min-h-[200px] max-h-[500px] overflow-y-auto rounded-md border p-4 bg-muted/20'>
+            <Markdown>{props.form.contents[props.langCode] ?? ''}</Markdown>
+          </div>
+        ) : (
+          <Textarea
+            rows={12}
+            value={props.form.contents[props.langCode] ?? ''}
+            className='font-mono text-xs'
+            onChange={(event) => setLocalized('contents', event.target.value)}
+          />
+        )}
       </div>
       <p className='text-muted-foreground text-xs'>
         {props.langCode === 'en'

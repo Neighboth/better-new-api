@@ -115,7 +115,7 @@ export function VendorSettingsSection() {
             {t('No vendors found.')}
           </div>
         ) : (
-          <div className='rounded-md border overflow-x-auto '>
+          <div className='rounded-md border overflow-x-auto overflow-y-auto max-h-[70vh]'>
             <Table>
               <TableHeader>
                 <TableRow>
