@@ -1,0 +1,136 @@
+--- web/src/features/blog-admin/components/blog-manager.tsx
++++ web/src/features/blog-admin/components/blog-manager.tsx
+@@ -796,6 +796,22 @@
+                 {t('Cancel')}
+               </Button>
+               <Button
++                type='button'
++                variant='outline'
++                className='flex-1 sm:flex-none text-destructive hover:text-destructive'
++                onClick={retryAiGeneration}
++                disabled={aiGenerating}
++                style={{ display: aiGenerationError ? 'block' : 'none' }}
++              >
++                {aiGenerating ? (
++                  <Loader2 className='me-1 h-4 w-4 animate-spin' />
++                ) : (
++                  <Sparkles className='me-1 h-4 w-4' />
++                )}
++                {t('Try again')}
++              </Button>
++              <Button
+                 type='button'
+                 className='flex-1 sm:flex-none'
+                 disabled={
+-                  savePost.isPending ||
++                  savePost.isPending || aiGenerating ||
+                   !hasAnyTitleAndContent(postForm)
+                 }
+                 onClick={() => savePost.mutate()}
+@@ -829,11 +845,15 @@
+           </div>
+         </div>
+
++        {aiGenerating && (
++          <p className='text-muted-foreground text-sm flex items-center'><Loader2 className='me-2 h-4 w-4 animate-spin' />{t('Generating, please wait...')}</p>
++        )}
++
+         <Tabs value={activeLanguage} onValueChange={setActiveLanguage}>
+           <TabsList className='flex w-full flex-wrap gap-1'>
+             {INTERFACE_LANGUAGE_OPTIONS.map((lang) => (
+               <TabsTrigger key={lang.code} value={lang.code} className='text-xs'>
+                 {lang.flag} {lang.code}
+               </TabsTrigger>
+             ))}
+           </TabsList>
+@@ -842,6 +862,7 @@
+             <TabsContent key={lang.code} value={lang.code} className='mt-4 space-y-4'>
+               <PostLanguageFields
+                 langCode={lang.code}
++                readOnly={aiGenerating}
+                 languageLabel={lang.label}
+                 form={postForm}
+                 onChange={(patch: Partial<BlogPostForm>) =>
+@@ -866,7 +887,7 @@
+             {hasAnyLocalizedContent(postForm) && (
+               <Button
+                 type='button'
+                 variant='outline'
+                 disabled={aiGenerating}
+-                onClick={() => runAiGeneration('refine')}
++                onClick={() => startAiGeneration('refine')}
+               >
+                 {aiGenerating ? (
+                   <Loader2 className='h-4 w-4 animate-spin' />
+@@ -879,7 +900,7 @@
+             <Button
+               type='button'
+               disabled={aiGenerating}
+-              onClick={() => runAiGeneration('generate')}
++              onClick={() => startAiGeneration('generate')}
+             >
+               {aiGenerating ? (
+                 <>
+@@ -1030,6 +1051,7 @@
+ function PostLanguageFields(props: {
+   langCode: string
+   languageLabel: string
++  readOnly?: boolean
+   form: BlogPostForm
+   onChange: (patch: Partial<BlogPostForm>) => void
+ }) {
+@@ -1056,6 +1078,7 @@
+         <Input
+           value={props.form.titles[props.langCode] ?? ''}
+           onChange={(event) => setLocalized('titles', event.target.value)}
++          readOnly={props.readOnly}
+         />
+       </div>
+       <div className='grid gap-2'>
+         <Label>{t('Summary')}</Label>
+         <Textarea
+           rows={2}
+           value={props.form.summaries[props.langCode] ?? ''}
+           onChange={(event) => setLocalized('summaries', event.target.value)}
++          readOnly={props.readOnly}
+         />
+       </div>
+       <div className='grid gap-2'>
+         <Label>{t('Tags (comma separated)')}</Label>
+         <Input
+           value={props.form.tags_list[props.langCode] ?? ''}
+           placeholder={t('news, update')}
+           onChange={(event) => setLocalized('tags_list', event.target.value)}
++          readOnly={props.readOnly}
+         />
+       </div>
+       <div className='grid gap-2'>
+         <Label>{t('SEO description')}</Label>
+         <Textarea
+           rows={2}
+           value={props.form.seo_descriptions[props.langCode] ?? ''}
+           onChange={(event) => setLocalized('seo_descriptions', event.target.value)}
++          readOnly={props.readOnly}
+         />
+       </div>
+       <div className='grid gap-2'>
+         <div className='flex items-center justify-between'>
+           <Label>{t('Content (Markdown)')}</Label>
+           <Button type='button' variant='ghost' size='sm' onClick={() => setIsPreview(!isPreview)}>
+             {isPreview ? t('Edit') : t('Preview')}
+           </Button>
+         </div>
+         {isPreview ? (
+           <div className='min-h-[200px] max-h-[500px] overflow-y-auto rounded-md border p-4 bg-muted/20'>
+             <Markdown>{props.form.contents[props.langCode] ?? ''}</Markdown>
+           </div>
+         ) : (
+           <Textarea
+             rows={12}
+             value={props.form.contents[props.langCode] ?? ''}
+             className='font-mono text-xs'
+             onChange={(event) => setLocalized('contents', event.target.value)}
++            readOnly={props.readOnly}
+           />
+         )}
+       </div>

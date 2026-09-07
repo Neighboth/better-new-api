@@ -122,7 +122,7 @@ function CustomNavContent(props: CustomNavContentProps) {
         title={props.title}
         className='h-full min-h-[500px] w-full rounded-lg border'
         referrerPolicy='no-referrer'
-        sandbox='allow-forms allow-popups allow-popups-to-escape-sandbox allow-scripts'
+        sandbox='allow-forms allow-popups allow-popups-to-escape-sandbox allow-scripts allow-same-origin'
       />
     )
   }
