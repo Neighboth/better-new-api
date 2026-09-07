@@ -9,39 +9,60 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"sort"
 
 	"github.com/gin-gonic/gin"
 )
 
 type fallbackState struct {
-	models []string
-	idx    int
-	orig   string
-	on     bool
-	prompt string
-	done   bool
+	models           []string
+	idx              int
+	orig             string
+	on               bool
+	prompt           string
+	done             bool
+	configuredModels map[string]bool
 }
 
 func newFallbackState(info *relaycommon.RelayInfo) *fallbackState {
 	s := operation_setting.GetRelayFallbackSetting()
-	models := s.FallbackModelList()
-	unique := make([]string, 0, len(models))
+
+	unique := make([]string, 0)
 	seen := map[string]bool{info.GetOriginModelName(): true}
-	for _, m := range models {
-		if !seen[m] {
-			seen[m] = true
-			unique = append(unique, m)
+	configuredModels := make(map[string]bool)
+
+	if s.EnableFallback {
+		// 1. Add configured fallback models
+		for _, m := range s.FallbackModelList() {
+			configuredModels[m] = true
+			if !seen[m] {
+				seen[m] = true
+				unique = append(unique, m)
+			}
+		}
+
+		// 2. Add all other enabled models alphabetically as a last resort
+		allModels := model.GetEnabledModels()
+		sort.Strings(allModels) // Ensure alphabetical order
+		for _, m := range allModels {
+			if !seen[m] {
+				seen[m] = true
+				unique = append(unique, m)
+			}
 		}
 	}
+
 	return &fallbackState{
-		models: unique,
-		orig:   info.GetOriginModelName(),
-		on:     s.EnableFallback,
-		prompt: strings.TrimSpace(s.FallbackSystemPrompt),
+		models:           unique,
+		orig:             info.GetOriginModelName(),
+		on:               s.EnableFallback,
+		prompt:           strings.TrimSpace(s.FallbackSystemPrompt),
+		configuredModels: configuredModels,
 	}
 }
 
@@ -111,6 +132,10 @@ func switchRelayModel(c *gin.Context, info *relaycommon.RelayInfo, newModel stri
 
 func applyFallbackSystemPrompt(c *gin.Context, info *relaycommon.RelayInfo, s *fallbackState) error {
 	if s == nil || !s.on || s.done {
+		return nil
+	}
+	// Sadece configured fallback models içinde yer alan bir model'e fallback yapıldığında prompt eklenir
+	if !s.configuredModels[info.OriginModelName] {
 		return nil
 	}
 	prompt := strings.TrimSpace(s.prompt)
@@ -206,6 +231,7 @@ func advanceFallbackModel(c *gin.Context, relayInfo *relaycommon.RelayInfo, retr
 	}
 	retryParam.ModelName = cand
 	retryParam.SetRetry(0)
+	retryParam.IgnoredChannelIds = nil // Clear ignored channels for the new model
 	fb.advance()
 	return true
 }
