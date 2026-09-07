@@ -219,7 +219,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
 
-	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
+	for {
 		relayInfo.RetryIndex = retryParam.GetRetry()
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
@@ -230,6 +230,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 			continue
 		}
+		retryParam.IgnoredChannelIds = append(retryParam.IgnoredChannelIds, channel.Id)
 		addUsedChannel(c, channel.Id)
 		if billingErr := service.PrepareTieredBillingForSelectedGroup(c, relayInfo); billingErr != nil {
 			newAPIError = billingErr
@@ -269,13 +270,23 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
-		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
-			// Retry hakkı bitti: sıradaki fallback modele geç.
+		if !shouldRetry(c, newAPIError, 1) { // 1 to allow logic in shouldRetry to pass if its a retryable error
+			// Error is not retryable. Don't retry, just break or try fallback if applicable.
 			if !advanceFallbackModel(c, relayInfo, retryParam, fbState) {
 				break
 			}
 			continue
 		}
+
+		// It is retryable, but if we exceed retry times, we should fallback
+		if retryParam.GetRetry() >= common.RetryTimes {
+			if !advanceFallbackModel(c, relayInfo, retryParam, fbState) {
+				break
+			}
+			continue
+		}
+
+		retryParam.IncreaseRetry()
 	}
 
 	useChannel := c.GetStringSlice("use_channel")
