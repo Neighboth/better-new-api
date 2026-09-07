@@ -22,11 +22,10 @@ jobs:
           go-version: '1.22'
 
       - name: Build Web Frontend
+        working-directory: web
         run: |
-          cd web
-          npm install
+          npm install --legacy-peer-deps
           npm run build
-          cd ..
 
       - name: Build Go Binary (Linux ARM64)
         env:
