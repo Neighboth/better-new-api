@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -169,21 +170,21 @@ func UploadVendorLogo(c *gin.Context) {
 	_, _ = f.Read(fileBytes)
 
 	fileName := fmt.Sprintf("%d_%s%s", time.Now().UnixNano(), common.GetRandomString(6), ext)
-	relPath := "managed_files/vendors/" + fileName
 
-	now := common.GetTimestamp()
-	mf := model.ManagedFile{
-		Path:      relPath,
-		Name:      fileName,
-		IsDir:     false,
-		Size:      file.Size,
-		Content:   fileBytes,
-		CreatedAt: now,
-		UpdatedAt: now,
+	// Create vendors uploads directory if it doesn't exist
+	uploadDir := filepath.Join("uploads", "vendors")
+	if err := os.MkdirAll(uploadDir, 0777); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to create directory: " + err.Error()})
+		return
 	}
-	model.DB.Create(&mf)
 
-	url := "/" + relPath
+	filePath := filepath.Join(uploadDir, fileName)
+	if err := os.WriteFile(filePath, fileBytes, 0644); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to save file: " + err.Error()})
+		return
+	}
+
+	url := "/uploads/vendors/" + fileName
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    url,

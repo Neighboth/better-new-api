@@ -184,11 +184,13 @@ type blogPostRequest struct {
 	SeoDescription string `json:"seo_description"`
 	Published      bool   `json:"published"`
 	// Per-language localized fields;keyed by locale ("en", "tr", ...).
-	Titles         map[string]string`json:"titles"`
-	Summaries      map[string]string`json:"summaries"`
-	Contents       map[string]string`json:"contents"`
-	TagsList       map[string]string`json:"tags_list"`
-	SeoDescriptions map[string]string`json:"seo_descriptions"`
+	Localizations  struct {
+		Titles          map[string]string `json:"titles"`
+		Summaries       map[string]string `json:"summaries"`
+		Contents        map[string]string `json:"contents"`
+		TagsList        map[string]string `json:"tags_list"`
+		SeoDescriptions map[string]string `json:"seo_descriptions"`
+	} `json:"localizations"`
 }
 
 func sanitizeBlogPostRequest(req *blogPostRequest) {
@@ -311,9 +313,8 @@ func CreateBlogPost(c *gin.Context) {
 		SeoDescription: req.SeoDescription,
 		Published:      req.Published,
 	}
-	if len(req.Titles)+len(req.Summaries)+len(req.Contents)+len(req.TagsList)+len(req.SeoDescriptions) > 0 {
-		post.SetLocalized(req.Titles, req.Summaries, req.Contents, req.TagsList, req.SeoDescriptions)
-
+	if len(req.Localizations.Titles)+len(req.Localizations.Summaries)+len(req.Localizations.Contents)+len(req.Localizations.TagsList)+len(req.Localizations.SeoDescriptions) > 0 {
+		post.SetLocalized(req.Localizations.Titles, req.Localizations.Summaries, req.Localizations.Contents, req.Localizations.TagsList, req.Localizations.SeoDescriptions)
 	}
 	if err := model.CreateBlogPost(post); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
@@ -348,9 +349,8 @@ func UpdateBlogPost(c *gin.Context) {
 		SeoDescription: req.SeoDescription,
 		Published:      req.Published,
 	}
-	if len(req.Titles)+len(req.Summaries)+len(req.Contents)+len(req.TagsList)+len(req.SeoDescriptions) > 0 {
-		post.SetLocalized(req.Titles, req.Summaries, req.Contents, req.TagsList, req.SeoDescriptions)
-
+	if len(req.Localizations.Titles)+len(req.Localizations.Summaries)+len(req.Localizations.Contents)+len(req.Localizations.TagsList)+len(req.Localizations.SeoDescriptions) > 0 {
+		post.SetLocalized(req.Localizations.Titles, req.Localizations.Summaries, req.Localizations.Contents, req.Localizations.TagsList, req.Localizations.SeoDescriptions)
 	}
 	if err := model.UpdateBlogPost(post); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
