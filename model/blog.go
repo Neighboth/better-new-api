@@ -119,7 +119,7 @@ func marshalBlogLocalized(values map[string]string) string {
 }
 
 // NormalizeBlogLocale maps a user-provided or browser-detected locale onto
-// this project's blog locale keys (en, zhCN, zhTW, fr, ja, ru, vi).
+// this project's blog locale keys (en, zhCN, zhTW, fr, ja, ru, vi, tr).
 func NormalizeBlogLocale(locale string) string {
 	trimmed := strings.TrimSpace(locale)
 	if trimmed == "" {
@@ -138,7 +138,7 @@ func NormalizeBlogLocale(locale string) string {
 	switch lower {
 	case "zh":
 		return "zhCN"
-	case "en", "fr", "ja", "ru", "vi":
+	case "en", "fr", "ja", "ru", "vi", "tr":
 		return lower
 	}
 	return "en"

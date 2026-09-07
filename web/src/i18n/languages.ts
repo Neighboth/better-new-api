@@ -24,6 +24,7 @@ export const INTERFACE_LANGUAGE_OPTIONS = [
   { code: 'ja', flag: '🇯🇵', label: '日本語' },
   { code: 'vi', flag: '🇻🇳', label: 'Tiếng Việt' },
   { code: 'zhTW', flag: '🇹🇼', label: '繁體中文' },
+  { code: 'tr', flag: '🇹🇷', label: 'Türkçe' },
 ] as const
 
 export type InterfaceLanguageCode =
@@ -102,6 +103,8 @@ export function toIntlLocale(value?: string | null): string | undefined {
       return 'zh-CN'
     case 'zhTW':
       return 'zh-TW'
+    case 'tr':
+      return 'tr-TR'
     default:
       break
   }

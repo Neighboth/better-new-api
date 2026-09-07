@@ -146,5 +146,11 @@ api.interceptors.request.use((config) => {
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`
   }
+
+  const locale = localStorage.getItem('i18nextLng')
+  if (locale) {
+    config.headers['Accept-Language'] = locale
+  }
+
   return config
 })
