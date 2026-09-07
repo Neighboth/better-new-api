@@ -28,3 +28,9 @@ var ErrRedeemFailed = errors.New("redeem.failed")
 // 2FA errors
 var ErrTwoFANotEnabled = errors.New("2fa not enabled")
 var ErrTwoFAAlreadyEnabled = errors.New("2fa already enabled")
+
+// Subscription errors
+var (
+	ErrNoActiveSubscription          = errors.New("no active subscription")
+	ErrSubscriptionQuotaInsufficient = errors.New("subscription quota insufficient")
+)
