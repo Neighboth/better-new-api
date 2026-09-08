@@ -88,6 +88,8 @@ func initDefaultVendorMapping(metaMap map[string]*Model, vendorMap map[int]*Vend
 		if meta, exists := metaMap[modelName]; exists {
 			if meta.VendorID == 0 && vendorID != 0 {
 				meta.VendorID = vendorID
+				// Also update the database to persist this assignment
+				DB.Model(&Model{}).Where("model_name = ?", modelName).Update("vendor_id", vendorID)
 			}
 			continue
 		}

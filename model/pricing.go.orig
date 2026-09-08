@@ -372,16 +372,6 @@ func updatePricing() {
 			pricing.Icon = meta.Icon
 			pricing.Tags = meta.Tags
 			pricing.VendorID = meta.VendorID
-		} else {
-			// Apply vendor assignment to the actual pricing output if it was added to metaMap later
-			// by initDefaultVendorMapping but not re-extracted here because the outer loop
-			// iterates over `modelGroupsMap` and `metaMap[model]` ok check only caught
-			// models that were pre-fetched, but wait! metaMap IS updated by initDefaultVendorMapping
-		}
-
-		// Ensure we really catch it
-		if meta, ok := metaMap[model]; ok && pricing.VendorID == 0 {
-			pricing.VendorID = meta.VendorID
 		}
 		modelPrice, findPrice := ratio_setting.GetModelPrice(model, false)
 		if findPrice {
