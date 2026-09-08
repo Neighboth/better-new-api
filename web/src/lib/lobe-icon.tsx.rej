@@ -1,0 +1,13 @@
+--- web/src/lib/lobe-icon.tsx
++++ web/src/lib/lobe-icon.tsx
+@@ -75,6 +75,10 @@
+   iconName: string | undefined | null,
+   size: number = 20
+ ): React.ReactNode {
++  if (iconName && (iconName.endsWith('.png') || iconName.endsWith('.jpg') || iconName.endsWith('.jpeg') || iconName.endsWith('.svg') || iconName.endsWith('.webp'))) {
++    return <img src={iconName} alt="icon" style={{ width: size, height: size, objectFit: 'contain' }} />
++  }
++
+   if (!iconName || typeof iconName !== 'string') {
+     return (
+       <div

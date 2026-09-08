@@ -320,9 +320,12 @@ export function BlogManager() {
     }
 
     try {
+        let req = currentPrompt.includes("\\n") ? currentPrompt : `Write a blog post about: ${currentPrompt}`
       if (step === 1) { // titles
         const sys = buildBlogAiSystemPrompt('titles')
-        let req = currentPrompt.includes("\n") ? currentPrompt : `Write a blog post about: ${currentPrompt}`
+
+
+
         if (kind === 'refine') {
            req = `Current Draft:\n${JSON.stringify(draftToAiJson(postForm))}\n\nInstructions:\n${currentPrompt}`
         }
