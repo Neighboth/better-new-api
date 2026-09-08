@@ -84,6 +84,7 @@ func CreateVendorMeta(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	model.RefreshPricing()
 	common.ApiSuccess(c, &v)
 }
 
@@ -122,6 +123,7 @@ func UpdateVendorMeta(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	model.RefreshPricing()
 	common.ApiSuccess(c, &v)
 }
 
@@ -142,6 +144,7 @@ func DeleteVendorMeta(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	model.RefreshPricing()
 	common.ApiSuccess(c, nil)
 }
 
