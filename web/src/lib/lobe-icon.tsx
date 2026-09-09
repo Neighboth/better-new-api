@@ -83,6 +83,9 @@ export function getLobeIcon(
   iconName: string | undefined | null,
   size: number = 20
 ): React.ReactNode {
+  if (iconName && (iconName.includes('/') || iconName.endsWith('.png') || iconName.endsWith('.jpg') || iconName.endsWith('.jpeg') || iconName.endsWith('.svg') || iconName.endsWith('.webp'))) {
+    return <img src={iconName.startsWith('/') || iconName.startsWith('http') ? iconName : '/' + iconName} alt="icon" style={{ width: size, height: size, objectFit: 'contain' }} />
+  }
   if (!iconName || typeof iconName !== 'string') {
     return (
       <div

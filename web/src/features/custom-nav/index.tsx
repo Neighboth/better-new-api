@@ -68,7 +68,7 @@ export function CustomNavPage(props: CustomNavPageProps) {
   const title = item.label
   const content = item.content
   const body = (
-    <div className={item.contentType === 'url' ? 'min-h-[70vh] flex-1' : ''}>
+    <div className={item.contentType === 'url' ? 'h-full w-full flex-1 flex flex-col' : ''}>
       <CustomNavContent
         contentType={item.contentType}
         content={content}
@@ -80,7 +80,7 @@ export function CustomNavPage(props: CustomNavPageProps) {
   if (isSidebarView) {
     return (
       <AuthenticatedLayout>
-        <div className='h-full min-h-0 w-full overflow-y-auto p-4'>
+        <div className={item.contentType === 'url' ? 'h-full min-h-0 w-full overflow-hidden' : 'h-full min-h-0 w-full overflow-y-auto p-4'}>
           {body}
         </div>
       </AuthenticatedLayout>
@@ -117,13 +117,18 @@ function CustomNavContent(props: CustomNavContentProps) {
     }
 
     return (
-      <iframe
-        src={props.content.trim()}
-        title={props.title}
-        className='h-full min-h-[500px] w-full rounded-lg border'
-        referrerPolicy='no-referrer'
-        sandbox='allow-forms allow-popups allow-popups-to-escape-sandbox allow-scripts'
-      />
+      <div className='relative h-full w-full flex-1'>
+        <div className='absolute inset-0 flex items-center justify-center -z-10 bg-muted/50'>
+          <p className='text-sm text-muted-foreground animate-pulse'>{t('Loading...')}</p>
+        </div>
+        <iframe
+          src={props.content.trim()}
+          title={props.title}
+          className='absolute inset-0 h-full w-full border-none bg-background'
+          referrerPolicy='no-referrer'
+          sandbox='allow-forms allow-popups allow-popups-to-escape-sandbox allow-scripts allow-same-origin'
+        />
+      </div>
     )
   }
 

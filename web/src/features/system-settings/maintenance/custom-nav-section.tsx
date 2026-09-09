@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -165,6 +165,28 @@ export function CustomNavSection({
     )
   }
 
+  const moveUp = (index: number) => {
+    if (index === 0) return
+    setDraft((current) => {
+      const draftCopy = [...current]
+      const temp = draftCopy[index - 1]
+      draftCopy[index - 1] = draftCopy[index]
+      draftCopy[index] = temp
+      return draftCopy
+    })
+  }
+
+  const moveDown = (index: number) => {
+    if (index === draft.length - 1) return
+    setDraft((current) => {
+      const draftCopy = [...current]
+      const temp = draftCopy[index + 1]
+      draftCopy[index + 1] = draftCopy[index]
+      draftCopy[index] = temp
+      return draftCopy
+    })
+  }
+
   const onSave = async () => {
     const normalized = draft.map((draftItem) => ({
       ...stripDraftKey(draftItem),
@@ -252,6 +274,28 @@ export function CustomNavSection({
                   onClick={() => removeItem(index)}
                 >
                   <Trash2 />
+                </Button>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='icon-sm'
+                  className='text-muted-foreground hover:text-foreground'
+                  aria-label={t('Move up')}
+                  onClick={() => moveUp(index)}
+                  disabled={index === 0}
+                >
+                  <ArrowUp />
+                </Button>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='icon-sm'
+                  className='text-muted-foreground hover:text-foreground'
+                  aria-label={t('Move down')}
+                  onClick={() => moveDown(index)}
+                  disabled={index === draft.length - 1}
+                >
+                  <ArrowDown />
                 </Button>
               </div>
             </div>

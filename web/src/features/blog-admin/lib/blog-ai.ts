@@ -24,33 +24,83 @@ const BLOG_AI_LANGUAGE_PROMPT = INTERFACE_LANGUAGE_OPTIONS.map(
   (lang) => `  "${lang.code}": "${lang.label}" (language: ${lang.code})`
 ).join('\n')
 
-export function buildBlogAiSystemPrompt(): string {
-  return [
-    'You are an expert multilingual content writer. Write a complete blog post for a tech product company (an AI API gateway/platform).',
-    'Respond ONLY with a single valid JSON object. Do not include markdown fences, do not output any reasoning/thinking logic, do not include any commentary, and no trailing commas.',
+export function buildBlogAiSystemPrompt(
+  step: 'titles' | 'summaries' | 'tags' | 'seo' | 'content_en' | 'content_translate'
+): string {
+  const base = [
+    'You are an expert multilingual content writer for a tech product company (an AI API gateway/platform).',
+    'Respond ONLY with a single valid JSON object. Do not include markdown fences, do not output any reasoning/thinking logic, do not include any commentary.',
     'Your output MUST start exactly with { and end with }.',
-    'The JSON must have exactly these keys:',
-    JSON.stringify(
-      {
-        title: { en: '...', zhCN: '...', zhTW: '...', fr: '...', ja: '...', ru: '...', vi: '...' },
-        summary: { en: '...', zhCN: '...', zhTW: '...', fr: '...', ja: '...', ru: '...', vi: '...' },
-        content: { en: '...', zhCN: '...', zhTW: '...', fr: '...', ja: '...', ru: '...', vi: '...' },
-        tags: { en: 'news, update', zhCN: '...', zhTW: '...', fr: '...', ja: '...', ru: '...', vi: '...' },
-        seo_description: { en: '...', zhCN: '...', zhTW: '...', fr: '...', ja: '...', ru: '...', vi: '...' },
-      },
-      null,
-      2
-    ),
-    'For each of the following locales, provide the value in that language (the en one is English, all other fields must be fluent translations of the English content, NOT machine-gun transliterations).',
-    BLOG_AI_LANGUAGE_PROMPT,
-    'Requirements:',
-    '- title: max ~70 chars, catchy.',
-    '- summary: 1-2 sentences teaser shown in the blog list.',
-    '- content: full markdown article (headings, lists, bold, links as appropriate): Aim for 600-1200 words. Use "en" for English.',
-    '- tags: comma-separated, 3-5 tags.',
-    '- seo_description: meta description for search engines, 1-2 sentences, include relevant keywords, no quotes.',
-    '',
-  ].join('\n')
+  ]
+
+  const langs = BLOG_LOCALE_CODES
+
+  if (step === 'titles') {
+    return [
+      ...base,
+      'Generate ONLY titles for all languages based on the prompt.',
+      'The JSON must have this structure:',
+      JSON.stringify({ title: langs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}) }, null, 2),
+      'Requirements: max ~70 chars, catchy.',
+      BLOG_AI_LANGUAGE_PROMPT,
+    ].join('\n')
+  }
+
+  if (step === 'summaries') {
+    return [
+      ...base,
+      'Generate ONLY summaries for all languages based on the title and prompt.',
+      'The JSON must have this structure:',
+      JSON.stringify({ summary: langs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}) }, null, 2),
+      'Requirements: 1-2 sentences teaser shown in the blog list.',
+      BLOG_AI_LANGUAGE_PROMPT,
+    ].join('\n')
+  }
+
+  if (step === 'tags') {
+    return [
+      ...base,
+      'Generate ONLY tags for all languages based on the title, summary, and prompt.',
+      'The JSON must have this structure:',
+      JSON.stringify({ tags: langs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}) }, null, 2),
+      'Requirements: comma-separated, 3-5 tags.',
+      BLOG_AI_LANGUAGE_PROMPT,
+    ].join('\n')
+  }
+
+  if (step === 'seo') {
+    return [
+      ...base,
+      'Generate ONLY SEO descriptions for all languages.',
+      'The JSON must have this structure:',
+      JSON.stringify({ seo_description: langs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}) }, null, 2),
+      'Requirements: meta description for search engines, 1-2 sentences, include relevant keywords, no quotes.',
+      BLOG_AI_LANGUAGE_PROMPT,
+    ].join('\n')
+  }
+
+  if (step === 'content_en') {
+    return [
+      ...base,
+      'Generate ONLY the English content.',
+      'The JSON must have this structure:',
+      JSON.stringify({ content: { en: '...' } }, null, 2),
+      'Requirements: full markdown article (headings, lists, bold, links as appropriate): Aim for 600-1200 words.',
+    ].join('\n')
+  }
+
+  if (step === 'content_translate') {
+    return [
+      ...base,
+      'Translate the given English content into the specified target language.',
+      'Return ONLY the translated content in the specified language key.',
+      'The JSON must have this structure (where <lang> is the target language code):',
+      JSON.stringify({ content: { '<lang>': '...' } }, null, 2),
+      'Requirements: fluid translation, maintain all markdown formatting.',
+    ].join('\n')
+  }
+
+  return ''
 }
 
 function sanitizeLocaleValues(

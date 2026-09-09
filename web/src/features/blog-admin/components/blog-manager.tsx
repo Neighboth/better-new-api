@@ -104,6 +104,8 @@ export function BlogManager() {
   const [aiModel, setAiModel] = useState('')
   const [aiGenerating, setAiGenerating] = useState(false)
   const [aiTranslating, setAiTranslating] = useState(false)
+  const [aiGenerationStep, setAiGenerationStep] = useState(0)
+  const [aiGenerationError, setAiGenerationError] = useState(false)
 
   // Blog on/off toggle lives on the blog admin API so regular admins (not
   // only the root user) can manage the blog.
@@ -277,6 +279,213 @@ export function BlogManager() {
     }
   }
 
+  const doAiSequenceStep = async (step: number, currentPrompt: string, kind: 'generate' | 'refine') => {
+    const model = aiModel || aiModels?.[0] || ''
+    setAiGenerationError(false)
+    setAiGenerationStep(step)
+
+    const doStream = (systemMsg: string, userMsg: string, onUpdateObj: (parsed: any) => void) => {
+      return new Promise<void>((resolve, reject) => {
+        const payload = {
+          model,
+          messages: [
+            { role: 'system', content: systemMsg },
+            { role: 'user', content: userMsg },
+          ],
+          stream: true,
+          temperature: 0.7,
+          response_format: { type: 'json_object' },
+        }
+        runAiStreamWithController(
+          payload,
+          () => setAiGenerating(true),
+          (content) => {
+            setAiGenerating(false)
+            const parsed = content ? parseBlogAiResponse(content) : null
+            if (!parsed) {
+              setAiGenerationError(true)
+              reject(new Error('AI returned an unparseable response.'))
+              return
+            }
+            onUpdateObj(parsed)
+            resolve()
+          },
+          () => {
+            setAiGenerating(false)
+            setAiGenerationError(true)
+            reject(new Error('Generation failed.'))
+          }
+        )
+      })
+    }
+
+    try {
+      if (step === 1) { // titles
+        const sys = buildBlogAiSystemPrompt('titles')
+        let req = currentPrompt.includes("\n") ? currentPrompt : `Write a blog post about: ${currentPrompt}`
+        if (kind === 'refine') {
+           req = `Current Draft:\n${JSON.stringify(draftToAiJson(postForm))}\n\nInstructions:\n${currentPrompt}`
+        }
+        await doStream(sys, req, (parsed) => {
+          setPostForm((prev) => ({
+            ...prev,
+            titles: { ...prev.titles, ...parsed.titles },
+            title: parsed.titles?.en || prev.title,
+          }))
+        })
+        setAiGenerationStep(2)
+      }
+
+      if (step <= 2) { // summaries
+        const sys = buildBlogAiSystemPrompt('summaries')
+        let req = `English Title: ${postForm.titles.en || postForm.title}\n\nUser Prompt: ${currentPrompt}`
+
+        if (kind === 'refine') {
+           req = `Current Draft:\n${JSON.stringify(draftToAiJson(postForm))}\n\nInstructions:\n${currentPrompt}`
+        }
+        await doStream(sys, req, (parsed) => {
+          setPostForm((prev) => ({
+            ...prev,
+            summaries: { ...prev.summaries, ...parsed.summaries },
+            summary: parsed.summaries?.en || prev.summary,
+          }))
+        })
+        setAiGenerationStep(3)
+      }
+
+      if (step <= 3) { // tags
+        const sys = buildBlogAiSystemPrompt('tags')
+        let req = `English Title: ${postForm.titles.en || postForm.title}\nEnglish Summary: ${postForm.summaries.en || postForm.summary}\n\nUser Prompt: ${currentPrompt}`
+
+        if (kind === 'refine') {
+           req = `Current Draft:\n${JSON.stringify(draftToAiJson(postForm))}\n\nInstructions:\n${currentPrompt}`
+        }
+        await doStream(sys, req, (parsed) => {
+          setPostForm((prev) => ({
+            ...prev,
+            tags_list: { ...prev.tags_list, ...parsed.tags_list },
+            tags: parsed.tags_list?.en || prev.tags,
+          }))
+        })
+        setAiGenerationStep(4)
+      }
+
+      if (step <= 4) { // seo
+        const sys = buildBlogAiSystemPrompt('seo')
+        let req = `English Title: ${postForm.titles.en || postForm.title}\nEnglish Summary: ${postForm.summaries.en || postForm.summary}\nEnglish Tags: ${postForm.tags_list.en || postForm.tags}\n\nUser Prompt: ${currentPrompt}`
+
+        if (kind === 'refine') {
+           req = `Current Draft:\n${JSON.stringify(draftToAiJson(postForm))}\n\nInstructions:\n${currentPrompt}`
+        }
+        await doStream(sys, req, (parsed) => {
+          setPostForm((prev) => ({
+            ...prev,
+            seo_descriptions: { ...prev.seo_descriptions, ...parsed.seo_descriptions },
+            seo_description: parsed.seo_descriptions?.en || prev.seo_description,
+          }))
+        })
+        setAiGenerationStep(5)
+      }
+
+      if (step <= 5) { // content_en
+        const sys = buildBlogAiSystemPrompt('content_en')
+        let req = `Title: ${postForm.titles.en || postForm.title}\nSummary: ${postForm.summaries.en || postForm.summary}\nTags: ${postForm.tags_list.en || postForm.tags}\nSEO Description: ${postForm.seo_descriptions.en || postForm.seo_description}\n\nUser Prompt: ${currentPrompt}`
+
+        if (kind === 'refine') {
+           req = `Current Draft:\n${JSON.stringify(draftToAiJson(postForm))}\n\nInstructions:\n${currentPrompt}`
+        }
+        await doStream(sys, req, (parsed) => {
+           setPostForm((prev) => ({
+             ...prev,
+             contents: { ...prev.contents, en: parsed.contents?.en || prev.contents?.en },
+             content: parsed.contents?.en || prev.content,
+           }))
+        })
+        setAiGenerationStep(6)
+      }
+
+      if (step >= 6) { // content_translate loop
+        const targetLangs = BLOG_LOCALE_CODES.filter((code) => code !== 'en')
+        let currentLangIdx = step - 6
+
+        for (let i = currentLangIdx; i < targetLangs.length; i++) {
+          const langCode = targetLangs[i]
+          const sys = buildBlogAiSystemPrompt('content_translate')
+          const req = `Target Language Code: ${langCode}\n\nEnglish Content:\n${postForm.contents.en || postForm.content}`
+
+          await new Promise<void>((resolve, reject) => {
+            const payload = {
+              model,
+              messages: [
+                { role: 'system', content: sys },
+                { role: 'user', content: req },
+              ],
+              stream: true,
+              temperature: 0.3,
+              response_format: { type: 'json_object' },
+            }
+            runAiStreamWithController(
+              payload,
+              () => setAiGenerating(true),
+              (content) => {
+                setAiGenerating(false)
+                let parsedObj: any = null
+                if (content) {
+                  try {
+                    let text = content.trim()
+                    const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+                    if (fenceMatch) text = fenceMatch[1].trim()
+                    text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+                    const firstBrace = text.indexOf('{')
+                    const lastBrace = text.lastIndexOf('}')
+                    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                      text = text.slice(firstBrace, lastBrace + 1)
+                    }
+                    parsedObj = JSON.parse(text)
+                  } catch (e) {}
+                }
+
+                if (!parsedObj || !parsedObj.content || !parsedObj.content[langCode]) {
+                  setAiGenerationError(true)
+                  reject(new Error(`Failed to parse translation for ${langCode}`))
+                  return
+                }
+
+                setPostForm((prev) => ({
+                  ...prev,
+                  contents: { ...prev.contents, [langCode]: parsedObj.content[langCode] }
+                }))
+                resolve()
+              },
+              () => {
+                setAiGenerating(false)
+                setAiGenerationError(true)
+                reject(new Error(`Generation failed for ${langCode}`))
+              }
+            )
+          })
+
+          if (i < targetLangs.length - 1) {
+            setAiGenerationStep(6 + i + 1)
+          }
+        }
+      }
+
+      // Finished
+      toast.success(kind === 'generate' ? t('Draft generated. Review or edit it below.') : t('Draft updated. Review or edit it below.'))
+      setAiGenerationStep(0)
+      if (kind === 'generate') {
+        setAiPrompt('')
+        setAiRefinePrompt('')
+        setIsAiOpen(false)
+      } else {
+        setAiRefinePrompt('')
+      }
+    } catch (e: any) {
+      // Error is already logged via toast inside runAiStreamWithController or setAiGenerationError
+    }
+  }
+
   const runAiGeneration = async (kind: 'generate' | 'refine') => {
     const prompt = kind === 'generate' ? aiPrompt.trim() : aiRefinePrompt.trim()
     const model = aiModel || aiModels?.[0] || ''
@@ -288,68 +497,17 @@ export function BlogManager() {
       toast.error(t('No AI model available'))
       return
     }
-    const hasDraft = hasAnyLocalizedContent(postForm)
-    const systemParts: string[] = [buildBlogAiSystemPrompt()]
-    if (kind === 'refine') {
-      systemParts.push(
-        'The admin already has a draft below (JSON, same schema. Edit/improve ONLY the requested parts of that draft and return the complete updated JSON (no missing keys).'
-      )
-      systemParts.push(`CURRENT DRAFT:${JSON.stringify(draftToAiJson(postForm))}`)
-    } else {
-      if (hasDraft) {
-        systemParts.push(
-          'You are also given a current draft below (JSON, same schema. Improve it per the user instructions and return the complete updated JSON with no missing keys.'
-        )
-        systemParts.push(`CURRENT DRAFT:${JSON.stringify(draftToAiJson(postForm))}`)
-      }
-    }
-    let userRequest = prompt
+
     if (kind === 'generate') {
-      userRequest = prompt.includes('\n') ? prompt : `Write a blog post about: ${prompt}`
+      setIsEditorOpen(true)
     }
+    await doAiSequenceStep(1, prompt, kind)
+  }
 
-    const payload = {
-      model,
-      messages: [
-        { role: 'system', content: systemParts.join('\n\n') },
-        { role: 'user', content: userRequest },
-      ],
-      stream: true,
-      temperature: 0.7,
-      response_format: { type: 'json_object' },
-    }
-
-    runAiStreamWithController(
-      payload,
-      () => setAiGenerating(true),
-      (content) => {
-        setAiGenerating(false)
-        const parsed = content ? parseBlogAiResponse(content) : null
-        if (!parsed) {
-          toast.error(t('AI returned an unparseable response. Try again.'))
-          return
-        }
-        setPostForm((current) => ({
-          ...current,
-          ...parsed,
-          title: parsed.titles.en || current.title,
-          summary: parsed.summaries.en || current.summary,
-          content: parsed.contents.en || current.content,
-          tags: parsed.tags_list.en || current.tags,
-          seo_description: parsed.seo_descriptions.en || current.seo_description,
-        }))
-        toast.success(kind === 'generate' ? t('Draft generated. Review or edit it below.') : t('Draft updated. Review or edit it below.'))
-        if (kind === 'generate') {
-          setAiPrompt('')
-          setAiRefinePrompt('')
-          setIsAiOpen(false)
-          setIsEditorOpen(true)
-        } else {
-          setAiRefinePrompt('')
-        }
-      },
-      () => setAiGenerating(false)
-    )
+  const retryAiGeneration = async () => {
+    const kind = aiPrompt.trim() && !aiRefinePrompt.trim() ? 'generate' : 'refine'
+    const prompt = kind === 'generate' ? aiPrompt.trim() : aiRefinePrompt.trim()
+    await doAiSequenceStep(aiGenerationStep, prompt, kind)
   }
 
   const runAiTranslation = async () => {
@@ -627,9 +785,24 @@ export function BlogManager() {
               </Button>
               <Button
                 type='button'
+                variant='outline'
+                className='flex-1 sm:flex-none text-destructive hover:text-destructive'
+                onClick={retryAiGeneration}
+                disabled={aiGenerating}
+                style={{ display: aiGenerationError ? 'block' : 'none' }}
+              >
+                {aiGenerating ? (
+                  <Loader2 className='me-1 h-4 w-4 animate-spin' />
+                ) : (
+                  <Sparkles className='me-1 h-4 w-4' />
+                )}
+                {t('Try again')}
+              </Button>
+              <Button
+                type='button'
                 className='flex-1 sm:flex-none'
                 disabled={
-                  savePost.isPending ||
+                  savePost.isPending || aiGenerating ||
                   !hasAnyTitleAndContent(postForm)
                 }
                 onClick={() => savePost.mutate()}
@@ -663,6 +836,10 @@ export function BlogManager() {
           </div>
         </div>
 
+        {aiGenerating && (
+          <p className='text-muted-foreground text-sm flex items-center'><Loader2 className='me-2 h-4 w-4 animate-spin' />{t('Generating, please wait...')}</p>
+        )}
+
         <Tabs value={activeLanguage} onValueChange={setActiveLanguage}>
           <TabsList className='flex w-full flex-wrap gap-1'>
             {INTERFACE_LANGUAGE_OPTIONS.map((lang) => (
@@ -676,6 +853,7 @@ export function BlogManager() {
             <TabsContent key={lang.code} value={lang.code} className='mt-4 space-y-4'>
               <PostLanguageFields
                 langCode={lang.code}
+                readOnly={aiGenerating}
                 languageLabel={lang.label}
                 form={postForm}
                 onChange={(patch: Partial<BlogPostForm>) =>
@@ -875,6 +1053,7 @@ function CommentsDialog(props: { postId: number | null; onClose: () => void }) {
 function PostLanguageFields(props: {
   langCode: string
   languageLabel: string
+  readOnly?: boolean
   form: BlogPostForm
   onChange: (patch: Partial<BlogPostForm>) => void
 }) {
@@ -903,6 +1082,7 @@ function PostLanguageFields(props: {
         <Input
           value={props.form.titles[props.langCode] ?? ''}
           onChange={(event) => setLocalized('titles', event.target.value)}
+          readOnly={props.readOnly}
         />
       </div>
       <div className='grid gap-2'>
@@ -911,6 +1091,7 @@ function PostLanguageFields(props: {
           rows={2}
           value={props.form.summaries[props.langCode] ?? ''}
           onChange={(event) => setLocalized('summaries', event.target.value)}
+          readOnly={props.readOnly}
         />
       </div>
       <div className='grid gap-2'>
@@ -919,6 +1100,7 @@ function PostLanguageFields(props: {
           value={props.form.tags_list[props.langCode] ?? ''}
           placeholder={t('news, update')}
           onChange={(event) => setLocalized('tags_list', event.target.value)}
+          readOnly={props.readOnly}
         />
       </div>
       <div className='grid gap-2'>
@@ -927,6 +1109,7 @@ function PostLanguageFields(props: {
           rows={2}
           value={props.form.seo_descriptions[props.langCode] ?? ''}
           onChange={(event) => setLocalized('seo_descriptions', event.target.value)}
+          readOnly={props.readOnly}
         />
       </div>
       <div className='grid gap-2'>
@@ -946,6 +1129,7 @@ function PostLanguageFields(props: {
             value={props.form.contents[props.langCode] ?? ''}
             className='font-mono text-xs'
             onChange={(event) => setLocalized('contents', event.target.value)}
+            readOnly={props.readOnly}
           />
         )}
       </div>
