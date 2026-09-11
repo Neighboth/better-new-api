@@ -1,0 +1,30 @@
+name: Docker Bas
+
+on:
+  push:
+    branches: [ "main", "master" ] # Kodunu pushladığın an çalışır
+
+jobs:
+  push-to-ghcr:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+
+    steps:
+      - name: Kodu Cek
+        uses: actions/checkout@v4
+
+      - name: GitHub'a Giris Yap
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }} # Şifreyi GitHub kendisi otomatik verir
+
+      - name: Derle ve Yukle
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.repository }}:latest
