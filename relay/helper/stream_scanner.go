@@ -87,7 +87,11 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
 
-	firstTokenTimer := time.NewTimer(10 * time.Second)
+	fallbackTimeoutSetting := operation_setting.GetRelayFallbackSetting().FallbackTimeout
+	if fallbackTimeoutSetting <= 0 {
+		fallbackTimeoutSetting = 10
+	}
+	firstTokenTimer := time.NewTimer(time.Duration(fallbackTimeoutSetting) * time.Second)
 
 	var (
 		stopChan    = make(chan bool, 3) // 增加缓冲区避免阻塞
@@ -151,15 +155,15 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	ctx = context.WithValue(ctx, "stop_chan", stopChan)
 
-	// 10 second first token timeout goroutine
+	// first token timeout goroutine
 	wg.Add(1)
 	gopool.Go(func() {
 		defer wg.Done()
 		select {
 		case <-firstTokenTimer.C:
 			if info.ReceivedResponseCount == 0 && !info.HasSendResponse() {
-				logger.LogWarn(c, "first token timeout (10s), triggering fallback")
-				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, fmt.Errorf("first token timeout (10s)"))
+				logger.LogWarn(c, fmt.Sprintf("first token timeout (%ds), triggering fallback", fallbackTimeoutSetting))
+				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, fmt.Errorf("first token timeout (%ds)", fallbackTimeoutSetting))
 				stop()
 			}
 		case <-ctx.Done():

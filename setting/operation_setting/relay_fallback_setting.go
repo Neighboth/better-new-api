@@ -19,6 +19,8 @@ type RelayFallbackSetting struct {
 	FallbackSystemPrompt string `json:"fallback_system_prompt"`
 	// EnableFallback toggles whether the relay fallback chain is active at all.
 	EnableFallback bool `json:"enable_fallback"`
+	// FallbackTimeout is the number of seconds to wait for the first token before falling back.
+	FallbackTimeout int `json:"fallback_timeout"`
 }
 
 // 默认配置
@@ -26,6 +28,7 @@ var relayFallbackSetting = RelayFallbackSetting{
 	EnableFallback:    false,
 	FallbackModels:    "",
 	FallbackSystemPrompt: "",
+	FallbackTimeout:   10,
 }
 
 func init() {

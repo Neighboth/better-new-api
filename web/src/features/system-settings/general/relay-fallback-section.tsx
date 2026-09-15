@@ -29,6 +29,7 @@ const fallbackSchema = z.object({
   enable_fallback: z.boolean(),
   fallback_models: z.string(),
   fallback_system_prompt: z.string(),
+  fallback_timeout: z.number().min(1).max(300),
 })
 
 type FallbackFormValues = z.infer<typeof fallbackSchema>
@@ -55,6 +56,7 @@ export function RelayFallbackSection({
       enable_fallback: 'relay_fallback_setting.enable_fallback',
       fallback_models: 'relay_fallback_setting.fallback_models',
       fallback_system_prompt: 'relay_fallback_setting.fallback_system_prompt',
+      fallback_timeout: 'relay_fallback_setting.fallback_timeout',
     }
 
     const updates = Object.entries(data).filter(
@@ -109,6 +111,27 @@ export function RelayFallbackSection({
                 </FormControl>
                 <FormDescription>
                   {t('Comma-separated model names attempted in order after the original model.')}
+                </FormDescription>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='fallback_timeout'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Fallback Timeout (seconds)')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min={1}
+                    max={300}
+                    {...field}
+                    onChange={(e) => field.onChange(parseInt(e.target.value, 10) || 10)}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('Maximum time to wait for the first token before falling back.')}
                 </FormDescription>
               </FormItem>
             )}

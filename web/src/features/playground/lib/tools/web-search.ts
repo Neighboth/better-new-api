@@ -29,7 +29,7 @@ export interface WebSearchResultItem {
 }
 
 export interface WebSearchOutcome {
-  provider: 'firecrawl' | 'tavily' | 'duckduckgo' | 'wikipedia'
+  provider: 'firecrawl' | 'tavily' | 'searxng' | 'duckduckgo' | 'wikipedia'
   results: WebSearchResultItem[]
 }
 
@@ -41,11 +41,12 @@ function withTimeout(signal: AbortSignal | undefined): AbortSignal {
 async function postJson(
   url: string,
   body: Record<string, unknown>,
-  signal: AbortSignal | undefined
+  signal: AbortSignal | undefined,
+  headers: Record<string, string> = {}
 ): Promise<unknown> {
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
     signal: withTimeout(signal),
   })
@@ -97,17 +98,20 @@ function normalizeResults(items: unknown): WebSearchResultItem[] {
 async function searchWithTavily(
   query: string,
   maxResults: number,
-  signal: AbortSignal | undefined
+  signal: AbortSignal | undefined,
+  apiKey: string | undefined
 ): Promise<WebSearchResultItem[]> {
   const data = (await postJson(
     TAVILY_SEARCH_URL,
     {
+      api_key: apiKey || 'tvly-anonymous',
       query,
       max_results: maxResults,
       search_depth: 'basic',
       include_answer: false,
     },
-    signal
+    signal,
+    apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
   )) as { results?: unknown }
 
   return normalizeResults(data?.results)
@@ -116,15 +120,56 @@ async function searchWithTavily(
 async function searchWithFirecrawl(
   query: string,
   maxResults: number,
-  signal: AbortSignal | undefined
+  signal: AbortSignal | undefined,
+  apiKey: string | undefined
 ): Promise<WebSearchResultItem[]> {
   const data = (await postJson(
     FIRECRAWL_SEARCH_URL,
     { query, limit: maxResults },
-    signal
+    signal,
+    apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
   )) as { data?: unknown }
 
   return normalizeResults(data?.data)
+}
+
+async function searchWithSearXNG(
+  query: string,
+  maxResults: number,
+  signal: AbortSignal | undefined,
+  host: string | undefined
+): Promise<WebSearchResultItem[]> {
+  if (!host) {
+    throw new Error('SearXNG host is not configured')
+  }
+
+  const url = new URL(`${host.replace(/\/$/, '')}/search`)
+  url.searchParams.set('q', query)
+  url.searchParams.set('format', 'json')
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    signal: withTimeout(signal),
+  })
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+
+  const data = (await response.json()) as { results?: unknown[] }
+  const results = data.results || []
+
+  return results
+    .map((item: any): WebSearchResultItem | null => {
+      if (!item || !item.url) return null
+      return {
+        title: item.title || item.url,
+        url: item.url,
+        snippet: item.content || '',
+      }
+    })
+    .filter((item): item is WebSearchResultItem => Boolean(item))
+    .slice(0, maxResults)
 }
 
 // DuckDuckGo instant-answer API: keyless and CORS-friendly, but only returns
@@ -245,19 +290,91 @@ async function searchWithWikipedia(
 export async function searchWebWithFallback(
   query: string,
   maxResults: number,
+  settings?: {
+    tavilyKey?: string
+    tavilyAnonymous?: boolean
+    firecrawlKey?: string
+    firecrawlAnonymous?: boolean
+    searxngHost?: string
+    fallbackEnabled?: boolean
+  },
   signal?: AbortSignal
 ): Promise<WebSearchOutcome> {
-  const providers = [
-    { name: 'firecrawl' as const, run: searchWithFirecrawl },
-    { name: 'tavily' as const, run: searchWithTavily },
-    { name: 'duckduckgo' as const, run: searchWithDuckDuckGo },
-    { name: 'wikipedia' as const, run: searchWithWikipedia },
-  ]
+  const providers: Array<{
+    name: WebSearchOutcome['provider']
+    run: (
+      query: string,
+      maxResults: number,
+      signal: AbortSignal | undefined,
+      ...args: any[]
+    ) => Promise<WebSearchResultItem[]>
+    args?: any[]
+    skip?: boolean
+  }> = []
+
+  if (settings?.searxngHost) {
+    providers.push({
+      name: 'searxng',
+      run: searchWithSearXNG,
+      args: [settings.searxngHost],
+    })
+  }
+
+  if (settings?.firecrawlAnonymous) {
+    providers.push({
+      name: 'firecrawl',
+      run: searchWithFirecrawl,
+      args: [''],
+    })
+  }
+  if (settings?.firecrawlKey) {
+    providers.push({
+      name: 'firecrawl',
+      run: searchWithFirecrawl,
+      args: [settings.firecrawlKey],
+    })
+  }
+  if (!settings?.firecrawlKey && !settings?.firecrawlAnonymous && !settings?.tavilyKey && !settings?.tavilyAnonymous && !settings?.searxngHost) {
+    providers.push({ name: 'firecrawl', run: searchWithFirecrawl, args: [''] })
+  }
+
+  if (settings?.tavilyAnonymous) {
+    providers.push({
+      name: 'tavily',
+      run: searchWithTavily,
+      args: [''],
+    })
+  }
+  if (settings?.tavilyKey) {
+    providers.push({
+      name: 'tavily',
+      run: searchWithTavily,
+      args: [settings.tavilyKey],
+    })
+  }
+  if (!settings?.firecrawlKey && !settings?.firecrawlAnonymous && !settings?.tavilyKey && !settings?.tavilyAnonymous && !settings?.searxngHost) {
+    providers.push({ name: 'tavily', run: searchWithTavily, args: [''] })
+  }
+
+  providers.push({ name: 'duckduckgo', run: searchWithDuckDuckGo })
+  providers.push({ name: 'wikipedia', run: searchWithWikipedia })
 
   const errors: string[] = []
+
+  let providersTried = new Set<string>()
+
   for (const provider of providers) {
+    if (provider.skip) continue
+
+    // If fallback is disabled, allow multiple attempts ONLY for the same provider (e.g. anonymous then key).
+    // Break if we are trying to switch to a different provider.
+    if (settings && !settings.fallbackEnabled && providersTried.size > 0 && !providersTried.has(provider.name)) {
+        break
+    }
+
     try {
-      const results = await provider.run(query, maxResults, signal)
+      providersTried.add(provider.name)
+      const results = await provider.run(query, maxResults, signal, ...(provider.args || []))
       if (results.length === 0) {
         throw new Error('empty result set')
       }

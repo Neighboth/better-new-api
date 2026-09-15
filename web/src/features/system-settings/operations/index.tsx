@@ -26,9 +26,15 @@ import {
   getOperationsSectionMeta,
 } from './section-registry.tsx'
 
-const defaultOperationsSettings: OperationsSettings = {
+const defaultOperationsSettings: OperationsSettings & Record<string, unknown> = {
   DefaultCollapseSidebar: false,
   DemoSiteEnabled: false,
+  PlaygroundSearchFallbackEnabled: false,
+  SearchTavilyKey: '',
+  SearchTavilyAnonymous: false,
+  SearchFirecrawlKey: '',
+  SearchFirecrawlAnonymous: false,
+  SearchSearxngHost: '',
   SelfUseModeEnabled: false,
   QuotaRemindThreshold: '',
   SMTPServer: '',
@@ -59,6 +65,7 @@ const defaultOperationsSettings: OperationsSettings = {
   'relay_fallback_setting.enable_fallback': false,
   'relay_fallback_setting.fallback_models': '',
   'relay_fallback_setting.fallback_system_prompt': '',
+  'relay_fallback_setting.fallback_timeout': 10,
 }
 
 export function OperationsSettings() {

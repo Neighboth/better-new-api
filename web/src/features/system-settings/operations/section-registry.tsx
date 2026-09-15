@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { SystemBehaviorSection } from '../general/system-behavior-section'
 import { RelayFallbackSection } from '../general/relay-fallback-section'
+import { SearchSettingsSection } from '../general/search-settings-section'
 import { EmailSettingsSection } from '../integrations/email-settings-section'
 import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section'
 import { WorkerSettingsSection } from '../integrations/worker-settings-section'
@@ -43,6 +44,22 @@ const OPERATIONS_SECTIONS = [
       ),
     },
     {
+      id: 'search',
+      titleKey: 'Search Settings',
+      build: (settings: OperationsSettings & any) => (
+        <SearchSettingsSection
+          defaultValues={{
+            PlaygroundSearchFallbackEnabled: settings.PlaygroundSearchFallbackEnabled ?? false,
+            SearchTavilyKey: settings.SearchTavilyKey ?? '',
+            SearchTavilyAnonymous: settings.SearchTavilyAnonymous ?? false,
+            SearchFirecrawlKey: settings.SearchFirecrawlKey ?? '',
+            SearchFirecrawlAnonymous: settings.SearchFirecrawlAnonymous ?? false,
+            SearchSearxngHost: settings.SearchSearxngHost ?? '',
+          }}
+        />
+      ),
+    },
+    {
       id: 'relay-fallback',
     titleKey: 'Relay Fallback',
     build: (settings: OperationsSettings) => (
@@ -54,6 +71,8 @@ const OPERATIONS_SECTIONS = [
             settings['relay_fallback_setting.fallback_models'] ?? '',
           fallback_system_prompt:
             settings['relay_fallback_setting.fallback_system_prompt'] ?? '',
+          fallback_timeout:
+            settings['relay_fallback_setting.fallback_timeout'] ?? 10,
         }}
       />
     ),

@@ -58,6 +58,14 @@ export interface ToolExecutionContext {
   /** Available chat models, used to fall back to an image-capable one. */
   models?: ModelOption[]
   signal?: AbortSignal
+  searchSettings?: {
+    tavilyKey?: string
+    tavilyAnonymous?: boolean
+    firecrawlKey?: string
+    firecrawlAnonymous?: boolean
+    searxngHost?: string
+    fallbackEnabled?: boolean
+  }
 }
 
 function requireArgs(argumentsJson: string): Record<string, unknown> {
@@ -138,7 +146,7 @@ async function executeWebSearch(
   }
 
   const maxResults = getNumberArg(args, 'max_results', 5, 1, 10)
-  const outcome = await searchWebWithFallback(query, maxResults, ctx.signal)
+  const outcome = await searchWebWithFallback(query, maxResults, ctx.searchSettings, ctx.signal)
 
   return {
     content: truncateToolResult(

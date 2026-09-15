@@ -242,9 +242,11 @@ func main() {
 
 func InjectUmamiAnalytics() {
 	analyticsInjectBuilder := &strings.Builder{}
-	if os.Getenv("UMAMI_WEBSITE_ID") != "" {
-		umamiSiteID := os.Getenv("UMAMI_WEBSITE_ID")
-		umamiScriptURL := os.Getenv("UMAMI_SCRIPT_URL")
+	common.OptionMapRWMutex.RLock()
+	umamiSiteID := common.OptionMap["UmamiWebsiteId"]
+	umamiScriptURL := common.OptionMap["UmamiScriptUrl"]
+	common.OptionMapRWMutex.RUnlock()
+	if umamiSiteID != "" {
 		if umamiScriptURL == "" {
 			umamiScriptURL = "https://analytics.umami.is/script.js"
 		}
@@ -262,8 +264,10 @@ func InjectUmamiAnalytics() {
 
 func InjectGoogleAnalytics() {
 	analyticsInjectBuilder := &strings.Builder{}
-	if os.Getenv("GOOGLE_ANALYTICS_ID") != "" {
-		gaID := os.Getenv("GOOGLE_ANALYTICS_ID")
+	common.OptionMapRWMutex.RLock()
+	gaID := common.OptionMap["GoogleAnalyticsId"]
+	common.OptionMapRWMutex.RUnlock()
+	if gaID != "" {
 		// Google Analytics 4 (gtag.js)
 		analyticsInjectBuilder.WriteString("<script async src=\"https://www.googletagmanager.com/gtag/js?id=")
 		analyticsInjectBuilder.WriteString(gaID)

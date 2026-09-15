@@ -104,8 +104,12 @@ func GetOptions(c *gin.Context) {
 			strings.HasSuffix(k, "secret") ||
 			strings.HasSuffix(k, "api_key")) &&
 			!captchaSettingKeys[k]
+		// Limit sensitive keys to root users only (role == 100).
+		// Non-root admins cannot read sensitive keys via GetOptions.
 		if isSensitiveKey {
-			continue
+			if c.GetInt("role") != common.RoleRootUser {
+				continue
+			}
 		}
 		options = append(options, &model.Option{
 			Key:   k,
@@ -145,6 +149,19 @@ func UpdateOption(c *gin.Context) {
 		})
 		return
 	}
+
+	// Restrict non-root users from updating options, unless they are granted explicit permission.
+	// We check for Root auth, or at least Admin auth. Since AdminAuth allows role 10,
+	// we lock out role < 100 for all system settings for now to prevent unauthorized writes,
+	// unless specific logic for Blog or Models settings requires it.
+	// But actually, the safest route is to restrict `UpdateOption` to RootUser only,
+	// or rely on the fact that only roots should change system configurations like payment, SMTP, etc.
+	// If a user is just an Admin (10), they shouldn't edit SMTP keys or billing options.
+	if c.GetInt("role") != common.RoleRootUser {
+		common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
+		return
+	}
+
 	switch option.Value.(type) {
 	case bool:
 		option.Value = common.Interface2String(option.Value.(bool))

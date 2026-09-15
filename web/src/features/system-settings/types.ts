@@ -122,6 +122,9 @@ export type SiteSettings = {
   SEOTitlePrefix: string
   SEODescription: string
   SEOKeywords: string
+  GoogleAnalyticsId: string
+  UmamiWebsiteId: string
+  UmamiScriptUrl: string
   SEOSocialImage: string
   RobotsPolicy: 'allow_all' | 'block_all' | 'block_ai' | 'custom'
   RobotsCustomRules: string
@@ -360,6 +363,12 @@ export type BillingSettings = {
 
 export type OperationsSettings = {
   DefaultCollapseSidebar: boolean
+  PlaygroundSearchFallbackEnabled: boolean
+  SearchTavilyKey: string
+  SearchTavilyAnonymous: boolean
+  SearchFirecrawlKey: string
+  SearchFirecrawlAnonymous: boolean
+  SearchSearxngHost: string
   DemoSiteEnabled: boolean
   SelfUseModeEnabled: boolean
   QuotaRemindThreshold: string
@@ -391,6 +400,7 @@ export type OperationsSettings = {
   'relay_fallback_setting.enable_fallback': boolean
   'relay_fallback_setting.fallback_models': string
   'relay_fallback_setting.fallback_system_prompt': string
+  'relay_fallback_setting.fallback_timeout': number
 }
 
 export type SecuritySettings = {

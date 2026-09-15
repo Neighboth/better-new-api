@@ -74,6 +74,14 @@ interface UseChatHandlerOptions {
   thinkingEnabled: boolean
   thinkingLevel: ThinkingLevel
   onMessageUpdate: (updater: (prev: Message[]) => Message[]) => void
+  searchSettings?: {
+    tavilyKey?: string
+    tavilyAnonymous?: boolean
+    firecrawlKey?: string
+    firecrawlAnonymous?: boolean
+    searxngHost?: string
+    fallbackEnabled?: boolean
+  }
 }
 
 const KNOWN_ERROR_MESSAGES = new Set<string>(Object.values(ERROR_MESSAGES))
@@ -114,6 +122,7 @@ export function useChatHandler({
   thinkingEnabled,
   thinkingLevel,
   onMessageUpdate,
+  searchSettings,
 }: UseChatHandlerOptions) {
   const { t } = useTranslation()
   const { sendStreamRequest, stopStream, isStreaming } = useStreamRequest()
@@ -437,6 +446,7 @@ export function useChatHandler({
               config,
               models: modelsRef.current,
               signal: abortController.signal,
+              searchSettings,
             }
           )
           if (!isCurrent()) return

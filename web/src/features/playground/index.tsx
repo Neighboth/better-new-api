@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { PlaygroundChat } from './components/chat/playground-chat'
 import { PlaygroundInput } from './components/input/playground-input'
 import { DEFAULT_TOOLS_ENABLED } from './constants'
+import { useSystemOptions } from '@/features/system-settings/hooks/use-system-options'
 import {
   useChatHandler,
   usePlaygroundConversation,
@@ -43,6 +44,12 @@ export function Playground() {
     clearMessages,
   } = usePlaygroundState()
 
+  const { data: systemOptionsData } = useSystemOptions()
+  const searchSettings = systemOptionsData?.data?.reduce((acc: any, option) => {
+    acc[option.key] = option.value
+    return acc
+  }, {})
+
   const { sendChat, stopGeneration, isGenerating } = useChatHandler({
     config,
     parameterEnabled,
@@ -51,6 +58,14 @@ export function Playground() {
     thinkingEnabled: false,
     thinkingLevel: thinking.level,
     onMessageUpdate: updateMessages,
+    searchSettings: {
+      tavilyKey: searchSettings?.SearchTavilyKey,
+      tavilyAnonymous: searchSettings?.SearchTavilyAnonymous === 'true',
+      firecrawlKey: searchSettings?.SearchFirecrawlKey,
+      firecrawlAnonymous: searchSettings?.SearchFirecrawlAnonymous === 'true',
+      searxngHost: searchSettings?.SearchSearxngHost,
+      fallbackEnabled: searchSettings?.PlaygroundSearchFallbackEnabled === 'true',
+    }
   })
 
   const {

@@ -63,6 +63,9 @@ const seoSchema = z.object({
   SitemapCustomUrls: z.string(),
   LLMSTxt: z.string(),
   LLMSFullTxt: z.string(),
+  GoogleAnalyticsId: z.string(),
+  UmamiWebsiteId: z.string(),
+  UmamiScriptUrl: z.string(),
 })
 
 type SEOFormValues = z.infer<typeof seoSchema>
@@ -110,6 +113,63 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             isSaving={updateOption.isPending}
+          />
+
+          <FormField
+            control={form.control}
+            name='GoogleAnalyticsId'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Google Analytics ID')}</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder='G-XXXXXXXXXX'
+                    autoComplete='off'
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='UmamiWebsiteId'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Umami Website ID')}</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder='xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
+                    autoComplete='off'
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='UmamiScriptUrl'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Umami Script URL')}</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder='https://analytics.umami.is/script.js'
+                    autoComplete='off'
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('Leave empty to use the default Umami URL.')}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
           />
 
           <FormField
