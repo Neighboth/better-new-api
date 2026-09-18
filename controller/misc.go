@@ -172,6 +172,19 @@ func GetStatus(c *gin.Context) {
 		data["custom_oauth_providers"] = providersInfo
 	}
 
+	host := strings.Split(c.Request.Host, ":")[0]
+	if rc, err := model.GetResellerConfigByDomain(host); err == nil && rc != nil && rc.ChildPanelEnabled {
+		if rc.SiteName != "" {
+			data["system_name"] = rc.SiteName
+		}
+		if rc.Logo != "" {
+			data["logo"] = rc.Logo
+		}
+		if rc.HomepageContent != "" {
+			data["home_page_content"] = rc.HomepageContent
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

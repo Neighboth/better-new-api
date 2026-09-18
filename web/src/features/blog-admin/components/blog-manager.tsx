@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import { Languages, Loader2, MessageSquare, Pencil, Plus, Sparkles, Trash2, Wand2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Markdown } from '@/components/ui/markdown'
 import { toast } from 'sonner'
@@ -96,6 +96,10 @@ export function BlogManager() {
   const [editingPost, setEditingPost] = useState<BlogPostItem | null>(null)
   const [isEditorOpen, setIsEditorOpen] = useState(false)
   const [postForm, setPostForm] = useState<BlogPostForm>(emptyBlogPostForm())
+  const postFormRef = useRef<BlogPostForm>(postForm)
+  useEffect(() => {
+    postFormRef.current = postForm
+  }, [postForm])
   const [activeLanguage, setActiveLanguage] = useState('en')
   const [commentsPostId, setCommentsPostId] = useState<number | null>(null)
   const [isAiOpen, setIsAiOpen] = useState(false)
@@ -284,6 +288,15 @@ export function BlogManager() {
     setAiGenerationError(false)
     setAiGenerationStep(step)
 
+    let currentDraft: BlogPostForm = {
+      ...postFormRef.current,
+      titles: { ...postFormRef.current.titles },
+      summaries: { ...postFormRef.current.summaries },
+      contents: { ...postFormRef.current.contents },
+      tags_list: { ...postFormRef.current.tags_list },
+      seo_descriptions: { ...postFormRef.current.seo_descriptions },
+    }
+
     const doStream = (systemMsg: string, userMsg: string, onUpdateObj: (parsed: any) => void) => {
       return new Promise<void>((resolve, reject) => {
         const payload = {
@@ -319,154 +332,177 @@ export function BlogManager() {
       })
     }
 
+    let curStep = step
     try {
-      if (step === 1) { // titles
+      if (curStep <= 1) { // titles
         const sys = buildBlogAiSystemPrompt('titles')
         let req = currentPrompt.includes("\n") ? currentPrompt : `Write a blog post about: ${currentPrompt}`
         if (kind === 'refine') {
-           req = `Current Draft:\n${JSON.stringify(draftToAiJson(postForm))}\n\nInstructions:\n${currentPrompt}`
+           req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}`
         }
         await doStream(sys, req, (parsed) => {
-          setPostForm((prev) => ({
-            ...prev,
-            titles: { ...prev.titles, ...parsed.titles },
-            title: parsed.titles?.en || prev.title,
-          }))
+          currentDraft = {
+            ...currentDraft,
+            titles: { ...currentDraft.titles, ...parsed.titles },
+            title: parsed.titles?.en || currentDraft.title,
+          }
+          postFormRef.current = currentDraft
+          setPostForm({ ...currentDraft })
         })
+        curStep = 2
         setAiGenerationStep(2)
       }
 
-      if (step <= 2) { // summaries
+      if (curStep <= 2) { // summaries
         const sys = buildBlogAiSystemPrompt('summaries')
-        let req = `English Title: ${postForm.titles.en || postForm.title}\n\nUser Prompt: ${currentPrompt}`
+        let req = `English Title: ${currentDraft.titles.en || currentDraft.title}\n\nUser Prompt: ${currentPrompt}`
 
         if (kind === 'refine') {
-           req = `Current Draft:\n${JSON.stringify(draftToAiJson(postForm))}\n\nInstructions:\n${currentPrompt}`
+           req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}`
         }
         await doStream(sys, req, (parsed) => {
-          setPostForm((prev) => ({
-            ...prev,
-            summaries: { ...prev.summaries, ...parsed.summaries },
-            summary: parsed.summaries?.en || prev.summary,
-          }))
+          currentDraft = {
+            ...currentDraft,
+            summaries: { ...currentDraft.summaries, ...parsed.summaries },
+            summary: parsed.summaries?.en || currentDraft.summary,
+          }
+          postFormRef.current = currentDraft
+          setPostForm({ ...currentDraft })
         })
+        curStep = 3
         setAiGenerationStep(3)
       }
 
-      if (step <= 3) { // tags
+      if (curStep <= 3) { // tags
         const sys = buildBlogAiSystemPrompt('tags')
-        let req = `English Title: ${postForm.titles.en || postForm.title}\nEnglish Summary: ${postForm.summaries.en || postForm.summary}\n\nUser Prompt: ${currentPrompt}`
+        let req = `English Title: ${currentDraft.titles.en || currentDraft.title}\nEnglish Summary: ${currentDraft.summaries.en || currentDraft.summary}\n\nUser Prompt: ${currentPrompt}`
 
         if (kind === 'refine') {
-           req = `Current Draft:\n${JSON.stringify(draftToAiJson(postForm))}\n\nInstructions:\n${currentPrompt}`
+           req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}`
         }
         await doStream(sys, req, (parsed) => {
-          setPostForm((prev) => ({
-            ...prev,
-            tags_list: { ...prev.tags_list, ...parsed.tags_list },
-            tags: parsed.tags_list?.en || prev.tags,
-          }))
+          currentDraft = {
+            ...currentDraft,
+            tags_list: { ...currentDraft.tags_list, ...parsed.tags_list },
+            tags: parsed.tags_list?.en || currentDraft.tags,
+          }
+          postFormRef.current = currentDraft
+          setPostForm({ ...currentDraft })
         })
+        curStep = 4
         setAiGenerationStep(4)
       }
 
-      if (step <= 4) { // seo
+      if (curStep <= 4) { // seo
         const sys = buildBlogAiSystemPrompt('seo')
-        let req = `English Title: ${postForm.titles.en || postForm.title}\nEnglish Summary: ${postForm.summaries.en || postForm.summary}\nEnglish Tags: ${postForm.tags_list.en || postForm.tags}\n\nUser Prompt: ${currentPrompt}`
+        let req = `English Title: ${currentDraft.titles.en || currentDraft.title}\nEnglish Summary: ${currentDraft.summaries.en || currentDraft.summary}\nEnglish Tags: ${currentDraft.tags_list.en || currentDraft.tags}\n\nUser Prompt: ${currentPrompt}`
 
         if (kind === 'refine') {
-           req = `Current Draft:\n${JSON.stringify(draftToAiJson(postForm))}\n\nInstructions:\n${currentPrompt}`
+           req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}`
         }
         await doStream(sys, req, (parsed) => {
-          setPostForm((prev) => ({
-            ...prev,
-            seo_descriptions: { ...prev.seo_descriptions, ...parsed.seo_descriptions },
-            seo_description: parsed.seo_descriptions?.en || prev.seo_description,
-          }))
+          currentDraft = {
+            ...currentDraft,
+            seo_descriptions: { ...currentDraft.seo_descriptions, ...parsed.seo_descriptions },
+            seo_description: parsed.seo_descriptions?.en || currentDraft.seo_description,
+          }
+          postFormRef.current = currentDraft
+          setPostForm({ ...currentDraft })
         })
+        curStep = 5
         setAiGenerationStep(5)
       }
 
-      if (step <= 5) { // content_en
+      if (curStep <= 5) { // content_en
         const sys = buildBlogAiSystemPrompt('content_en')
-        let req = `Title: ${postForm.titles.en || postForm.title}\nSummary: ${postForm.summaries.en || postForm.summary}\nTags: ${postForm.tags_list.en || postForm.tags}\nSEO Description: ${postForm.seo_descriptions.en || postForm.seo_description}\n\nUser Prompt: ${currentPrompt}`
+        let req = `Title: ${currentDraft.titles.en || currentDraft.title}\nSummary: ${currentDraft.summaries.en || currentDraft.summary}\nTags: ${currentDraft.tags_list.en || currentDraft.tags}\nSEO Description: ${currentDraft.seo_descriptions.en || currentDraft.seo_description}\n\nUser Prompt: ${currentPrompt}`
 
         if (kind === 'refine') {
-           req = `Current Draft:\n${JSON.stringify(draftToAiJson(postForm))}\n\nInstructions:\n${currentPrompt}`
+           req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}`
         }
         await doStream(sys, req, (parsed) => {
-           setPostForm((prev) => ({
-             ...prev,
-             contents: { ...prev.contents, en: parsed.contents?.en || prev.contents?.en },
-             content: parsed.contents?.en || prev.content,
-           }))
+          currentDraft = {
+            ...currentDraft,
+            contents: { ...currentDraft.contents, en: parsed.contents?.en || currentDraft.contents?.en },
+            content: parsed.contents?.en || currentDraft.content,
+          }
+          postFormRef.current = currentDraft
+          setPostForm({ ...currentDraft })
         })
+        curStep = 6
         setAiGenerationStep(6)
       }
 
-      if (step >= 6) { // content_translate loop
+      if (curStep >= 6) { // content_translate loop
         const targetLangs = BLOG_LOCALE_CODES.filter((code) => code !== 'en')
-        let currentLangIdx = step - 6
+        let currentLangIdx = curStep > 6 ? curStep - 6 : 0
+        const enContent = currentDraft.contents.en || currentDraft.content
 
-        for (let i = currentLangIdx; i < targetLangs.length; i++) {
-          const langCode = targetLangs[i]
-          const sys = buildBlogAiSystemPrompt('content_translate')
-          const req = `Target Language Code: ${langCode}\n\nEnglish Content:\n${postForm.contents.en || postForm.content}`
+        if (enContent) {
+          for (let i = currentLangIdx; i < targetLangs.length; i++) {
+            const langCode = targetLangs[i]
+            const sys = buildBlogAiSystemPrompt('content_translate')
+            const req = `Target Language Code: ${langCode}\n\nEnglish Content:\n${enContent}`
 
-          await new Promise<void>((resolve, reject) => {
-            const payload = {
-              model,
-              messages: [
-                { role: 'system', content: sys },
-                { role: 'user', content: req },
-              ],
-              stream: true,
-              temperature: 0.3,
-              response_format: { type: 'json_object' },
-            }
-            runAiStreamWithController(
-              payload,
-              () => setAiGenerating(true),
-              (content) => {
-                setAiGenerating(false)
-                let parsedObj: any = null
-                if (content) {
-                  try {
-                    let text = content.trim()
-                    const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
-                    if (fenceMatch) text = fenceMatch[1].trim()
-                    text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
-                    const firstBrace = text.indexOf('{')
-                    const lastBrace = text.lastIndexOf('}')
-                    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-                      text = text.slice(firstBrace, lastBrace + 1)
+            try {
+              await new Promise<void>((resolve, reject) => {
+                const payload = {
+                  model,
+                  messages: [
+                    { role: 'system', content: sys },
+                    { role: 'user', content: req },
+                  ],
+                  stream: true,
+                  temperature: 0.3,
+                  response_format: { type: 'json_object' },
+                }
+                runAiStreamWithController(
+                  payload,
+                  () => setAiGenerating(true),
+                  (content) => {
+                    setAiGenerating(false)
+                    let parsedObj: any = null
+                    if (content) {
+                      try {
+                        let text = content.trim()
+                        const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+                        if (fenceMatch) text = fenceMatch[1].trim()
+                        text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+                        const firstBrace = text.indexOf('{')
+                        const lastBrace = text.lastIndexOf('}')
+                        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                          text = text.slice(firstBrace, lastBrace + 1)
+                        }
+                        parsedObj = JSON.parse(text)
+                      } catch (e) {}
                     }
-                    parsedObj = JSON.parse(text)
-                  } catch (e) {}
-                }
 
-                if (!parsedObj || !parsedObj.content || !parsedObj.content[langCode]) {
-                  setAiGenerationError(true)
-                  reject(new Error(`Failed to parse translation for ${langCode}`))
-                  return
-                }
+                    if (!parsedObj || !parsedObj.content || !parsedObj.content[langCode]) {
+                      reject(new Error(`Failed to parse translation for ${langCode}`))
+                      return
+                    }
 
-                setPostForm((prev) => ({
-                  ...prev,
-                  contents: { ...prev.contents, [langCode]: parsedObj.content[langCode] }
-                }))
-                resolve()
-              },
-              () => {
-                setAiGenerating(false)
-                setAiGenerationError(true)
-                reject(new Error(`Generation failed for ${langCode}`))
-              }
-            )
-          })
+                    currentDraft = {
+                      ...currentDraft,
+                      contents: { ...currentDraft.contents, [langCode]: parsedObj.content[langCode] },
+                    }
+                    postFormRef.current = currentDraft
+                    setPostForm({ ...currentDraft })
+                    resolve()
+                  },
+                  () => {
+                    setAiGenerating(false)
+                    reject(new Error(`Generation failed for ${langCode}`))
+                  }
+                )
+              })
+            } catch (err) {
+              console.warn(`Translation for ${langCode} failed:`, err)
+            }
 
-          if (i < targetLangs.length - 1) {
-            setAiGenerationStep(6 + i + 1)
+            if (i < targetLangs.length - 1) {
+              setAiGenerationStep(6 + i + 1)
+            }
           }
         }
       }
@@ -506,8 +542,8 @@ export function BlogManager() {
 
   const retryAiGeneration = async () => {
     const kind = aiPrompt.trim() && !aiRefinePrompt.trim() ? 'generate' : 'refine'
-    const prompt = kind === 'generate' ? aiPrompt.trim() : aiRefinePrompt.trim()
-    await doAiSequenceStep(aiGenerationStep, prompt, kind)
+    const prompt = (kind === 'generate' ? aiPrompt.trim() : aiRefinePrompt.trim()) || postFormRef.current.title || 'Continue blog generation'
+    await doAiSequenceStep(aiGenerationStep || 1, prompt, kind)
   }
 
   const runAiTranslation = async () => {

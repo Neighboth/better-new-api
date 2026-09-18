@@ -27,6 +27,9 @@ func blogDisabled(c *gin.Context) bool {
 // header; the Go server proactively localizes the initial HTML, matching the
 // language the browser advertises rather than always serving English.
 func preferredBlogLocale(c *gin.Context) string {
+	if queryLang := strings.TrimSpace(c.Query("lang")); queryLang != "" {
+		return model.NormalizeBlogLocale(queryLang)
+	}
 	header := c.GetHeader("Accept-Language")
 	if header == "" {
 		return "en"

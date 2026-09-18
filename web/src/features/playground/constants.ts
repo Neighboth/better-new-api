@@ -58,8 +58,6 @@ export const MAX_TOOL_RESULT_CHARS = 12_000
 // separately when the user forces thinking on a non-reasoning model.
 export const DEFAULT_TOOLS_ENABLED: PlaygroundToolsEnabled = {
   generate_image: true,
-  web_search: true,
-  fetch_page: true,
   update_plan: true,
 }
 
@@ -105,8 +103,6 @@ export const FINAL_ANSWER_NUDGE =
 // Display labels (i18n keys) for tool names.
 export const TOOL_LABEL_KEYS: Record<string, string> = {
   generate_image: 'Image generation',
-  web_search: 'Web search',
-  fetch_page: 'Page fetch',
   update_plan: 'Plan update',
   think: 'Thinking',
 }

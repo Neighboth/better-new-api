@@ -28,6 +28,7 @@ import {
   ShieldAlert,
   Link2,
   CreditCard,
+  Store,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -47,6 +48,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
+import { ADMIN_PERMISSION_RESOURCES, hasPermission } from '@/lib/admin-permissions'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
 import {
@@ -57,6 +60,7 @@ import {
 } from '../constants'
 import { getUserActionMessage } from '../lib'
 import type { User, ManageUserAction } from '../types'
+import { ResellerManageDialog } from './dialogs/reseller-manage-dialog'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
 import { useUsers } from './users-provider'
 
@@ -67,11 +71,15 @@ interface DataTableRowActionsProps {
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
   const user = row.original
+  const currentUser = useAuthStore((s) => s.auth.user)
+  const canWrite = hasPermission(currentUser, ADMIN_PERMISSION_RESOURCES.USER, 'write')
+  const canDelete = hasPermission(currentUser, ADMIN_PERMISSION_RESOURCES.USER, 'delete')
   const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
+  const [resellerManageOpen, setResellerManageOpen] = useState(false)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -141,34 +149,52 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
 
   return (
     <div className='-ml-1.5 flex items-center gap-1'>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant='ghost'
-              size='icon-sm'
-              onClick={handleEdit}
-              aria-label={t('Edit')}
-            />
-          }
-        >
-          <Pencil />
-        </TooltipTrigger>
-        <TooltipContent>{t('Edit')}</TooltipContent>
-      </Tooltip>
+      {canWrite && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant='ghost'
+                size='icon-sm'
+                onClick={handleEdit}
+                aria-label={t('Edit')}
+              />
+            }
+          >
+            <Pencil />
+          </TooltipTrigger>
+          <TooltipContent>{t('Edit')}</TooltipContent>
+        </Tooltip>
+      )}
 
       <DataTableRowActionMenu
         ariaLabel={t('Open menu')}
         contentClassName='w-48'
       >
-        {isDisabled ? (
+        {user.role === USER_ROLE.RESELLER && (
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault()
+              setResellerManageOpen(true)
+            }}
+          >
+            {t('Manage Reseller')}
+            <DropdownMenuShortcut>
+              <Store size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+        )}
+
+        {canWrite && isDisabled && (
           <DropdownMenuItem onClick={() => handleManage('enable')}>
             {t('Enable')}
             <DropdownMenuShortcut>
               <Power size={16} />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
-        ) : (
+        )}
+
+        {canWrite && !isDisabled && (
           <DropdownMenuItem
             onClick={() => handleManage('disable')}
             disabled={isRoot}
@@ -180,7 +206,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         )}
 
-        {isAdmin && !isRoot && (
+        {canWrite && !isRoot && (user.role === USER_ROLE.ADMIN || user.role === USER_ROLE.RESELLER) && (
           <DropdownMenuItem onClick={() => handleManage('demote')}>
             {t('Demote')}
             <DropdownMenuShortcut>
@@ -189,7 +215,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         )}
 
-        {!isAdmin && (
+        {canWrite && (user.role === USER_ROLE.USER || user.role === USER_ROLE.RESELLER) && (
           <DropdownMenuItem onClick={() => handleManage('promote')}>
             {t('Promote')}
             <DropdownMenuShortcut>
@@ -250,18 +276,21 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuShortcut>
         </DropdownMenuItem>
 
-        <DropdownMenuSeparator />
-
-        <DropdownMenuItem
-          onClick={handleDelete}
-          className='text-destructive focus:text-destructive'
-          disabled={isRoot}
-        >
-          {t('Delete')}
-          <DropdownMenuShortcut>
-            <Trash2 size={16} />
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
+        {canDelete && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={handleDelete}
+              className='text-destructive focus:text-destructive'
+              disabled={isRoot}
+            >
+              {t('Delete')}
+              <DropdownMenuShortcut>
+                <Trash2 size={16} />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+          </>
+        )}
       </DataTableRowActionMenu>
 
       <ConfirmDialog
@@ -300,6 +329,12 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         onOpenChange={setSubscriptionsDialogOpen}
         user={{ id: user.id, username: user.username }}
         onSuccess={triggerRefresh}
+      />
+
+      <ResellerManageDialog
+        open={resellerManageOpen}
+        onOpenChange={setResellerManageOpen}
+        user={user}
       />
     </div>
   )

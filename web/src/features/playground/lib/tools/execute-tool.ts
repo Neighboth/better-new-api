@@ -28,15 +28,11 @@ import type {
 import { toGeneratedImageAttachments } from '../message/image-message-utils'
 import { isImageCapableModel, pickImageModel } from '../model-capabilities'
 import { parseRequestErrorDetails } from '../streaming/request-error-utils'
-import { fetchPageWithFallback, isFetchablePageUrl } from './page-fetch'
 import { normalizePlanSteps } from './plan-utils'
 import {
-  getNumberArg,
   getStringArg,
   parseToolArguments,
-  truncateToolResult,
 } from './tool-call-utils'
-import { searchWebWithFallback } from './web-search'
 
 export interface ToolExecutionOutcome {
   /** JSON payload sent back to the model as the tool message content. */
@@ -128,56 +124,6 @@ async function executeGenerateImage(
   throw new Error(errorMessage)
 }
 
-async function executeWebSearch(
-  args: Record<string, unknown>,
-  ctx: ToolExecutionContext
-): Promise<ToolExecutionOutcome> {
-  const query = getStringArg(args, 'query')
-  if (!query) {
-    throw new Error(ERROR_MESSAGES.SEARCH_QUERY_REQUIRED)
-  }
-
-  const maxResults = getNumberArg(args, 'max_results', 5, 1, 10)
-  const outcome = await searchWebWithFallback(query, maxResults, ctx.signal)
-
-  return {
-    content: truncateToolResult(
-      JSON.stringify({
-        provider: outcome.provider,
-        results: outcome.results,
-      }),
-      MAX_TOOL_RESULT_CHARS
-    ),
-    summary: query,
-    sources: outcome.results.map((result) => ({
-      href: result.url,
-      title: result.title,
-    })),
-  }
-}
-
-async function executeFetchPage(
-  args: Record<string, unknown>,
-  ctx: ToolExecutionContext
-): Promise<ToolExecutionOutcome> {
-  const url = getStringArg(args, 'url')
-  if (!isFetchablePageUrl(url)) {
-    throw new Error(ERROR_MESSAGES.PAGE_URL_INVALID)
-  }
-
-  const outcome = await fetchPageWithFallback(url, ctx.signal)
-
-  return {
-    content: JSON.stringify({
-      provider: outcome.provider,
-      url: outcome.url,
-      content: outcome.content,
-    }),
-    summary: url,
-    sources: [{ href: url, title: url }],
-  }
-}
-
 function executeThink(args: Record<string, unknown>): ToolExecutionOutcome {
   const thought = getStringArg(args, 'thought')
   if (!thought) {
@@ -221,10 +167,6 @@ export async function executePlaygroundTool(
   switch (name) {
     case 'generate_image':
       return executeGenerateImage(args, ctx)
-    case 'web_search':
-      return executeWebSearch(args, ctx)
-    case 'fetch_page':
-      return executeFetchPage(args, ctx)
     case 'update_plan':
       return executeUpdatePlan(args)
     case 'think':

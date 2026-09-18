@@ -44,46 +44,6 @@ const TOOL_DEFINITIONS: Record<PlaygroundToolId, ChatCompletionTool> = {
       },
     },
   },
-  web_search: {
-    type: 'function',
-    function: {
-      name: 'web_search',
-      description:
-        'Search the web for up-to-date information. Use it for current events, fresh facts, or anything that may have changed recently.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'The search query.',
-          },
-          max_results: {
-            type: 'number',
-            description: 'Maximum number of results to return (1-10).',
-          },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  fetch_page: {
-    type: 'function',
-    function: {
-      name: 'fetch_page',
-      description:
-        'Fetch the readable text content of a web page. Use it when the user shares a URL or when a search result needs to be read in full.',
-      parameters: {
-        type: 'object',
-        properties: {
-          url: {
-            type: 'string',
-            description: 'The absolute URL of the page to fetch.',
-          },
-        },
-        required: ['url'],
-      },
-    },
-  },
   update_plan: {
     type: 'function',
     function: {

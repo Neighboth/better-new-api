@@ -40,13 +40,13 @@ type BlogPostPageProps = {
 }
 
 export function BlogPostPage(props: BlogPostPageProps) {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
   const { status } = useStatus()
   const blogEnabled = Boolean(status?.blog_enabled)
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['blog-post', props.postId],
-    queryFn: () => fetchBlogPost(props.postId),
+    queryKey: ['blog-post', props.postId, i18n.language],
+    queryFn: () => fetchBlogPost(props.postId, i18n.language),
     enabled: blogEnabled,
   })
 

@@ -35,6 +35,14 @@ func SetWebRouter(router *gin.Engine, assets WebAssets) {
 	router.GET("/blog/:id", func(c *gin.Context) {
 		controller.ServeBlogIndex(c, assets.IndexPage)
 	})
+	router.GET("/", func(c *gin.Context) {
+		c.Set(middleware.RouteTagKey, "web")
+		controller.ServeIndex(c, assets.IndexPage)
+	})
+	router.GET("/index.html", func(c *gin.Context) {
+		c.Set(middleware.RouteTagKey, "web")
+		controller.ServeIndex(c, assets.IndexPage)
+	})
 
 	router.Use(static.Serve("/", frontendFS))
 	router.NoRoute(func(c *gin.Context) {

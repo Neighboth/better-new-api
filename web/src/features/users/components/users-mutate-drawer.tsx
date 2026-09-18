@@ -265,22 +265,31 @@ export function UsersMutateDrawer({
                   )}
                 />
 
-                {!isUpdate && (
-                  <FormField
-                    control={form.control}
-                    name='role'
-                    render={({ field }) => (
+                <FormField
+                  control={form.control}
+                  name='role'
+                  render={({ field }) => {
+                    const isTargetRoot = currentRow?.role === ROLE.SUPER_ADMIN
+                    const isCallerRoot = currentUser?.role === ROLE.SUPER_ADMIN
+                    const roleOptions = [
+                      { value: '1', label: t('Common User') },
+                      { value: '5', label: t('Reseller') },
+                      ...(isCallerRoot ? [{ value: '10', label: t('Admin') }] : []),
+                    ]
+                    if (field.value === 10 && !roleOptions.some((o) => o.value === '10')) {
+                      roleOptions.push({ value: '10', label: t('Admin') })
+                    }
+
+                    return (
                       <FormItem>
                         <FormLabel>{t('Role')}</FormLabel>
                         <Select
-                          items={[
-                            { value: '1', label: t('Common User') },
-                            { value: '10', label: t('Admin') },
-                          ]}
+                          items={roleOptions}
                           onValueChange={(value) =>
                             value !== null && field.onChange(parseInt(value))
                           }
                           value={String(field.value)}
+                          disabled={isTargetRoot}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -289,10 +298,11 @@ export function UsersMutateDrawer({
                           </FormControl>
                           <SelectContent alignItemWithTrigger={false}>
                             <SelectGroup>
-                              <SelectItem value='1'>
-                                {t('Common User')}
-                              </SelectItem>
-                              <SelectItem value='10'>{t('Admin')}</SelectItem>
+                              {roleOptions.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </SelectItem>
+                              ))}
                             </SelectGroup>
                           </SelectContent>
                         </Select>
@@ -301,9 +311,9 @@ export function UsersMutateDrawer({
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
-                    )}
-                  />
-                )}
+                    )
+                  }}
+                />
 
                 <FormField
                   control={form.control}

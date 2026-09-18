@@ -134,6 +134,9 @@ export type SiteSettings = {
   AdsEnabled: boolean
   AdsMode: 'adsense' | 'custom' | 'both'
   CustomAds: string
+  GoogleAnalyticsId?: string
+  UmamiWebsiteId?: string
+  UmamiScriptUrl?: string
 }
 
 export type AuthSettings = {

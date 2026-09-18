@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/service/authz"
 
 	// Import oauth package to register providers via init()
 	_ "github.com/QuantumNous/new-api/oauth"
@@ -62,16 +63,16 @@ func SetApiRouter(router *gin.Engine) {
 			blogAdminRoute := blogRoute.Group("/manage")
 			blogAdminRoute.Use(middleware.AdminAuth())
 			{
-				blogAdminRoute.GET("/settings", controller.GetBlogSettings)
-				blogAdminRoute.PUT("/settings", controller.UpdateBlogSettings)
-				blogAdminRoute.GET("/posts", controller.GetAllBlogPosts)
-				blogAdminRoute.POST("/posts", controller.CreateBlogPost)
-				blogAdminRoute.PUT("/posts/:id", controller.UpdateBlogPost)
-				blogAdminRoute.DELETE("/posts/:id", controller.DeleteBlogPost)
-				blogAdminRoute.GET("/ads/stats", controller.GetAdImpressionStats)
-				blogAdminRoute.DELETE("/ads/stats/clear", controller.ClearAdImpressionStats)
-				blogAdminRoute.GET("/ads/impressions.csv", controller.DownloadAdImpressionsCSV)
-				blogAdminRoute.POST("/ads/upload", controller.UploadAdImage)
+				blogAdminRoute.GET("/settings", middleware.RequirePermission(authz.BlogRead), controller.GetBlogSettings)
+				blogAdminRoute.PUT("/settings", middleware.RequirePermission(authz.BlogWrite), controller.UpdateBlogSettings)
+				blogAdminRoute.GET("/posts", middleware.RequirePermission(authz.BlogRead), controller.GetAllBlogPosts)
+				blogAdminRoute.POST("/posts", middleware.RequirePermission(authz.BlogWrite), controller.CreateBlogPost)
+				blogAdminRoute.PUT("/posts/:id", middleware.RequirePermission(authz.BlogWrite), controller.UpdateBlogPost)
+				blogAdminRoute.DELETE("/posts/:id", middleware.RequirePermission(authz.BlogWrite), controller.DeleteBlogPost)
+				blogAdminRoute.GET("/ads/stats", middleware.RequirePermission(authz.BlogRead), controller.GetAdImpressionStats)
+				blogAdminRoute.DELETE("/ads/stats/clear", middleware.RequirePermission(authz.BlogWrite), controller.ClearAdImpressionStats)
+				blogAdminRoute.GET("/ads/impressions.csv", middleware.RequirePermission(authz.BlogRead), controller.DownloadAdImpressionsCSV)
+				blogAdminRoute.POST("/ads/upload", middleware.RequirePermission(authz.BlogWrite), controller.UploadAdImage)
 			}
 		}
 		apiRouter.POST("/user/reset", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ResetPassword)
@@ -166,23 +167,23 @@ func SetApiRouter(router *gin.Engine) {
 			adminRoute := userRoute.Group("/")
 			adminRoute.Use(middleware.AdminAuth())
 			{
-				adminRoute.GET("/", controller.GetAllUsers)
-				adminRoute.GET("/topup", controller.GetAllTopUps)
-				adminRoute.POST("/topup/complete", controller.AdminCompleteTopUp)
-				adminRoute.GET("/search", controller.SearchUsers)
-				adminRoute.GET("/:id/oauth/bindings", controller.GetUserOAuthBindingsByAdmin)
-				adminRoute.DELETE("/:id/oauth/bindings/:provider_id", controller.UnbindCustomOAuthByAdmin)
-				adminRoute.DELETE("/:id/bindings/:binding_type", controller.AdminClearUserBinding)
-				adminRoute.GET("/:id", controller.GetUser)
-				adminRoute.POST("/", controller.CreateUser)
+				adminRoute.GET("/", middleware.RequirePermission(authz.UserRead), controller.GetAllUsers)
+				adminRoute.GET("/topup", middleware.RequirePermission(authz.UserRead), controller.GetAllTopUps)
+				adminRoute.POST("/topup/complete", middleware.RequirePermission(authz.UserWrite), controller.AdminCompleteTopUp)
+				adminRoute.GET("/search", middleware.RequirePermission(authz.UserRead), controller.SearchUsers)
+				adminRoute.GET("/:id/oauth/bindings", middleware.RequirePermission(authz.UserRead), controller.GetUserOAuthBindingsByAdmin)
+				adminRoute.DELETE("/:id/oauth/bindings/:provider_id", middleware.RequirePermission(authz.UserWrite), controller.UnbindCustomOAuthByAdmin)
+				adminRoute.DELETE("/:id/bindings/:binding_type", middleware.RequirePermission(authz.UserWrite), controller.AdminClearUserBinding)
+				adminRoute.GET("/:id", middleware.RequirePermission(authz.UserRead), controller.GetUser)
+				adminRoute.POST("/", middleware.RequirePermission(authz.UserWrite), controller.CreateUser)
 				adminRoute.POST("/manage", controller.ManageUser)
-				adminRoute.PUT("/", controller.UpdateUser)
-				adminRoute.DELETE("/:id", controller.DeleteUser)
-				adminRoute.DELETE("/:id/reset_passkey", controller.AdminResetPasskey)
+				adminRoute.PUT("/", middleware.RequirePermission(authz.UserWrite), controller.UpdateUser)
+				adminRoute.DELETE("/:id", middleware.RequirePermission(authz.UserDelete), controller.DeleteUser)
+				adminRoute.DELETE("/:id/reset_passkey", middleware.RequirePermission(authz.UserWrite), controller.AdminResetPasskey)
 
 				// Admin 2FA routes
-				adminRoute.GET("/2fa/stats", controller.Admin2FAStats)
-				adminRoute.DELETE("/:id/2fa", controller.AdminDisable2FA)
+				adminRoute.GET("/2fa/stats", middleware.RequirePermission(authz.UserRead), controller.Admin2FAStats)
+				adminRoute.DELETE("/:id/2fa", middleware.RequirePermission(authz.UserWrite), controller.AdminDisable2FA)
 			}
 		}
 
@@ -202,20 +203,20 @@ func SetApiRouter(router *gin.Engine) {
 		subscriptionAdminRoute := apiRouter.Group("/subscription/admin")
 		subscriptionAdminRoute.Use(middleware.AdminAuth())
 		{
-			subscriptionAdminRoute.GET("/plans", controller.AdminListSubscriptionPlans)
-			subscriptionAdminRoute.POST("/plans", controller.AdminCreateSubscriptionPlan)
-			subscriptionAdminRoute.PUT("/plans/:id", controller.AdminUpdateSubscriptionPlan)
-			subscriptionAdminRoute.PATCH("/plans/:id", controller.AdminUpdateSubscriptionPlanStatus)
-			subscriptionAdminRoute.DELETE("/plans/:id", controller.AdminDeleteSubscriptionPlan)
-			subscriptionAdminRoute.POST("/bind", controller.AdminBindSubscription)
-			subscriptionAdminRoute.POST("/plans/:id/subscriptions/reset", controller.AdminResetPlanSubscriptions)
+			subscriptionAdminRoute.GET("/plans", middleware.RequirePermission(authz.SubscriptionRead), controller.AdminListSubscriptionPlans)
+			subscriptionAdminRoute.POST("/plans", middleware.RequirePermission(authz.SubscriptionWrite), controller.AdminCreateSubscriptionPlan)
+			subscriptionAdminRoute.PUT("/plans/:id", middleware.RequirePermission(authz.SubscriptionWrite), controller.AdminUpdateSubscriptionPlan)
+			subscriptionAdminRoute.PATCH("/plans/:id", middleware.RequirePermission(authz.SubscriptionWrite), controller.AdminUpdateSubscriptionPlanStatus)
+			subscriptionAdminRoute.DELETE("/plans/:id", middleware.RequirePermission(authz.SubscriptionWrite), controller.AdminDeleteSubscriptionPlan)
+			subscriptionAdminRoute.POST("/bind", middleware.RequirePermission(authz.SubscriptionWrite), controller.AdminBindSubscription)
+			subscriptionAdminRoute.POST("/plans/:id/subscriptions/reset", middleware.RequirePermission(authz.SubscriptionWrite), controller.AdminResetPlanSubscriptions)
 
 			// User subscription management (admin)
-			subscriptionAdminRoute.GET("/users/:id/subscriptions", controller.AdminListUserSubscriptions)
-			subscriptionAdminRoute.POST("/users/:id/subscriptions", controller.AdminCreateUserSubscription)
-			subscriptionAdminRoute.POST("/users/:id/subscriptions/reset", controller.AdminResetUserSubscriptionsByPlan)
-			subscriptionAdminRoute.POST("/user_subscriptions/:id/invalidate", controller.AdminInvalidateUserSubscription)
-			subscriptionAdminRoute.DELETE("/user_subscriptions/:id", controller.AdminDeleteUserSubscription)
+			subscriptionAdminRoute.GET("/users/:id/subscriptions", middleware.RequirePermission(authz.SubscriptionRead), controller.AdminListUserSubscriptions)
+			subscriptionAdminRoute.POST("/users/:id/subscriptions", middleware.RequirePermission(authz.SubscriptionWrite), controller.AdminCreateUserSubscription)
+			subscriptionAdminRoute.POST("/users/:id/subscriptions/reset", middleware.RequirePermission(authz.SubscriptionWrite), controller.AdminResetUserSubscriptionsByPlan)
+			subscriptionAdminRoute.POST("/user_subscriptions/:id/invalidate", middleware.RequirePermission(authz.SubscriptionWrite), controller.AdminInvalidateUserSubscription)
+			subscriptionAdminRoute.DELETE("/user_subscriptions/:id", middleware.RequirePermission(authz.SubscriptionWrite), controller.AdminDeleteUserSubscription)
 		}
 
 		// Subscription payment callbacks (no auth)
@@ -224,19 +225,19 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/subscription/epay/return", controller.SubscriptionEpayReturn)
 		apiRouter.POST("/subscription/epay/return", anonymousRequestBodyLimit, controller.SubscriptionEpayReturn)
 		optionRoute := apiRouter.Group("/option")
-		optionRoute.Use(middleware.RootAuth())
+		optionRoute.Use(middleware.AdminAuth())
 		{
 			optionRoute.GET("/", controller.GetOptions)
 			optionRoute.PUT("/", controller.UpdateOption)
-			optionRoute.POST("/payment_compliance", controller.ConfirmPaymentCompliance)
-			optionRoute.GET("/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
-			optionRoute.DELETE("/channel_affinity_cache", controller.ClearChannelAffinityCache)
-			optionRoute.POST("/rest_model_ratio", controller.ResetModelRatio)
-			optionRoute.GET("/waffo-pancake/catalog", controller.ListWaffoPancakeCatalog)
-			optionRoute.POST("/waffo-pancake/pair", controller.CreateWaffoPancakePair)
-			optionRoute.POST("/waffo-pancake/save", controller.SaveWaffoPancake)
-			optionRoute.POST("/waffo-pancake/subscription-product", controller.CreateWaffoPancakeSubscriptionProduct)
-			optionRoute.GET("/waffo-pancake/subscription-product-options", controller.ListWaffoPancakeSubscriptionProductOptions)
+			optionRoute.POST("/payment_compliance", middleware.RootAuth(), controller.ConfirmPaymentCompliance)
+			optionRoute.GET("/channel_affinity_cache", middleware.RootAuth(), controller.GetChannelAffinityCacheStats)
+			optionRoute.DELETE("/channel_affinity_cache", middleware.RootAuth(), controller.ClearChannelAffinityCache)
+			optionRoute.POST("/rest_model_ratio", middleware.RootAuth(), controller.ResetModelRatio)
+			optionRoute.GET("/waffo-pancake/catalog", middleware.RootAuth(), controller.ListWaffoPancakeCatalog)
+			optionRoute.POST("/waffo-pancake/pair", middleware.RootAuth(), controller.CreateWaffoPancakePair)
+			optionRoute.POST("/waffo-pancake/save", middleware.RootAuth(), controller.SaveWaffoPancake)
+			optionRoute.POST("/waffo-pancake/subscription-product", middleware.RootAuth(), controller.CreateWaffoPancakeSubscriptionProduct)
+			optionRoute.GET("/waffo-pancake/subscription-product-options", middleware.RootAuth(), controller.ListWaffoPancakeSubscriptionProductOptions)
 		}
 
 		// Managed Files (admin only)
@@ -309,13 +310,13 @@ func SetApiRouter(router *gin.Engine) {
 		redemptionRoute := apiRouter.Group("/redemption")
 		redemptionRoute.Use(middleware.AdminAuth())
 		{
-			redemptionRoute.GET("/", controller.GetAllRedemptions)
-			redemptionRoute.GET("/search", controller.SearchRedemptions)
-			redemptionRoute.GET("/:id", controller.GetRedemption)
-			redemptionRoute.POST("/", controller.AddRedemption)
-			redemptionRoute.PUT("/", controller.UpdateRedemption)
-			redemptionRoute.DELETE("/invalid", controller.DeleteInvalidRedemption)
-			redemptionRoute.DELETE("/:id", controller.DeleteRedemption)
+			redemptionRoute.GET("/", middleware.RequirePermission(authz.RedemptionRead), controller.GetAllRedemptions)
+			redemptionRoute.GET("/search", middleware.RequirePermission(authz.RedemptionRead), controller.SearchRedemptions)
+			redemptionRoute.GET("/:id", middleware.RequirePermission(authz.RedemptionRead), controller.GetRedemption)
+			redemptionRoute.POST("/", middleware.RequirePermission(authz.RedemptionWrite), controller.AddRedemption)
+			redemptionRoute.PUT("/", middleware.RequirePermission(authz.RedemptionWrite), controller.UpdateRedemption)
+			redemptionRoute.DELETE("/invalid", middleware.RequirePermission(authz.RedemptionWrite), controller.DeleteInvalidRedemption)
+			redemptionRoute.DELETE("/:id", middleware.RequirePermission(authz.RedemptionWrite), controller.DeleteRedemption)
 		}
 		logRoute := apiRouter.Group("/log")
 		logRoute.GET("/", middleware.AdminAuth(), controller.GetAllLogs)
@@ -393,15 +394,36 @@ func SetApiRouter(router *gin.Engine) {
 		modelsRoute := apiRouter.Group("/models")
 		modelsRoute.Use(middleware.AdminAuth())
 		{
-			modelsRoute.GET("/sync_upstream/preview", controller.SyncUpstreamPreview)
-			modelsRoute.POST("/sync_upstream", controller.SyncUpstreamModels)
-			modelsRoute.GET("/missing", controller.GetMissingModels)
-			modelsRoute.GET("/", controller.GetAllModelsMeta)
-			modelsRoute.GET("/search", controller.SearchModelsMeta)
-			modelsRoute.GET("/:id", controller.GetModelMeta)
-			modelsRoute.POST("/", controller.CreateModelMeta)
-			modelsRoute.PUT("/", controller.UpdateModelMeta)
-			modelsRoute.DELETE("/:id", controller.DeleteModelMeta)
+			modelsRoute.GET("/sync_upstream/preview", middleware.RequirePermission(authz.ModelRead), controller.SyncUpstreamPreview)
+			modelsRoute.POST("/sync_upstream", middleware.RequirePermission(authz.ModelWrite), controller.SyncUpstreamModels)
+			modelsRoute.GET("/missing", middleware.RequirePermission(authz.ModelRead), controller.GetMissingModels)
+			modelsRoute.GET("/", middleware.RequirePermission(authz.ModelRead), controller.GetAllModelsMeta)
+			modelsRoute.GET("/search", middleware.RequirePermission(authz.ModelRead), controller.SearchModelsMeta)
+			modelsRoute.GET("/:id", middleware.RequirePermission(authz.ModelRead), controller.GetModelMeta)
+			modelsRoute.POST("/", middleware.RequirePermission(authz.ModelWrite), controller.CreateModelMeta)
+			modelsRoute.PUT("/", middleware.RequirePermission(authz.ModelWrite), controller.UpdateModelMeta)
+			modelsRoute.DELETE("/:id", middleware.RequirePermission(authz.ModelWrite), controller.DeleteModelMeta)
+		}
+
+		// Reseller admin and self-service routes
+		resellerAdminRoute := apiRouter.Group("/admin/reseller")
+		resellerAdminRoute.Use(middleware.AdminAuth())
+		{
+			resellerAdminRoute.GET("/:userId", middleware.RequirePermission(authz.UserWrite), controller.AdminGetResellerConfig)
+			resellerAdminRoute.PUT("/:userId", middleware.RequirePermission(authz.UserWrite), controller.AdminUpdateResellerConfig)
+		}
+
+		resellerRoute := apiRouter.Group("/reseller")
+		resellerRoute.Use(middleware.ResellerAuth())
+		{
+			resellerRoute.GET("/self", controller.ResellerGetSelfConfig)
+			resellerRoute.PUT("/self", controller.ResellerUpdateSelfConfig)
+			resellerRoute.GET("/config", controller.ResellerGetSelfConfig)
+			resellerRoute.PUT("/config", controller.ResellerUpdateSelfConfig)
+			resellerRoute.GET("/redemptions", controller.ResellerGetRedemptions)
+			resellerRoute.POST("/redemptions", controller.ResellerCreateRedemption)
+			resellerRoute.DELETE("/redemptions/:id", controller.ResellerDeleteRedemption)
+			resellerRoute.GET("/users/:userId/logs", controller.ResellerGetUserLogs)
 		}
 
 		// Deployments (model deployment management)

@@ -35,6 +35,9 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 
+import { ADMIN_PERMISSION_RESOURCES, hasPermission } from '@/lib/admin-permissions'
+import { useAuthStore } from '@/stores/auth-store'
+
 import {
   handleDeleteModel,
   handleToggleModelStatus,
@@ -49,10 +52,16 @@ interface DataTableRowActionsProps {
 
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
+  const user = useAuthStore((s) => s.auth.user)
+  const canWrite = hasPermission(user, ADMIN_PERMISSION_RESOURCES.MODEL, 'write')
   const model = row.original
   const { setOpen, setCurrentRow } = useModels()
   const queryClient = useQueryClient()
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+
+  if (!canWrite) {
+    return null
+  }
 
   const isEnabled = isModelEnabled(model)
 

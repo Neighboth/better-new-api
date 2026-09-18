@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -185,7 +186,40 @@ func RenderIndexPage(indexPage []byte) []byte {
 	if icon == "" {
 		icon = "/logo.png"
 	}
+	return RenderCustomIndexPage(indexPage, siteName, title, description, keywords, icon, socialImage)
+}
 
+func RenderResellerIndexPage(indexPage []byte, rc *model.ResellerConfig) []byte {
+	siteName := rc.SiteName
+	if siteName == "" {
+		siteName = common.SystemName
+		if siteName == "" {
+			siteName = "New API"
+		}
+	}
+	title := siteName
+	if rc.SeoTitle != "" {
+		title = siteName + " - " + rc.SeoTitle
+	}
+	desc := rc.SeoDescription
+	if desc == "" {
+		desc = seoOption("SEODescription")
+	}
+	keywords := rc.SeoKeywords
+	if keywords == "" {
+		keywords = seoOption("SEOKeywords")
+	}
+	icon := rc.Logo
+	if icon == "" {
+		icon = common.Logo
+		if icon == "" {
+			icon = "/logo.png"
+		}
+	}
+	return RenderCustomIndexPage(indexPage, siteName, title, desc, keywords, icon, icon)
+}
+
+func RenderCustomIndexPage(indexPage []byte, siteName, title, description, keywords, icon, socialImage string) []byte {
 	page := string(indexPage)
 
 	// Title + meta title/description.
@@ -195,19 +229,56 @@ func RenderIndexPage(indexPage []byte) []byte {
 		page = replaceMeta(page, `name="description"`, html.EscapeString(description))
 	}
 
-	// Favicon. The built HTML can contain more than one rel=icon link (the
-	// bundler injects its own), and browsers honor the LAST one, so every
-	// occurrence must be replaced.
+	// Favicon and icon links.
 	if icon != "" {
 		page = replaceAllLinkHrefs(page, `rel="icon"`, html.EscapeString(icon))
 	}
 
+	// Dynamic Google Analytics
+	gaID := strings.TrimSpace(common.OptionMap["GoogleAnalyticsId"])
+	var gaInject strings.Builder
+	if gaID != "" {
+		gaInject.WriteString(fmt.Sprintf("<script async src=\"https://www.googletagmanager.com/gtag/js?id=%s\"></script>\n", html.EscapeString(gaID)))
+		gaInject.WriteString("<script>\nwindow.dataLayer = window.dataLayer || [];\nfunction gtag(){dataLayer.push(arguments);}\ngtag('js', new Date());\ngtag('config', '" + html.EscapeString(gaID) + "');\n</script>\n")
+	}
+	page = strings.ReplaceAll(page, "<!--Google Analytics-->", gaInject.String())
+
+	// Dynamic Umami
+	umamiSiteID := strings.TrimSpace(common.OptionMap["UmamiWebsiteId"])
+	umamiScriptURL := strings.TrimSpace(common.OptionMap["UmamiScriptUrl"])
+	if umamiScriptURL == "" {
+		umamiScriptURL = "https://analytics.umami.is/script.js"
+	}
+	var umamiInject strings.Builder
+	if umamiSiteID != "" {
+		umamiInject.WriteString(fmt.Sprintf("<script defer src=\"%s\" data-website-id=\"%s\"></script>\n", html.EscapeString(umamiScriptURL), html.EscapeString(umamiSiteID)))
+	}
+	page = strings.ReplaceAll(page, "<!--umami-->", umamiInject.String())
+
 	// Extra tags go right before </head>.
 	var extra strings.Builder
+	if icon != "" {
+		extra.WriteString(`<link rel="shortcut icon" href="` + html.EscapeString(icon) + `" />` + "\n    ")
+		extra.WriteString(`<link rel="apple-touch-icon" href="` + html.EscapeString(icon) + `" />` + "\n    ")
+	}
+
+	// Schema.org WebSite JSON-LD structured data for Google Search Logo & Site Name
+	serverAddr := strings.TrimSpace(common.OptionMap["ServerAddress"])
+	if serverAddr == "" {
+		serverAddr = "/"
+	}
+	logoUrl := icon
+	if strings.HasPrefix(logoUrl, "/") && serverAddr != "/" {
+		logoUrl = strings.TrimSuffix(serverAddr, "/") + logoUrl
+	}
+	jsonLd := fmt.Sprintf(`{"@context":"https://schema.org","@type":"WebSite","name":%q,"url":%q,"image":%q}`, siteName, serverAddr, logoUrl)
+	extra.WriteString(`<script type="application/ld+json">` + jsonLd + `</script>` + "\n    ")
+
 	if keywords != "" {
 		extra.WriteString(`<meta name="keywords" content="` + html.EscapeString(keywords) + `" />` + "\n    ")
 	}
 	extra.WriteString(`<meta property="og:type" content="website" />` + "\n    ")
+	extra.WriteString(`<meta property="og:site_name" content="` + html.EscapeString(siteName) + `" />` + "\n    ")
 	extra.WriteString(`<meta property="og:title" content="` + html.EscapeString(title) + `" />` + "\n    ")
 	if description != "" {
 		extra.WriteString(`<meta property="og:description" content="` + html.EscapeString(description) + `" />` + "\n    ")
@@ -216,6 +287,10 @@ func RenderIndexPage(indexPage []byte) []byte {
 		extra.WriteString(`<meta property="og:image" content="` + html.EscapeString(socialImage) + `" />` + "\n    ")
 		extra.WriteString(`<meta name="twitter:card" content="summary_large_image" />` + "\n    ")
 		extra.WriteString(`<meta name="twitter:image" content="` + html.EscapeString(socialImage) + `" />` + "\n    ")
+	} else if icon != "" {
+		extra.WriteString(`<meta property="og:image" content="` + html.EscapeString(icon) + `" />` + "\n    ")
+		extra.WriteString(`<meta name="twitter:card" content="summary" />` + "\n    ")
+		extra.WriteString(`<meta name="twitter:image" content="` + html.EscapeString(icon) + `" />` + "\n    ")
 	} else {
 		extra.WriteString(`<meta name="twitter:card" content="summary" />` + "\n    ")
 	}
@@ -245,21 +320,18 @@ func replaceTagContent(page, open, close, content string) string {
 }
 
 func replaceMeta(page, attr, content string) string {
-	needle := "<meta " + attr
-	idx := strings.Index(page, needle)
-	if idx < 0 {
+	re := regexp.MustCompile(`(?is)<meta\s+[^>]*?` + regexp.QuoteMeta(attr) + `[^>]*?>`)
+	match := re.FindStringIndex(page)
+	if match == nil {
 		return page
 	}
-	contentIdx := strings.Index(page[idx:], `content="`)
-	if contentIdx < 0 {
+	tag := page[match[0]:match[1]]
+	contentRe := regexp.MustCompile(`(?s)content="[^"]*"`)
+	if !contentRe.MatchString(tag) {
 		return page
 	}
-	contentStart := idx + contentIdx + len(`content="`)
-	contentEnd := strings.Index(page[contentStart:], `"`)
-	if contentEnd < 0 {
-		return page
-	}
-	return page[:contentStart] + content + page[contentStart+contentEnd:]
+	newTag := contentRe.ReplaceAllString(tag, fmt.Sprintf(`content="%s"`, content))
+	return page[:match[0]] + newTag + page[match[1]:]
 }
 
 func replaceLinkHref(page, attr, href string) string {
@@ -309,6 +381,11 @@ func replaceAllLinkHrefs(page, attr, href string) string {
 // so there is no caching here beyond the caller's Cache-Control header.
 func ServeIndex(c *gin.Context, indexPage []byte) {
 	c.Header("Cache-Control", "no-cache")
+	host := strings.Split(c.Request.Host, ":")[0]
+	if rc, err := model.GetResellerConfigByDomain(host); err == nil && rc != nil && rc.ChildPanelEnabled {
+		c.Data(http.StatusOK, "text/html; charset=utf-8", RenderResellerIndexPage(indexPage, rc))
+		return
+	}
 	c.Data(http.StatusOK, "text/html; charset=utf-8", RenderIndexPage(indexPage))
 }
 

@@ -36,6 +36,8 @@ import {
 import { JsonEditor } from '@/components/json-editor'
 import { TagInput } from '@/components/tag-input'
 import { Button } from '@/components/ui/button'
+import { ADMIN_PERMISSION_RESOURCES, hasPermission } from '@/lib/admin-permissions'
+import { useAuthStore } from '@/stores/auth-store'
 import {
   Collapsible,
   CollapsibleContent,
@@ -238,6 +240,8 @@ export function ModelMutateDrawer({
   currentRow,
 }: ModelMutateDrawerProps) {
   const { t } = useTranslation()
+  const user = useAuthStore((s) => s.auth.user)
+  const canWrite = hasPermission(user, ADMIN_PERMISSION_RESOURCES.MODEL, 'write')
   const queryClient = useQueryClient()
   const currentModelId = currentRow?.id
   const isEditing = Boolean(currentModelId)
@@ -1382,10 +1386,12 @@ export function ModelMutateDrawer({
           >
             {t('Cancel')}
           </SheetClose>
-          <Button form='model-form' type='submit' disabled={isSubmitting}>
-            {isSubmitting && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-            {isEditing ? t('Update Model') : t('Save changes')}
-          </Button>
+          {canWrite && (
+            <Button form='model-form' type='submit' disabled={isSubmitting}>
+              {isSubmitting && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+              {isEditing ? t('Update Model') : t('Save changes')}
+            </Button>
+          )}
         </SheetFooter>
       </SheetContent>
     </Sheet>
