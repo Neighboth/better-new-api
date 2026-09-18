@@ -20,8 +20,6 @@ import {
   AiImageIcon,
   ArrowDown01Icon,
   BrainIcon,
-  Globe02Icon,
-  Link04Icon,
   Task01Icon,
   ToolsIcon,
 } from '@hugeicons/core-free-icons'
@@ -40,8 +38,6 @@ import type { ToolEvent } from '../../types'
 
 const TOOL_ICONS = {
   generate_image: AiImageIcon,
-  web_search: Globe02Icon,
-  fetch_page: Link04Icon,
   update_plan: Task01Icon,
   think: BrainIcon,
 } as const

@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 import { MaskedValueDisplay } from '@/components/masked-value-display'
 import { StatusBadge } from '@/components/status-badge'
 import { TableId } from '@/components/table-id'
+import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Tooltip,
@@ -77,7 +78,17 @@ export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
       header: t('Name'),
       meta: { mobileTitle: true },
       cell: ({ row }) => (
-        <span className='font-medium'>{row.getValue('name')}</span>
+        <div className='flex items-center gap-2'>
+          <span className='font-medium'>{row.getValue('name')}</span>
+          {row.original.is_reseller && (
+            <Badge
+              variant='outline'
+              className='text-[10px] px-1.5 py-0 h-4 font-semibold text-amber-600 border-amber-400 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300'
+            >
+              {t('[Bayi]')}
+            </Badge>
+          )}
+        </div>
       ),
       size: 180,
     },

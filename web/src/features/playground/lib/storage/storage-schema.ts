@@ -41,8 +41,6 @@ export const playgroundConfigSchema = z.object({
 
 export const toolsEnabledSchema = z.object({
   generate_image: z.boolean().optional(),
-  web_search: z.boolean().optional(),
-  fetch_page: z.boolean().optional(),
   update_plan: z.boolean().optional(),
 })
 

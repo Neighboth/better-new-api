@@ -122,6 +122,9 @@ const SITE_SECTIONS = [
           SitemapCustomUrls: settings.SitemapCustomUrls,
           LLMSTxt: settings.LLMSTxt,
           LLMSFullTxt: settings.LLMSFullTxt,
+          GoogleAnalyticsId: settings.GoogleAnalyticsId ?? '',
+          UmamiWebsiteId: settings.UmamiWebsiteId ?? '',
+          UmamiScriptUrl: settings.UmamiScriptUrl ?? 'https://analytics.umami.is/script.js',
         }}
       />
     ),

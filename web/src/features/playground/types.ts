@@ -37,8 +37,6 @@ export interface MessageAttachment {
 // Playground tool types
 export type PlaygroundToolId =
   | 'generate_image'
-  | 'web_search'
-  | 'fetch_page'
   | 'update_plan'
   | 'think'
 

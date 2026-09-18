@@ -52,6 +52,9 @@ const defaultSiteSettings: SiteSettings = {
   AdsEnabled: false,
   AdsMode: 'both',
   CustomAds: '[]',
+  GoogleAnalyticsId: '',
+  UmamiWebsiteId: '',
+  UmamiScriptUrl: '',
 }
 
 export function SiteSettings() {

@@ -21,9 +21,10 @@ import z from 'zod'
 
 import { Models } from '@/features/models'
 import {
-  MODELS_SECTION_IDS,
   MODELS_DEFAULT_SECTION,
+  MODELS_SECTION_IDS,
 } from '@/features/models/section-registry'
+import { ADMIN_PERMISSION_RESOURCES, hasPermission } from '@/lib/admin-permissions'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -44,7 +45,11 @@ export const Route = createFileRoute('/_authenticated/models/$section')({
   beforeLoad: ({ params }) => {
     const { auth } = useAuthStore.getState()
 
-    if (!auth.user || auth.user.role < ROLE.ADMIN) {
+    if (
+      !auth.user ||
+      auth.user.role < ROLE.ADMIN ||
+      !hasPermission(auth.user, ADMIN_PERMISSION_RESOURCES.MODEL, 'read')
+    ) {
       throw redirect({
         to: '/403',
       })

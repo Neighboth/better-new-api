@@ -122,7 +122,7 @@ func TestManageUserDemoteAdvancesAuthVersionAndRevokesSessionsOnce(t *testing.T)
 
 	var updated model.User
 	require.NoError(t, db.First(&updated, user.Id).Error)
-	assert.Equal(t, common.RoleCommonUser, updated.Role)
+	assert.Equal(t, common.RoleResellerUser, updated.Role)
 	assert.EqualValues(t, 2, updated.AuthVersion)
 	var sessions []model.UserSession
 	require.NoError(t, db.Where("user_id = ?", user.Id).Order("sid asc").Find(&sessions).Error)

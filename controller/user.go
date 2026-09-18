@@ -689,16 +689,27 @@ func UpdateUser(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if updatedUser.Role != common.RoleGuestUser && updatedUser.Role != originUser.Role {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
-		return
-	}
-	updatedUser.Role = originUser.Role
 	myRole := c.GetInt("role")
 	if !canManageTargetRole(myRole, originUser.Role) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
 		return
 	}
+
+	targetRole := originUser.Role
+	if updatedUser.Role != 0 && updatedUser.Role != originUser.Role {
+		if !common.IsValidateRole(updatedUser.Role) {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		if myRole != common.RoleRootUser && updatedUser.Role >= myRole {
+			common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
+			return
+		}
+		targetRole = updatedUser.Role
+		updatedUser.AuthVersion = originUser.AuthVersion + 1
+	}
+	updatedUser.Role = targetRole
+
 	if updatedUser.Password == "$I_LOVE_U" {
 		updatedUser.Password = "" // rollback to what it should be
 	}
@@ -708,7 +719,7 @@ func UpdateUser(c *gin.Context) {
 		if err := updatedUser.EditWithTx(tx, updatePassword); err != nil {
 			return err
 		}
-		touched, err := updateAdminPermissionsForUserInTx(c, tx, updatedUser.Id, originUser.Role, updatedUser.AdminPermissions)
+		touched, err := updateAdminPermissionsForUserInTx(c, tx, updatedUser.Id, updatedUser.Role, updatedUser.AdminPermissions)
 		authzTouched = touched
 		return err
 	}); err != nil {
@@ -1206,6 +1217,18 @@ func ManageUser(c *gin.Context) {
 		return
 	}
 	myRole := c.GetInt("role")
+	myId := c.GetInt("id")
+	if req.Action == "delete" {
+		if !authz.Can(myId, myRole, authz.UserDelete) {
+			common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
+			return
+		}
+	} else {
+		if !authz.Can(myId, myRole, authz.UserWrite) {
+			common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
+			return
+		}
+	}
 	if !canManageTargetRole(myRole, user.Role) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
 		return
@@ -1255,17 +1278,25 @@ func ManageUser(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgUserAlreadyAdmin)
 			return
 		}
-		user.Role = common.RoleAdminUser
+		if user.Role == common.RoleCommonUser {
+			user.Role = common.RoleResellerUser
+		} else if user.Role == common.RoleResellerUser {
+			user.Role = common.RoleAdminUser
+		}
 	case "demote":
 		if user.Role == common.RoleRootUser {
 			common.ApiErrorI18n(c, i18n.MsgUserCannotDemoteRootUser)
 			return
 		}
-		if user.Role == common.RoleCommonUser {
+		if user.Role <= common.RoleCommonUser {
 			common.ApiErrorI18n(c, i18n.MsgUserAlreadyCommon)
 			return
 		}
-		user.Role = common.RoleCommonUser
+		if user.Role >= common.RoleAdminUser {
+			user.Role = common.RoleResellerUser
+		} else if user.Role == common.RoleResellerUser {
+			user.Role = common.RoleCommonUser
+		}
 	case "add_quota":
 		switch req.Mode {
 		case "add":

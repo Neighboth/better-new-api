@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/console_setting"
@@ -90,6 +91,16 @@ var captchaSettingKeys = map[string]bool{
 }
 
 func GetOptions(c *gin.Context) {
+	userId := c.GetInt("id")
+	role := c.GetInt("role")
+	if !authz.Can(userId, role, authz.SystemSettingRead) && !authz.Can(userId, role, authz.ModelRead) {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),
+		})
+		return
+	}
+
 	var options []*model.Option
 	optionValues := make(map[string]string)
 	common.OptionMapRWMutex.Lock()
@@ -136,6 +147,9 @@ type OptionUpdateRequest struct {
 }
 
 func UpdateOption(c *gin.Context) {
+	userId := c.GetInt("id")
+	role := c.GetInt("role")
+
 	var option OptionUpdateRequest
 	err := common.DecodeJson(c.Request.Body, &option)
 	if err != nil {
@@ -144,6 +158,34 @@ func UpdateOption(c *gin.Context) {
 			"message": "无效的参数",
 		})
 		return
+	}
+
+	isModelPricingKey := false
+	for _, k := range completionRatioMetaOptionKeys {
+		if k == option.Key {
+			isModelPricingKey = true
+			break
+		}
+	}
+
+	if role > 0 {
+		if isModelPricingKey {
+			if !authz.Can(userId, role, authz.ModelWrite) && !authz.Can(userId, role, authz.SystemSettingWrite) {
+				c.JSON(http.StatusForbidden, gin.H{
+					"success": false,
+					"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),
+				})
+				return
+			}
+		} else {
+			if !authz.Can(userId, role, authz.SystemSettingWrite) {
+				c.JSON(http.StatusForbidden, gin.H{
+					"success": false,
+					"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),
+				})
+				return
+			}
+		}
 	}
 	switch option.Value.(type) {
 	case bool:

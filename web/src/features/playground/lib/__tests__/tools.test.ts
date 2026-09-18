@@ -27,7 +27,6 @@ import {
   buildApiTranscript,
   buildChatApiPayload,
 } from '../streaming/payload-builder'
-import { fetchPageWithFallback, isFetchablePageUrl } from '../tools/page-fetch'
 import { normalizePlanSteps } from '../tools/plan-utils'
 import {
   mergeToolCallDeltas,
@@ -39,262 +38,9 @@ import {
   buildPlaygroundToolDefinitions,
   buildThinkToolSystemPrompt,
 } from '../tools/tool-definitions'
-import { searchWebWithFallback } from '../tools/web-search'
-
-function mockFetchSequence(
-  handlers: Array<(input: string) => Response | Promise<Response>>
-) {
-  const calls: string[] = []
-  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
-    const url = String(input)
-    calls.push(url)
-    const handler = handlers[calls.length - 1]
-    if (!handler) {
-      throw new Error(`unexpected fetch call: ${url}`)
-    }
-    return handler(url)
-  })
-  return calls
-}
 
 afterEach(() => {
   vi.unstubAllGlobals()
-})
-
-describe('searchWebWithFallback', () => {
-  it('returns Firecrawl results when the first provider succeeds', async () => {
-    mockFetchSequence([
-      () =>
-        new Response(
-          JSON.stringify({
-            data: [
-              {
-                title: 'Docs',
-                url: 'https://example.com',
-                description: 'info',
-              },
-            ],
-          }),
-          { status: 200 }
-        ),
-    ])
-
-    const outcome = await searchWebWithFallback('new-api', 3)
-
-    expect(outcome.provider).toBe('firecrawl')
-    expect(outcome.results).toEqual([
-      { title: 'Docs', url: 'https://example.com', snippet: 'info' },
-    ])
-  })
-
-  it('falls back to Tavily when Firecrawl rejects the request', async () => {
-    const calls = mockFetchSequence([
-      () => new Response('forbidden', { status: 403 }),
-      () =>
-        new Response(
-          JSON.stringify({
-            results: [
-              {
-                url: 'https://tavily.com',
-                title: 'Tavily result',
-                content: 'search API',
-              },
-            ],
-          }),
-          { status: 200 }
-        ),
-    ])
-
-    const outcome = await searchWebWithFallback('tavily', 3)
-
-    expect(outcome.provider).toBe('tavily')
-    expect(outcome.results).toEqual([
-      {
-        title: 'Tavily result',
-        url: 'https://tavily.com',
-        snippet: 'search API',
-      },
-    ])
-    expect(calls[0]).toContain('firecrawl.dev')
-    expect(calls[1]).toContain('tavily.com')
-  })
-
-  it('reports provider errors when every provider fails', async () => {
-    mockFetchSequence([
-      () => {
-        throw new Error('network down')
-      },
-      () => new Response('bad gateway', { status: 502 }),
-      () => new Response('down', { status: 503 }),
-      () => new Response('down', { status: 503 }),
-    ])
-
-    await expect(searchWebWithFallback('anything', 2)).rejects.toThrow(
-      /firecrawl: network down; tavily: HTTP 502; duckduckgo: HTTP 503; wikipedia: HTTP 503/
-    )
-  })
-
-  it('treats an empty result set as a failure and falls back', async () => {
-    const calls = mockFetchSequence([
-      () => new Response(JSON.stringify({ data: [] }), { status: 200 }),
-      () =>
-        new Response(
-          JSON.stringify({
-            results: [
-              { url: 'https://example.com', title: 'Hit', content: 'x' },
-            ],
-          }),
-          { status: 200 }
-        ),
-    ])
-
-    const outcome = await searchWebWithFallback('query', 2)
-
-    expect(outcome.provider).toBe('tavily')
-    expect(calls).toHaveLength(2)
-  })
-
-  it('falls back to DuckDuckGo instant answers', async () => {
-    const calls = mockFetchSequence([
-      () => new Response('limited', { status: 429 }),
-      () => new Response('unauthorized', { status: 401 }),
-      () =>
-        new Response(
-          JSON.stringify({
-            Heading: 'new-api',
-            AbstractText: 'An AI gateway project.',
-            AbstractURL: 'https://example.com/new-api',
-            RelatedTopics: [],
-          }),
-          { status: 200 }
-        ),
-    ])
-
-    const outcome = await searchWebWithFallback('new-api', 3)
-
-    expect(outcome.provider).toBe('duckduckgo')
-    expect(outcome.results).toEqual([
-      {
-        title: 'new-api',
-        url: 'https://example.com/new-api',
-        snippet: 'An AI gateway project.',
-      },
-    ])
-    expect(calls[2]).toContain('api.duckduckgo.com')
-  })
-
-  it('uses Wikipedia opensearch as the last resort', async () => {
-    mockFetchSequence([
-      () => new Response('limited', { status: 429 }),
-      () => new Response('unauthorized', { status: 401 }),
-      () => new Response(JSON.stringify({}), { status: 200 }),
-      () =>
-        new Response(
-          JSON.stringify([
-            'new-api',
-            ['New API'],
-            ['AI gateway'],
-            ['https://en.wikipedia.org/wiki/New_API'],
-          ]),
-          { status: 200 }
-        ),
-    ])
-
-    const outcome = await searchWebWithFallback('new-api', 3)
-
-    expect(outcome.provider).toBe('wikipedia')
-    expect(outcome.results).toEqual([
-      {
-        title: 'New API',
-        url: 'https://en.wikipedia.org/wiki/New_API',
-        snippet: 'AI gateway',
-      },
-    ])
-  })
-})
-
-describe('fetchPageWithFallback', () => {
-  it('returns Jina reader content on success', async () => {
-    mockFetchSequence([() => new Response('# Hello', { status: 200 })])
-
-    const page = await fetchPageWithFallback('https://example.com')
-
-    expect(page.provider).toBe('jina')
-    expect(page.content).toBe('# Hello')
-  })
-
-  it('falls back to Tavily when the Jina reader fails', async () => {
-    const calls = mockFetchSequence([
-      () => new Response('nope', { status: 500 }),
-      () =>
-        new Response(
-          JSON.stringify({ results: [{ raw_content: 'page body' }] }),
-          { status: 200 }
-        ),
-    ])
-
-    const page = await fetchPageWithFallback('https://example.com/docs')
-
-    expect(page.provider).toBe('tavily')
-    expect(page.content).toBe('page body')
-    expect(calls[0]).toBe('https://r.jina.ai/https://example.com/docs')
-  })
-
-  it('rejects when every provider fails', async () => {
-    mockFetchSequence([
-      () => new Response('nope', { status: 500 }),
-      () => new Response('nope', { status: 404 }),
-      () => new Response('nope', { status: 502 }),
-      () => new Response('nope', { status: 403 }),
-    ])
-
-    await expect(fetchPageWithFallback('https://example.com')).rejects.toThrow(
-      /jina: HTTP 500; tavily: HTTP 404; allorigins: HTTP 502; direct: HTTP 403/
-    )
-  })
-
-  it('falls back to the CORS proxy and converts HTML to text', async () => {
-    const calls = mockFetchSequence([
-      () => new Response('limited', { status: 429 }),
-      () => new Response('unauthorized', { status: 401 }),
-      () =>
-        new Response(
-          '<!doctype html><html><body><script>var x=1</script><h1>Hello</h1><p>World</p></body></html>',
-          { status: 200 }
-        ),
-    ])
-
-    const page = await fetchPageWithFallback('https://example.com/page')
-
-    expect(page.provider).toBe('allorigins')
-    expect(page.content).toContain('Hello')
-    expect(page.content).toContain('World')
-    expect(page.content).not.toContain('var x=1')
-    expect(calls[2]).toContain('api.allorigins.win')
-  })
-
-  it('tries a direct fetch as the last resort', async () => {
-    mockFetchSequence([
-      () => new Response('limited', { status: 429 }),
-      () => new Response('unauthorized', { status: 401 }),
-      () => new Response('down', { status: 503 }),
-      () => new Response('plain text content', { status: 200 }),
-    ])
-
-    const page = await fetchPageWithFallback('https://example.com/feed.txt')
-
-    expect(page.provider).toBe('direct')
-    expect(page.content).toBe('plain text content')
-  })
-})
-
-describe('isFetchablePageUrl', () => {
-  it('accepts http(s) URLs only', () => {
-    expect(isFetchablePageUrl('https://example.com')).toBe(true)
-    expect(isFetchablePageUrl('http://example.com')).toBe(true)
-    expect(isFetchablePageUrl('ftp://example.com')).toBe(false)
-    expect(isFetchablePageUrl('not a url')).toBe(false)
-  })
 })
 
 describe('mergeToolCallDeltas', () => {
@@ -378,22 +124,17 @@ describe('buildPlaygroundToolDefinitions', () => {
   it('includes only enabled tools', () => {
     const tools = buildPlaygroundToolDefinitions({
       generate_image: true,
-      web_search: true,
-      fetch_page: false,
       update_plan: false,
     })
 
     expect(tools.map((tool) => tool.function.name)).toEqual([
       'generate_image',
-      'web_search',
     ])
   })
 
   it('adds the think tool only when forced thinking is on', () => {
     const base = {
       generate_image: false,
-      web_search: false,
-      fetch_page: false,
       update_plan: false,
     }
 
@@ -438,9 +179,7 @@ describe('buildChatApiPayload tools', () => {
 
   it('attaches tool definitions and tool_choice when tools exist', () => {
     const tools = buildPlaygroundToolDefinitions({
-      generate_image: false,
-      web_search: true,
-      fetch_page: false,
+      generate_image: true,
       update_plan: false,
     })
     const payload = buildChatApiPayload(

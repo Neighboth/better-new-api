@@ -30,6 +30,7 @@ import {
   Radio,
   ServerCog,
   Settings,
+  Store,
   Ticket,
   User,
   Users,
@@ -40,6 +41,7 @@ import { useTranslation } from 'react-i18next'
 import { getCustomNavIcon } from '@/components/custom-nav-icon'
 import type { NavGroup, SidebarData } from '@/components/layout/types'
 import { buildCustomNavUrl, useCustomNavItems } from '@/hooks/use-custom-nav-items'
+import { ADMIN_PERMISSION_RESOURCES } from '@/lib/admin-permissions'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -126,31 +128,60 @@ export function useSidebarData(): SidebarData {
           title: t('Channels'),
           url: '/channels',
           icon: Radio,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.CHANNEL,
+            action: 'read',
+          },
         },
         {
           title: t('Models'),
           url: '/models/metadata',
           icon: Box,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.MODEL,
+            action: 'read',
+          },
         },
         {
           title: t('Users'),
           url: '/users',
           icon: Users,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.USER,
+            action: 'read',
+          },
         },
         {
           title: t('Blog Management'),
           url: '/blog-management',
           icon: Newspaper,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.BLOG,
+            action: 'read',
+          },
         },
         {
           title: t('Redemption Codes'),
           url: '/redemption-codes',
           icon: Ticket,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.REDEMPTION,
+            action: 'read',
+          },
         },
         {
           title: t('Subscriptions'),
           url: '/subscriptions',
           icon: CreditCard,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.SUBSCRIPTION,
+            action: 'read',
+          },
+        },
+        {
+          title: t('Reseller'),
+          url: '/reseller',
+          icon: Store,
         },
         {
           title: t('System Info'),
@@ -163,6 +194,10 @@ export function useSidebarData(): SidebarData {
           url: '/system-settings/site',
           activeUrls: ['/system-settings'],
           icon: Settings,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.SYSTEM_SETTING,
+            action: 'read',
+          },
         },
       ],
     },

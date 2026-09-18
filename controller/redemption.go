@@ -14,6 +14,49 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func populateRedemptionsMeta(redemptions []*model.Redemption) {
+	if len(redemptions) == 0 {
+		return
+	}
+	userIds := make([]int, 0, len(redemptions))
+	usedUserIds := make([]int, 0, len(redemptions))
+	for _, r := range redemptions {
+		if r.UserId > 0 {
+			userIds = append(userIds, r.UserId)
+		}
+		if r.UsedUserId > 0 {
+			usedUserIds = append(usedUserIds, r.UsedUserId)
+		}
+	}
+
+	resellerUserMap := make(map[int]bool)
+	if len(userIds) > 0 {
+		var resellerUsers []model.User
+		model.DB.Model(&model.User{}).Select("id, role").Where("id IN ? AND role = ?", userIds, common.RoleResellerUser).Find(&resellerUsers)
+		for _, u := range resellerUsers {
+			resellerUserMap[u.Id] = true
+		}
+	}
+
+	usernameMap := make(map[int]string)
+	if len(usedUserIds) > 0 {
+		var usedUsers []model.User
+		model.DB.Model(&model.User{}).Select("id, username").Where("id IN ?", usedUserIds).Find(&usedUsers)
+		for _, u := range usedUsers {
+			usernameMap[u.Id] = u.Username
+		}
+	}
+
+	for _, r := range redemptions {
+		if resellerUserMap[r.UserId] {
+			r.IsReseller = true
+		}
+		if name, ok := usernameMap[r.UsedUserId]; ok {
+			r.UsedUsername = name
+		}
+	}
+}
+
 func GetAllRedemptions(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	redemptions, total, err := model.GetAllRedemptions(pageInfo.GetStartIdx(), pageInfo.GetPageSize())
@@ -21,6 +64,7 @@ func GetAllRedemptions(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	populateRedemptionsMeta(redemptions)
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(redemptions)
 	common.ApiSuccess(c, pageInfo)
@@ -36,6 +80,7 @@ func SearchRedemptions(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	populateRedemptionsMeta(redemptions)
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(redemptions)
 	common.ApiSuccess(c, pageInfo)

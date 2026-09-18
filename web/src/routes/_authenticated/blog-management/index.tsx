@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { BlogAdmin } from '@/features/blog-admin'
+import { ADMIN_PERMISSION_RESOURCES, hasPermission } from '@/lib/admin-permissions'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -26,7 +27,11 @@ export const Route = createFileRoute('/_authenticated/blog-management/')({
   beforeLoad: () => {
     const { auth } = useAuthStore.getState()
 
-    if (!auth.user || auth.user.role < ROLE.ADMIN) {
+    if (
+      !auth.user ||
+      auth.user.role < ROLE.ADMIN ||
+      !hasPermission(auth.user, ADMIN_PERMISSION_RESOURCES.BLOG, 'read')
+    ) {
       throw redirect({
         to: '/403',
       })

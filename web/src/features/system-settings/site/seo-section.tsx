@@ -63,6 +63,9 @@ const seoSchema = z.object({
   SitemapCustomUrls: z.string(),
   LLMSTxt: z.string(),
   LLMSFullTxt: z.string(),
+  GoogleAnalyticsId: z.string().optional(),
+  UmamiWebsiteId: z.string().optional(),
+  UmamiScriptUrl: z.string().optional(),
 })
 
 type SEOFormValues = z.infer<typeof seoSchema>
@@ -187,6 +190,78 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
                 <FormDescription>
                   {t(
                     'Used for social media link previews (Open Graph / Twitter card). The site icon comes from the Logo setting above.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='GoogleAnalyticsId'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Google Analytics ID')}</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder='G-XXXXXXXXXX'
+                    autoComplete='off'
+                    {...field}
+                    value={field.value ?? ''}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Leave empty to disable. Injects Google Analytics tracking script dynamically into the public pages.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='UmamiWebsiteId'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Umami Website ID')}</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder='xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
+                    autoComplete='off'
+                    {...field}
+                    value={field.value ?? ''}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Leave empty to disable. Privacy-friendly self-hosted or cloud Umami website ID.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='UmamiScriptUrl'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Umami Script URL')}</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder='https://analytics.umami.is/script.js'
+                    autoComplete='off'
+                    {...field}
+                    value={field.value ?? ''}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Defaults to https://analytics.umami.is/script.js if empty.'
                   )}
                 </FormDescription>
                 <FormMessage />

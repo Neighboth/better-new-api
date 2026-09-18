@@ -150,16 +150,23 @@ export function parseBlogAiResponse(
       return null
     }
     const obj = parsed as Record<string, unknown>
-    if (typeof obj.title !== 'string' && typeof obj.title !== 'object') {
+    const hasAnyField =
+      obj.title !== undefined ||
+      obj.summary !== undefined ||
+      obj.content !== undefined ||
+      obj.tags !== undefined ||
+      obj.seo_description !== undefined
+
+    if (!hasAnyField) {
       return null
     }
 
     return {
-      titles: sanitizeLocaleValues(obj.title),
-      summaries: sanitizeLocaleValues(obj.summary),
-      contents: sanitizeLocaleValues(obj.content),
-      tags_list: sanitizeLocaleValues(obj.tags),
-      seo_descriptions: sanitizeLocaleValues(obj.seo_description),
+      titles: obj.title ? sanitizeLocaleValues(obj.title) : {},
+      summaries: obj.summary ? sanitizeLocaleValues(obj.summary) : {},
+      contents: obj.content ? sanitizeLocaleValues(obj.content) : {},
+      tags_list: obj.tags ? sanitizeLocaleValues(obj.tags) : {},
+      seo_descriptions: obj.seo_description ? sanitizeLocaleValues(obj.seo_description) : {},
     }
   } catch (err) {
     console.error("AI Blog parsing error:", err, rawText)

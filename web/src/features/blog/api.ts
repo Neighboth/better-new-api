@@ -79,9 +79,11 @@ type ApiResult<T> = {
   data: T
 }
 
-export async function fetchBlogPosts() {
+export async function fetchBlogPosts(locale?: string) {
+  const params = locale ? { lang: locale } : {}
   const res = await api.get<ApiResult<{ items: BlogPost[]; total: number }>>(
-    '/api/blog/posts'
+    '/api/blog/posts',
+    { params }
   )
   return res.data.data
 }
@@ -113,9 +115,11 @@ export async function trackAdImpression(id: string): Promise<void> {
   }
 }
 
-export async function fetchBlogPost(id: string) {
+export async function fetchBlogPost(id: string, locale?: string) {
+  const params = locale ? { lang: locale } : {}
   const res = await api.get<ApiResult<BlogPostResponse>>(
-    `/api/blog/posts/${id}`
+    `/api/blog/posts/${id}`,
+    { params }
   )
   return res.data
 }

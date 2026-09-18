@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 
 import { resolveSidebarView } from '@/components/layout/lib/sidebar-view-registry'
 import type { NavGroup, ResolvedSidebarView } from '@/components/layout/types'
+import { hasPermission } from '@/lib/admin-permissions'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -47,22 +48,52 @@ const ROOT_VIEW_KEY = '__root'
 export function useSidebarView(): ResolvedSidebarView {
   const { t } = useTranslation()
   const pathname = useLocation({ select: (l) => l.pathname })
-  const userRole = useAuthStore((s) => s.auth.user?.role)
+  const user = useAuthStore((s) => s.auth.user)
   const rootSidebarData = useSidebarData()
   const configFilteredRoot = useSidebarConfig(rootSidebarData.navGroups)
 
   const rootNavGroups = useMemo<NavGroup[]>(() => {
-    const role = userRole ?? ROLE.GUEST
-    const isAdmin = role >= ROLE.ADMIN
+    const role = user?.role ?? ROLE.GUEST
+    const isReseller = role === ROLE.RESELLER
+    const isAdmin = role >= ROLE.ADMIN || isReseller
     return configFilteredRoot
       .filter((group) => (group.id === 'admin' ? isAdmin : true))
       .map((group) => {
+        if (group.id === 'admin') {
+          if (isReseller) {
+            return {
+              ...group,
+              items: group.items.filter((item) => item.url === '/reseller'),
+            }
+          }
+          const items = group.items.filter((item) => {
+            if (item.url === '/reseller') {
+              return false
+            }
+            if (item.requiredRole !== undefined && role < item.requiredRole) {
+              return false
+            }
+            if (
+              item.requiredPermission &&
+              !hasPermission(
+                user,
+                item.requiredPermission.resource,
+                item.requiredPermission.action ?? 'read'
+              )
+            ) {
+              return false
+            }
+            return true
+          })
+          return { ...group, items }
+        }
         const items = group.items.filter(
           (item) => item.requiredRole === undefined || role >= item.requiredRole
         )
         return items.length === group.items.length ? group : { ...group, items }
       })
-  }, [configFilteredRoot, userRole])
+      .filter((group) => group.items.length > 0)
+  }, [configFilteredRoot, user])
 
   const view = resolveSidebarView(pathname)
 

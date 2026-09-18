@@ -35,12 +35,20 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { ADMIN_PERMISSION_RESOURCES, hasPermission } from '@/lib/admin-permissions'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { useModels } from './models-provider'
 
 export function ModelsPrimaryButtons() {
   const { t } = useTranslation()
+  const user = useAuthStore((s) => s.auth.user)
+  const canWrite = hasPermission(user, ADMIN_PERMISSION_RESOURCES.MODEL, 'write')
   const { setOpen, setCurrentRow } = useModels()
+
+  if (!canWrite) {
+    return null
+  }
 
   const handleCreateModel = () => {
     setCurrentRow(null)
