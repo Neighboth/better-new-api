@@ -3,6 +3,9 @@ name: Easy Docker
 on:
   push:
     branches: [ "main", "master" ]
+  
+  # GitHub arayüzünde "Run workflow" butonunu çıkaran kısım:
+  workflow_dispatch:
 
 jobs:
   push-to-ghcr:
@@ -34,3 +37,4 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/${{ steps.string.outputs.repo_lower }}:latest
+          
