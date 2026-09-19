@@ -140,7 +140,12 @@ func GetSitemapXML(c *gin.Context) {
 		{hreflang: "vi", langCode: "vi"},
 	}
 
+	seenURLs := make(map[string]bool)
 	writeURL := func(loc string, lastmod string, priority string, isMultilingual bool) {
+		if seenURLs[loc] {
+			return
+		}
+		seenURLs[loc] = true
 		b.WriteString("  <url>\n")
 		b.WriteString("    <loc>" + html.EscapeString(loc) + "</loc>\n")
 		if isMultilingual {
