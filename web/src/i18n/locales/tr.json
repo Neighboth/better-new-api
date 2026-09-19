@@ -5920,6 +5920,14 @@
     "All codes copied to clipboard": "Tüm kodlar panoya kopyalandı",
     "Copied to clipboard": "Panoya kopyalandı",
     "Redemption code deleted and quota refunded": "Kullanım kodu silindi ve bakiye iade edildi",
-    "Failed to delete redemption code": "Kullanım kodu silinemedi"
+    "Failed to delete redemption code": "Kullanım kodu silinemedi",
+    "Pay {{amount}}": "{{amount}} Öde",
+    "Save {{amount}}": "{{amount}} Tasarruf Et",
+    "Minimum {{amount}}": "Minimum {{amount}}",
+    "EPay": "EPay",
+    "Waffo Pancake": "Waffo Pancake",
+    "EPay Gateway URL (PayAddress)": "EPay Ağ Geçidi URL'si (PayAddress)",
+    "EPay Partner ID (EpayId)": "EPay Ortak Kimliği (EpayId)",
+    "EPay Key (EpayKey)": "EPay Anahtarı (EpayKey)"
   }
 }

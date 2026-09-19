@@ -5563,7 +5563,15 @@
     "Require captcha verification before serving this file or folder.": "Yêu cầu xác minh captcha trước khi phục vụ tệp hoặc thư mục này.",
     "New Name": "Tên mới",
     "URL / Endpoint": "URL / Điểm cuối",
-    "When the requested model fails or has no price configured, try the fallback models below.": "When the requested model fails or has no price configured, try the fallback models below.",
-    "Prepended to the system message; useful for routing or safety constraints.": "Prepended to the system message; useful for routing or safety constraints."
+    "When the requested model fails or has no price configured, try the fallback models below.": "Khi mô hình được yêu cầu bị lỗi hoặc chưa được định cấu hình giá, hãy thử các mô hình dự phòng bên dưới.",
+    "Prepended to the system message; useful for routing or safety constraints.": "Được thêm vào đầu tin nhắn hệ thống; hữu ích cho việc định tuyến hoặc các ràng buộc an toàn.",
+    "Pay {{amount}}": "Thanh toán {{amount}}",
+    "Save {{amount}}": "Tiết kiệm {{amount}}",
+    "Minimum {{amount}}": "Tối thiểu {{amount}}",
+    "EPay": "EPay",
+    "Waffo Pancake": "Waffo Pancake",
+    "EPay Gateway URL (PayAddress)": "URL cổng EPay (PayAddress)",
+    "EPay Partner ID (EpayId)": "ID đối tác EPay (EpayId)",
+    "EPay Key (EpayKey)": "Khóa EPay (EpayKey)"
   }
 }

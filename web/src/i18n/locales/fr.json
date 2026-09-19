@@ -5563,7 +5563,15 @@
     "Require captcha verification before serving this file or folder.": "Exiger la vérification captcha avant de servir ce fichier ou dossier.",
     "New Name": "Nouveau nom",
     "URL / Endpoint": "URL / Point de terminaison",
-    "When the requested model fails or has no price configured, try the fallback models below.": "When the requested model fails or has no price configured, try the fallback models below.",
-    "Prepended to the system message; useful for routing or safety constraints.": "Prepended to the system message; useful for routing or safety constraints."
+    "When the requested model fails or has no price configured, try the fallback models below.": "Lorsque le modèle demandé échoue ou n'a aucun prix configuré, essayez les modèles de secours ci-dessous.",
+    "Prepended to the system message; useful for routing or safety constraints.": "Ajouté avant le message système ; utile pour le routage ou les contraintes de sécurité.",
+    "Pay {{amount}}": "Payer {{amount}}",
+    "Save {{amount}}": "Économiser {{amount}}",
+    "Minimum {{amount}}": "Minimum {{amount}}",
+    "EPay": "EPay",
+    "Waffo Pancake": "Waffo Pancake",
+    "EPay Gateway URL (PayAddress)": "URL de la passerelle EPay (PayAddress)",
+    "EPay Partner ID (EpayId)": "ID du partenaire EPay (EpayId)",
+    "EPay Key (EpayKey)": "Clé EPay (EpayKey)"
   }
 }

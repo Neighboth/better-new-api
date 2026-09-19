@@ -5563,7 +5563,15 @@
     "Require captcha verification before serving this file or folder.": "在提供此檔案或資料夾之前要求進行驗證碼驗證。",
     "New Name": "新名稱",
     "URL / Endpoint": "URL / 端點",
-    "When the requested model fails or has no price configured, try the fallback models below.": "When the requested model fails or has no price configured, try the fallback models below.",
-    "Prepended to the system message; useful for routing or safety constraints.": "Prepended to the system message; useful for routing or safety constraints."
+    "When the requested model fails or has no price configured, try the fallback models below.": "當請求的模型失敗或未配置價格時，請嘗試下面的備用模型。",
+    "Prepended to the system message; useful for routing or safety constraints.": "附加到系統訊息前；適用於路由或安全限制。",
+    "Pay {{amount}}": "支付 {{amount}}",
+    "Save {{amount}}": "立省 {{amount}}",
+    "Minimum {{amount}}": "最低 {{amount}}",
+    "EPay": "易支付",
+    "Waffo Pancake": "Waffo Pancake",
+    "EPay Gateway URL (PayAddress)": "易支付閘道位址 (PayAddress)",
+    "EPay Partner ID (EpayId)": "易支付商戶編號 (EpayId)",
+    "EPay Key (EpayKey)": "易支付商戶密鑰 (EpayKey)"
   }
 }

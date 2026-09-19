@@ -981,22 +981,22 @@ export function PaymentSettingsSection({
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             isSaving={updateOption.isPending || isSubmitting}
-            saveLabel='Save all settings'
+            saveLabel={t('Save all settings')}
           />
           <Tabs defaultValue='general' className='min-w-0'>
             <div className='overflow-x-auto pb-1'>
               <TabsList className='grid min-w-[70rem] grid-cols-11'>
                 <TabsTrigger value='general'>{t('General')}</TabsTrigger>
-                <TabsTrigger value='epay'>Epay</TabsTrigger>
+                <TabsTrigger value='epay'>{t('EPay')}</TabsTrigger>
                 <TabsTrigger value='stripe'>{t('Stripe')}</TabsTrigger>
-                <TabsTrigger value='shopier'>Shopier</TabsTrigger>
-                <TabsTrigger value='paytr'>PayTR</TabsTrigger>
-                <TabsTrigger value='paypal'>PayPal</TabsTrigger>
-                <TabsTrigger value='iyzico'>iyzico</TabsTrigger>
-                <TabsTrigger value='shopify'>Shopify</TabsTrigger>
-                <TabsTrigger value='creem'>Creem</TabsTrigger>
-                <TabsTrigger value='waffo-pancake'>Waffo Pancake</TabsTrigger>
-                <TabsTrigger value='waffo'>Waffo</TabsTrigger>
+                <TabsTrigger value='shopier'>{t('Shopier')}</TabsTrigger>
+                <TabsTrigger value='paytr'>{t('PayTR')}</TabsTrigger>
+                <TabsTrigger value='paypal'>{t('PayPal')}</TabsTrigger>
+                <TabsTrigger value='iyzico'>{t('iyzico')}</TabsTrigger>
+                <TabsTrigger value='shopify'>{t('Shopify')}</TabsTrigger>
+                <TabsTrigger value='creem'>{t('Creem')}</TabsTrigger>
+                <TabsTrigger value='waffo-pancake'>{t('Waffo Pancake')}</TabsTrigger>
+                <TabsTrigger value='waffo'>{t('Waffo')}</TabsTrigger>
               </TabsList>
             </div>
 

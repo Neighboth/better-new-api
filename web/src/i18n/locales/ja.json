@@ -5563,7 +5563,15 @@
     "Require captcha verification before serving this file or folder.": "このファイルやフォルダーを提供する前にCAPTCHA認証を必須にします。",
     "New Name": "新しい名前",
     "URL / Endpoint": "URL / エンドポイント",
-    "When the requested model fails or has no price configured, try the fallback models below.": "When the requested model fails or has no price configured, try the fallback models below.",
-    "Prepended to the system message; useful for routing or safety constraints.": "Prepended to the system message; useful for routing or safety constraints."
+    "When the requested model fails or has no price configured, try the fallback models below.": "リクエストされたモデルが失敗するか価格が設定されていない場合、以下のフォールバックモデルを試行します。",
+    "Prepended to the system message; useful for routing or safety constraints.": "システムメッセージの前に追加されます。ルーティングや安全性の制約に役立ちます。",
+    "Pay {{amount}}": "{{amount}} を支払う",
+    "Save {{amount}}": "{{amount}} 割引",
+    "Minimum {{amount}}": "最低 {{amount}}",
+    "EPay": "EPay",
+    "Waffo Pancake": "Waffo Pancake",
+    "EPay Gateway URL (PayAddress)": "EPay ゲートウェイ URL (PayAddress)",
+    "EPay Partner ID (EpayId)": "EPay パートナー ID (EpayId)",
+    "EPay Key (EpayKey)": "EPay キー (EpayKey)"
   }
 }

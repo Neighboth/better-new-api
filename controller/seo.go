@@ -6,6 +6,8 @@ import (
 	"html"
 	"net/http"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -116,16 +118,42 @@ func GetLLMSFullTxt(c *gin.Context) {
 }
 
 // GetSitemapXML lists the public pages plus every published blog post and any
-// custom URLs the administrator added.
+// custom URLs the administrator added, complete with multi-language xhtml:link alternates.
 func GetSitemapXML(c *gin.Context) {
 	base := siteBaseURL(c)
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
-	b.WriteString(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
+	b.WriteString(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">` + "\n")
 
-	writeURL := func(loc string, lastmod string, priority string) {
+	type langEntry struct {
+		hreflang string
+		langCode string
+	}
+	supportedLangs := []langEntry{
+		{hreflang: "en", langCode: "en"},
+		{hreflang: "tr", langCode: "tr"},
+		{hreflang: "zh-Hans", langCode: "zh_CN"},
+		{hreflang: "zh-Hant", langCode: "zh_TW"},
+		{hreflang: "ja", langCode: "ja"},
+		{hreflang: "fr", langCode: "fr"},
+		{hreflang: "ru", langCode: "ru"},
+		{hreflang: "vi", langCode: "vi"},
+	}
+
+	writeURL := func(loc string, lastmod string, priority string, isMultilingual bool) {
 		b.WriteString("  <url>\n")
 		b.WriteString("    <loc>" + html.EscapeString(loc) + "</loc>\n")
+		if isMultilingual {
+			sep := "?"
+			if strings.Contains(loc, "?") {
+				sep = "&"
+			}
+			for _, sl := range supportedLangs {
+				href := loc + sep + "lang=" + sl.langCode
+				b.WriteString(fmt.Sprintf(`    <xhtml:link rel="alternate" hreflang="%s" href="%s"/>`+"\n", sl.hreflang, html.EscapeString(href)))
+			}
+			b.WriteString(fmt.Sprintf(`    <xhtml:link rel="alternate" hreflang="x-default" href="%s"/>`+"\n", html.EscapeString(loc)))
+		}
 		if lastmod != "" {
 			b.WriteString("    <lastmod>" + lastmod + "</lastmod>\n")
 		}
@@ -133,16 +161,16 @@ func GetSitemapXML(c *gin.Context) {
 		b.WriteString("  </url>\n")
 	}
 
-	writeURL(base+"/", "", "1.0")
-	for _, path := range []string{"/pricing", "/about", "/docs"} {
-		writeURL(base+path, "", "0.6")
+	writeURL(base+"/", "", "1.0", true)
+	for _, path := range []string{"/pricing", "/about", "/docs", "/rankings", "/sign-up", "/sign-in"} {
+		writeURL(base+path, "", "0.6", true)
 	}
 
 	if seoOption("BlogEnabled") == "true" {
-		writeURL(base+"/blog", "", "0.8")
+		writeURL(base+"/blog", "", "0.8", true)
 		if posts, err := model.ListPublishedBlogPostsForSitemap(); err == nil {
 			for _, post := range posts {
-				writeURL(base+fmt.Sprintf("/blog/%d", post.Id), post.UpdatedAt.UTC().Format(time.DateOnly), "0.7")
+				writeURL(base+fmt.Sprintf("/blog/%d", post.Id), post.UpdatedAt.UTC().Format(time.DateOnly), "0.7", false)
 			}
 		}
 	}
@@ -158,7 +186,7 @@ func GetSitemapXML(c *gin.Context) {
 		if !strings.HasPrefix(raw, "http://") && !strings.HasPrefix(raw, "https://") {
 			continue
 		}
-		writeURL(raw, "", "0.5")
+		writeURL(raw, "", "0.5", false)
 	}
 
 	b.WriteString("</urlset>\n")
@@ -387,6 +415,49 @@ func replaceAllLinkHrefs(page, attr, href string) string {
 	return out.String()
 }
 
+type langQuality struct {
+	lang string
+	q    float64
+}
+
+func parseAcceptLanguage(header string) string {
+	parts := strings.Split(header, ",")
+	var items []langQuality
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		sub := strings.Split(part, ";")
+		tag := strings.TrimSpace(sub[0])
+		q := 1.0
+		if len(sub) > 1 {
+			qPart := strings.TrimSpace(sub[1])
+			if strings.HasPrefix(qPart, "q=") {
+				if parsedQ, err := strconv.ParseFloat(strings.TrimPrefix(qPart, "q="), 64); err == nil {
+					q = parsedQ
+				}
+			}
+		}
+		items = append(items, langQuality{lang: tag, q: q})
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].q > items[j].q
+	})
+
+	for _, item := range items {
+		norm := normalizeLang(item.lang)
+		if norm != "en" {
+			return norm
+		}
+		lower := strings.ToLower(item.lang)
+		if strings.HasPrefix(lower, "en") {
+			return "en"
+		}
+	}
+	return "en"
+}
+
 func resolveRequestLanguage(c *gin.Context) string {
 	if c == nil {
 		return "en"
@@ -397,27 +468,9 @@ func resolveRequestLanguage(c *gin.Context) string {
 	if cookie, err := c.Cookie("i18nextLng"); err == nil && cookie != "" {
 		return normalizeLang(cookie)
 	}
-	accept := strings.ToLower(c.GetHeader("Accept-Language"))
-	if strings.Contains(accept, "tr") {
-		return "tr"
-	}
-	if strings.Contains(accept, "zh-tw") || strings.Contains(accept, "zh-hk") {
-		return "zh_TW"
-	}
-	if strings.Contains(accept, "zh") {
-		return "zh_CN"
-	}
-	if strings.Contains(accept, "ja") {
-		return "ja"
-	}
-	if strings.Contains(accept, "fr") {
-		return "fr"
-	}
-	if strings.Contains(accept, "ru") {
-		return "ru"
-	}
-	if strings.Contains(accept, "vi") {
-		return "vi"
+	accept := strings.TrimSpace(c.GetHeader("Accept-Language"))
+	if accept != "" {
+		return parseAcceptLanguage(accept)
 	}
 	return "en"
 }
@@ -462,13 +515,17 @@ func getLegalOption(baseKey, lang string) string {
 			val = seoOption(baseKey + "_zh_TW")
 		}
 	}
+	// Fallback to English first before root option
+	if val == "" && lang != "en" {
+		val = seoOption(baseKey + "_en")
+	}
 	if val == "" {
 		val = seoOption(baseKey)
 	}
 	return val
 }
 
-func RenderIndexPageForLocale(indexPage []byte, lang string) []byte {
+func RenderIndexPageForLocale(indexPage []byte, lang string, baseURL string, currentPath string) []byte {
 	siteName := getLegalOption("SystemName", lang)
 	if siteName == "" {
 		siteName = common.SystemName
@@ -490,22 +547,67 @@ func RenderIndexPageForLocale(indexPage []byte, lang string) []byte {
 	}
 	rendered := RenderCustomIndexPage(indexPage, siteName, title, description, keywords, icon, socialImage)
 	htmlLang := "en"
-	if strings.HasPrefix(lang, "tr") {
+	switch {
+	case strings.HasPrefix(lang, "tr"):
 		htmlLang = "tr"
-	} else if strings.HasPrefix(lang, "zh_TW") || strings.HasPrefix(lang, "zhTW") {
+	case strings.HasPrefix(lang, "zh_TW") || strings.HasPrefix(lang, "zhTW"):
 		htmlLang = "zh-TW"
-	} else if strings.HasPrefix(lang, "zh") {
+	case strings.HasPrefix(lang, "zh"):
 		htmlLang = "zh-CN"
-	} else if strings.HasPrefix(lang, "ja") {
+	case strings.HasPrefix(lang, "ja"):
 		htmlLang = "ja"
-	} else if strings.HasPrefix(lang, "fr") {
+	case strings.HasPrefix(lang, "fr"):
 		htmlLang = "fr"
-	} else if strings.HasPrefix(lang, "ru") {
+	case strings.HasPrefix(lang, "ru"):
 		htmlLang = "ru"
-	} else if strings.HasPrefix(lang, "vi") {
+	case strings.HasPrefix(lang, "vi"):
 		htmlLang = "vi"
+	default:
+		htmlLang = "en"
 	}
-	return bytes.Replace(rendered, []byte(`<html lang="en"`), []byte(fmt.Sprintf(`<html lang="%s"`, htmlLang)), 1)
+	res := bytes.Replace(rendered, []byte(`<html lang="en"`), []byte(fmt.Sprintf(`<html lang="%s"`, htmlLang)), 1)
+
+	// Inject hreflang alternate links into <head>
+	if baseURL != "" {
+		cleanBase := strings.TrimRight(baseURL, "/")
+		cleanPath := currentPath
+		if cleanPath == "" {
+			cleanPath = "/"
+		}
+		targetURL := cleanBase + cleanPath
+		sep := "?"
+		if strings.Contains(targetURL, "?") {
+			sep = "&"
+		}
+
+		type langEntry struct {
+			hreflang string
+			langCode string
+		}
+		supportedLangs := []langEntry{
+			{hreflang: "en", langCode: "en"},
+			{hreflang: "tr", langCode: "tr"},
+			{hreflang: "zh-Hans", langCode: "zh_CN"},
+			{hreflang: "zh-Hant", langCode: "zh_TW"},
+			{hreflang: "ja", langCode: "ja"},
+			{hreflang: "fr", langCode: "fr"},
+			{hreflang: "ru", langCode: "ru"},
+			{hreflang: "vi", langCode: "vi"},
+		}
+
+		var hreflangTags strings.Builder
+		for _, sl := range supportedLangs {
+			hreflangTags.WriteString(fmt.Sprintf(`    <link rel="alternate" hreflang="%s" href="%s%slang=%s" />`+"\n", sl.hreflang, html.EscapeString(targetURL), sep, sl.langCode))
+		}
+		hreflangTags.WriteString(fmt.Sprintf(`    <link rel="alternate" hreflang="x-default" href="%s" />`+"\n", html.EscapeString(targetURL)))
+
+		idx := bytes.Index(res, []byte("</head>"))
+		if idx >= 0 {
+			res = bytes.Join([][]byte{res[:idx], []byte(hreflangTags.String()), res[idx:]}, nil)
+		}
+	}
+
+	return res
 }
 
 func GetLegalContent(c *gin.Context) {
@@ -530,7 +632,7 @@ func ServeIndex(c *gin.Context, indexPage []byte) {
 		return
 	}
 	lang := resolveRequestLanguage(c)
-	c.Data(http.StatusOK, "text/html; charset=utf-8", RenderIndexPageForLocale(indexPage, lang))
+	c.Data(http.StatusOK, "text/html; charset=utf-8", RenderIndexPageForLocale(indexPage, lang, siteBaseURL(c), c.Request.URL.Path))
 }
 
 // BlogPostIndex renders the SPA shell with post-specific SEO meta for the

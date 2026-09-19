@@ -5808,6 +5808,14 @@
     "All codes copied to clipboard": "所有卡密已复制到剪贴板",
     "Copied to clipboard": "已复制到剪贴板",
     "Redemption code deleted and quota refunded": "兑换码已删除，额度已退还",
-    "Failed to delete redemption code": "删除兑换码失败"
+    "Failed to delete redemption code": "删除兑换码失败",
+    "Pay {{amount}}": "支付 {{amount}}",
+    "Save {{amount}}": "立省 {{amount}}",
+    "Minimum {{amount}}": "最低 {{amount}}",
+    "EPay": "易支付",
+    "Waffo Pancake": "Waffo Pancake",
+    "EPay Gateway URL (PayAddress)": "易支付网关地址 (PayAddress)",
+    "EPay Partner ID (EpayId)": "易支付商户编号 (EpayId)",
+    "EPay Key (EpayKey)": "易支付商户密钥 (EpayKey)"
   }
 }

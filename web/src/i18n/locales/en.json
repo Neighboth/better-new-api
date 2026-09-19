@@ -5920,6 +5920,14 @@
     "All codes copied to clipboard": "All codes copied to clipboard",
     "Copied to clipboard": "Copied to clipboard",
     "Redemption code deleted and quota refunded": "Redemption code deleted and quota refunded",
-    "Failed to delete redemption code": "Failed to delete redemption code"
+    "Failed to delete redemption code": "Failed to delete redemption code",
+    "Pay {{amount}}": "Pay {{amount}}",
+    "Save {{amount}}": "Save {{amount}}",
+    "Minimum {{amount}}": "Minimum {{amount}}",
+    "EPay": "EPay",
+    "Waffo Pancake": "Waffo Pancake",
+    "EPay Gateway URL (PayAddress)": "EPay Gateway URL (PayAddress)",
+    "EPay Partner ID (EpayId)": "EPay Partner ID (EpayId)",
+    "EPay Key (EpayKey)": "EPay Key (EpayKey)"
   }
 }

@@ -477,15 +477,15 @@ export function ChildPanelTab({ config }: ChildPanelTabProps) {
           <Tabs defaultValue='epay' className='space-y-4'>
             <div className='overflow-x-auto pb-1'>
               <TabsList className='inline-flex min-w-full justify-start md:grid md:grid-cols-9'>
-                <TabsTrigger value='epay'>EPay</TabsTrigger>
-                <TabsTrigger value='stripe'>Stripe</TabsTrigger>
-                <TabsTrigger value='creem'>Creem</TabsTrigger>
-                <TabsTrigger value='waffo'>Waffo</TabsTrigger>
-                <TabsTrigger value='shopier'>Shopier</TabsTrigger>
-                <TabsTrigger value='paytr'>PayTR</TabsTrigger>
-                <TabsTrigger value='paypal'>PayPal</TabsTrigger>
-                <TabsTrigger value='iyzico'>iyzico</TabsTrigger>
-                <TabsTrigger value='shopify'>Shopify</TabsTrigger>
+                <TabsTrigger value='epay'>{t('EPay')}</TabsTrigger>
+                <TabsTrigger value='stripe'>{t('Stripe')}</TabsTrigger>
+                <TabsTrigger value='creem'>{t('Creem')}</TabsTrigger>
+                <TabsTrigger value='waffo'>{t('Waffo')}</TabsTrigger>
+                <TabsTrigger value='shopier'>{t('Shopier')}</TabsTrigger>
+                <TabsTrigger value='paytr'>{t('PayTR')}</TabsTrigger>
+                <TabsTrigger value='paypal'>{t('PayPal')}</TabsTrigger>
+                <TabsTrigger value='iyzico'>{t('iyzico')}</TabsTrigger>
+                <TabsTrigger value='shopify'>{t('Shopify')}</TabsTrigger>
               </TabsList>
             </div>
 

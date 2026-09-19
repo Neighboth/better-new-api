@@ -75,16 +75,23 @@ export function normalizeInterfaceLanguage(value?: string | null): string {
  */
 export function convertDetectedLanguage(value: string): string {
   const lower = value.trim().replaceAll('_', '-').toLowerCase()
-  if (!lower.startsWith('zh')) return value
   if (
     lower === 'zh-tw' ||
     lower === 'zh-hk' ||
     lower === 'zh-mo' ||
-    lower.startsWith('zh-hant')
+    lower.startsWith('zh-hant') ||
+    lower === 'zhtw'
   ) {
     return 'zhTW'
   }
-  return 'zhCN'
+  if (lower.startsWith('zh')) {
+    return 'zhCN'
+  }
+  const prefix = lower.split('-')[0]
+  if (['en', 'fr', 'ru', 'ja', 'vi', 'tr'].includes(prefix)) {
+    return prefix
+  }
+  return value
 }
 
 /**
