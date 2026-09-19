@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Copy, FileText, Loader2, Plus, Ticket, Trash2, Wallet } from 'lucide-react'
+import { Check, Coins, Copy, FileText, Loader2, MessageSquareCode, Plus, Ticket, Trash2, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -61,8 +61,10 @@ export function RedemptionsTab() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
   // Creation form state
+  const [codeType, setCodeType] = useState<number>(0) // 0: Quota, 1: Requests, 2: Tokens
   const [codeName, setCodeName] = useState('')
   const [dollarAmount, setDollarAmount] = useState<number>(5)
+  const [unitCount, setUnitCount] = useState<number>(100)
   const [codeCount, setCodeCount] = useState<number>(1)
 
   // Deletion state
@@ -98,20 +100,39 @@ export function RedemptionsTab() {
     queryFn: () => fetchResellerRedemptions(page, 10, keyword),
   })
 
+  const codeQuotaValue =
+    codeType === 0 ? parseQuotaFromDollars(dollarAmount) : unitCount
+  const totalCost = codeQuotaValue * codeCount
+
+  const availableBalance =
+    codeType === 0
+      ? (currentUser?.quota ?? 0)
+      : codeType === 1
+      ? ((currentUser as any)?.requests_balance ?? 0)
+      : ((currentUser as any)?.tokens_balance ?? 0)
+
+  const hasEnoughBalance = availableBalance >= totalCost
+
   const createMutation = useMutation({
     mutationFn: async () => {
-      const quotaPerCode = parseQuotaFromDollars(dollarAmount)
+      const typeLabel =
+        codeType === 0
+          ? `${dollarAmount}$`
+          : codeType === 1
+          ? `${unitCount} Req`
+          : `${unitCount} Tok`
       return createResellerRedemption({
-        name: codeName.trim() || `${dollarAmount}$ Code`,
-        quota: quotaPerCode,
+        name: codeName.trim() || `${typeLabel} Code`,
+        quota: codeQuotaValue,
         count: codeCount,
+        type: codeType,
       })
     },
     onSuccess: async (res) => {
       toast.success(t('Redemption codes created successfully'))
       setGeneratedKeys(res.keys || [])
       queryClient.invalidateQueries({ queryKey: ['reseller-redemptions'] })
-      // Refresh current user's profile to reflect deducted quota immediately
+      // Refresh current user's profile to reflect deducted balance immediately
       await refreshUserQuota()
     },
     onError: (err: any) => {
@@ -147,30 +168,52 @@ export function RedemptionsTab() {
     toast.success(t('All codes copied to clipboard'))
   }
 
-  const quotaPerCode = parseQuotaFromDollars(dollarAmount)
-  const totalCostQuota = quotaPerCode * codeCount
-  const hasEnoughQuota = (currentUser?.quota ?? 0) >= totalCostQuota
-
   return (
     <div className='space-y-6'>
-      {/* Reseller Quota Balance Header */}
-      <Card>
-        <CardContent className='flex flex-wrap items-center justify-between gap-4 py-4'>
-          <div className='flex items-center gap-3'>
+      {/* Reseller Balances Header */}
+      <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+        <Card>
+          <CardContent className='flex items-center gap-3 py-3.5'>
             <div className='rounded-full bg-primary/10 p-2.5 text-primary'>
               <Wallet className='h-5 w-5' />
             </div>
             <div>
-              <p className='text-xs text-muted-foreground'>{t('Your Available Reseller Quota')}</p>
-              <p className='text-xl font-bold'>{formatQuota(currentUser?.quota ?? 0)}</p>
+              <p className='text-xs text-muted-foreground'>{t('Available Quota')}</p>
+              <p className='text-lg font-bold font-mono'>{formatQuota(currentUser?.quota ?? 0)}</p>
             </div>
-          </div>
-          <Button onClick={() => setCreateDialogOpen(true)}>
-            <Plus className='mr-2 h-4 w-4' />
-            {t('Generate Redemption Codes')}
-          </Button>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className='flex items-center gap-3 py-3.5'>
+            <div className='rounded-full bg-sky-500/10 p-2.5 text-sky-500'>
+              <MessageSquareCode className='h-5 w-5' />
+            </div>
+            <div>
+              <p className='text-xs text-muted-foreground'>{t('Available Requests')}</p>
+              <p className='text-lg font-bold font-mono'>{((currentUser as any)?.requests_balance ?? 0).toLocaleString()} {t('req')}</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className='flex items-center justify-between gap-3 py-3.5'>
+            <div className='flex items-center gap-3'>
+              <div className='rounded-full bg-amber-500/10 p-2.5 text-amber-500'>
+                <Coins className='h-5 w-5' />
+              </div>
+              <div>
+                <p className='text-xs text-muted-foreground'>{t('Available Tokens')}</p>
+                <p className='text-lg font-bold font-mono'>{((currentUser as any)?.tokens_balance ?? 0).toLocaleString()} {t('tokens')}</p>
+              </div>
+            </div>
+            <Button size='sm' onClick={() => setCreateDialogOpen(true)}>
+              <Plus className='mr-1.5 h-4 w-4' />
+              {t('New Codes')}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Redemption Codes Table Card */}
       <Card>
@@ -180,7 +223,7 @@ export function RedemptionsTab() {
             {t('Issued Redemption Codes')}
           </CardTitle>
           <CardDescription className='text-xs'>
-            {t('Redemption codes generated from your quota balance. Unused codes can be refunded.')}
+            {t('Redemption codes generated from your quota, request, or token balances. Unused codes can be refunded.')}
           </CardDescription>
         </CardHeader>
         <CardContent className='space-y-4'>
@@ -201,7 +244,8 @@ export function RedemptionsTab() {
                 <TableRow>
                   <TableHead>{t('Code / Key')}</TableHead>
                   <TableHead>{t('Name')}</TableHead>
-                  <TableHead>{t('Quota')}</TableHead>
+                  <TableHead>{t('Type')}</TableHead>
+                  <TableHead>{t('Value')}</TableHead>
                   <TableHead>{t('Status')}</TableHead>
                   <TableHead>{t('Used By')}</TableHead>
                   <TableHead>{t('Created At')}</TableHead>
@@ -211,13 +255,13 @@ export function RedemptionsTab() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className='py-8 text-center text-muted-foreground'>
+                    <TableCell colSpan={8} className='py-8 text-center text-muted-foreground'>
                       <Loader2 className='mx-auto h-6 w-6 animate-spin' />
                     </TableCell>
                   </TableRow>
                 ) : (data?.items?.length ?? 0) === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className='py-8 text-center text-muted-foreground'>
+                    <TableCell colSpan={8} className='py-8 text-center text-muted-foreground'>
                       {t('No redemption codes found.')}
                     </TableCell>
                   </TableRow>
@@ -242,8 +286,27 @@ export function RedemptionsTab() {
                         </div>
                       </TableCell>
                       <TableCell className='text-xs font-medium'>{item.name}</TableCell>
-                      <TableCell className='text-xs font-semibold text-emerald-600 dark:text-emerald-400'>
-                        {formatQuota(item.quota)}
+                      <TableCell>
+                        {item.type === 1 ? (
+                          <Badge variant='outline' className='bg-sky-500/10 text-sky-600 border-sky-500/20 text-[10px]'>
+                            {t('Requests')}
+                          </Badge>
+                        ) : item.type === 2 ? (
+                          <Badge variant='outline' className='bg-amber-500/10 text-amber-600 border-amber-500/20 text-[10px]'>
+                            {t('Tokens')}
+                          </Badge>
+                        ) : (
+                          <Badge variant='outline' className='bg-purple-500/10 text-purple-600 border-purple-500/20 text-[10px]'>
+                            {t('Balance')}
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className='text-xs font-semibold text-emerald-600 dark:text-emerald-400 font-mono'>
+                        {item.type === 1
+                          ? `${item.quota.toLocaleString()} ${t('req')}`
+                          : item.type === 2
+                          ? `${item.quota.toLocaleString()} ${t('tokens')}`
+                          : formatQuota(item.quota)}
                       </TableCell>
                       <TableCell>
                         {item.status === 1 ? (
@@ -350,13 +413,56 @@ export function RedemptionsTab() {
           </div>
         ) : (
           <div className='space-y-4 py-2'>
+            {/* Code Type Selection */}
+            <div className='space-y-1.5'>
+              <Label className='text-xs font-medium'>{t('Code Type')}</Label>
+              <div className='grid grid-cols-3 gap-2'>
+                <Button
+                  type='button'
+                  variant={codeType === 0 ? 'default' : 'outline'}
+                  size='sm'
+                  className='text-xs'
+                  onClick={() => setCodeType(0)}
+                >
+                  <Wallet className='mr-1.5 h-3.5 w-3.5' />
+                  {t('Balance ($)')}
+                </Button>
+                <Button
+                  type='button'
+                  variant={codeType === 1 ? 'default' : 'outline'}
+                  size='sm'
+                  className='text-xs'
+                  onClick={() => setCodeType(1)}
+                >
+                  <MessageSquareCode className='mr-1.5 h-3.5 w-3.5' />
+                  {t('Requests')}
+                </Button>
+                <Button
+                  type='button'
+                  variant={codeType === 2 ? 'default' : 'outline'}
+                  size='sm'
+                  className='text-xs'
+                  onClick={() => setCodeType(2)}
+                >
+                  <Coins className='mr-1.5 h-3.5 w-3.5' />
+                  {t('Tokens')}
+                </Button>
+              </div>
+            </div>
+
             <div className='space-y-1.5'>
               <Label htmlFor='code_name' className='text-xs font-medium'>
                 {t('Batch / Code Name')}
               </Label>
               <Input
                 id='code_name'
-                placeholder={t('e.g. Summer Promo 10$')}
+                placeholder={
+                  codeType === 0
+                    ? t('e.g. Summer Promo 10$')
+                    : codeType === 1
+                    ? t('e.g. 500 Requests Pack')
+                    : t('e.g. 1M Tokens Pack')
+                }
                 value={codeName}
                 onChange={(e) => setCodeName(e.target.value)}
               />
@@ -364,17 +470,36 @@ export function RedemptionsTab() {
 
             <div className='grid grid-cols-2 gap-4'>
               <div className='space-y-1.5'>
-                <Label htmlFor='dollar_amount' className='text-xs font-medium'>
-                  {t('Amount per Code ($)')}
+                <Label htmlFor='amount_input' className='text-xs font-medium'>
+                  {codeType === 0
+                    ? t('Amount per Code ($)')
+                    : codeType === 1
+                    ? t('Requests per Code')
+                    : t('Tokens per Code')}
                 </Label>
-                <Input
-                  id='dollar_amount'
-                  type='number'
-                  min={0.1}
-                  step={0.1}
-                  value={dollarAmount}
-                  onChange={(e) => setDollarAmount(Math.max(0.01, parseFloat(e.target.value) || 0))}
-                />
+                {codeType === 0 ? (
+                  <Input
+                    id='amount_input'
+                    type='number'
+                    min={0.1}
+                    step={0.1}
+                    value={dollarAmount}
+                    onChange={(e) =>
+                      setDollarAmount(Math.max(0.01, parseFloat(e.target.value) || 0))
+                    }
+                  />
+                ) : (
+                  <Input
+                    id='amount_input'
+                    type='number'
+                    min={1}
+                    step={1}
+                    value={unitCount}
+                    onChange={(e) =>
+                      setUnitCount(Math.max(1, parseInt(e.target.value) || 1))
+                    }
+                  />
+                )}
               </div>
 
               <div className='space-y-1.5'>
@@ -387,23 +512,39 @@ export function RedemptionsTab() {
                   min={1}
                   max={100}
                   value={codeCount}
-                  onChange={(e) => setCodeCount(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
+                  onChange={(e) =>
+                    setCodeCount(
+                      Math.min(100, Math.max(1, parseInt(e.target.value) || 1))
+                    )
+                  }
                 />
               </div>
             </div>
 
             <div className='rounded-lg bg-muted/50 p-3 text-xs space-y-1'>
               <div className='flex justify-between text-muted-foreground'>
-                <span>{t('Deducted Quota')}:</span>
-                <span className='font-mono font-medium text-foreground'>{formatQuota(totalCostQuota)}</span>
+                <span>{t('Total Cost')}:</span>
+                <span className='font-mono font-medium text-foreground'>
+                  {codeType === 0
+                    ? formatQuota(totalCost)
+                    : codeType === 1
+                    ? `${totalCost.toLocaleString()} ${t('req')}`
+                    : `${totalCost.toLocaleString()} ${t('tokens')}`}
+                </span>
               </div>
               <div className='flex justify-between text-muted-foreground'>
                 <span>{t('Your Balance')}:</span>
-                <span className='font-mono font-medium text-foreground'>{formatQuota(currentUser?.quota ?? 0)}</span>
+                <span className='font-mono font-medium text-foreground'>
+                  {codeType === 0
+                    ? formatQuota(availableBalance)
+                    : codeType === 1
+                    ? `${availableBalance.toLocaleString()} ${t('req')}`
+                    : `${availableBalance.toLocaleString()} ${t('tokens')}`}
+                </span>
               </div>
-              {!hasEnoughQuota && (
+              {!hasEnoughBalance && (
                 <p className='text-destructive text-[11px] pt-1'>
-                  {t('Insufficient quota balance to create these codes.')}
+                  {t('Insufficient balance to create these codes.')}
                 </p>
               )}
             </div>
@@ -414,7 +555,7 @@ export function RedemptionsTab() {
               </Button>
               <Button
                 onClick={() => createMutation.mutate()}
-                disabled={!hasEnoughQuota || createMutation.isPending}
+                disabled={!hasEnoughBalance || createMutation.isPending}
               >
                 {createMutation.isPending && (
                   <Loader2 className='mr-2 h-4 w-4 animate-spin' />

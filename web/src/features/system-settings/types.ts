@@ -137,6 +137,22 @@ export type SiteSettings = {
   GoogleAnalyticsId?: string
   UmamiWebsiteId?: string
   UmamiScriptUrl?: string
+  ClarityProjectId?: string
+  SEOTitlePrefix_tr?: string
+  SEOTitlePrefix_en?: string
+  SEOTitlePrefix_zh_CN?: string
+  SEODescription_tr?: string
+  SEODescription_en?: string
+  SEODescription_zh_CN?: string
+  SEOKeywords_tr?: string
+  SEOKeywords_en?: string
+  SEOKeywords_zh_CN?: string
+  PrivacyPolicy_tr?: string
+  PrivacyPolicy_en?: string
+  PrivacyPolicy_zh_CN?: string
+  TermsOfService_tr?: string
+  TermsOfService_en?: string
+  TermsOfService_zh_CN?: string
 }
 
 export type AuthSettings = {
@@ -356,6 +372,26 @@ export type BillingSettings = {
   // section (saved via /api/option/waffo-pancake/save).
   WaffoPancakeStoreID: string
   WaffoPancakeProductID: string
+  EnableBillingRequests: boolean
+  EnableBillingTokens: boolean
+  EnableBillingSubscription: boolean
+  EnableBillingWallet: boolean
+  ShopierApiKey: string
+  ShopierApiSecret: string
+  ShopierWebsiteIndex: string
+  PayTRMerchantId: string
+  PayTRMerchantKey: string
+  PayTRMerchantSalt: string
+  PayTRTestMode: boolean
+  PayPalClientId: string
+  PayPalClientSecret: string
+  PayPalMode: string
+  IyzicoApiKey: string
+  IyzicoSecretKey: string
+  IyzicoBaseUrl: string
+  ShopifyStoreDomain: string
+  ShopifyAccessToken: string
+  ShopifyWebhookSecret: string
   'checkin_setting.enabled': boolean
   'checkin_setting.min_quota': number
   'checkin_setting.max_quota': number
@@ -375,6 +411,18 @@ export type OperationsSettings = {
   SMTPStartTLSEnabled: boolean
   SMTPInsecureSkipVerify: boolean
   SMTPForceAuthLogin: boolean
+  EmailSubject_verification_tr?: string
+  EmailBody_verification_tr?: string
+  EmailSubject_verification_en?: string
+  EmailBody_verification_en?: string
+  EmailSubject_verification_zh_CN?: string
+  EmailBody_verification_zh_CN?: string
+  EmailSubject_password_reset_tr?: string
+  EmailBody_password_reset_tr?: string
+  EmailSubject_password_reset_en?: string
+  EmailBody_password_reset_en?: string
+  EmailSubject_password_reset_zh_CN?: string
+  EmailBody_password_reset_zh_CN?: string
   WorkerUrl: string
   WorkerValidKey: string
   WorkerAllowHttpImageRequestEnabled: boolean

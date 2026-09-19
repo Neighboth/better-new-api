@@ -95,7 +95,7 @@ export function RedemptionsMutateDrawer({
   )
 
   const form = useForm<RedemptionFormValues>({
-    resolver: zodResolver(getRedemptionFormSchema(t)),
+    resolver: zodResolver(getRedemptionFormSchema(t)) as any,
     defaultValues: REDEMPTION_FORM_DEFAULT_VALUES,
   })
 
@@ -220,10 +220,21 @@ export function RedemptionsMutateDrawer({
   const currencyLabel = getCurrencyLabel()
   const tokensOnly = currencyMeta.kind === 'tokens'
   const quotaStep = getEditableQuotaStep()
-  const quotaLabel = t('Quota ({{currency}})', { currency: currencyLabel })
-  const quotaPlaceholder = tokensOnly
-    ? t('Enter quota in tokens')
-    : t('Enter quota in {{currency}}', { currency: currencyLabel })
+  const currentType = form.watch('type') ?? 0
+  const quotaLabel =
+    currentType === 1
+      ? t('API Requests Count')
+      : currentType === 2
+      ? t('Model Tokens Count')
+      : t('Quota ({{currency}})', { currency: currencyLabel })
+  const quotaPlaceholder =
+    currentType === 1
+      ? t('e.g. 500')
+      : currentType === 2
+      ? t('e.g. 100000')
+      : tokensOnly
+      ? t('Enter quota in tokens')
+      : t('Enter quota in {{currency}}', { currency: currencyLabel })
   let submitButtonLabel = t('Save changes')
   if (isLoadingRedemption) {
     submitButtonLabel = t('Loading...')
@@ -269,6 +280,50 @@ export function RedemptionsMutateDrawer({
               className='contents'
             >
               <SideDrawerSection>
+                <FormField
+                  control={form.control}
+                  name='type'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Code Type')}</FormLabel>
+                      <div className='grid grid-cols-3 gap-2'>
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant={field.value === 0 ? 'default' : 'outline'}
+                          onClick={() => field.onChange(0)}
+                        >
+                          {t('Balance')}
+                        </Button>
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant={field.value === 1 ? 'default' : 'outline'}
+                          onClick={() => field.onChange(1)}
+                        >
+                          {t('Requests')}
+                        </Button>
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant={field.value === 2 ? 'default' : 'outline'}
+                          onClick={() => field.onChange(2)}
+                        >
+                          {t('Tokens')}
+                        </Button>
+                      </div>
+                      <FormDescription>
+                        {field.value === 1
+                          ? t('Credits fixed number of API requests.')
+                          : field.value === 2
+                          ? t('Credits fixed number of model tokens.')
+                          : t('Credits standard monetary quota balance.')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 <FormField
                   control={form.control}
                   name='name'

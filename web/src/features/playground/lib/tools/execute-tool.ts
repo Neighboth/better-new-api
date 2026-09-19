@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { generateImages } from '../../api'
-import { ERROR_MESSAGES, MAX_TOOL_RESULT_CHARS } from '../../constants'
+import { ERROR_MESSAGES } from '../../constants'
 import type {
   MessageAttachment,
   ModelOption,

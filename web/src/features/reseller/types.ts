@@ -37,6 +37,7 @@ export interface ResellerConfig {
   epay_partner_key?: string
   epay_url?: string
   epay_gateway_url?: string
+  epay_callback_url?: string
   stripe_api_secret?: string
   stripe_webhook_secret?: string
   stripe_price_id?: string
@@ -46,6 +47,22 @@ export interface ResellerConfig {
   waffo_merchant_id?: string
   waffo_api_key?: string
   waffo_private_key?: string
+  shopier_api_key?: string
+  shopier_api_secret?: string
+  shopier_website_index?: string
+  paytr_merchant_id?: string
+  paytr_merchant_key?: string
+  paytr_merchant_salt?: string
+  paytr_test_mode?: boolean
+  paypal_client_id?: string
+  paypal_client_secret?: string
+  paypal_mode?: string
+  iyzico_api_key?: string
+  iyzico_secret_key?: string
+  iyzico_base_url?: string
+  shopify_store_domain?: string
+  shopify_access_token?: string
+  shopify_webhook_secret?: string
   created_at?: string | number
   updated_at?: string | number
 }
@@ -55,10 +72,24 @@ export interface ResellerRedemption {
   name: string
   key: string
   quota: number
+  type?: number // 0: Quota, 1: Requests, 2: Tokens
   created_time: number
   redeemed_time: number
   status: number
   used_user_id?: number
   used_username?: string
   is_reseller?: boolean
+}
+
+export interface ResellerSummary {
+  total_codes: number
+  used_codes: number
+  unused_codes: number
+  total_quota_distributed: number
+  total_requests_distributed: number
+  total_tokens_distributed: number
+  reseller_quota: number
+  reseller_requests: number
+  reseller_tokens: number
+  active_sub_users: number
 }

@@ -9,12 +9,10 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"sort"
 
 	"github.com/gin-gonic/gin"
 )
@@ -37,19 +35,9 @@ func newFallbackState(info *relaycommon.RelayInfo) *fallbackState {
 	configuredModels := make(map[string]bool)
 
 	if s.EnableFallback {
-		// 1. Add configured fallback models
+		// Only use explicitly configured fallback models
 		for _, m := range s.FallbackModelList() {
 			configuredModels[m] = true
-			if !seen[m] {
-				seen[m] = true
-				unique = append(unique, m)
-			}
-		}
-
-		// 2. Add all other enabled models alphabetically as a last resort
-		allModels := model.GetEnabledModels()
-		sort.Strings(allModels) // Ensure alphabetical order
-		for _, m := range allModels {
 			if !seen[m] {
 				seen[m] = true
 				unique = append(unique, m)

@@ -16,10 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { zodResolver } from '@hookform/resolvers/zod'
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import * as z from 'zod'
+
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { api } from '@/lib/api'
 
 import {
   Form,
@@ -64,6 +71,18 @@ const createEmailSchema = (t: (key: string) => string) =>
     SMTPStartTLSEnabled: z.boolean(),
     SMTPInsecureSkipVerify: z.boolean(),
     SMTPForceAuthLogin: z.boolean(),
+    EmailSubject_verification_tr: z.string().optional(),
+    EmailBody_verification_tr: z.string().optional(),
+    EmailSubject_verification_en: z.string().optional(),
+    EmailBody_verification_en: z.string().optional(),
+    EmailSubject_verification_zh_CN: z.string().optional(),
+    EmailBody_verification_zh_CN: z.string().optional(),
+    EmailSubject_password_reset_tr: z.string().optional(),
+    EmailBody_password_reset_tr: z.string().optional(),
+    EmailSubject_password_reset_en: z.string().optional(),
+    EmailBody_password_reset_en: z.string().optional(),
+    EmailSubject_password_reset_zh_CN: z.string().optional(),
+    EmailBody_password_reset_zh_CN: z.string().optional(),
   })
 
 type EmailFormValues = z.infer<ReturnType<typeof createEmailSchema>>
@@ -90,12 +109,35 @@ export function EmailSettingsSection({
   const updateOption = useUpdateOption()
   const emailSchema = createEmailSchema(t)
 
+  const [testEmail, setTestEmail] = useState('')
+  const [isSendingTest, setIsSendingTest] = useState(false)
+
   const form = useForm<EmailFormValues>({
     resolver: zodResolver(emailSchema),
     defaultValues,
   })
 
   useResetForm(form, defaultValues)
+
+  const handleSendTestEmail = async () => {
+    if (!testEmail || !testEmail.includes('@')) {
+      toast.error(t('Please enter a valid email address'))
+      return
+    }
+    setIsSendingTest(true)
+    try {
+      const res = await api.post('/api/test_email', { email: testEmail })
+      if (res.data?.success) {
+        toast.success(t('Test email sent successfully! Please check your inbox and spam folder.'))
+      } else {
+        toast.error(res.data?.message || t('Failed to send test email'))
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || t('Failed to send test email'))
+    } finally {
+      setIsSendingTest(false)
+    }
+  }
 
   const onSubmit = async (values: EmailFormValues) => {
     const securityMode = getSmtpSecurityMode(values)
@@ -173,10 +215,39 @@ export function EmailSettingsSection({
       })
     }
 
+    const templateKeys = [
+      'EmailSubject_verification_tr',
+      'EmailBody_verification_tr',
+      'EmailSubject_verification_en',
+      'EmailBody_verification_en',
+      'EmailSubject_verification_zh_CN',
+      'EmailBody_verification_zh_CN',
+      'EmailSubject_password_reset_tr',
+      'EmailBody_password_reset_tr',
+      'EmailSubject_password_reset_en',
+      'EmailBody_password_reset_en',
+      'EmailSubject_password_reset_zh_CN',
+      'EmailBody_password_reset_zh_CN',
+    ] as const
+
+    for (const key of templateKeys) {
+      const val = values[key] ?? ''
+      const initVal = defaultValues[key] ?? ''
+      if (val !== initVal) {
+        updates.push({ key, value: val })
+      }
+    }
+
     for (const update of updates) {
       await updateOption.mutateAsync(update)
     }
   }
+
+  const emailLangs = [
+    { key: 'tr', label: 'Türkçe' },
+    { key: 'en', label: 'English' },
+    { key: 'zh_CN', label: '中文' },
+  ] as const
 
   return (
     <SettingsSection title={t('SMTP Email')}>
@@ -370,7 +441,7 @@ export function EmailSettingsSection({
                 <FormControl>
                   <Input
                     autoComplete='off'
-                    placeholder={t('New API &lt;noreply@example.com&gt;')}
+                    placeholder={t('New API <noreply@example.com>')}
                     {...field}
                     onChange={(event) => field.onChange(event.target.value)}
                   />
@@ -405,6 +476,171 @@ export function EmailSettingsSection({
               </FormItem>
             )}
           />
+
+          {/* Test Email Section */}
+          <div className='rounded-lg border p-4 space-y-3 bg-muted/20 mt-4'>
+            <div className='font-medium text-sm'>{t('Test SMTP Configuration')}</div>
+            <p className='text-xs text-muted-foreground'>
+              {t('Send a test verification email to confirm your SMTP configuration is working properly.')}
+            </p>
+            <div className='flex gap-2 max-w-md'>
+              <Input
+                type='email'
+                placeholder={t('test@example.com')}
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+              />
+              <Button
+                type='button'
+                variant='outline'
+                disabled={isSendingTest}
+                onClick={handleSendTestEmail}
+              >
+                {isSendingTest ? t('Sending...') : t('Send Test Email')}
+              </Button>
+            </div>
+          </div>
+
+          {/* Multilingual Email Templates Section */}
+          <div className='space-y-4 pt-6 border-t mt-6'>
+            <div>
+              <h3 className='text-base font-semibold'>{t('Email Templates')}</h3>
+              <p className='text-xs text-muted-foreground mt-1'>
+                {t('Customize responsive HTML emails. If left blank, modern responsive built-in templates will be used.')}
+              </p>
+            </div>
+
+            <Tabs defaultValue='verification' className='w-full'>
+              <TabsList className='mb-4'>
+                <TabsTrigger value='verification'>{t('Verification Code Email')}</TabsTrigger>
+                <TabsTrigger value='password_reset'>{t('Password Reset Email')}</TabsTrigger>
+              </TabsList>
+
+              {/* Verification Code Templates */}
+              <TabsContent value='verification' className='space-y-4'>
+                <div className='text-xs text-muted-foreground p-3 bg-muted/40 rounded-md'>
+                  <span className='font-semibold'>{t('Available Variables:')}</span>{' '}
+                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.SiteName}}'}</code>,{' '}
+                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.Email}}'}</code>,{' '}
+                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.Code}}'}</code>,{' '}
+                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.Year}}'}</code>
+                </div>
+
+                <Tabs defaultValue='tr' className='w-full'>
+                  <TabsList className='mb-3'>
+                    {emailLangs.map((lang) => (
+                      <TabsTrigger key={lang.key} value={lang.key}>
+                        {lang.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+
+                  {emailLangs.map((lang) => (
+                    <TabsContent key={lang.key} value={lang.key} className='space-y-4'>
+                      <FormField
+                        control={form.control}
+                        name={`EmailSubject_verification_${lang.key}` as any}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Subject')} ({lang.label})</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder={t('Leave blank to use default subject')}
+                                {...field}
+                                value={field.value ?? ''}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name={`EmailBody_verification_${lang.key}` as any}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('HTML Content')} ({lang.label})</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                rows={6}
+                                placeholder={t('Leave blank to use default modern responsive HTML template')}
+                                {...field}
+                                value={field.value ?? ''}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </TabsContent>
+                  ))}
+                </Tabs>
+              </TabsContent>
+
+              {/* Password Reset Templates */}
+              <TabsContent value='password_reset' className='space-y-4'>
+                <div className='text-xs text-muted-foreground p-3 bg-muted/40 rounded-md'>
+                  <span className='font-semibold'>{t('Available Variables:')}</span>{' '}
+                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.SiteName}}'}</code>,{' '}
+                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.Email}}'}</code>,{' '}
+                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.ResetUrl}}'}</code>,{' '}
+                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.Year}}'}</code>
+                </div>
+
+                <Tabs defaultValue='tr' className='w-full'>
+                  <TabsList className='mb-3'>
+                    {emailLangs.map((lang) => (
+                      <TabsTrigger key={lang.key} value={lang.key}>
+                        {lang.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+
+                  {emailLangs.map((lang) => (
+                    <TabsContent key={lang.key} value={lang.key} className='space-y-4'>
+                      <FormField
+                        control={form.control}
+                        name={`EmailSubject_password_reset_${lang.key}` as any}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Subject')} ({lang.label})</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder={t('Leave blank to use default subject')}
+                                {...field}
+                                value={field.value ?? ''}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name={`EmailBody_password_reset_${lang.key}` as any}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('HTML Content')} ({lang.label})</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                rows={6}
+                                placeholder={t('Leave blank to use default modern responsive HTML template')}
+                                {...field}
+                                value={field.value ?? ''}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </TabsContent>
+                  ))}
+                </Tabs>
+              </TabsContent>
+            </Tabs>
+          </div>
         </SettingsForm>
       </Form>
     </SettingsSection>

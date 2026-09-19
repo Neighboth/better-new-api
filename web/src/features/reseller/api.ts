@@ -17,7 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
-import type { ResellerConfig, ResellerRedemption } from './types'
+import type { ResellerConfig, ResellerRedemption, ResellerSummary } from './types'
+
+export async function fetchResellerSummary(): Promise<ResellerSummary> {
+  const res = await api.get('/api/reseller/summary')
+  if (!res.data?.success) {
+    throw new Error(res.data?.message || 'Failed to fetch reseller summary')
+  }
+  return res.data.data
+}
 
 export async function fetchResellerConfig(): Promise<ResellerConfig> {
   const res = await api.get('/api/reseller/self')
@@ -63,6 +71,7 @@ export async function createResellerRedemption(data: {
   name: string
   quota: number
   count: number
+  type?: number
 }): Promise<{ keys: string[] }> {
   const res = await api.post('/api/reseller/redemptions', data)
   if (!res.data?.success) {

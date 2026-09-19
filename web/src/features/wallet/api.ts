@@ -107,18 +107,58 @@ export async function calculateWaffoAmount(
 }
 
 /**
- * Request regular payment
+ * Request regular or gateway payment
  */
 export async function requestPayment(
   request: PaymentRequest
 ): Promise<PaymentResponse> {
-  const res = await api.post('/api/user/pay', request, {
+  let endpoint = '/api/user/pay'
+  if (request.payment_method === 'shopier') {
+    endpoint = '/api/user/shopier/pay'
+  } else if (request.payment_method === 'paytr') {
+    endpoint = '/api/user/paytr/pay'
+  } else if (request.payment_method === 'paypal') {
+    endpoint = '/api/user/paypal/pay'
+  } else if (request.payment_method === 'iyzico') {
+    endpoint = '/api/user/iyzico/pay'
+  } else if (request.payment_method === 'shopify') {
+    endpoint = '/api/user/shopify/pay'
+  }
+
+  const res = await api.post(endpoint, request, {
     skipBusinessError: true,
   } as Record<string, unknown>)
   return {
     ...res.data,
     url: res.data.url || (res as unknown as { url?: string }).url,
   }
+}
+
+/**
+ * Update user's billing cascade priority
+ */
+export async function updateBillingPriority(
+  priority: string[]
+): Promise<ApiResponse<string[]>> {
+  const res = await api.post('/api/user/billing_priority', { priority })
+  return res.data
+}
+
+/**
+ * Get billing pool status and enabled types
+ */
+export async function getBillingPoolInfo(): Promise<ApiResponse<{
+  billing_preference?: string
+  billing_priority?: string[]
+  enabled_billing_types?: {
+    requests?: boolean
+    tokens?: boolean
+    subscription?: boolean
+    wallet?: boolean
+  }
+}>> {
+  const res = await api.get('/api/subscription/self')
+  return res.data
 }
 
 /**

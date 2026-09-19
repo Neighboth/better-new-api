@@ -55,6 +55,22 @@ const defaultSiteSettings: SiteSettings = {
   GoogleAnalyticsId: '',
   UmamiWebsiteId: '',
   UmamiScriptUrl: '',
+  ClarityProjectId: '',
+  SEOTitlePrefix_tr: '',
+  SEOTitlePrefix_en: '',
+  SEOTitlePrefix_zh_CN: '',
+  SEODescription_tr: '',
+  SEODescription_en: '',
+  SEODescription_zh_CN: '',
+  SEOKeywords_tr: '',
+  SEOKeywords_en: '',
+  SEOKeywords_zh_CN: '',
+  PrivacyPolicy_tr: '',
+  PrivacyPolicy_en: '',
+  PrivacyPolicy_zh_CN: '',
+  TermsOfService_tr: '',
+  TermsOfService_en: '',
+  TermsOfService_zh_CN: '',
 }
 
 export function SiteSettings() {

@@ -75,6 +75,7 @@ export function ChildPanelTab({ config }: ChildPanelTabProps) {
   const [epayPartnerId, setEpayPartnerId] = useState(config.epay_partner_id || '')
   const [epayKey, setEpayKey] = useState(config.epay_key || config.epay_partner_key || '')
   const [epayUrl, setEpayUrl] = useState(config.epay_url || config.epay_gateway_url || '')
+  const [epayCallbackUrl, setEpayCallbackUrl] = useState(config.epay_callback_url || '')
 
   const [stripeApiSecret, setStripeApiSecret] = useState(config.stripe_api_secret || '')
   const [stripeWebhookSecret, setStripeWebhookSecret] = useState(
@@ -94,11 +95,38 @@ export function ChildPanelTab({ config }: ChildPanelTabProps) {
   const [waffoApiKey, setWaffoApiKey] = useState(config.waffo_api_key || '')
   const [waffoPrivateKey, setWaffoPrivateKey] = useState(config.waffo_private_key || '')
 
+  // 5 New Gateways
+  const [shopierApiKey, setShopierApiKey] = useState(config.shopier_api_key || '')
+  const [shopierApiSecret, setShopierApiSecret] = useState(config.shopier_api_secret || '')
+  const [shopierWebsiteIndex, setShopierWebsiteIndex] = useState(config.shopier_website_index || '1')
+
+  const [paytrMerchantId, setPayTRMerchantId] = useState(config.paytr_merchant_id || '')
+  const [paytrMerchantKey, setPayTRMerchantKey] = useState(config.paytr_merchant_key || '')
+  const [paytrMerchantSalt, setPayTRMerchantSalt] = useState(config.paytr_merchant_salt || '')
+  const [paytrTestMode, setPayTRTestMode] = useState<boolean>(Boolean(config.paytr_test_mode))
+
+  const [paypalClientId, setPayPalClientId] = useState(config.paypal_client_id || '')
+  const [paypalClientSecret, setPayPalClientSecret] = useState(config.paypal_client_secret || '')
+  const [paypalMode, setPayPalMode] = useState(config.paypal_mode || 'sandbox')
+
+  const [iyzicoApiKey, setIyzicoApiKey] = useState(config.iyzico_api_key || '')
+  const [iyzicoSecretKey, setIyzicoSecretKey] = useState(config.iyzico_secret_key || '')
+  const [iyzicoBaseUrl, setIyzicoBaseUrl] = useState(config.iyzico_base_url || 'https://sandbox-api.iyzipay.com')
+
+  const [shopifyStoreDomain, setShopifyStoreDomain] = useState(config.shopify_store_domain || '')
+  const [shopifyAccessToken, setShopifyAccessToken] = useState(config.shopify_access_token || '')
+  const [shopifyWebhookSecret, setShopifyWebhookSecret] = useState(config.shopify_webhook_secret || '')
+
   // Visibility toggles for sensitive secret keys
   const [showEpayKey, setShowEpayKey] = useState(false)
   const [showStripeSecret, setShowStripeSecret] = useState(false)
   const [showCreemKey, setShowCreemKey] = useState(false)
   const [showWaffoKey, setShowWaffoKey] = useState(false)
+  const [showShopierSecret, setShowShopierSecret] = useState(false)
+  const [showPayTRKey, setShowPayTRKey] = useState(false)
+  const [showPayPalSecret, setShowPayPalSecret] = useState(false)
+  const [showIyzicoSecret, setShowIyzicoSecret] = useState(false)
+  const [showShopifyToken, setShowShopifyToken] = useState(false)
 
   useEffect(() => {
     setCustomDomain(config.custom_domain || '')
@@ -113,6 +141,7 @@ export function ChildPanelTab({ config }: ChildPanelTabProps) {
     setEpayPartnerId(config.epay_partner_id || '')
     setEpayKey(config.epay_key || config.epay_partner_key || '')
     setEpayUrl(config.epay_url || config.epay_gateway_url || '')
+    setEpayCallbackUrl(config.epay_callback_url || '')
 
     setStripeApiSecret(config.stripe_api_secret || '')
     setStripeWebhookSecret(config.stripe_webhook_secret || '')
@@ -125,6 +154,27 @@ export function ChildPanelTab({ config }: ChildPanelTabProps) {
     setWaffoMerchantId(config.waffo_merchant_id || '')
     setWaffoApiKey(config.waffo_api_key || '')
     setWaffoPrivateKey(config.waffo_private_key || '')
+
+    setShopierApiKey(config.shopier_api_key || '')
+    setShopierApiSecret(config.shopier_api_secret || '')
+    setShopierWebsiteIndex(config.shopier_website_index || '1')
+
+    setPayTRMerchantId(config.paytr_merchant_id || '')
+    setPayTRMerchantKey(config.paytr_merchant_key || '')
+    setPayTRMerchantSalt(config.paytr_merchant_salt || '')
+    setPayTRTestMode(Boolean(config.paytr_test_mode))
+
+    setPayPalClientId(config.paypal_client_id || '')
+    setPayPalClientSecret(config.paypal_client_secret || '')
+    setPayPalMode(config.paypal_mode || 'sandbox')
+
+    setIyzicoApiKey(config.iyzico_api_key || '')
+    setIyzicoSecretKey(config.iyzico_secret_key || '')
+    setIyzicoBaseUrl(config.iyzico_base_url || 'https://sandbox-api.iyzipay.com')
+
+    setShopifyStoreDomain(config.shopify_store_domain || '')
+    setShopifyAccessToken(config.shopify_access_token || '')
+    setShopifyWebhookSecret(config.shopify_webhook_secret || '')
   }, [config])
 
   const saveMutation = useMutation({
@@ -147,6 +197,7 @@ export function ChildPanelTab({ config }: ChildPanelTabProps) {
         epay_partner_key: epayKey.trim(),
         epay_url: epayUrl.trim(),
         epay_gateway_url: epayUrl.trim(),
+        epay_callback_url: epayCallbackUrl.trim(),
         stripe_api_secret: stripeApiSecret.trim(),
         stripe_webhook_secret: stripeWebhookSecret.trim(),
         stripe_price_id: stripePriceId.trim(),
@@ -156,6 +207,22 @@ export function ChildPanelTab({ config }: ChildPanelTabProps) {
         waffo_merchant_id: waffoMerchantId.trim(),
         waffo_api_key: waffoApiKey.trim(),
         waffo_private_key: waffoPrivateKey.trim(),
+        shopier_api_key: shopierApiKey.trim(),
+        shopier_api_secret: shopierApiSecret.trim(),
+        shopier_website_index: shopierWebsiteIndex.trim(),
+        paytr_merchant_id: paytrMerchantId.trim(),
+        paytr_merchant_key: paytrMerchantKey.trim(),
+        paytr_merchant_salt: paytrMerchantSalt.trim(),
+        paytr_test_mode: paytrTestMode,
+        paypal_client_id: paypalClientId.trim(),
+        paypal_client_secret: paypalClientSecret.trim(),
+        paypal_mode: paypalMode.trim(),
+        iyzico_api_key: iyzicoApiKey.trim(),
+        iyzico_secret_key: iyzicoSecretKey.trim(),
+        iyzico_base_url: iyzicoBaseUrl.trim(),
+        shopify_store_domain: shopifyStoreDomain.trim(),
+        shopify_access_token: shopifyAccessToken.trim(),
+        shopify_webhook_secret: shopifyWebhookSecret.trim(),
       })
     },
     onSuccess: () => {
@@ -401,19 +468,52 @@ export function ChildPanelTab({ config }: ChildPanelTabProps) {
         </CardHeader>
         <CardContent>
           <Tabs defaultValue='epay' className='space-y-4'>
-            <TabsList className='grid w-full grid-cols-4'>
-              <TabsTrigger value='epay'>EPay</TabsTrigger>
-              <TabsTrigger value='stripe'>Stripe</TabsTrigger>
-              <TabsTrigger value='creem'>Creem</TabsTrigger>
-              <TabsTrigger value='waffo'>Waffo</TabsTrigger>
-            </TabsList>
+            <div className='overflow-x-auto pb-1'>
+              <TabsList className='inline-flex min-w-full justify-start md:grid md:grid-cols-9'>
+                <TabsTrigger value='epay'>EPay</TabsTrigger>
+                <TabsTrigger value='stripe'>Stripe</TabsTrigger>
+                <TabsTrigger value='creem'>Creem</TabsTrigger>
+                <TabsTrigger value='waffo'>Waffo</TabsTrigger>
+                <TabsTrigger value='shopier'>Shopier</TabsTrigger>
+                <TabsTrigger value='paytr'>PayTR</TabsTrigger>
+                <TabsTrigger value='paypal'>PayPal</TabsTrigger>
+                <TabsTrigger value='iyzico'>iyzico</TabsTrigger>
+                <TabsTrigger value='shopify'>Shopify</TabsTrigger>
+              </TabsList>
+            </div>
 
             {/* EPay Gateway */}
             <TabsContent value='epay' className='space-y-4 pt-2'>
               <div className='grid gap-4 sm:grid-cols-2'>
                 <div className='space-y-1.5'>
+                  <Label htmlFor='epay_url' className='text-xs font-medium'>
+                    {t('EPay Gateway URL (PayAddress)')}
+                  </Label>
+                  <Input
+                    id='epay_url'
+                    placeholder='https://pay.example.com'
+                    value={epayUrl}
+                    onChange={(e) => setEpayUrl(e.target.value)}
+                    disabled={!isEnabled || saveMutation.isPending}
+                  />
+                </div>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='epay_callback_url' className='text-xs font-medium'>
+                    {t('Custom Callback Address')}
+                  </Label>
+                  <Input
+                    id='epay_callback_url'
+                    placeholder='https://api.yourdomain.com'
+                    value={epayCallbackUrl}
+                    onChange={(e) => setEpayCallbackUrl(e.target.value)}
+                    disabled={!isEnabled || saveMutation.isPending}
+                  />
+                </div>
+              </div>
+              <div className='grid gap-4 sm:grid-cols-2'>
+                <div className='space-y-1.5'>
                   <Label htmlFor='epay_partner_id' className='text-xs font-medium'>
-                    {t('EPay Partner ID')}
+                    {t('EPay Partner ID (EpayId)')}
                   </Label>
                   <Input
                     id='epay_partner_id'
@@ -424,41 +524,29 @@ export function ChildPanelTab({ config }: ChildPanelTabProps) {
                   />
                 </div>
                 <div className='space-y-1.5'>
-                  <Label htmlFor='epay_url' className='text-xs font-medium'>
-                    {t('EPay Gateway URL')}
+                  <Label htmlFor='epay_key' className='text-xs font-medium'>
+                    {t('EPay Key (EpayKey)')}
                   </Label>
-                  <Input
-                    id='epay_url'
-                    placeholder='https://pay.example.com'
-                    value={epayUrl}
-                    onChange={(e) => setEpayUrl(e.target.value)}
-                    disabled={!isEnabled || saveMutation.isPending}
-                  />
-                </div>
-              </div>
-              <div className='space-y-1.5'>
-                <Label htmlFor='epay_key' className='text-xs font-medium'>
-                  {t('EPay Key')}
-                </Label>
-                <div className='relative'>
-                  <Input
-                    id='epay_key'
-                    type={showEpayKey ? 'text' : 'password'}
-                    placeholder='secret key'
-                    value={epayKey}
-                    onChange={(e) => setEpayKey(e.target.value)}
-                    disabled={!isEnabled || saveMutation.isPending}
-                    className='pr-10'
-                  />
-                  <Button
-                    type='button'
-                    variant='ghost'
-                    size='icon'
-                    className='absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground'
-                    onClick={() => setShowEpayKey(!showEpayKey)}
-                  >
-                    {showEpayKey ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
-                  </Button>
+                  <div className='relative'>
+                    <Input
+                      id='epay_key'
+                      type={showEpayKey ? 'text' : 'password'}
+                      placeholder='secret key'
+                      value={epayKey}
+                      onChange={(e) => setEpayKey(e.target.value)}
+                      disabled={!isEnabled || saveMutation.isPending}
+                      className='pr-10'
+                    />
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon'
+                      className='absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground'
+                      onClick={() => setShowEpayKey(!showEpayKey)}
+                    >
+                      {showEpayKey ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </TabsContent>
@@ -622,6 +710,314 @@ export function ChildPanelTab({ config }: ChildPanelTabProps) {
                   disabled={!isEnabled || saveMutation.isPending}
                   className='font-mono text-xs'
                 />
+              </div>
+            </TabsContent>
+
+            {/* Shopier Gateway */}
+            <TabsContent value='shopier' className='space-y-4 pt-2'>
+              <div className='rounded-md bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-100'>
+                <p className='font-medium'>{t('Shopier Webhook / Callback:')}</p>
+                <code className='font-mono'>{'<ChildDomain>/api/user/shopier/notify'}</code>
+              </div>
+              <div className='grid gap-4 sm:grid-cols-2'>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='shopier_api_key' className='text-xs font-medium'>
+                    {t('Shopier API Key')}
+                  </Label>
+                  <Input
+                    id='shopier_api_key'
+                    placeholder='Shopier API Key'
+                    value={shopierApiKey}
+                    onChange={(e) => setShopierApiKey(e.target.value)}
+                    disabled={!isEnabled || saveMutation.isPending}
+                  />
+                </div>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='shopier_website_index' className='text-xs font-medium'>
+                    {t('Website Index')}
+                  </Label>
+                  <Input
+                    id='shopier_website_index'
+                    placeholder='1'
+                    value={shopierWebsiteIndex}
+                    onChange={(e) => setShopierWebsiteIndex(e.target.value)}
+                    disabled={!isEnabled || saveMutation.isPending}
+                  />
+                </div>
+              </div>
+              <div className='space-y-1.5'>
+                <Label htmlFor='shopier_api_secret' className='text-xs font-medium'>
+                  {t('Shopier API Secret')}
+                </Label>
+                <div className='relative'>
+                  <Input
+                    id='shopier_api_secret'
+                    type={showShopierSecret ? 'text' : 'password'}
+                    placeholder='Shopier API Secret'
+                    value={shopierApiSecret}
+                    onChange={(e) => setShopierApiSecret(e.target.value)}
+                    disabled={!isEnabled || saveMutation.isPending}
+                    className='pr-10'
+                  />
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='icon'
+                    className='absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground'
+                    onClick={() => setShowShopierSecret(!showShopierSecret)}
+                  >
+                    {showShopierSecret ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* PayTR Gateway */}
+            <TabsContent value='paytr' className='space-y-4 pt-2'>
+              <div className='rounded-md bg-blue-50 p-3 text-xs text-blue-900 dark:bg-blue-950 dark:text-blue-100'>
+                <p className='font-medium'>{t('PayTR Notification URL:')}</p>
+                <code className='font-mono'>{'<ChildDomain>/api/user/paytr/notify'}</code>
+              </div>
+              <div className='space-y-1.5'>
+                <Label htmlFor='paytr_merchant_id' className='text-xs font-medium'>
+                  {t('PayTR Merchant ID')}
+                </Label>
+                <Input
+                  id='paytr_merchant_id'
+                  placeholder='Merchant ID'
+                  value={paytrMerchantId}
+                  onChange={(e) => setPayTRMerchantId(e.target.value)}
+                  disabled={!isEnabled || saveMutation.isPending}
+                />
+              </div>
+              <div className='grid gap-4 sm:grid-cols-2'>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='paytr_merchant_key' className='text-xs font-medium'>
+                    {t('PayTR Merchant Key')}
+                  </Label>
+                  <div className='relative'>
+                    <Input
+                      id='paytr_merchant_key'
+                      type={showPayTRKey ? 'text' : 'password'}
+                      placeholder='Merchant Key'
+                      value={paytrMerchantKey}
+                      onChange={(e) => setPayTRMerchantKey(e.target.value)}
+                      disabled={!isEnabled || saveMutation.isPending}
+                      className='pr-10'
+                    />
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon'
+                      className='absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground'
+                      onClick={() => setShowPayTRKey(!showPayTRKey)}
+                    >
+                      {showPayTRKey ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
+                    </Button>
+                  </div>
+                </div>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='paytr_merchant_salt' className='text-xs font-medium'>
+                    {t('PayTR Merchant Salt')}
+                  </Label>
+                  <Input
+                    id='paytr_merchant_salt'
+                    type='password'
+                    placeholder='Merchant Salt'
+                    value={paytrMerchantSalt}
+                    onChange={(e) => setPayTRMerchantSalt(e.target.value)}
+                    disabled={!isEnabled || saveMutation.isPending}
+                  />
+                </div>
+              </div>
+              <div className='flex items-center space-x-2 pt-1'>
+                <Switch
+                  id='paytr_test_mode'
+                  checked={paytrTestMode}
+                  onCheckedChange={setPayTRTestMode}
+                  disabled={!isEnabled || saveMutation.isPending}
+                />
+                <Label htmlFor='paytr_test_mode' className='text-xs font-medium cursor-pointer'>
+                  {t('PayTR Test Mode')}
+                </Label>
+              </div>
+            </TabsContent>
+
+            {/* PayPal Gateway */}
+            <TabsContent value='paypal' className='space-y-4 pt-2'>
+              <div className='rounded-md bg-sky-50 p-3 text-xs text-sky-900 dark:bg-sky-950 dark:text-sky-100'>
+                <p className='font-medium'>{t('PayPal Return / Capture URL:')}</p>
+                <code className='font-mono'>{'<ChildDomain>/api/user/paypal/capture'}</code>
+              </div>
+              <div className='grid gap-4 sm:grid-cols-2'>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='paypal_client_id' className='text-xs font-medium'>
+                    {t('PayPal Client ID')}
+                  </Label>
+                  <Input
+                    id='paypal_client_id'
+                    placeholder='Client ID'
+                    value={paypalClientId}
+                    onChange={(e) => setPayPalClientId(e.target.value)}
+                    disabled={!isEnabled || saveMutation.isPending}
+                  />
+                </div>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='paypal_mode' className='text-xs font-medium'>
+                    {t('PayPal Mode')}
+                  </Label>
+                  <Input
+                    id='paypal_mode'
+                    placeholder='sandbox or live'
+                    value={paypalMode}
+                    onChange={(e) => setPayPalMode(e.target.value)}
+                    disabled={!isEnabled || saveMutation.isPending}
+                  />
+                </div>
+              </div>
+              <div className='space-y-1.5'>
+                <Label htmlFor='paypal_client_secret' className='text-xs font-medium'>
+                  {t('PayPal Client Secret')}
+                </Label>
+                <div className='relative'>
+                  <Input
+                    id='paypal_client_secret'
+                    type={showPayPalSecret ? 'text' : 'password'}
+                    placeholder='Client Secret'
+                    value={paypalClientSecret}
+                    onChange={(e) => setPayPalClientSecret(e.target.value)}
+                    disabled={!isEnabled || saveMutation.isPending}
+                    className='pr-10'
+                  />
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='icon'
+                    className='absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground'
+                    onClick={() => setShowPayPalSecret(!showPayPalSecret)}
+                  >
+                    {showPayPalSecret ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* iyzico Gateway */}
+            <TabsContent value='iyzico' className='space-y-4 pt-2'>
+              <div className='rounded-md bg-blue-50 p-3 text-xs text-blue-900 dark:bg-blue-950 dark:text-blue-100'>
+                <p className='font-medium'>{t('iyzico Callback URL:')}</p>
+                <code className='font-mono'>{'<ChildDomain>/api/user/iyzico/callback'}</code>
+              </div>
+              <div className='grid gap-4 sm:grid-cols-2'>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='iyzico_api_key' className='text-xs font-medium'>
+                    {t('iyzico API Key')}
+                  </Label>
+                  <Input
+                    id='iyzico_api_key'
+                    placeholder='API Key'
+                    value={iyzicoApiKey}
+                    onChange={(e) => setIyzicoApiKey(e.target.value)}
+                    disabled={!isEnabled || saveMutation.isPending}
+                  />
+                </div>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='iyzico_base_url' className='text-xs font-medium'>
+                    {t('Base URL')}
+                  </Label>
+                  <Input
+                    id='iyzico_base_url'
+                    placeholder='https://api.iyzipay.com or sandbox'
+                    value={iyzicoBaseUrl}
+                    onChange={(e) => setIyzicoBaseUrl(e.target.value)}
+                    disabled={!isEnabled || saveMutation.isPending}
+                  />
+                </div>
+              </div>
+              <div className='space-y-1.5'>
+                <Label htmlFor='iyzico_secret_key' className='text-xs font-medium'>
+                  {t('iyzico Secret Key')}
+                </Label>
+                <div className='relative'>
+                  <Input
+                    id='iyzico_secret_key'
+                    type={showIyzicoSecret ? 'text' : 'password'}
+                    placeholder='Secret Key'
+                    value={iyzicoSecretKey}
+                    onChange={(e) => setIyzicoSecretKey(e.target.value)}
+                    disabled={!isEnabled || saveMutation.isPending}
+                    className='pr-10'
+                  />
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='icon'
+                    className='absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground'
+                    onClick={() => setShowIyzicoSecret(!showIyzicoSecret)}
+                  >
+                    {showIyzicoSecret ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* Shopify Gateway */}
+            <TabsContent value='shopify' className='space-y-4 pt-2'>
+              <div className='rounded-md bg-emerald-50 p-3 text-xs text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100'>
+                <p className='font-medium'>{t('Shopify Webhook URL:')}</p>
+                <code className='font-mono'>{'<ChildDomain>/api/user/shopify/webhook'}</code>
+              </div>
+              <div className='space-y-1.5'>
+                <Label htmlFor='shopify_store_domain' className='text-xs font-medium'>
+                  {t('Shopify Store Domain')}
+                </Label>
+                <Input
+                  id='shopify_store_domain'
+                  placeholder='your-store.myshopify.com'
+                  value={shopifyStoreDomain}
+                  onChange={(e) => setShopifyStoreDomain(e.target.value)}
+                  disabled={!isEnabled || saveMutation.isPending}
+                />
+              </div>
+              <div className='grid gap-4 sm:grid-cols-2'>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='shopify_access_token' className='text-xs font-medium'>
+                    {t('Admin API Access Token')}
+                  </Label>
+                  <div className='relative'>
+                    <Input
+                      id='shopify_access_token'
+                      type={showShopifyToken ? 'text' : 'password'}
+                      placeholder='shpat_...'
+                      value={shopifyAccessToken}
+                      onChange={(e) => setShopifyAccessToken(e.target.value)}
+                      disabled={!isEnabled || saveMutation.isPending}
+                      className='pr-10'
+                    />
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon'
+                      className='absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground'
+                      onClick={() => setShowShopifyToken(!showShopifyToken)}
+                    >
+                      {showShopifyToken ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
+                    </Button>
+                  </div>
+                </div>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='shopify_webhook_secret' className='text-xs font-medium'>
+                    {t('Webhook HMAC Secret')}
+                  </Label>
+                  <Input
+                    id='shopify_webhook_secret'
+                    type='password'
+                    placeholder='shpss_...'
+                    value={shopifyWebhookSecret}
+                    onChange={(e) => setShopifyWebhookSecret(e.target.value)}
+                    disabled={!isEnabled || saveMutation.isPending}
+                  />
+                </div>
               </div>
             </TabsContent>
           </Tabs>

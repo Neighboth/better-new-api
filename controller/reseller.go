@@ -86,6 +86,7 @@ type ResellerUpdateSelfConfigRequest struct {
 	EpayPartnerKey      *string `json:"epay_partner_key"`
 	EpayUrl             *string `json:"epay_url"`
 	EpayGatewayUrl      *string `json:"epay_gateway_url"`
+	EpayCallbackUrl     *string `json:"epay_callback_url"`
 	StripeApiSecret     *string `json:"stripe_api_secret"`
 	StripeWebhookSecret *string `json:"stripe_webhook_secret"`
 	StripePriceId       *string `json:"stripe_price_id"`
@@ -95,6 +96,22 @@ type ResellerUpdateSelfConfigRequest struct {
 	WaffoMerchantId     *string `json:"waffo_merchant_id"`
 	WaffoApiKey         *string `json:"waffo_api_key"`
 	WaffoPrivateKey     *string `json:"waffo_private_key"`
+	ShopierApiKey       *string `json:"shopier_api_key"`
+	ShopierApiSecret    *string `json:"shopier_api_secret"`
+	ShopierWebsiteIndex *string `json:"shopier_website_index"`
+	PayTRMerchantId     *string `json:"paytr_merchant_id"`
+	PayTRMerchantKey    *string `json:"paytr_merchant_key"`
+	PayTRMerchantSalt   *string `json:"paytr_merchant_salt"`
+	PayTRTestMode       *bool   `json:"paytr_test_mode"`
+	PayPalClientId      *string `json:"paypal_client_id"`
+	PayPalClientSecret  *string `json:"paypal_client_secret"`
+	PayPalMode          *string `json:"paypal_mode"`
+	IyzicoApiKey        *string `json:"iyzico_api_key"`
+	IyzicoSecretKey     *string `json:"iyzico_secret_key"`
+	IyzicoBaseUrl       *string `json:"iyzico_base_url"`
+	ShopifyStoreDomain  *string `json:"shopify_store_domain"`
+	ShopifyAccessToken  *string `json:"shopify_access_token"`
+	ShopifyWebhookSecret *string `json:"shopify_webhook_secret"`
 }
 
 // ResellerUpdateSelfConfig allows a reseller to update their branding and payment settings.
@@ -175,6 +192,9 @@ func ResellerUpdateSelfConfig(c *gin.Context) {
 	} else if req.EpayGatewayUrl != nil {
 		config.EpayUrl = strings.TrimSpace(*req.EpayGatewayUrl)
 	}
+	if req.EpayCallbackUrl != nil {
+		config.EpayCallbackUrl = strings.TrimSpace(*req.EpayCallbackUrl)
+	}
 
 	if req.StripeApiSecret != nil {
 		config.StripeApiSecret = strings.TrimSpace(*req.StripeApiSecret)
@@ -204,6 +224,59 @@ func ResellerUpdateSelfConfig(c *gin.Context) {
 	}
 	if req.WaffoPrivateKey != nil {
 		config.WaffoPrivateKey = strings.TrimSpace(*req.WaffoPrivateKey)
+	}
+
+	if req.ShopierApiKey != nil {
+		config.ShopierApiKey = strings.TrimSpace(*req.ShopierApiKey)
+	}
+	if req.ShopierApiSecret != nil {
+		config.ShopierApiSecret = strings.TrimSpace(*req.ShopierApiSecret)
+	}
+	if req.ShopierWebsiteIndex != nil {
+		config.ShopierWebsiteIndex = strings.TrimSpace(*req.ShopierWebsiteIndex)
+	}
+
+	if req.PayTRMerchantId != nil {
+		config.PayTRMerchantId = strings.TrimSpace(*req.PayTRMerchantId)
+	}
+	if req.PayTRMerchantKey != nil {
+		config.PayTRMerchantKey = strings.TrimSpace(*req.PayTRMerchantKey)
+	}
+	if req.PayTRMerchantSalt != nil {
+		config.PayTRMerchantSalt = strings.TrimSpace(*req.PayTRMerchantSalt)
+	}
+	if req.PayTRTestMode != nil {
+		config.PayTRTestMode = *req.PayTRTestMode
+	}
+
+	if req.PayPalClientId != nil {
+		config.PayPalClientId = strings.TrimSpace(*req.PayPalClientId)
+	}
+	if req.PayPalClientSecret != nil {
+		config.PayPalClientSecret = strings.TrimSpace(*req.PayPalClientSecret)
+	}
+	if req.PayPalMode != nil {
+		config.PayPalMode = strings.TrimSpace(*req.PayPalMode)
+	}
+
+	if req.IyzicoApiKey != nil {
+		config.IyzicoApiKey = strings.TrimSpace(*req.IyzicoApiKey)
+	}
+	if req.IyzicoSecretKey != nil {
+		config.IyzicoSecretKey = strings.TrimSpace(*req.IyzicoSecretKey)
+	}
+	if req.IyzicoBaseUrl != nil {
+		config.IyzicoBaseUrl = strings.TrimSpace(*req.IyzicoBaseUrl)
+	}
+
+	if req.ShopifyStoreDomain != nil {
+		config.ShopifyStoreDomain = strings.TrimSpace(*req.ShopifyStoreDomain)
+	}
+	if req.ShopifyAccessToken != nil {
+		config.ShopifyAccessToken = strings.TrimSpace(*req.ShopifyAccessToken)
+	}
+	if req.ShopifyWebhookSecret != nil {
+		config.ShopifyWebhookSecret = strings.TrimSpace(*req.ShopifyWebhookSecret)
 	}
 
 	if err := model.UpdateResellerConfig(config); err != nil {
@@ -277,9 +350,10 @@ type ResellerCreateRedemptionRequest struct {
 	Name  string `json:"name"`
 	Quota int    `json:"quota"`
 	Count int    `json:"count"`
+	Type  int    `json:"type"` // 0: Quota, 1: Requests, 2: Tokens
 }
 
-// ResellerCreateRedemption creates redemption codes using the reseller's available quota.
+// ResellerCreateRedemption creates redemption codes using the reseller's available quota/requests/tokens.
 func ResellerCreateRedemption(c *gin.Context) {
 	userId := c.GetInt("id")
 	var req ResellerCreateRedemptionRequest
@@ -295,7 +369,7 @@ func ResellerCreateRedemption(c *gin.Context) {
 		return
 	}
 	if req.Quota <= 0 {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Quota must be greater than 0"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Amount must be greater than 0"})
 		return
 	}
 
@@ -315,17 +389,39 @@ func ResellerCreateRedemption(c *gin.Context) {
 		return
 	}
 
-	if user.Quota < totalQuotaNeeded {
-		tx.Rollback()
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": fmt.Sprintf("Insufficient quota. Needed: %d, Available: %d", totalQuotaNeeded, user.Quota),
-		})
-		return
+	switch req.Type {
+	case 1: // Requests
+		if user.RequestsBalance < totalQuotaNeeded {
+			tx.Rollback()
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("Insufficient requests balance. Needed: %d, Available: %d", totalQuotaNeeded, user.RequestsBalance),
+			})
+			return
+		}
+		user.RequestsBalance -= totalQuotaNeeded
+	case 2: // Tokens
+		if user.TokensBalance < int64(totalQuotaNeeded) {
+			tx.Rollback()
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("Insufficient tokens balance. Needed: %d, Available: %d", totalQuotaNeeded, user.TokensBalance),
+			})
+			return
+		}
+		user.TokensBalance -= int64(totalQuotaNeeded)
+	default: // Quota
+		if user.Quota < totalQuotaNeeded {
+			tx.Rollback()
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("Insufficient quota. Needed: %d, Available: %d", totalQuotaNeeded, user.Quota),
+			})
+			return
+		}
+		user.Quota -= totalQuotaNeeded
 	}
 
-	// Deduct quota
-	user.Quota -= totalQuotaNeeded
 	if err := tx.Save(&user).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to update balance"})
@@ -345,6 +441,7 @@ func ResellerCreateRedemption(c *gin.Context) {
 			Name:        name,
 			Key:         key,
 			Quota:       req.Quota,
+			Type:        req.Type,
 			CreatedTime: now,
 			Status:      common.RedemptionCodeStatusEnabled,
 		}
@@ -400,17 +497,26 @@ func ResellerDeleteRedemption(c *gin.Context) {
 		return
 	}
 
-	// Refund quota
+	// Refund balance according to type
 	var user model.User
 	if err := tx.Where("id = ?", userId).First(&user).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "User not found"})
 		return
 	}
-	user.Quota += redemption.Quota
+
+	switch redemption.Type {
+	case 1:
+		user.RequestsBalance += redemption.Quota
+	case 2:
+		user.TokensBalance += int64(redemption.Quota)
+	default:
+		user.Quota += redemption.Quota
+	}
+
 	if err := tx.Save(&user).Error; err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to refund quota"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to refund balance"})
 		return
 	}
 
@@ -466,5 +572,50 @@ func ResellerGetUserLogs(c *gin.Context) {
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(logs)
 	common.ApiSuccess(c, pageInfo)
+}
+
+// ResellerGetSummary returns aggregate metrics for the calling reseller.
+func ResellerGetSummary(c *gin.Context) {
+	userId := c.GetInt("id")
+	user, err := model.GetUserById(userId, false)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Reseller user not found"})
+		return
+	}
+
+	var totalCodes int64
+	model.DB.Model(&model.Redemption{}).Where("user_id = ?", userId).Count(&totalCodes)
+
+	var usedCodes int64
+	model.DB.Model(&model.Redemption{}).Where("user_id = ? AND (status = ? OR used_user_id > 0)", userId, common.RedemptionCodeStatusUsed).Count(&usedCodes)
+	unusedCodes := totalCodes - usedCodes
+
+	var totalQuotaDist int64
+	model.DB.Model(&model.Redemption{}).Where("user_id = ? AND type = 0", userId).Select("COALESCE(SUM(quota), 0)").Scan(&totalQuotaDist)
+
+	var totalRequestsDist int64
+	model.DB.Model(&model.Redemption{}).Where("user_id = ? AND type = 1", userId).Select("COALESCE(SUM(quota), 0)").Scan(&totalRequestsDist)
+
+	var totalTokensDist int64
+	model.DB.Model(&model.Redemption{}).Where("user_id = ? AND type = 2", userId).Select("COALESCE(SUM(quota), 0)").Scan(&totalTokensDist)
+
+	var activeSubUsers int64
+	model.DB.Model(&model.Redemption{}).Where("user_id = ? AND used_user_id > 0", userId).Distinct("used_user_id").Count(&activeSubUsers)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"total_codes":                totalCodes,
+			"used_codes":                 usedCodes,
+			"unused_codes":               unusedCodes,
+			"total_quota_distributed":    totalQuotaDist,
+			"total_requests_distributed": totalRequestsDist,
+			"total_tokens_distributed":   totalTokensDist,
+			"reseller_quota":             user.Quota,
+			"reseller_requests":          user.RequestsBalance,
+			"reseller_tokens":            user.TokensBalance,
+			"active_sub_users":           activeSubUsers,
+		},
+	})
 }
 

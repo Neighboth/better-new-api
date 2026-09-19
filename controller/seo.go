@@ -255,8 +255,19 @@ func RenderCustomIndexPage(indexPage []byte, siteName, title, description, keywo
 	}
 	page = strings.ReplaceAll(page, "<!--umami-->", umamiInject.String())
 
+	// Dynamic Microsoft Clarity
+	clarityID := strings.TrimSpace(common.OptionMap["ClarityProjectId"])
+	var clarityInject strings.Builder
+	if clarityID != "" {
+		clarityInject.WriteString(fmt.Sprintf("<script type=\"text/javascript\">\n(function(c,l,a,r,i,t,y){\nc[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};\nt=l.createElement(r);t.async=1;t.src=\"https://www.clarity.ms/tag/\"+i;\ny=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);\n})(window, document, \"clarity\", \"script\", \"%s\");\n</script>\n", html.EscapeString(clarityID)))
+	}
+	page = strings.ReplaceAll(page, "<!--clarity-->", clarityInject.String())
+
 	// Extra tags go right before </head>.
 	var extra strings.Builder
+	if clarityID != "" && !strings.Contains(page, clarityID) {
+		extra.WriteString(clarityInject.String() + "\n    ")
+	}
 	if icon != "" {
 		extra.WriteString(`<link rel="shortcut icon" href="` + html.EscapeString(icon) + `" />` + "\n    ")
 		extra.WriteString(`<link rel="apple-touch-icon" href="` + html.EscapeString(icon) + `" />` + "\n    ")
@@ -376,6 +387,105 @@ func replaceAllLinkHrefs(page, attr, href string) string {
 	return out.String()
 }
 
+func resolveRequestLanguage(c *gin.Context) string {
+	if c == nil {
+		return "en"
+	}
+	if lang := strings.TrimSpace(c.Query("lang")); lang != "" {
+		return normalizeLang(lang)
+	}
+	if cookie, err := c.Cookie("i18nextLng"); err == nil && cookie != "" {
+		return normalizeLang(cookie)
+	}
+	accept := c.GetHeader("Accept-Language")
+	if strings.Contains(strings.ToLower(accept), "tr") {
+		return "tr"
+	}
+	if strings.Contains(strings.ToLower(accept), "zh") {
+		return "zh_CN"
+	}
+	return "en"
+}
+
+func normalizeLang(l string) string {
+	l = strings.ToLower(strings.TrimSpace(l))
+	if strings.HasPrefix(l, "tr") {
+		return "tr"
+	}
+	if strings.HasPrefix(l, "zh") {
+		if strings.Contains(l, "tw") || strings.Contains(l, "hk") {
+			return "zh_TW"
+		}
+		return "zh_CN"
+	}
+	if strings.HasPrefix(l, "ja") {
+		return "ja"
+	}
+	if strings.HasPrefix(l, "fr") {
+		return "fr"
+	}
+	return "en"
+}
+
+func RenderIndexPageForLocale(indexPage []byte, lang string) []byte {
+	siteName := common.SystemName
+	if siteName == "" {
+		siteName = "New API"
+	}
+	prefix := seoOption("SEOTitlePrefix_" + lang)
+	if prefix == "" {
+		prefix = seoOption("SEOTitlePrefix")
+	}
+	title := siteName
+	if prefix != "" {
+		title = siteName + " - " + prefix
+	}
+	description := seoOption("SEODescription_" + lang)
+	if description == "" {
+		description = seoOption("SEODescription")
+	}
+	keywords := seoOption("SEOKeywords_" + lang)
+	if keywords == "" {
+		keywords = seoOption("SEOKeywords")
+	}
+	socialImage := seoOption("SEOSocialImage")
+	icon := common.Logo
+	if icon == "" {
+		icon = "/logo.png"
+	}
+	rendered := RenderCustomIndexPage(indexPage, siteName, title, description, keywords, icon, socialImage)
+	htmlLang := "en"
+	if strings.HasPrefix(lang, "tr") {
+		htmlLang = "tr"
+	} else if strings.HasPrefix(lang, "zh_TW") {
+		htmlLang = "zh-TW"
+	} else if strings.HasPrefix(lang, "zh") {
+		htmlLang = "zh-CN"
+	} else if strings.HasPrefix(lang, "ja") {
+		htmlLang = "ja"
+	}
+	return bytes.Replace(rendered, []byte(`<html lang="en"`), []byte(fmt.Sprintf(`<html lang="%s"`, htmlLang)), 1)
+}
+
+func GetLegalContent(c *gin.Context) {
+	lang := resolveRequestLanguage(c)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"privacy_policy":    getLegalOption("PrivacyPolicy", lang),
+			"terms_of_service": getLegalOption("TermsOfService", lang),
+		},
+	})
+}
+
+func getLegalOption(baseKey, lang string) string {
+	val := seoOption(baseKey + "_" + lang)
+	if val == "" {
+		val = seoOption(baseKey)
+	}
+	return val
+}
+
 // ServeIndex renders the SPA shell with SEO metadata applied. Rendering is
 // cheap (a few string replacements) and always reflects the latest settings,
 // so there is no caching here beyond the caller's Cache-Control header.
@@ -386,7 +496,8 @@ func ServeIndex(c *gin.Context, indexPage []byte) {
 		c.Data(http.StatusOK, "text/html; charset=utf-8", RenderResellerIndexPage(indexPage, rc))
 		return
 	}
-	c.Data(http.StatusOK, "text/html; charset=utf-8", RenderIndexPage(indexPage))
+	lang := resolveRequestLanguage(c)
+	c.Data(http.StatusOK, "text/html; charset=utf-8", RenderIndexPageForLocale(indexPage, lang))
 }
 
 // BlogPostIndex renders the SPA shell with post-specific SEO meta for the

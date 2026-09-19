@@ -40,6 +40,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import { SettingsForm } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
@@ -66,6 +67,22 @@ const seoSchema = z.object({
   GoogleAnalyticsId: z.string().optional(),
   UmamiWebsiteId: z.string().optional(),
   UmamiScriptUrl: z.string().optional(),
+  ClarityProjectId: z.string().optional(),
+  SEOTitlePrefix_tr: z.string().optional(),
+  SEOTitlePrefix_en: z.string().optional(),
+  SEOTitlePrefix_zh_CN: z.string().optional(),
+  SEODescription_tr: z.string().optional(),
+  SEODescription_en: z.string().optional(),
+  SEODescription_zh_CN: z.string().optional(),
+  SEOKeywords_tr: z.string().optional(),
+  SEOKeywords_en: z.string().optional(),
+  SEOKeywords_zh_CN: z.string().optional(),
+  PrivacyPolicy_tr: z.string().optional(),
+  PrivacyPolicy_en: z.string().optional(),
+  PrivacyPolicy_zh_CN: z.string().optional(),
+  TermsOfService_tr: z.string().optional(),
+  TermsOfService_en: z.string().optional(),
+  TermsOfService_zh_CN: z.string().optional(),
 })
 
 type SEOFormValues = z.infer<typeof seoSchema>
@@ -268,6 +285,121 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
               </FormItem>
             )}
           />
+
+          <FormField
+            control={form.control}
+            name='ClarityProjectId'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Microsoft Clarity Project ID')}</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder='xxxxxxxxxx'
+                    autoComplete='off'
+                    {...field}
+                    value={field.value ?? ''}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Leave empty to disable. Injects Microsoft Clarity analytics script into public pages.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <div className='rounded-lg border p-4 space-y-4'>
+            <div>
+              <h4 className='font-medium text-sm'>{t('Multilingual SEO & Legal Details')}</h4>
+              <p className='text-muted-foreground text-xs'>
+                {t('Configure custom title prefix, description, keywords, privacy policy and terms per language for search engines.')}
+              </p>
+            </div>
+
+            <Tabs defaultValue='tr' className='w-full'>
+              <TabsList className='grid w-full grid-cols-3'>
+                <TabsTrigger value='tr'>🇹🇷 Türkçe</TabsTrigger>
+                <TabsTrigger value='en'>🇬🇧 English</TabsTrigger>
+                <TabsTrigger value='zh_CN'>🇨🇳 中文</TabsTrigger>
+              </TabsList>
+
+              {(['tr', 'en', 'zh_CN'] as const).map((lang) => (
+                <TabsContent key={lang} value={lang} className='space-y-3 pt-2'>
+                  <FormField
+                    control={form.control}
+                    name={`SEOTitlePrefix_${lang}` as any}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Title Prefix')} ({lang})</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value ?? ''} placeholder={t('AI Model Hub')} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name={`SEODescription_${lang}` as any}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('SEO Description')} ({lang})</FormLabel>
+                        <FormControl>
+                          <Textarea rows={2} {...field} value={field.value ?? ''} placeholder={t('Search description')} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name={`SEOKeywords_${lang}` as any}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('SEO Keywords')} ({lang})</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value ?? ''} placeholder='ai, api, openai, claude' />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name={`PrivacyPolicy_${lang}` as any}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Privacy Policy')} ({lang})</FormLabel>
+                        <FormControl>
+                          <Textarea rows={3} {...field} value={field.value ?? ''} placeholder={t('Privacy policy content in this language...')} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name={`TermsOfService_${lang}` as any}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Terms of Service')} ({lang})</FormLabel>
+                        <FormControl>
+                          <Textarea rows={3} {...field} value={field.value ?? ''} placeholder={t('Terms of service content in this language...')} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </TabsContent>
+              ))}
+            </Tabs>
+          </div>
 
           <FormField
             control={form.control}

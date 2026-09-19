@@ -147,3 +147,94 @@ func refundWithRetry(fn func() error) error {
 	}
 	return lastErr
 }
+
+// ---------------------------------------------------------------------------
+// RequestsFunding — 按请求次数计费资金来源
+// ---------------------------------------------------------------------------
+
+var ErrInsufficientRequests = errors.New("requests balance insufficient")
+
+type RequestsFunding struct {
+	userId   int
+	consumed int
+}
+
+func (r *RequestsFunding) Source() string { return BillingSourceRequests }
+
+func (r *RequestsFunding) PreConsume(amount int) error {
+	reserved, err := model.TryReserveUserRequests(r.userId, 1)
+	if err != nil {
+		return err
+	}
+	if !reserved {
+		return ErrInsufficientRequests
+	}
+	r.consumed = 1
+	return nil
+}
+
+func (r *RequestsFunding) Settle(delta int) error {
+	return nil
+}
+
+func (r *RequestsFunding) Refund() error {
+	if r.consumed <= 0 {
+		return nil
+	}
+	return model.IncreaseUserRequests(r.userId, r.consumed)
+}
+
+// ---------------------------------------------------------------------------
+// TokensFunding — 按 Token 余额计费资金来源
+// ---------------------------------------------------------------------------
+
+var ErrInsufficientTokens = errors.New("tokens balance insufficient")
+
+type TokensFunding struct {
+	userId   int
+	consumed int64
+}
+
+func (t *TokensFunding) Source() string { return BillingSourceTokens }
+
+func (t *TokensFunding) PreConsume(amount int) error {
+	estimated := int64(amount)
+	if estimated <= 0 {
+		estimated = 100
+	}
+	reserved, err := model.TryReserveUserTokens(t.userId, estimated)
+	if err != nil {
+		return err
+	}
+	if !reserved {
+		curr, qErr := model.GetUserTokens(t.userId)
+		if qErr == nil && curr > 0 {
+			reserved, err = model.TryReserveUserTokens(t.userId, curr)
+			if err == nil && reserved {
+				t.consumed = curr
+				return nil
+			}
+		}
+		return ErrInsufficientTokens
+	}
+	t.consumed = estimated
+	return nil
+}
+
+func (t *TokensFunding) Settle(delta int) error {
+	if delta == 0 {
+		return nil
+	}
+	if delta > 0 {
+		return model.DecreaseUserTokens(t.userId, int64(delta))
+	}
+	return model.IncreaseUserTokens(t.userId, int64(-delta))
+}
+
+func (t *TokensFunding) Refund() error {
+	if t.consumed <= 0 {
+		return nil
+	}
+	return model.IncreaseUserTokens(t.userId, t.consumed)
+}
+

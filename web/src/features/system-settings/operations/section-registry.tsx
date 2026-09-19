@@ -97,6 +97,18 @@ const OPERATIONS_SECTIONS = [
           SMTPStartTLSEnabled: settings.SMTPStartTLSEnabled,
           SMTPInsecureSkipVerify: settings.SMTPInsecureSkipVerify,
           SMTPForceAuthLogin: settings.SMTPForceAuthLogin,
+          EmailSubject_verification_tr: settings.EmailSubject_verification_tr ?? '',
+          EmailBody_verification_tr: settings.EmailBody_verification_tr ?? '',
+          EmailSubject_verification_en: settings.EmailSubject_verification_en ?? '',
+          EmailBody_verification_en: settings.EmailBody_verification_en ?? '',
+          EmailSubject_verification_zh_CN: settings.EmailSubject_verification_zh_CN ?? '',
+          EmailBody_verification_zh_CN: settings.EmailBody_verification_zh_CN ?? '',
+          EmailSubject_password_reset_tr: settings.EmailSubject_password_reset_tr ?? '',
+          EmailBody_password_reset_tr: settings.EmailBody_password_reset_tr ?? '',
+          EmailSubject_password_reset_en: settings.EmailSubject_password_reset_en ?? '',
+          EmailBody_password_reset_en: settings.EmailBody_password_reset_en ?? '',
+          EmailSubject_password_reset_zh_CN: settings.EmailSubject_password_reset_zh_CN ?? '',
+          EmailBody_password_reset_zh_CN: settings.EmailBody_password_reset_zh_CN ?? '',
         }}
       />
     ),
