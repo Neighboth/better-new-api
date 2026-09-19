@@ -397,12 +397,27 @@ func resolveRequestLanguage(c *gin.Context) string {
 	if cookie, err := c.Cookie("i18nextLng"); err == nil && cookie != "" {
 		return normalizeLang(cookie)
 	}
-	accept := c.GetHeader("Accept-Language")
-	if strings.Contains(strings.ToLower(accept), "tr") {
+	accept := strings.ToLower(c.GetHeader("Accept-Language"))
+	if strings.Contains(accept, "tr") {
 		return "tr"
 	}
-	if strings.Contains(strings.ToLower(accept), "zh") {
+	if strings.Contains(accept, "zh-tw") || strings.Contains(accept, "zh-hk") {
+		return "zh_TW"
+	}
+	if strings.Contains(accept, "zh") {
 		return "zh_CN"
+	}
+	if strings.Contains(accept, "ja") {
+		return "ja"
+	}
+	if strings.Contains(accept, "fr") {
+		return "fr"
+	}
+	if strings.Contains(accept, "ru") {
+		return "ru"
+	}
+	if strings.Contains(accept, "vi") {
+		return "vi"
 	}
 	return "en"
 }
@@ -413,7 +428,7 @@ func normalizeLang(l string) string {
 		return "tr"
 	}
 	if strings.HasPrefix(l, "zh") {
-		if strings.Contains(l, "tw") || strings.Contains(l, "hk") {
+		if strings.Contains(l, "tw") || strings.Contains(l, "hk") || strings.Contains(l, "hant") {
 			return "zh_TW"
 		}
 		return "zh_CN"
@@ -424,30 +439,50 @@ func normalizeLang(l string) string {
 	if strings.HasPrefix(l, "fr") {
 		return "fr"
 	}
+	if strings.HasPrefix(l, "ru") {
+		return "ru"
+	}
+	if strings.HasPrefix(l, "vi") {
+		return "vi"
+	}
 	return "en"
 }
 
+func getLegalOption(baseKey, lang string) string {
+	val := seoOption(baseKey + "_" + lang)
+	if val == "" && (lang == "zh_CN" || lang == "zhCN") {
+		val = seoOption(baseKey + "_zhCN")
+		if val == "" {
+			val = seoOption(baseKey + "_zh_CN")
+		}
+	}
+	if val == "" && (lang == "zh_TW" || lang == "zhTW") {
+		val = seoOption(baseKey + "_zhTW")
+		if val == "" {
+			val = seoOption(baseKey + "_zh_TW")
+		}
+	}
+	if val == "" {
+		val = seoOption(baseKey)
+	}
+	return val
+}
+
 func RenderIndexPageForLocale(indexPage []byte, lang string) []byte {
-	siteName := common.SystemName
+	siteName := getLegalOption("SystemName", lang)
 	if siteName == "" {
-		siteName = "New API"
+		siteName = common.SystemName
+		if siteName == "" {
+			siteName = "New API"
+		}
 	}
-	prefix := seoOption("SEOTitlePrefix_" + lang)
-	if prefix == "" {
-		prefix = seoOption("SEOTitlePrefix")
-	}
+	prefix := getLegalOption("SEOTitlePrefix", lang)
 	title := siteName
 	if prefix != "" {
 		title = siteName + " - " + prefix
 	}
-	description := seoOption("SEODescription_" + lang)
-	if description == "" {
-		description = seoOption("SEODescription")
-	}
-	keywords := seoOption("SEOKeywords_" + lang)
-	if keywords == "" {
-		keywords = seoOption("SEOKeywords")
-	}
+	description := getLegalOption("SEODescription", lang)
+	keywords := getLegalOption("SEOKeywords", lang)
 	socialImage := seoOption("SEOSocialImage")
 	icon := common.Logo
 	if icon == "" {
@@ -457,12 +492,18 @@ func RenderIndexPageForLocale(indexPage []byte, lang string) []byte {
 	htmlLang := "en"
 	if strings.HasPrefix(lang, "tr") {
 		htmlLang = "tr"
-	} else if strings.HasPrefix(lang, "zh_TW") {
+	} else if strings.HasPrefix(lang, "zh_TW") || strings.HasPrefix(lang, "zhTW") {
 		htmlLang = "zh-TW"
 	} else if strings.HasPrefix(lang, "zh") {
 		htmlLang = "zh-CN"
 	} else if strings.HasPrefix(lang, "ja") {
 		htmlLang = "ja"
+	} else if strings.HasPrefix(lang, "fr") {
+		htmlLang = "fr"
+	} else if strings.HasPrefix(lang, "ru") {
+		htmlLang = "ru"
+	} else if strings.HasPrefix(lang, "vi") {
+		htmlLang = "vi"
 	}
 	return bytes.Replace(rendered, []byte(`<html lang="en"`), []byte(fmt.Sprintf(`<html lang="%s"`, htmlLang)), 1)
 }
@@ -472,18 +513,10 @@ func GetLegalContent(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"privacy_policy":    getLegalOption("PrivacyPolicy", lang),
+			"privacy_policy":   getLegalOption("PrivacyPolicy", lang),
 			"terms_of_service": getLegalOption("TermsOfService", lang),
 		},
 	})
-}
-
-func getLegalOption(baseKey, lang string) string {
-	val := seoOption(baseKey + "_" + lang)
-	if val == "" {
-		val = seoOption(baseKey)
-	}
-	return val
 }
 
 // ServeIndex renders the SPA shell with SEO metadata applied. Rendering is

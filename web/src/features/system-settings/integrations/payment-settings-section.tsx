@@ -44,6 +44,13 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
@@ -1794,14 +1801,25 @@ export function PaymentSettingsSection({
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>{t('PayPal Environment')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder='sandbox or live'
-                            {...field}
-                            onChange={(e) => field.onChange(e.target.value)}
-                          />
-                        </FormControl>
-                        <FormDescription>{t('sandbox or live')}</FormDescription>
+                        <Select
+                          value={field.value || 'sandbox'}
+                          onValueChange={field.onChange}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder={t('Select Environment')} />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='sandbox'>
+                              {t('Sandbox (Test)')}
+                            </SelectItem>
+                            <SelectItem value='live'>
+                              {t('Production (Live)')}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>{t('Select sandbox for testing or live for production')}</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -1871,15 +1889,28 @@ export function PaymentSettingsSection({
                     name='IyzicoBaseUrl'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('Base URL')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder='https://sandbox-api.iyzipay.com'
-                            {...field}
-                            onChange={(e) => field.onChange(e.target.value)}
-                          />
-                        </FormControl>
-                        <FormDescription>{t('https://sandbox-api.iyzipay.com or https://api.iyzipay.com')}</FormDescription>
+                        <FormLabel>{t('Environment / Base URL')}</FormLabel>
+                        <Select
+                          value={field.value || 'https://sandbox-api.iyzipay.com'}
+                          onValueChange={field.onChange}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder={t('Select Environment')} />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='https://sandbox-api.iyzipay.com'>
+                              {t('Sandbox (Test)')} - https://sandbox-api.iyzipay.com
+                            </SelectItem>
+                            <SelectItem value='https://api.iyzipay.com'>
+                              {t('Production (Live)')} - https://api.iyzipay.com
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          {t('Select sandbox for testing or production for live transactions')}
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}

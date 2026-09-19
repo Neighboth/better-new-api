@@ -43,16 +43,7 @@ const SITE_SECTIONS = [
     build: (settings: SiteSettings) => (
       <SystemInfoSection
         defaultValues={{
-          SystemName: settings.SystemName,
-          Logo: settings.Logo,
-          Footer: settings.Footer,
-          About: settings.About,
-          HomePageContent: settings.HomePageContent,
-          ServerAddress: settings.ServerAddress,
-          legal: {
-            user_agreement: settings['legal.user_agreement'],
-            privacy_policy: settings['legal.privacy_policy'],
-          },
+          ...settings,
         }}
       />
     ),
@@ -126,21 +117,51 @@ const SITE_SECTIONS = [
           UmamiWebsiteId: settings.UmamiWebsiteId ?? '',
           UmamiScriptUrl: settings.UmamiScriptUrl ?? 'https://analytics.umami.is/script.js',
           ClarityProjectId: settings.ClarityProjectId ?? '',
+
           SEOTitlePrefix_tr: settings.SEOTitlePrefix_tr ?? '',
           SEOTitlePrefix_en: settings.SEOTitlePrefix_en ?? '',
           SEOTitlePrefix_zh_CN: settings.SEOTitlePrefix_zh_CN ?? '',
+          SEOTitlePrefix_zh_TW: settings.SEOTitlePrefix_zh_TW ?? '',
+          SEOTitlePrefix_fr: settings.SEOTitlePrefix_fr ?? '',
+          SEOTitlePrefix_ru: settings.SEOTitlePrefix_ru ?? '',
+          SEOTitlePrefix_ja: settings.SEOTitlePrefix_ja ?? '',
+          SEOTitlePrefix_vi: settings.SEOTitlePrefix_vi ?? '',
+
           SEODescription_tr: settings.SEODescription_tr ?? '',
           SEODescription_en: settings.SEODescription_en ?? '',
           SEODescription_zh_CN: settings.SEODescription_zh_CN ?? '',
+          SEODescription_zh_TW: settings.SEODescription_zh_TW ?? '',
+          SEODescription_fr: settings.SEODescription_fr ?? '',
+          SEODescription_ru: settings.SEODescription_ru ?? '',
+          SEODescription_ja: settings.SEODescription_ja ?? '',
+          SEODescription_vi: settings.SEODescription_vi ?? '',
+
           SEOKeywords_tr: settings.SEOKeywords_tr ?? '',
           SEOKeywords_en: settings.SEOKeywords_en ?? '',
           SEOKeywords_zh_CN: settings.SEOKeywords_zh_CN ?? '',
+          SEOKeywords_zh_TW: settings.SEOKeywords_zh_TW ?? '',
+          SEOKeywords_fr: settings.SEOKeywords_fr ?? '',
+          SEOKeywords_ru: settings.SEOKeywords_ru ?? '',
+          SEOKeywords_ja: settings.SEOKeywords_ja ?? '',
+          SEOKeywords_vi: settings.SEOKeywords_vi ?? '',
+
           PrivacyPolicy_tr: settings.PrivacyPolicy_tr ?? '',
           PrivacyPolicy_en: settings.PrivacyPolicy_en ?? '',
           PrivacyPolicy_zh_CN: settings.PrivacyPolicy_zh_CN ?? '',
+          PrivacyPolicy_zh_TW: settings.PrivacyPolicy_zh_TW ?? '',
+          PrivacyPolicy_fr: settings.PrivacyPolicy_fr ?? '',
+          PrivacyPolicy_ru: settings.PrivacyPolicy_ru ?? '',
+          PrivacyPolicy_ja: settings.PrivacyPolicy_ja ?? '',
+          PrivacyPolicy_vi: settings.PrivacyPolicy_vi ?? '',
+
           TermsOfService_tr: settings.TermsOfService_tr ?? '',
           TermsOfService_en: settings.TermsOfService_en ?? '',
           TermsOfService_zh_CN: settings.TermsOfService_zh_CN ?? '',
+          TermsOfService_zh_TW: settings.TermsOfService_zh_TW ?? '',
+          TermsOfService_fr: settings.TermsOfService_fr ?? '',
+          TermsOfService_ru: settings.TermsOfService_ru ?? '',
+          TermsOfService_ja: settings.TermsOfService_ja ?? '',
+          TermsOfService_vi: settings.TermsOfService_vi ?? '',
         }}
       />
     ),

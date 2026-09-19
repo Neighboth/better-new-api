@@ -51,6 +51,17 @@ func GetStatus(c *gin.Context) {
 	passkeySetting := system_setting.GetPasskeySettings()
 	legalSetting := system_setting.GetLegalSettings()
 
+	lang := resolveRequestLanguage(c)
+	sysName := getLocalizedMiscOption("SystemName", lang)
+	if sysName == "" {
+		sysName = common.SystemName
+	}
+	footerHtml := getLocalizedMiscOption("Footer", lang)
+	if footerHtml == "" {
+		footerHtml = common.Footer
+	}
+	homePageContent := getLocalizedMiscOption("HomePageContent", lang)
+
 	data := gin.H{
 		"version":                     common.Version,
 		"start_time":                  common.StartTime,
@@ -65,9 +76,10 @@ func GetStatus(c *gin.Context) {
 		"telegram_oauth":              common.TelegramOAuthEnabled,
 		"telegram_bot_name":           common.TelegramBotName,
 		"theme":                       "default",
-		"system_name":                 common.SystemName,
+		"system_name":                 sysName,
 		"logo":                        common.Logo,
-		"footer_html":                 common.Footer,
+		"footer_html":                 footerHtml,
+		"home_page_content":           homePageContent,
 		"wechat_qrcode":               common.WeChatAccountQRCodeImageURL,
 		"wechat_login":                common.WeChatAuthEnabled,
 		"server_address":              system_setting.ServerAddress,
@@ -205,31 +217,68 @@ func GetNotice(c *gin.Context) {
 	return
 }
 
-func GetAbout(c *gin.Context) {
+func getLocalizedMiscOption(baseKey, lang string) string {
 	common.OptionMapRWMutex.RLock()
 	defer common.OptionMapRWMutex.RUnlock()
+	val := strings.TrimSpace(common.OptionMap[baseKey+"_"+lang])
+	if val == "" && (lang == "zh_CN" || lang == "zhCN") {
+		val = strings.TrimSpace(common.OptionMap[baseKey+"_zhCN"])
+		if val == "" {
+			val = strings.TrimSpace(common.OptionMap[baseKey+"_zh_CN"])
+		}
+	}
+	if val == "" && (lang == "zh_TW" || lang == "zhTW") {
+		val = strings.TrimSpace(common.OptionMap[baseKey+"_zhTW"])
+		if val == "" {
+			val = strings.TrimSpace(common.OptionMap[baseKey+"_zh_TW"])
+		}
+	}
+	if val == "" {
+		val = strings.TrimSpace(common.OptionMap[baseKey])
+	}
+	return val
+}
+
+func GetAbout(c *gin.Context) {
+	lang := resolveRequestLanguage(c)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    common.OptionMap["About"],
+		"data":    getLocalizedMiscOption("About", lang),
 	})
 	return
 }
 
 func GetUserAgreement(c *gin.Context) {
+	lang := resolveRequestLanguage(c)
+	val := getLocalizedMiscOption("legal.user_agreement", lang)
+	if val == "" {
+		val = getLocalizedMiscOption("TermsOfService", lang)
+	}
+	if val == "" {
+		val = system_setting.GetLegalSettings().UserAgreement
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    system_setting.GetLegalSettings().UserAgreement,
+		"data":    val,
 	})
 	return
 }
 
 func GetPrivacyPolicy(c *gin.Context) {
+	lang := resolveRequestLanguage(c)
+	val := getLocalizedMiscOption("legal.privacy_policy", lang)
+	if val == "" {
+		val = getLocalizedMiscOption("PrivacyPolicy", lang)
+	}
+	if val == "" {
+		val = system_setting.GetLegalSettings().PrivacyPolicy
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    system_setting.GetLegalSettings().PrivacyPolicy,
+		"data":    val,
 	})
 	return
 }
@@ -246,12 +295,11 @@ func GetMidjourney(c *gin.Context) {
 }
 
 func GetHomePageContent(c *gin.Context) {
-	common.OptionMapRWMutex.RLock()
-	defer common.OptionMapRWMutex.RUnlock()
+	lang := resolveRequestLanguage(c)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    common.OptionMap["HomePageContent"],
+		"data":    getLocalizedMiscOption("HomePageContent", lang),
 	})
 	return
 }

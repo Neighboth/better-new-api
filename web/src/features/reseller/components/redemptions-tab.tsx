@@ -38,7 +38,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { getSelf } from '@/lib/api'
-import { formatQuota, formatTimestamp, parseQuotaFromDollars } from '@/lib/format'
+import { formatQuota, formatRedemptionQuota, formatTimestamp, parseQuotaFromDollars } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
@@ -302,11 +302,7 @@ export function RedemptionsTab() {
                         )}
                       </TableCell>
                       <TableCell className='text-xs font-semibold text-emerald-600 dark:text-emerald-400 font-mono'>
-                        {item.type === 1
-                          ? `${item.quota.toLocaleString()} ${t('req')}`
-                          : item.type === 2
-                          ? `${item.quota.toLocaleString()} ${t('tokens')}`
-                          : formatQuota(item.quota)}
+                        {formatRedemptionQuota(item.quota, item.type, t)}
                       </TableCell>
                       <TableCell>
                         {item.status === 1 ? (

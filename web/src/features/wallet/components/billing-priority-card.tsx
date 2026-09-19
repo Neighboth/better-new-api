@@ -55,8 +55,9 @@ type BillingType = 'requests' | 'subscription' | 'tokens' | 'wallet'
 
 interface PoolMeta {
   type: BillingType
-  title: string
-  description: string
+  titleKey: string
+  descriptionKey: string
+  shortTitleKey: string
   icon: typeof WalletCards
   toneColor: string
 }
@@ -64,29 +65,33 @@ interface PoolMeta {
 const ALL_POOLS: PoolMeta[] = [
   {
     type: 'requests',
-    title: 'İstek Havuzu (Requests)',
-    description: 'Tekil API istek hakkı havuzu. Sayı bazında doğrudan kesilir.',
+    titleKey: 'Requests Pool',
+    descriptionKey: 'Requests Pool Description',
+    shortTitleKey: 'Requests',
     icon: MessageSquareCode,
     toneColor: 'text-sky-500 bg-sky-500/10 border-sky-500/20',
   },
   {
     type: 'subscription',
-    title: 'Abonelik Havuzu (Subscription)',
-    description: 'Aktif abonelik paketinden tahsis edilen yenilenen kota.',
+    titleKey: 'Subscription Pool',
+    descriptionKey: 'Subscription Pool Description',
+    shortTitleKey: 'Subscription',
     icon: Crown,
     toneColor: 'text-amber-500 bg-amber-500/10 border-amber-500/20',
   },
   {
     type: 'tokens',
-    title: 'Token Havuzu (Tokens)',
-    description: 'Hesaplanan prompt ve completion token sayısı havuzu.',
+    titleKey: 'Tokens Pool',
+    descriptionKey: 'Tokens Pool Description',
+    shortTitleKey: 'Tokens',
     icon: Coins,
     toneColor: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20',
   },
   {
     type: 'wallet',
-    title: 'Bakiye Havuzu (Standard Wallet)',
-    description: 'Standart USD cüzdan bakiyesi ve pay-as-you-go yüklemeleri.',
+    titleKey: 'Standard Wallet Pool',
+    descriptionKey: 'Standard Wallet Pool Description',
+    shortTitleKey: 'Wallet',
     icon: WalletCards,
     toneColor: 'text-purple-500 bg-purple-500/10 border-purple-500/20',
   },
@@ -288,7 +293,7 @@ export function BillingPriorityCard({
                   >
                     <span className='font-mono font-bold'>{idx + 1}.</span>
                     <Icon className='h-3.5 w-3.5' />
-                    <span>{meta.title.split(' ')[0]}</span>
+                    <span>{t(meta.shortTitleKey)}</span>
                     <Badge variant='outline' className='ml-1 text-[10px] px-1 py-0 bg-background/50'>
                       {getBalanceInfo(type)}
                     </Badge>
@@ -346,7 +351,7 @@ export function BillingPriorityCard({
                       <div className='flex items-center gap-2'>
                         <Icon className='text-muted-foreground h-4 w-4 shrink-0' />
                         <span className='text-sm font-semibold truncate'>
-                          {t(meta.title)}
+                          {t(meta.titleKey)}
                         </span>
                         {isSystemDisabled && (
                           <Badge variant='secondary' className='text-[10px]'>
@@ -360,7 +365,7 @@ export function BillingPriorityCard({
                         )}
                       </div>
                       <p className='text-muted-foreground mt-0.5 text-xs line-clamp-1'>
-                        {t(meta.description)}
+                        {t(meta.descriptionKey)}
                       </p>
                     </div>
                   </div>

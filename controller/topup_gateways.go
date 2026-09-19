@@ -608,6 +608,18 @@ func isIyzicoTopUpEnabled() bool {
 	return setting.IyzicoApiKey != "" && setting.IyzicoSecretKey != ""
 }
 
+func normalizeIyzicoBaseUrl(raw string) string {
+	raw = strings.TrimSpace(raw)
+	lower := strings.ToLower(raw)
+	if raw == "" || lower == "sandbox" || strings.Contains(lower, "sandbox") {
+		return "https://sandbox-api.iyzipay.com"
+	}
+	if lower == "live" || lower == "production" || strings.Contains(lower, "api.iyzipay.com") {
+		return "https://api.iyzipay.com"
+	}
+	return strings.TrimRight(raw, "/")
+}
+
 func RequestIyzico(c *gin.Context) {
 	var req GatewayTopUpRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -626,22 +638,19 @@ func RequestIyzico(c *gin.Context) {
 	group, _ := model.GetUserGroup(userId, true)
 	payMoney := getPayMoney(req.Amount, group)
 	if payMoney < 0.01 {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "Amount too small"})
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "Payment amount too low"})
 		return
 	}
 
 	apiKey := setting.IyzicoApiKey
 	secretKey := setting.IyzicoSecretKey
-	baseUrl := setting.IyzicoBaseUrl
-	if baseUrl == "" {
-		baseUrl = "https://sandbox-api.iyzipay.com"
-	}
+	baseUrl := normalizeIyzicoBaseUrl(setting.IyzicoBaseUrl)
 
 	if rc := resolveChildPanelConfig(c); rc != nil && rc.IyzicoApiKey != "" && rc.IyzicoSecretKey != "" {
 		apiKey = rc.IyzicoApiKey
 		secretKey = rc.IyzicoSecretKey
 		if rc.IyzicoBaseUrl != "" {
-			baseUrl = rc.IyzicoBaseUrl
+			baseUrl = normalizeIyzicoBaseUrl(rc.IyzicoBaseUrl)
 		}
 	}
 

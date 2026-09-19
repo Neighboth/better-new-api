@@ -77,12 +77,33 @@ const createEmailSchema = (t: (key: string) => string) =>
     EmailBody_verification_en: z.string().optional(),
     EmailSubject_verification_zh_CN: z.string().optional(),
     EmailBody_verification_zh_CN: z.string().optional(),
+    EmailSubject_verification_zh_TW: z.string().optional(),
+    EmailBody_verification_zh_TW: z.string().optional(),
+    EmailSubject_verification_fr: z.string().optional(),
+    EmailBody_verification_fr: z.string().optional(),
+    EmailSubject_verification_ru: z.string().optional(),
+    EmailBody_verification_ru: z.string().optional(),
+    EmailSubject_verification_ja: z.string().optional(),
+    EmailBody_verification_ja: z.string().optional(),
+    EmailSubject_verification_vi: z.string().optional(),
+    EmailBody_verification_vi: z.string().optional(),
+
     EmailSubject_password_reset_tr: z.string().optional(),
     EmailBody_password_reset_tr: z.string().optional(),
     EmailSubject_password_reset_en: z.string().optional(),
     EmailBody_password_reset_en: z.string().optional(),
     EmailSubject_password_reset_zh_CN: z.string().optional(),
     EmailBody_password_reset_zh_CN: z.string().optional(),
+    EmailSubject_password_reset_zh_TW: z.string().optional(),
+    EmailBody_password_reset_zh_TW: z.string().optional(),
+    EmailSubject_password_reset_fr: z.string().optional(),
+    EmailBody_password_reset_fr: z.string().optional(),
+    EmailSubject_password_reset_ru: z.string().optional(),
+    EmailBody_password_reset_ru: z.string().optional(),
+    EmailSubject_password_reset_ja: z.string().optional(),
+    EmailBody_password_reset_ja: z.string().optional(),
+    EmailSubject_password_reset_vi: z.string().optional(),
+    EmailBody_password_reset_vi: z.string().optional(),
   })
 
 type EmailFormValues = z.infer<ReturnType<typeof createEmailSchema>>
@@ -244,9 +265,14 @@ export function EmailSettingsSection({
   }
 
   const emailLangs = [
-    { key: 'tr', label: 'Türkçe' },
-    { key: 'en', label: 'English' },
-    { key: 'zh_CN', label: '中文' },
+    { key: 'tr', label: 'Türkçe', flag: '🇹🇷' },
+    { key: 'en', label: 'English', flag: '🇬🇧' },
+    { key: 'zh_CN', label: '简体中文', flag: '🇨🇳' },
+    { key: 'zh_TW', label: '繁體中文', flag: '🇹🇼' },
+    { key: 'fr', label: 'Français', flag: '🇫🇷' },
+    { key: 'ru', label: 'Русский', flag: '🇷🇺' },
+    { key: 'ja', label: '日本語', flag: '🇯🇵' },
+    { key: 'vi', label: 'Tiếng Việt', flag: '🇻🇳' },
   ] as const
 
   return (
@@ -527,10 +553,15 @@ export function EmailSettingsSection({
                 </div>
 
                 <Tabs defaultValue='tr' className='w-full'>
-                  <TabsList className='mb-3'>
+                  <TabsList className='grid w-full grid-cols-4 sm:grid-cols-8 gap-1 h-auto p-1 mb-4'>
                     {emailLangs.map((lang) => (
-                      <TabsTrigger key={lang.key} value={lang.key}>
-                        {lang.label}
+                      <TabsTrigger
+                        key={lang.key}
+                        value={lang.key}
+                        className='text-xs py-1.5 px-2 flex items-center justify-center gap-1.5'
+                      >
+                        <span>{lang.flag}</span>
+                        <span className='truncate'>{lang.label}</span>
                       </TabsTrigger>
                     ))}
                   </TabsList>
@@ -589,10 +620,15 @@ export function EmailSettingsSection({
                 </div>
 
                 <Tabs defaultValue='tr' className='w-full'>
-                  <TabsList className='mb-3'>
+                  <TabsList className='grid w-full grid-cols-4 sm:grid-cols-8 gap-1 h-auto p-1 mb-4'>
                     {emailLangs.map((lang) => (
-                      <TabsTrigger key={lang.key} value={lang.key}>
-                        {lang.label}
+                      <TabsTrigger
+                        key={lang.key}
+                        value={lang.key}
+                        className='text-xs py-1.5 px-2 flex items-center justify-center gap-1.5'
+                      >
+                        <span>{lang.flag}</span>
+                        <span className='truncate'>{lang.label}</span>
                       </TabsTrigger>
                     ))}
                   </TabsList>

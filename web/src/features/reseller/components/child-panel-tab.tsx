@@ -44,6 +44,13 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
@@ -866,13 +873,23 @@ export function ChildPanelTab({ config }: ChildPanelTabProps) {
                   <Label htmlFor='paypal_mode' className='text-xs font-medium'>
                     {t('PayPal Mode')}
                   </Label>
-                  <Input
-                    id='paypal_mode'
-                    placeholder='sandbox or live'
-                    value={paypalMode}
-                    onChange={(e) => setPayPalMode(e.target.value)}
+                  <Select
+                    value={paypalMode || 'sandbox'}
+                    onValueChange={(val) => setPayPalMode(val || 'sandbox')}
                     disabled={!isEnabled || saveMutation.isPending}
-                  />
+                  >
+                    <SelectTrigger id='paypal_mode'>
+                      <SelectValue placeholder={t('Select Environment')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='sandbox'>
+                        {t('Sandbox (Test)')}
+                      </SelectItem>
+                      <SelectItem value='live'>
+                        {t('Production (Live)')}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className='space-y-1.5'>
@@ -923,15 +940,25 @@ export function ChildPanelTab({ config }: ChildPanelTabProps) {
                 </div>
                 <div className='space-y-1.5'>
                   <Label htmlFor='iyzico_base_url' className='text-xs font-medium'>
-                    {t('Base URL')}
+                    {t('Environment / Base URL')}
                   </Label>
-                  <Input
-                    id='iyzico_base_url'
-                    placeholder='https://api.iyzipay.com or sandbox'
-                    value={iyzicoBaseUrl}
-                    onChange={(e) => setIyzicoBaseUrl(e.target.value)}
+                  <Select
+                    value={iyzicoBaseUrl || 'https://sandbox-api.iyzipay.com'}
+                    onValueChange={(val) => setIyzicoBaseUrl(val || 'https://sandbox-api.iyzipay.com')}
                     disabled={!isEnabled || saveMutation.isPending}
-                  />
+                  >
+                    <SelectTrigger id='iyzico_base_url'>
+                      <SelectValue placeholder={t('Select Environment')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='https://sandbox-api.iyzipay.com'>
+                        {t('Sandbox (Test)')} - https://sandbox-api.iyzipay.com
+                      </SelectItem>
+                      <SelectItem value='https://api.iyzipay.com'>
+                        {t('Production (Live)')} - https://api.iyzipay.com
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className='space-y-1.5'>
