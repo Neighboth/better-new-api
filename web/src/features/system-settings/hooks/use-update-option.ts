@@ -25,6 +25,12 @@ import type { UpdateOptionRequest } from '../types'
 
 // Configuration keys that require status refresh
 const STATUS_RELATED_KEYS = new Set([
+  'SystemName',
+  'Footer',
+  'Logo',
+  'ServerAddress',
+  'general_setting.system_name',
+  'general_setting.footer',
   'HeaderNavModules',
   'SidebarModulesAdmin',
   'CustomNavItems',
@@ -40,6 +46,11 @@ const STATUS_RELATED_KEYS = new Set([
   'oidc.display_name',
 ])
 
+const isStatusRelated = (key: string) =>
+  STATUS_RELATED_KEYS.has(key) ||
+  key.startsWith('SystemName_') ||
+  key.startsWith('Footer_')
+
 export function useUpdateOption() {
   const queryClient = useQueryClient()
 
@@ -47,11 +58,12 @@ export function useUpdateOption() {
     mutationFn: (request: UpdateOptionRequest) => updateSystemOption(request),
     onSuccess: (data, variables) => {
       if (data.success) {
-        // Always refresh system-options
+        // Always refresh system-options and system-config
         queryClient.invalidateQueries({ queryKey: ['system-options'] })
+        queryClient.invalidateQueries({ queryKey: ['system-config'] })
 
         // If updating frontend-display-related config, also refresh status
-        if (STATUS_RELATED_KEYS.has(variables.key)) {
+        if (isStatusRelated(variables.key)) {
           queryClient.invalidateQueries({ queryKey: ['status'] })
           try {
             window.localStorage.removeItem('status')

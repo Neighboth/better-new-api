@@ -17,8 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useMemo } from 'react'
-import { useForm } from 'react-hook-form'
+import { useMemo } from 'react'
+import type { Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
 
@@ -42,9 +42,12 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
+import { FormDirtyIndicator } from '../components/form-dirty-indicator'
+import { FormNavigationGuard } from '../components/form-navigation-guard'
 import { SettingsForm } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
+import { useSettingsForm } from '../hooks/use-settings-form'
 import { useUpdateOption } from '../hooks/use-update-option'
 
 export const SEO_LANGUAGES = [
@@ -163,46 +166,93 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
     return 'en'
   }, [i18n.language])
 
-  const form = useForm<SEOFormValues>({
-    resolver: zodResolver(seoSchema),
-    defaultValues,
-  })
+  const normalizedDefaults = useMemo(() => {
+    const res: Record<string, string> = {
+      SEOTitlePrefix: defaultValues.SEOTitlePrefix ?? '',
+      SEODescription: defaultValues.SEODescription ?? '',
+      SEOKeywords: defaultValues.SEOKeywords ?? '',
+      SEOSocialImage: defaultValues.SEOSocialImage ?? '',
+      RobotsPolicy: (defaultValues.RobotsPolicy as any) || 'allow_all',
+      RobotsCustomRules: defaultValues.RobotsCustomRules ?? '',
+      SitemapCustomUrls: defaultValues.SitemapCustomUrls ?? '',
+      LLMSTxt: defaultValues.LLMSTxt ?? '',
+      LLMSFullTxt: defaultValues.LLMSFullTxt ?? '',
+      GoogleAnalyticsId: defaultValues.GoogleAnalyticsId ?? '',
+      UmamiWebsiteId: defaultValues.UmamiWebsiteId ?? '',
+      UmamiScriptUrl: defaultValues.UmamiScriptUrl ?? 'https://analytics.umami.is/script.js',
+      ClarityProjectId: defaultValues.ClarityProjectId ?? '',
+    }
+    SEO_LANGUAGES.forEach((lang) => {
+      res[`SEOTitlePrefix_${lang.key}`] = (defaultValues as any)[`SEOTitlePrefix_${lang.key}`] ?? ''
+      res[`SEODescription_${lang.key}`] = (defaultValues as any)[`SEODescription_${lang.key}`] ?? ''
+      res[`SEOKeywords_${lang.key}`] = (defaultValues as any)[`SEOKeywords_${lang.key}`] ?? ''
+      res[`PrivacyPolicy_${lang.key}`] =
+        (defaultValues as any)[`PrivacyPolicy_${lang.key}`] ??
+        (defaultValues as any)[`legal.privacy_policy_${lang.key}`] ??
+        ''
+      res[`TermsOfService_${lang.key}`] =
+        (defaultValues as any)[`TermsOfService_${lang.key}`] ??
+        (defaultValues as any)[`legal.user_agreement_${lang.key}`] ??
+        ''
+    })
+    return res as unknown as SEOFormValues
+  }, [defaultValues])
 
-  useEffect(() => {
-    form.reset(defaultValues)
-  }, [defaultValues, form])
+  const { form, handleSubmit, handleReset, isDirty, isSubmitting } =
+    useSettingsForm<SEOFormValues>({
+      resolver: zodResolver(seoSchema) as Resolver<
+        SEOFormValues,
+        unknown,
+        SEOFormValues
+      >,
+      defaultValues: normalizedDefaults,
+      onSubmit: async (data, changedFields) => {
+        // If base fields are empty, sync from active/en/tr tab
+        if (!data.SEOTitlePrefix) {
+          data.SEOTitlePrefix = data.SEOTitlePrefix_en || data.SEOTitlePrefix_tr || ''
+          changedFields['SEOTitlePrefix'] = data.SEOTitlePrefix
+        }
+        if (!data.SEODescription) {
+          data.SEODescription = data.SEODescription_en || data.SEODescription_tr || ''
+          changedFields['SEODescription'] = data.SEODescription
+        }
+        if (!data.SEOKeywords) {
+          data.SEOKeywords = data.SEOKeywords_en || data.SEOKeywords_tr || ''
+          changedFields['SEOKeywords'] = data.SEOKeywords
+        }
+
+        for (const [key, value] of Object.entries(changedFields)) {
+          const v = value === undefined || value === null ? '' : String(value)
+          await updateOption.mutateAsync({ key, value: v })
+
+          // Also sync to legal.* keys if updating PrivacyPolicy or TermsOfService
+          if (key.startsWith('PrivacyPolicy_')) {
+            const l = key.replace('PrivacyPolicy_', '')
+            await updateOption.mutateAsync({ key: `legal.privacy_policy_${l}`, value: v })
+          } else if (key.startsWith('TermsOfService_')) {
+            const l = key.replace('TermsOfService_', '')
+            await updateOption.mutateAsync({ key: `legal.user_agreement_${l}`, value: v })
+          }
+        }
+      },
+    })
 
   const robotsPolicy = form.watch('RobotsPolicy')
 
-  const onSubmit = async (data: SEOFormValues) => {
-    // If base fields are empty, sync from active/en/tr tab
-    if (!data.SEOTitlePrefix) {
-      data.SEOTitlePrefix = data.SEOTitlePrefix_en || data.SEOTitlePrefix_tr || ''
-    }
-    if (!data.SEODescription) {
-      data.SEODescription = data.SEODescription_en || data.SEODescription_tr || ''
-    }
-    if (!data.SEOKeywords) {
-      data.SEOKeywords = data.SEOKeywords_en || data.SEOKeywords_tr || ''
-    }
-
-    const updates = Object.entries(data).filter(
-      ([key, value]) => value !== defaultValues[key as keyof SEOFormValues]
-    )
-
-    for (const [key, value] of updates) {
-      await updateOption.mutateAsync({ key, value: value ?? '' })
-    }
-  }
-
   return (
-    <SettingsSection title={t('SEO')}>
-      <Form {...form}>
-        <SettingsForm onSubmit={form.handleSubmit(onSubmit)} autoComplete='off'>
-          <SettingsPageFormActions
-            onSave={form.handleSubmit(onSubmit)}
-            isSaving={updateOption.isPending}
-          />
+    <>
+      <FormNavigationGuard when={isDirty} />
+
+      <SettingsSection title={t('SEO')}>
+        <Form {...form}>
+          <SettingsForm onSubmit={handleSubmit} autoComplete='off'>
+            <SettingsPageFormActions
+              onSave={handleSubmit}
+              onReset={handleReset}
+              isSaving={isSubmitting || updateOption.isPending}
+              isResetDisabled={!isDirty}
+            />
+            <FormDirtyIndicator isDirty={isDirty} />
 
           {/* Multilingual SEO & Legal Details Tabs at the TOP */}
           <div className='rounded-lg border p-4 space-y-4 bg-card shadow-xs'>
@@ -623,6 +673,7 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
           </div>
         </SettingsForm>
       </Form>
-    </SettingsSection>
+      </SettingsSection>
+    </>
   )
 }

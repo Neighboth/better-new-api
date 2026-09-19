@@ -120,6 +120,8 @@ export function getOptionValue<
         result[option.key as keyof T] = parseResult.fallback as T[keyof T]
         errors.push({ key: option.key, error: parseResult.error })
       }
+    } else {
+      ;(result as Record<string, unknown>)[option.key] = option.value
     }
   })
 

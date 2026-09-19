@@ -172,8 +172,12 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
     normalizedDefaults[`Footer_${lang.key}`] = normalizeValue(defaultValues[`Footer_${lang.key}`])
     normalizedDefaults[`About_${lang.key}`] = normalizeValue(defaultValues[`About_${lang.key}`])
     normalizedDefaults[`HomePageContent_${lang.key}`] = normalizeValue(defaultValues[`HomePageContent_${lang.key}`])
-    normalizedDefaults[`legal.user_agreement_${lang.key}`] = normalizeValue(defaultValues[`legal.user_agreement_${lang.key}`])
-    normalizedDefaults[`legal.privacy_policy_${lang.key}`] = normalizeValue(defaultValues[`legal.privacy_policy_${lang.key}`])
+    normalizedDefaults[`legal.user_agreement_${lang.key}`] = normalizeValue(
+      defaultValues[`legal.user_agreement_${lang.key}`] ?? defaultValues[`TermsOfService_${lang.key}`]
+    )
+    normalizedDefaults[`legal.privacy_policy_${lang.key}`] = normalizeValue(
+      defaultValues[`legal.privacy_policy_${lang.key}`] ?? defaultValues[`PrivacyPolicy_${lang.key}`]
+    )
   })
 
   const { form, handleSubmit, handleReset, isDirty, isSubmitting } =
@@ -200,6 +204,14 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
             key,
             value: v,
           })
+
+          if (key.startsWith('legal.privacy_policy_')) {
+            const l = key.replace('legal.privacy_policy_', '')
+            await updateOption.mutateAsync({ key: `PrivacyPolicy_${l}`, value: v })
+          } else if (key.startsWith('legal.user_agreement_')) {
+            const l = key.replace('legal.user_agreement_', '')
+            await updateOption.mutateAsync({ key: `TermsOfService_${l}`, value: v })
+          }
         }
       },
     })
