@@ -29,7 +29,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { formatQuota, formatTimestampToDate } from '@/lib/format'
+import { formatRedemptionQuota, formatTimestampToDate } from '@/lib/format'
 
 import { REDEMPTION_FILTER_EXPIRED, REDEMPTION_STATUSES } from '../constants'
 import { isRedemptionExpired, isTimestampExpired } from '../lib'
@@ -172,7 +172,7 @@ export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
         const quota = row.getValue('quota') as number
         return (
           <StatusBadge
-            label={formatQuota(quota)}
+            label={formatRedemptionQuota(quota, row.original.type, t)}
             variant='neutral'
             copyable={false}
             className='-ml-1.5'

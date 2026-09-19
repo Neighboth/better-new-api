@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { CreditCard, Globe, Loader2, Store, Ticket } from 'lucide-react'
+import { Globe, LayoutDashboard, Loader2, Store, Ticket } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -28,10 +28,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { fetchResellerConfig } from './api'
 import { ChildPanelTab } from './components/child-panel-tab'
 import { RedemptionsTab } from './components/redemptions-tab'
+import { SummaryTab } from './components/summary-tab'
 
 export function ResellerPortal() {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState<'child-panel' | 'redemptions'>('child-panel')
+  const [activeTab, setActiveTab] = useState<'summary' | 'child-panel' | 'redemptions'>('summary')
 
   const { data: config, isLoading, error } = useQuery({
     queryKey: ['reseller-self-config'],
@@ -72,7 +73,11 @@ export function ResellerPortal() {
             onValueChange={(val) => setActiveTab(val as any)}
             className='space-y-6'
           >
-            <TabsList className='grid w-full max-w-md grid-cols-2'>
+            <TabsList className='grid w-full max-w-lg grid-cols-3'>
+              <TabsTrigger value='summary' className='gap-2'>
+                <LayoutDashboard className='h-4 w-4' />
+                <span>{t('Dashboard')}</span>
+              </TabsTrigger>
               <TabsTrigger value='child-panel' className='gap-2'>
                 <Globe className='h-4 w-4' />
                 <span>{t('Child Panel')}</span>
@@ -82,6 +87,10 @@ export function ResellerPortal() {
                 <span>{t('Redemption Codes')}</span>
               </TabsTrigger>
             </TabsList>
+
+            <TabsContent value='summary' className='space-y-4'>
+              <SummaryTab />
+            </TabsContent>
 
             <TabsContent value='child-panel' className='space-y-4'>
               <ChildPanelTab config={config} />

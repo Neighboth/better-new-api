@@ -68,9 +68,16 @@ func GetSubscriptionSelf(c *gin.Context) {
 	}
 
 	common.ApiSuccess(c, gin.H{
-		"billing_preference": pref,
-		"subscriptions":      activeSubscriptions, // all active subscriptions
-		"all_subscriptions":  allSubscriptions,    // all subscriptions including expired
+		"billing_preference":    pref,
+		"billing_priority":      settingMap.BillingPriority,
+		"enabled_billing_types": gin.H{
+			"requests":     model.IsBillingRequestsEnabled(),
+			"tokens":       model.IsBillingTokensEnabled(),
+			"subscription": model.IsBillingSubscriptionEnabled(),
+			"wallet":       model.IsBillingWalletEnabled(),
+		},
+		"subscriptions":     activeSubscriptions, // all active subscriptions
+		"all_subscriptions": allSubscriptions,    // all subscriptions including expired
 	})
 }
 
@@ -96,6 +103,33 @@ func UpdateSubscriptionPreference(c *gin.Context) {
 	}
 	common.ApiSuccess(c, gin.H{"billing_preference": pref})
 }
+
+type BillingPriorityRequest struct {
+	BillingPriority []string `json:"billing_priority"`
+}
+
+func UpdateBillingPriority(c *gin.Context) {
+	userId := c.GetInt("id")
+	var req BillingPriorityRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, "参数错误")
+		return
+	}
+
+	user, err := model.GetUserById(userId, true)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	current := user.GetSetting()
+	current.BillingPriority = req.BillingPriority
+	if err := model.UpdateUserSetting(user.Id, current); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"billing_priority": req.BillingPriority})
+}
+
 
 func SubscriptionRequestBalancePay(c *gin.Context) {
 	if !requirePaymentCompliance(c) {

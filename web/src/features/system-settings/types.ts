@@ -137,6 +137,108 @@ export type SiteSettings = {
   GoogleAnalyticsId?: string
   UmamiWebsiteId?: string
   UmamiScriptUrl?: string
+  ClarityProjectId?: string
+
+  // Multilingual SEO (8 Languages: tr, en, zh_CN, zh_TW, fr, ru, ja, vi)
+  SEOTitlePrefix_tr?: string
+  SEOTitlePrefix_en?: string
+  SEOTitlePrefix_zh_CN?: string
+  SEOTitlePrefix_zh_TW?: string
+  SEOTitlePrefix_fr?: string
+  SEOTitlePrefix_ru?: string
+  SEOTitlePrefix_ja?: string
+  SEOTitlePrefix_vi?: string
+
+  SEODescription_tr?: string
+  SEODescription_en?: string
+  SEODescription_zh_CN?: string
+  SEODescription_zh_TW?: string
+  SEODescription_fr?: string
+  SEODescription_ru?: string
+  SEODescription_ja?: string
+  SEODescription_vi?: string
+
+  SEOKeywords_tr?: string
+  SEOKeywords_en?: string
+  SEOKeywords_zh_CN?: string
+  SEOKeywords_zh_TW?: string
+  SEOKeywords_fr?: string
+  SEOKeywords_ru?: string
+  SEOKeywords_ja?: string
+  SEOKeywords_vi?: string
+
+  PrivacyPolicy_tr?: string
+  PrivacyPolicy_en?: string
+  PrivacyPolicy_zh_CN?: string
+  PrivacyPolicy_zh_TW?: string
+  PrivacyPolicy_fr?: string
+  PrivacyPolicy_ru?: string
+  PrivacyPolicy_ja?: string
+  PrivacyPolicy_vi?: string
+
+  TermsOfService_tr?: string
+  TermsOfService_en?: string
+  TermsOfService_zh_CN?: string
+  TermsOfService_zh_TW?: string
+  TermsOfService_fr?: string
+  TermsOfService_ru?: string
+  TermsOfService_ja?: string
+  TermsOfService_vi?: string
+
+  // Multilingual System Info (8 Languages: tr, en, zh_CN, zh_TW, fr, ru, ja, vi)
+  SystemName_tr?: string
+  SystemName_en?: string
+  SystemName_zh_CN?: string
+  SystemName_zh_TW?: string
+  SystemName_fr?: string
+  SystemName_ru?: string
+  SystemName_ja?: string
+  SystemName_vi?: string
+
+  Footer_tr?: string
+  Footer_en?: string
+  Footer_zh_CN?: string
+  Footer_zh_TW?: string
+  Footer_fr?: string
+  Footer_ru?: string
+  Footer_ja?: string
+  Footer_vi?: string
+
+  About_tr?: string
+  About_en?: string
+  About_zh_CN?: string
+  About_zh_TW?: string
+  About_fr?: string
+  About_ru?: string
+  About_ja?: string
+  About_vi?: string
+
+  HomePageContent_tr?: string
+  HomePageContent_en?: string
+  HomePageContent_zh_CN?: string
+  HomePageContent_zh_TW?: string
+  HomePageContent_fr?: string
+  HomePageContent_ru?: string
+  HomePageContent_ja?: string
+  HomePageContent_vi?: string
+
+  'legal.user_agreement_tr'?: string
+  'legal.user_agreement_en'?: string
+  'legal.user_agreement_zh_CN'?: string
+  'legal.user_agreement_zh_TW'?: string
+  'legal.user_agreement_fr'?: string
+  'legal.user_agreement_ru'?: string
+  'legal.user_agreement_ja'?: string
+  'legal.user_agreement_vi'?: string
+
+  'legal.privacy_policy_tr'?: string
+  'legal.privacy_policy_en'?: string
+  'legal.privacy_policy_zh_CN'?: string
+  'legal.privacy_policy_zh_TW'?: string
+  'legal.privacy_policy_fr'?: string
+  'legal.privacy_policy_ru'?: string
+  'legal.privacy_policy_ja'?: string
+  'legal.privacy_policy_vi'?: string
 }
 
 export type AuthSettings = {
@@ -356,6 +458,26 @@ export type BillingSettings = {
   // section (saved via /api/option/waffo-pancake/save).
   WaffoPancakeStoreID: string
   WaffoPancakeProductID: string
+  EnableBillingRequests: boolean
+  EnableBillingTokens: boolean
+  EnableBillingSubscription: boolean
+  EnableBillingWallet: boolean
+  ShopierApiKey: string
+  ShopierApiSecret: string
+  ShopierWebsiteIndex: string
+  PayTRMerchantId: string
+  PayTRMerchantKey: string
+  PayTRMerchantSalt: string
+  PayTRTestMode: boolean
+  PayPalClientId: string
+  PayPalClientSecret: string
+  PayPalMode: string
+  IyzicoApiKey: string
+  IyzicoSecretKey: string
+  IyzicoBaseUrl: string
+  ShopifyStoreDomain: string
+  ShopifyAccessToken: string
+  ShopifyWebhookSecret: string
   'checkin_setting.enabled': boolean
   'checkin_setting.min_quota': number
   'checkin_setting.max_quota': number
@@ -375,6 +497,41 @@ export type OperationsSettings = {
   SMTPStartTLSEnabled: boolean
   SMTPInsecureSkipVerify: boolean
   SMTPForceAuthLogin: boolean
+  // Email verification (8 languages: tr, en, zh_CN, zh_TW, fr, ru, ja, vi)
+  EmailSubject_verification_tr?: string
+  EmailBody_verification_tr?: string
+  EmailSubject_verification_en?: string
+  EmailBody_verification_en?: string
+  EmailSubject_verification_zh_CN?: string
+  EmailBody_verification_zh_CN?: string
+  EmailSubject_verification_zh_TW?: string
+  EmailBody_verification_zh_TW?: string
+  EmailSubject_verification_fr?: string
+  EmailBody_verification_fr?: string
+  EmailSubject_verification_ru?: string
+  EmailBody_verification_ru?: string
+  EmailSubject_verification_ja?: string
+  EmailBody_verification_ja?: string
+  EmailSubject_verification_vi?: string
+  EmailBody_verification_vi?: string
+
+  // Password reset (8 languages: tr, en, zh_CN, zh_TW, fr, ru, ja, vi)
+  EmailSubject_password_reset_tr?: string
+  EmailBody_password_reset_tr?: string
+  EmailSubject_password_reset_en?: string
+  EmailBody_password_reset_en?: string
+  EmailSubject_password_reset_zh_CN?: string
+  EmailBody_password_reset_zh_CN?: string
+  EmailSubject_password_reset_zh_TW?: string
+  EmailBody_password_reset_zh_TW?: string
+  EmailSubject_password_reset_fr?: string
+  EmailBody_password_reset_fr?: string
+  EmailSubject_password_reset_ru?: string
+  EmailBody_password_reset_ru?: string
+  EmailSubject_password_reset_ja?: string
+  EmailBody_password_reset_ja?: string
+  EmailSubject_password_reset_vi?: string
+  EmailBody_password_reset_vi?: string
   WorkerUrl: string
   WorkerValidKey: string
   WorkerAllowHttpImageRequestEnabled: boolean

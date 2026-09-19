@@ -225,6 +225,18 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
 				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
+		if errors.Is(err, ErrInsufficientRequests) {
+			return types.NewErrorWithStatusCode(
+				fmt.Errorf("用户请求次数不足"),
+				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
+				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
+		if errors.Is(err, ErrInsufficientTokens) {
+			return types.NewErrorWithStatusCode(
+				fmt.Errorf("用户 Token 余额不足"),
+				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
+				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "no active subscription") || strings.Contains(errMsg, "subscription quota insufficient") {
 			return types.NewErrorWithStatusCode(fmt.Errorf("订阅额度不足或未配置订阅: %s", errMsg), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
@@ -263,6 +275,14 @@ func (s *BillingSession) reserveFunding(delta int) error {
 			)
 		}
 		return nil
+	case *RequestsFunding:
+		return nil
+	case *TokensFunding:
+		if err := model.DecreaseUserTokens(funding.userId, int64(delta)); err != nil {
+			return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+		}
+		funding.consumed += int64(delta)
+		return nil
 	default:
 		return types.NewError(fmt.Errorf("unsupported funding source: %s", s.funding.Source()), types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 	}
@@ -279,6 +299,14 @@ func (s *BillingSession) rollbackFundingReserve(delta int) {
 	case *SubscriptionFunding:
 		if err := model.PostConsumeUserSubscriptionDelta(funding.subscriptionId, -int64(delta)); err != nil {
 			common.SysLog("error rolling back subscription funding reserve: " + err.Error())
+		}
+	case *RequestsFunding:
+		return
+	case *TokensFunding:
+		if err := model.IncreaseUserTokens(funding.userId, int64(delta)); err != nil {
+			common.SysLog("error rolling back tokens funding reserve: " + err.Error())
+		} else {
+			funding.consumed -= int64(delta)
 		}
 	}
 }
@@ -318,6 +346,12 @@ func (s *BillingSession) shouldTrust(c *gin.Context) bool {
 	switch s.funding.Source() {
 	case BillingSourceWallet:
 		return s.relayInfo.UserQuota > trustQuota
+	case BillingSourceRequests:
+		reqs, _ := model.GetUserRequests(s.relayInfo.UserId)
+		return reqs > 10
+	case BillingSourceTokens:
+		toks, _ := model.GetUserTokens(s.relayInfo.UserId)
+		return toks > int64(trustQuota)
 	case BillingSourceSubscription:
 		// 订阅不能启用信任旁路。原因：
 		// 1. PreConsumeUserSubscription 要求 amount>0 来创建预扣记录并锁定订阅
@@ -353,16 +387,79 @@ func (s *BillingSession) syncRelayInfo() {
 // NewBillingSession 工厂 — 根据计费偏好创建会话并处理回退
 // ---------------------------------------------------------------------------
 
-// NewBillingSession 根据用户计费偏好创建 BillingSession，处理 subscription_first / wallet_first 的回退。
+// NewBillingSession 根据用户计费优先级配置创建 BillingSession，支持 4'lü Harcama Havuzu (İstek, Abonelik, Token, Bakiye).
 func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preConsumedQuota int) (*BillingSession, *types.NewAPIError) {
 	if relayInfo == nil {
 		return nil, types.NewError(fmt.Errorf("relayInfo is nil"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
 
-	pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)
+	tryRequests := func() (*BillingSession, *types.NewAPIError) {
+		if !model.IsBillingRequestsEnabled() {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("requests billing disabled"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
+		}
+		reqBalance, err := model.GetUserRequests(relayInfo.UserId)
+		if err != nil || reqBalance <= 0 {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("insufficient requests"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
+		}
+		session := &BillingSession{
+			relayInfo: relayInfo,
+			funding:   &RequestsFunding{userId: relayInfo.UserId},
+		}
+		if apiErr := session.preConsume(c, 1); apiErr != nil {
+			return nil, apiErr
+		}
+		return session, nil
+	}
 
-	// 钱包路径需要先检查用户额度
+	tryTokens := func() (*BillingSession, *types.NewAPIError) {
+		if !model.IsBillingTokensEnabled() {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("tokens billing disabled"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
+		}
+		tokensBalance, err := model.GetUserTokens(relayInfo.UserId)
+		if err != nil || tokensBalance <= 0 {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("insufficient tokens"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
+		}
+		session := &BillingSession{
+			relayInfo: relayInfo,
+			funding:   &TokensFunding{userId: relayInfo.UserId},
+		}
+		if apiErr := session.preConsume(c, preConsumedQuota); apiErr != nil {
+			return nil, apiErr
+		}
+		return session, nil
+	}
+
+	trySubscription := func() (*BillingSession, *types.NewAPIError) {
+		if !model.IsBillingSubscriptionEnabled() {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("subscription billing disabled"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
+		}
+		hasSub, subCheckErr := model.HasActiveUserSubscription(relayInfo.UserId)
+		if subCheckErr != nil || !hasSub {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("no active subscription"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
+		}
+		subConsume := int64(preConsumedQuota)
+		if subConsume <= 0 {
+			subConsume = 1
+		}
+		session := &BillingSession{
+			relayInfo: relayInfo,
+			funding: &SubscriptionFunding{
+				requestId: relayInfo.RequestId,
+				userId:    relayInfo.UserId,
+				modelName: relayInfo.OriginModelName,
+				amount:    subConsume,
+			},
+		}
+		if apiErr := session.preConsume(c, int(subConsume)); apiErr != nil {
+			return nil, apiErr
+		}
+		return session, nil
+	}
+
 	tryWallet := func() (*BillingSession, *types.NewAPIError) {
+		if !model.IsBillingWalletEnabled() {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("wallet billing disabled"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
+		}
 		userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
@@ -391,67 +488,74 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		return session, nil
 	}
 
-	trySubscription := func() (*BillingSession, *types.NewAPIError) {
-		subConsume := int64(preConsumedQuota)
-		if subConsume <= 0 {
-			subConsume = 1
+	// Resolve priority list
+	var priority []string
+	if len(relayInfo.UserSetting.BillingPriority) > 0 {
+		priority = relayInfo.UserSetting.BillingPriority
+	} else {
+		pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)
+		switch pref {
+		case "subscription_only":
+			priority = []string{BillingSourceSubscription}
+		case "wallet_only":
+			priority = []string{BillingSourceWallet}
+		case "wallet_first":
+			priority = []string{BillingSourceWallet, BillingSourceSubscription}
+		case "subscription_first":
+			fallthrough
+		default:
+			priority = []string{BillingSourceRequests, BillingSourceSubscription, BillingSourceTokens, BillingSourceWallet}
 		}
-		session := &BillingSession{
-			relayInfo: relayInfo,
-			funding: &SubscriptionFunding{
-				requestId: relayInfo.RequestId,
-				userId:    relayInfo.UserId,
-				modelName: relayInfo.OriginModelName,
-				amount:    subConsume,
-			},
-		}
-		// 必须传 subConsume 而非 preConsumedQuota，保证 SubscriptionFunding.amount、
-		// preConsume 参数和 FinalPreConsumedQuota 三者一致，避免订阅多扣费。
-		if apiErr := session.preConsume(c, int(subConsume)); apiErr != nil {
-			return nil, apiErr
-		}
-		return session, nil
 	}
 
-	switch pref {
-	case "subscription_only":
-		return trySubscription()
-	case "wallet_only":
-		return tryWallet()
-	case "wallet_first":
-		session, err := tryWallet()
-		if err != nil {
-			if err.GetErrorCode() == types.ErrorCodeInsufficientUserQuota {
-				return trySubscription()
+	// Filter by site-wide enabled billing types
+	activePriority := make([]string, 0, len(priority))
+	for _, src := range priority {
+		switch src {
+		case BillingSourceRequests:
+			if model.IsBillingRequestsEnabled() {
+				activePriority = append(activePriority, src)
 			}
-			return nil, err
-		}
-		return session, nil
-	case "subscription_first":
-		fallthrough
-	default:
-		hasSub, subCheckErr := model.HasActiveUserSubscription(relayInfo.UserId)
-		if subCheckErr != nil {
-			return nil, types.NewError(subCheckErr, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
-		}
-		if !hasSub {
-			return tryWallet()
-		}
-		session, apiErr := trySubscription()
-		if apiErr != nil {
-			if apiErr.GetErrorCode() == types.ErrorCodeInsufficientUserQuota {
-				// 仅当用户的活跃订阅允许钱包回退时才回退到钱包，否则返回订阅额度不足错误
-				allowOverflow, overflowErr := model.UserActiveSubscriptionsAllowWalletOverflow(relayInfo.UserId)
-				if overflowErr != nil {
-					return nil, types.NewError(overflowErr, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
-				}
-				if allowOverflow {
-					return tryWallet()
-				}
-				return nil, apiErr
+		case BillingSourceTokens:
+			if model.IsBillingTokensEnabled() {
+				activePriority = append(activePriority, src)
 			}
-			return nil, apiErr
+		case BillingSourceSubscription:
+			if model.IsBillingSubscriptionEnabled() {
+				activePriority = append(activePriority, src)
+			}
+		case BillingSourceWallet:
+			if model.IsBillingWalletEnabled() {
+				activePriority = append(activePriority, src)
+			}
 		}
-		return session, nil
 	}
+
+	// Cascade through user's active priority list
+	for _, source := range activePriority {
+		var session *BillingSession
+		var apiErr *types.NewAPIError
+
+		switch source {
+		case BillingSourceRequests:
+			session, apiErr = tryRequests()
+		case BillingSourceTokens:
+			session, apiErr = tryTokens()
+		case BillingSourceSubscription:
+			session, apiErr = trySubscription()
+		case BillingSourceWallet:
+			session, apiErr = tryWallet()
+		}
+
+		if apiErr == nil && session != nil {
+			return session, nil
+		}
+	}
+
+	return nil, types.NewErrorWithStatusCode(
+		fmt.Errorf("bütçe havuzlarınız tükendi (öncelik sırası: %v)", activePriority),
+		types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
+		types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog(),
+	)
 }
+

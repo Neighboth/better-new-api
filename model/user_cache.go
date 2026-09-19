@@ -17,13 +17,15 @@ type UserBase struct {
 	Id          int    `json:"id"`
 	Group       string `json:"group"`
 	Email       string `json:"email"`
-	Quota       int    `json:"quota"`
-	Status      int    `json:"status"`
-	Role        int    `json:"role"`
-	Username    string `json:"username"`
-	Setting     string `json:"setting"`
-	AuthVersion int64  `json:"-"`
-	CacheSchema int    `json:"-"`
+	Quota           int    `json:"quota"`
+	RequestsBalance int    `json:"requests_balance"`
+	TokensBalance   int64  `json:"tokens_balance"`
+	Status          int    `json:"status"`
+	Role            int    `json:"role"`
+	Username        string `json:"username"`
+	Setting         string `json:"setting"`
+	AuthVersion     int64  `json:"-"`
+	CacheSchema     int    `json:"-"`
 }
 
 func (user *UserBase) WriteContext(c *gin.Context) {

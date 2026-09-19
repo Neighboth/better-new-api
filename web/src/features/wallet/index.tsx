@@ -26,6 +26,7 @@ import { getSelf } from '@/lib/api'
 
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
+import { BillingPriorityCard } from './components/billing-priority-card'
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
 import { TransferDialog } from './components/dialogs/transfer-dialog'
@@ -338,6 +339,8 @@ export function Wallet(props: WalletProps) {
                 onPurchaseSuccess={fetchUser}
               />
             </div>
+
+            <BillingPriorityCard user={user} onPriorityUpdated={fetchUser} />
 
             <AffiliateRewardsCard
               user={user}

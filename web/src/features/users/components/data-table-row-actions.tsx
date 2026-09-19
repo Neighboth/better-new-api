@@ -140,7 +140,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   }
 
   const isDisabled = user.status === USER_STATUS.DISABLED
-  const isAdmin = user.role >= USER_ROLE.ADMIN
   const isRoot = user.role === USER_ROLE.ROOT
 
   if (isUserDeleted(user)) {

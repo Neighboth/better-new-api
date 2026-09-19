@@ -48,6 +48,10 @@ func InitOptionMap() {
 	common.OptionMap["AutomaticDisableChannelEnabled"] = strconv.FormatBool(common.AutomaticDisableChannelEnabled)
 	common.OptionMap["AutomaticEnableChannelEnabled"] = strconv.FormatBool(common.AutomaticEnableChannelEnabled)
 	common.OptionMap["LogConsumeEnabled"] = strconv.FormatBool(common.LogConsumeEnabled)
+	common.OptionMap["EnableBillingRequests"] = "true"
+	common.OptionMap["EnableBillingTokens"] = "true"
+	common.OptionMap["EnableBillingSubscription"] = "true"
+	common.OptionMap["EnableBillingWallet"] = "true"
 	common.OptionMap["DisplayInCurrencyEnabled"] = strconv.FormatBool(common.DisplayInCurrencyEnabled)
 	common.OptionMap["DisplayTokenStatEnabled"] = strconv.FormatBool(common.DisplayTokenStatEnabled)
 	common.OptionMap["DrawingEnabled"] = strconv.FormatBool(common.DrawingEnabled)
@@ -75,6 +79,24 @@ func InitOptionMap() {
 	common.OptionMap["GoogleAnalyticsId"] = ""
 	common.OptionMap["UmamiWebsiteId"] = ""
 	common.OptionMap["UmamiScriptUrl"] = "https://analytics.umami.is/script.js"
+	common.OptionMap["ClarityProjectId"] = ""
+	for _, l := range []string{"tr", "en", "zh_CN", "zh_TW", "fr", "ru", "ja", "vi"} {
+		common.OptionMap["SEOTitlePrefix_"+l] = ""
+		common.OptionMap["SEODescription_"+l] = ""
+		common.OptionMap["SEOKeywords_"+l] = ""
+		common.OptionMap["PrivacyPolicy_"+l] = ""
+		common.OptionMap["TermsOfService_"+l] = ""
+		common.OptionMap["SystemName_"+l] = ""
+		common.OptionMap["Footer_"+l] = ""
+		common.OptionMap["About_"+l] = ""
+		common.OptionMap["HomePageContent_"+l] = ""
+		common.OptionMap["legal.user_agreement_"+l] = ""
+		common.OptionMap["legal.privacy_policy_"+l] = ""
+		common.OptionMap["EmailSubject_verification_"+l] = ""
+		common.OptionMap["EmailBody_verification_"+l] = ""
+		common.OptionMap["EmailSubject_password_reset_"+l] = ""
+		common.OptionMap["EmailBody_password_reset_"+l] = ""
+	}
 	common.OptionMap["ServerAddress"] = ""
 	common.OptionMap["WorkerUrl"] = system_setting.WorkerUrl
 	common.OptionMap["WorkerValidKey"] = system_setting.WorkerValidKey
@@ -125,6 +147,22 @@ func InitOptionMap() {
 	common.OptionMap["DefaultUseAutoGroup"] = strconv.FormatBool(setting.DefaultUseAutoGroup)
 	common.OptionMap["MaxTokenAutoGroups"] = strconv.Itoa(setting.GetMaxTokenAutoGroups())
 	common.OptionMap["PayMethods"] = operation_setting.PayMethods2JsonString()
+	common.OptionMap["ShopierApiKey"] = setting.ShopierApiKey
+	common.OptionMap["ShopierApiSecret"] = setting.ShopierApiSecret
+	common.OptionMap["ShopierWebsiteIndex"] = setting.ShopierWebsiteIndex
+	common.OptionMap["PayTRMerchantId"] = setting.PayTRMerchantId
+	common.OptionMap["PayTRMerchantKey"] = setting.PayTRMerchantKey
+	common.OptionMap["PayTRMerchantSalt"] = setting.PayTRMerchantSalt
+	common.OptionMap["PayTRTestMode"] = strconv.FormatBool(setting.PayTRTestMode)
+	common.OptionMap["PayPalClientId"] = setting.PayPalClientId
+	common.OptionMap["PayPalClientSecret"] = setting.PayPalClientSecret
+	common.OptionMap["PayPalMode"] = setting.PayPalMode
+	common.OptionMap["IyzicoApiKey"] = setting.IyzicoApiKey
+	common.OptionMap["IyzicoSecretKey"] = setting.IyzicoSecretKey
+	common.OptionMap["IyzicoBaseUrl"] = setting.IyzicoBaseUrl
+	common.OptionMap["ShopifyStoreDomain"] = setting.ShopifyStoreDomain
+	common.OptionMap["ShopifyAccessToken"] = setting.ShopifyAccessToken
+	common.OptionMap["ShopifyWebhookSecret"] = setting.ShopifyWebhookSecret
 	common.OptionMap["GitHubClientId"] = ""
 	common.OptionMap["GitHubClientSecret"] = ""
 	common.OptionMap["TelegramBotToken"] = ""
@@ -525,6 +563,38 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.WaffoPancakeUnitPrice, _ = strconv.ParseFloat(value, 64)
 	case "WaffoPancakeMinTopUp":
 		setting.WaffoPancakeMinTopUp, _ = strconv.Atoi(value)
+	case "ShopierApiKey":
+		setting.ShopierApiKey = value
+	case "ShopierApiSecret":
+		setting.ShopierApiSecret = value
+	case "ShopierWebsiteIndex":
+		setting.ShopierWebsiteIndex = value
+	case "PayTRMerchantId":
+		setting.PayTRMerchantId = value
+	case "PayTRMerchantKey":
+		setting.PayTRMerchantKey = value
+	case "PayTRMerchantSalt":
+		setting.PayTRMerchantSalt = value
+	case "PayTRTestMode":
+		setting.PayTRTestMode = value == "true"
+	case "PayPalClientId":
+		setting.PayPalClientId = value
+	case "PayPalClientSecret":
+		setting.PayPalClientSecret = value
+	case "PayPalMode":
+		setting.PayPalMode = value
+	case "IyzicoApiKey":
+		setting.IyzicoApiKey = value
+	case "IyzicoSecretKey":
+		setting.IyzicoSecretKey = value
+	case "IyzicoBaseUrl":
+		setting.IyzicoBaseUrl = value
+	case "ShopifyStoreDomain":
+		setting.ShopifyStoreDomain = value
+	case "ShopifyAccessToken":
+		setting.ShopifyAccessToken = value
+	case "ShopifyWebhookSecret":
+		setting.ShopifyWebhookSecret = value
 	case "TopupGroupRatio":
 		err = common.UpdateTopupGroupRatioByJSONString(value)
 	case "GitHubClientId":
@@ -685,3 +755,28 @@ func handleConfigUpdate(key, value string) bool {
 
 	return true // 已处理
 }
+
+func IsBillingRequestsEnabled() bool {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	return common.OptionMap["EnableBillingRequests"] != "false"
+}
+
+func IsBillingTokensEnabled() bool {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	return common.OptionMap["EnableBillingTokens"] != "false"
+}
+
+func IsBillingSubscriptionEnabled() bool {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	return common.OptionMap["EnableBillingSubscription"] != "false"
+}
+
+func IsBillingWalletEnabled() bool {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	return common.OptionMap["EnableBillingWallet"] != "false"
+}
+

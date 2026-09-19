@@ -96,12 +96,58 @@ func GetTopUpInfo(c *gin.Context) {
 		}
 	}
 
+	if isShopierTopUpEnabled() {
+		payMethods = append(payMethods, map[string]string{
+			"name":      "Shopier",
+			"type":      model.PaymentMethodShopier,
+			"color":     "#FF6600",
+			"min_topup": strconv.Itoa(operation_setting.MinTopUp),
+		})
+	}
+	if isPayTRTopUpEnabled() {
+		payMethods = append(payMethods, map[string]string{
+			"name":      "PayTR",
+			"type":      model.PaymentMethodPayTR,
+			"color":     "#0055FF",
+			"min_topup": strconv.Itoa(operation_setting.MinTopUp),
+		})
+	}
+	if isPayPalTopUpEnabled() {
+		payMethods = append(payMethods, map[string]string{
+			"name":      "PayPal",
+			"type":      model.PaymentMethodPayPal,
+			"color":     "#003087",
+			"min_topup": strconv.Itoa(operation_setting.MinTopUp),
+		})
+	}
+	if isIyzicoTopUpEnabled() {
+		payMethods = append(payMethods, map[string]string{
+			"name":      "iyzico",
+			"type":      model.PaymentMethodIyzico,
+			"color":     "#1A1A24",
+			"min_topup": strconv.Itoa(operation_setting.MinTopUp),
+		})
+	}
+	if isShopifyTopUpEnabled() {
+		payMethods = append(payMethods, map[string]string{
+			"name":      "Shopify",
+			"type":      model.PaymentMethodShopify,
+			"color":     "#96BF48",
+			"min_topup": strconv.Itoa(operation_setting.MinTopUp),
+		})
+	}
+
 	data := gin.H{
 		"enable_online_topup":              isEpayTopUpEnabled(),
 		"enable_stripe_topup":              isStripeTopUpEnabled(),
 		"enable_creem_topup":               isCreemTopUpEnabled(),
 		"enable_waffo_topup":               enableWaffo,
 		"enable_waffo_pancake_topup":       enableWaffoPancake,
+		"enable_shopier_topup":             isShopierTopUpEnabled(),
+		"enable_paytr_topup":               isPayTRTopUpEnabled(),
+		"enable_paypal_topup":              isPayPalTopUpEnabled(),
+		"enable_iyzico_topup":              isIyzicoTopUpEnabled(),
+		"enable_shopify_topup":             isShopifyTopUpEnabled(),
 		"enable_redemption":                complianceConfirmed,
 		"payment_compliance_confirmed":     complianceConfirmed,
 		"payment_compliance_terms_version": operation_setting.CurrentComplianceTermsVersion,

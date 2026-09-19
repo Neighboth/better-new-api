@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -50,6 +51,17 @@ func GetStatus(c *gin.Context) {
 	passkeySetting := system_setting.GetPasskeySettings()
 	legalSetting := system_setting.GetLegalSettings()
 
+	lang := resolveRequestLanguage(c)
+	sysName := getLocalizedMiscOption("SystemName", lang)
+	if sysName == "" {
+		sysName = common.SystemName
+	}
+	footerHtml := getLocalizedMiscOption("Footer", lang)
+	if footerHtml == "" {
+		footerHtml = common.Footer
+	}
+	homePageContent := getLocalizedMiscOption("HomePageContent", lang)
+
 	data := gin.H{
 		"version":                     common.Version,
 		"start_time":                  common.StartTime,
@@ -64,9 +76,10 @@ func GetStatus(c *gin.Context) {
 		"telegram_oauth":              common.TelegramOAuthEnabled,
 		"telegram_bot_name":           common.TelegramBotName,
 		"theme":                       "default",
-		"system_name":                 common.SystemName,
+		"system_name":                 sysName,
 		"logo":                        common.Logo,
-		"footer_html":                 common.Footer,
+		"footer_html":                 footerHtml,
+		"home_page_content":           homePageContent,
 		"wechat_qrcode":               common.WeChatAccountQRCodeImageURL,
 		"wechat_login":                common.WeChatAuthEnabled,
 		"server_address":              system_setting.ServerAddress,
@@ -204,31 +217,68 @@ func GetNotice(c *gin.Context) {
 	return
 }
 
-func GetAbout(c *gin.Context) {
+func getLocalizedMiscOption(baseKey, lang string) string {
 	common.OptionMapRWMutex.RLock()
 	defer common.OptionMapRWMutex.RUnlock()
+	val := strings.TrimSpace(common.OptionMap[baseKey+"_"+lang])
+	if val == "" && (lang == "zh_CN" || lang == "zhCN") {
+		val = strings.TrimSpace(common.OptionMap[baseKey+"_zhCN"])
+		if val == "" {
+			val = strings.TrimSpace(common.OptionMap[baseKey+"_zh_CN"])
+		}
+	}
+	if val == "" && (lang == "zh_TW" || lang == "zhTW") {
+		val = strings.TrimSpace(common.OptionMap[baseKey+"_zhTW"])
+		if val == "" {
+			val = strings.TrimSpace(common.OptionMap[baseKey+"_zh_TW"])
+		}
+	}
+	if val == "" {
+		val = strings.TrimSpace(common.OptionMap[baseKey])
+	}
+	return val
+}
+
+func GetAbout(c *gin.Context) {
+	lang := resolveRequestLanguage(c)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    common.OptionMap["About"],
+		"data":    getLocalizedMiscOption("About", lang),
 	})
 	return
 }
 
 func GetUserAgreement(c *gin.Context) {
+	lang := resolveRequestLanguage(c)
+	val := getLocalizedMiscOption("legal.user_agreement", lang)
+	if val == "" {
+		val = getLocalizedMiscOption("TermsOfService", lang)
+	}
+	if val == "" {
+		val = system_setting.GetLegalSettings().UserAgreement
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    system_setting.GetLegalSettings().UserAgreement,
+		"data":    val,
 	})
 	return
 }
 
 func GetPrivacyPolicy(c *gin.Context) {
+	lang := resolveRequestLanguage(c)
+	val := getLocalizedMiscOption("legal.privacy_policy", lang)
+	if val == "" {
+		val = getLocalizedMiscOption("PrivacyPolicy", lang)
+	}
+	if val == "" {
+		val = system_setting.GetLegalSettings().PrivacyPolicy
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    system_setting.GetLegalSettings().PrivacyPolicy,
+		"data":    val,
 	})
 	return
 }
@@ -245,12 +295,11 @@ func GetMidjourney(c *gin.Context) {
 }
 
 func GetHomePageContent(c *gin.Context) {
-	common.OptionMapRWMutex.RLock()
-	defer common.OptionMapRWMutex.RUnlock()
+	lang := resolveRequestLanguage(c)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    common.OptionMap["HomePageContent"],
+		"data":    getLocalizedMiscOption("HomePageContent", lang),
 	})
 	return
 }
@@ -304,10 +353,11 @@ func SendEmailVerification(c *gin.Context) {
 	}
 	code := common.GenerateVerificationCode(6)
 	common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose)
-	subject := fmt.Sprintf("%s邮箱验证邮件", common.SystemName)
-	content := fmt.Sprintf("<p>您好，你正在进行%s邮箱验证。</p>"+
-		"<p>您的验证码为: <strong>%s</strong></p>"+
-		"<p>验证码 %d 分钟内有效，如果不是本人操作，请忽略。</p>", common.SystemName, code, common.VerificationValidMinutes)
+	lang := resolveEmailLanguage(c)
+	subject, content := service.RenderEmail("verification", lang, map[string]string{
+		"code":  code,
+		"email": email,
+	})
 	err := common.SendEmail(subject, email, content)
 	if err != nil {
 		common.ApiError(c, err)
@@ -320,6 +370,23 @@ func SendEmailVerification(c *gin.Context) {
 	return
 }
 
+func resolveEmailLanguage(c *gin.Context) string {
+	if lang := strings.TrimSpace(c.Query("lang")); lang != "" {
+		return service.NormalizeEmailLang(lang)
+	}
+	if cookie, err := c.Cookie("i18nextLng"); err == nil && cookie != "" {
+		return service.NormalizeEmailLang(cookie)
+	}
+	accept := c.GetHeader("Accept-Language")
+	if strings.Contains(strings.ToLower(accept), "tr") {
+		return "tr"
+	}
+	if strings.Contains(strings.ToLower(accept), "zh") {
+		return "zh_CN"
+	}
+	return "en"
+}
+
 func SendPasswordResetEmail(c *gin.Context) {
 	email := model.NormalizeEmail(c.Query("email"))
 	if err := common.Validate.Var(email, "required,email"); err != nil {
@@ -330,11 +397,11 @@ func SendPasswordResetEmail(c *gin.Context) {
 		code := common.GenerateVerificationCode(0)
 		common.RegisterVerificationCodeWithKey(email, code, common.PasswordResetPurpose)
 		link := fmt.Sprintf("%s/user/reset?email=%s&token=%s", system_setting.ServerAddress, email, code)
-		subject := fmt.Sprintf("%s密码重置", common.SystemName)
-		content := fmt.Sprintf("<p>您好，你正在进行%s密码重置。</p>"+
-			"<p>点击 <a href='%s'>此处</a> 进行密码重置。</p>"+
-			"<p>如果链接无法点击，请尝试点击下面的链接或将其复制到浏览器中打开：<br> %s </p>"+
-			"<p>重置链接 %d 分钟内有效，如果不是本人操作，请忽略。</p>", common.SystemName, link, link, common.VerificationValidMinutes)
+		lang := resolveEmailLanguage(c)
+		subject, content := service.RenderEmail("password_reset", lang, map[string]string{
+			"link":  link,
+			"email": email,
+		})
 		err := common.SendEmail(subject, email, content)
 		if err != nil {
 			logger.LogError(c.Request.Context(), fmt.Sprintf("failed to send password reset email to %s: %s", email, err.Error()))
@@ -346,6 +413,25 @@ func SendPasswordResetEmail(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
+}
+
+func SendTestEmail(c *gin.Context) {
+	email := model.NormalizeEmail(c.Query("email"))
+	if email == "" {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Email is required"})
+		return
+	}
+	lang := resolveEmailLanguage(c)
+	subject, content := service.RenderEmail("verification", lang, map[string]string{
+		"code":  "123456",
+		"email": email,
+	})
+	err := common.SendEmail(subject, email, content)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Test email sent successfully"})
 }
 
 type PasswordResetRequest struct {

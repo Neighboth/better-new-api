@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
-import { Languages, Loader2, MessageSquare, Pencil, Plus, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { AlertCircle, Languages, Loader2, MessageSquare, Pencil, Plus, RefreshCw, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Markdown } from '@/components/ui/markdown'
@@ -110,6 +110,7 @@ export function BlogManager() {
   const [aiTranslating, setAiTranslating] = useState(false)
   const [aiGenerationStep, setAiGenerationStep] = useState(0)
   const [aiGenerationError, setAiGenerationError] = useState(false)
+  const [aiErrorMessage, setAiErrorMessage] = useState('')
 
   // Blog on/off toggle lives on the blog admin API so regular admins (not
   // only the root user) can manage the blog.
@@ -247,7 +248,7 @@ export function BlogManager() {
     payload: any,
     onStart: () => void,
     onSuccess: (fullContent: string) => void,
-    onError: () => void
+    onError: (errStr?: string) => void
   ) => {
     let text = ''
     onStart()
@@ -274,18 +275,19 @@ export function BlogManager() {
         },
         onError: (errStr) => {
           toast.error(errStr || t('Generation failed.'))
-          onError()
+          onError(errStr)
         },
       })
     } catch (e: any) {
       toast.error(e.message || t('Generation failed.'))
-      onError()
+      onError(e.message)
     }
   }
 
   const doAiSequenceStep = async (step: number, currentPrompt: string, kind: 'generate' | 'refine') => {
     const model = aiModel || aiModels?.[0] || ''
     setAiGenerationError(false)
+    setAiErrorMessage('')
     setAiGenerationStep(step)
 
     let currentDraft: BlogPostForm = {
@@ -317,16 +319,18 @@ export function BlogManager() {
             const parsed = content ? parseBlogAiResponse(content) : null
             if (!parsed) {
               setAiGenerationError(true)
+              setAiErrorMessage(t('AI returned an unparseable response.'))
               reject(new Error('AI returned an unparseable response.'))
               return
             }
             onUpdateObj(parsed)
             resolve()
           },
-          () => {
+          (errStr) => {
             setAiGenerating(false)
             setAiGenerationError(true)
-            reject(new Error('Generation failed.'))
+            setAiErrorMessage(errStr || 'Generation failed.')
+            reject(new Error(errStr || 'Generation failed.'))
           }
         )
       })
@@ -441,6 +445,7 @@ export function BlogManager() {
         if (enContent) {
           for (let i = currentLangIdx; i < targetLangs.length; i++) {
             const langCode = targetLangs[i]
+            setAiGenerationStep(6 + i)
             const sys = buildBlogAiSystemPrompt('content_translate')
             const req = `Target Language Code: ${langCode}\n\nEnglish Content:\n${enContent}`
 
@@ -478,6 +483,8 @@ export function BlogManager() {
                     }
 
                     if (!parsedObj || !parsedObj.content || !parsedObj.content[langCode]) {
+                      setAiGenerationError(true)
+                      setAiErrorMessage(`Failed to parse translation for ${langCode}`)
                       reject(new Error(`Failed to parse translation for ${langCode}`))
                       return
                     }
@@ -490,14 +497,19 @@ export function BlogManager() {
                     setPostForm({ ...currentDraft })
                     resolve()
                   },
-                  () => {
+                  (errStr) => {
                     setAiGenerating(false)
-                    reject(new Error(`Generation failed for ${langCode}`))
+                    setAiGenerationError(true)
+                    setAiErrorMessage(errStr || `Generation failed for ${langCode}`)
+                    reject(new Error(errStr || `Generation failed for ${langCode}`))
                   }
                 )
               })
-            } catch (err) {
-              console.warn(`Translation for ${langCode} failed:`, err)
+            } catch (err: any) {
+              setAiGenerationError(true)
+              setAiErrorMessage(err?.message || `Translation for ${langCode} failed`)
+              setAiGenerationStep(6 + i)
+              return
             }
 
             if (i < targetLangs.length - 1) {
@@ -510,6 +522,8 @@ export function BlogManager() {
       // Finished
       toast.success(kind === 'generate' ? t('Draft generated. Review or edit it below.') : t('Draft updated. Review or edit it below.'))
       setAiGenerationStep(0)
+      setAiGenerationError(false)
+      setAiErrorMessage('')
       if (kind === 'generate') {
         setAiPrompt('')
         setAiRefinePrompt('')
@@ -544,6 +558,29 @@ export function BlogManager() {
     const kind = aiPrompt.trim() && !aiRefinePrompt.trim() ? 'generate' : 'refine'
     const prompt = (kind === 'generate' ? aiPrompt.trim() : aiRefinePrompt.trim()) || postFormRef.current.title || 'Continue blog generation'
     await doAiSequenceStep(aiGenerationStep || 1, prompt, kind)
+  }
+
+  const getStepDescription = (step: number) => {
+    const targetLangs = BLOG_LOCALE_CODES.filter((code) => code !== 'en')
+    switch (step) {
+      case 1:
+        return t('Titles')
+      case 2:
+        return t('Summaries')
+      case 3:
+        return t('Tags')
+      case 4:
+        return t('SEO Descriptions')
+      case 5:
+        return t('English Article Content')
+      default:
+        if (step >= 6) {
+          const langIdx = step - 6
+          const lang = targetLangs[langIdx] || `lang #${langIdx + 1}`
+          return t('Translation to {{lang}}', { lang })
+        }
+        return t('Step {{step}}', { step })
+    }
   }
 
   const runAiTranslation = async () => {
@@ -830,9 +867,9 @@ export function BlogManager() {
                 {aiGenerating ? (
                   <Loader2 className='me-1 h-4 w-4 animate-spin' />
                 ) : (
-                  <Sparkles className='me-1 h-4 w-4' />
+                  <RefreshCw className='me-1 h-4 w-4' />
                 )}
-                {t('Try again')}
+                {t('Resume generation')}
               </Button>
               <Button
                 type='button'
@@ -873,7 +910,64 @@ export function BlogManager() {
         </div>
 
         {aiGenerating && (
-          <p className='text-muted-foreground text-sm flex items-center'><Loader2 className='me-2 h-4 w-4 animate-spin' />{t('Generating, please wait...')}</p>
+          <div className='flex items-center gap-2 rounded-md bg-muted/60 p-3 text-sm text-muted-foreground'>
+            <Loader2 className='h-4 w-4 animate-spin text-primary' />
+            <span>
+              {t('Generating {{step}}, please wait...', {
+                step: getStepDescription(aiGenerationStep || 1),
+              })}
+            </span>
+          </div>
+        )}
+
+        {aiGenerationError && (
+          <div className='rounded-lg border border-destructive/40 bg-destructive/10 p-4 space-y-3'>
+            <div className='flex items-start gap-3'>
+              <AlertCircle className='h-5 w-5 text-destructive shrink-0 mt-0.5' />
+              <div className='space-y-1 flex-1'>
+                <p className='text-sm font-semibold text-destructive'>
+                  {t('AI Generation interrupted at {{step}}', {
+                    step: getStepDescription(aiGenerationStep || 1),
+                  })}
+                </p>
+                <p className='text-xs text-muted-foreground'>
+                  {aiErrorMessage || t('The AI request failed. You can switch to another model below and resume without losing previously generated content.')}
+                </p>
+              </div>
+            </div>
+
+            <div className='flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1'>
+              <div className='flex-1'>
+                <Select value={aiModel} onValueChange={(val) => setAiModel(val ?? '')}>
+                  <SelectTrigger className='h-9 text-xs bg-background'>
+                    <SelectValue placeholder={t('Select fallback model')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(aiModels ?? []).map((m) => (
+                      <SelectItem key={m} value={m} className='text-xs'>
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                type='button'
+                size='sm'
+                variant='destructive'
+                disabled={aiGenerating}
+                onClick={retryAiGeneration}
+                className='gap-1.5'
+              >
+                {aiGenerating ? (
+                  <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                ) : (
+                  <RefreshCw className='h-3.5 w-3.5' />
+                )}
+                <span>{t('Resume from {{step}}', { step: getStepDescription(aiGenerationStep || 1) })}</span>
+              </Button>
+            </div>
+          </div>
         )}
 
         <Tabs value={activeLanguage} onValueChange={setActiveLanguage}>

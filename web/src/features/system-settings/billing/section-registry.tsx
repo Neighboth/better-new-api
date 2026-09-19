@@ -25,6 +25,7 @@ import { PaymentSettingsSection } from '../integrations/payment-settings-section
 import { RatioSettingsCard } from '../models/ratio-settings-card'
 import type { BillingSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { BudgetPoolsSection } from './budget-pools-section'
 
 const getModelDefaults = (settings: BillingSettings) => ({
   ModelPrice: settings.ModelPrice,
@@ -64,6 +65,10 @@ const BILLING_SECTIONS = [
           QuotaForInviter: settings.QuotaForInviter,
           QuotaForInvitee: settings.QuotaForInvitee,
           TopUpLink: settings.TopUpLink,
+          EnableBillingRequests: settings.EnableBillingRequests ?? true,
+          EnableBillingTokens: settings.EnableBillingTokens ?? true,
+          EnableBillingSubscription: settings.EnableBillingSubscription ?? true,
+          EnableBillingWallet: settings.EnableBillingWallet ?? true,
           general_setting: {
             docs_link: settings['general_setting.docs_link'],
           },
@@ -76,6 +81,20 @@ const BILLING_SECTIONS = [
           (settings['payment_setting.compliance_confirmed'] ?? false) &&
           settings['payment_setting.compliance_terms_version'] === 'v1'
         }
+      />
+    ),
+  },
+  {
+    id: 'pools',
+    titleKey: 'Budget Pools',
+    build: (settings: BillingSettings) => (
+      <BudgetPoolsSection
+        defaultValues={{
+          EnableBillingRequests: settings.EnableBillingRequests ?? true,
+          EnableBillingTokens: settings.EnableBillingTokens ?? true,
+          EnableBillingSubscription: settings.EnableBillingSubscription ?? true,
+          EnableBillingWallet: settings.EnableBillingWallet ?? true,
+        }}
       />
     ),
   },
@@ -153,6 +172,22 @@ const BILLING_SECTIONS = [
           CreemWebhookSecret: settings.CreemWebhookSecret,
           CreemTestMode: settings.CreemTestMode,
           CreemProducts: settings.CreemProducts,
+          ShopierApiKey: settings.ShopierApiKey ?? '',
+          ShopierApiSecret: settings.ShopierApiSecret ?? '',
+          ShopierWebsiteIndex: settings.ShopierWebsiteIndex ?? '',
+          PayTRMerchantId: settings.PayTRMerchantId ?? '',
+          PayTRMerchantKey: settings.PayTRMerchantKey ?? '',
+          PayTRMerchantSalt: settings.PayTRMerchantSalt ?? '',
+          PayTRTestMode: settings.PayTRTestMode ?? false,
+          PayPalClientId: settings.PayPalClientId ?? '',
+          PayPalClientSecret: settings.PayPalClientSecret ?? '',
+          PayPalMode: settings.PayPalMode ?? 'sandbox',
+          IyzicoApiKey: settings.IyzicoApiKey ?? '',
+          IyzicoSecretKey: settings.IyzicoSecretKey ?? '',
+          IyzicoBaseUrl: settings.IyzicoBaseUrl ?? 'https://sandbox-api.iyzipay.com',
+          ShopifyStoreDomain: settings.ShopifyStoreDomain ?? '',
+          ShopifyAccessToken: settings.ShopifyAccessToken ?? '',
+          ShopifyWebhookSecret: settings.ShopifyWebhookSecret ?? '',
         }}
         waffoDefaultValues={{
           WaffoEnabled: settings.WaffoEnabled ?? false,

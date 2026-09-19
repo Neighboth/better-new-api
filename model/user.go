@@ -95,6 +95,8 @@ type User struct {
 	AccessToken      *string                    `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
 	Quota            int                        `json:"quota" gorm:"type:int;default:0"`
 	UsedQuota        int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
+	RequestsBalance  int                        `json:"requests_balance" gorm:"type:int;default:0;column:requests_balance"`
+	TokensBalance    int64                      `json:"tokens_balance" gorm:"type:bigint;default:0;column:tokens_balance"`
 	RequestCount     int                        `json:"request_count" gorm:"type:int;default:0;"`               // request number
 	Group            string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
 	AffCode          string                     `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
@@ -115,16 +117,18 @@ type User struct {
 
 func (user *User) ToBaseUser() *UserBase {
 	cache := &UserBase{
-		Id:          user.Id,
-		Group:       user.Group,
-		Quota:       user.Quota,
-		Status:      user.Status,
-		Role:        user.Role,
-		Username:    user.Username,
-		Setting:     user.Setting,
-		Email:       user.Email,
-		AuthVersion: user.AuthVersion,
-		CacheSchema: userCacheSchemaVersion,
+		Id:              user.Id,
+		Group:           user.Group,
+		Quota:           user.Quota,
+		RequestsBalance: user.RequestsBalance,
+		TokensBalance:   user.TokensBalance,
+		Status:          user.Status,
+		Role:            user.Role,
+		Username:        user.Username,
+		Setting:         user.Setting,
+		Email:           user.Email,
+		AuthVersion:     user.AuthVersion,
+		CacheSchema:     userCacheSchemaVersion,
 	}
 	return cache
 }
@@ -1450,3 +1454,66 @@ func RootUserExists() bool {
 	}
 	return true
 }
+
+func TryReserveUserRequests(id int, count int) (bool, error) {
+	if count <= 0 {
+		return true, nil
+	}
+	result := DB.Model(&User{}).
+		Where("id = ? AND requests_balance >= ?", id, count).
+		Update("requests_balance", gorm.Expr("requests_balance - ?", count))
+	return result.RowsAffected == 1, result.Error
+}
+
+func IncreaseUserRequests(id int, count int) error {
+	if count <= 0 {
+		return nil
+	}
+	return DB.Model(&User{}).Where("id = ?", id).
+		Update("requests_balance", gorm.Expr("requests_balance + ?", count)).Error
+}
+
+func DecreaseUserRequests(id int, count int) error {
+	if count <= 0 {
+		return nil
+	}
+	return DB.Model(&User{}).Where("id = ?", id).
+		Update("requests_balance", gorm.Expr("requests_balance - ?", count)).Error
+}
+
+func GetUserRequests(id int) (count int, err error) {
+	err = DB.Model(&User{}).Where("id = ?", id).Select("requests_balance").Find(&count).Error
+	return count, err
+}
+
+func TryReserveUserTokens(id int, count int64) (bool, error) {
+	if count <= 0 {
+		return true, nil
+	}
+	result := DB.Model(&User{}).
+		Where("id = ? AND tokens_balance >= ?", id, count).
+		Update("tokens_balance", gorm.Expr("tokens_balance - ?", count))
+	return result.RowsAffected == 1, result.Error
+}
+
+func IncreaseUserTokens(id int, count int64) error {
+	if count <= 0 {
+		return nil
+	}
+	return DB.Model(&User{}).Where("id = ?", id).
+		Update("tokens_balance", gorm.Expr("tokens_balance + ?", count)).Error
+}
+
+func DecreaseUserTokens(id int, count int64) error {
+	if count <= 0 {
+		return nil
+	}
+	return DB.Model(&User{}).Where("id = ?", id).
+		Update("tokens_balance", gorm.Expr("tokens_balance - ?", count)).Error
+}
+
+func GetUserTokens(id int) (count int64, err error) {
+	err = DB.Model(&User{}).Where("id = ?", id).Select("tokens_balance").Find(&count).Error
+	return count, err
+}
+

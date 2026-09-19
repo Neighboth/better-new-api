@@ -278,8 +278,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			continue
 		}
 
+		maxRetries := common.RetryTimes
+		if maxRetries < 2 {
+			maxRetries = 2
+		}
 		// It is retryable, but if we exceed retry times, we should fallback
-		if retryParam.GetRetry() >= common.RetryTimes {
+		if retryParam.GetRetry() >= maxRetries {
 			if !advanceFallbackModel(c, relayInfo, retryParam, fbState) {
 				break
 			}

@@ -31,7 +31,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatQuota } from '@/lib/format'
+import { formatRedemptionQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { REDEMPTION_STATUS, REDEMPTION_STATUSES } from '../constants'
@@ -164,7 +164,7 @@ export function RedemptionsMobileList(props: RedemptionsMobileListProps) {
             <div className='flex items-center justify-between gap-2 text-xs'>
               <span className='text-muted-foreground'>{t('Quota')}</span>
               <span className='font-medium tabular-nums'>
-                {formatQuota(redemption.quota)}
+                {formatRedemptionQuota(redemption.quota, redemption.type, t)}
               </span>
             </div>
           </div>
