@@ -959,3 +959,7 @@ func GetDefaultEmailTemplate(templateType, lang string) EmailTemplate {
 	}
 	return defaultEmailTemplates["en"][templateType]
 }
+
+func GetAllDefaultEmailTemplates() map[string]map[string]EmailTemplate {
+	return defaultEmailTemplates
+}

@@ -101,13 +101,17 @@ export async function generateAccessToken(): Promise<ApiResponse<string>> {
  */
 export async function sendEmailVerification(
   email: string,
-  turnstileToken?: string
+  turnstile?: string,
+  captchaProvider?: string
 ): Promise<ApiResponse> {
-  const params = new URLSearchParams({ email })
-  if (turnstileToken) {
-    params.append('turnstile', turnstileToken)
+  const params: Record<string, string> = { email }
+  if (turnstile) {
+    params.turnstile = turnstile
   }
-  const res = await api.get(`/api/verification?${params}`)
+  if (captchaProvider) {
+    params.captcha_provider = captchaProvider
+  }
+  const res = await api.get('/api/verification', { params })
   return res.data
 }
 

@@ -256,6 +256,7 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.POST("/waffo-pancake/subscription-product", middleware.RootAuth(), controller.CreateWaffoPancakeSubscriptionProduct)
 			optionRoute.GET("/waffo-pancake/subscription-product-options", middleware.RootAuth(), controller.ListWaffoPancakeSubscriptionProductOptions)
 			optionRoute.POST("/test_email", middleware.AdminAuth(), controller.SendTestEmail)
+			optionRoute.GET("/email_default_templates", middleware.AdminAuth(), controller.GetEmailDefaultTemplates)
 		}
 
 		// Managed Files (admin only)
@@ -396,6 +397,33 @@ func SetApiRouter(router *gin.Engine) {
 			taskRoute.GET("/self", middleware.UserAuth(), controller.GetUserTask)
 			taskRoute.GET("/", middleware.AdminAuth(), controller.GetAllTask)
 		}
+
+		// Ticket and Live Support routes
+		ticketPublicRoute := apiRouter.Group("/ticket")
+		{
+			ticketPublicRoute.GET("/config", controller.GetTicketConfig)
+			ticketPublicRoute.GET("/ws", controller.TicketWebSocket)
+		}
+
+		ticketRoute := apiRouter.Group("/ticket")
+		ticketRoute.Use(middleware.UserAuth())
+		{
+			ticketRoute.GET("/", controller.GetUserTickets)
+			ticketRoute.POST("/", controller.CreateTicket)
+			ticketRoute.GET("/:id", controller.GetTicketDetail)
+			ticketRoute.POST("/:id/message", controller.AddTicketMessage)
+			ticketRoute.PUT("/:id/close", controller.CloseTicket)
+		}
+
+		adminTicketRoute := apiRouter.Group("/admin/ticket")
+		adminTicketRoute.Use(middleware.AdminAuth())
+		{
+			adminTicketRoute.GET("/", controller.AdminGetAllTickets)
+			adminTicketRoute.PUT("/:id", controller.AdminUpdateTicket)
+			adminTicketRoute.DELETE("/:id", controller.AdminDeleteTicket)
+			adminTicketRoute.POST("/:id/message", controller.AddTicketMessage)
+		}
+
 
 		vendorRoute := apiRouter.Group("/vendors")
 		vendorRoute.Use(middleware.AdminAuth())

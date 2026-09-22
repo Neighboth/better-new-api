@@ -298,6 +298,8 @@ func migrateDB() error {
 		&AdImpression{},
 		&ManagedFile{},
 		&ResellerConfig{},
+		&Ticket{},
+		&TicketMessage{},
 	)
 	if err != nil {
 		return err

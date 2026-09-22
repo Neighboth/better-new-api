@@ -70,7 +70,15 @@ const defaultOperationsSettings: OperationsSettings = {
   'perf_metrics_setting.retention_days': 0,
   'relay_fallback_setting.enable_fallback': false,
   'relay_fallback_setting.fallback_models': '',
+  'relay_fallback_setting.fallback_chat_models': '',
+  'relay_fallback_setting.fallback_image_models': '',
+  'relay_fallback_setting.fallback_tts_models': '',
+  'relay_fallback_setting.fallback_stt_models': '',
   'relay_fallback_setting.fallback_system_prompt': '',
+  'ticket_setting.enabled': true,
+  'ticket_setting.live_support_enabled': true,
+  'ticket_setting.notify_admin_on_new_ticket': true,
+  'ticket_setting.notify_user_on_reply': true,
 }
 
 export function OperationsSettings() {

@@ -28,6 +28,10 @@ import { useUpdateOption } from '../hooks/use-update-option'
 const fallbackSchema = z.object({
   enable_fallback: z.boolean(),
   fallback_models: z.string(),
+  fallback_chat_models: z.string().optional().default(''),
+  fallback_image_models: z.string().optional().default(''),
+  fallback_tts_models: z.string().optional().default(''),
+  fallback_stt_models: z.string().optional().default(''),
   fallback_system_prompt: z.string(),
 })
 
@@ -54,6 +58,10 @@ export function RelayFallbackSection({
     const keyMap: Record<keyof FallbackFormValues, string> = {
       enable_fallback: 'relay_fallback_setting.enable_fallback',
       fallback_models: 'relay_fallback_setting.fallback_models',
+      fallback_chat_models: 'relay_fallback_setting.fallback_chat_models',
+      fallback_image_models: 'relay_fallback_setting.fallback_image_models',
+      fallback_tts_models: 'relay_fallback_setting.fallback_tts_models',
+      fallback_stt_models: 'relay_fallback_setting.fallback_stt_models',
       fallback_system_prompt: 'relay_fallback_setting.fallback_system_prompt',
     }
 
@@ -97,10 +105,82 @@ export function RelayFallbackSection({
           />
           <FormField
             control={form.control}
+            name='fallback_chat_models'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Chat Fallback Models')}</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    placeholder='gpt-4o-mini, gemini-2.0-flash, claude-3-5-haiku'
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('Fallback models for chat and text completions. If left blank, general fallback models will be used.')}
+                </FormDescription>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='fallback_image_models'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Image Fallback Models')}</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    placeholder='dall-e-3, flux-schnell, sdxl'
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('Separate fallback models for image generation requests so image models do not fall back to chat models.')}
+                </FormDescription>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='fallback_tts_models'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('TTS (Speech) Fallback Models')}</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    placeholder='tts-1, tts-1-hd'
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('Fallback models for text-to-speech requests.')}
+                </FormDescription>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='fallback_stt_models'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('STT (Audio Transcription) Fallback Models')}</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    placeholder='whisper-1'
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('Fallback models for audio transcription and translation requests.')}
+                </FormDescription>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
             name='fallback_models'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t('Fallback Models')}</FormLabel>
+                <FormLabel>{t('General Fallback Models (Legacy)')}</FormLabel>
                 <FormControl>
                   <Input
                     {...field}
@@ -108,7 +188,7 @@ export function RelayFallbackSection({
                   />
                 </FormControl>
                 <FormDescription>
-                  {t('Comma-separated model names attempted in order after the original model.')}
+                  {t('Global fallback models used as default for text chat when specific chat fallback is unset.')}
                 </FormDescription>
               </FormItem>
             )}
