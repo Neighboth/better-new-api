@@ -10,7 +10,9 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
@@ -35,8 +37,20 @@ func newFallbackState(info *relaycommon.RelayInfo) *fallbackState {
 	configuredModels := make(map[string]bool)
 
 	if s.EnableFallback {
-		// Only use explicitly configured fallback models
-		for _, m := range s.FallbackModelList() {
+		var fallbackList []string
+		switch {
+		case info.RelayFormat == types.RelayFormatOpenAIImage:
+			fallbackList = s.FallbackImageModelList()
+		case info.RelayMode == relayconstant.RelayModeAudioSpeech:
+			fallbackList = s.FallbackTTSModelList()
+		case info.RelayMode == relayconstant.RelayModeAudioTranscription || info.RelayMode == relayconstant.RelayModeAudioTranslation:
+			fallbackList = s.FallbackSTTModelList()
+		default:
+			fallbackList = s.FallbackChatModelList()
+		}
+
+		// Only use explicitly configured fallback models for this request category
+		for _, m := range fallbackList {
 			configuredModels[m] = true
 			if !seen[m] {
 				seen[m] = true
@@ -90,6 +104,10 @@ func switchRelayModel(c *gin.Context, info *relaycommon.RelayInfo, newModel stri
 		req.Model = newModel
 	case *dto.ClaudeRequest:
 		req.Model = newModel
+	case *dto.ImageRequest:
+		req.Model = newModel
+	case *dto.AudioRequest:
+		req.Model = newModel
 	}
 	storage, err := common.GetBodyStorage(c)
 	if err != nil {
@@ -100,21 +118,20 @@ func switchRelayModel(c *gin.Context, info *relaycommon.RelayInfo, newModel stri
 		return err
 	}
 	var raw map[string]interface{}
-	if err := common.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("fallback: rewrite request body model: %w", err)
+	if err := common.Unmarshal(data, &raw); err == nil {
+		raw["model"] = newModel
+		updated, err := common.Marshal(raw)
+		if err != nil {
+			return err
+		}
+		newStorage, err := common.CreateBodyStorage(updated)
+		if err != nil {
+			return err
+		}
+		_ = storage.Close()
+		c.Set(common.KeyBodyStorage, newStorage)
+		c.Request.Body = io.NopCloser(newStorage)
 	}
-	raw["model"] = newModel
-	updated, err := common.Marshal(raw)
-	if err != nil {
-		return err
-	}
-	newStorage, err := common.CreateBodyStorage(updated)
-	if err != nil {
-		return err
-	}
-	_ = storage.Close()
-	c.Set(common.KeyBodyStorage, newStorage)
-	c.Request.Body = io.NopCloser(newStorage)
 	return nil
 }
 

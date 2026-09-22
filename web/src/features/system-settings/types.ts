@@ -550,7 +550,15 @@ export type OperationsSettings = {
   'perf_metrics_setting.retention_days': number
   'relay_fallback_setting.enable_fallback': boolean
   'relay_fallback_setting.fallback_models': string
+  'relay_fallback_setting.fallback_chat_models'?: string
+  'relay_fallback_setting.fallback_image_models'?: string
+  'relay_fallback_setting.fallback_tts_models'?: string
+  'relay_fallback_setting.fallback_stt_models'?: string
   'relay_fallback_setting.fallback_system_prompt': string
+  'ticket_setting.enabled'?: boolean
+  'ticket_setting.live_support_enabled'?: boolean
+  'ticket_setting.notify_admin_on_new_ticket'?: boolean
+  'ticket_setting.notify_user_on_reply'?: boolean
 }
 
 export type SecuritySettings = {

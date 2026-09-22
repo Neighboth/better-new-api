@@ -424,14 +424,49 @@ export function BlogManager() {
         if (kind === 'refine') {
            req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}`
         }
-        await doStream(sys, req, (parsed) => {
-          currentDraft = {
-            ...currentDraft,
-            contents: { ...currentDraft.contents, en: parsed.contents?.en || currentDraft.contents?.en },
-            content: parsed.contents?.en || currentDraft.content,
+        await new Promise<void>((resolve, reject) => {
+          const payload = {
+            model,
+            messages: [
+              { role: 'system', content: sys },
+              { role: 'user', content: req },
+            ],
+            stream: true,
+            temperature: 0.7,
           }
-          postFormRef.current = currentDraft
-          setPostForm({ ...currentDraft })
+          runAiStreamWithController(
+            payload,
+            () => setAiGenerating(true),
+            (content) => {
+              setAiGenerating(false)
+              let text = (content || '').trim()
+              text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+              const fenceMatch = text.match(/^```(?:markdown)?\s*([\s\S]*?)```$/)
+              if (fenceMatch) text = fenceMatch[1].trim()
+
+              if (!text) {
+                setAiGenerationError(true)
+                setAiErrorMessage(t('AI returned an empty response.'))
+                reject(new Error('AI returned an empty response.'))
+                return
+              }
+
+              currentDraft = {
+                ...currentDraft,
+                contents: { ...currentDraft.contents, en: text },
+                content: text,
+              }
+              postFormRef.current = currentDraft
+              setPostForm({ ...currentDraft })
+              resolve()
+            },
+            (errStr) => {
+              setAiGenerating(false)
+              setAiGenerationError(true)
+              setAiErrorMessage(errStr || 'Generation failed.')
+              reject(new Error(errStr || 'Generation failed.'))
+            }
+          )
         })
         curStep = 6
         setAiGenerationStep(6)
@@ -459,39 +494,27 @@ export function BlogManager() {
                   ],
                   stream: true,
                   temperature: 0.3,
-                  response_format: { type: 'json_object' },
                 }
                 runAiStreamWithController(
                   payload,
                   () => setAiGenerating(true),
                   (content) => {
                     setAiGenerating(false)
-                    let parsedObj: any = null
-                    if (content) {
-                      try {
-                        let text = content.trim()
-                        const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
-                        if (fenceMatch) text = fenceMatch[1].trim()
-                        text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
-                        const firstBrace = text.indexOf('{')
-                        const lastBrace = text.lastIndexOf('}')
-                        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-                          text = text.slice(firstBrace, lastBrace + 1)
-                        }
-                        parsedObj = JSON.parse(text)
-                      } catch (e) {}
-                    }
+                    let text = (content || '').trim()
+                    text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+                    const fenceMatch = text.match(/^```(?:markdown)?\s*([\s\S]*?)```$/)
+                    if (fenceMatch) text = fenceMatch[1].trim()
 
-                    if (!parsedObj || !parsedObj.content || !parsedObj.content[langCode]) {
+                    if (!text) {
                       setAiGenerationError(true)
-                      setAiErrorMessage(`Failed to parse translation for ${langCode}`)
-                      reject(new Error(`Failed to parse translation for ${langCode}`))
+                      setAiErrorMessage(`Failed to translate for ${langCode}`)
+                      reject(new Error(`Failed to translate for ${langCode}`))
                       return
                     }
 
                     currentDraft = {
                       ...currentDraft,
-                      contents: { ...currentDraft.contents, [langCode]: parsedObj.content[langCode] },
+                      contents: { ...currentDraft.contents, [langCode]: text },
                     }
                     postFormRef.current = currentDraft
                     setPostForm({ ...currentDraft })
@@ -619,96 +642,125 @@ export function BlogManager() {
       return
     }
 
-    const sourcePayload: Record<string, string> = { title: srcTitle, content: srcContent }
-    if (srcSummary) sourcePayload.summary = srcSummary
-    if (srcTags) sourcePayload.tags = srcTags
-    if (srcSeo) sourcePayload.seo_description = srcSeo
+    const sourceMetadata: Record<string, string> = { title: srcTitle }
+    if (srcSummary) sourceMetadata.summary = srcSummary
+    if (srcTags) sourceMetadata.tags = srcTags
+    if (srcSeo) sourceMetadata.seo_description = srcSeo
 
     const targetLangs = BLOG_LOCALE_CODES.filter((code) => code !== srcLang)
 
     setAiTranslating(true)
     try {
-      const systemPrompt = [
-        `You are an expert translator. The user provides blog post fields in source language code "${srcLang}".`,
+      const metadataPrompt = [
+        `You are an expert translator. The user provides blog post metadata in source language code "${srcLang}".`,
         `Translate the provided fields into all target languages: ${targetLangs.join(', ')}.`,
         'CRITICAL RULES:',
-        '1. ONLY translate the fields present in the source object. If a field (e.g. summary, tags, or seo_description) is NOT provided in the source object, DO NOT generate or translate it for target languages.',
+        '1. ONLY translate the fields present in the source object.',
         '2. Return ONLY a single valid JSON object matching this structure:',
         JSON.stringify({
           titles: targetLangs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}),
           summaries: srcSummary ? targetLangs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}) : undefined,
-          contents: targetLangs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}),
           tags_list: srcTags ? targetLangs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}) : undefined,
           seo_descriptions: srcSeo ? targetLangs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}) : undefined,
         }),
       ].join('\n\n')
 
-      let content = ''
+      let metaContent = ''
       try {
         const res = await sendChatCompletion({
           model,
           messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: JSON.stringify(sourcePayload) },
+            { role: 'system', content: metadataPrompt },
+            { role: 'user', content: JSON.stringify(sourceMetadata) },
           ],
           stream: false,
           temperature: 0.3,
           response_format: { type: 'json_object' }
         }, undefined, 900000)
-        content = res.choices?.[0]?.message?.content || ''
+        metaContent = res.choices?.[0]?.message?.content || ''
       } catch (err: any) {
-        toast.error(err.response?.data?.error?.message || err.message || t('Translation failed.'))
-        return
-      }
-      if (!content) {
-        toast.error(t('Translation failed'))
-        return
+        toast.error(err.response?.data?.error?.message || err.message || t('Metadata translation failed.'))
       }
 
-      let text = content.trim()
-      const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
-      if (fenceMatch) text = fenceMatch[1].trim()
-      const parsed = JSON.parse(text)
+      let parsedMeta: any = {}
+      if (metaContent) {
+        try {
+          let text = metaContent.trim()
+          const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+          if (fenceMatch) text = fenceMatch[1].trim()
+          parsedMeta = JSON.parse(text)
+        } catch (e) {
+          console.error('Failed to parse metadata translation:', e)
+        }
+      }
+
+      const nextContents: Record<string, string> = { ...postForm.contents }
+
+      // Translate contents directly as raw markdown language-by-language without JSON
+      for (const targetLang of targetLangs) {
+        try {
+          const contentPrompt = [
+            `You are an expert technical translator.`,
+            `Translate the following blog article from language "${srcLang}" to language "${targetLang}".`,
+            `Output ONLY the translated Markdown article directly.`,
+            `Do NOT output JSON. Do NOT wrap the entire text in code fences (no \`\`\`markdown wrapper). Do NOT add conversational commentary, prefaces, thinking tags, or postfaces.`,
+            `Maintain all headings, lists, links, code snippets, and markdown formatting.`,
+          ].join('\n')
+
+          const contentRes = await sendChatCompletion({
+            model,
+            messages: [
+              { role: 'system', content: contentPrompt },
+              { role: 'user', content: srcContent },
+            ],
+            stream: false,
+            temperature: 0.3,
+          }, undefined, 900000)
+
+          let rawContent = contentRes.choices?.[0]?.message?.content || ''
+          rawContent = rawContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+          const fence = rawContent.match(/^```(?:markdown)?\s*([\s\S]*?)```$/)
+          if (fence) rawContent = fence[1].trim()
+
+          if (rawContent) {
+            nextContents[targetLang] = rawContent
+          }
+        } catch (err: any) {
+          console.error(`Failed to translate content for ${targetLang}:`, err)
+        }
+      }
 
       setPostForm((current) => {
         const nextTitles = { ...current.titles }
         const nextSummaries = { ...current.summaries }
-        const nextContents = { ...current.contents }
         const nextTags = { ...current.tags_list }
         const nextSeo = { ...current.seo_descriptions }
 
-        if (parsed.titles && typeof parsed.titles === 'object') {
+        if (parsedMeta.titles && typeof parsedMeta.titles === 'object') {
           for (const code of targetLangs) {
-            if (typeof parsed.titles[code] === 'string' && parsed.titles[code].trim()) {
-              nextTitles[code] = parsed.titles[code].trim()
+            if (typeof parsedMeta.titles[code] === 'string' && parsedMeta.titles[code].trim()) {
+              nextTitles[code] = parsedMeta.titles[code].trim()
             }
           }
         }
-        if (srcSummary && parsed.summaries && typeof parsed.summaries === 'object') {
+        if (srcSummary && parsedMeta.summaries && typeof parsedMeta.summaries === 'object') {
           for (const code of targetLangs) {
-            if (typeof parsed.summaries[code] === 'string' && parsed.summaries[code].trim()) {
-              nextSummaries[code] = parsed.summaries[code].trim()
+            if (typeof parsedMeta.summaries[code] === 'string' && parsedMeta.summaries[code].trim()) {
+              nextSummaries[code] = parsedMeta.summaries[code].trim()
             }
           }
         }
-        if (parsed.contents && typeof parsed.contents === 'object') {
+        if (srcTags && parsedMeta.tags_list && typeof parsedMeta.tags_list === 'object') {
           for (const code of targetLangs) {
-            if (typeof parsed.contents[code] === 'string' && parsed.contents[code].trim()) {
-              nextContents[code] = parsed.contents[code].trim()
+            if (typeof parsedMeta.tags_list[code] === 'string' && parsedMeta.tags_list[code].trim()) {
+              nextTags[code] = parsedMeta.tags_list[code].trim()
             }
           }
         }
-        if (srcTags && parsed.tags_list && typeof parsed.tags_list === 'object') {
+        if (srcSeo && parsedMeta.seo_descriptions && typeof parsedMeta.seo_descriptions === 'object') {
           for (const code of targetLangs) {
-            if (typeof parsed.tags_list[code] === 'string' && parsed.tags_list[code].trim()) {
-              nextTags[code] = parsed.tags_list[code].trim()
-            }
-          }
-        }
-        if (srcSeo && parsed.seo_descriptions && typeof parsed.seo_descriptions === 'object') {
-          for (const code of targetLangs) {
-            if (typeof parsed.seo_descriptions[code] === 'string' && parsed.seo_descriptions[code].trim()) {
-              nextSeo[code] = parsed.seo_descriptions[code].trim()
+            if (typeof parsedMeta.seo_descriptions[code] === 'string' && parsedMeta.seo_descriptions[code].trim()) {
+              nextSeo[code] = parsedMeta.seo_descriptions[code].trim()
             }
           }
         }

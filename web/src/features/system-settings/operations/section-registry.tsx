@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { SystemBehaviorSection } from '../general/system-behavior-section'
 import { RelayFallbackSection } from '../general/relay-fallback-section'
+import { TicketSettingsSection } from './ticket-settings-section'
 import { EmailSettingsSection } from '../integrations/email-settings-section'
 import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section'
 import { WorkerSettingsSection } from '../integrations/worker-settings-section'
@@ -52,8 +53,33 @@ const OPERATIONS_SECTIONS = [
             settings['relay_fallback_setting.enable_fallback'] ?? false,
           fallback_models:
             settings['relay_fallback_setting.fallback_models'] ?? '',
+          fallback_chat_models:
+            settings['relay_fallback_setting.fallback_chat_models'] ?? '',
+          fallback_image_models:
+            settings['relay_fallback_setting.fallback_image_models'] ?? '',
+          fallback_tts_models:
+            settings['relay_fallback_setting.fallback_tts_models'] ?? '',
+          fallback_stt_models:
+            settings['relay_fallback_setting.fallback_stt_models'] ?? '',
           fallback_system_prompt:
             settings['relay_fallback_setting.fallback_system_prompt'] ?? '',
+        }}
+      />
+    ),
+  },
+  {
+    id: 'ticket',
+    titleKey: 'Support & Tickets',
+    build: (settings: OperationsSettings) => (
+      <TicketSettingsSection
+        defaultValues={{
+          enabled: settings['ticket_setting.enabled'] ?? true,
+          liveSupportEnabled:
+            settings['ticket_setting.live_support_enabled'] ?? true,
+          notifyAdminOnNewTicket:
+            settings['ticket_setting.notify_admin_on_new_ticket'] ?? true,
+          notifyUserOnReply:
+            settings['ticket_setting.notify_user_on_reply'] ?? true,
         }}
       />
     ),

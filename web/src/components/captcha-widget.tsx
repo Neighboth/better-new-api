@@ -96,6 +96,7 @@ export function RecaptchaWidget({
   onError,
 }: ThirdPartyCaptchaProps) {
   const ref = useRef<HTMLDivElement | null>(null)
+  const widgetIdRef = useRef<number | null>(null)
 
   useCaptchaScript(
     'google-recaptcha',
@@ -106,15 +107,20 @@ export function RecaptchaWidget({
       // grecaptcha.ready() is the only safe point to call render().
       const doRender = () => {
         if (!ref.current || !window.grecaptcha) return
+        // Do not re-render if already rendered in this container
+        if (widgetIdRef.current !== null || ref.current.hasChildNodes()) return
         try {
-          window.grecaptcha.render(ref.current, {
+          widgetIdRef.current = window.grecaptcha.render(ref.current, {
             sitekey: siteKey,
             callback: (token: string) => onVerify(token),
             'expired-callback': () => onExpire?.(),
             'error-callback': () => onError?.(),
           })
-        } catch {
-          onError?.()
+        } catch (e) {
+          // If already rendered, do not trigger error
+          if (!ref.current?.hasChildNodes()) {
+            onError?.()
+          }
         }
       }
       if (window.grecaptcha?.ready) {
@@ -127,6 +133,12 @@ export function RecaptchaWidget({
     [siteKey, onVerify, onExpire, onError]
   )
 
+  useEffect(() => {
+    return () => {
+      widgetIdRef.current = null
+    }
+  }, [])
+
   return <div ref={ref} />
 }
 
@@ -137,6 +149,7 @@ export function HCaptchaWidget({
   onError,
 }: ThirdPartyCaptchaProps) {
   const ref = useRef<HTMLDivElement | null>(null)
+  const widgetIdRef = useRef<number | null>(null)
 
   useCaptchaScript(
     'hcaptcha-script',
@@ -144,20 +157,29 @@ export function HCaptchaWidget({
     () => Boolean(window.hcaptcha?.render),
     () => {
       if (!ref.current || !window.hcaptcha) return
+      if (widgetIdRef.current !== null || ref.current.hasChildNodes()) return
       try {
-        window.hcaptcha.render(ref.current, {
+        widgetIdRef.current = window.hcaptcha.render(ref.current, {
           sitekey: siteKey,
           callback: (token: string) => onVerify(token),
           'expired-callback': () => onExpire?.(),
           'error-callback': () => onError?.(),
         })
       } catch {
-        onError?.()
+        if (!ref.current?.hasChildNodes()) {
+          onError?.()
+        }
       }
     },
     onError,
     [siteKey, onVerify, onExpire, onError]
   )
+
+  useEffect(() => {
+    return () => {
+      widgetIdRef.current = null
+    }
+  }, [])
 
   return <div ref={ref} />
 }

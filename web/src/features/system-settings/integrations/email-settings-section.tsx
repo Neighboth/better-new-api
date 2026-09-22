@@ -22,10 +22,18 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
+import { Eye, RotateCcw, FileText } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { api } from '@/lib/api'
 
 import {
@@ -132,6 +140,42 @@ export function EmailSettingsSection({
 
   const [testEmail, setTestEmail] = useState('')
   const [isSendingTest, setIsSendingTest] = useState(false)
+  const [previewModal, setPreviewModal] = useState<{ title: string; html: string } | null>(null)
+
+  const emailLangs = [
+    { key: 'tr', label: 'Türkçe', flag: '🇹🇷' },
+    { key: 'en', label: 'English', flag: '🇬🇧' },
+    { key: 'zh_CN', label: '简体中文', flag: '🇨🇳' },
+    { key: 'zh_TW', label: '繁體中文', flag: '🇹🇼' },
+    { key: 'fr', label: 'Français', flag: '🇫🇷' },
+    { key: 'ru', label: 'Русский', flag: '🇷🇺' },
+    { key: 'ja', label: '日本語', flag: '🇯🇵' },
+    { key: 'vi', label: 'Tiếng Việt', flag: '🇻🇳' },
+  ] as const
+
+  const { data: defaultTemplatesData } = useQuery({
+    queryKey: ['email-default-templates'],
+    queryFn: async () => {
+      const res = await api.get('/api/option/email_default_templates')
+      return res.data?.data as Record<string, Record<string, { Subject: string; Body: string }>> | undefined
+    },
+    staleTime: 60000,
+  })
+
+  const renderPreviewHtml = (rawBody: string | undefined, langKey: string, type: 'verification' | 'password_reset') => {
+    let body = rawBody || ''
+    if (!body.trim()) {
+      body = defaultTemplatesData?.[langKey]?.[type]?.Body || defaultTemplatesData?.['en']?.[type]?.Body || ''
+    }
+    return body
+      .replace(/{{system_name}}/g, 'New API')
+      .replace(/{{code}}/g, '849201')
+      .replace(/{{email}}/g, 'user@example.com')
+      .replace(/{{year}}/g, new Date().getFullYear().toString())
+      .replace(/{{valid_minutes}}/g, '10')
+      .replace(/{{reset_url}}/g, 'https://example.com/reset-password')
+      .replace(/{{link}}/g, 'https://example.com/reset-password')
+  }
 
   const form = useForm<EmailFormValues>({
     resolver: zodResolver(emailSchema),
@@ -236,26 +280,22 @@ export function EmailSettingsSection({
       })
     }
 
-    const templateKeys = [
-      'EmailSubject_verification_tr',
-      'EmailBody_verification_tr',
-      'EmailSubject_verification_en',
-      'EmailBody_verification_en',
-      'EmailSubject_verification_zh_CN',
-      'EmailBody_verification_zh_CN',
-      'EmailSubject_password_reset_tr',
-      'EmailBody_password_reset_tr',
-      'EmailSubject_password_reset_en',
-      'EmailBody_password_reset_en',
-      'EmailSubject_password_reset_zh_CN',
-      'EmailBody_password_reset_zh_CN',
-    ] as const
+    const templateTypes = ['verification', 'password_reset'] as const
+    for (const lang of emailLangs) {
+      for (const tType of templateTypes) {
+        const subjKey = `EmailSubject_${tType}_${lang.key}` as keyof EmailFormValues
+        const bodyKey = `EmailBody_${tType}_${lang.key}` as keyof EmailFormValues
+        const subjVal = values[subjKey] ?? ''
+        const initSubj = defaultValues[subjKey] ?? ''
+        if (subjVal !== initSubj) {
+          updates.push({ key: subjKey, value: subjVal })
+        }
 
-    for (const key of templateKeys) {
-      const val = values[key] ?? ''
-      const initVal = defaultValues[key] ?? ''
-      if (val !== initVal) {
-        updates.push({ key, value: val })
+        const bodyVal = values[bodyKey] ?? ''
+        const initBody = defaultValues[bodyKey] ?? ''
+        if (bodyVal !== initBody) {
+          updates.push({ key: bodyKey, value: bodyVal })
+        }
       }
     }
 
@@ -263,17 +303,6 @@ export function EmailSettingsSection({
       await updateOption.mutateAsync(update)
     }
   }
-
-  const emailLangs = [
-    { key: 'tr', label: 'Türkçe', flag: '🇹🇷' },
-    { key: 'en', label: 'English', flag: '🇬🇧' },
-    { key: 'zh_CN', label: '简体中文', flag: '🇨🇳' },
-    { key: 'zh_TW', label: '繁體中文', flag: '🇹🇼' },
-    { key: 'fr', label: 'Français', flag: '🇫🇷' },
-    { key: 'ru', label: 'Русский', flag: '🇷🇺' },
-    { key: 'ja', label: '日本語', flag: '🇯🇵' },
-    { key: 'vi', label: 'Tiếng Việt', flag: '🇻🇳' },
-  ] as const
 
   return (
     <SettingsSection title={t('SMTP Email')}>
@@ -566,46 +595,116 @@ export function EmailSettingsSection({
                     ))}
                   </TabsList>
 
-                  {emailLangs.map((lang) => (
-                    <TabsContent key={lang.key} value={lang.key} className='space-y-4'>
-                      <FormField
-                        control={form.control}
-                        name={`EmailSubject_verification_${lang.key}` as any}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('Subject')} ({lang.label})</FormLabel>
-                            <FormControl>
-                              <Input
-                                placeholder={t('Leave blank to use default subject')}
-                                {...field}
-                                value={field.value ?? ''}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                  {emailLangs.map((lang) => {
+                    const subjKey = `EmailSubject_verification_${lang.key}` as keyof EmailFormValues
+                    const bodyKey = `EmailBody_verification_${lang.key}` as keyof EmailFormValues
+                    const currentBody = form.watch(bodyKey) as string | undefined
+                    const defaultSubj = defaultTemplatesData?.[lang.key]?.verification?.Subject || defaultTemplatesData?.['en']?.verification?.Subject || ''
+                    const defaultBody = defaultTemplatesData?.[lang.key]?.verification?.Body || defaultTemplatesData?.['en']?.verification?.Body || ''
 
-                      <FormField
-                        control={form.control}
-                        name={`EmailBody_verification_${lang.key}` as any}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('HTML Content')} ({lang.label})</FormLabel>
-                            <FormControl>
-                              <Textarea
-                                rows={6}
-                                placeholder={t('Leave blank to use default modern responsive HTML template')}
-                                {...field}
-                                value={field.value ?? ''}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </TabsContent>
-                  ))}
+                    return (
+                      <TabsContent key={lang.key} value={lang.key} className='space-y-4'>
+                        <div className='flex flex-wrap items-center justify-between gap-2 p-2.5 bg-muted/30 border rounded-md'>
+                          <span className='text-xs font-medium flex items-center gap-1.5'>
+                            <span>{lang.flag}</span>
+                            <span>{lang.label} {t('Template')}</span>
+                            {!currentBody?.trim() ? (
+                              <span className='text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-normal'>
+                                {t('Default Built-in')}
+                              </span>
+                            ) : (
+                              <span className='text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-normal'>
+                                {t('Customized')}
+                              </span>
+                            )}
+                          </span>
+                          <div className='flex items-center gap-1.5'>
+                            <Button
+                              type='button'
+                              variant='outline'
+                              size='sm'
+                              className='h-7 text-xs gap-1'
+                              onClick={() => {
+                                if (defaultSubj) form.setValue(subjKey, defaultSubj, { shouldDirty: true })
+                                if (defaultBody) form.setValue(bodyKey, defaultBody, { shouldDirty: true })
+                                toast.success(t('Loaded default template into editor'))
+                              }}
+                            >
+                              <FileText className='h-3.5 w-3.5' />
+                              {t('Load Default')}
+                            </Button>
+                            <Button
+                              type='button'
+                              variant='outline'
+                              size='sm'
+                              className='h-7 text-xs gap-1 text-muted-foreground hover:text-destructive'
+                              onClick={() => {
+                                form.setValue(subjKey, '', { shouldDirty: true })
+                                form.setValue(bodyKey, '', { shouldDirty: true })
+                                toast.success(t('Reset to default template'))
+                              }}
+                            >
+                              <RotateCcw className='h-3.5 w-3.5' />
+                              {t('Reset')}
+                            </Button>
+                            <Button
+                              type='button'
+                              variant='secondary'
+                              size='sm'
+                              className='h-7 text-xs gap-1'
+                              onClick={() => {
+                                const html = renderPreviewHtml(currentBody, lang.key, 'verification')
+                                setPreviewModal({
+                                  title: `${t('Preview')}: ${lang.label} - ${t('Verification Code Email')}`,
+                                  html,
+                                })
+                              }}
+                            >
+                              <Eye className='h-3.5 w-3.5' />
+                              {t('Preview')}
+                            </Button>
+                          </div>
+                        </div>
+
+                        <FormField
+                          control={form.control}
+                          name={subjKey as any}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('Subject')} ({lang.label})</FormLabel>
+                              <FormControl>
+                                <Input
+                                  placeholder={defaultSubj || t('Leave blank to use default subject')}
+                                  {...field}
+                                  value={field.value ?? ''}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name={bodyKey as any}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('HTML Content')} ({lang.label})</FormLabel>
+                              <FormControl>
+                                <Textarea
+                                  rows={8}
+                                  placeholder={t('Leave blank to use default modern responsive HTML template')}
+                                  {...field}
+                                  value={field.value ?? ''}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </TabsContent>
+                    )
+                  })}
                 </Tabs>
               </TabsContent>
 
@@ -633,52 +732,139 @@ export function EmailSettingsSection({
                     ))}
                   </TabsList>
 
-                  {emailLangs.map((lang) => (
-                    <TabsContent key={lang.key} value={lang.key} className='space-y-4'>
-                      <FormField
-                        control={form.control}
-                        name={`EmailSubject_password_reset_${lang.key}` as any}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('Subject')} ({lang.label})</FormLabel>
-                            <FormControl>
-                              <Input
-                                placeholder={t('Leave blank to use default subject')}
-                                {...field}
-                                value={field.value ?? ''}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                  {emailLangs.map((lang) => {
+                    const subjKey = `EmailSubject_password_reset_${lang.key}` as keyof EmailFormValues
+                    const bodyKey = `EmailBody_password_reset_${lang.key}` as keyof EmailFormValues
+                    const currentBody = form.watch(bodyKey) as string | undefined
+                    const defaultSubj = defaultTemplatesData?.[lang.key]?.password_reset?.Subject || defaultTemplatesData?.['en']?.password_reset?.Subject || ''
+                    const defaultBody = defaultTemplatesData?.[lang.key]?.password_reset?.Body || defaultTemplatesData?.['en']?.password_reset?.Body || ''
 
-                      <FormField
-                        control={form.control}
-                        name={`EmailBody_password_reset_${lang.key}` as any}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('HTML Content')} ({lang.label})</FormLabel>
-                            <FormControl>
-                              <Textarea
-                                rows={6}
-                                placeholder={t('Leave blank to use default modern responsive HTML template')}
-                                {...field}
-                                value={field.value ?? ''}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </TabsContent>
-                  ))}
+                    return (
+                      <TabsContent key={lang.key} value={lang.key} className='space-y-4'>
+                        <div className='flex flex-wrap items-center justify-between gap-2 p-2.5 bg-muted/30 border rounded-md'>
+                          <span className='text-xs font-medium flex items-center gap-1.5'>
+                            <span>{lang.flag}</span>
+                            <span>{lang.label} {t('Template')}</span>
+                            {!currentBody?.trim() ? (
+                              <span className='text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-normal'>
+                                {t('Default Built-in')}
+                              </span>
+                            ) : (
+                              <span className='text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-normal'>
+                                {t('Customized')}
+                              </span>
+                            )}
+                          </span>
+                          <div className='flex items-center gap-1.5'>
+                            <Button
+                              type='button'
+                              variant='outline'
+                              size='sm'
+                              className='h-7 text-xs gap-1'
+                              onClick={() => {
+                                if (defaultSubj) form.setValue(subjKey, defaultSubj, { shouldDirty: true })
+                                if (defaultBody) form.setValue(bodyKey, defaultBody, { shouldDirty: true })
+                                toast.success(t('Loaded default template into editor'))
+                              }}
+                            >
+                              <FileText className='h-3.5 w-3.5' />
+                              {t('Load Default')}
+                            </Button>
+                            <Button
+                              type='button'
+                              variant='outline'
+                              size='sm'
+                              className='h-7 text-xs gap-1 text-muted-foreground hover:text-destructive'
+                              onClick={() => {
+                                form.setValue(subjKey, '', { shouldDirty: true })
+                                form.setValue(bodyKey, '', { shouldDirty: true })
+                                toast.success(t('Reset to default template'))
+                              }}
+                            >
+                              <RotateCcw className='h-3.5 w-3.5' />
+                              {t('Reset')}
+                            </Button>
+                            <Button
+                              type='button'
+                              variant='secondary'
+                              size='sm'
+                              className='h-7 text-xs gap-1'
+                              onClick={() => {
+                                const html = renderPreviewHtml(currentBody, lang.key, 'password_reset')
+                                setPreviewModal({
+                                  title: `${t('Preview')}: ${lang.label} - ${t('Password Reset Email')}`,
+                                  html,
+                                })
+                              }}
+                            >
+                              <Eye className='h-3.5 w-3.5' />
+                              {t('Preview')}
+                            </Button>
+                          </div>
+                        </div>
+
+                        <FormField
+                          control={form.control}
+                          name={subjKey as any}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('Subject')} ({lang.label})</FormLabel>
+                              <FormControl>
+                                <Input
+                                  placeholder={defaultSubj || t('Leave blank to use default subject')}
+                                  {...field}
+                                  value={field.value ?? ''}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name={bodyKey as any}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('HTML Content')} ({lang.label})</FormLabel>
+                              <FormControl>
+                                <Textarea
+                                  rows={8}
+                                  placeholder={t('Leave blank to use default modern responsive HTML template')}
+                                  {...field}
+                                  value={field.value ?? ''}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </TabsContent>
+                    )
+                  })}
                 </Tabs>
               </TabsContent>
             </Tabs>
           </div>
         </SettingsForm>
       </Form>
+
+      {previewModal && (
+        <Dialog open={Boolean(previewModal)} onOpenChange={(open) => !open && setPreviewModal(null)}>
+          <DialogContent className='max-w-3xl max-h-[85vh] flex flex-col p-6'>
+            <DialogHeader>
+              <DialogTitle>{previewModal.title}</DialogTitle>
+            </DialogHeader>
+            <div className='flex-1 border rounded-md overflow-hidden bg-white mt-2'>
+              <iframe
+                title='Email Preview'
+                className='w-full h-[550px] border-0'
+                srcDoc={previewModal.html}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </SettingsSection>
   )
 }

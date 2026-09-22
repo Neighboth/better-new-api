@@ -137,6 +137,9 @@ func SetRelayRouter(router *gin.Engine) {
 		httpRouter.POST("/audio/speech", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIAudio)
 		})
+		httpRouter.POST("/speech", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIAudio)
+		})
 
 		// rerank related routes
 		httpRouter.POST("/rerank", func(c *gin.Context) {
@@ -202,6 +205,21 @@ func SetRelayRouter(router *gin.Engine) {
 		// Gemini API 路径格式: /v1beta/models/{model_name}:{action}
 		relayGeminiRouter.POST("/models/*path", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatGemini)
+		})
+	}
+
+	relayRootAudioRouter := router.Group("")
+	relayRootAudioRouter.Use(middleware.RouteTag("relay"))
+	relayRootAudioRouter.Use(middleware.SystemPerformanceCheck())
+	relayRootAudioRouter.Use(middleware.TokenAuth())
+	relayRootAudioRouter.Use(middleware.ModelRequestRateLimit())
+	relayRootAudioRouter.Use(middleware.Distribute())
+	{
+		relayRootAudioRouter.POST("/speech", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIAudio)
+		})
+		relayRootAudioRouter.POST("/audio/speech", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIAudio)
 		})
 	}
 }

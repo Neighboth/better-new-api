@@ -22,8 +22,10 @@ import {
   CreditCard,
   FileText,
   FlaskConical,
+  Headphones,
   Key,
   LayoutDashboard,
+  LifeBuoy,
   ListTodo,
   MessageSquare,
   Newspaper,
@@ -118,6 +120,11 @@ export function useSidebarData(): SidebarData {
           url: '/profile',
           icon: User,
         },
+        {
+          title: t('Support Tickets'),
+          url: '/tickets',
+          icon: LifeBuoy,
+        },
       ],
     },
     {
@@ -177,6 +184,12 @@ export function useSidebarData(): SidebarData {
             resource: ADMIN_PERMISSION_RESOURCES.SUBSCRIPTION,
             action: 'read',
           },
+        },
+        {
+          title: t('Ticket Management'),
+          url: '/admin-tickets',
+          icon: Headphones,
+          requiredRole: ROLE.ADMIN,
         },
         {
           title: t('Reseller'),

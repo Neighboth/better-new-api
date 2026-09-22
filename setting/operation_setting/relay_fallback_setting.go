@@ -13,8 +13,11 @@ import (
 // arbitrary enabled models so the user still gets an answer.
 type RelayFallbackSetting struct {
 	// Ordered comma-separated fallback model names attempted after the original model.
-
-	FallbackModels string `json:"fallback_models"`
+	FallbackModels       string `json:"fallback_models"`
+	FallbackChatModels   string `json:"fallback_chat_models"`
+	FallbackImageModels  string `json:"fallback_image_models"`
+	FallbackTTSModels    string `json:"fallback_tts_models"`
+	FallbackSTTModels    string `json:"fallback_stt_models"`
 	// System prompt text prepended to every attempt (original + fallback).
 	FallbackSystemPrompt string `json:"fallback_system_prompt"`
 	// EnableFallback toggles whether the relay fallback chain is active at all.
@@ -23,8 +26,12 @@ type RelayFallbackSetting struct {
 
 // 默认配置
 var relayFallbackSetting = RelayFallbackSetting{
-	EnableFallback:    false,
-	FallbackModels:    "",
+	EnableFallback:       false,
+	FallbackModels:       "",
+	FallbackChatModels:   "",
+	FallbackImageModels:  "",
+	FallbackTTSModels:    "",
+	FallbackSTTModels:    "",
 	FallbackSystemPrompt: "",
 }
 
@@ -37,17 +44,49 @@ func GetRelayFallbackSetting() *RelayFallbackSetting {
 	return &relayFallbackSetting
 }
 
-// FallbackModelList returns the trimmed non-empty ordered model listr.
-func (s *RelayFallbackSetting) FallbackModelList() []string {
-	if s == nil {
-		return nil
-	}
+func parseModelList(raw string) []string {
 	var models []string
-	for _, m := range strings.Split(s.FallbackModels, ",") {
+	for _, m := range strings.Split(raw, ",") {
 		m = strings.TrimSpace(m)
 		if m != "" {
 			models = append(models, m)
 		}
 	}
 	return models
+}
+
+// FallbackModelList returns the trimmed non-empty ordered model list for general/chat models.
+func (s *RelayFallbackSetting) FallbackModelList() []string {
+	if s == nil {
+		return nil
+	}
+	if s.FallbackChatModels != "" {
+		return parseModelList(s.FallbackChatModels)
+	}
+	return parseModelList(s.FallbackModels)
+}
+
+func (s *RelayFallbackSetting) FallbackChatModelList() []string {
+	return s.FallbackModelList()
+}
+
+func (s *RelayFallbackSetting) FallbackImageModelList() []string {
+	if s == nil {
+		return nil
+	}
+	return parseModelList(s.FallbackImageModels)
+}
+
+func (s *RelayFallbackSetting) FallbackTTSModelList() []string {
+	if s == nil {
+		return nil
+	}
+	return parseModelList(s.FallbackTTSModels)
+}
+
+func (s *RelayFallbackSetting) FallbackSTTModelList() []string {
+	if s == nil {
+		return nil
+	}
+	return parseModelList(s.FallbackSTTModels)
 }

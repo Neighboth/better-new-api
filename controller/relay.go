@@ -341,6 +341,8 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 	case *dto.ImageRequest:
 		// Pricing for image requests depends on ImagePriceRatio; safe to compute even when CountToken is disabled.
 		return r.GetTokenCountMeta()
+	case *dto.AudioRequest:
+		return r.GetTokenCountMeta()
 	default:
 		// Best-effort: leave CombineText empty to avoid large allocations.
 	}

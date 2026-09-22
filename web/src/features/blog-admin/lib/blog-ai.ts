@@ -81,22 +81,21 @@ export function buildBlogAiSystemPrompt(
 
   if (step === 'content_en') {
     return [
-      ...base,
-      'Generate ONLY the English content.',
-      'The JSON must have this structure:',
-      JSON.stringify({ content: { en: '...' } }, null, 2),
-      'Requirements: full markdown article (headings, lists, bold, links as appropriate): Aim for 600-1200 words.',
+      'You are an expert content writer for a tech product company (an AI API gateway/platform).',
+      'Output ONLY the raw Markdown article directly.',
+      'Do NOT output JSON. Do NOT wrap the entire article in code fences (```markdown). Do NOT include conversational commentary, thinking tags, prefaces, or postfaces.',
+      'Start immediately with the article content.',
+      'Requirements: full comprehensive markdown article (headings, lists, bold, links as appropriate): Aim for 600-1200 words.',
     ].join('\n')
   }
 
   if (step === 'content_translate') {
     return [
-      ...base,
-      'Translate the given English content into the specified target language.',
-      'Return ONLY the translated content in the specified language key.',
-      'The JSON must have this structure (where <lang> is the target language code):',
-      JSON.stringify({ content: { '<lang>': '...' } }, null, 2),
-      'Requirements: fluid translation, maintain all markdown formatting.',
+      'You are an expert technical translator.',
+      'Translate the given English markdown content into the specified target language.',
+      'Output ONLY the translated Markdown article directly.',
+      'Do NOT output JSON. Do NOT wrap the entire article in code fences (```markdown). Do NOT include conversational commentary, thinking tags, prefaces, or postfaces.',
+      'Start immediately with the translated content. Maintain all markdown formatting, headings, code snippets, lists, and links accurately.',
     ].join('\n')
   }
 

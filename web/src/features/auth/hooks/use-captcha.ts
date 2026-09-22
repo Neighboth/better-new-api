@@ -71,18 +71,17 @@ export function useCaptcha() {
 
   const providers: CaptchaProviderOption[] = []
   if (captchaType !== 'off') {
+    const primary = toProvider(captchaType as ActiveCaptchaType)
+    if (isUsable(primary)) {
+      providers.push(primary)
+    }
     if (status?.captcha_fallback) {
-      // Fallback enabled: fixed try-order, independent of the selected type.
       for (const type of FALLBACK_ORDER) {
+        if (type === captchaType) continue
         const candidate = toProvider(type)
         if (isUsable(candidate)) {
           providers.push(candidate)
         }
-      }
-    } else {
-      const primary = toProvider(captchaType as ActiveCaptchaType)
-      if (isUsable(primary)) {
-        providers.push(primary)
       }
     }
   }

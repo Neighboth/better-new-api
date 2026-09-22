@@ -26,6 +26,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useCountdown } from '@/hooks/use-countdown'
+import { CaptchaDialog } from '@/features/auth/components/captcha-dialog'
+import { useCaptcha } from '@/features/auth/hooks/use-captcha'
 
 import { sendEmailVerification, bindEmail } from '../../api'
 
@@ -47,6 +49,8 @@ export function EmailBindDialog({
   onSuccess,
 }: EmailBindDialogProps) {
   const { t } = useTranslation()
+  const { isCaptchaEnabled, providers } = useCaptcha()
+  const [captchaDialogOpen, setCaptchaDialogOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [sendingCode, setSendingCode] = useState(false)
   const [email, setEmail] = useState('')
@@ -60,15 +64,10 @@ export function EmailBindDialog({
     initialSeconds: 60,
   })
 
-  const handleSendCode = async () => {
-    if (!email || !email.includes('@')) {
-      toast.error(t('Please enter a valid email address'))
-      return
-    }
-
+  const doSendCode = async (captchaToken?: string, captchaProvider?: string) => {
     try {
       setSendingCode(true)
-      const response = await sendEmailVerification(email)
+      const response = await sendEmailVerification(email, captchaToken, captchaProvider)
 
       if (response.success) {
         toast.success(t('Verification code sent! Please check your email.'))
@@ -81,6 +80,20 @@ export function EmailBindDialog({
     } finally {
       setSendingCode(false)
     }
+  }
+
+  const handleSendCode = async () => {
+    if (!email || !email.includes('@')) {
+      toast.error(t('Please enter a valid email address'))
+      return
+    }
+
+    if (isCaptchaEnabled) {
+      setCaptchaDialogOpen(true)
+      return
+    }
+
+    await doSendCode()
   }
 
   const handleBind = async () => {
@@ -124,80 +137,93 @@ export function EmailBindDialog({
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={handleOpenChange}
-      title={t('Bind Email')}
-      description={
-        currentEmail
-          ? t('Current email: {{email}}. Enter a new email to change.', {
-              email: currentEmail,
-            })
-          : t('Bind an email address to your account.')
-      }
-      contentClassName='sm:max-w-md'
-      contentHeight='auto'
-      bodyClassName='space-y-4'
-      footer={
-        <>
-          <Button
-            type='button'
-            variant='outline'
-            onClick={() => handleOpenChange(false)}
-            disabled={loading}
-          >
-            {t('Cancel')}
-          </Button>
-          <Button
-            type='button'
-            onClick={handleBind}
-            disabled={loading || !email || !code}
-          >
-            {loading && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-            {loading ? t('Binding...') : t('Bind Email')}
-          </Button>
-        </>
-      }
-    >
-      <div className='space-y-4 py-4'>
-        <div className='space-y-2'>
-          <Label htmlFor='email'>{t('Email Address')}</Label>
-          <Input
-            id='email'
-            type='email'
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder={t('Enter your email')}
-            disabled={loading}
-          />
-        </div>
-
-        <div className='space-y-2'>
-          <Label htmlFor='code'>{t('Verification Code')}</Label>
-          <div className='flex gap-2'>
-            <Input
-              id='code'
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder={t('Enter code')}
-              disabled={loading}
-              maxLength={6}
-            />
+    <>
+      <Dialog
+        open={open}
+        onOpenChange={handleOpenChange}
+        title={t('Bind Email')}
+        description={
+          currentEmail
+            ? t('Current email: {{email}}. Enter a new email to change.', {
+                email: currentEmail,
+              })
+            : t('Bind an email address to your account.')
+        }
+        contentClassName='sm:max-w-md'
+        contentHeight='auto'
+        bodyClassName='space-y-4'
+        footer={
+          <>
             <Button
               type='button'
               variant='outline'
-              onClick={handleSendCode}
-              disabled={sendingCode || isActive || !email}
+              onClick={() => handleOpenChange(false)}
+              disabled={loading}
             >
-              {isActive
-                ? `${secondsLeft}s`
-                : sendingCode
-                  ? t('Sending...')
-                  : t('Send')}
+              {t('Cancel')}
             </Button>
+            <Button
+              type='button'
+              onClick={handleBind}
+              disabled={loading || !email || !code}
+            >
+              {loading && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+              {loading ? t('Binding...') : t('Bind Email')}
+            </Button>
+          </>
+        }
+      >
+        <div className='space-y-4 py-4'>
+          <div className='space-y-2'>
+            <Label htmlFor='email'>{t('Email Address')}</Label>
+            <Input
+              id='email'
+              type='email'
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder={t('Enter your email')}
+              disabled={loading}
+            />
+          </div>
+
+          <div className='space-y-2'>
+            <Label htmlFor='code'>{t('Verification Code')}</Label>
+            <div className='flex gap-2'>
+              <Input
+                id='code'
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder={t('Enter code')}
+                disabled={loading}
+                maxLength={6}
+              />
+              <Button
+                type='button'
+                variant='outline'
+                onClick={handleSendCode}
+                disabled={sendingCode || isActive || !email}
+              >
+                {isActive
+                  ? `${secondsLeft}s`
+                  : sendingCode
+                    ? t('Sending...')
+                    : t('Send')}
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
-    </Dialog>
+      </Dialog>
+
+      <CaptchaDialog
+        open={captchaDialogOpen}
+        onOpenChange={setCaptchaDialogOpen}
+        providers={providers}
+        onVerified={(token, provider) => {
+          setCaptchaDialogOpen(false)
+          void doSendCode(token, provider)
+        }}
+      />
+    </>
   )
 }
+
