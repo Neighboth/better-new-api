@@ -403,12 +403,12 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			ticketPublicRoute.GET("/config", controller.GetTicketConfig)
 			ticketPublicRoute.GET("/ws", controller.TicketWebSocket)
+			ticketPublicRoute.GET("/", middleware.TryUserAuth(), controller.GetUserTickets)
 		}
 
 		ticketRoute := apiRouter.Group("/ticket")
 		ticketRoute.Use(middleware.UserAuth())
 		{
-			ticketRoute.GET("/", controller.GetUserTickets)
 			ticketRoute.POST("/", controller.CreateTicket)
 			ticketRoute.GET("/:id", controller.GetTicketDetail)
 			ticketRoute.POST("/:id/message", controller.AddTicketMessage)

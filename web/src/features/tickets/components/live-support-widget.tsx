@@ -51,12 +51,14 @@ export function LiveSupportWidget() {
     staleTime: 60 * 1000,
   })
 
-  const isEnabled = configResp?.data?.enabled && configResp?.data?.live_support_enabled
+  const isEnabled = Boolean(
+    configResp?.data?.enabled && configResp?.data?.live_support_enabled
+  )
 
   const { data: userTicketsResp, refetch: refetchTickets } = useQuery({
     queryKey: ['user-tickets-quick'],
     queryFn: () => getUserTickets({ page: 1, pageSize: 3, status: 'open' }),
-    enabled: isEnabled && !!auth.user && open,
+    enabled: Boolean(isEnabled && auth.user && open),
   })
 
   if (!isEnabled) {

@@ -51,6 +51,7 @@ export async function getUserTickets(params: {
       status: params.status,
       search: params.search,
     },
+    skipErrorHandler: true,
   })
   return res.data
 }

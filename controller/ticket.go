@@ -35,6 +35,16 @@ func GetUserTickets(c *gin.Context) {
 	}
 
 	userId := c.GetInt("id")
+	if userId == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"items": []*model.Ticket{},
+				"total": int64(0),
+			},
+		})
+		return
+	}
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	status := c.Query("status")

@@ -118,15 +118,20 @@ api.interceptors.response.use(
         }
 
         if (outcome.kind === 'anonymous' || outcome.kind === 'out_of_sync') {
-          if (!skipErrorHandler) toast.error(t('Session expired!'))
-          redirectToSignIn()
+          const hadSession = Boolean(useAuthStore.getState().auth.user)
+          if (!skipErrorHandler && hadSession) toast.error(t('Session expired!'))
+          if (hadSession) redirectToSignIn()
         }
       } else if (config?.authRetry) {
+        const hadSession = Boolean(useAuthStore.getState().auth.user)
         clearAuthentication(false)
-        if (!skipErrorHandler) toast.error(t('Session expired!'))
-        redirectToSignIn()
+        if (!skipErrorHandler && hadSession) toast.error(t('Session expired!'))
+        if (hadSession) redirectToSignIn()
       } else if (!skipErrorHandler) {
-        toast.error(t('Session expired!'))
+        const hadSession = Boolean(useAuthStore.getState().auth.user)
+        if (hadSession) {
+          toast.error(t('Session expired!'))
+        }
       }
     } else if (!skipErrorHandler) {
       const messageKey = getServerErrorMessageKey(error)
