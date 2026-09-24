@@ -38,9 +38,17 @@ func upgradeBlogPostColumns() error {
 		return nil
 	}
 	if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
+		colTypes, err := DB.Migrator().ColumnTypes("blog_posts")
+		if err != nil {
+			return nil
+		}
+		existingCols := make(map[string]bool)
+		for _, ct := range colTypes {
+			existingCols[strings.ToLower(ct.Name())] = true
+		}
 		cols := []string{"content", "contents", "summary", "summaries", "titles", "tags_list", "seo_descriptions"}
 		for _, col := range cols {
-			if DB.Migrator().HasColumn("blog_posts", col) {
+			if existingCols[strings.ToLower(col)] {
 				_ = DB.Exec(fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s LONGTEXT", quoteBlogIdent("blog_posts"), quoteBlogIdent(col))).Error
 			}
 		}
