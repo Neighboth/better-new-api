@@ -1151,3 +1151,43 @@ func CountChannelsGroupByType() (map[int64]int64, error) {
 	}
 	return counts, nil
 }
+
+type ChannelCleanupResult struct {
+	OrphanAbilitiesRemoved int64 `json:"orphan_abilities_removed"`
+	ChannelsSynchronized   int64 `json:"channels_synchronized"`
+}
+
+func CleanupChannelRemnants() (*ChannelCleanupResult, error) {
+	res := &ChannelCleanupResult{}
+
+	var channelIDs []int
+	if err := DB.Model(&Channel{}).Pluck("id", &channelIDs).Error; err != nil {
+		return nil, err
+	}
+
+	if len(channelIDs) == 0 {
+		delResult := DB.Where("1 = 1").Delete(&Ability{})
+		res.OrphanAbilitiesRemoved = delResult.RowsAffected
+	} else {
+		delResult := DB.Where("channel_id NOT IN ? OR channel_id <= 0", channelIDs).Delete(&Ability{})
+		res.OrphanAbilitiesRemoved = delResult.RowsAffected
+	}
+
+	var disabledIDs []int
+	_ = DB.Model(&Channel{}).Where("status != ?", common.ChannelStatusEnabled).Pluck("id", &disabledIDs)
+	if len(disabledIDs) > 0 {
+		syncResult := DB.Model(&Ability{}).Where("channel_id IN ? AND enabled = ?", disabledIDs, true).Update("enabled", false)
+		res.ChannelsSynchronized += syncResult.RowsAffected
+	}
+
+	var enabledIDs []int
+	_ = DB.Model(&Channel{}).Where("status = ?", common.ChannelStatusEnabled).Pluck("id", &enabledIDs)
+	if len(enabledIDs) > 0 {
+		syncResult := DB.Model(&Ability{}).Where("channel_id IN ? AND enabled = ?", enabledIDs, false).Update("enabled", true)
+		res.ChannelsSynchronized += syncResult.RowsAffected
+	}
+
+	InitChannelCache()
+
+	return res, nil
+}

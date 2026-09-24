@@ -38,6 +38,7 @@ import { StaticDataTable } from '@/components/data-table'
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { GroupBadge } from '@/components/group-badge'
 import { PublicLayout } from '@/components/layout'
+import { Markdown } from '@/components/ui/markdown'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -554,9 +555,9 @@ function ModelHeader(props: { model: PricingModel }) {
         <ModelBillingModeBadge model={model} />
       </div>
       {description && (
-        <p className='text-muted-foreground mt-2 text-sm leading-relaxed'>
-          {description}
-        </p>
+        <div className='text-muted-foreground mt-2 text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none'>
+          <Markdown>{description}</Markdown>
+        </div>
       )}
     </header>
   )

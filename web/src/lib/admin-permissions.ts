@@ -31,6 +31,7 @@ export const ADMIN_PERMISSION_RESOURCES = {
   REDEMPTION: 'redemption',
   SUBSCRIPTION: 'subscription',
   SYSTEM_SETTING: 'system_setting',
+  TICKET: 'ticket',
 } as const
 
 export const ADMIN_PERMISSION_ACTIONS = {

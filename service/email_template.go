@@ -121,6 +121,234 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
 </body>
 </html>`,
 		},
+		"system_error": {
+			Subject: "{{system_name}} - Kritik Sistem Hatası Uyarısı",
+			Body: `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{system_name}} Sistem Hatası</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
+          <tr>
+            <td style="background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%); padding: 32px 40px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px;">
+              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #b91c1c;">⚠️ Sistem Hatası Bildirimi</h2>
+              <p style="margin: 0 0 20px 0; font-size: 15px; line-height: 24px; color: #475569;">
+                Sisteminizde beklenmeyen bir hata tespit edildi. Ayrıntılar aşağıdadır:
+              </p>
+              <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin-bottom: 24px; font-family: monospace; font-size: 14px; color: #991b1b; white-space: pre-wrap; word-break: break-all;">
+                {{error_message}}
+              </div>
+              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #64748b;">
+                Tarih: {{time}}
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
+              © {{year}} {{system_name}}. Tüm hakları saklıdır.<br>
+              Bu otomatik bir sistem bildirimidir.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
+		},
+		"quota_warning": {
+			Subject: "{{system_name}} - Bakiye / Kota Uyarısı",
+			Body: `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{system_name}} Kota Uyarısı</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
+          <tr>
+            <td style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); padding: 32px 40px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px;">
+              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #d97706;">Kotanız Tükenmek Üzere</h2>
+              <p style="margin: 0 0 20px 0; font-size: 15px; line-height: 24px; color: #475569;">
+                Merhaba <strong>{{user_name}}</strong>,<br>
+                {{system_name}} hesabınızdaki kullanılabilir bakiye/kota belirlediğiniz eşiğin altına inmiştir.
+              </p>
+              <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 24px;">
+                <span style="font-size: 14px; color: #92400e;">Kalan Bakiye:</span><br>
+                <span style="font-size: 24px; font-weight: 700; color: #b45309;">{{quota_remaining}}</span>
+              </div>
+              <div style="text-align: center; margin: 24px 0;">
+                <a href="{{topup_link}}" target="_blank" style="display: inline-block; background-color: #d97706; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 12px 28px; border-radius: 8px;">Bakiye Yükle</a>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
+              © {{year}} {{system_name}}. Tüm hakları saklıdır.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
+		},
+		"ticket_created": {
+			Subject: "{{system_name}} - Yeni Destek Talebi #{{ticket_id}}: {{ticket_title}}",
+			Body: `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{system_name}} Yeni Destek Talebi</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
+          <tr>
+            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px;">
+              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">Yeni Destek Talebi #{{ticket_id}}</h2>
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
+                <tr><td style="padding: 6px 0; color: #64748b;">Başlık:</td><td style="padding: 6px 0; font-weight: 600;">{{ticket_title}}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Kullanıcı:</td><td style="padding: 6px 0;">{{user_name}} ({{user_email}})</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Kategori:</td><td style="padding: 6px 0;">{{category}}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Öncelik:</td><td style="padding: 6px 0;">{{priority}}</td></tr>
+              </table>
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 24px; font-size: 14px; line-height: 22px; color: #334155; white-space: pre-wrap;">
+                {{message}}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
+              © {{year}} {{system_name}}. Tüm hakları saklıdır.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
+		},
+		"ticket_replied": {
+			Subject: "{{system_name}} - Destek Talebinize Yanıt Verildi #{{ticket_id}}",
+			Body: `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{system_name}} Destek Talebi Yanıtı</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
+          <tr>
+            <td style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 32px 40px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px;">
+              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #059669;">Talebiniz Yanıtlandı</h2>
+              <p style="margin: 0 0 16px 0; font-size: 15px; line-height: 24px; color: #475569;">
+                <strong>#{{ticket_id}}</strong> numaralı (<strong>{{ticket_title}}</strong>) destek talebiniz destek ekibimiz tarafından yanıtlandı:
+              </p>
+              <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin-bottom: 24px; font-size: 14px; line-height: 22px; color: #166534; white-space: pre-wrap;">
+                {{reply_message}}
+              </div>
+              <div style="text-align: center; margin: 24px 0;">
+                <a href="{{dashboard_link}}" target="_blank" style="display: inline-block; background-color: #059669; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 12px 28px; border-radius: 8px;">Talebi Görüntüle</a>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
+              © {{year}} {{system_name}}. Tüm hakları saklıdır.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
+		},
+		"channel_disabled": {
+			Subject: "{{system_name}} - Kanal Devre Dışı Bırakıldı (Kanal #{{channel_id}})",
+			Body: `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{system_name}} Kanal Devre Dışı</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
+          <tr>
+            <td style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding: 32px 40px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px;">
+              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #ea580c;">Kanal Otomatik Olarak Kapatıldı</h2>
+              <p style="margin: 0 0 20px 0; font-size: 15px; line-height: 24px; color: #475569;">
+                Aşağıdaki kanal ardışık hatalar veya otomatik engelleme kuralları nedeniyle devre dışı bırakılmıştır:
+              </p>
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
+                <tr><td style="padding: 6px 0; color: #64748b;">Kanal ID:</td><td style="padding: 6px 0; font-weight: 600;">#{{channel_id}}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Kanal Adı:</td><td style="padding: 6px 0; font-weight: 600;">{{channel_name}}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Neden:</td><td style="padding: 6px 0; color: #b91c1c;">{{reason}}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Zaman:</td><td style="padding: 6px 0;">{{time}}</td></tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
+              © {{year}} {{system_name}}. Tüm hakları saklıdır.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
+		},
 	},
 	"en": {
 		"verification": {
@@ -218,6 +446,234 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
             <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
               © {{year}} {{system_name}}. All rights reserved.<br>
               This is an automated security notification. Please do not reply to this email.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
+		},
+		"system_error": {
+			Subject: "{{system_name}} - Critical System Error Alert",
+			Body: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{system_name}} System Error</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
+          <tr>
+            <td style="background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%); padding: 32px 40px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px;">
+              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #b91c1c;">⚠️ System Error Notification</h2>
+              <p style="margin: 0 0 20px 0; font-size: 15px; line-height: 24px; color: #475569;">
+                An unexpected system error was encountered. Details are below:
+              </p>
+              <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin-bottom: 24px; font-family: monospace; font-size: 14px; color: #991b1b; white-space: pre-wrap; word-break: break-all;">
+                {{error_message}}
+              </div>
+              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #64748b;">
+                Timestamp: {{time}}
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
+              © {{year}} {{system_name}}. All rights reserved.<br>
+              This is an automated system notification.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
+		},
+		"quota_warning": {
+			Subject: "{{system_name}} - Quota / Balance Warning",
+			Body: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{system_name}} Quota Warning</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
+          <tr>
+            <td style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); padding: 32px 40px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px;">
+              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #d97706;">Low Balance Warning</h2>
+              <p style="margin: 0 0 20px 0; font-size: 15px; line-height: 24px; color: #475569;">
+                Hello <strong>{{user_name}}</strong>,<br>
+                Your available balance/quota on {{system_name}} has fallen below your warning threshold.
+              </p>
+              <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 24px;">
+                <span style="font-size: 14px; color: #92400e;">Remaining Quota:</span><br>
+                <span style="font-size: 24px; font-weight: 700; color: #b45309;">{{quota_remaining}}</span>
+              </div>
+              <div style="text-align: center; margin: 24px 0;">
+                <a href="{{topup_link}}" target="_blank" style="display: inline-block; background-color: #d97706; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 12px 28px; border-radius: 8px;">Top Up Balance</a>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
+              © {{year}} {{system_name}}. All rights reserved.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
+		},
+		"ticket_created": {
+			Subject: "{{system_name}} - New Support Ticket #{{ticket_id}}: {{ticket_title}}",
+			Body: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{system_name}} New Ticket</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
+          <tr>
+            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px;">
+              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">New Support Ticket #{{ticket_id}}</h2>
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
+                <tr><td style="padding: 6px 0; color: #64748b;">Title:</td><td style="padding: 6px 0; font-weight: 600;">{{ticket_title}}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">User:</td><td style="padding: 6px 0;">{{user_name}} ({{user_email}})</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Category:</td><td style="padding: 6px 0;">{{category}}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Priority:</td><td style="padding: 6px 0;">{{priority}}</td></tr>
+              </table>
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 24px; font-size: 14px; line-height: 22px; color: #334155; white-space: pre-wrap;">
+                {{message}}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
+              © {{year}} {{system_name}}. All rights reserved.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
+		},
+		"ticket_replied": {
+			Subject: "{{system_name}} - Reply to Ticket #{{ticket_id}}: {{ticket_title}}",
+			Body: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{system_name}} Ticket Reply</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
+          <tr>
+            <td style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 32px 40px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px;">
+              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #059669;">Your Ticket Has a New Reply</h2>
+              <p style="margin: 0 0 16px 0; font-size: 15px; line-height: 24px; color: #475569;">
+                Support team has replied to your ticket <strong>#{{ticket_id}}</strong> (<strong>{{ticket_title}}</strong>):
+              </p>
+              <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin-bottom: 24px; font-size: 14px; line-height: 22px; color: #166534; white-space: pre-wrap;">
+                {{reply_message}}
+              </div>
+              <div style="text-align: center; margin: 24px 0;">
+                <a href="{{dashboard_link}}" target="_blank" style="display: inline-block; background-color: #059669; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 12px 28px; border-radius: 8px;">View Ticket</a>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
+              © {{year}} {{system_name}}. All rights reserved.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
+		},
+		"channel_disabled": {
+			Subject: "{{system_name}} - Channel Disabled Alert (Channel #{{channel_id}})",
+			Body: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{system_name}} Channel Disabled</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
+          <tr>
+            <td style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding: 32px 40px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px;">
+              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #ea580c;">Channel Automatically Disabled</h2>
+              <p style="margin: 0 0 20px 0; font-size: 15px; line-height: 24px; color: #475569;">
+                The following channel has been automatically disabled due to consecutive errors:
+              </p>
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
+                <tr><td style="padding: 6px 0; color: #64748b;">Channel ID:</td><td style="padding: 6px 0; font-weight: 600;">#{{channel_id}}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Channel Name:</td><td style="padding: 6px 0; font-weight: 600;">{{channel_name}}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Reason:</td><td style="padding: 6px 0; color: #b91c1c;">{{reason}}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Timestamp:</td><td style="padding: 6px 0;">{{time}}</td></tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
+              © {{year}} {{system_name}}. All rights reserved.
             </td>
           </tr>
         </table>

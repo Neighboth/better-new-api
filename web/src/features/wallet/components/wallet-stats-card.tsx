@@ -28,6 +28,12 @@ import type { UserWalletData } from '../types'
 interface WalletStatsCardProps {
   user: UserWalletData | null
   loading?: boolean
+  enabledBillingTypes?: {
+    requests?: boolean
+    tokens?: boolean
+    subscription?: boolean
+    wallet?: boolean
+  }
 }
 
 export function WalletStatsCard(props: WalletStatsCardProps) {
@@ -53,27 +59,39 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     icon: typeof WalletCards
     tone: IconBadgeTone
   }[] = [
-    {
-      label: t('Current Balance'),
-      value: formatQuota(props.user?.quota ?? 0),
-      description: t('Standard wallet quota'),
-      icon: WalletCards,
-      tone: 'success',
-    },
-    {
-      label: t('Requests Pool'),
-      value: (props.user?.requests_balance ?? 0).toLocaleString(),
-      description: t('Remaining API requests'),
-      icon: MessageSquareCode,
-      tone: 'chart-1',
-    },
-    {
-      label: t('Tokens Pool'),
-      value: (props.user?.tokens_balance ?? 0).toLocaleString(),
-      description: t('Remaining token balance'),
-      icon: Coins,
-      tone: 'warning',
-    },
+    ...(props.enabledBillingTypes?.wallet !== false
+      ? [
+          {
+            label: t('Current Balance'),
+            value: formatQuota(props.user?.quota ?? 0),
+            description: t('Standard wallet quota'),
+            icon: WalletCards,
+            tone: 'success' as IconBadgeTone,
+          },
+        ]
+      : []),
+    ...(props.enabledBillingTypes?.requests !== false
+      ? [
+          {
+            label: t('Requests Pool'),
+            value: (props.user?.requests_balance ?? 0).toLocaleString(),
+            description: t('Remaining API requests'),
+            icon: MessageSquareCode,
+            tone: 'chart-1' as IconBadgeTone,
+          },
+        ]
+      : []),
+    ...(props.enabledBillingTypes?.tokens !== false
+      ? [
+          {
+            label: t('Tokens Pool'),
+            value: (props.user?.tokens_balance ?? 0).toLocaleString(),
+            description: t('Remaining token balance'),
+            icon: Coins,
+            tone: 'warning' as IconBadgeTone,
+          },
+        ]
+      : []),
     {
       label: t('Total Usage'),
       value: formatQuota(props.user?.used_quota ?? 0),
@@ -91,7 +109,10 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   ]
 
   return (
-    <div className='grid grid-cols-2 md:grid-cols-5 divide-x divide-y md:divide-y-0 rounded-lg border'>
+    <div
+      className='grid grid-cols-2 divide-x divide-y md:divide-y-0 rounded-lg border'
+      style={{ gridTemplateColumns: `repeat(${stats.length}, minmax(0, 1fr))` }}
+    >
       {stats.map((item) => (
         <div key={item.label} className='min-w-0 px-2.5 py-2.5 sm:px-5 sm:py-4'>
           <div className='flex items-center gap-1.5 sm:gap-2.5'>

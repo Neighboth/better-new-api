@@ -29,12 +29,15 @@ import {
   SortAsc,
   RefreshCw,
   ArrowUpFromLine,
+  Eraser,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
+import { api } from '@/lib/api'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -83,6 +86,8 @@ export function ChannelsPrimaryButtons() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showConsistencyDialog, setShowConsistencyDialog] = useState(false)
   const [isRepairingConsistency, setIsRepairingConsistency] = useState(false)
+  const [showCleanupDialog, setShowCleanupDialog] = useState(false)
+  const [isCleaningUp, setIsCleaningUp] = useState(false)
   const currentUser = useAuthStore((s) => s.auth.user)
   const canEditSensitive = hasPermission(
     currentUser,
@@ -146,6 +151,29 @@ export function ChannelsPrimaryButtons() {
             onCheckedChange={handleIdSortToggle}
           />
         </div>
+
+        {/* Temizlik Button */}
+        <Tooltip>
+          <TooltipTrigger render={<span className='inline-flex' />}>
+            <Button
+              variant='outline'
+              onClick={() => {
+                if (!canEditSensitive) return
+                setShowCleanupDialog(true)
+              }}
+              size='sm'
+              disabled={!canEditSensitive}
+            >
+              <Eraser className='h-4 w-4' />
+              <span className='max-sm:hidden'>{t('Temizlik')}</span>
+            </Button>
+          </TooltipTrigger>
+          {!canEditSensitive && (
+            <TooltipContent>
+              {t('No permission to perform this action')}
+            </TooltipContent>
+          )}
+        </Tooltip>
 
         {/* Create Channel */}
         <Tooltip>
@@ -271,6 +299,22 @@ export function ChannelsPrimaryButtons() {
               onSelect={(e) => {
                 e.preventDefault()
                 if (!canEditSensitive) return
+                setShowCleanupDialog(true)
+              }}
+              disabled={!canEditSensitive}
+            >
+              {t('Temizlik (Kalıntıları Temizle)')}
+              <DropdownMenuShortcut>
+                <Eraser className='h-4 w-4' />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault()
+                if (!canEditSensitive) return
                 setShowDeleteDialog(true)
               }}
               disabled={!canEditSensitive}
@@ -322,6 +366,34 @@ export function ChannelsPrimaryButtons() {
             setShowConsistencyDialog(false)
           } finally {
             setIsRepairingConsistency(false)
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={showCleanupDialog}
+        onOpenChange={setShowCleanupDialog}
+        title={t('Kanal Kalıntılarını Temizle')}
+        desc={t(
+          'Bu işlem, silinmiş kanallara ait veritabanında kalmış yetenek (abilities) ve kanal ayarları (channel_settings) gibi yetim kayıtları temizler. Devam etmek istiyor musunuz?'
+        )}
+        confirmText={t('Temizle')}
+        isLoading={isCleaningUp}
+        handleConfirm={async () => {
+          setIsCleaningUp(true)
+          try {
+            const res = await api.post('/api/channel/cleanup')
+            if (res.data?.success) {
+              toast.success(res.data.message || t('Kanal kalıntıları başarıyla temizlendi'))
+              void queryClient.invalidateQueries({ queryKey: ['channels'] })
+              setShowCleanupDialog(false)
+            } else {
+              toast.error(res.data?.message || t('Temizlik işlemi başarısız'))
+            }
+          } catch (err: any) {
+            toast.error(err?.response?.data?.message || t('Temizlik işlemi başarısız'))
+          } finally {
+            setIsCleaningUp(false)
           }
         }}
       />

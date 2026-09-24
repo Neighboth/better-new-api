@@ -45,6 +45,7 @@ import type { NavGroup, SidebarData } from '@/components/layout/types'
 import { buildCustomNavUrl, useCustomNavItems } from '@/hooks/use-custom-nav-items'
 import { ADMIN_PERMISSION_RESOURCES } from '@/lib/admin-permissions'
 import { ROLE } from '@/lib/roles'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -55,6 +56,9 @@ import { ROLE } from '@/lib/roles'
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
   const customNavItems = useCustomNavItems()
+  const ticketEnabled = useSystemConfigStore(
+    (state) => state.config.ticketEnabled ?? true
+  )
 
   const navGroups: NavGroup[] = [
     {
@@ -120,11 +124,23 @@ export function useSidebarData(): SidebarData {
           url: '/profile',
           icon: User,
         },
-        {
-          title: t('Support Tickets'),
-          url: '/tickets',
-          icon: LifeBuoy,
-        },
+        ...(ticketEnabled
+          ? [
+              {
+                title: t('Support Tickets'),
+                url: '/tickets' as const,
+                icon: LifeBuoy,
+              },
+              {
+                title: t('Live Support'),
+                url: '#' as const,
+                icon: Headphones,
+                onClick: () => {
+                  window.dispatchEvent(new CustomEvent('open-live-support'))
+                },
+              },
+            ]
+          : []),
       ],
     },
     {
@@ -185,12 +201,19 @@ export function useSidebarData(): SidebarData {
             action: 'read',
           },
         },
-        {
-          title: t('Ticket Management'),
-          url: '/admin-tickets',
-          icon: Headphones,
-          requiredRole: ROLE.ADMIN,
-        },
+        ...(ticketEnabled
+          ? [
+              {
+                title: t('Ticket Management'),
+                url: '/admin-tickets' as const,
+                icon: Headphones,
+                requiredPermission: {
+                  resource: ADMIN_PERMISSION_RESOURCES.TICKET,
+                  action: 'read',
+                },
+              },
+            ]
+          : []),
         {
           title: t('Reseller'),
           url: '/reseller',

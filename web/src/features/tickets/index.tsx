@@ -18,12 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import dayjs from 'dayjs'
 import {
-  CheckCircle2,
-  Clock,
-  Headphones,
+  Download,
   LifeBuoy,
   Loader2,
-  MessageSquare,
   Plus,
   Search,
 } from 'lucide-react'
@@ -32,7 +29,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import {
   Table,
@@ -43,7 +40,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 
-import { getUserTickets } from './api'
+import { downloadTicketTranscript, getUserTickets } from './api'
 import { CreateTicketDialog } from './components/create-ticket-dialog'
 import {
   TicketCategoryBadge,
@@ -96,7 +93,7 @@ export function UserTicketsPage() {
 
   if (selectedTicketId !== null) {
     return (
-      <div className='container mx-auto p-4 md:p-6'>
+      <div className='h-full flex-1 overflow-y-auto p-4 md:p-6'>
         <TicketDetailView
           ticketId={selectedTicketId}
           onBack={() => {
@@ -108,12 +105,8 @@ export function UserTicketsPage() {
     )
   }
 
-  const openCount = tickets.filter((tk) => tk.status === 'open').length
-  const answeredCount = tickets.filter((tk) => tk.status === 'answered').length
-  const closedCount = tickets.filter((tk) => tk.status === 'closed').length
-
   return (
-    <div className='container mx-auto space-y-6 p-4 md:p-6'>
+    <div className='h-full flex-1 overflow-y-auto space-y-6 p-4 md:p-6'>
       {/* Page Header */}
       <div className='flex flex-wrap items-center justify-between gap-4'>
         <div>
@@ -132,49 +125,6 @@ export function UserTicketsPage() {
         </Button>
       </div>
 
-      {/* Overview Cards */}
-      <div className='grid gap-4 md:grid-cols-4'>
-        <Card>
-          <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-            <CardTitle className='text-sm font-medium'>{t('Total Tickets')}</CardTitle>
-            <MessageSquare className='h-4 w-4 text-muted-foreground' />
-          </CardHeader>
-          <CardContent>
-            <div className='text-2xl font-bold'>{total}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-            <CardTitle className='text-sm font-medium'>{t('Open Tickets')}</CardTitle>
-            <Clock className='h-4 w-4 text-amber-500' />
-          </CardHeader>
-          <CardContent>
-            <div className='text-2xl font-bold text-amber-500'>{openCount}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-            <CardTitle className='text-sm font-medium'>{t('Answered')}</CardTitle>
-            <Headphones className='h-4 w-4 text-emerald-500' />
-          </CardHeader>
-          <CardContent>
-            <div className='text-2xl font-bold text-emerald-500'>{answeredCount}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-            <CardTitle className='text-sm font-medium'>{t('Closed')}</CardTitle>
-            <CheckCircle2 className='h-4 w-4 text-muted-foreground' />
-          </CardHeader>
-          <CardContent>
-            <div className='text-2xl font-bold text-muted-foreground'>{closedCount}</div>
-          </CardContent>
-        </Card>
-      </div>
-
       {/* Filters and Search Bar */}
       <Card>
         <CardHeader className='py-4 px-6 border-b'>
@@ -184,7 +134,6 @@ export function UserTicketsPage() {
                 { id: 'all', label: t('All') },
                 { id: 'open', label: t('Open') },
                 { id: 'answered', label: t('Answered') },
-                { id: 'waiting_user', label: t('Waiting for User') },
                 { id: 'closed', label: t('Closed') },
               ].map((tab) => (
                 <Button
@@ -247,7 +196,7 @@ export function UserTicketsPage() {
                   <TableHead className='w-[100px]'>{t('Priority')}</TableHead>
                   <TableHead className='w-[120px]'>{t('Status')}</TableHead>
                   <TableHead className='w-[160px]'>{t('Last Updated')}</TableHead>
-                  <TableHead className='w-[100px] text-right'>{t('Action')}</TableHead>
+                  <TableHead className='w-[120px] text-right'>{t('Action')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -276,16 +225,32 @@ export function UserTicketsPage() {
                       {dayjs(tk.last_reply_at * 1000).format('YYYY-MM-DD HH:mm')}
                     </TableCell>
                     <TableCell className='text-right'>
-                      <Button
-                        variant='ghost'
-                        size='sm'
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setSelectedTicketId(tk.id)
-                        }}
-                      >
-                        {t('View')}
-                      </Button>
+                      <div className='flex items-center justify-end gap-1' onClick={(e) => e.stopPropagation()}>
+                        {tk.status === 'closed' && (
+                          <Button
+                            variant='ghost'
+                            size='icon'
+                            className='h-8 w-8'
+                            title={t('Download Transcript')}
+                            onClick={async () => {
+                              try {
+                                await downloadTicketTranscript(tk.id)
+                              } catch {
+                                toast.error(t('Failed to download transcript'))
+                              }
+                            }}
+                          >
+                            <Download className='h-4 w-4' />
+                          </Button>
+                        )}
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          onClick={() => setSelectedTicketId(tk.id)}
+                        >
+                          {t('View')}
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -465,4 +466,148 @@ func AdminDeleteTicket(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 	})
+}
+
+func DownloadTicketTranscript(c *gin.Context) {
+	ticketId, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid ticket ID"})
+		return
+	}
+	userId := c.GetInt("id")
+	userRole := c.GetInt("role")
+
+	ticket, err := model.GetTicketById(ticketId)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Ticket not found"})
+		return
+	}
+	if userRole < common.RoleAdminUser && ticket.UserId != userId {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "Access denied"})
+		return
+	}
+	messages, err := model.GetTicketMessages(ticketId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	transcript := model.GenerateTicketTranscript(ticket, messages)
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="ticket-%d-transcript.md"`, ticketId))
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(transcript))
+}
+
+func AdminDeleteTicketPermanently(c *gin.Context) {
+	ticketId, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid ticket ID"})
+		return
+	}
+	if err := model.DeleteTicketPermanently(ticketId); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+type CreateGuestTicketRequest struct {
+	Contact string `json:"contact"`
+	Content string `json:"content"`
+}
+
+func CreateGuestTicket(c *gin.Context) {
+	if !operation_setting.IsTicketEnabled() {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "Ticket system is disabled"})
+		return
+	}
+	var req CreateGuestTicketRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid request payload"})
+		return
+	}
+	req.Contact = strings.TrimSpace(req.Contact)
+	req.Content = strings.TrimSpace(req.Content)
+	if req.Contact == "" || req.Content == "" {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "İletişim bilgisi (E-posta veya Telefon) ve mesaj zorunludur."})
+		return
+	}
+	ticket, err := model.CreateGuestTicket(req.Contact, req.Content)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": ticket,
+	})
+}
+
+func GetGuestTicket(c *gin.Context) {
+	sessionKey := c.Param("sessionKey")
+	if sessionKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Missing session key"})
+		return
+	}
+	ticket, err := model.GetTicketBySessionKey(sessionKey)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Ticket not found"})
+		return
+	}
+	messages, _ := model.GetTicketMessages(ticket.Id)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"ticket":   ticket,
+			"messages": messages,
+		},
+	})
+}
+
+type AddGuestMessageRequest struct {
+	Content string `json:"content"`
+}
+
+func AddGuestTicketMessage(c *gin.Context) {
+	sessionKey := c.Param("sessionKey")
+	if sessionKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Missing session key"})
+		return
+	}
+	var req AddGuestMessageRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid request payload"})
+		return
+	}
+	req.Content = strings.TrimSpace(req.Content)
+	if req.Content == "" {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Message content cannot be empty"})
+		return
+	}
+	msg, err := model.AddGuestTicketMessage(sessionKey, req.Content, "")
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	service.GlobalTicketHub.BroadcastToTicket(msg.TicketId, "new_message", msg)
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": msg})
+}
+
+func DownloadGuestTicketTranscript(c *gin.Context) {
+	sessionKey := c.Param("sessionKey")
+	if sessionKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Missing session key"})
+		return
+	}
+	ticket, err := model.GetTicketBySessionKey(sessionKey)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Ticket not found"})
+		return
+	}
+	messages, err := model.GetTicketMessages(ticket.Id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	transcript := model.GenerateTicketTranscript(ticket, messages)
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="ticket-%d-transcript.md"`, ticket.Id))
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(transcript))
 }

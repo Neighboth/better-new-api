@@ -17,6 +17,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
@@ -354,6 +355,28 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 
 		promptQuota := baseTokens.Add(cachedTokensWithRatio).Add(imageTokensWithRatio).Add(cachedCreationTokensWithRatio)
 		completionQuota := dCompletionTokens.Mul(dCompletionRatio)
+
+		billingMode := billing_setting.GetBillingMode(summary.ModelName)
+		switch billingMode {
+		case billing_setting.BillingModeInputOnly:
+			completionQuota = decimal.Zero
+		case billing_setting.BillingModeOutputOnly:
+			promptQuota = decimal.Zero
+			audioInputQuota = decimal.Zero
+		case billing_setting.BillingModeDurationSecond:
+			seconds := math.Max(1, float64(summary.UseTimeSeconds))
+			promptQuota = decimal.NewFromFloat(seconds).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
+			completionQuota = decimal.Zero
+		case billing_setting.BillingModeDurationMinute:
+			minutes := math.Max(1.0/60.0, float64(summary.UseTimeSeconds)/60.0)
+			promptQuota = decimal.NewFromFloat(minutes).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
+			completionQuota = decimal.Zero
+		case billing_setting.BillingModeDurationHour:
+			hours := math.Max(1.0/3600.0, float64(summary.UseTimeSeconds)/3600.0)
+			promptQuota = decimal.NewFromFloat(hours).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
+			completionQuota = decimal.Zero
+		}
+
 		quotaCalculateDecimal := promptQuota.Add(completionQuota).Mul(ratio)
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(audioInputQuota)
 		quotaCalculateDecimal = relayInfo.PriceData.ApplyOtherRatiosToDecimal(quotaCalculateDecimal)
@@ -366,7 +389,20 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		summary.Quota = quota
 		noteQuotaClamp(relayInfo, clamp)
 	} else {
-		quotaCalculateDecimal := dModelPrice.Mul(dQuotaPerUnit).Mul(dGroupRatio)
+		billingMode := billing_setting.GetBillingMode(summary.ModelName)
+		durationMultiplier := decimal.NewFromInt(1)
+		switch billingMode {
+		case billing_setting.BillingModeDurationSecond:
+			seconds := math.Max(1, float64(summary.UseTimeSeconds))
+			durationMultiplier = decimal.NewFromFloat(seconds)
+		case billing_setting.BillingModeDurationMinute:
+			minutes := math.Max(1.0/60.0, float64(summary.UseTimeSeconds)/60.0)
+			durationMultiplier = decimal.NewFromFloat(minutes)
+		case billing_setting.BillingModeDurationHour:
+			hours := math.Max(1.0/3600.0, float64(summary.UseTimeSeconds)/3600.0)
+			durationMultiplier = decimal.NewFromFloat(hours)
+		}
+		quotaCalculateDecimal := dModelPrice.Mul(durationMultiplier).Mul(dQuotaPerUnit).Mul(dGroupRatio)
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(audioInputQuota)
 		quotaCalculateDecimal = relayInfo.PriceData.ApplyOtherRatiosToDecimal(quotaCalculateDecimal)
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(summary.ToolCallSurchargeQuota)

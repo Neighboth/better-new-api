@@ -58,8 +58,8 @@ const (
 	ChannelTypeAdvancedCustom = 58
 	ChannelTypeSub2API        = 59
 	ChannelTypeNewAPI         = 60
+	ChannelTypeAntigravity    = 61
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
-
 )
 
 var ChannelBaseURLs = []string{
@@ -124,6 +124,7 @@ var ChannelBaseURLs = []string{
 	"",                                          //58
 	"",                                          //59
 	"",                                          //60
+	"https://cloudcode-pa.googleapis.com",       //61
 }
 
 var ChannelTypeNames = map[int]string{
@@ -171,7 +172,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeVolcEngine:     "VolcEngine",
 	ChannelTypeBaiduV2:        "BaiduV2",
 	ChannelTypeXinference:     "Xinference",
-	ChannelTypeXai:            "xAI",
+	ChannelTypeXai:            "XAI",
 	ChannelTypeCoze:           "Coze",
 	ChannelTypeKling:          "Kling",
 	ChannelTypeJimeng:         "Jimeng",
@@ -184,6 +185,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeAdvancedCustom: "Advanced Custom",
 	ChannelTypeSub2API:        "Sub2API",
 	ChannelTypeNewAPI:         "New API",
+	ChannelTypeAntigravity:    "Google Antigravity",
 }
 
 func GetChannelTypeName(channelType int) string {

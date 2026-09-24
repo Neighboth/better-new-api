@@ -15,6 +15,7 @@ import (
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
@@ -30,13 +31,14 @@ type TokenDetails struct {
 }
 
 type QuotaInfo struct {
-	InputDetails  TokenDetails
-	OutputDetails TokenDetails
-	ModelName     string
-	UsePrice      bool
-	ModelPrice    float64
-	ModelRatio    float64
-	GroupRatio    float64
+	InputDetails   TokenDetails
+	OutputDetails  TokenDetails
+	ModelName      string
+	UsePrice       bool
+	ModelPrice     float64
+	ModelRatio     float64
+	GroupRatio     float64
+	UseTimeSeconds int64
 }
 
 func hasCustomModelRatio(modelName string, currentRatio float64) bool {
@@ -48,12 +50,26 @@ func hasCustomModelRatio(modelName string, currentRatio float64) bool {
 }
 
 func calculateAudioQuota(info QuotaInfo) (int, *common.QuotaClamp) {
+	billingMode := billing_setting.GetBillingMode(info.ModelName)
 	if info.UsePrice {
 		modelPrice := decimal.NewFromFloat(info.ModelPrice)
 		quotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
 		groupRatio := decimal.NewFromFloat(info.GroupRatio)
 
-		quota := modelPrice.Mul(quotaPerUnit).Mul(groupRatio)
+		durationMultiplier := decimal.NewFromInt(1)
+		switch billingMode {
+		case billing_setting.BillingModeDurationSecond:
+			seconds := math.Max(1, float64(info.UseTimeSeconds))
+			durationMultiplier = decimal.NewFromFloat(seconds)
+		case billing_setting.BillingModeDurationMinute:
+			minutes := math.Max(1.0/60.0, float64(info.UseTimeSeconds)/60.0)
+			durationMultiplier = decimal.NewFromFloat(minutes)
+		case billing_setting.BillingModeDurationHour:
+			hours := math.Max(1.0/3600.0, float64(info.UseTimeSeconds)/3600.0)
+			durationMultiplier = decimal.NewFromFloat(hours)
+		}
+
+		quota := modelPrice.Mul(durationMultiplier).Mul(quotaPerUnit).Mul(groupRatio)
 		return common.QuotaFromDecimalChecked(quota)
 	}
 
@@ -71,10 +87,28 @@ func calculateAudioQuota(info QuotaInfo) (int, *common.QuotaClamp) {
 	outputAudioTokens := decimal.NewFromInt(int64(info.OutputDetails.AudioTokens))
 
 	quota := decimal.Zero
-	quota = quota.Add(inputTextTokens)
-	quota = quota.Add(outputTextTokens.Mul(completionRatio))
-	quota = quota.Add(inputAudioTokens.Mul(audioRatio))
-	quota = quota.Add(outputAudioTokens.Mul(audioRatio).Mul(audioCompletionRatio))
+	switch billingMode {
+	case billing_setting.BillingModeInputOnly:
+		quota = quota.Add(inputTextTokens)
+		quota = quota.Add(inputAudioTokens.Mul(audioRatio))
+	case billing_setting.BillingModeOutputOnly:
+		quota = quota.Add(outputTextTokens.Mul(completionRatio))
+		quota = quota.Add(outputAudioTokens.Mul(audioRatio).Mul(audioCompletionRatio))
+	case billing_setting.BillingModeDurationSecond:
+		seconds := math.Max(1, float64(info.UseTimeSeconds))
+		quota = decimal.NewFromFloat(seconds).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
+	case billing_setting.BillingModeDurationMinute:
+		minutes := math.Max(1.0/60.0, float64(info.UseTimeSeconds)/60.0)
+		quota = decimal.NewFromFloat(minutes).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
+	case billing_setting.BillingModeDurationHour:
+		hours := math.Max(1.0/3600.0, float64(info.UseTimeSeconds)/3600.0)
+		quota = decimal.NewFromFloat(hours).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
+	default:
+		quota = quota.Add(inputTextTokens)
+		quota = quota.Add(outputTextTokens.Mul(completionRatio))
+		quota = quota.Add(inputAudioTokens.Mul(audioRatio))
+		quota = quota.Add(outputAudioTokens.Mul(audioRatio).Mul(audioCompletionRatio))
+	}
 
 	quota = quota.Mul(ratio)
 
@@ -320,10 +354,11 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 			TextTokens:  textOutTokens,
 			AudioTokens: audioOutTokens,
 		},
-		ModelName:  relayInfo.OriginModelName,
-		UsePrice:   usePrice,
-		ModelRatio: modelRatio,
-		GroupRatio: groupRatio,
+		ModelName:      relayInfo.OriginModelName,
+		UsePrice:       usePrice,
+		ModelRatio:     modelRatio,
+		GroupRatio:     groupRatio,
+		UseTimeSeconds: useTimeSeconds,
 	}
 
 	quota, clamp := calculateAudioQuota(quotaInfo)

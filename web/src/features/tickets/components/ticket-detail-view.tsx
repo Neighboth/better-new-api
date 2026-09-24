@@ -20,6 +20,7 @@ import dayjs from 'dayjs'
 import {
   ArrowLeft,
   CheckCircle2,
+  Download,
   Headphones,
   Loader2,
   Send,
@@ -36,7 +37,12 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { addTicketMessage, closeTicket, getTicketDetail } from '../api'
+import {
+  addTicketMessage,
+  closeTicket,
+  downloadTicketTranscript,
+  getTicketDetail,
+} from '../api'
 import type { Ticket, TicketMessage } from '../types'
 import {
   TicketCategoryBadge,
@@ -220,6 +226,22 @@ export function TicketDetailView({
           <TicketCategoryBadge category={ticket.category} />
           <TicketPriorityBadge priority={ticket.priority} />
           <TicketStatusBadge status={ticket.status} />
+
+          <Button
+            variant='outline'
+            size='sm'
+            title={t('Download Transcript')}
+            onClick={async () => {
+              try {
+                await downloadTicketTranscript(ticket.id)
+              } catch {
+                toast.error(t('Failed to download transcript'))
+              }
+            }}
+          >
+            <Download className='mr-1.5 h-3.5 w-3.5' />
+            {t('Download')}
+          </Button>
 
           {!isClosed && (
             <Button

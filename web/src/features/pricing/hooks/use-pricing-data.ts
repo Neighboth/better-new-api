@@ -51,10 +51,24 @@ export function usePricingData() {
 
   const rankMap = useMemo(() => {
     const map = new Map<string, number>()
+    const normalize = (name: string) => {
+      let n = name.trim().toLowerCase()
+      const slashIdx = n.indexOf('/')
+      if (slashIdx !== -1) {
+        n = n.substring(slashIdx + 1)
+      }
+      return n
+    }
+
     if (rankingsData?.data?.models) {
       rankingsData.data.models.forEach((m) => {
         if (m.model_name) {
-          map.set(m.model_name, m.rank)
+          const raw = m.model_name.trim().toLowerCase()
+          map.set(raw, m.rank)
+          const norm = normalize(m.model_name)
+          if (!map.has(norm)) {
+            map.set(norm, m.rank)
+          }
         }
       })
     }
@@ -66,6 +80,18 @@ export function usePricingData() {
 
     const vendorMap = new Map(data.vendors.map((v) => [v.id, v]))
 
+    const getRank = (name: string): number => {
+      if (!name) return 999999
+      const raw = name.trim().toLowerCase()
+      if (rankMap.has(raw)) return rankMap.get(raw)!
+      let norm = raw
+      const slashIdx = norm.indexOf('/')
+      if (slashIdx !== -1) {
+        norm = norm.substring(slashIdx + 1)
+      }
+      return rankMap.get(norm) ?? 999999
+    }
+
     return data.data.map((model) => {
       const vendor = model.vendor_id
         ? vendorMap.get(model.vendor_id)
@@ -73,7 +99,7 @@ export function usePricingData() {
       return {
         ...model,
         key: model.model_name,
-        rank: rankMap.get(model.model_name) ?? 999999,
+        rank: getRank(model.model_name),
         vendor_name: vendor?.name,
         vendor_icon: vendor?.icon,
         vendor_description: vendor?.description,

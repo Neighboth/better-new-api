@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Code2, Eye, ShieldAlert } from 'lucide-react'
+import { Code2, Eye, Plus, ShieldAlert, Trash2 } from 'lucide-react'
 import * as React from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -109,6 +109,7 @@ const paymentSchema = z.object({
   }, 'Provide a valid callback URL starting with http:// or https://'),
   EpayId: z.string(),
   EpayKey: z.string(),
+  EpayProviders: z.string().optional(),
   Price: z.coerce.number().min(0),
   MinTopUp: z.coerce.number().min(0),
   CustomCallbackAddress: z
@@ -439,11 +440,65 @@ export function PaymentSettingsSection({
     })
   }, [defaultsSignature, form])
 
+  const rawEpayProviders = form.watch('EpayProviders')
+  const epayProvidersList = React.useMemo<
+    { id: string; name: string; pay_address: string; partner_id: string; key: string }[]
+  >(() => {
+    try {
+      const parsed = JSON.parse(rawEpayProviders || '[]')
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }, [rawEpayProviders])
+
+  const handleAddEpayProvider = React.useCallback(() => {
+    const next = [
+      ...epayProvidersList,
+      {
+        id: `epay-${Date.now().toString(36)}`,
+        name: '',
+        pay_address: '',
+        partner_id: '',
+        key: '',
+      },
+    ]
+    form.setValue('EpayProviders', JSON.stringify(next), {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+  }, [epayProvidersList, form])
+
+  const handleRemoveEpayProvider = React.useCallback(
+    (index: number) => {
+      const next = epayProvidersList.filter((_, i) => i !== index)
+      form.setValue('EpayProviders', JSON.stringify(next), {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+    },
+    [epayProvidersList, form]
+  )
+
+  const handleUpdateEpayProvider = React.useCallback(
+    (index: number, field: string, value: string) => {
+      const next = epayProvidersList.map((p, i) =>
+        i === index ? { ...p, [field]: value } : p
+      )
+      form.setValue('EpayProviders', JSON.stringify(next), {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+    },
+    [epayProvidersList, form]
+  )
+
   const onSubmit = async (values: PaymentFormValues) => {
     const sanitized = {
       PayAddress: removeTrailingSlash(values.PayAddress),
       EpayId: values.EpayId.trim(),
       EpayKey: values.EpayKey.trim(),
+      EpayProviders: (values.EpayProviders || '').trim(),
       Price: values.Price,
       MinTopUp: values.MinTopUp,
       CustomCallbackAddress: removeTrailingSlash(values.CustomCallbackAddress),
@@ -502,6 +557,7 @@ export function PaymentSettingsSection({
       PayAddress: removeTrailingSlash(initialRef.current.PayAddress),
       EpayId: initialRef.current.EpayId.trim(),
       EpayKey: initialRef.current.EpayKey.trim(),
+      EpayProviders: (initialRef.current.EpayProviders || '').trim(),
       Price: initialRef.current.Price,
       MinTopUp: initialRef.current.MinTopUp,
       CustomCallbackAddress: removeTrailingSlash(
@@ -573,6 +629,10 @@ export function PaymentSettingsSection({
 
     if (sanitized.EpayKey && sanitized.EpayKey !== initial.EpayKey) {
       updates.push({ key: 'EpayKey', value: sanitized.EpayKey })
+    }
+
+    if (sanitized.EpayProviders !== initial.EpayProviders) {
+      updates.push({ key: 'EpayProviders', value: sanitized.EpayProviders })
     }
 
     if (sanitized.Price !== initial.Price) {
@@ -1362,6 +1422,101 @@ export function PaymentSettingsSection({
                       </FormItem>
                     )}
                   />
+                </div>
+
+                <div className='mt-8 pt-6 border-t space-y-4'>
+                  <div className='flex items-center justify-between'>
+                    <div>
+                      <h4 className='text-sm font-semibold'>{t('Multiple EPay Providers')}</h4>
+                      <p className='text-xs text-muted-foreground'>
+                        {t('Configure additional EPay merchants or payment channels for your users.')}
+                      </p>
+                    </div>
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      onClick={handleAddEpayProvider}
+                    >
+                      <Plus className='h-4 w-4 mr-1.5' />
+                      {t('Add Provider')}
+                    </Button>
+                  </div>
+
+                  {epayProvidersList.length === 0 ? (
+                    <div className='rounded-md border border-dashed p-6 text-center text-xs text-muted-foreground'>
+                      {t('No additional EPay providers configured. The default provider above will be used.')}
+                    </div>
+                  ) : (
+                    <div className='space-y-3'>
+                      {epayProvidersList.map((provider, index) => (
+                        <div key={index} className='rounded-lg border p-4 bg-muted/20 space-y-3'>
+                          <div className='flex items-center justify-between'>
+                            <span className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
+                              #{index + 1} {provider.name || provider.id || t('Provider')}
+                            </span>
+                            <Button
+                              type='button'
+                              variant='ghost'
+                              size='icon'
+                              className='h-7 w-7 text-destructive hover:bg-destructive/10'
+                              onClick={() => handleRemoveEpayProvider(index)}
+                            >
+                              <Trash2 className='h-3.5 w-3.5' />
+                            </Button>
+                          </div>
+                          <div className='grid gap-3 sm:grid-cols-2 md:grid-cols-4'>
+                            <div>
+                              <label className='text-[11px] font-medium text-muted-foreground'>{t('ID / Slug')}</label>
+                              <Input
+                                placeholder='epay-1'
+                                value={provider.id || ''}
+                                className='h-8 text-xs'
+                                onChange={(e) => handleUpdateEpayProvider(index, 'id', e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <label className='text-[11px] font-medium text-muted-foreground'>{t('Display Name')}</label>
+                              <Input
+                                placeholder='Alipay / WeChat'
+                                value={provider.name || ''}
+                                className='h-8 text-xs'
+                                onChange={(e) => handleUpdateEpayProvider(index, 'name', e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <label className='text-[11px] font-medium text-muted-foreground'>{t('Gateway URL')}</label>
+                              <Input
+                                placeholder='https://pay.example.com'
+                                value={provider.pay_address || ''}
+                                className='h-8 text-xs'
+                                onChange={(e) => handleUpdateEpayProvider(index, 'pay_address', e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <label className='text-[11px] font-medium text-muted-foreground'>{t('Merchant ID')}</label>
+                              <Input
+                                placeholder='10002'
+                                value={provider.partner_id || ''}
+                                className='h-8 text-xs'
+                                onChange={(e) => handleUpdateEpayProvider(index, 'partner_id', e.target.value)}
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className='text-[11px] font-medium text-muted-foreground'>{t('Secret Key')}</label>
+                            <Input
+                              type='password'
+                              placeholder={t('Secret Key')}
+                              value={provider.key || ''}
+                              className='h-8 text-xs'
+                              onChange={(e) => handleUpdateEpayProvider(index, 'key', e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </TabsContent>

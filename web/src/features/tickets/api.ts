@@ -125,3 +125,67 @@ export async function adminDeleteTicket(id: number): Promise<ApiResponse<void>> 
   const res = await api.delete<ApiResponse<void>>(`/api/admin/ticket/${id}`)
   return res.data
 }
+
+export async function adminPermanentDeleteTicket(id: number): Promise<ApiResponse<void>> {
+  const res = await api.delete<ApiResponse<void>>(`/api/admin/ticket/${id}/permanent`)
+  return res.data
+}
+
+export async function downloadTicketTranscript(id: number): Promise<void> {
+  const res = await api.get(`/api/ticket/${id}/transcript`, { responseType: 'blob' })
+  const blob = new Blob([res.data], { type: 'text/markdown;charset=utf-8' })
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `ticket-${id}-transcript.md`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.URL.revokeObjectURL(url)
+}
+
+// Guest Ticket APIs
+export interface GuestTicketResponse {
+  ticket: Ticket
+  messages: TicketMessage[]
+}
+
+export async function createGuestTicket(data: {
+  contact: string
+  content: string
+}): Promise<ApiResponse<Ticket>> {
+  const res = await api.post<ApiResponse<Ticket>>('/api/ticket/guest', data)
+  return res.data
+}
+
+export async function getGuestTicket(
+  sessionKey: string
+): Promise<ApiResponse<GuestTicketResponse>> {
+  const res = await api.get<ApiResponse<GuestTicketResponse>>(`/api/ticket/guest/${sessionKey}`)
+  return res.data
+}
+
+export async function addGuestTicketMessage(
+  sessionKey: string,
+  content: string
+): Promise<ApiResponse<TicketMessage>> {
+  const res = await api.post<ApiResponse<TicketMessage>>(
+    `/api/ticket/guest/${sessionKey}/message`,
+    { content }
+  )
+  return res.data
+}
+
+export async function downloadGuestTicketTranscript(sessionKey: string): Promise<void> {
+  const res = await api.get(`/api/ticket/guest/${sessionKey}/transcript`, { responseType: 'blob' })
+  const blob = new Blob([res.data], { type: 'text/markdown;charset=utf-8' })
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `guest-ticket-transcript.md`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.URL.revokeObjectURL(url)
+}
+

@@ -7,6 +7,7 @@ const (
 	ResourceRedemption    = "redemption"
 	ResourceSubscription  = "subscription"
 	ResourceSystemSetting = "system_setting"
+	ResourceTicket        = "ticket"
 
 	ActionDelete = "delete"
 )
@@ -30,6 +31,10 @@ var (
 
 	SystemSettingRead  = Permission{Resource: ResourceSystemSetting, Action: ActionRead}
 	SystemSettingWrite = Permission{Resource: ResourceSystemSetting, Action: ActionWrite}
+
+	TicketRead   = Permission{Resource: ResourceTicket, Action: ActionRead}
+	TicketWrite  = Permission{Resource: ResourceTicket, Action: ActionWrite}
+	TicketDelete = Permission{Resource: ResourceTicket, Action: ActionDelete}
 )
 
 func init() {
@@ -152,4 +157,30 @@ func init() {
 			},
 		},
 	})
+
+	RegisterResource(ResourceDefinition{
+		Resource: ResourceTicket,
+		LabelKey: "Ticket Management",
+		Actions: []ActionDefinition{
+			{
+				Action:         ActionRead,
+				LabelKey:       "Read tickets",
+				DescriptionKey: "View support tickets and messages.",
+				DefaultRoles:   []string{BuiltInRoleAdmin},
+			},
+			{
+				Action:         ActionWrite,
+				LabelKey:       "Manage tickets",
+				DescriptionKey: "Reply to tickets and update ticket status.",
+				DefaultRoles:   []string{BuiltInRoleAdmin},
+			},
+			{
+				Action:         ActionDelete,
+				LabelKey:       "Delete tickets",
+				DescriptionKey: "Permanently delete closed tickets and transcripts.",
+				DefaultRoles:   []string{BuiltInRoleRoot},
+			},
+		},
+	})
 }
+

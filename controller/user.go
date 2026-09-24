@@ -1680,3 +1680,20 @@ func UpdateUserSetting(c *gin.Context) {
 
 	common.ApiSuccessI18n(c, i18n.MsgSettingSaved, nil)
 }
+
+func GetUserBalancePackages(c *gin.Context) {
+	userId := c.GetInt("id")
+	packages, err := model.GetUserBalancePackages(userId)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    packages,
+	})
+}

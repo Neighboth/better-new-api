@@ -144,6 +144,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/aff", controller.GetAffCode)
 				selfRoute.GET("/topup/info", controller.GetTopUpInfo)
 				selfRoute.GET("/topup/self", controller.GetUserTopUps)
+				selfRoute.GET("/balance-packages", controller.GetUserBalancePackages)
 				selfRoute.POST("/topup", middleware.CriticalRateLimit(), controller.TopUp)
 				selfRoute.POST("/pay", middleware.CriticalRateLimit(), controller.RequestEpay)
 				selfRoute.POST("/shopier/pay", middleware.CriticalRateLimit(), controller.RequestShopier)
@@ -404,6 +405,10 @@ func SetApiRouter(router *gin.Engine) {
 			ticketPublicRoute.GET("/config", controller.GetTicketConfig)
 			ticketPublicRoute.GET("/ws", controller.TicketWebSocket)
 			ticketPublicRoute.GET("/", middleware.TryUserAuth(), controller.GetUserTickets)
+			ticketPublicRoute.POST("/guest", controller.CreateGuestTicket)
+			ticketPublicRoute.GET("/guest/:sessionKey", controller.GetGuestTicket)
+			ticketPublicRoute.POST("/guest/:sessionKey/message", controller.AddGuestTicketMessage)
+			ticketPublicRoute.GET("/guest/:sessionKey/transcript", controller.DownloadGuestTicketTranscript)
 		}
 
 		ticketRoute := apiRouter.Group("/ticket")
@@ -413,15 +418,18 @@ func SetApiRouter(router *gin.Engine) {
 			ticketRoute.GET("/:id", controller.GetTicketDetail)
 			ticketRoute.POST("/:id/message", controller.AddTicketMessage)
 			ticketRoute.PUT("/:id/close", controller.CloseTicket)
+			ticketRoute.GET("/:id/transcript", controller.DownloadTicketTranscript)
 		}
 
 		adminTicketRoute := apiRouter.Group("/admin/ticket")
 		adminTicketRoute.Use(middleware.AdminAuth())
 		{
-			adminTicketRoute.GET("/", controller.AdminGetAllTickets)
-			adminTicketRoute.PUT("/:id", controller.AdminUpdateTicket)
-			adminTicketRoute.DELETE("/:id", controller.AdminDeleteTicket)
-			adminTicketRoute.POST("/:id/message", controller.AddTicketMessage)
+			adminTicketRoute.GET("/", middleware.RequirePermission(authz.TicketRead), controller.AdminGetAllTickets)
+			adminTicketRoute.GET("/:id/transcript", middleware.RequirePermission(authz.TicketRead), controller.DownloadTicketTranscript)
+			adminTicketRoute.PUT("/:id", middleware.RequirePermission(authz.TicketWrite), controller.AdminUpdateTicket)
+			adminTicketRoute.POST("/:id/message", middleware.RequirePermission(authz.TicketWrite), controller.AddTicketMessage)
+			adminTicketRoute.DELETE("/:id", middleware.RequirePermission(authz.TicketDelete), controller.AdminDeleteTicket)
+			adminTicketRoute.DELETE("/:id/permanent", middleware.RequirePermission(authz.TicketDelete), controller.AdminDeleteTicketPermanently)
 		}
 
 

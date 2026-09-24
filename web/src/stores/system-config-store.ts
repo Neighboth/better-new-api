@@ -44,6 +44,8 @@ export interface SystemConfig {
   footerHtml?: string
   demoSiteEnabled?: boolean
   displayTokenStatEnabled?: boolean
+  ticketEnabled?: boolean
+  captchaProviderOrder?: string
   currency: CurrencyConfig
 }
 

@@ -75,6 +75,14 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	if s.funding.Source() == BillingSourceSubscription {
 		s.relayInfo.SubscriptionPostDelta += int64(delta)
 	}
+	// 4) 扣减受限兑换包额度（Requirement 24）
+	if s.funding.Source() == BillingSourceWallet && actualQuota > 0 {
+		_, _ = model.DeductUserBalancePackage(s.relayInfo.UserId, s.relayInfo.OriginModelName, 0, int64(actualQuota))
+	} else if s.funding.Source() == BillingSourceTokens && actualQuota > 0 {
+		_, _ = model.DeductUserBalancePackage(s.relayInfo.UserId, s.relayInfo.OriginModelName, 2, int64(actualQuota))
+	} else if s.funding.Source() == BillingSourceRequests {
+		_, _ = model.DeductUserBalancePackage(s.relayInfo.UserId, s.relayInfo.OriginModelName, 1, 1)
+	}
 	s.settled = true
 	return tokenErr
 }
@@ -394,8 +402,8 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 	}
 
 	tryRequests := func() (*BillingSession, *types.NewAPIError) {
-		if !model.IsBillingRequestsEnabled() {
-			return nil, types.NewErrorWithStatusCode(fmt.Errorf("requests billing disabled"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
+		if !model.IsBillingRequestsEnabled() || !model.IsModelAllowedInPool("requests", relayInfo.OriginModelName) {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("requests billing disabled or model %s not allowed", relayInfo.OriginModelName), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
 		}
 		reqBalance, err := model.GetUserRequests(relayInfo.UserId)
 		if err != nil || reqBalance <= 0 {
@@ -412,8 +420,8 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 	}
 
 	tryTokens := func() (*BillingSession, *types.NewAPIError) {
-		if !model.IsBillingTokensEnabled() {
-			return nil, types.NewErrorWithStatusCode(fmt.Errorf("tokens billing disabled"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
+		if !model.IsBillingTokensEnabled() || !model.IsModelAllowedInPool("tokens", relayInfo.OriginModelName) {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("tokens billing disabled or model %s not allowed", relayInfo.OriginModelName), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
 		}
 		tokensBalance, err := model.GetUserTokens(relayInfo.UserId)
 		if err != nil || tokensBalance <= 0 {
@@ -430,8 +438,8 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 	}
 
 	trySubscription := func() (*BillingSession, *types.NewAPIError) {
-		if !model.IsBillingSubscriptionEnabled() {
-			return nil, types.NewErrorWithStatusCode(fmt.Errorf("subscription billing disabled"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
+		if !model.IsBillingSubscriptionEnabled() || !model.IsModelAllowedInPool("subscription", relayInfo.OriginModelName) {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("subscription billing disabled or model %s not allowed", relayInfo.OriginModelName), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
 		}
 		hasSub, subCheckErr := model.HasActiveUserSubscription(relayInfo.UserId)
 		if subCheckErr != nil || !hasSub {
@@ -457,8 +465,8 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 	}
 
 	tryWallet := func() (*BillingSession, *types.NewAPIError) {
-		if !model.IsBillingWalletEnabled() {
-			return nil, types.NewErrorWithStatusCode(fmt.Errorf("wallet billing disabled"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
+		if !model.IsBillingWalletEnabled() || !model.IsModelAllowedInPool("wallet", relayInfo.OriginModelName) {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("wallet billing disabled or model %s not allowed", relayInfo.OriginModelName), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
 		}
 		userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
 		if err != nil {
@@ -513,19 +521,19 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 	for _, src := range priority {
 		switch src {
 		case BillingSourceRequests:
-			if model.IsBillingRequestsEnabled() {
+			if model.IsBillingRequestsEnabled() && model.IsModelAllowedInPool("requests", relayInfo.OriginModelName) {
 				activePriority = append(activePriority, src)
 			}
 		case BillingSourceTokens:
-			if model.IsBillingTokensEnabled() {
+			if model.IsBillingTokensEnabled() && model.IsModelAllowedInPool("tokens", relayInfo.OriginModelName) {
 				activePriority = append(activePriority, src)
 			}
 		case BillingSourceSubscription:
-			if model.IsBillingSubscriptionEnabled() {
+			if model.IsBillingSubscriptionEnabled() && model.IsModelAllowedInPool("subscription", relayInfo.OriginModelName) {
 				activePriority = append(activePriority, src)
 			}
 		case BillingSourceWallet:
-			if model.IsBillingWalletEnabled() {
+			if model.IsBillingWalletEnabled() && model.IsModelAllowedInPool("wallet", relayInfo.OriginModelName) {
 				activePriority = append(activePriority, src)
 			}
 		}

@@ -65,10 +65,6 @@ const BILLING_SECTIONS = [
           QuotaForInviter: settings.QuotaForInviter,
           QuotaForInvitee: settings.QuotaForInvitee,
           TopUpLink: settings.TopUpLink,
-          EnableBillingRequests: settings.EnableBillingRequests ?? true,
-          EnableBillingTokens: settings.EnableBillingTokens ?? true,
-          EnableBillingSubscription: settings.EnableBillingSubscription ?? true,
-          EnableBillingWallet: settings.EnableBillingWallet ?? true,
           general_setting: {
             docs_link: settings['general_setting.docs_link'],
           },
@@ -94,6 +90,14 @@ const BILLING_SECTIONS = [
           EnableBillingTokens: settings.EnableBillingTokens ?? true,
           EnableBillingSubscription: settings.EnableBillingSubscription ?? true,
           EnableBillingWallet: settings.EnableBillingWallet ?? true,
+          BillingPoolModelFilterModeRequests: settings.BillingPoolModelFilterModeRequests || 'disabled',
+          BillingPoolModelsRequests: settings.BillingPoolModelsRequests || '',
+          BillingPoolModelFilterModeTokens: settings.BillingPoolModelFilterModeTokens || 'disabled',
+          BillingPoolModelsTokens: settings.BillingPoolModelsTokens || '',
+          BillingPoolModelFilterModeSubscription: settings.BillingPoolModelFilterModeSubscription || 'disabled',
+          BillingPoolModelsSubscription: settings.BillingPoolModelsSubscription || '',
+          BillingPoolModelFilterModeWallet: settings.BillingPoolModelFilterModeWallet || 'disabled',
+          BillingPoolModelsWallet: settings.BillingPoolModelsWallet || '',
         }}
       />
     ),
@@ -156,6 +160,7 @@ const BILLING_SECTIONS = [
           PayAddress: settings.PayAddress,
           EpayId: settings.EpayId,
           EpayKey: settings.EpayKey,
+          EpayProviders: settings.EpayProviders ?? '[]',
           Price: settings.Price,
           MinTopUp: settings.MinTopUp,
           CustomCallbackAddress: settings.CustomCallbackAddress,

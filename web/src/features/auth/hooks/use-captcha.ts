@@ -32,10 +32,10 @@ export type CaptchaProviderOption = {
   siteKey: string
 }
 
-const FALLBACK_ORDER: ActiveCaptchaType[] = [
+const DEFAULT_ORDER: ActiveCaptchaType[] = [
   'turnstile',
-  'hcaptcha',
   'recaptcha',
+  'hcaptcha',
   'image',
 ]
 
@@ -69,17 +69,38 @@ export function useCaptcha() {
   const isUsable = (provider: CaptchaProviderOption) =>
     provider.type === 'image' || Boolean(provider.siteKey)
 
+  // Parse custom order from status if provided, else use DEFAULT_ORDER
+  const rawOrder = (status?.captcha_provider_order as string | undefined) || ''
+  const parsedOrder = rawOrder
+    ? (rawOrder
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) =>
+          ['turnstile', 'recaptcha', 'hcaptcha', 'image'].includes(s)
+        ) as ActiveCaptchaType[])
+    : []
+
+  const orderChain = Array.from(
+    new Set([...parsedOrder, ...DEFAULT_ORDER])
+  ) as ActiveCaptchaType[]
+
   const providers: CaptchaProviderOption[] = []
   if (captchaType !== 'off') {
-    const primary = toProvider(captchaType as ActiveCaptchaType)
-    if (isUsable(primary)) {
-      providers.push(primary)
-    }
-    if (status?.captcha_fallback) {
-      for (const type of FALLBACK_ORDER) {
-        if (type === captchaType) continue
+    // If custom order is configured, respect the order directly;
+    // Otherwise put chosen primary first, then fallback in default order.
+    const sequence =
+      parsedOrder.length > 0
+        ? orderChain
+        : [
+            captchaType as ActiveCaptchaType,
+            ...orderChain.filter((t) => t !== captchaType),
+          ]
+
+    for (const type of sequence) {
+      // If fallback is not explicitly disabled or if status.captcha_fallback is true (or undefined/default)
+      if (providers.length === 0 || status?.captcha_fallback !== false) {
         const candidate = toProvider(type)
-        if (isUsable(candidate)) {
+        if (isUsable(candidate) && !providers.some((p) => p.type === candidate.type)) {
           providers.push(candidate)
         }
       }

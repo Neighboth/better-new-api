@@ -12,7 +12,7 @@ import (
 
 const (
 	rankingCacheTTL         = 5 * time.Minute
-	rankingLeaderboardLimit = 20
+	rankingLeaderboardLimit = 1000
 	rankingHistoryLimit     = 10
 	rankingVendorLimit      = 5
 	rankingMoverLimit       = 6

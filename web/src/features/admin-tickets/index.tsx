@@ -21,6 +21,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Clock,
+  Download,
   Headphones,
   Loader2,
   MessageSquare,
@@ -52,7 +53,9 @@ import {
 import {
   adminDeleteTicket,
   adminGetAllTickets,
+  adminPermanentDeleteTicket,
   adminUpdateTicket,
+  downloadTicketTranscript,
 } from '@/features/tickets/api'
 import {
   TicketCategoryBadge,
@@ -60,9 +63,12 @@ import {
 } from '@/features/tickets/components/ticket-badges'
 import { TicketDetailView } from '@/features/tickets/components/ticket-detail-view'
 import type { Ticket } from '@/features/tickets/types'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 export function AdminTicketsPage() {
   const { t } = useTranslation()
+  const { auth } = useAuthStore()
   const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [total, setTotal] = useState(0)
@@ -142,9 +148,32 @@ export function AdminTicketsPage() {
     }
   }
 
+  const handlePermanentDelete = async (ticketId: number) => {
+    if (
+      !window.confirm(
+        t('Bu ticket veritabanından kalıcı olarak silinecek. Bu işlem geri alınamaz. Onaylıyor musunuz?')
+      )
+    ) {
+      return
+    }
+
+    try {
+      const res = await adminPermanentDeleteTicket(ticketId)
+      if (res.success) {
+        toast.success(t('Ticket veritabanından kalıcı olarak silindi'))
+        setTickets((prev) => prev.filter((tk) => tk.id !== ticketId))
+        setTotal((prev) => Math.max(0, prev - 1))
+      } else {
+        toast.error(res.message || t('Silme işlemi başarısız'))
+      }
+    } catch {
+      toast.error(t('Silme işlemi başarısız'))
+    }
+  }
+
   if (selectedTicketId !== null) {
     return (
-      <div className='container mx-auto p-4 md:p-6'>
+      <div className='h-full flex-1 overflow-y-auto p-4 md:p-6'>
         <TicketDetailView
           ticketId={selectedTicketId}
           isAdminView={true}
@@ -162,7 +191,7 @@ export function AdminTicketsPage() {
   const closedCount = tickets.filter((tk) => tk.status === 'closed').length
 
   return (
-    <div className='container mx-auto space-y-6 p-4 md:p-6'>
+    <div className='h-full flex-1 overflow-y-auto space-y-6 p-4 md:p-6'>
       {/* Page Header */}
       <div>
         <h1 className='text-2xl font-bold tracking-tight flex items-center gap-2'>
@@ -234,7 +263,6 @@ export function AdminTicketsPage() {
                   <SelectItem value='all'>{t('All Statuses')}</SelectItem>
                   <SelectItem value='open'>{t('Open')}</SelectItem>
                   <SelectItem value='answered'>{t('Answered')}</SelectItem>
-                  <SelectItem value='waiting_user'>{t('Waiting for User')}</SelectItem>
                   <SelectItem value='closed'>{t('Closed')}</SelectItem>
                 </SelectContent>
               </Select>
@@ -359,7 +387,6 @@ export function AdminTicketsPage() {
                         <SelectContent>
                           <SelectItem value='open'>{t('Open')}</SelectItem>
                           <SelectItem value='answered'>{t('Answered')}</SelectItem>
-                          <SelectItem value='waiting_user'>{t('Waiting for User')}</SelectItem>
                           <SelectItem value='closed'>{t('Closed')}</SelectItem>
                         </SelectContent>
                       </Select>
@@ -371,19 +398,49 @@ export function AdminTicketsPage() {
                       <div className='flex items-center justify-end gap-1'>
                         <Button
                           variant='ghost'
+                          size='icon'
+                          className='h-8 w-8'
+                          title={t('Download Transcript')}
+                          onClick={async () => {
+                            try {
+                              await downloadTicketTranscript(tk.id)
+                            } catch {
+                              toast.error(t('Failed to download transcript'))
+                            }
+                          }}
+                        >
+                          <Download className='h-4 w-4' />
+                        </Button>
+                        <Button
+                          variant='ghost'
                           size='sm'
                           onClick={() => setSelectedTicketId(tk.id)}
                         >
                           {t('Reply')}
                         </Button>
-                        <Button
-                          variant='ghost'
-                          size='icon'
-                          className='h-8 w-8 text-destructive hover:text-destructive'
-                          onClick={() => void handleDelete(tk.id)}
-                        >
-                          <Trash2 className='h-4 w-4' />
-                        </Button>
+                        {auth.user?.role !== undefined &&
+                        auth.user.role >= ROLE.SUPER_ADMIN &&
+                        tk.status === 'closed' ? (
+                          <Button
+                            variant='ghost'
+                            size='icon'
+                            className='h-8 w-8 text-destructive hover:bg-destructive/10'
+                            title={t('Kalıcı Olarak Sil (Veritabanından)')}
+                            onClick={() => void handlePermanentDelete(tk.id)}
+                          >
+                            <Trash2 className='h-4 w-4 text-destructive' />
+                          </Button>
+                        ) : (
+                          <Button
+                            variant='ghost'
+                            size='icon'
+                            className='h-8 w-8 text-muted-foreground hover:text-destructive'
+                            title={t('Delete Ticket')}
+                            onClick={() => void handleDelete(tk.id)}
+                          >
+                            <Trash2 className='h-4 w-4' />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

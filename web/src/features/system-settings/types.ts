@@ -280,6 +280,7 @@ export type AuthSettings = {
   TurnstileSecretKey: string
   CaptchaType: 'off' | 'turnstile' | 'recaptcha' | 'hcaptcha' | 'image'
   CaptchaFallbackEnabled: boolean
+  CaptchaProviderOrder?: string
   RecaptchaSiteKey: string
   RecaptchaSecretKey: string
   HCaptchaSiteKey: string
@@ -462,6 +463,15 @@ export type BillingSettings = {
   EnableBillingTokens: boolean
   EnableBillingSubscription: boolean
   EnableBillingWallet: boolean
+  BillingPoolModelFilterModeRequests?: string
+  BillingPoolModelsRequests?: string
+  BillingPoolModelFilterModeTokens?: string
+  BillingPoolModelsTokens?: string
+  BillingPoolModelFilterModeSubscription?: string
+  BillingPoolModelsSubscription?: string
+  BillingPoolModelFilterModeWallet?: string
+  BillingPoolModelsWallet?: string
+  EpayProviders?: string
   ShopierApiKey: string
   ShopierApiSecret: string
   ShopierWebsiteIndex: string

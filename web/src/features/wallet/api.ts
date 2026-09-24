@@ -286,3 +286,20 @@ export async function completeOrder(
   const res = await api.post('/api/user/topup/complete', request)
   return res.data
 }
+
+export interface UserBalancePackage {
+  id: number
+  name: string
+  type: number
+  initial_amount: number
+  remaining_amount: number
+  model_filter_mode: string
+  models: string
+  expired_at: number
+  created_at: number
+}
+
+export async function getUserBalancePackages(): Promise<ApiResponse<UserBalancePackage[]>> {
+  const res = await api.get('/api/user/balance-packages')
+  return res.data
+}

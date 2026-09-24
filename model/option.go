@@ -237,6 +237,21 @@ func InitOptionMap() {
 	common.OptionMap["AutomaticDisableStatusCodes"] = operation_setting.AutomaticDisableStatusCodesToString()
 	common.OptionMap["AutomaticRetryStatusCodes"] = operation_setting.AutomaticRetryStatusCodesToString()
 	common.OptionMap["ExposeRatioEnabled"] = strconv.FormatBool(ratio_setting.IsExposeRatioEnabled())
+	common.OptionMap["EnableBillingRequests"] = "true"
+	common.OptionMap["EnableBillingTokens"] = "true"
+	common.OptionMap["EnableBillingSubscription"] = "true"
+	common.OptionMap["EnableBillingWallet"] = "true"
+	common.OptionMap["BillingPoolModelFilterModeRequests"] = "none"
+	common.OptionMap["BillingPoolModelsRequests"] = ""
+	common.OptionMap["BillingPoolModelFilterModeTokens"] = "none"
+	common.OptionMap["BillingPoolModelsTokens"] = ""
+	common.OptionMap["BillingPoolModelFilterModeSubscription"] = "none"
+	common.OptionMap["BillingPoolModelsSubscription"] = ""
+	common.OptionMap["BillingPoolModelFilterModeWallet"] = "none"
+	common.OptionMap["BillingPoolModelsWallet"] = ""
+	common.OptionMap["CaptchaProviderOrder"] = "turnstile,recaptcha,hcaptcha,image"
+	common.OptionMap["EpayProviders"] = "[]"
+	common.OptionMap["TicketEnabled"] = "true"
 
 	// 自动添加所有注册的模型配置
 	modelConfigs := config.GlobalConfig.ExportAllConfigs()
@@ -778,5 +793,53 @@ func IsBillingWalletEnabled() bool {
 	common.OptionMapRWMutex.RLock()
 	defer common.OptionMapRWMutex.RUnlock()
 	return common.OptionMap["EnableBillingWallet"] != "false"
+}
+
+func IsModelAllowedInPool(pool string, modelName string) bool {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+
+	var modeKey, modelsKey string
+	switch pool {
+	case "requests":
+		modeKey = "BillingPoolModelFilterModeRequests"
+		modelsKey = "BillingPoolModelsRequests"
+	case "tokens":
+		modeKey = "BillingPoolModelFilterModeTokens"
+		modelsKey = "BillingPoolModelsTokens"
+	case "subscription":
+		modeKey = "BillingPoolModelFilterModeSubscription"
+		modelsKey = "BillingPoolModelsSubscription"
+	case "wallet":
+		modeKey = "BillingPoolModelFilterModeWallet"
+		modelsKey = "BillingPoolModelsWallet"
+	default:
+		return true
+	}
+
+	mode := common.OptionMap[modeKey]
+	if mode == "" || mode == "none" {
+		return true
+	}
+
+	modelsStr := common.OptionMap[modelsKey]
+	models := strings.Split(modelsStr, ",")
+	trimmedModel := strings.TrimSpace(modelName)
+	found := false
+	for _, m := range models {
+		m = strings.TrimSpace(m)
+		if m != "" && (m == trimmedModel || strings.EqualFold(m, trimmedModel)) {
+			found = true
+			break
+		}
+	}
+
+	if mode == "whitelist" {
+		return found
+	}
+	if mode == "blacklist" {
+		return !found
+	}
+	return true
 }
 

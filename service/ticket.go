@@ -272,25 +272,15 @@ func NotifyAdminNewTicketEmail(ticket *model.Ticket, initialMessage string) {
 			return
 		}
 
-		subject := fmt.Sprintf("[%s] New Support Ticket #%d: %s", common.SystemName, ticket.Id, ticket.Title)
-		content := fmt.Sprintf(
-			"<h3>New Support Ticket #%d</h3>"+
-				"<p><strong>User:</strong> %s (%s)</p>"+
-				"<p><strong>Category:</strong> %s</p>"+
-				"<p><strong>Priority:</strong> %s</p>"+
-				"<p><strong>Subject:</strong> %s</p>"+
-				"<hr/>"+
-				"<p><strong>Message:</strong></p>"+
-				"<div style='white-space: pre-wrap; background: #f4f4f5; padding: 12px; border-radius: 6px;'>%s</div>",
-			ticket.Id,
-			ticket.UserName,
-			ticket.UserEmail,
-			ticket.Category,
-			ticket.Priority,
-			ticket.Title,
-			initialMessage,
-		)
-
+		subject, content := RenderEmail("ticket_created", "tr", map[string]string{
+			"ticket_id":    strconv.Itoa(ticket.Id),
+			"ticket_title": ticket.Title,
+			"user_name":    ticket.UserName,
+			"user_email":   ticket.UserEmail,
+			"category":     ticket.Category,
+			"priority":     ticket.Priority,
+			"message":      initialMessage,
+		})
 		_ = common.SendEmail(subject, rootUser.Email, content)
 	}()
 }
@@ -316,19 +306,12 @@ func NotifyUserTicketReplyEmail(ticket *model.Ticket, replyMessage string) {
 			ticket.UserEmail = user.Email
 		}
 
-		subject := fmt.Sprintf("[%s] Reply to Ticket #%d: %s", common.SystemName, ticket.Id, ticket.Title)
-		content := fmt.Sprintf(
-			"<h3>Your Support Ticket #%d has a new reply</h3>"+
-				"<p><strong>Subject:</strong> %s</p>"+
-				"<hr/>"+
-				"<p><strong>Reply from Support:</strong></p>"+
-				"<div style='white-space: pre-wrap; background: #f4f4f5; padding: 12px; border-radius: 6px;'>%s</div>"+
-				"<br/><p>You can view and reply to this ticket by logging into your dashboard.</p>",
-			ticket.Id,
-			ticket.Title,
-			replyMessage,
-		)
-
+		subject, content := RenderEmail("ticket_replied", "tr", map[string]string{
+			"ticket_id":      strconv.Itoa(ticket.Id),
+			"ticket_title":   ticket.Title,
+			"reply_message":  replyMessage,
+			"dashboard_link": PaymentReturnURL("/tickets"),
+		})
 		_ = common.SendEmail(subject, ticket.UserEmail, content)
 	}()
 }

@@ -114,6 +114,7 @@ const AUTH_SECTIONS = [
           RecaptchaSecretKey: settings.RecaptchaSecretKey,
           HCaptchaSiteKey: settings.HCaptchaSiteKey,
           HCaptchaSecretKey: settings.HCaptchaSecretKey,
+          CaptchaProviderOrder: settings.CaptchaProviderOrder || 'turnstile,recaptcha,hcaptcha,image',
         }}
         captchaFallbackEnabled={settings.CaptchaFallbackEnabled}
       />

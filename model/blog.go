@@ -15,19 +15,19 @@ import (
 type BlogPost struct {
 	Id             int64  `json:"id" gorm:"primaryKey"`
 	Title          string  `json:"title" gorm:"type:varchar(255);not null"`
-	Summary        string  `json:"summary" gorm:"type:text"`
-	Content        string  `json:"content" gorm:"type:text"`
+	Summary        string  `json:"summary" gorm:"type:longtext"`
+	Content        string  `json:"content" gorm:"type:longtext"`
 	CoverImage     string  `json:"cover_image" gorm:"type:varchar(512)"`
 	Tags           string  `json:"tags" gorm:"type:varchar(512)"` // comma separated
 	SeoDescription string  `json:"seo_description" gorm:"type:varchar(512)"`
 	// Per-language localized fields. Each value is a JSON object keyed by
 	// locale (e.g. {"en": "...", "tr": "..."}); English is the fallback
 	// used when a visitor's language has no dedicated entry.
-	Titles         string  `json:"titles" gorm:"type:text"`
-	Summaries      string  `json:"summaries" gorm:"type:text"`
-	Contents       string  `json:"contents" gorm:"type:text"`
-	TagsList       string  `json:"tags_list" gorm:"type:text"`
-	SeoDescriptions string `json:"seo_descriptions" gorm:"type:text"`
+	Titles         string  `json:"titles" gorm:"type:longtext"`
+	Summaries      string  `json:"summaries" gorm:"type:longtext"`
+	Contents       string  `json:"contents" gorm:"type:longtext"`
+	TagsList       string  `json:"tags_list" gorm:"type:longtext"`
+	SeoDescriptions string `json:"seo_descriptions" gorm:"type:longtext"`
 	Published      bool    `json:"published" gorm:"default:false;index"`
 	LikeCount      int     `json:"like_count" gorm:"default:0"`
 	DislikeCount   int     `json:"dislike_count" gorm:"default:0"`

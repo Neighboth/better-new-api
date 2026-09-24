@@ -29,6 +29,22 @@ func normalizeLegacyBlogTables() error {
 			return fmt.Errorf("normalize legacy table %s: %w", table, err)
 		}
 	}
+	_ = upgradeBlogPostColumns()
+	return nil
+}
+
+func upgradeBlogPostColumns() error {
+	if DB == nil || !DB.Migrator().HasTable("blog_posts") {
+		return nil
+	}
+	if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
+		cols := []string{"content", "contents", "summary", "summaries", "titles", "tags_list", "seo_descriptions"}
+		for _, col := range cols {
+			if DB.Migrator().HasColumn("blog_posts", col) {
+				_ = DB.Exec(fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s LONGTEXT", quoteBlogIdent("blog_posts"), quoteBlogIdent(col))).Error
+			}
+		}
+	}
 	return nil
 }
 

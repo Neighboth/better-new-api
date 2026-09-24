@@ -56,10 +56,6 @@ const quotaSchema = z.object({
   QuotaForInviter: z.coerce.number().min(0),
   QuotaForInvitee: z.coerce.number().min(0),
   TopUpLink: z.string(),
-  EnableBillingRequests: z.boolean(),
-  EnableBillingTokens: z.boolean(),
-  EnableBillingSubscription: z.boolean(),
-  EnableBillingWallet: z.boolean(),
   general_setting: z.object({
     docs_link: z.string(),
   }),
@@ -253,109 +249,6 @@ export function QuotaSettingsSection({
                         {t(
                           'When enabled, zero-cost models also pre-consume quota before final settlement.'
                         )}
-                      </FormDescription>
-                    </SettingsSwitchContent>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        disabled={updateOption.isPending}
-                      />
-                    </FormControl>
-                  </SettingsSwitchItem>
-                )}
-              />
-            </SettingsFormGridItem>
-
-            <SettingsFormGridItem span='full'>
-              <div className='pt-2 pb-1'>
-                <h4 className='text-sm font-semibold text-foreground'>{t('Budget Pools & Billing Types')}</h4>
-                <p className='text-xs text-muted-foreground'>{t('Enable or disable spending pools globally across the system')}</p>
-              </div>
-            </SettingsFormGridItem>
-
-            <SettingsFormGridItem>
-              <FormField
-                control={form.control}
-                name='EnableBillingRequests'
-                render={({ field }) => (
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel>{t('Requests Pool (İstek Havuzu)')}</FormLabel>
-                      <FormDescription>
-                        {t('Allow users to use and purchase fixed API request count balances')}
-                      </FormDescription>
-                    </SettingsSwitchContent>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        disabled={updateOption.isPending}
-                      />
-                    </FormControl>
-                  </SettingsSwitchItem>
-                )}
-              />
-            </SettingsFormGridItem>
-
-            <SettingsFormGridItem>
-              <FormField
-                control={form.control}
-                name='EnableBillingTokens'
-                render={({ field }) => (
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel>{t('Tokens Pool (Token Havuzu)')}</FormLabel>
-                      <FormDescription>
-                        {t('Allow users to use and purchase fixed model token balances')}
-                      </FormDescription>
-                    </SettingsSwitchContent>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        disabled={updateOption.isPending}
-                      />
-                    </FormControl>
-                  </SettingsSwitchItem>
-                )}
-              />
-            </SettingsFormGridItem>
-
-            <SettingsFormGridItem>
-              <FormField
-                control={form.control}
-                name='EnableBillingSubscription'
-                render={({ field }) => (
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel>{t('Subscription Pool (Abonelik)')}</FormLabel>
-                      <FormDescription>
-                        {t('Allow subscription packages quota to be used for requests')}
-                      </FormDescription>
-                    </SettingsSwitchContent>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        disabled={updateOption.isPending}
-                      />
-                    </FormControl>
-                  </SettingsSwitchItem>
-                )}
-              />
-            </SettingsFormGridItem>
-
-            <SettingsFormGridItem>
-              <FormField
-                control={form.control}
-                name='EnableBillingWallet'
-                render={({ field }) => (
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel>{t('Standard Wallet (Bakiye Havuzu)')}</FormLabel>
-                      <FormDescription>
-                        {t('Allow standard monetary quota balance to be used for requests')}
                       </FormDescription>
                     </SettingsSwitchContent>
                     <FormControl>

@@ -272,6 +272,19 @@ func FixChannelsAbilities(c *gin.Context) {
 	})
 }
 
+func CleanupChannels(c *gin.Context) {
+	result, err := model.CleanupChannelRemnants()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Kanal kalıntıları ve yetenekler başarıyla temizlendi",
+		"data":    result,
+	})
+}
+
 func SearchChannels(c *gin.Context) {
 	keyword := c.Query("keyword")
 	group := c.Query("group")

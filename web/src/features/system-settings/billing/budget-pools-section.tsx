@@ -29,7 +29,16 @@ import {
   FormControl,
   FormField,
   FormItem,
+  FormLabel,
 } from '@/components/ui/form'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
@@ -47,6 +56,14 @@ const budgetPoolsSchema = z.object({
   EnableBillingTokens: z.boolean(),
   EnableBillingSubscription: z.boolean(),
   EnableBillingWallet: z.boolean(),
+  BillingPoolModelFilterModeRequests: z.string().optional(),
+  BillingPoolModelsRequests: z.string().optional(),
+  BillingPoolModelFilterModeTokens: z.string().optional(),
+  BillingPoolModelsTokens: z.string().optional(),
+  BillingPoolModelFilterModeSubscription: z.string().optional(),
+  BillingPoolModelsSubscription: z.string().optional(),
+  BillingPoolModelFilterModeWallet: z.string().optional(),
+  BillingPoolModelsWallet: z.string().optional(),
 })
 
 export type BudgetPoolsFormValues = z.infer<typeof budgetPoolsSchema>
@@ -71,7 +88,7 @@ export function BudgetPoolsSection({ defaultValues }: BudgetPoolsSectionProps) {
         for (const [key, value] of Object.entries(changedFields)) {
           await updateOption.mutateAsync({
             key,
-            value: value as boolean,
+            value: value as any,
           })
         }
       },
@@ -136,12 +153,72 @@ export function BudgetPoolsSection({ defaultValues }: BudgetPoolsSectionProps) {
                   />
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className='space-y-3'>
                 <p className='text-xs text-muted-foreground leading-relaxed'>
                   {t(
                     'Allows users to spend from their per-request quota balance. 1 successful API call deducts 1 request quota without calculating token prices.'
                   )}
                 </p>
+                <div className='pt-2 border-t space-y-3'>
+                  <FormField
+                    control={form.control}
+                    name='BillingPoolModelFilterModeRequests'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className='text-xs font-medium text-muted-foreground'>
+                          {t('Model Filter Mode')}
+                        </FormLabel>
+                        <Select
+                          disabled={updateOption.isPending}
+                          value={field.value || 'disabled'}
+                          onValueChange={field.onChange}
+                        >
+                          <FormControl>
+                            <SelectTrigger className='h-8 text-xs'>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='disabled'>
+                              {t('Disabled (All models allowed)')}
+                            </SelectItem>
+                            <SelectItem value='whitelist'>
+                              {t('Whitelist (Only specified models)')}
+                            </SelectItem>
+                            <SelectItem value='blacklist'>
+                              {t('Blacklist (All models except specified)')}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormItem>
+                    )}
+                  />
+                  {form.watch('BillingPoolModelFilterModeRequests') && form.watch('BillingPoolModelFilterModeRequests') !== 'disabled' && (
+                    <FormField
+                      control={form.control}
+                      name='BillingPoolModelsRequests'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className='text-xs font-medium text-muted-foreground'>
+                            {t('Filtered Models')}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              disabled={updateOption.isPending}
+                              placeholder='gpt-4o, claude-3-5*, gemini*'
+                              className='h-8 text-xs'
+                              {...field}
+                              value={field.value || ''}
+                            />
+                          </FormControl>
+                          <p className='text-[10px] text-muted-foreground'>
+                            {t('Comma-separated model names or wildcards')}
+                          </p>
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
               </CardContent>
             </Card>
 
@@ -177,12 +254,72 @@ export function BudgetPoolsSection({ defaultValues }: BudgetPoolsSectionProps) {
                   />
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className='space-y-3'>
                 <p className='text-xs text-muted-foreground leading-relaxed'>
                   {t(
                     'Allows users to consume prompt and completion tokens directly from their dedicated token pool balance.'
                   )}
                 </p>
+                <div className='pt-2 border-t space-y-3'>
+                  <FormField
+                    control={form.control}
+                    name='BillingPoolModelFilterModeTokens'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className='text-xs font-medium text-muted-foreground'>
+                          {t('Model Filter Mode')}
+                        </FormLabel>
+                        <Select
+                          disabled={updateOption.isPending}
+                          value={field.value || 'disabled'}
+                          onValueChange={field.onChange}
+                        >
+                          <FormControl>
+                            <SelectTrigger className='h-8 text-xs'>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='disabled'>
+                              {t('Disabled (All models allowed)')}
+                            </SelectItem>
+                            <SelectItem value='whitelist'>
+                              {t('Whitelist (Only specified models)')}
+                            </SelectItem>
+                            <SelectItem value='blacklist'>
+                              {t('Blacklist (All models except specified)')}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormItem>
+                    )}
+                  />
+                  {form.watch('BillingPoolModelFilterModeTokens') && form.watch('BillingPoolModelFilterModeTokens') !== 'disabled' && (
+                    <FormField
+                      control={form.control}
+                      name='BillingPoolModelsTokens'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className='text-xs font-medium text-muted-foreground'>
+                            {t('Filtered Models')}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              disabled={updateOption.isPending}
+                              placeholder='gpt-4o, claude-3-5*, gemini*'
+                              className='h-8 text-xs'
+                              {...field}
+                              value={field.value || ''}
+                            />
+                          </FormControl>
+                          <p className='text-[10px] text-muted-foreground'>
+                            {t('Comma-separated model names or wildcards')}
+                          </p>
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
               </CardContent>
             </Card>
 
@@ -218,12 +355,72 @@ export function BudgetPoolsSection({ defaultValues }: BudgetPoolsSectionProps) {
                   />
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className='space-y-3'>
                 <p className='text-xs text-muted-foreground leading-relaxed'>
                   {t(
                     'Allows recurring subscription plan quotas to be prioritized before standard pay-as-you-go balance.'
                   )}
                 </p>
+                <div className='pt-2 border-t space-y-3'>
+                  <FormField
+                    control={form.control}
+                    name='BillingPoolModelFilterModeSubscription'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className='text-xs font-medium text-muted-foreground'>
+                          {t('Model Filter Mode')}
+                        </FormLabel>
+                        <Select
+                          disabled={updateOption.isPending}
+                          value={field.value || 'disabled'}
+                          onValueChange={field.onChange}
+                        >
+                          <FormControl>
+                            <SelectTrigger className='h-8 text-xs'>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='disabled'>
+                              {t('Disabled (All models allowed)')}
+                            </SelectItem>
+                            <SelectItem value='whitelist'>
+                              {t('Whitelist (Only specified models)')}
+                            </SelectItem>
+                            <SelectItem value='blacklist'>
+                              {t('Blacklist (All models except specified)')}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormItem>
+                    )}
+                  />
+                  {form.watch('BillingPoolModelFilterModeSubscription') && form.watch('BillingPoolModelFilterModeSubscription') !== 'disabled' && (
+                    <FormField
+                      control={form.control}
+                      name='BillingPoolModelsSubscription'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className='text-xs font-medium text-muted-foreground'>
+                            {t('Filtered Models')}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              disabled={updateOption.isPending}
+                              placeholder='gpt-4o, claude-3-5*, gemini*'
+                              className='h-8 text-xs'
+                              {...field}
+                              value={field.value || ''}
+                            />
+                          </FormControl>
+                          <p className='text-[10px] text-muted-foreground'>
+                            {t('Comma-separated model names or wildcards')}
+                          </p>
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
               </CardContent>
             </Card>
 
@@ -259,12 +456,72 @@ export function BudgetPoolsSection({ defaultValues }: BudgetPoolsSectionProps) {
                   />
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className='space-y-3'>
                 <p className='text-xs text-muted-foreground leading-relaxed'>
                   {t(
                     'Standard USD wallet balance loaded via payment gateways, redemption codes, or admin top-ups.'
                   )}
                 </p>
+                <div className='pt-2 border-t space-y-3'>
+                  <FormField
+                    control={form.control}
+                    name='BillingPoolModelFilterModeWallet'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className='text-xs font-medium text-muted-foreground'>
+                          {t('Model Filter Mode')}
+                        </FormLabel>
+                        <Select
+                          disabled={updateOption.isPending}
+                          value={field.value || 'disabled'}
+                          onValueChange={field.onChange}
+                        >
+                          <FormControl>
+                            <SelectTrigger className='h-8 text-xs'>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='disabled'>
+                              {t('Disabled (All models allowed)')}
+                            </SelectItem>
+                            <SelectItem value='whitelist'>
+                              {t('Whitelist (Only specified models)')}
+                            </SelectItem>
+                            <SelectItem value='blacklist'>
+                              {t('Blacklist (All models except specified)')}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormItem>
+                    )}
+                  />
+                  {form.watch('BillingPoolModelFilterModeWallet') && form.watch('BillingPoolModelFilterModeWallet') !== 'disabled' && (
+                    <FormField
+                      control={form.control}
+                      name='BillingPoolModelsWallet'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className='text-xs font-medium text-muted-foreground'>
+                            {t('Filtered Models')}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              disabled={updateOption.isPending}
+                              placeholder='gpt-4o, claude-3-5*, gemini*'
+                              className='h-8 text-xs'
+                              {...field}
+                              value={field.value || ''}
+                            />
+                          </FormControl>
+                          <p className='text-[10px] text-muted-foreground'>
+                            {t('Comma-separated model names or wildcards')}
+                          </p>
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
               </CardContent>
             </Card>
           </div>

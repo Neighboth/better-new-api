@@ -38,6 +38,7 @@ type BaseNavItem = {
     resource: string
     action?: string
   }
+  onClick?: () => void
 }
 
 /**

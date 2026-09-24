@@ -166,31 +166,89 @@ func GetTopUpInfo(c *gin.Context) {
 		"amount_options":          operation_setting.GetPaymentSetting().AmountOptions,
 		"discount":                operation_setting.GetPaymentSetting().AmountDiscount,
 		"topup_link":              common.TopUpLink,
+		"epay_providers": func() interface{} {
+			providers := GetEpayProviders()
+			res := make([]gin.H, 0, len(providers))
+			for _, p := range providers {
+				res = append(res, gin.H{
+					"id":   p.Id,
+					"name": p.Name,
+				})
+			}
+			return res
+		}(),
 	}
 	common.ApiSuccess(c, data)
+}
+
+type EpayProviderItem struct {
+	Id         string `json:"id"`
+	Name       string `json:"name"`
+	PayAddress string `json:"pay_address"`
+	PartnerId  string `json:"partner_id"`
+	Key        string `json:"key"`
+}
+
+func GetEpayProviders() []EpayProviderItem {
+	var providers []EpayProviderItem
+	jsonStr := common.OptionMap["EpayProviders"]
+	if jsonStr != "" && jsonStr != "[]" {
+		_ = common.Unmarshal([]byte(jsonStr), &providers)
+	}
+	return providers
 }
 
 type EpayRequest struct {
 	Amount        int64  `json:"amount"`
 	PaymentMethod string `json:"payment_method"`
+	ProviderId    string `json:"provider_id"`
 }
 
 type AmountRequest struct {
 	Amount int64 `json:"amount"`
 }
 
-func GetEpayClient() *epay.Client {
-	if operation_setting.PayAddress == "" || operation_setting.EpayId == "" || operation_setting.EpayKey == "" {
-		return nil
+func GetEpayClient(providerId ...string) *epay.Client {
+	pid := ""
+	if len(providerId) > 0 {
+		pid = providerId[0]
 	}
-	withUrl, err := epay.NewClient(&epay.Config{
-		PartnerID: operation_setting.EpayId,
-		Key:       operation_setting.EpayKey,
-	}, operation_setting.PayAddress)
-	if err != nil {
-		return nil
+	if pid != "" {
+		for _, p := range GetEpayProviders() {
+			if p.Id == pid {
+				if p.PayAddress != "" && p.PartnerId != "" && p.Key != "" {
+					client, err := epay.NewClient(&epay.Config{
+						PartnerID: p.PartnerId,
+						Key:       p.Key,
+					}, p.PayAddress)
+					if err == nil {
+						return client
+					}
+				}
+			}
+		}
 	}
-	return withUrl
+	if operation_setting.PayAddress != "" && operation_setting.EpayId != "" && operation_setting.EpayKey != "" {
+		withUrl, err := epay.NewClient(&epay.Config{
+			PartnerID: operation_setting.EpayId,
+			Key:       operation_setting.EpayKey,
+		}, operation_setting.PayAddress)
+		if err == nil {
+			return withUrl
+		}
+	}
+	providers := GetEpayProviders()
+	if len(providers) > 0 {
+		p := providers[0]
+		client, err := epay.NewClient(&epay.Config{
+			PartnerID: p.PartnerId,
+			Key:       p.Key,
+		}, p.PayAddress)
+		if err == nil {
+			return client
+		}
+	}
+	return nil
 }
 
 func getPayMoney(amount int64, group string) float64 {
@@ -346,7 +404,7 @@ func RequestEpay(c *gin.Context) {
 	notifyUrl, _ := url.Parse(callBackAddress + "/api/user/epay/notify")
 	tradeNo := fmt.Sprintf("%s%d", common.GetRandomString(6), time.Now().Unix())
 	tradeNo = fmt.Sprintf("USR%dNO%s", id, tradeNo)
-	client := GetEpayClient()
+	client := GetEpayClient(req.ProviderId)
 	if client == nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "当前管理员未配置支付信息"})
 		return
@@ -467,25 +525,28 @@ func EpayNotify(c *gin.Context) {
 		_, _ = c.Writer.Write([]byte("fail"))
 		return
 	}
-	client := GetEpayClient()
-	if client == nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 client 未初始化 path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
-		_, err := c.Writer.Write([]byte("fail"))
-		if err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 webhook 响应写入失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err.Error()))
-		}
-		return
+	var verifyInfo *epay.VerifyRes
+	clients := []*epay.Client{}
+	if defaultClient := GetEpayClient(); defaultClient != nil {
+		clients = append(clients, defaultClient)
 	}
-	verifyInfo, err := client.Verify(params)
-	if err != nil || !verifyInfo.VerifyStatus {
+	for _, p := range GetEpayProviders() {
+		if c := GetEpayClient(p.Id); c != nil {
+			clients = append(clients, c)
+		}
+	}
+	for _, cli := range clients {
+		v, vErr := cli.Verify(params)
+		if vErr == nil && v != nil && v.VerifyStatus {
+			verifyInfo = v
+			break
+		}
+	}
+	if verifyInfo == nil || !verifyInfo.VerifyStatus {
 		if _, writeErr := c.Writer.Write([]byte("fail")); writeErr != nil {
 			logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 webhook 响应写入失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), writeErr.Error()))
 		}
-		if err != nil {
-			logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 webhook 验签失败 path=%q client_ip=%s verify_error=%q", c.Request.RequestURI, c.ClientIP(), err.Error()))
-		} else {
-			logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 webhook 验签失败 path=%q client_ip=%s verify_status=false", c.Request.RequestURI, c.ClientIP()))
-		}
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 webhook 验签失败 path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
 		return
 	}
 	logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 webhook 验签成功 trade_no=%s callback_type=%s trade_status=%s client_ip=%s verify_info=%q", verifyInfo.ServiceTradeNo, verifyInfo.Type, verifyInfo.TradeStatus, c.ClientIP(), common.GetJsonString(verifyInfo)))

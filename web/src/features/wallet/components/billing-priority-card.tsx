@@ -171,25 +171,33 @@ export function BillingPriorityCard({
   }, [loadPriorityInfo])
 
   // Move a pool item up in the order
-  const handleMoveUp = (index: number) => {
-    if (index <= 0) return
+  const handleMoveUp = (type: BillingType) => {
     setPoolOrder((prev) => {
+      const visible = prev.filter((p) => systemEnabled[p] !== false)
+      const vIdx = visible.indexOf(type)
+      if (vIdx <= 0) return prev
+      const prevType = visible[vIdx - 1]
       const next = [...prev]
-      const temp = next[index - 1]
-      next[index - 1] = next[index]
-      next[index] = temp
+      const idxA = next.indexOf(type)
+      const idxB = next.indexOf(prevType)
+      next[idxA] = prevType
+      next[idxB] = type
       return next
     })
   }
 
   // Move a pool item down in the order
-  const handleMoveDown = (index: number) => {
-    if (index >= poolOrder.length - 1) return
+  const handleMoveDown = (type: BillingType) => {
     setPoolOrder((prev) => {
+      const visible = prev.filter((p) => systemEnabled[p] !== false)
+      const vIdx = visible.indexOf(type)
+      if (vIdx >= visible.length - 1) return prev
+      const nextType = visible[vIdx + 1]
       const next = [...prev]
-      const temp = next[index + 1]
-      next[index + 1] = next[index]
-      next[index] = temp
+      const idxA = next.indexOf(type)
+      const idxB = next.indexOf(nextType)
+      next[idxA] = nextType
+      next[idxB] = type
       return next
     })
   }
@@ -261,6 +269,14 @@ export function BillingPriorityCard({
     }
   }
 
+  const visiblePools = useMemo(() => {
+    return poolOrder.filter((type) => systemEnabled[type] !== false)
+  }, [poolOrder, systemEnabled])
+
+  if (visiblePools.length <= 1) {
+    return null
+  }
+
   return (
     <TitledCard
       title={t('Spending Priority & Budget Pools')}
@@ -314,11 +330,10 @@ export function BillingPriorityCard({
 
         {/* Priority Blocks List */}
         <div className='space-y-2.5'>
-          {poolOrder.map((type, index) => {
+          {visiblePools.map((type, index) => {
             const meta = ALL_POOLS.find((p) => p.type === type)!
             const Icon = meta.icon
-            const isSystemDisabled = !systemEnabled[type]
-            const isActive = activePools.has(type) && !isSystemDisabled
+            const isActive = activePools.has(type)
             const activeIndex = activeChain.indexOf(type)
 
             return (
@@ -328,8 +343,7 @@ export function BillingPriorityCard({
                   'transition-all duration-150',
                   isActive
                     ? 'border-border shadow-xs'
-                    : 'border-dashed opacity-60 bg-muted/20',
-                  isSystemDisabled && 'opacity-40 pointer-events-none'
+                    : 'border-dashed opacity-60 bg-muted/20'
                 )}
               >
                 <CardContent className='flex flex-col gap-3 p-3.5 sm:flex-row sm:items-center sm:justify-between'>
@@ -353,12 +367,7 @@ export function BillingPriorityCard({
                         <span className='text-sm font-semibold truncate'>
                           {t(meta.titleKey)}
                         </span>
-                        {isSystemDisabled && (
-                          <Badge variant='secondary' className='text-[10px]'>
-                            {t('Disabled by System')}
-                          </Badge>
-                        )}
-                        {!isActive && !isSystemDisabled && (
+                        {!isActive && (
                           <Badge variant='outline' className='text-[10px] text-muted-foreground'>
                             {t('Inactive')}
                           </Badge>
@@ -387,7 +396,7 @@ export function BillingPriorityCard({
                         size='icon'
                         className='h-7 w-7'
                         disabled={index === 0 || !isActive}
-                        onClick={() => handleMoveUp(index)}
+                        onClick={() => handleMoveUp(type)}
                         title={t('Move Up')}
                       >
                         <ArrowUp className='h-3.5 w-3.5' />
@@ -396,8 +405,8 @@ export function BillingPriorityCard({
                         variant='ghost'
                         size='icon'
                         className='h-7 w-7'
-                        disabled={index === poolOrder.length - 1 || !isActive}
-                        onClick={() => handleMoveDown(index)}
+                        disabled={index === visiblePools.length - 1 || !isActive}
+                        onClick={() => handleMoveDown(type)}
                         title={t('Move Down')}
                       >
                         <ArrowDown className='h-3.5 w-3.5' />
@@ -406,7 +415,6 @@ export function BillingPriorityCard({
                       <div className='ml-2 flex items-center gap-1.5'>
                         <Switch
                           checked={isActive}
-                          disabled={isSystemDisabled}
                           onCheckedChange={() => handleTogglePool(type)}
                         />
                       </div>

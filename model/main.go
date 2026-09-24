@@ -300,6 +300,7 @@ func migrateDB() error {
 		&ResellerConfig{},
 		&Ticket{},
 		&TicketMessage{},
+		&UserBalancePackage{},
 	)
 	if err != nil {
 		return err
@@ -315,6 +316,7 @@ func migrateDB() error {
 	}
 	InitBuiltinVendors()
 	CleanupOrphanUploadFiles()
+	MigrateLegacyTicketStatus()
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {
 			return err

@@ -153,30 +153,32 @@ export function UptimePanel() {
                         'border-border/60 border-b'
                     )}
                   >
-                    <div className='flex min-w-0 items-center gap-2.5'>
+                    <div className='flex min-w-0 flex-1 items-center gap-2'>
                       <StatusDot status={monitor.status} />
-                      <span className='truncate text-sm'>{monitor.name}</span>
+                      <span className='truncate text-sm font-medium text-foreground' title={monitor.name}>
+                        {monitor.name}
+                      </span>
                       {monitor.group && (
-                        <span className='text-muted-foreground/40 shrink-0 text-xs'>
+                        <span className='text-muted-foreground/60 shrink-0 text-xs truncate max-w-[120px]'>
                           ({monitor.group})
                         </span>
                       )}
                     </div>
-                    <div className='flex flex-col items-end gap-1.5 shrink-0'>
-                      <span className='text-foreground font-mono text-sm font-semibold tabular-nums leading-none'>
-                        {(((monitor.uptime ?? 0) <= 1 ? (monitor.uptime ?? 0) : (monitor.uptime ?? 0) / 100) * 100).toFixed(2)}%
-                      </span>
-                      <div className='flex gap-0.5 items-center h-3.5 flex-nowrap'>
-                        {Array.from({ length: 30 }).map((_, i) => (
+                    <div className='flex items-center gap-2.5 shrink-0 ml-2'>
+                      <div className='hidden sm:flex gap-[2px] items-center h-3 flex-nowrap'>
+                        {Array.from({ length: 20 }).map((_, i) => (
                           <div
                             key={i}
                             className={cn(
-                              'w-1 h-full rounded-sm opacity-80',
-                              monitor.status === 1 || i < 28 ? 'bg-emerald-500' : 'bg-red-500'
+                              'w-[3px] h-full rounded-[1px] opacity-85',
+                              monitor.status === 1 || i < 18 ? 'bg-emerald-500' : 'bg-red-500'
                             )}
                           />
                         ))}
                       </div>
+                      <span className='text-foreground font-mono text-xs sm:text-sm font-semibold tabular-nums'>
+                        {(((monitor.uptime ?? 0) <= 1 ? (monitor.uptime ?? 0) : (monitor.uptime ?? 0) / 100) * 100).toFixed(2)}%
+                      </span>
                     </div>
                   </div>
                 )

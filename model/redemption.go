@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -12,14 +13,16 @@ import (
 )
 
 type Redemption struct {
-	Id           int            `json:"id"`
-	UserId       int            `json:"user_id"`
-	Key          string         `json:"key" gorm:"type:char(32);uniqueIndex"`
-	Status       int            `json:"status" gorm:"default:1"`
-	Name         string         `json:"name" gorm:"index"`
-	Quota        int            `json:"quota" gorm:"default:100"`
-	Type         int            `json:"type" gorm:"type:int;default:0"` // 0: Quota, 1: Requests, 2: Tokens
-	CreatedTime  int64          `json:"created_time" gorm:"bigint"`
+	Id              int            `json:"id"`
+	UserId          int            `json:"user_id"`
+	Key             string         `json:"key" gorm:"type:char(32);uniqueIndex"`
+	Status          int            `json:"status" gorm:"default:1"`
+	Name            string         `json:"name" gorm:"index"`
+	Quota           int            `json:"quota" gorm:"default:100"`
+	Type            int            `json:"type" gorm:"type:int;default:0"` // 0: Quota, 1: Requests, 2: Tokens
+	ModelFilterMode string         `json:"model_filter_mode" gorm:"type:varchar(16);default:'none'"` // none, whitelist, blacklist
+	Models          string         `json:"models" gorm:"type:text"` // comma separated models
+	CreatedTime     int64          `json:"created_time" gorm:"bigint"`
 	RedeemedTime int64          `json:"redeemed_time" gorm:"bigint"`
 	Count        int            `json:"count" gorm:"-:all"` // only for api request
 	UsedUserId   int            `json:"used_user_id"`
@@ -178,6 +181,25 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if result.RowsAffected == 0 {
 			return errors.New("该兑换码已被使用")
 		}
+		if redemption.ModelFilterMode != "" && redemption.ModelFilterMode != "none" {
+			pkg := &UserBalancePackage{
+				UserId:          userId,
+				RedemptionId:    redemption.Id,
+				Name:            redemption.Name,
+				Type:            redemption.Type,
+				InitialAmount:   int64(redemption.Quota),
+				RemainingAmount: int64(redemption.Quota),
+				ModelFilterMode: redemption.ModelFilterMode,
+				Models:          redemption.Models,
+				ExpiredAt:       redemption.ExpiredTime,
+				CreatedAt:       common.GetTimestamp(),
+				UpdatedAt:       common.GetTimestamp(),
+			}
+			if err := tx.Create(pkg).Error; err != nil {
+				return err
+			}
+		}
+
 		switch redemption.Type {
 		case 1:
 			return tx.Model(&User{}).Where("id = ?", userId).Update("requests_balance", gorm.Expr("requests_balance + ?", redemption.Quota)).Error
@@ -203,6 +225,73 @@ func Redeem(key string, userId int) (quota int, err error) {
 	return redemption.Quota, nil
 }
 
+type UserBalancePackage struct {
+	Id              int    `json:"id" gorm:"primaryKey"`
+	UserId          int    `json:"user_id" gorm:"index;not null"`
+	RedemptionId    int    `json:"redemption_id" gorm:"index"`
+	Name            string `json:"name" gorm:"type:varchar(128)"`
+	Type            int    `json:"type" gorm:"default:0"` // 0: Quota, 1: Requests, 2: Tokens
+	InitialAmount   int64  `json:"initial_amount" gorm:"bigint"`
+	RemainingAmount int64  `json:"remaining_amount" gorm:"bigint"`
+	ModelFilterMode string `json:"model_filter_mode" gorm:"type:varchar(16);default:'none'"` // whitelist, blacklist
+	Models          string `json:"models" gorm:"type:text"`
+	ExpiredAt       int64  `json:"expired_at" gorm:"bigint"` // 0 = never
+	CreatedAt       int64  `json:"created_at" gorm:"bigint"`
+	UpdatedAt       int64  `json:"updated_at" gorm:"bigint"`
+}
+
+func GetUserBalancePackages(userId int) ([]*UserBalancePackage, error) {
+	var packages []*UserBalancePackage
+	now := common.GetTimestamp()
+	err := DB.Where("user_id = ? AND remaining_amount > 0 AND (expired_at = 0 OR expired_at > ?)", userId, now).Order("id asc").Find(&packages).Error
+	return packages, err
+}
+
+func DeductUserBalancePackage(userId int, modelName string, poolType int, amount int64) (deducted int64, err error) {
+	packages, err := GetUserBalancePackages(userId)
+	if err != nil || len(packages) == 0 {
+		return 0, nil
+	}
+	for _, pkg := range packages {
+		if pkg.Type != poolType {
+			continue
+		}
+		allowed := false
+		models := strings.Split(pkg.Models, ",")
+		found := false
+		for _, m := range models {
+			if strings.TrimSpace(m) == modelName {
+				found = true
+				break
+			}
+		}
+		if pkg.ModelFilterMode == "whitelist" {
+			allowed = found
+		} else if pkg.ModelFilterMode == "blacklist" {
+			allowed = !found
+		} else {
+			allowed = true
+		}
+		if !allowed {
+			continue
+		}
+		toDeduct := amount
+		if toDeduct > pkg.RemainingAmount {
+			toDeduct = pkg.RemainingAmount
+		}
+		now := common.GetTimestamp()
+		updateErr := DB.Model(&UserBalancePackage{}).Where("id = ? AND remaining_amount >= ?", pkg.Id, toDeduct).
+			Updates(map[string]interface{}{
+				"remaining_amount": gorm.Expr("remaining_amount - ?", toDeduct),
+				"updated_at":       now,
+			}).Error
+		if updateErr == nil {
+			return toDeduct, nil
+		}
+	}
+	return 0, nil
+}
+
 func (redemption *Redemption) Insert() error {
 	var err error
 	err = DB.Create(redemption).Error
@@ -217,7 +306,7 @@ func (redemption *Redemption) SelectUpdate() error {
 // Update Make sure your token's fields is completed, because this will update non-zero values
 func (redemption *Redemption) Update() error {
 	var err error
-	err = DB.Model(redemption).Select("name", "status", "quota", "type", "redeemed_time", "expired_time").Updates(redemption).Error
+	err = DB.Model(redemption).Select("name", "status", "quota", "type", "redeemed_time", "expired_time", "model_filter_mode", "models").Updates(redemption).Error
 	return err
 }
 

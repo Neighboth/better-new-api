@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { ArrowDown, ArrowUp } from 'lucide-react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
@@ -65,6 +66,7 @@ const captchaProviders = [
 
 const botProtectionSchema = z.object({
   CaptchaType: z.enum(['off', ...captchaProviders]),
+  CaptchaProviderOrder: z.string().optional(),
   TurnstileSiteKey: z.string().optional(),
   TurnstileSecretKey: z.string().optional(),
   RecaptchaSiteKey: z.string().optional(),
@@ -126,6 +128,27 @@ export function BotProtectionSection({
       lastProviderRef.current = selectedProvider
     }
   }, [selectedProvider])
+
+  const [providerOrder, setProviderOrder] = useState<string[]>(() => {
+    const raw = defaultValues.CaptchaProviderOrder || 'turnstile,recaptcha,hcaptcha,image'
+    const items = raw.split(',').map((s: string) => s.trim().toLowerCase()).filter(Boolean)
+    const defaultList = ['turnstile', 'recaptcha', 'hcaptcha', 'image']
+    return Array.from(new Set([...items, ...defaultList]))
+  })
+
+  const moveOrder = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= providerOrder.length) return
+    const newOrder = [...providerOrder]
+    const temp = newOrder[index]
+    newOrder[index] = newOrder[targetIndex]
+    newOrder[targetIndex] = temp
+    setProviderOrder(newOrder)
+    form.setValue('CaptchaProviderOrder', newOrder.join(','), { shouldDirty: true })
+    if (targetIndex === 0 && newOrder[0] !== 'off') {
+      form.setValue('CaptchaType', newOrder[0] as any, { shouldDirty: true })
+    }
+  }
 
   const toggleCaptcha = (enabled: boolean) => {
     form.setValue(
@@ -265,6 +288,68 @@ export function BotProtectionSection({
                   }}
                 />
               </SettingsSwitchItem>
+
+              {/* Captcha Provider Fallback Sequence */}
+              <div className='rounded-lg border p-4 space-y-3 bg-muted/20'>
+                <div>
+                  <Label className='text-sm font-semibold'>
+                    {t('Captcha Fallback Sıralaması')}
+                  </Label>
+                  <p className='text-xs text-muted-foreground mt-0.5'>
+                    {t(
+                      'Varsayılan sıralama: Turnstile -> reCaptcha -> hCaptcha -> Dahili Resim. Bir sağlayıcı hata verirse sıradakine otomatik geçilir. Sıralamayı ok butonlarıyla özelleştirebilirsiniz.'
+                    )}
+                  </p>
+                </div>
+                <div className='space-y-2'>
+                  {providerOrder.map((providerKey, idx) => (
+                    <div
+                      key={providerKey}
+                      className='flex items-center justify-between rounded-md border bg-card px-3 py-2 text-xs shadow-sm'
+                    >
+                      <div className='flex items-center gap-2'>
+                        <span className='font-mono font-bold text-muted-foreground w-4'>
+                          {idx + 1}.
+                        </span>
+                        <span className='font-medium text-foreground'>
+                          {t(
+                            providerLabels[
+                              providerKey as keyof typeof providerLabels
+                            ] || providerKey
+                          )}
+                        </span>
+                        {idx === 0 && (
+                          <span className='text-[10px] rounded bg-primary/10 text-primary px-1.5 py-0.5 font-semibold'>
+                            {t('İlk Denenen (Varsayılan)')}
+                          </span>
+                        )}
+                      </div>
+                      <div className='flex items-center gap-1'>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='icon'
+                          className='h-6 w-6'
+                          disabled={idx === 0}
+                          onClick={() => moveOrder(idx, 'up')}
+                        >
+                          <ArrowUp className='h-3.5 w-3.5' />
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='icon'
+                          className='h-6 w-6'
+                          disabled={idx === providerOrder.length - 1}
+                          onClick={() => moveOrder(idx, 'down')}
+                        >
+                          <ArrowDown className='h-3.5 w-3.5' />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
               <FormField
                 control={form.control}

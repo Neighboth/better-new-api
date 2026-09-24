@@ -9,10 +9,15 @@ import (
 )
 
 const (
-	BillingModeRatio      = "ratio"
-	BillingModeTieredExpr = "tiered_expr"
-	BillingModeField      = "billing_mode"
-	BillingExprField      = "billing_expr"
+	BillingModeRatio          = "ratio"
+	BillingModeTieredExpr     = "tiered_expr"
+	BillingModeInputOnly      = "input_only"
+	BillingModeOutputOnly     = "output_only"
+	BillingModeDurationSecond = "duration_second"
+	BillingModeDurationMinute = "duration_minute"
+	BillingModeDurationHour   = "duration_hour"
+	BillingModeField          = "billing_mode"
+	BillingExprField          = "billing_expr"
 )
 
 // BillingSetting is managed by config.GlobalConfig.Register.
