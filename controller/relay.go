@@ -370,12 +370,34 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			AutoBan: &autoBanInt,
 		}, nil
 	}
-	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
-	if err != nil {
-		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
-	}
-	if channel == nil {
-		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+
+	// 1. Get model priority from Serverless cache
+	serverlessPriority := service.GetServerlessPriority(info.OriginModelName)
+
+	// 2. Fetch serverless deployment (if any) from cache
+	serverlessChannel := service.GetActiveServerlessChannel(info.OriginModelName)
+
+	var channel *model.Channel
+	var selectGroup string
+	var err error
+
+	// 3. Routing logic based on Priority
+	if serverlessPriority == 1 && serverlessChannel != nil {
+		// Serverless First, and we have an active deployment
+		channel = serverlessChannel
+	} else {
+		// Channels First (or Serverless First but no active deployment)
+		channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam)
+		if err != nil {
+			return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+
+		// If Channels First failed, and we have an active serverless deployment, failover to serverless
+		if channel == nil && serverlessPriority == 0 && serverlessChannel != nil {
+			channel = serverlessChannel
+		} else if channel == nil {
+			return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
 	}
 
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)

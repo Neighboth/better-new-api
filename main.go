@@ -100,6 +100,9 @@ func main() {
 		go model.SyncChannelCache(common.SyncFrequency)
 	}
 
+	// Serverless Cache (Modal & io.net)
+	go service.SyncServerlessCache(common.SyncFrequency)
+
 	// Warm pricing after channel cache initialization so Advanced Custom
 	// endpoint inference can read cached route settings on first request.
 	model.GetPricing()
