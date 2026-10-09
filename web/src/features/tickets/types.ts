@@ -38,6 +38,8 @@ export interface Ticket {
   updated_at: number
   user_name?: string
   user_email?: string
+  guest_session_key?: string
+  guest_contact?: string
   user_role?: number
 }
 

@@ -54,7 +54,7 @@ export function UserTicketsPage() {
   const { t } = useTranslation()
   const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
   const [tickets, setTickets] = useState<Ticket[]>([])
-  const [total, setTotal] = useState(0)
+  const [, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [search, setSearch] = useState('')

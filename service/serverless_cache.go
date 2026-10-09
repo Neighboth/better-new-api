@@ -32,6 +32,9 @@ func init() {
 
 // SyncServerlessCache syncs Modal and io.net deployments and model priorities periodically
 func SyncServerlessCache(frequency int) {
+	if frequency == 0 {
+		return
+	}
 	for {
 		time.Sleep(time.Duration(frequency) * time.Second)
 		common.SysLog("syncing serverless deployments from io.net / Modal")
@@ -62,8 +65,10 @@ func SyncServerlessCache(frequency int) {
 		// 2. Fetch Active io.net Deployments
 		newActiveDeployments := make(map[string]string)
 
+		common.OptionMapRWMutex.RLock()
 		apiKey := common.OptionMap["model_deployment.ionet.api_key"]
 		enabled := common.OptionMap["model_deployment.ionet.enabled"] == "true"
+		common.OptionMapRWMutex.RUnlock()
 
 		if enabled && strings.TrimSpace(apiKey) != "" {
 			client := ionet.NewEnterpriseClient(apiKey)
