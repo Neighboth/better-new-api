@@ -21,7 +21,9 @@ import { useEffect, useRef } from 'react'
 declare global {
   interface Window {
     turnstile?: {
-      render: (element: HTMLElement, options: Record<string, unknown>) => void
+      render: (element: HTMLElement, options: Record<string, unknown>) => string
+      remove: (widgetId: string) => void
+      reset: (widgetId?: string) => void
     }
   }
 }
@@ -42,25 +44,53 @@ export function Turnstile({
   className,
 }: TurnstileProps) {
   const ref = useRef<HTMLDivElement | null>(null)
+  const widgetIdRef = useRef<string | null>(null)
 
   useEffect(() => {
+    let unmounted = false
+
+    const cleanupWidget = () => {
+      if (widgetIdRef.current && window.turnstile?.remove) {
+        try {
+          window.turnstile.remove(widgetIdRef.current)
+        } catch {
+          // ignore
+        }
+        widgetIdRef.current = null
+      }
+    }
+
     const render = () => {
-      if (!ref.current || !window.turnstile) return
+      if (unmounted || !ref.current || !window.turnstile) return
+      cleanupWidget()
+      if (ref.current) {
+        ref.current.innerHTML = ''
+      }
       try {
-        window.turnstile.render(ref.current, {
+        const id = window.turnstile.render(ref.current, {
           sitekey: siteKey,
-          callback: (token: string) => onVerify(token),
-          'error-callback': () => (onError ?? onExpire)?.(),
-          'expired-callback': () => onExpire?.(),
+          callback: (token: string) => {
+            if (!unmounted) onVerify(token)
+          },
+          'error-callback': () => {
+            if (!unmounted) (onError ?? onExpire)?.()
+          },
+          'expired-callback': () => {
+            if (!unmounted) onExpire?.()
+          },
         })
+        widgetIdRef.current = id
       } catch {
-        onError?.()
+        if (!unmounted) onError?.()
       }
     }
 
     if (window.turnstile) {
       render()
-      return
+      return () => {
+        unmounted = true
+        cleanupWidget()
+      }
     }
     const scriptId = 'cf-turnstile'
 
@@ -71,7 +101,7 @@ export function Turnstile({
       const giveUp = () => {
         window.clearInterval(pollTimer)
         existing.remove()
-        onError?.()
+        if (!unmounted) onError?.()
       }
       const pollTimer = window.setInterval(() => {
         if (window.turnstile) {
@@ -83,8 +113,10 @@ export function Turnstile({
       existing.addEventListener('load', render, { once: true })
       existing.addEventListener('error', giveUp, { once: true })
       return () => {
+        unmounted = true
         window.clearInterval(pollTimer)
         window.clearTimeout(timeout)
+        cleanupWidget()
       }
     }
     const s = document.createElement('script')
@@ -96,9 +128,14 @@ export function Turnstile({
     s.addEventListener('load', render)
     s.addEventListener('error', () => {
       s.remove()
-      onError?.()
+      if (!unmounted) onError?.()
     })
     document.head.appendChild(s)
+
+    return () => {
+      unmounted = true
+      cleanupWidget()
+    }
   }, [siteKey, onVerify, onExpire, onError])
 
   return <div ref={ref} className={className} />

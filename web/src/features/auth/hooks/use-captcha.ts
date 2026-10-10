@@ -56,9 +56,18 @@ export function useCaptcha() {
   }
 
   const siteKeys: Record<ActiveCaptchaType, string> = {
-    turnstile: (status?.turnstile_site_key as string | undefined) ?? '',
-    recaptcha: (status?.recaptcha_site_key as string | undefined) ?? '',
-    hcaptcha: (status?.hcaptcha_site_key as string | undefined) ?? '',
+    turnstile:
+      (status?.turnstile_site_key as string | undefined) ||
+      ((status as any)?.TurnstileSiteKey as string | undefined) ||
+      '',
+    recaptcha:
+      (status?.recaptcha_site_key as string | undefined) ||
+      ((status as any)?.RecaptchaSiteKey as string | undefined) ||
+      '',
+    hcaptcha:
+      (status?.hcaptcha_site_key as string | undefined) ||
+      ((status as any)?.HCaptchaSiteKey as string | undefined) ||
+      '',
     image: '',
   }
 

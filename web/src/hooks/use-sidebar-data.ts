@@ -22,6 +22,7 @@ import {
   CreditCard,
   FileText,
   FlaskConical,
+  Headphones,
   Key,
   LayoutDashboard,
   LifeBuoy,
