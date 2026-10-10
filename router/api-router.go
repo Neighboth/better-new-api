@@ -422,7 +422,6 @@ func SetApiRouter(router *gin.Engine) {
 			ticketRoute.PUT("/:id/close", controller.CloseTicket)
 			ticketRoute.GET("/:id/transcript", controller.DownloadTicketTranscript)
 			ticketRoute.POST("/:id/claim", controller.ClaimTicket)
-			ticketRoute.POST("/:id/connect-human", controller.ConnectHuman)
 		}
 
 		adminTicketRoute := apiRouter.Group("/admin/ticket")
