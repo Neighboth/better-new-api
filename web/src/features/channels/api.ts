@@ -353,6 +353,40 @@ export async function resetCodexUsage(
   return res.data
 }
 
+export type ChannelOAuthProvider = 'codex' | 'antigravity'
+
+export type ChannelOAuthFlowResponse = {
+  success: boolean
+  message?: string
+  data?: { session_id: string; auth_url: string; state: string }
+}
+
+export type ChannelOAuthCredentialResponse = {
+  success: boolean
+  message?: string
+  data?: { provider: ChannelOAuthProvider; channel_type: number; key: string }
+}
+
+export async function startChannelOAuth(
+  provider: ChannelOAuthProvider
+): Promise<ChannelOAuthFlowResponse> {
+  const res = await api.post('/api/channel/oauth/start', { provider }, channelActionConfig())
+  return res.data
+}
+
+export async function exchangeChannelOAuth(
+  provider: ChannelOAuthProvider,
+  sessionId: string,
+  callback: string
+): Promise<ChannelOAuthCredentialResponse> {
+  const res = await api.post(
+    '/api/channel/oauth/exchange',
+    { provider, session_id: sessionId, callback },
+    channelActionConfig()
+  )
+  return res.data
+}
+
 // ============================================================================
 // Multi-Key Management
 // ============================================================================

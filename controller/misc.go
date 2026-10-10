@@ -62,6 +62,11 @@ func GetStatus(c *gin.Context) {
 	}
 	homePageContent := getLocalizedMiscOption("HomePageContent", lang)
 
+	docsLink := getLocalizedMiscOption("DocsLink", lang)
+	if docsLink == "" {
+		docsLink = operation_setting.GetGeneralSetting().DocsLink
+	}
+
 	data := gin.H{
 		"version":                     common.Version,
 		"start_time":                  common.StartTime,
@@ -95,7 +100,7 @@ func GetStatus(c *gin.Context) {
 		"blog_enabled":                common.OptionMap["BlogEnabled"] == "true",
 		"adsense_client_id":           common.OptionMap["AdSenseClientId"],
 		"adsense_slot_id":             common.OptionMap["AdSenseSlotId"],
-		"docs_link":                   operation_setting.GetGeneralSetting().DocsLink,
+		"docs_link":                   docsLink,
 		"quota_per_unit":              common.QuotaPerUnit,
 		// 兼容旧前端：保留 display_in_currency，同时提供新的 quota_display_type
 		"display_in_currency":           operation_setting.IsCurrencyDisplay(),
@@ -419,14 +424,22 @@ func SendPasswordResetEmail(c *gin.Context) {
 }
 
 func SendTestEmail(c *gin.Context) {
-	email := model.NormalizeEmail(c.Query("email"))
-	if email == "" {
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		// Keep the old query-string form working for existing scripts.
+		req.Email = c.Query("email")
+	}
+	email := model.NormalizeEmail(req.Email)
+	if err := common.Validate.Var(email, "required,email"); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Email is required"})
 		return
 	}
+	code := common.GenerateVerificationCode(6)
 	lang := resolveEmailLanguage(c)
 	subject, content := service.RenderEmail("verification", lang, map[string]string{
-		"code":  "123456",
+		"code":  code,
 		"email": email,
 	})
 	err := common.SendEmail(subject, email, content)

@@ -96,6 +96,17 @@ func InitOptionMap() {
 		common.OptionMap["EmailBody_verification_"+l] = ""
 		common.OptionMap["EmailSubject_password_reset_"+l] = ""
 		common.OptionMap["EmailBody_password_reset_"+l] = ""
+		common.OptionMap["EmailSubject_system_error_"+l] = ""
+		common.OptionMap["EmailBody_system_error_"+l] = ""
+		common.OptionMap["EmailSubject_quota_warning_"+l] = ""
+		common.OptionMap["EmailBody_quota_warning_"+l] = ""
+		common.OptionMap["EmailSubject_ticket_created_"+l] = ""
+		common.OptionMap["EmailBody_ticket_created_"+l] = ""
+		common.OptionMap["EmailSubject_ticket_replied_"+l] = ""
+		common.OptionMap["EmailBody_ticket_replied_"+l] = ""
+		common.OptionMap["EmailSubject_channel_disabled_"+l] = ""
+		common.OptionMap["EmailBody_channel_disabled_"+l] = ""
+		common.OptionMap["DocsLink_"+l] = ""
 	}
 	common.OptionMap["ServerAddress"] = ""
 	common.OptionMap["WorkerUrl"] = system_setting.WorkerUrl

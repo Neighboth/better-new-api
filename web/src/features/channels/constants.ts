@@ -83,6 +83,9 @@ export const CHANNEL_TYPES = {
   59: 'Sub2API',
   60: 'New API',
   61: 'Google Antigravity',
+  62: 'Agnes AI',
+  63: 'DS2API',
+  64: 'Free DS API',
 } as const
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [

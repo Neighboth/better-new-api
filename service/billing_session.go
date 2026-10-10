@@ -24,16 +24,18 @@ import (
 // BillingSession 封装单次请求的预扣费/结算/退款生命周期。
 // 实现 relaycommon.BillingSettler 接口。
 type BillingSession struct {
-	relayInfo        *relaycommon.RelayInfo
-	funding          FundingSource
-	preConsumedQuota int  // 实际预扣额度（信任用户可能为 0）
-	tokenConsumed    int  // 令牌额度实际扣减量
-	extraReserved    int  // 发送前补充预扣的额度（订阅退款时需要单独回滚）
-	trusted          bool // 是否命中信任额度旁路
-	fundingSettled   bool // funding.Settle 已成功，资金来源已提交
-	settled          bool // Settle 全部完成（资金 + 令牌）
-	refunded         bool // Refund 已调用
-	mu               sync.Mutex
+	relayInfo             *relaycommon.RelayInfo
+	funding               FundingSource
+	preConsumedQuota      int // 实际预扣额度（信任用户可能为 0）
+	modelBalanceAvailable int64
+	hasModelBalanceLimit  bool
+	tokenConsumed         int  // 令牌额度实际扣减量
+	extraReserved         int  // 发送前补充预扣的额度（订阅退款时需要单独回滚）
+	trusted               bool // 是否命中信任额度旁路
+	fundingSettled        bool // funding.Settle 已成功，资金来源已提交
+	settled               bool // Settle 全部完成（资金 + 令牌）
+	refunded              bool // Refund 已调用
+	mu                    sync.Mutex
 }
 
 // Settle 根据实际消耗额度进行结算。
@@ -46,12 +48,11 @@ func (s *BillingSession) Settle(actualQuota int) error {
 		return nil
 	}
 	delta := actualQuota - s.preConsumedQuota
-	if delta == 0 {
-		s.settled = true
-		return nil
+	if s.hasModelBalanceLimit && (s.funding.Source() == BillingSourceWallet || s.funding.Source() == BillingSourceTokens) && int64(actualQuota) > s.modelBalanceAvailable {
+		return fmt.Errorf("model %s is restricted to the available redemption balance", s.relayInfo.OriginModelName)
 	}
 	// 1) 调整资金来源（仅在尚未提交时执行，防止重复调用）
-	if !s.fundingSettled {
+	if delta != 0 && !s.fundingSettled {
 		if err := s.funding.Settle(delta); err != nil {
 			return err
 		}
@@ -59,7 +60,7 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	}
 	// 2) 调整令牌额度
 	var tokenErr error
-	if !s.relayInfo.IsPlayground {
+	if delta != 0 && !s.relayInfo.IsPlayground {
 		if delta > 0 {
 			tokenErr = model.DecreaseTokenQuota(s.relayInfo.TokenId, s.relayInfo.TokenKey, delta)
 		} else {
@@ -164,6 +165,12 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 
 	if s.settled || s.refunded || s.trusted || targetQuota <= s.preConsumedQuota {
 		return nil
+	}
+	if s.hasModelBalanceLimit && int64(targetQuota) > s.modelBalanceAvailable {
+		return types.NewErrorWithStatusCode(
+			fmt.Errorf("model %s is restricted to the available redemption balance", s.relayInfo.OriginModelName),
+			types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
+			types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 	}
 
 	delta := targetQuota - s.preConsumedQuota
@@ -409,9 +416,15 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		if err != nil || reqBalance <= 0 {
 			return nil, types.NewErrorWithStatusCode(fmt.Errorf("insufficient requests"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
 		}
+		available, restricted, err := model.UserBalancePackageAvailable(relayInfo.UserId, relayInfo.OriginModelName, 1, int64(reqBalance))
+		if err != nil || available < 1 {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("model %s is not allowed by the available request balance", relayInfo.OriginModelName), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
+		}
 		session := &BillingSession{
-			relayInfo: relayInfo,
-			funding:   &RequestsFunding{userId: relayInfo.UserId},
+			relayInfo:             relayInfo,
+			funding:               &RequestsFunding{userId: relayInfo.UserId},
+			modelBalanceAvailable: available,
+			hasModelBalanceLimit:  restricted,
 		}
 		if apiErr := session.preConsume(c, 1); apiErr != nil {
 			return nil, apiErr
@@ -427,9 +440,15 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		if err != nil || tokensBalance <= 0 {
 			return nil, types.NewErrorWithStatusCode(fmt.Errorf("insufficient tokens"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
 		}
+		available, restricted, err := model.UserBalancePackageAvailable(relayInfo.UserId, relayInfo.OriginModelName, 2, tokensBalance)
+		if err != nil || available <= 0 {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("model %s is not allowed by the available token balance", relayInfo.OriginModelName), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
+		}
 		session := &BillingSession{
-			relayInfo: relayInfo,
-			funding:   &TokensFunding{userId: relayInfo.UserId},
+			relayInfo:             relayInfo,
+			funding:               &TokensFunding{userId: relayInfo.UserId},
+			modelBalanceAvailable: available,
+			hasModelBalanceLimit:  restricted,
 		}
 		if apiErr := session.preConsume(c, preConsumedQuota); apiErr != nil {
 			return nil, apiErr
@@ -484,11 +503,20 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
 				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
+		available, restricted, err := model.UserBalancePackageAvailable(relayInfo.UserId, relayInfo.OriginModelName, 0, int64(userQuota))
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+		}
+		if int64(preConsumedQuota) > available {
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("model %s is not allowed by the available balance", relayInfo.OriginModelName), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
 		relayInfo.UserQuota = userQuota
 
 		session := &BillingSession{
-			relayInfo: relayInfo,
-			funding:   &WalletFunding{userId: relayInfo.UserId},
+			relayInfo:             relayInfo,
+			funding:               &WalletFunding{userId: relayInfo.UserId},
+			modelBalanceAvailable: available,
+			hasModelBalanceLimit:  restricted,
 		}
 		if apiErr := session.preConsume(c, preConsumedQuota); apiErr != nil {
 			return nil, apiErr
@@ -566,4 +594,3 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog(),
 	)
 }
-

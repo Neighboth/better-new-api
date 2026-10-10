@@ -32,6 +32,7 @@ const fallbackSchema = z.object({
   fallback_image_models: z.string().optional().default(''),
   fallback_tts_models: z.string().optional().default(''),
   fallback_stt_models: z.string().optional().default(''),
+  fallback_video_models: z.string().optional().default(''),
   fallback_system_prompt: z.string(),
 })
 
@@ -62,6 +63,7 @@ export function RelayFallbackSection({
       fallback_image_models: 'relay_fallback_setting.fallback_image_models',
       fallback_tts_models: 'relay_fallback_setting.fallback_tts_models',
       fallback_stt_models: 'relay_fallback_setting.fallback_stt_models',
+      fallback_video_models: 'relay_fallback_setting.fallback_video_models',
       fallback_system_prompt: 'relay_fallback_setting.fallback_system_prompt',
     }
 
@@ -171,6 +173,24 @@ export function RelayFallbackSection({
                 </FormControl>
                 <FormDescription>
                   {t('Fallback models for audio transcription and translation requests.')}
+                </FormDescription>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='fallback_video_models'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Video Fallback Models')}</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    placeholder='sora, kling'
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('Fallback models for video generation requests.')}
                 </FormDescription>
               </FormItem>
             )}

@@ -131,6 +131,16 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if info.RelayMode == constant.RelayModeRealtime {
+		action := "ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+		baseUrl := info.ChannelBaseUrl
+		if strings.HasPrefix(baseUrl, "https://") {
+			baseUrl = "wss://" + strings.TrimPrefix(baseUrl, "https://")
+		} else if strings.HasPrefix(baseUrl, "http://") {
+			baseUrl = "ws://" + strings.TrimPrefix(baseUrl, "http://")
+		}
+		return fmt.Sprintf("%s/%s", baseUrl, action), nil
+	}
 
 	if model_setting.GetGeminiSettings().ThinkingAdapterEnabled &&
 		!model_setting.ShouldPreserveThinkingSuffix(info.OriginModelName) {
@@ -251,6 +261,9 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if info.RelayMode == constant.RelayModeRealtime {
+		return channel.DoWssRequest(a, c, info, requestBody)
+	}
 	return channel.DoApiRequest(a, c, info, requestBody)
 }
 

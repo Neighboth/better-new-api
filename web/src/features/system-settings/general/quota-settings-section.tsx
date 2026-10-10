@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatQuota } from '@/lib/format'
 
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
@@ -59,10 +60,29 @@ const quotaSchema = z.object({
   general_setting: z.object({
     docs_link: z.string(),
   }),
+  DocsLink_tr: z.string().optional(),
+  DocsLink_en: z.string().optional(),
+  DocsLink_zh_CN: z.string().optional(),
+  DocsLink_zh_TW: z.string().optional(),
+  DocsLink_fr: z.string().optional(),
+  DocsLink_ru: z.string().optional(),
+  DocsLink_ja: z.string().optional(),
+  DocsLink_vi: z.string().optional(),
   quota_setting: z.object({
     enable_free_model_pre_consume: z.boolean(),
   }),
 })
+
+const SEO_LANGUAGES = [
+  { key: 'tr', label: 'Türkçe', flag: '🇹🇷' },
+  { key: 'en', label: 'English', flag: '🇬🇧' },
+  { key: 'zh_CN', label: '简体中文', flag: '🇨🇳' },
+  { key: 'zh_TW', label: '繁體中文', flag: '🇹🇼' },
+  { key: 'fr', label: 'Français', flag: '🇫🇷' },
+  { key: 'ru', label: 'Русский', flag: '🇷🇺' },
+  { key: 'ja', label: '日本語', flag: '🇯🇵' },
+  { key: 'vi', label: 'Tiếng Việt', flag: '🇻🇳' },
+]
 
 type QuotaFormValues = z.infer<typeof quotaSchema>
 type QuotaInputValue = number | ''
@@ -283,25 +303,56 @@ export function QuotaSettingsSection({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name='general_setting.docs_link'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Documentation Link')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder={t('https://docs.example.com')}
-                      {...field}
+            <div className='col-span-full border rounded-md p-4 bg-muted/20'>
+              <div className='mb-4'>
+                <h3 className='text-sm font-medium mb-1'>{t('Documentation Link')}</h3>
+                <p className='text-[13px] text-muted-foreground'>
+                  {t('Link to your documentation site. You can set a default link and language-specific links.')}
+                </p>
+              </div>
+              <Tabs defaultValue='default' className='w-full'>
+                <TabsList className='grid w-full grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-1 h-auto p-1 mb-4'>
+                  <TabsTrigger value='default' className='text-xs py-1.5 px-2'>{t('Default')}</TabsTrigger>
+                  {SEO_LANGUAGES.map((lang) => (
+                    <TabsTrigger key={lang.key} value={lang.key} className='text-xs py-1.5 px-2 flex items-center justify-center gap-1.5'>
+                      <span>{lang.flag}</span>
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+                
+                <TabsContent value='default' className='mt-0'>
+                  <FormField
+                    control={form.control}
+                    name='general_setting.docs_link'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormControl>
+                          <Input placeholder={t('https://docs.example.com')} {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </TabsContent>
+                
+                {SEO_LANGUAGES.map((lang) => (
+                  <TabsContent key={lang.key} value={lang.key} className='mt-0'>
+                    <FormField
+                      control={form.control}
+                      name={`DocsLink_${lang.key}` as any}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormControl>
+                            <Input placeholder={t('Leave empty to use default link')} {...field} value={field.value as string || ''} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
-                  </FormControl>
-                  <FormDescription>
-                    {t('Link to your documentation site')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                  </TabsContent>
+                ))}
+              </Tabs>
+            </div>
           </SettingsFormGrid>
         </SettingsForm>
       </Form>

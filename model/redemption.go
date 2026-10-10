@@ -19,17 +19,17 @@ type Redemption struct {
 	Status          int            `json:"status" gorm:"default:1"`
 	Name            string         `json:"name" gorm:"index"`
 	Quota           int            `json:"quota" gorm:"default:100"`
-	Type            int            `json:"type" gorm:"type:int;default:0"` // 0: Quota, 1: Requests, 2: Tokens
+	Type            int            `json:"type" gorm:"type:int;default:0"`                           // 0: Quota, 1: Requests, 2: Tokens
 	ModelFilterMode string         `json:"model_filter_mode" gorm:"type:varchar(16);default:'none'"` // none, whitelist, blacklist
-	Models          string         `json:"models" gorm:"type:text"` // comma separated models
+	Models          string         `json:"models" gorm:"type:text"`                                  // comma separated models
 	CreatedTime     int64          `json:"created_time" gorm:"bigint"`
-	RedeemedTime int64          `json:"redeemed_time" gorm:"bigint"`
-	Count        int            `json:"count" gorm:"-:all"` // only for api request
-	UsedUserId   int            `json:"used_user_id"`
-	UsedUsername string         `json:"used_username" gorm:"-:all"`
-	IsReseller   bool           `json:"is_reseller" gorm:"-:all"`
-	DeletedAt    gorm.DeletedAt `gorm:"index"`
-	ExpiredTime  int64          `json:"expired_time" gorm:"bigint"` // 过期时间，0 表示不过期
+	RedeemedTime    int64          `json:"redeemed_time" gorm:"bigint"`
+	Count           int            `json:"count" gorm:"-:all"` // only for api request
+	UsedUserId      int            `json:"used_user_id"`
+	UsedUsername    string         `json:"used_username" gorm:"-:all"`
+	IsReseller      bool           `json:"is_reseller" gorm:"-:all"`
+	DeletedAt       gorm.DeletedAt `gorm:"index"`
+	ExpiredTime     int64          `json:"expired_time" gorm:"bigint"` // 过期时间，0 表示不过期
 }
 
 func GetAllRedemptions(startIdx int, num int) (redemptions []*Redemption, total int64, err error) {
@@ -248,48 +248,100 @@ func GetUserBalancePackages(userId int) ([]*UserBalancePackage, error) {
 }
 
 func DeductUserBalancePackage(userId int, modelName string, poolType int, amount int64) (deducted int64, err error) {
-	packages, err := GetUserBalancePackages(userId)
-	if err != nil || len(packages) == 0 {
+	if amount <= 0 {
 		return 0, nil
 	}
-	for _, pkg := range packages {
-		if pkg.Type != poolType {
-			continue
+	if !DB.Migrator().HasTable(&UserBalancePackage{}) {
+		return 0, nil
+	}
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		var packages []*UserBalancePackage
+		now := common.GetTimestamp()
+		if err := lockForUpdate(tx).
+			Where("user_id = ? AND type = ? AND remaining_amount > 0 AND (expired_at = 0 OR expired_at > ?)", userId, poolType, now).
+			Order("id asc").Find(&packages).Error; err != nil {
+			return err
 		}
-		allowed := false
-		models := strings.Split(pkg.Models, ",")
-		found := false
-		for _, m := range models {
-			if strings.TrimSpace(m) == modelName {
-				found = true
+
+		remaining := amount
+		for _, pkg := range packages {
+			if !userBalancePackageAllowsModel(pkg, modelName) {
+				continue
+			}
+			toDeduct := min(remaining, pkg.RemainingAmount)
+			result := tx.Model(&UserBalancePackage{}).
+				Where("id = ? AND remaining_amount >= ?", pkg.Id, toDeduct).
+				Updates(map[string]interface{}{
+					"remaining_amount": gorm.Expr("remaining_amount - ?", toDeduct),
+					"updated_at":       now,
+				})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				continue
+			}
+			deducted += toDeduct
+			remaining -= toDeduct
+			if remaining == 0 {
 				break
 			}
 		}
-		if pkg.ModelFilterMode == "whitelist" {
-			allowed = found
-		} else if pkg.ModelFilterMode == "blacklist" {
-			allowed = !found
-		} else {
-			allowed = true
-		}
-		if !allowed {
+		return nil
+	})
+	return deducted, err
+}
+
+// UserBalancePackageAvailable returns the portion of an aggregate balance
+// that may be spent on modelName. Restricted redemption balances are
+// subtracted from the shared balance and added back only when their model
+// filter allows this request.
+func UserBalancePackageAvailable(userId int, modelName string, poolType int, aggregate int64) (available int64, restricted bool, err error) {
+	if aggregate <= 0 {
+		return 0, false, nil
+	}
+	if !DB.Migrator().HasTable(&UserBalancePackage{}) {
+		return aggregate, false, nil
+	}
+	packages, err := GetUserBalancePackages(userId)
+	if err != nil {
+		return 0, false, err
+	}
+	var restrictedTotal int64
+	var allowedRestricted int64
+	for _, pkg := range packages {
+		if pkg.Type != poolType || (pkg.ModelFilterMode != "whitelist" && pkg.ModelFilterMode != "blacklist") {
 			continue
 		}
-		toDeduct := amount
-		if toDeduct > pkg.RemainingAmount {
-			toDeduct = pkg.RemainingAmount
-		}
-		now := common.GetTimestamp()
-		updateErr := DB.Model(&UserBalancePackage{}).Where("id = ? AND remaining_amount >= ?", pkg.Id, toDeduct).
-			Updates(map[string]interface{}{
-				"remaining_amount": gorm.Expr("remaining_amount - ?", toDeduct),
-				"updated_at":       now,
-			}).Error
-		if updateErr == nil {
-			return toDeduct, nil
+		restricted = true
+		restrictedTotal += pkg.RemainingAmount
+		if userBalancePackageAllowsModel(pkg, modelName) {
+			allowedRestricted += pkg.RemainingAmount
 		}
 	}
-	return 0, nil
+	unrestricted := aggregate - restrictedTotal
+	if unrestricted < 0 {
+		unrestricted = 0
+	}
+	return unrestricted + allowedRestricted, restricted, nil
+}
+
+func userBalancePackageAllowsModel(pkg *UserBalancePackage, modelName string) bool {
+	found := false
+	for _, model := range strings.Split(pkg.Models, ",") {
+		if strings.TrimSpace(model) == modelName {
+			found = true
+			break
+		}
+	}
+	switch pkg.ModelFilterMode {
+	case "whitelist":
+		return found
+	case "blacklist":
+		return !found
+	default:
+		return true
+	}
 }
 
 func (redemption *Redemption) Insert() error {

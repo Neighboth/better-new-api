@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { type ColumnDef } from '@tanstack/react-table'
+import { Ban } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { MaskedValueDisplay } from '@/components/masked-value-display'
@@ -80,6 +81,23 @@ export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
       cell: ({ row }) => (
         <div className='flex items-center gap-2'>
           <span className='font-medium'>{row.getValue('name')}</span>
+          {row.original.model_filter_mode === 'whitelist' && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Ban
+                    aria-label={t('Model restricted')}
+                    className='size-4 shrink-0 text-destructive'
+                  />
+                }
+              />
+              <TooltipContent>
+                {t('Restricted to: {{models}}', {
+                  models: row.original.models?.split(',').join(', ') ?? '',
+                })}
+              </TooltipContent>
+            </Tooltip>
+          )}
           {row.original.is_reseller && (
             <Badge
               variant='outline'

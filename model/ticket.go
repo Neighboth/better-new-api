@@ -31,6 +31,7 @@ type Ticket struct {
 	Id              int    `json:"id" gorm:"primaryKey"`
 	UserId          int    `json:"user_id" gorm:"index"`
 	IsGuest         bool   `json:"is_guest" gorm:"default:false;index"`
+	IsLiveSupport   bool   `json:"is_live_support" gorm:"default:false;index"`
 	GuestContact    string `json:"guest_contact" gorm:"type:varchar(128);index"` // email or phone
 	GuestSessionKey string `json:"guest_session_key,omitempty" gorm:"type:varchar(64);index"` // secret token to retrieve guest ticket
 	Title           string `json:"title" gorm:"type:varchar(255);not null"`
@@ -170,7 +171,7 @@ func GetTicketMessages(ticketId int) ([]*TicketMessage, error) {
 	return messages, nil
 }
 
-func GetUserTickets(userId int, page, pageSize int, status, search string) ([]*Ticket, int64, error) {
+func GetUserTickets(userId int, page, pageSize int, status, search string, liveSupportOnly ...bool) ([]*Ticket, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -182,6 +183,9 @@ func GetUserTickets(userId int, page, pageSize int, status, search string) ([]*T
 	var total int64
 
 	query := DB.Model(&Ticket{}).Where("user_id = ?", userId)
+	if len(liveSupportOnly) > 0 && liveSupportOnly[0] {
+		query = query.Where("is_live_support = ?", true)
+	}
 	if status != "" && status != "all" {
 		query = query.Where("status = ?", status)
 	}
@@ -199,6 +203,16 @@ func GetUserTickets(userId int, page, pageSize int, status, search string) ([]*T
 	}
 
 	return tickets, total, nil
+}
+
+func GetExpiredLiveSupportTickets(cutoff int64, limit int) ([]*Ticket, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	var tickets []*Ticket
+	err := DB.Where("is_live_support = ? AND last_reply_at <= ?", true, cutoff).
+		Order("last_reply_at ASC").Limit(limit).Find(&tickets).Error
+	return tickets, err
 }
 
 func GetAllTickets(page, pageSize int, status, category, priority, search string) ([]*Ticket, int64, error) {
@@ -232,7 +246,8 @@ func GetAllTickets(page, pageSize int, status, category, priority, search string
 	}
 
 	offset := (page - 1) * pageSize
-	if err := query.Order("last_reply_at DESC").Offset(offset).Limit(pageSize).Find(&tickets).Error; err != nil {
+	if err := query.Order("CASE WHEN is_live_support = TRUE AND status != 'closed' THEN 0 ELSE 1 END").
+		Order("last_reply_at DESC").Offset(offset).Limit(pageSize).Find(&tickets).Error; err != nil {
 		return nil, 0, err
 	}
 
@@ -277,6 +292,7 @@ func CreateGuestTicket(contact string, initialMessage string) (*Ticket, error) {
 		Status:          TicketStatusOpen,
 		UserId:          0,
 		IsGuest:         true,
+		IsLiveSupport:   true,
 		GuestContact:    contact,
 		GuestSessionKey: common.GetUUID(),
 		CreatedAt:       now,
@@ -418,6 +434,25 @@ func DeleteTicket(ticketId int) error {
 
 func DeleteTicketPermanently(ticketId int) error {
 	return DeleteTicket(ticketId)
+}
+
+func DeleteLiveSupportTicketIfInactive(ticketId int, cutoff int64) (bool, error) {
+	deleted := false
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("id = ? AND is_live_support = ? AND last_reply_at <= ?", ticketId, true, cutoff).Delete(&Ticket{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return nil
+		}
+		if err := tx.Where("ticket_id = ?", ticketId).Delete(&TicketMessage{}).Error; err != nil {
+			return err
+		}
+		deleted = true
+		return nil
+	})
+	return deleted, err
 }
 
 func GenerateTicketTranscript(ticket *Ticket, messages []*TicketMessage) string {

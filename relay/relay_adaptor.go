@@ -132,6 +132,8 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &newapi.Adaptor{}
 	case constant.APITypeAntigravity:
 		return &antigravity.Adaptor{}
+	case constant.APITypeAgnes:
+		return &openai.Adaptor{}
 	}
 	return nil
 }

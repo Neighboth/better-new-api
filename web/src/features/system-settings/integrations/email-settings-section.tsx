@@ -60,6 +60,26 @@ import { SettingsSection } from '../components/settings-section'
 import { useResetForm } from '../hooks/use-reset-form'
 import { useUpdateOption } from '../hooks/use-update-option'
 
+const emailTemplateTypes = [
+  'verification',
+  'password_reset',
+  'system_error',
+  'quota_warning',
+  'ticket_created',
+  'ticket_replied',
+  'channel_disabled',
+] as const
+
+const emailLocaleKeys = ['tr', 'en', 'zh_CN', 'zh_TW', 'fr', 'ru', 'ja', 'vi'] as const
+const emailTemplateOptionFields = Object.fromEntries(
+  emailTemplateTypes.flatMap((type) =>
+    emailLocaleKeys.flatMap((lang) => [
+      [`EmailSubject_${type}_${lang}`, z.string().optional()],
+      [`EmailBody_${type}_${lang}`, z.string().optional()],
+    ])
+  )
+)
+
 const createEmailSchema = (t: (key: string) => string) =>
   z.object({
     SMTPServer: z.string(),
@@ -79,39 +99,7 @@ const createEmailSchema = (t: (key: string) => string) =>
     SMTPStartTLSEnabled: z.boolean(),
     SMTPInsecureSkipVerify: z.boolean(),
     SMTPForceAuthLogin: z.boolean(),
-    EmailSubject_verification_tr: z.string().optional(),
-    EmailBody_verification_tr: z.string().optional(),
-    EmailSubject_verification_en: z.string().optional(),
-    EmailBody_verification_en: z.string().optional(),
-    EmailSubject_verification_zh_CN: z.string().optional(),
-    EmailBody_verification_zh_CN: z.string().optional(),
-    EmailSubject_verification_zh_TW: z.string().optional(),
-    EmailBody_verification_zh_TW: z.string().optional(),
-    EmailSubject_verification_fr: z.string().optional(),
-    EmailBody_verification_fr: z.string().optional(),
-    EmailSubject_verification_ru: z.string().optional(),
-    EmailBody_verification_ru: z.string().optional(),
-    EmailSubject_verification_ja: z.string().optional(),
-    EmailBody_verification_ja: z.string().optional(),
-    EmailSubject_verification_vi: z.string().optional(),
-    EmailBody_verification_vi: z.string().optional(),
-
-    EmailSubject_password_reset_tr: z.string().optional(),
-    EmailBody_password_reset_tr: z.string().optional(),
-    EmailSubject_password_reset_en: z.string().optional(),
-    EmailBody_password_reset_en: z.string().optional(),
-    EmailSubject_password_reset_zh_CN: z.string().optional(),
-    EmailBody_password_reset_zh_CN: z.string().optional(),
-    EmailSubject_password_reset_zh_TW: z.string().optional(),
-    EmailBody_password_reset_zh_TW: z.string().optional(),
-    EmailSubject_password_reset_fr: z.string().optional(),
-    EmailBody_password_reset_fr: z.string().optional(),
-    EmailSubject_password_reset_ru: z.string().optional(),
-    EmailBody_password_reset_ru: z.string().optional(),
-    EmailSubject_password_reset_ja: z.string().optional(),
-    EmailBody_password_reset_ja: z.string().optional(),
-    EmailSubject_password_reset_vi: z.string().optional(),
-    EmailBody_password_reset_vi: z.string().optional(),
+    ...emailTemplateOptionFields,
   })
 
 type EmailFormValues = z.infer<ReturnType<typeof createEmailSchema>>
@@ -140,7 +128,7 @@ export function EmailSettingsSection({
 
   const [testEmail, setTestEmail] = useState('')
   const [isSendingTest, setIsSendingTest] = useState(false)
-  const [previewModal, setPreviewModal] = useState<{ title: string; html: string } | null>(null)
+  const [previewModal, setPreviewModal] = useState<{ title: string; subject: string; html: string } | null>(null)
 
   const emailLangs = [
     { key: 'tr', label: 'Türkçe', flag: '🇹🇷' },
@@ -162,7 +150,7 @@ export function EmailSettingsSection({
     staleTime: 60000,
   })
 
-  const renderPreviewHtml = (rawBody: string | undefined, langKey: string, type: 'verification' | 'password_reset') => {
+  const renderPreviewHtml = (rawBody: string | undefined, langKey: string, type: string) => {
     let body = rawBody || ''
     if (!body.trim()) {
       body = defaultTemplatesData?.[langKey]?.[type]?.Body || defaultTemplatesData?.['en']?.[type]?.Body || ''
@@ -175,6 +163,20 @@ export function EmailSettingsSection({
       .replace(/{{valid_minutes}}/g, '10')
       .replace(/{{reset_url}}/g, 'https://example.com/reset-password')
       .replace(/{{link}}/g, 'https://example.com/reset-password')
+  }
+
+  const renderPreviewSubject = (rawSubject: string | undefined, langKey: string, type: string) => {
+    let subject = rawSubject || defaultTemplatesData?.[langKey]?.[type]?.Subject || defaultTemplatesData?.['en']?.[type]?.Subject || ''
+    return subject
+      .replace(/{{system_name}}/g, 'New API')
+      .replace(/{{code}}/g, '849201')
+      .replace(/{{email}}/g, 'user@example.com')
+      .replace(/{{year}}/g, new Date().getFullYear().toString())
+      .replace(/{{valid_minutes}}/g, '10')
+      .replace(/{{ticket_id}}/g, '42')
+      .replace(/{{ticket_title}}/g, 'Example support request')
+      .replace(/{{channel_id}}/g, '7')
+      .replace(/{{channel_name}}/g, 'Example channel')
   }
 
   const form = useForm<EmailFormValues>({
@@ -191,7 +193,7 @@ export function EmailSettingsSection({
     }
     setIsSendingTest(true)
     try {
-      const res = await api.post('/api/test_email', { email: testEmail })
+      const res = await api.post('/api/option/test_email', { email: testEmail })
       if (res.data?.success) {
         toast.success(t('Test email sent successfully! Please check your inbox and spam folder.'))
       } else {
@@ -280,7 +282,7 @@ export function EmailSettingsSection({
       })
     }
 
-    const templateTypes = ['verification', 'password_reset'] as const
+    const templateTypes = ['verification', 'password_reset', 'system_error', 'quota_warning', 'ticket_created', 'ticket_replied', 'channel_disabled'] as const
     for (const lang of emailLangs) {
       for (const tType of templateTypes) {
         const subjKey = `EmailSubject_${tType}_${lang.key}` as keyof EmailFormValues
@@ -566,287 +568,114 @@ export function EmailSettingsSection({
             </div>
 
             <Tabs defaultValue='verification' className='w-full'>
-              <TabsList className='mb-4'>
-                <TabsTrigger value='verification'>{t('Verification Code Email')}</TabsTrigger>
-                <TabsTrigger value='password_reset'>{t('Password Reset Email')}</TabsTrigger>
+              <TabsList className='mb-4 flex h-auto flex-wrap'>
+                {emailTemplateTypes.map((type) => (
+                  <TabsTrigger key={type} value={type} className='text-xs'>
+                    {t(({ verification: 'Verification Code Email', password_reset: 'Password Reset Email', system_error: 'System Error Alert', quota_warning: 'Quota Warning', ticket_created: 'New Ticket Notification', ticket_replied: 'Ticket Reply Notification', channel_disabled: 'Channel Disabled Alert' })[type])}
+                  </TabsTrigger>
+                ))}
               </TabsList>
 
-              {/* Verification Code Templates */}
-              <TabsContent value='verification' className='space-y-4'>
-                <div className='text-xs text-muted-foreground p-3 bg-muted/40 rounded-md'>
-                  <span className='font-semibold'>{t('Available Variables:')}</span>{' '}
-                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.SiteName}}'}</code>,{' '}
-                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.Email}}'}</code>,{' '}
-                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.Code}}'}</code>,{' '}
-                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.Year}}'}</code>
-                </div>
+              {emailTemplateTypes.map((type) => (
+                <TabsContent key={type} value={type} className='space-y-4'>
+                  <Tabs defaultValue='tr' className='w-full'>
+                    <TabsList className='grid w-full grid-cols-4 sm:grid-cols-8 gap-1 h-auto p-1 mb-4'>
+                      {emailLangs.map((lang) => (
+                        <TabsTrigger key={lang.key} value={lang.key} className='text-xs py-1.5 px-2 flex items-center justify-center gap-1.5'>
+                          <span>{lang.flag}</span>
+                          <span className='truncate'>{lang.label}</span>
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
 
-                <Tabs defaultValue='tr' className='w-full'>
-                  <TabsList className='grid w-full grid-cols-4 sm:grid-cols-8 gap-1 h-auto p-1 mb-4'>
-                    {emailLangs.map((lang) => (
-                      <TabsTrigger
-                        key={lang.key}
-                        value={lang.key}
-                        className='text-xs py-1.5 px-2 flex items-center justify-center gap-1.5'
-                      >
-                        <span>{lang.flag}</span>
-                        <span className='truncate'>{lang.label}</span>
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
+                    {emailLangs.map((lang) => {
+                      const subjKey = `EmailSubject_${type}_${lang.key}` as keyof EmailFormValues
+                      const bodyKey = `EmailBody_${type}_${lang.key}` as keyof EmailFormValues
+                      const currentSubject = form.watch(subjKey) as string | undefined
+                      const currentBody = form.watch(bodyKey) as string | undefined
+                      const defaultTemplate = defaultTemplatesData?.[lang.key]?.[type] || defaultTemplatesData?.['en']?.[type]
+                      const defaultSubj = defaultTemplate?.Subject || ''
+                      const defaultBody = defaultTemplate?.Body || ''
+                      const templateVariables: Record<string, string[]> = {
+                        verification: ['system_name', 'year', 'valid_minutes', 'code'],
+                        password_reset: ['system_name', 'year', 'valid_minutes', 'link'],
+                        system_error: ['system_name', 'year', 'error_message', 'time'],
+                        quota_warning: ['system_name', 'year', 'user_name', 'quota_remaining', 'topup_link'],
+                        ticket_created: ['system_name', 'year', 'ticket_id', 'ticket_title', 'user_name', 'user_email', 'category', 'priority', 'message'],
+                        ticket_replied: ['system_name', 'year', 'ticket_id', 'ticket_title', 'reply_message', 'dashboard_link'],
+                        channel_disabled: ['system_name', 'year', 'channel_id', 'channel_name', 'reason', 'time'],
+                      }
+                      const variables = templateVariables[type] || ['system_name', 'year']
 
-                  {emailLangs.map((lang) => {
-                    const subjKey = `EmailSubject_verification_${lang.key}` as keyof EmailFormValues
-                    const bodyKey = `EmailBody_verification_${lang.key}` as keyof EmailFormValues
-                    const currentBody = form.watch(bodyKey) as string | undefined
-                    const defaultSubj = defaultTemplatesData?.[lang.key]?.verification?.Subject || defaultTemplatesData?.['en']?.verification?.Subject || ''
-                    const defaultBody = defaultTemplatesData?.[lang.key]?.verification?.Body || defaultTemplatesData?.['en']?.verification?.Body || ''
-
-                    return (
-                      <TabsContent key={lang.key} value={lang.key} className='space-y-4'>
-                        <div className='flex flex-wrap items-center justify-between gap-2 p-2.5 bg-muted/30 border rounded-md'>
-                          <span className='text-xs font-medium flex items-center gap-1.5'>
-                            <span>{lang.flag}</span>
-                            <span>{lang.label} {t('Template')}</span>
-                            {!currentBody?.trim() ? (
-                              <span className='text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-normal'>
-                                {t('Default Built-in')}
+                      return (
+                        <TabsContent key={lang.key} value={lang.key} className='space-y-4'>
+                          <div className='text-xs text-muted-foreground p-3 bg-muted/40 rounded-md'>
+                            <span className='font-semibold'>{t('Available Variables:')}</span>{' '}
+                            {variables.map((variable, index) => (
+                              <span key={variable}>
+                                {index > 0 ? ', ' : ''}<code className='bg-background px-1 py-0.5 rounded'>{`{{${variable}}}`}</code>
                               </span>
-                            ) : (
-                              <span className='text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-normal'>
-                                {t('Customized')}
-                              </span>
-                            )}
-                          </span>
-                          <div className='flex items-center gap-1.5'>
-                            <Button
-                              type='button'
-                              variant='outline'
-                              size='sm'
-                              className='h-7 text-xs gap-1'
-                              onClick={() => {
+                            ))}
+                          </div>
+                          <div className='flex flex-wrap items-center justify-between gap-2 p-2.5 bg-muted/30 border rounded-md'>
+                            <span className='text-xs font-medium flex items-center gap-1.5'>
+                              <span>{lang.flag}</span>
+                              <span>{lang.label} {t('Template')}</span>
+                              {!currentBody?.trim() && !currentSubject?.trim() ? (
+                                <span className='text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-normal'>{t('Default Built-in')}</span>
+                              ) : (
+                                <span className='text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-normal'>{t('Customized')}</span>
+                              )}
+                            </span>
+                            <div className='flex items-center gap-1.5'>
+                              <Button type='button' variant='outline' size='sm' className='h-7 text-xs gap-1' onClick={() => {
                                 if (defaultSubj) form.setValue(subjKey, defaultSubj, { shouldDirty: true })
                                 if (defaultBody) form.setValue(bodyKey, defaultBody, { shouldDirty: true })
                                 toast.success(t('Loaded default template into editor'))
-                              }}
-                            >
-                              <FileText className='h-3.5 w-3.5' />
-                              {t('Load Default')}
-                            </Button>
-                            <Button
-                              type='button'
-                              variant='outline'
-                              size='sm'
-                              className='h-7 text-xs gap-1 text-muted-foreground hover:text-destructive'
-                              onClick={() => {
+                              }}>
+                                <FileText className='h-3.5 w-3.5' />{t('Load Default')}
+                              </Button>
+                              <Button type='button' variant='outline' size='sm' className='h-7 text-xs gap-1 text-muted-foreground hover:text-destructive' onClick={() => {
                                 form.setValue(subjKey, '', { shouldDirty: true })
                                 form.setValue(bodyKey, '', { shouldDirty: true })
                                 toast.success(t('Reset to default template'))
-                              }}
-                            >
-                              <RotateCcw className='h-3.5 w-3.5' />
-                              {t('Reset')}
-                            </Button>
-                            <Button
-                              type='button'
-                              variant='secondary'
-                              size='sm'
-                              className='h-7 text-xs gap-1'
-                              onClick={() => {
-                                const html = renderPreviewHtml(currentBody, lang.key, 'verification')
+                              }}>
+                                <RotateCcw className='h-3.5 w-3.5' />{t('Reset')}
+                              </Button>
+                              <Button type='button' variant='secondary' size='sm' className='h-7 text-xs gap-1' onClick={() => {
                                 setPreviewModal({
-                                  title: `${t('Preview')}: ${lang.label} - ${t('Verification Code Email')}`,
-                                  html,
+                                  title: `${t('Preview')}: ${lang.label} - ${t(({ verification: 'Verification Code Email', password_reset: 'Password Reset Email', system_error: 'System Error Alert', quota_warning: 'Quota Warning', ticket_created: 'New Ticket Notification', ticket_replied: 'Ticket Reply Notification', channel_disabled: 'Channel Disabled Alert' })[type])}`,
+                                  subject: renderPreviewSubject(currentSubject, lang.key, type),
+                                  html: renderPreviewHtml(currentBody, lang.key, type),
                                 })
-                              }}
-                            >
-                              <Eye className='h-3.5 w-3.5' />
-                              {t('Preview')}
-                            </Button>
+                              }}>
+                                <Eye className='h-3.5 w-3.5' />{t('Preview')}
+                              </Button>
+                            </div>
                           </div>
-                        </div>
 
-                        <FormField
-                          control={form.control}
-                          name={subjKey as any}
-                          render={({ field }) => (
+                          <FormField control={form.control} name={subjKey as any} render={({ field }) => (
                             <FormItem>
                               <FormLabel>{t('Subject')} ({lang.label})</FormLabel>
-                              <FormControl>
-                                <Input
-                                  placeholder={defaultSubj || t('Leave blank to use default subject')}
-                                  {...field}
-                                  value={field.value ?? ''}
-                                />
-                              </FormControl>
+                              <FormControl><Input placeholder={defaultSubj || t('Leave blank to use default subject')} {...field} value={field.value ?? ''} /></FormControl>
                               <FormMessage />
                             </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={form.control}
-                          name={bodyKey as any}
-                          render={({ field }) => (
+                          )} />
+                          <FormField control={form.control} name={bodyKey as any} render={({ field }) => (
                             <FormItem>
                               <FormLabel>{t('HTML Content')} ({lang.label})</FormLabel>
-                              <FormControl>
-                                <Textarea
-                                  rows={8}
-                                  placeholder={t('Leave blank to use default modern responsive HTML template')}
-                                  {...field}
-                                  value={field.value ?? ''}
-                                />
-                              </FormControl>
+                              <FormControl><Textarea rows={8} placeholder={t('Leave blank to use default modern responsive HTML template')} {...field} value={field.value ?? ''} /></FormControl>
                               <FormMessage />
                             </FormItem>
-                          )}
-                        />
-                      </TabsContent>
-                    )
-                  })}
-                </Tabs>
-              </TabsContent>
-
-              {/* Password Reset Templates */}
-              <TabsContent value='password_reset' className='space-y-4'>
-                <div className='text-xs text-muted-foreground p-3 bg-muted/40 rounded-md'>
-                  <span className='font-semibold'>{t('Available Variables:')}</span>{' '}
-                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.SiteName}}'}</code>,{' '}
-                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.Email}}'}</code>,{' '}
-                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.ResetUrl}}'}</code>,{' '}
-                  <code className='bg-background px-1 py-0.5 rounded'>{'{{.Year}}'}</code>
-                </div>
-
-                <Tabs defaultValue='tr' className='w-full'>
-                  <TabsList className='grid w-full grid-cols-4 sm:grid-cols-8 gap-1 h-auto p-1 mb-4'>
-                    {emailLangs.map((lang) => (
-                      <TabsTrigger
-                        key={lang.key}
-                        value={lang.key}
-                        className='text-xs py-1.5 px-2 flex items-center justify-center gap-1.5'
-                      >
-                        <span>{lang.flag}</span>
-                        <span className='truncate'>{lang.label}</span>
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-
-                  {emailLangs.map((lang) => {
-                    const subjKey = `EmailSubject_password_reset_${lang.key}` as keyof EmailFormValues
-                    const bodyKey = `EmailBody_password_reset_${lang.key}` as keyof EmailFormValues
-                    const currentBody = form.watch(bodyKey) as string | undefined
-                    const defaultSubj = defaultTemplatesData?.[lang.key]?.password_reset?.Subject || defaultTemplatesData?.['en']?.password_reset?.Subject || ''
-                    const defaultBody = defaultTemplatesData?.[lang.key]?.password_reset?.Body || defaultTemplatesData?.['en']?.password_reset?.Body || ''
-
-                    return (
-                      <TabsContent key={lang.key} value={lang.key} className='space-y-4'>
-                        <div className='flex flex-wrap items-center justify-between gap-2 p-2.5 bg-muted/30 border rounded-md'>
-                          <span className='text-xs font-medium flex items-center gap-1.5'>
-                            <span>{lang.flag}</span>
-                            <span>{lang.label} {t('Template')}</span>
-                            {!currentBody?.trim() ? (
-                              <span className='text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-normal'>
-                                {t('Default Built-in')}
-                              </span>
-                            ) : (
-                              <span className='text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-normal'>
-                                {t('Customized')}
-                              </span>
-                            )}
-                          </span>
-                          <div className='flex items-center gap-1.5'>
-                            <Button
-                              type='button'
-                              variant='outline'
-                              size='sm'
-                              className='h-7 text-xs gap-1'
-                              onClick={() => {
-                                if (defaultSubj) form.setValue(subjKey, defaultSubj, { shouldDirty: true })
-                                if (defaultBody) form.setValue(bodyKey, defaultBody, { shouldDirty: true })
-                                toast.success(t('Loaded default template into editor'))
-                              }}
-                            >
-                              <FileText className='h-3.5 w-3.5' />
-                              {t('Load Default')}
-                            </Button>
-                            <Button
-                              type='button'
-                              variant='outline'
-                              size='sm'
-                              className='h-7 text-xs gap-1 text-muted-foreground hover:text-destructive'
-                              onClick={() => {
-                                form.setValue(subjKey, '', { shouldDirty: true })
-                                form.setValue(bodyKey, '', { shouldDirty: true })
-                                toast.success(t('Reset to default template'))
-                              }}
-                            >
-                              <RotateCcw className='h-3.5 w-3.5' />
-                              {t('Reset')}
-                            </Button>
-                            <Button
-                              type='button'
-                              variant='secondary'
-                              size='sm'
-                              className='h-7 text-xs gap-1'
-                              onClick={() => {
-                                const html = renderPreviewHtml(currentBody, lang.key, 'password_reset')
-                                setPreviewModal({
-                                  title: `${t('Preview')}: ${lang.label} - ${t('Password Reset Email')}`,
-                                  html,
-                                })
-                              }}
-                            >
-                              <Eye className='h-3.5 w-3.5' />
-                              {t('Preview')}
-                            </Button>
-                          </div>
-                        </div>
-
-                        <FormField
-                          control={form.control}
-                          name={subjKey as any}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>{t('Subject')} ({lang.label})</FormLabel>
-                              <FormControl>
-                                <Input
-                                  placeholder={defaultSubj || t('Leave blank to use default subject')}
-                                  {...field}
-                                  value={field.value ?? ''}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={form.control}
-                          name={bodyKey as any}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>{t('HTML Content')} ({lang.label})</FormLabel>
-                              <FormControl>
-                                <Textarea
-                                  rows={8}
-                                  placeholder={t('Leave blank to use default modern responsive HTML template')}
-                                  {...field}
-                                  value={field.value ?? ''}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </TabsContent>
-                    )
-                  })}
-                </Tabs>
-              </TabsContent>
+                          )} />
+                        </TabsContent>
+                      )
+                    })}
+                  </Tabs>
+                </TabsContent>
+              ))}
             </Tabs>
-          </div>
-        </SettingsForm>
+          </div>        </SettingsForm>
       </Form>
 
       {previewModal && (
@@ -855,6 +684,9 @@ export function EmailSettingsSection({
             <DialogHeader>
               <DialogTitle>{previewModal.title}</DialogTitle>
             </DialogHeader>
+            <div className='text-sm font-medium border-b pb-2 mt-2 break-all'>
+              {t('Subject')}: <span className='text-muted-foreground font-normal'>{previewModal.subject}</span>
+            </div>
             <div className='flex-1 border rounded-md overflow-hidden bg-white mt-2'>
               <iframe
                 title='Email Preview'

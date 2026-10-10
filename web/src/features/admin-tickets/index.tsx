@@ -66,9 +66,11 @@ import type { Ticket } from '@/features/tickets/types'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { axiosInstance } from '@/lib/axios'
+
 export function AdminTicketsPage() {
   const { t } = useTranslation()
-  const { auth } = useAuthStore()
+  const { auth, setAuth } = useAuthStore()
   const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [total, setTotal] = useState(0)
@@ -77,6 +79,30 @@ export function AdminTicketsPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
+  const [updatingShift, setUpdatingShift] = useState(false)
+  const isShiftActive = auth.user?.shift_ends_at && auth.user.shift_ends_at * 1000 > Date.now()
+
+  const handleToggleShift = async () => {
+    setUpdatingShift(true)
+    try {
+      const active = !isShiftActive
+      const res = await axiosInstance.put('/api/user/self/shift', { active })
+      if (res.data.success) {
+        toast.success(active ? t('Shift started (3 hours)') : t('Shift ended'))
+        const newShiftEndsAt = active ? Math.floor(Date.now() / 1000) + 3 * 3600 : 0
+        setAuth({
+          ...auth,
+          user: auth.user ? { ...auth.user, shift_ends_at: newShiftEndsAt } : null
+        })
+      } else {
+        toast.error(res.data.message || t('Failed to update shift'))
+      }
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || t('Failed to update shift'))
+    } finally {
+      setUpdatingShift(false)
+    }
+  }
 
   const fetchTickets = async () => {
     try {
@@ -193,14 +219,25 @@ export function AdminTicketsPage() {
   return (
     <div className='h-full flex-1 overflow-y-auto space-y-6 p-4 md:p-6'>
       {/* Page Header */}
-      <div>
-        <h1 className='text-2xl font-bold tracking-tight flex items-center gap-2'>
-          <Headphones className='h-6 w-6 text-primary' />
-          {t('Ticket Management')}
-        </h1>
-        <p className='text-sm text-muted-foreground'>
-          {t('Manage, review, and reply to user support requests.')}
-        </p>
+      <div className='flex items-center justify-between'>
+        <div>
+          <h1 className='text-2xl font-bold tracking-tight flex items-center gap-2'>
+            <Headphones className='h-6 w-6 text-primary' />
+            {t('Ticket Management')}
+          </h1>
+          <p className='text-sm text-muted-foreground'>
+            {t('Manage, review, and reply to user support requests.')}
+          </p>
+        </div>
+        <Button 
+          variant={isShiftActive ? 'destructive' : 'default'} 
+          onClick={handleToggleShift} 
+          disabled={updatingShift}
+          className='gap-2'
+        >
+          {updatingShift && <Loader2 className='h-4 w-4 animate-spin' />}
+          {isShiftActive ? t('End Shift') : t('Start Shift (3h)')}
+        </Button>
       </div>
 
       {/* Summary Cards */}

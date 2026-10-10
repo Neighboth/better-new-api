@@ -293,60 +293,45 @@ export function TicketDetailView({
             return (
               <div
                 key={msg.id}
-                className={`flex gap-3 ${
-                  isStaff
-                    ? 'flex-row-reverse self-end max-w-[85%]'
-                    : 'self-start max-w-[85%]'
-                }`}
+                className='flex flex-col gap-2 rounded-lg border p-4 w-full bg-card shadow-sm'
               >
-                <Avatar className='h-8 w-8 mt-1 shrink-0'>
-                  <AvatarFallback
-                    className={
-                      isStaff
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted text-muted-foreground'
-                    }
-                  >
-                    {isStaff ? (
-                      <Headphones className='h-4 w-4' />
-                    ) : (
-                      <User className='h-4 w-4' />
-                    )}
-                  </AvatarFallback>
-                </Avatar>
-
-                <div className='flex flex-col gap-1'>
-                  <div
-                    className={`flex items-center gap-2 text-xs text-muted-foreground ${
-                      isStaff ? 'justify-end' : ''
-                    }`}
-                  >
-                    <span className='font-semibold text-foreground'>
-                      {isStaff
-                        ? t('Support Team')
-                        : msg.user_name || t('User')}
-                    </span>
-                    {isStaff && (
-                      <span className='inline-flex items-center gap-0.5 rounded bg-primary/10 px-1 py-0.2 text-[10px] font-medium text-primary'>
-                        <ShieldCheck className='h-3 w-3' />
-                        {t('Staff')}
+                <div className='flex items-center justify-between border-b pb-2 mb-1'>
+                  <div className='flex items-center gap-3'>
+                    <Avatar className='h-8 w-8 shrink-0'>
+                      <AvatarFallback
+                        className={
+                          isStaff
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted text-muted-foreground'
+                        }
+                      >
+                        {isStaff ? (
+                          <Headphones className='h-4 w-4' />
+                        ) : (
+                          <User className='h-4 w-4' />
+                        )}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className='flex items-center gap-2'>
+                      <span className='font-semibold text-foreground text-sm'>
+                        {isStaff
+                          ? t('Support Team')
+                          : msg.user_name || t('User')}
                       </span>
-                    )}
-                    <span>•</span>
-                    <span>
-                      {dayjs(msg.created_at * 1000).format('MMM D, HH:mm')}
-                    </span>
+                      {isStaff && (
+                        <span className='inline-flex items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary'>
+                          <ShieldCheck className='h-3 w-3' />
+                          {t('Staff')}
+                        </span>
+                      )}
+                    </div>
                   </div>
-
-                  <div
-                    className={`rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed shadow-xs ${
-                      isStaff
-                        ? 'bg-primary text-primary-foreground rounded-tr-none'
-                        : 'bg-muted/80 text-foreground border rounded-tl-none'
-                    }`}
-                  >
-                    {msg.content}
-                  </div>
+                  <span className='text-xs text-muted-foreground'>
+                    {dayjs(msg.created_at * 1000).format('YYYY-MM-DD HH:mm')}
+                  </span>
+                </div>
+                <div className='text-sm whitespace-pre-wrap leading-relaxed py-1 px-1'>
+                  {msg.content}
                 </div>
               </div>
             )

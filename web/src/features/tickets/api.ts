@@ -43,6 +43,7 @@ export async function getUserTickets(params: {
   pageSize?: number
   status?: string
   search?: string
+  liveSupport?: boolean
 }): Promise<ApiResponse<TicketListResponse>> {
   const res = await api.get<ApiResponse<TicketListResponse>>('/api/ticket', {
     params: {
@@ -50,6 +51,7 @@ export async function getUserTickets(params: {
       page_size: params.pageSize ?? 20,
       status: params.status,
       search: params.search,
+      live_support: params.liveSupport ? 'true' : undefined,
     },
     skipErrorHandler: true,
   })

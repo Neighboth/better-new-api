@@ -52,6 +52,8 @@ type textQuotaSummary struct {
 	ModelName              string
 	TokenName              string
 	UseTimeSeconds         int64
+	BillingDurationSeconds float64
+	BillingCharacters      int
 	CompletionRatio        float64
 	CacheRatio             float64
 	ImageRatio             float64
@@ -234,6 +236,8 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		ModelName:            relayInfo.OriginModelName,
 		TokenName:            ctx.GetString("token_name"),
 		UseTimeSeconds:       time.Now().Unix() - relayInfo.StartTime.Unix(),
+		BillingDurationSeconds: relayInfo.BillingDurationSeconds,
+		BillingCharacters:      relayInfo.BillingCharacters,
 		CompletionRatio:      relayInfo.PriceData.CompletionRatio,
 		CacheRatio:           relayInfo.PriceData.CacheRatio,
 		ImageRatio:           relayInfo.PriceData.ImageRatio,
@@ -358,21 +362,26 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 
 		billingMode := billing_setting.GetBillingMode(summary.ModelName)
 		switch billingMode {
+		case billing_setting.BillingModeCharacters:
+			characters := min(max(summary.BillingCharacters, 0), 2_147_483_647)
+			promptQuota = decimal.NewFromInt(int64(characters))
+			completionQuota = decimal.Zero
+			audioInputQuota = decimal.Zero
 		case billing_setting.BillingModeInputOnly:
 			completionQuota = decimal.Zero
 		case billing_setting.BillingModeOutputOnly:
 			promptQuota = decimal.Zero
 			audioInputQuota = decimal.Zero
 		case billing_setting.BillingModeDurationSecond:
-			seconds := math.Max(1, float64(summary.UseTimeSeconds))
+			seconds := math.Max(1, billingDurationSeconds(summary))
 			promptQuota = decimal.NewFromFloat(seconds).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
 			completionQuota = decimal.Zero
 		case billing_setting.BillingModeDurationMinute:
-			minutes := math.Max(1.0/60.0, float64(summary.UseTimeSeconds)/60.0)
+			minutes := math.Max(1.0/60.0, billingDurationSeconds(summary)/60.0)
 			promptQuota = decimal.NewFromFloat(minutes).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
 			completionQuota = decimal.Zero
 		case billing_setting.BillingModeDurationHour:
-			hours := math.Max(1.0/3600.0, float64(summary.UseTimeSeconds)/3600.0)
+			hours := math.Max(1.0/3600.0, billingDurationSeconds(summary)/3600.0)
 			promptQuota = decimal.NewFromFloat(hours).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
 			completionQuota = decimal.Zero
 		}
@@ -393,14 +402,17 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		durationMultiplier := decimal.NewFromInt(1)
 		switch billingMode {
 		case billing_setting.BillingModeDurationSecond:
-			seconds := math.Max(1, float64(summary.UseTimeSeconds))
+			seconds := math.Max(1, billingDurationSeconds(summary))
 			durationMultiplier = decimal.NewFromFloat(seconds)
 		case billing_setting.BillingModeDurationMinute:
-			minutes := math.Max(1.0/60.0, float64(summary.UseTimeSeconds)/60.0)
+			minutes := math.Max(1.0/60.0, billingDurationSeconds(summary)/60.0)
 			durationMultiplier = decimal.NewFromFloat(minutes)
 		case billing_setting.BillingModeDurationHour:
-			hours := math.Max(1.0/3600.0, float64(summary.UseTimeSeconds)/3600.0)
+			hours := math.Max(1.0/3600.0, billingDurationSeconds(summary)/3600.0)
 			durationMultiplier = decimal.NewFromFloat(hours)
+		case billing_setting.BillingModeCharacters:
+			characters := min(max(summary.BillingCharacters, 0), 2_147_483_647)
+			durationMultiplier = decimal.NewFromInt(int64(characters)).Div(decimal.NewFromInt(1_000_000))
 		}
 		quotaCalculateDecimal := dModelPrice.Mul(durationMultiplier).Mul(dQuotaPerUnit).Mul(dGroupRatio)
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(audioInputQuota)
@@ -418,6 +430,13 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	}
 
 	return summary
+}
+
+func billingDurationSeconds(summary textQuotaSummary) float64 {
+	if summary.BillingDurationSeconds > 0 && !math.IsNaN(summary.BillingDurationSeconds) && !math.IsInf(summary.BillingDurationSeconds, 0) {
+		return math.Min(summary.BillingDurationSeconds, relaycommon.MaxTaskDurationSeconds)
+	}
+	return math.Min(math.Max(0, float64(summary.UseTimeSeconds)), relaycommon.MaxTaskDurationSeconds)
 }
 
 func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) string {

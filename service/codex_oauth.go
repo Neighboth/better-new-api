@@ -14,8 +14,6 @@ import (
 )
 
 const (
-	codexOAuthClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
-	codexOAuthTokenURL = "https://auth.openai.com/oauth/token"
 	codexJWTClaimPath  = "https://api.openai.com/auth"
 	defaultHTTPTimeout = 20 * time.Second
 )

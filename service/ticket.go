@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
@@ -39,6 +40,70 @@ type TicketHub struct {
 }
 
 var GlobalTicketHub = NewTicketHub()
+
+const (
+	liveSupportRetention       = 48 * time.Hour
+	liveSupportCleanupInterval = 5 * time.Minute
+)
+
+func StartLiveSupportCleanupTask() {
+	if !common.IsMasterNode {
+		return
+	}
+	go func() {
+		cleanupExpiredLiveSupportTickets()
+		ticker := time.NewTicker(liveSupportCleanupInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			cleanupExpiredLiveSupportTickets()
+		}
+	}()
+}
+
+func ArchiveAndDeleteLiveSupportTicket(ticketId int, reason string) error {
+	ticket, err := model.GetTicketById(ticketId)
+	if err != nil {
+		return err
+	}
+	if !ticket.IsLiveSupport {
+		return nil
+	}
+	messages, err := model.GetTicketMessages(ticketId)
+	if err != nil {
+		return err
+	}
+	transcript := model.GenerateTicketTranscript(ticket, messages)
+	if err := model.DeleteTicket(ticketId); err != nil {
+		return err
+	}
+	logger.LogInfo(nil, fmt.Sprintf("live_support_ticket_archived reason=%s\n%s", reason, transcript))
+	return nil
+}
+
+func cleanupExpiredLiveSupportTickets() {
+	cutoff := time.Now().Add(-liveSupportRetention).Unix()
+	tickets, err := model.GetExpiredLiveSupportTickets(cutoff, 100)
+	if err != nil {
+		common.SysError("failed to find expired live support tickets: " + err.Error())
+		return
+	}
+	for _, ticket := range tickets {
+		messages, err := model.GetTicketMessages(ticket.Id)
+		if err != nil {
+			common.SysError(fmt.Sprintf("failed to read expired live support ticket %d: %v", ticket.Id, err))
+			continue
+		}
+		transcript := model.GenerateTicketTranscript(ticket, messages)
+		deleted, err := model.DeleteLiveSupportTicketIfInactive(ticket.Id, cutoff)
+		if err != nil {
+			common.SysError(fmt.Sprintf("failed to delete expired live support ticket %d: %v", ticket.Id, err))
+			continue
+		}
+		if deleted {
+			logger.LogInfo(nil, fmt.Sprintf("live_support_ticket_archived reason=inactive_48h\n%s", transcript))
+		}
+	}
+}
 
 func NewTicketHub() *TicketHub {
 	hub := &TicketHub{

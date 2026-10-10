@@ -74,6 +74,7 @@ const defaultOperationsSettings: OperationsSettings = {
   'relay_fallback_setting.fallback_image_models': '',
   'relay_fallback_setting.fallback_tts_models': '',
   'relay_fallback_setting.fallback_stt_models': '',
+  'relay_fallback_setting.fallback_video_models': '',
   'relay_fallback_setting.fallback_system_prompt': '',
   'ticket_setting.enabled': true,
   'ticket_setting.live_support_enabled': true,

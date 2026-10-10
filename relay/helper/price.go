@@ -2,13 +2,17 @@ package helper
 
 import (
 	"fmt"
+	"math"
+	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -72,6 +76,14 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hostty
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (hosttypes.PriceData, error) {
 	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
+	if meta != nil && meta.CombineText != "" {
+		info.BillingCharacters = utf8.RuneCountInString(meta.CombineText)
+	}
+	if info.RelayMode == relayconstant.RelayModeAudioTranscription || info.RelayMode == relayconstant.RelayModeAudioTranslation {
+		if duration, err := audioRequestDuration(c); err == nil && duration > 0 {
+			info.BillingDurationSeconds = math.Min(duration, relaycommon.MaxTaskDurationSeconds)
+		}
+	}
 
 	groupRatioInfo := HandleGroupRatio(c, info)
 
@@ -93,7 +105,11 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	var freeModel bool
 	if !usePrice {
 		preConsumedTokens := common.Max(promptTokens, common.PreConsumedQuota)
-		if meta.MaxTokens != 0 {
+		billingMode := billing_setting.GetBillingMode(info.OriginModelName)
+		if billingMode == billing_setting.BillingModeInputOnly {
+			preConsumedTokens = promptTokens
+		}
+		if meta.MaxTokens != 0 && billingMode != billing_setting.BillingModeInputOnly {
 			preConsumedTokens += meta.MaxTokens
 		}
 		var success bool
@@ -168,7 +184,18 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		for name, ratio := range meta.BillingRatios {
 			priceData.AddOtherRatio(name, ratio)
 		}
-		quotaToPreConsume := priceData.ApplyOtherRatiosToFloat(modelPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+		unitMultiplier := 1.0
+		switch billing_setting.GetBillingMode(info.OriginModelName) {
+		case billing_setting.BillingModeDurationSecond:
+			unitMultiplier = math.Max(1, info.BillingDurationSeconds)
+		case billing_setting.BillingModeDurationMinute:
+			unitMultiplier = math.Max(1.0/60.0, info.BillingDurationSeconds/60.0)
+		case billing_setting.BillingModeDurationHour:
+			unitMultiplier = math.Max(1.0/3600.0, info.BillingDurationSeconds/3600.0)
+		case billing_setting.BillingModeCharacters:
+			unitMultiplier = float64(info.BillingCharacters) / 1_000_000
+		}
+		quotaToPreConsume := priceData.ApplyOtherRatiosToFloat(modelPrice * unitMultiplier * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
 		quota, err := common.QuotaFromFloatStrict(quotaToPreConsume)
 		if err != nil {
 			return hosttypes.PriceData{}, err
@@ -181,6 +208,35 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	}
 	info.PriceData = priceData
 	return priceData, nil
+}
+
+// audioRequestDuration reads all uploaded transcription files and returns a
+// bounded aggregate duration. File metadata is untrusted and the shared audio
+// duration cap also protects billing from absurd headers.
+func audioRequestDuration(c *gin.Context) (float64, error) {
+	form, err := common.ParseMultipartFormReusable(c)
+	if err != nil {
+		return 0, err
+	}
+	var total float64
+	for _, header := range form.File["file"] {
+		file, err := header.Open()
+		if err != nil {
+			return 0, err
+		}
+		duration, durationErr := common.GetAudioDuration(c.Request.Context(), file, filepath.Ext(header.Filename))
+		_ = file.Close()
+		if durationErr != nil {
+			return 0, durationErr
+		}
+		if duration > 0 && !math.IsNaN(duration) && !math.IsInf(duration, 0) {
+			total += duration
+		}
+		if total >= relaycommon.MaxTaskDurationSeconds {
+			return relaycommon.MaxTaskDurationSeconds, nil
+		}
+	}
+	return total, nil
 }
 
 // ModelPriceHelperPerCall 按次/按量计费的 PriceHelper (MJ、Task)

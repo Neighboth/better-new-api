@@ -51,7 +51,7 @@ func GetUserTickets(c *gin.Context) {
 	status := c.Query("status")
 	search := c.Query("search")
 
-	tickets, total, err := model.GetUserTickets(userId, page, pageSize, status, search)
+	tickets, total, err := model.GetUserTickets(userId, page, pageSize, status, search, c.Query("live_support") == "true")
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -75,6 +75,7 @@ type CreateTicketRequest struct {
 	Priority    string `json:"priority"`
 	Content     string `json:"content"`
 	Attachments string `json:"attachments"`
+	LiveSupport bool   `json:"live_support"`
 }
 
 func CreateTicket(c *gin.Context) {
@@ -119,6 +120,7 @@ func CreateTicket(c *gin.Context) {
 		Title:    req.Title,
 		Category: req.Category,
 		Priority: req.Priority,
+		IsLiveSupport: req.LiveSupport,
 	}
 
 	if err := model.CreateTicket(ticket, req.Content, req.Attachments); err != nil {
@@ -136,6 +138,13 @@ func CreateTicket(c *gin.Context) {
 
 	service.GlobalTicketHub.BroadcastToAdmins("new_ticket", ticket)
 	service.NotifyAdminNewTicketEmail(ticket, req.Content)
+	
+	if ticket.IsLiveSupport {
+		activeAdmin := model.GetActiveAdmin()
+		if activeAdmin == nil {
+			go service.InvokeAiAssistant(ticket.Id)
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -213,7 +222,6 @@ func AddTicketMessage(c *gin.Context) {
 	}
 
 	userId := c.GetInt("id")
-	role := c.GetInt("role")
 	ticketId, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -232,7 +240,9 @@ func AddTicketMessage(c *gin.Context) {
 		return
 	}
 
-	isAdmin := role >= common.RoleAdminUser
+	// Replies made through the user's profile are always customer messages,
+	// including when an administrator is viewing their own account.
+	isAdmin := strings.HasPrefix(c.FullPath(), "/api/admin/ticket/")
 	if !isAdmin && ticket.UserId != userId {
 		c.JSON(http.StatusForbidden, gin.H{
 			"success": false,
@@ -282,6 +292,13 @@ func AddTicketMessage(c *gin.Context) {
 		service.NotifyUserTicketReplyEmail(ticket, req.Content)
 	} else {
 		service.NotifyAdminNewTicketEmail(ticket, req.Content)
+		
+		if ticket.IsLiveSupport {
+			activeAdmin := model.GetActiveAdmin()
+			if activeAdmin == nil {
+				go service.InvokeAiAssistant(ticketId)
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -330,7 +347,6 @@ func CloseTicket(c *gin.Context) {
 	service.GlobalTicketHub.BroadcastToTicket(ticketId, "status_changed", map[string]any{
 		"status": model.TicketStatusClosed,
 	})
-
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 	})
@@ -418,6 +434,7 @@ func AdminUpdateTicket(c *gin.Context) {
 	}
 
 	if req.Status != "" {
+		ticket, _ := model.GetTicketById(ticketId)
 		if err := model.UpdateTicketStatus(ticketId, req.Status); err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
@@ -428,6 +445,11 @@ func AdminUpdateTicket(c *gin.Context) {
 		service.GlobalTicketHub.BroadcastToTicket(ticketId, "status_changed", map[string]any{
 			"status": req.Status,
 		})
+		if ticket != nil && ticket.IsLiveSupport && req.Status == model.TicketStatusClosed {
+			if err := service.ArchiveAndDeleteLiveSupportTicket(ticketId, "closed_by_staff"); err != nil {
+				common.SysError("failed to archive closed live support ticket: " + err.Error())
+			}
+		}
 	}
 
 	if req.Priority != "" {

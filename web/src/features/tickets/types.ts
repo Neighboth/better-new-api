@@ -41,6 +41,7 @@ export interface Ticket {
   guest_session_key?: string
   guest_contact?: string
   user_role?: number
+  is_live_support?: boolean
 }
 
 export interface TicketMessage {

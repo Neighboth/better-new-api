@@ -18,6 +18,7 @@ type RelayFallbackSetting struct {
 	FallbackImageModels  string `json:"fallback_image_models"`
 	FallbackTTSModels    string `json:"fallback_tts_models"`
 	FallbackSTTModels    string `json:"fallback_stt_models"`
+	FallbackVideoModels  string `json:"fallback_video_models"`
 	// System prompt text prepended to every attempt (original + fallback).
 	FallbackSystemPrompt string `json:"fallback_system_prompt"`
 	// EnableFallback toggles whether the relay fallback chain is active at all.
@@ -32,6 +33,7 @@ var relayFallbackSetting = RelayFallbackSetting{
 	FallbackImageModels:  "",
 	FallbackTTSModels:    "",
 	FallbackSTTModels:    "",
+	FallbackVideoModels:  "",
 	FallbackSystemPrompt: "",
 }
 
@@ -89,4 +91,11 @@ func (s *RelayFallbackSetting) FallbackSTTModelList() []string {
 		return nil
 	}
 	return parseModelList(s.FallbackSTTModels)
+}
+
+func (s *RelayFallbackSetting) FallbackVideoModelList() []string {
+	if s == nil {
+		return nil
+	}
+	return parseModelList(s.FallbackVideoModels)
 }

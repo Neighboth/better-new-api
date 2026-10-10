@@ -22,7 +22,6 @@ import {
   CreditCard,
   FileText,
   FlaskConical,
-  Headphones,
   Key,
   LayoutDashboard,
   LifeBuoy,
@@ -130,14 +129,6 @@ export function useSidebarData(): SidebarData {
                 title: t('Support Tickets'),
                 url: '/tickets' as const,
                 icon: LifeBuoy,
-              },
-              {
-                title: t('Live Support'),
-                url: '#' as const,
-                icon: Headphones,
-                onClick: () => {
-                  window.dispatchEvent(new CustomEvent('open-live-support'))
-                },
               },
             ]
           : []),

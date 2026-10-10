@@ -223,9 +223,21 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		relayInfo.RetryIndex = retryParam.GetRetry()
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
-			// Kanallarda bu model yoksa fallback modele geç (varsa.
+			// A channel setup failure should not immediately switch models. The
+			// selected channel is already excluded by IgnoredChannelIds, so reset
+			// the retry counter and let selection try the next channel first. A
+			// get-channel failure means that every channel for this model has been
+			// exhausted; only then advance the configured model fallback chain.
+			_, specificChannel := c.Get("specific_channel_id")
+			if !specificChannel && channelErr.GetErrorCode() != types.ErrorCodeGetChannelFailed {
+				retryParam.SetRetry(0)
+				continue
+			}
 			if !advanceFallbackModel(c, relayInfo, retryParam, fbState) {
 				newAPIError = channelErr
+				if relayInfo.LastError != nil {
+					newAPIError = relayInfo.LastError
+				}
 				break
 			}
 			continue
@@ -276,26 +288,28 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			})
 		}
 
-		if !shouldRetry(c, newAPIError, 1) { // 1 to allow logic in shouldRetry to pass if its a retryable error
-			// Error is not retryable. Don't retry this channel; try fallback model if applicable.
+		// A failed channel must not make the whole request fail while another
+		// channel can serve the same model. Channel selection already records the
+		// failed id in IgnoredChannelIds, so reset the retry counter and continue;
+		// once all channels are exhausted getChannel returns nil and the loop
+		// advances to the configured fallback model. Specific-channel requests
+		// intentionally retain their affinity and follow the normal retry policy.
+		if shouldRetryOtherChannel(c, newAPIError) {
+			retryParam.SetRetry(0)
+			continue
+		}
+		if _, specificChannel := c.Get("specific_channel_id"); !specificChannel {
 			if !advanceFallbackModel(c, relayInfo, retryParam, fbState) {
 				break
 			}
 			continue
 		}
-
-		maxRetries := common.RetryTimes
-		if maxRetries < 2 {
-			maxRetries = 2
+		if !shouldRetry(c, newAPIError, 1) {
+			break
 		}
-		// It is retryable, but if we exceed retry times, we should fallback
-		if retryParam.GetRetry() >= maxRetries {
-			if !advanceFallbackModel(c, relayInfo, retryParam, fbState) {
-				break
-			}
-			continue
+		if retryParam.GetRetry() >= common.RetryTimes {
+			break
 		}
-
 		retryParam.IncreaseRetry()
 	}
 
@@ -309,6 +323,31 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		gopool.Go(func() {
 			perfmetrics.RecordRelaySample(relayInfo, false, 0)
 		})
+	}
+}
+
+func shouldRetryOtherChannel(c *gin.Context, apiErr *types.NewAPIError) bool {
+	if apiErr == nil || types.IsSkipRetryError(apiErr) || service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
+		return false
+	}
+	if _, specificChannel := c.Get("specific_channel_id"); specificChannel {
+		return false
+	}
+	if types.IsChannelError(apiErr) {
+		return true
+	}
+	switch apiErr.GetErrorCode() {
+	case types.ErrorCodeDoRequestFailed,
+		types.ErrorCodeBadResponseStatusCode,
+		types.ErrorCodeBadResponse,
+		types.ErrorCodeBadResponseBody,
+		types.ErrorCodeReadResponseBodyFailed,
+		types.ErrorCodeEmptyResponse,
+		types.ErrorCodeAwsInvokeError,
+		types.ErrorCodeChannelResponseTimeExceeded:
+		return true
+	default:
+		return shouldRetry(c, apiErr, 1)
 	}
 }
 
@@ -404,6 +443,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
 	if newAPIError != nil {
+		retryParam.IgnoredChannelIds = append(retryParam.IgnoredChannelIds, channel.Id)
 		return nil, newAPIError
 	}
 	return channel, nil
@@ -625,6 +665,7 @@ func RelayTask(c *gin.Context) {
 			}
 		}
 
+		retryParam.IgnoredChannelIds = append(retryParam.IgnoredChannelIds, channel.Id)
 		addUsedChannel(c, channel.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {

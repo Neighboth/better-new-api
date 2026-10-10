@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import dayjs from 'dayjs'
 import {
   Download,
+  Headphones,
   LifeBuoy,
   Loader2,
   Plus,
@@ -26,6 +27,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -40,7 +42,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 
-import { downloadTicketTranscript, getUserTickets } from './api'
+import { downloadTicketTranscript, getTicketConfig, getUserTickets } from './api'
 import { CreateTicketDialog } from './components/create-ticket-dialog'
 import {
   TicketCategoryBadge,
@@ -59,6 +61,7 @@ export function UserTicketsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const { data: ticketConfig } = useQuery({ queryKey: ['ticket-config'], queryFn: getTicketConfig })
 
   const fetchTickets = async () => {
     try {
@@ -119,10 +122,16 @@ export function UserTicketsPage() {
           </p>
         </div>
 
-        <Button onClick={() => setCreateDialogOpen(true)}>
-          <Plus className='mr-2 h-4 w-4' />
-          {t('New Ticket')}
-        </Button>
+        <div className='flex gap-2'>
+          {ticketConfig?.data?.live_support_enabled && (
+            <Button variant='outline' onClick={() => window.dispatchEvent(new CustomEvent('open-live-support'))}>
+              <Headphones className='mr-2 h-4 w-4' />{t('Live Support')}
+            </Button>
+          )}
+          <Button onClick={() => setCreateDialogOpen(true)}>
+            <Plus className='mr-2 h-4 w-4' />{t('New Ticket')}
+          </Button>
+        </div>
       </div>
 
       {/* Filters and Search Bar */}

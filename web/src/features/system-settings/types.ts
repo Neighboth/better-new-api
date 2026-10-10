@@ -385,6 +385,14 @@ export type BillingSettings = {
   QuotaForInvitee: number
   TopUpLink: string
   'general_setting.docs_link': string
+  DocsLink_tr: string
+  DocsLink_en: string
+  DocsLink_zh_CN: string
+  DocsLink_zh_TW: string
+  DocsLink_fr: string
+  DocsLink_ru: string
+  DocsLink_ja: string
+  DocsLink_vi: string
   'quota_setting.enable_free_model_pre_consume': boolean
   QuotaPerUnit: number
   USDExchangeRate: number
@@ -542,6 +550,96 @@ export type OperationsSettings = {
   EmailBody_password_reset_ja?: string
   EmailSubject_password_reset_vi?: string
   EmailBody_password_reset_vi?: string
+
+  // system_error
+  EmailSubject_system_error_tr?: string
+  EmailBody_system_error_tr?: string
+  EmailSubject_system_error_en?: string
+  EmailBody_system_error_en?: string
+  EmailSubject_system_error_zh_CN?: string
+  EmailBody_system_error_zh_CN?: string
+  EmailSubject_system_error_zh_TW?: string
+  EmailBody_system_error_zh_TW?: string
+  EmailSubject_system_error_fr?: string
+  EmailBody_system_error_fr?: string
+  EmailSubject_system_error_ru?: string
+  EmailBody_system_error_ru?: string
+  EmailSubject_system_error_ja?: string
+  EmailBody_system_error_ja?: string
+  EmailSubject_system_error_vi?: string
+  EmailBody_system_error_vi?: string
+
+  // quota_warning
+  EmailSubject_quota_warning_tr?: string
+  EmailBody_quota_warning_tr?: string
+  EmailSubject_quota_warning_en?: string
+  EmailBody_quota_warning_en?: string
+  EmailSubject_quota_warning_zh_CN?: string
+  EmailBody_quota_warning_zh_CN?: string
+  EmailSubject_quota_warning_zh_TW?: string
+  EmailBody_quota_warning_zh_TW?: string
+  EmailSubject_quota_warning_fr?: string
+  EmailBody_quota_warning_fr?: string
+  EmailSubject_quota_warning_ru?: string
+  EmailBody_quota_warning_ru?: string
+  EmailSubject_quota_warning_ja?: string
+  EmailBody_quota_warning_ja?: string
+  EmailSubject_quota_warning_vi?: string
+  EmailBody_quota_warning_vi?: string
+
+  // ticket_created
+  EmailSubject_ticket_created_tr?: string
+  EmailBody_ticket_created_tr?: string
+  EmailSubject_ticket_created_en?: string
+  EmailBody_ticket_created_en?: string
+  EmailSubject_ticket_created_zh_CN?: string
+  EmailBody_ticket_created_zh_CN?: string
+  EmailSubject_ticket_created_zh_TW?: string
+  EmailBody_ticket_created_zh_TW?: string
+  EmailSubject_ticket_created_fr?: string
+  EmailBody_ticket_created_fr?: string
+  EmailSubject_ticket_created_ru?: string
+  EmailBody_ticket_created_ru?: string
+  EmailSubject_ticket_created_ja?: string
+  EmailBody_ticket_created_ja?: string
+  EmailSubject_ticket_created_vi?: string
+  EmailBody_ticket_created_vi?: string
+
+  // ticket_replied
+  EmailSubject_ticket_replied_tr?: string
+  EmailBody_ticket_replied_tr?: string
+  EmailSubject_ticket_replied_en?: string
+  EmailBody_ticket_replied_en?: string
+  EmailSubject_ticket_replied_zh_CN?: string
+  EmailBody_ticket_replied_zh_CN?: string
+  EmailSubject_ticket_replied_zh_TW?: string
+  EmailBody_ticket_replied_zh_TW?: string
+  EmailSubject_ticket_replied_fr?: string
+  EmailBody_ticket_replied_fr?: string
+  EmailSubject_ticket_replied_ru?: string
+  EmailBody_ticket_replied_ru?: string
+  EmailSubject_ticket_replied_ja?: string
+  EmailBody_ticket_replied_ja?: string
+  EmailSubject_ticket_replied_vi?: string
+  EmailBody_ticket_replied_vi?: string
+
+  // channel_disabled
+  EmailSubject_channel_disabled_tr?: string
+  EmailBody_channel_disabled_tr?: string
+  EmailSubject_channel_disabled_en?: string
+  EmailBody_channel_disabled_en?: string
+  EmailSubject_channel_disabled_zh_CN?: string
+  EmailBody_channel_disabled_zh_CN?: string
+  EmailSubject_channel_disabled_zh_TW?: string
+  EmailBody_channel_disabled_zh_TW?: string
+  EmailSubject_channel_disabled_fr?: string
+  EmailBody_channel_disabled_fr?: string
+  EmailSubject_channel_disabled_ru?: string
+  EmailBody_channel_disabled_ru?: string
+  EmailSubject_channel_disabled_ja?: string
+  EmailBody_channel_disabled_ja?: string
+  EmailSubject_channel_disabled_vi?: string
+  EmailBody_channel_disabled_vi?: string
   WorkerUrl: string
   WorkerValidKey: string
   WorkerAllowHttpImageRequestEnabled: boolean

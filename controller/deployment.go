@@ -29,13 +29,26 @@ func GetModelDeploymentSettings(c *gin.Context) {
 	common.OptionMapRWMutex.RLock()
 	enabled := common.OptionMap["model_deployment.ionet.enabled"] == "true"
 	hasAPIKey := strings.TrimSpace(common.OptionMap["model_deployment.ionet.api_key"]) != ""
+	
+	modalEnabled := common.OptionMap["model_deployment.modal.enabled"] == "true"
+	hasModalAPIKey := strings.TrimSpace(common.OptionMap["model_deployment.modal.api_key"]) != ""
 	common.OptionMapRWMutex.RUnlock()
 
 	common.ApiSuccess(c, gin.H{
-		"provider":    "io.net",
-		"enabled":     enabled,
-		"configured":  hasAPIKey,
-		"can_connect": enabled && hasAPIKey,
+		"providers": []gin.H{
+			{
+				"provider":    "io.net",
+				"enabled":     enabled,
+				"configured":  hasAPIKey,
+				"can_connect": enabled && hasAPIKey,
+			},
+			{
+				"provider":    "modal",
+				"enabled":     modalEnabled,
+				"configured":  hasModalAPIKey,
+				"can_connect": modalEnabled && hasModalAPIKey,
+			},
+		},
 	})
 }
 

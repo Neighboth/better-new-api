@@ -59,6 +59,9 @@ const (
 	ChannelTypeSub2API        = 59
 	ChannelTypeNewAPI         = 60
 	ChannelTypeAntigravity    = 61
+	ChannelTypeAgnes          = 62
+	ChannelTypeDS2API         = 63
+	ChannelTypeFreeDSAPI      = 64
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 )
 
@@ -125,6 +128,7 @@ var ChannelBaseURLs = []string{
 	"",                                          //59
 	"",                                          //60
 	"https://cloudcode-pa.googleapis.com",       //61
+	"https://api.agnes.ai",                      //62
 }
 
 var ChannelTypeNames = map[int]string{
@@ -186,6 +190,9 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeSub2API:        "Sub2API",
 	ChannelTypeNewAPI:         "New API",
 	ChannelTypeAntigravity:    "Google Antigravity",
+	ChannelTypeAgnes:          "Agnes AI",
+	ChannelTypeDS2API:         "DS2API",
+	ChannelTypeFreeDSAPI:      "Free DS API",
 }
 
 func GetChannelTypeName(channelType int) string {

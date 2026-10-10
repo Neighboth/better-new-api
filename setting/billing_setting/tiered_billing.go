@@ -16,6 +16,7 @@ const (
 	BillingModeDurationSecond = "duration_second"
 	BillingModeDurationMinute = "duration_minute"
 	BillingModeDurationHour   = "duration_hour"
+	BillingModeCharacters     = "characters"
 	BillingModeField          = "billing_mode"
 	BillingExprField          = "billing_expr"
 )

@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useQuery } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -31,6 +32,7 @@ import {
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Form,
   FormControl,
@@ -58,6 +60,7 @@ import {
 } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { addTimeToDate } from '@/lib/time'
+import { getEnabledModels } from '@/features/channels/api'
 
 import { createRedemption, updateRedemption, getRedemption } from '../api'
 import { SUCCESS_MESSAGES } from '../constants'
@@ -86,6 +89,16 @@ export function RedemptionsMutateDrawer({
   const isUpdate = !!currentRow
   const redemptionId = currentRow?.id
   const { triggerRefresh } = useRedemptions()
+  const [modelSearch, setModelSearch] = useState('')
+  const { data: modelOptionsResponse } = useQuery({
+    queryKey: ['redemption-model-options'],
+    queryFn: getEnabledModels,
+    enabled: open && !isUpdate,
+  })
+  const modelOptions = modelOptionsResponse?.data ?? []
+  const filteredModelOptions = modelOptions.filter((model) =>
+    model.toLowerCase().includes(modelSearch.trim().toLowerCase())
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [redemptionLoadState, setRedemptionLoadState] = useState<
     'idle' | 'loading' | 'ready' | 'error'
@@ -428,6 +441,91 @@ export function RedemptionsMutateDrawer({
                     </FormItem>
                   )}
                 />
+
+                {!isUpdate && (
+                  <FormField
+                    control={form.control}
+                    name='model_filter_mode'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Model restrictions')}</FormLabel>
+                        <div className='grid grid-cols-2 gap-2'>
+                          <Button
+                            type='button'
+                            size='sm'
+                            variant={field.value === 'none' ? 'default' : 'outline'}
+                            onClick={() => {
+                              field.onChange('none')
+                              form.setValue('models', [])
+                            }}
+                          >
+                            {t('All models')}
+                          </Button>
+                          <Button
+                            type='button'
+                            size='sm'
+                            variant={field.value === 'whitelist' ? 'default' : 'outline'}
+                            onClick={() => field.onChange('whitelist')}
+                          >
+                            {t('Selected models only')}
+                          </Button>
+                        </div>
+                        <FormDescription>
+                          {t('When restricted, this code balance can only pay for the selected models.')}
+                        </FormDescription>
+                        {field.value === 'whitelist' && (
+                          <FormField
+                            control={form.control}
+                            name='models'
+                            render={({ field: modelsField }) => (
+                              <FormItem>
+                                <Input
+                                  value={modelSearch}
+                                  onChange={(event) => setModelSearch(event.target.value)}
+                                  placeholder={t('Search models')}
+                                  aria-label={t('Search models')}
+                                />
+                                <div className='max-h-48 space-y-1 overflow-y-auto rounded-md border p-2'>
+                                  {filteredModelOptions.length > 0 ? (
+                                    filteredModelOptions.map((model) => {
+                                      const selected = modelsField.value.includes(model)
+                                      return (
+                                        <label key={model} className='flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-sm hover:bg-muted'>
+                                          <Checkbox
+                                            checked={selected}
+                                            onCheckedChange={(checked) => {
+                                              const nextModels = checked
+                                                ? [...modelsField.value, model]
+                                                : modelsField.value.filter((selectedModel) => selectedModel !== model)
+                                              modelsField.onChange(nextModels)
+                                            }}
+                                          />
+                                          <span className='break-all'>{model}</span>
+                                        </label>
+                                      )
+                                    })
+                                  ) : (
+                                    <p className='px-1 py-2 text-sm text-muted-foreground'>
+                                      {modelOptions.length === 0
+                                        ? t('No enabled models are available.')
+                                        : t('No models match your search.')}
+                                    </p>
+                                  )}
+                                </div>
+                                <FormDescription>
+                                  {t('{{count}} models selected', { count: modelsField.value.length })}
+                                </FormDescription>
+                                {modelsField.value.length === 0 && (
+                                  <FormMessage>{t('Select at least one model for a restricted code.')}</FormMessage>
+                                )}
+                              </FormItem>
+                            )}
+                          />
+                        )}
+                      </FormItem>
+                    )}
+                  />
+                )}
 
                 {!isUpdate && (
                   <FormField

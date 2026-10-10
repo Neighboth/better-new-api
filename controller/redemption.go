@@ -1,8 +1,10 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
@@ -134,17 +136,24 @@ func AddRedemption(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": msg})
 		return
 	}
+	modelFilterMode, models, filterErr := normalizeRedemptionModelFilter(redemption.ModelFilterMode, redemption.Models)
+	if filterErr != nil {
+		common.ApiError(c, filterErr)
+		return
+	}
 	var keys []string
 	for i := 0; i < redemption.Count; i++ {
 		key := common.GetUUID()
 		cleanRedemption := model.Redemption{
-			UserId:      c.GetInt("id"),
-			Name:        redemption.Name,
-			Key:         key,
-			CreatedTime: common.GetTimestamp(),
-			Quota:       redemption.Quota,
-			Type:        redemption.Type,
-			ExpiredTime: redemption.ExpiredTime,
+			UserId:          c.GetInt("id"),
+			Name:            redemption.Name,
+			Key:             key,
+			CreatedTime:     common.GetTimestamp(),
+			Quota:           redemption.Quota,
+			Type:            redemption.Type,
+			ExpiredTime:     redemption.ExpiredTime,
+			ModelFilterMode: modelFilterMode,
+			Models:          models,
 		}
 		err = cleanRedemption.Insert()
 		if err != nil {
@@ -169,6 +178,36 @@ func AddRedemption(c *gin.Context) {
 		"data":    keys,
 	})
 	return
+}
+
+func normalizeRedemptionModelFilter(mode, modelList string) (string, string, error) {
+	mode = strings.TrimSpace(strings.ToLower(mode))
+	if mode == "" {
+		mode = "none"
+	}
+	if mode != "none" && mode != "whitelist" && mode != "blacklist" {
+		return "", "", errors.New("invalid redemption model filter mode")
+	}
+	models := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, candidate := range strings.Split(modelList, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		models = append(models, candidate)
+	}
+	if mode == "none" {
+		return mode, "", nil
+	}
+	if len(models) == 0 {
+		return "", "", errors.New("model restrictions require at least one model")
+	}
+	return mode, strings.Join(models, ","), nil
 }
 
 func DeleteRedemption(c *gin.Context) {
@@ -207,6 +246,13 @@ func UpdateRedemption(c *gin.Context) {
 		cleanRedemption.Name = redemption.Name
 		cleanRedemption.Quota = redemption.Quota
 		cleanRedemption.ExpiredTime = redemption.ExpiredTime
+		modelFilterMode, models, filterErr := normalizeRedemptionModelFilter(redemption.ModelFilterMode, redemption.Models)
+		if filterErr != nil {
+			common.ApiError(c, filterErr)
+			return
+		}
+		cleanRedemption.ModelFilterMode = modelFilterMode
+		cleanRedemption.Models = models
 	}
 	if statusOnly != "" {
 		cleanRedemption.Status = redemption.Status

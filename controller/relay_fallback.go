@@ -45,6 +45,8 @@ func newFallbackState(info *relaycommon.RelayInfo) *fallbackState {
 			fallbackList = s.FallbackTTSModelList()
 		case info.RelayMode == relayconstant.RelayModeAudioTranscription || info.RelayMode == relayconstant.RelayModeAudioTranslation:
 			fallbackList = s.FallbackSTTModelList()
+		case info.RelayMode == relayconstant.RelayModeVideoSubmit:
+			fallbackList = s.FallbackVideoModelList()
 		default:
 			fallbackList = s.FallbackChatModelList()
 		}
@@ -222,21 +224,26 @@ func advanceFallbackModel(c *gin.Context, relayInfo *relaycommon.RelayInfo, retr
 		return false
 	}
 
-	cand, ok := fb.currentModel()
-	if !ok || cand == "" {
-		return false
+	for {
+		cand, ok := fb.currentModel()
+		if !ok {
+			return false
+		}
+		fb.advance()
+		if cand == "" {
+			continue
+		}
+		if err := switchRelayModel(c, relayInfo, cand); err != nil {
+			logger.LogError(c, err.Error())
+			continue
+		}
+		logRelayFallback(c, fb.orig, cand)
+		if err := applyFallbackSystemPrompt(c, relayInfo, fb); err != nil {
+			logger.LogWarn(c, fmt.Sprintf("failed to apply fallback system prompt: %s", err.Error()))
+		}
+		retryParam.ModelName = cand
+		retryParam.SetRetry(0)
+		retryParam.IgnoredChannelIds = nil // Clear ignored channels for the new model
+		return true
 	}
-	logRelayFallback(c, relayInfo.OriginModelName, cand)
-	if err := switchRelayModel(c, relayInfo, cand); err != nil {
-		logger.LogError(c, err.Error())
-		return false
-	}
-	if err := applyFallbackSystemPrompt(c, relayInfo, fb); err != nil {
-		logger.LogWarn(c, fmt.Sprintf("failed to apply fallback system prompt: %s", err.Error()))
-	}
-	retryParam.ModelName = cand
-	retryParam.SetRetry(0)
-	retryParam.IgnoredChannelIds = nil // Clear ignored channels for the new model
-	fb.advance()
-	return true
 }

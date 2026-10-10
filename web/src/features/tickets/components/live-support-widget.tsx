@@ -31,6 +31,7 @@ import {
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { Markdown } from '@/components/ui/markdown'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
@@ -39,17 +40,47 @@ import { Textarea } from '@/components/ui/textarea'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
+  addTicketMessage,
   addGuestTicketMessage,
   createGuestTicket,
   createTicket,
   downloadGuestTicketTranscript,
   getGuestTicket,
+  getTicketDetail,
   getTicketConfig,
   getUserTickets,
 } from '../api'
 
 const DISMISS_KEY = 'live_support_dismissed_until'
 const GUEST_SESSION_KEY = 'guest_ticket_session'
+
+const MessageContent = ({ content, isAdmin }: { content: string, isAdmin?: boolean }) => {
+  const buttonRegex = /BUTTON\[(.*?)\]\((.*?)\)/g
+  const match = buttonRegex.exec(content)
+  let cleanContent = content
+  let btnText = ''
+  let btnUrl = ''
+  if (match) {
+    cleanContent = content.replace(buttonRegex, '')
+    btnText = match[1]
+    btnUrl = match[2]
+  }
+  return (
+    <div className='flex flex-col gap-2 w-full'>
+      <div className={`prose ${!isAdmin ? 'prose-invert prose-p:text-primary-foreground prose-a:text-primary-foreground' : 'prose-sm dark:prose-invert'} whitespace-pre-wrap break-words max-w-none`}>
+        <Markdown content={cleanContent.trim()} />
+      </div>
+      {btnUrl && (
+        <Button 
+          className='w-full mt-2 bg-blue-600 hover:bg-blue-700 text-white' 
+          onClick={() => window.location.href = btnUrl}
+        >
+          {btnText}
+        </Button>
+      )}
+    </div>
+  )
+}
 
 export function LiveSupportWidget() {
   const { t } = useTranslation()
@@ -102,9 +133,17 @@ export function LiveSupportWidget() {
   )
 
   const { data: userTicketsResp, refetch: refetchTickets } = useQuery({
-    queryKey: ['user-tickets-quick'],
-    queryFn: () => getUserTickets({ page: 1, pageSize: 3, status: 'open' }),
+    queryKey: ['user-live-support-tickets'],
+    queryFn: () => getUserTickets({ page: 1, pageSize: 20, liveSupport: true }),
     enabled: Boolean(isEnabled && auth.user && open),
+    refetchInterval: open && Boolean(auth.user) ? 5000 : false,
+  })
+  const activeLiveTicket = userTicketsResp?.data?.items?.find((ticket) => ticket.status !== 'closed')
+  const { data: liveTicketDetail, isLoading: loadingLiveTicket } = useQuery({
+    queryKey: ['live-support-detail', activeLiveTicket?.id],
+    queryFn: () => getTicketDetail(activeLiveTicket!.id),
+    enabled: Boolean(isEnabled && auth.user && open && activeLiveTicket),
+    refetchInterval: open && Boolean(activeLiveTicket) ? 3000 : false,
   })
 
   // Guest ticket query
@@ -142,19 +181,20 @@ export function LiveSupportWidget() {
 
     try {
       setSending(true)
-      const res = await createTicket({
-        title: quickMessage.trim().slice(0, 50),
-        category: 'technical',
-        priority: 'normal',
-        content: quickMessage.trim(),
-      })
+      const res = activeLiveTicket
+        ? await addTicketMessage(activeLiveTicket.id, quickMessage.trim())
+        : await createTicket({
+            title: 'Live Support',
+            category: 'technical',
+            priority: 'normal',
+            content: quickMessage.trim(),
+            live_support: true,
+          })
 
-      if (res.success && res.data) {
+      if (res.success) {
         toast.success(t('Message sent to support! We will reply shortly.'))
         setQuickMessage('')
-        void refetchTickets()
-        void navigate({ to: '/tickets' })
-        setOpen(false)
+        await refetchTickets()
       } else {
         toast.error(res.message || t('Failed to send message'))
       }
@@ -320,7 +360,7 @@ export function LiveSupportWidget() {
                         <div className='text-[10px] opacity-75 font-semibold mb-1'>
                           {m.is_admin ? t('Support Agent') : t('You')}
                         </div>
-                        <div className='whitespace-pre-wrap break-words'>{m.content}</div>
+                        <div className='whitespace-pre-wrap break-words'><MessageContent content={m.content} isAdmin={m.is_admin} /></div>
                       </div>
                     ))}
                   </div>
@@ -377,44 +417,25 @@ export function LiveSupportWidget() {
                   👋 {t('Welcome! Have a question or facing an issue? Send a message below and our support team will respond quickly.')}
                 </div>
 
-                {/* Open tickets list if any */}
-                {userTicketsResp?.data?.items && userTicketsResp.data.items.length > 0 && (
+                {activeLiveTicket ? (
                   <div className='space-y-2'>
-                    <div className='flex items-center justify-between text-xs font-semibold text-foreground'>
-                      <span>{t('Active Inquiries')}</span>
-                      <Button
-                        variant='link'
-                        size='sm'
-                        className='h-auto p-0 text-xs text-primary'
-                        onClick={() => {
-                          setOpen(false)
-                          void navigate({ to: '/tickets' })
-                        }}
-                      >
-                        {t('View all')}
-                        <ExternalLink className='ml-1 h-3 w-3' />
-                      </Button>
+                    <div className='text-[11px] text-muted-foreground border-b pb-2'>
+                      {t('Live Support')} · #{activeLiveTicket.id}
                     </div>
-
-                    <div className='space-y-1.5'>
-                      {userTicketsResp.data.items.slice(0, 2).map((tk) => (
-                        <div
-                          key={tk.id}
-                          className='p-2.5 rounded-md border bg-card hover:bg-muted/40 cursor-pointer transition-colors text-xs space-y-1'
-                          onClick={() => {
-                            setOpen(false)
-                            void navigate({ to: '/tickets' })
-                          }}
-                        >
-                          <div className='font-medium truncate text-foreground'>
-                            #{tk.id} - {tk.title}
-                          </div>
-                          <div className='text-[10px] text-muted-foreground capitalize'>
-                            {t('Status')}: {tk.status}
-                          </div>
+                    <div className='space-y-2 max-h-[230px] overflow-y-auto pr-1'>
+                      {loadingLiveTicket ? (
+                        <div className='flex justify-center py-4'><Loader2 className='h-5 w-5 animate-spin text-muted-foreground' /></div>
+                      ) : liveTicketDetail?.data?.messages?.map((message) => (
+                        <div key={message.id} className={`p-2.5 rounded-lg text-xs max-w-[88%] ${message.is_admin ? 'bg-muted border mr-auto' : 'bg-primary text-primary-foreground ml-auto'}`}>
+                          <div className='text-[10px] opacity-75 font-semibold mb-1'>{message.is_admin ? t('Support Agent') : t('You')}</div>
+                          <div className='whitespace-pre-wrap break-words'><MessageContent content={message.content} isAdmin={message.is_admin} /></div>
                         </div>
                       ))}
                     </div>
+                  </div>
+                ) : (
+                  <div className='rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground border'>
+                    👋 {t('Welcome! Have a question or facing an issue? Send a message below and our support team will respond quickly.')}
                   </div>
                 )}
               </>

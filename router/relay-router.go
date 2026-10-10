@@ -81,6 +81,17 @@ func SetRelayRouter(router *gin.Engine) {
 		})
 	}
 	{
+		wsRootRouter := router.Group("")
+		wsRootRouter.Use(middleware.RouteTag("relay"))
+		wsRootRouter.Use(middleware.SystemPerformanceCheck())
+		wsRootRouter.Use(middleware.TokenAuth())
+		wsRootRouter.Use(middleware.ModelRequestRateLimit())
+		wsRootRouter.Use(middleware.Distribute())
+		wsRootRouter.GET("/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIRealtime)
+		})
+	}
+	{
 		//http router
 		httpRouter := relayV1Router.Group("")
 		httpRouter.Use(middleware.Distribute())

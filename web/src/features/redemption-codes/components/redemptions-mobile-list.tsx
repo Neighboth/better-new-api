@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { Table as TanstackTable } from '@tanstack/react-table'
 import { Database } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { Ban } from 'lucide-react'
 
 import { DISABLED_ROW_MOBILE } from '@/components/data-table'
 import { MaskedValueDisplay } from '@/components/masked-value-display'
@@ -127,6 +128,16 @@ export function RedemptionsMobileList(props: RedemptionsMobileListProps) {
                 <div className='truncate text-sm font-semibold'>
                   {redemption.name}
                 </div>
+                {redemption.model_filter_mode === 'whitelist' && (
+                  <div className='mt-1 flex items-center gap-1 text-xs text-destructive'>
+                    <Ban aria-hidden='true' className='size-3.5 shrink-0' />
+                    <span className='truncate'>
+                      {t('Restricted to: {{models}}', {
+                        models: redemption.models?.split(',').join(', ') ?? '',
+                      })}
+                    </span>
+                  </div>
+                )}
                 <div className='text-muted-foreground text-[11px]'>
                   {t('Redemption Code')}
                 </div>

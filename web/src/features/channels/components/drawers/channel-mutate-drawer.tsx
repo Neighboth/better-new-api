@@ -69,6 +69,7 @@ import { MultiSelect } from '@/components/multi-select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Combobox } from '@/components/ui/combobox'
 import {
   Form,
@@ -135,6 +136,9 @@ import {
   getGroups,
   getPrefillGroups,
   refreshCodexCredential,
+  startChannelOAuth,
+  exchangeChannelOAuth,
+  type ChannelOAuthProvider,
 } from '../../api'
 import {
   ADD_MODE_OPTIONS,
@@ -626,6 +630,48 @@ export function ChannelMutateDrawer({
   const [isChannelKeyLoading, setIsChannelKeyLoading] = useState(false)
   const [isCodexCredentialRefreshing, setIsCodexCredentialRefreshing] =
     useState(false)
+
+  const [oauthDialogOpen, setOauthDialogOpen] = useState(false)
+  const [oauthProvider, setOauthProvider] = useState<ChannelOAuthProvider | null>(null)
+  const [oauthSessionId, setOauthSessionId] = useState<string>('')
+  const [oauthCallbackUrl, setOauthCallbackUrl] = useState<string>('')
+  const [isOauthExchanging, setIsOauthExchanging] = useState(false)
+
+  const handleStartOAuth = async (provider: ChannelOAuthProvider) => {
+    try {
+      const res = await startChannelOAuth(provider)
+      if (res.success && res.data) {
+        setOauthProvider(provider)
+        setOauthSessionId(res.data.session_id)
+        setOauthCallbackUrl('')
+        setOauthDialogOpen(true)
+        window.open(res.data.auth_url, '_blank', 'width=600,height=700')
+      } else {
+        toast.error(res.message || t('Failed to start OAuth flow'))
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || error.message || t('Failed to start OAuth flow'))
+    }
+  }
+
+  const handleExchangeOAuth = async () => {
+    if (!oauthProvider || !oauthSessionId || !oauthCallbackUrl) return
+    setIsOauthExchanging(true)
+    try {
+      const res = await exchangeChannelOAuth(oauthProvider, oauthSessionId, oauthCallbackUrl)
+      if (res.success && res.data) {
+        form.setValue('key', res.data.key, { shouldValidate: true })
+        setOauthDialogOpen(false)
+        toast.success(t('Successfully acquired credentials'))
+      } else {
+        toast.error(res.message || t('Failed to exchange OAuth credentials'))
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || error.message || t('Failed to exchange OAuth credentials'))
+    } finally {
+      setIsOauthExchanging(false)
+    }
+  }
   const initialModelsRef = useRef<string[]>([])
   const initialModelMappingRef = useRef<string>('')
   const initialStatusCodeMappingRef = useRef<string>('')
@@ -3092,6 +3138,15 @@ export function ChannelMutateDrawer({
                                       )}
                                     </div>
                                     <div className='flex flex-wrap items-center gap-2'>
+                                      <Button
+                                        type='button'
+                                        variant='outline'
+                                        size='sm'
+                                        onClick={() => handleStartOAuth('codex')}
+                                      >
+                                        <Wand2 className='mr-2 h-4 w-4' />
+                                        {t('Get credential via OAuth')}
+                                      </Button>
                                       {isEditing && channelId && (
                                         <Button
                                           type='button'
@@ -3122,6 +3177,29 @@ export function ChannelMutateDrawer({
                                       )}
                                     </AlertDescription>
                                   </Alert>
+                                </div>
+                              )}
+
+                              {currentType === 61 && (
+                                <div className='border-border/60 flex flex-col gap-3 border-y py-4'>
+                                  <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+                                    <div className='text-muted-foreground text-xs'>
+                                      {t(
+                                        'Google Antigravity channels can use an OAuth credential as the key.'
+                                      )}
+                                    </div>
+                                    <div className='flex flex-wrap items-center gap-2'>
+                                      <Button
+                                        type='button'
+                                        variant='outline'
+                                        size='sm'
+                                        onClick={() => handleStartOAuth('antigravity')}
+                                      >
+                                        <Wand2 className='mr-2 h-4 w-4' />
+                                        {t('Get credential via OAuth')}
+                                      </Button>
+                                    </div>
+                                  </div>
                                 </div>
                               )}
 
@@ -4870,6 +4948,43 @@ export function ChannelMutateDrawer({
         detailItems={statusCodeRiskDetailItems}
         onConfirm={() => handleStatusCodeRiskAction(true)}
       />
+      <Dialog open={oauthDialogOpen} onOpenChange={setOauthDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('Complete OAuth Flow')}</DialogTitle>
+            <DialogDescription>
+              {t('Please authenticate in the new window. After authentication, you will be redirected to a localhost URL. Copy the entire URL from the address bar and paste it below.')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-4">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">{t('Callback URL')}</label>
+              <Input
+                placeholder="http://localhost:3000/callback?code=..."
+                value={oauthCallbackUrl}
+                onChange={(e) => setOauthCallbackUrl(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setOauthDialogOpen(false)}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button
+              onClick={handleExchangeOAuth}
+              disabled={isOauthExchanging || !oauthCallbackUrl}
+            >
+              {isOauthExchanging ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              {t('Submit')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

@@ -111,11 +111,15 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	endpointType = normalizeChannelTestEndpoint(channel, endpointType)
 
 	requestPath := "/v1/chat/completions"
+	requestMethod := http.MethodPost
 
 	// 如果指定了端点类型，使用指定的端点类型
 	if endpointType != "" {
 		if endpointInfo, ok := common.GetDefaultEndpointInfo(constant.EndpointType(endpointType)); ok {
 			requestPath = endpointInfo.Path
+			if endpointInfo.Method != "" {
+				requestMethod = endpointInfo.Method
+			}
 		}
 	} else {
 		// 如果没有指定端点类型，使用原有的自动检测逻辑
@@ -149,7 +153,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	if isStream && constant.EndpointType(endpointType) == constant.EndpointTypeGemini {
 		requestPath = strings.Replace(requestPath, ":generateContent", ":streamGenerateContent", 1)
 	}
-	c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, requestPath, nil)
+	c.Request = httptest.NewRequestWithContext(ctx, requestMethod, requestPath, nil)
 
 	cache, err := model.GetUserCache(testUserID)
 	if err != nil {
@@ -198,6 +202,10 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			relayFormat = types.RelayFormatOpenAIImage
 		case constant.EndpointTypeEmbeddings:
 			relayFormat = types.RelayFormatEmbedding
+		case constant.EndpointTypeOpenAIVideo:
+			relayFormat = types.RelayFormatOpenAIImage
+		case constant.EndpointTypeOpenAIRealtime:
+			relayFormat = types.RelayFormatOpenAIRealtime
 		default:
 			relayFormat = types.RelayFormatOpenAI
 		}
@@ -717,6 +725,15 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				Query:     "What is Deep Learning?",
 				Documents: []any{"Deep Learning is a subset of machine learning.", "Machine learning is a field of artificial intelligence."},
 				TopN:      lo.ToPtr(2),
+			}
+		case constant.EndpointTypeOpenAIVideo:
+			return &dto.ImageRequest{
+				Model:  model,
+				Prompt: "a cute cat",
+			}
+		case constant.EndpointTypeOpenAIRealtime:
+			return &dto.GeneralOpenAIRequest{
+				Model: model,
 			}
 		case constant.EndpointTypeOpenAIResponse:
 			// 返回 OpenAIResponsesRequest

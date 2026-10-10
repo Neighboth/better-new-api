@@ -321,6 +321,7 @@ func InitResources() error {
 	}
 
 	service.StartAuthArtifactCleanup()
+	service.StartLiveSupportCleanupTask()
 
 	return nil
 }
