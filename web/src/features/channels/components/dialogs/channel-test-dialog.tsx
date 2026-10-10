@@ -121,6 +121,7 @@ type TestResult = {
   completedAt?: number
   error?: string
   errorCode?: string
+  message?: string
 }
 
 type BatchProgress = {
@@ -592,6 +593,7 @@ function ChannelTestDialogContent({
               completedAt,
               error,
               errorCode,
+              message: success && error ? error : undefined,
             }
             updateTestResult(model, finalResult)
           }
@@ -1260,12 +1262,33 @@ function TestResultCell({
   }
 
   if (result.status === 'success') {
-    return typeof result.responseTime === 'number' ? (
-      <span className='text-muted-foreground text-sm'>
-        {formatResponseTime(result.responseTime, t)}
-      </span>
-    ) : (
-      <span className='text-muted-foreground text-sm'>-</span>
+    return (
+      <div className='flex items-center gap-2'>
+        {typeof result.responseTime === 'number' ? (
+          <span className='text-muted-foreground text-sm'>
+            {formatResponseTime(result.responseTime, t)}
+          </span>
+        ) : (
+          <span className='text-muted-foreground text-sm'>-</span>
+        )}
+        {result.message ? (
+          <Button
+            variant='ghost'
+            size='sm'
+            className='h-6 px-1.5 text-xs text-blue-500 hover:text-blue-600'
+            onClick={() =>
+              onOpenDetails({
+                model,
+                summary: t('Transkripsiyon / Yanıt Sonucu'),
+                details: result.message!,
+              })
+            }
+          >
+            <Info className='size-3.5 mr-1' />
+            {t('Detay')}
+          </Button>
+        ) : null}
+      </div>
     )
   }
 

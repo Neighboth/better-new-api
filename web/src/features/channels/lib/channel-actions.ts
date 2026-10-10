@@ -299,18 +299,23 @@ export async function handleTestChannel(
     const target = getChannelTestLabel(options)
     if (response.success) {
       if (!options?.silent) {
+        const descParts: string[] = []
+        if (duration) {
+          descParts.push(i18next.t('Response time: {{duration}}', { duration }))
+        }
+        if (response.message) {
+          descParts.push(response.message)
+        }
         toast.success(
           i18next.t('{{target}} test succeeded', { target }),
-          duration
+          descParts.length > 0
             ? {
-                description: i18next.t('Response time: {{duration}}', {
-                  duration,
-                }),
+                description: descParts.join('\n\n'),
               }
             : undefined
         )
       }
-      onTestComplete?.(true, responseTime)
+      onTestComplete?.(true, responseTime, response.message)
     } else {
       const errorMsg = response.message || i18next.t(ERROR_MESSAGES.TEST_FAILED)
       if (!options?.silent) {

@@ -1,6 +1,7 @@
 package mistral
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -32,8 +34,19 @@ func (a *Adaptor) ConvertClaudeRequest(*gin.Context, *relaycommon.RelayInfo, *dt
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
-	//TODO implement me
-	return nil, errors.New("not implemented")
+	if info.RelayMode == relayconstant.RelayModeAudioSpeech {
+		voice := strings.TrimSpace(request.Voice)
+		if voice == "" || strings.EqualFold(voice, "alloy") {
+			// Mistral Voxtral uses preset voice names or UUIDs, default to a supported neutral preset
+			request.Voice = "en_paul_neutral"
+		}
+		jsonData, err := common.Marshal(request)
+		if err != nil {
+			return nil, fmt.Errorf("error marshalling object: %w", err)
+		}
+		return bytes.NewReader(jsonData), nil
+	}
+	return nil, errors.New("mistral channel: only audio speech is supported via ConvertAudioRequest")
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
@@ -98,6 +111,10 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	if info.RelayMode == relayconstant.RelayModeAudioSpeech {
+		usage = openai.OpenaiTTSHandler(c, resp, info)
+		return
+	}
 	if info.RelayMode == relayconstant.RelayModeRealtime {
 		err, usage = openai.OpenaiRealtimeHandler(c, info)
 		return

@@ -12,8 +12,17 @@ func (b *Bot) handleCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	switch command {
 	case "reset":
-		b.History[m.ChannelID] = []MessageHistory{}
-		s.ChannelMessageSend(m.ChannelID, "Chat history for this channel has been cleared.")
+		b.historyMu.Lock()
+		userKey := m.Author.ID + "@" + m.ChannelID
+		delete(b.UserHistory, userKey)
+		delete(b.History, m.ChannelID)
+		b.historyMu.Unlock()
+		
+		s.ChannelMessageSendReply(m.ChannelID, "Sohbet hafızanız başarıyla sıfırlandı. Yeni bir konuşmaya başlayabiliriz!", &discordgo.MessageReference{
+			MessageID: m.ID,
+			ChannelID: m.ChannelID,
+			GuildID:   m.GuildID,
+		})
 	
 	case "models":
 		b.sendModelsMenu(s, m.ChannelID)

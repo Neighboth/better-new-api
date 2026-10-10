@@ -155,7 +155,11 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			endpointType = string(constant.EndpointTypeOpenAIRealtime)
 			requestPath = "/v1/realtime"
 		}
+	}
 
+	// Codex backend requires streaming responses (Stream must be set to true)
+	if channel.Type == 62 || strings.Contains(strings.ToLower(testModel), "codex") {
+		isStream = true
 	}
 	// Gemini 原生流式通过 URL action（:streamGenerateContent）表达而非请求体字段，
 	// GeminiChatRequest.IsStream 依据请求 URL 判定，合成请求路径需与生产入口保持一致
@@ -864,6 +868,8 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 			voice := "alloy"
 			if channel != nil && (channel.Type == constant.ChannelTypeGemini || channel.Type == constant.ChannelTypeVertexAi) {
 				voice = "Puck"
+			} else if channel != nil && channel.Type == constant.ChannelTypeMistral || strings.Contains(strings.ToLower(model), "voxtral") || strings.Contains(strings.ToLower(model), "mistral") {
+				voice = "en_paul_neutral"
 			}
 			return &dto.AudioRequest{
 				Model: model,
@@ -962,6 +968,8 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 		voice := "alloy"
 		if channel != nil && (channel.Type == constant.ChannelTypeGemini || channel.Type == constant.ChannelTypeVertexAi) {
 			voice = "Puck"
+		} else if (channel != nil && channel.Type == constant.ChannelTypeMistral) || strings.Contains(lowerModel, "voxtral") || strings.Contains(lowerModel, "mistral") {
+			voice = "en_paul_neutral"
 		}
 		return &dto.AudioRequest{
 			Model: model,
