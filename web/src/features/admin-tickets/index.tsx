@@ -66,7 +66,7 @@ import type { Ticket } from '@/features/tickets/types'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { axiosInstance } from '@/lib/axios'
+import { api } from '@/lib/api'
 
 export function AdminTicketsPage() {
   const { t } = useTranslation()
@@ -86,8 +86,8 @@ export function AdminTicketsPage() {
     setUpdatingShift(true)
     try {
       const active = !isShiftActive
-      const res = await axiosInstance.put('/api/user/self/shift', { active })
-      if (res.data.success) {
+      const res = await api.put('/api/user/self/shift', { active })
+      if (res.success) {
         toast.success(active ? t('Shift started (3 hours)') : t('Shift ended'))
         const newShiftEndsAt = active ? Math.floor(Date.now() / 1000) + 3 * 3600 : 0
         setAuth({
@@ -95,7 +95,7 @@ export function AdminTicketsPage() {
           user: auth.user ? { ...auth.user, shift_ends_at: newShiftEndsAt } : null
         })
       } else {
-        toast.error(res.data.message || t('Failed to update shift'))
+        toast.error(res.message || t('Failed to update shift'))
       }
     } catch (e: any) {
       toast.error(e.response?.data?.message || t('Failed to update shift'))
