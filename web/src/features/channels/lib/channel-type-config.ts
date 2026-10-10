@@ -175,6 +175,28 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'gemini-2.5-pro,gemini-2.5-flash',
     },
   },
+  62: {
+    id: 62,
+    name: CHANNEL_TYPES[62],
+    icon: 'Agnes',
+    defaultBaseUrl: 'https://api.agnes-ai.com',
+    hints: {
+      baseUrl: 'Default: https://api.agnes-ai.com',
+      key: 'Agnes AI API Key (sk-...)',
+      models: 'agnes-video-2.5-flash,agnes-video-2.5',
+    },
+  },
+  63: {
+    id: 63,
+    name: CHANNEL_TYPES[63],
+    icon: 'DeepSeek',
+    defaultBaseUrl: 'https://chat.deepseek.com',
+    hints: {
+      baseUrl: 'Default: https://chat.deepseek.com',
+      key: 'DeepSeek user:password veya userToken',
+      models: 'deepseek-chat,deepseek-reasoner',
+    },
+  },
 }
 
 /**

@@ -130,10 +130,17 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	baseUrl := strings.TrimSuffix(a.baseURL, "/")
 	if info.Action == constant.TaskActionRemix {
-		return fmt.Sprintf("%s/v1/videos/%s/remix", a.baseURL, info.OriginTaskID), nil
+		if strings.HasSuffix(baseUrl, "/v1") {
+			return fmt.Sprintf("%s/videos/%s/remix", baseUrl, info.OriginTaskID), nil
+		}
+		return fmt.Sprintf("%s/v1/videos/%s/remix", baseUrl, info.OriginTaskID), nil
 	}
-	return fmt.Sprintf("%s/v1/videos", a.baseURL), nil
+	if strings.HasSuffix(baseUrl, "/v1") {
+		return fmt.Sprintf("%s/videos", baseUrl), nil
+	}
+	return fmt.Sprintf("%s/v1/videos", baseUrl), nil
 }
 
 // BuildRequestHeader sets required headers.
@@ -263,7 +270,13 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		return nil, fmt.Errorf("invalid task_id")
 	}
 
-	uri := fmt.Sprintf("%s/v1/videos/%s", baseUrl, taskID)
+	baseUrl = strings.TrimSuffix(baseUrl, "/")
+	var uri string
+	if strings.HasSuffix(baseUrl, "/v1") {
+		uri = fmt.Sprintf("%s/videos/%s", baseUrl, taskID)
+	} else {
+		uri = fmt.Sprintf("%s/v1/videos/%s", baseUrl, taskID)
+	}
 
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
 	if err != nil {
