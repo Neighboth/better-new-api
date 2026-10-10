@@ -159,11 +159,11 @@ export function LiveSupportWidget() {
     refetchInterval: open && Boolean(guestSession) ? 5000 : false,
   })
 
+  const [connectingHuman, setConnectingHuman] = useState(false)
+
   if (!isEnabled) {
     return null
   }
-
-  const [connectingHuman, setConnectingHuman] = useState(false)
 
   const handleDismiss = (e: React.MouseEvent) => {
     e.stopPropagation()
