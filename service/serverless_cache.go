@@ -136,12 +136,20 @@ func GetActiveServerlessChannel(modelName string) *model.Channel {
 }
 
 func constructServerlessChannel(endpoint string) *model.Channel {
-	dummyKey := "dummy_serverless_key"
+	if strings.HasPrefix(endpoint, "https://io.net/api/v1/") || strings.TrimSpace(endpoint) == "" {
+		return nil
+	}
+	common.OptionMapRWMutex.RLock()
+	apiKey := strings.TrimSpace(common.OptionMap["model_deployment.ionet.api_key"])
+	common.OptionMapRWMutex.RUnlock()
+	if apiKey == "" {
+		return nil
+	}
 	return &model.Channel{
-		Id:   999999, // A high ID so it doesn't conflict with real channels
-		Type: constant.ChannelTypeOpenAI,
-		Name: "Serverless Model (io.net/Modal)",
-		Key:  dummyKey,
+		Id:      999999, // A high ID so it doesn't conflict with real channels
+		Type:    constant.ChannelTypeOpenAI,
+		Name:    "Serverless Model (io.net/Modal)",
+		Key:     apiKey,
 		BaseURL: &endpoint,
 	}
 }

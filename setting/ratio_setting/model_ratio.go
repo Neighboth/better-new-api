@@ -263,6 +263,9 @@ var defaultModelRatio = map[string]float64{
 	"Qwen/Qwen3-235B-A22B-Instruct-2507":      0.3,
 	"zai-org/GLM-4.5-FP8":                     0.8,
 	"openai/gpt-oss-120b":                     0.5,
+	"gpt-oss-120b":                            0.5,
+	"openai/gpt-oss-20b":                      0.1,
+	"gpt-oss-20b":                             0.1,
 	"deepseek-ai/DeepSeek-R1-0528":            0.8,
 	"deepseek-ai/DeepSeek-R1":                 0.8,
 	"deepseek-ai/DeepSeek-V3-0324":            0.8,
@@ -386,6 +389,20 @@ func GetModelRatio(name string) (float64, bool, string) {
 	name = FormatMatchingModelName(name)
 
 	ratio, ok := modelRatioMap.Get(name)
+	if !ok && strings.Contains(name, "/") {
+		parts := strings.SplitN(name, "/", 2)
+		if len(parts) == 2 {
+			ratio, ok = modelRatioMap.Get(parts[1])
+		}
+	}
+	if !ok && !strings.Contains(name, "/") {
+		for _, prefix := range []string{"openai/", "deepseek-ai/", "Qwen/", "zai-org/", "google/", "meta-llama/"} {
+			if r, found := modelRatioMap.Get(prefix + name); found {
+				ratio, ok = r, found
+				break
+			}
+		}
+	}
 	if !ok {
 		return 37.5, operation_setting.SelfUseModeEnabled, name
 	}

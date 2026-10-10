@@ -246,7 +246,7 @@ func GetAllTickets(page, pageSize int, status, category, priority, search string
 	}
 
 	offset := (page - 1) * pageSize
-	if err := query.Order("CASE WHEN is_live_support = TRUE AND status != 'closed' THEN 0 ELSE 1 END").
+	if err := query.Order("CASE WHEN is_live_support = 1 AND status != 'closed' THEN 0 ELSE 1 END").
 		Order("last_reply_at DESC").Offset(offset).Limit(pageSize).Find(&tickets).Error; err != nil {
 		return nil, 0, err
 	}

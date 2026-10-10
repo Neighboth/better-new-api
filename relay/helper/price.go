@@ -113,15 +113,12 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 			preConsumedTokens += meta.MaxTokens
 		}
 		var success bool
-		var matchName string
-		modelRatio, success, matchName = ratio_setting.GetModelRatio(info.OriginModelName)
+		modelRatio, success, _ = ratio_setting.GetModelRatio(info.OriginModelName)
 		if !success {
-			acceptUnsetRatio := false
-			if info.UserSetting.AcceptUnsetRatioModel {
-				acceptUnsetRatio = true
-			}
+			acceptUnsetRatio := info.UserSetting.AcceptUnsetRatioModel || model.IsAdmin(info.UserId) || operation_setting.SelfUseModeEnabled
 			if !acceptUnsetRatio {
-				return hosttypes.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
+				modelRatio = 1.0
+				success = true
 			}
 		}
 		completionRatio = ratio_setting.GetCompletionRatio(info.OriginModelName)
@@ -254,14 +251,11 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 			usePrice = true
 		} else {
 			var ratioSuccess bool
-			var matchName string
-			modelRatio, ratioSuccess, matchName = ratio_setting.GetModelRatio(info.OriginModelName)
-			acceptUnsetRatio := false
-			if info.UserSetting.AcceptUnsetRatioModel {
-				acceptUnsetRatio = true
-			}
+			modelRatio, ratioSuccess, _ = ratio_setting.GetModelRatio(info.OriginModelName)
+			acceptUnsetRatio := info.UserSetting.AcceptUnsetRatioModel || model.IsAdmin(info.UserId) || operation_setting.SelfUseModeEnabled
 			if !ratioSuccess && !acceptUnsetRatio {
-				return hosttypes.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
+				modelRatio = 1.0
+				ratioSuccess = true
 			}
 		}
 	}

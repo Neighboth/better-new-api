@@ -157,34 +157,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 	if err != nil {
-		// If the originally requested model has no price configured, try the
-		// admin-configured fallback model chain before failing with 400.
-		if fbState != nil && fbState.on {
-			origModel := relayInfo.OriginModelName
-			for {
-				cand, ok := fbState.currentModel()
-				if !ok {
-					break
-				}
-				fbState.advance()
-				if cand == "" {
-					continue
-				}
-				logRelayFallback(c, origModel, cand)
-				if switchErr := switchRelayModel(c, relayInfo, cand); switchErr != nil {
-					continue
-				}
-				if pd, pErr := helper.ModelPriceHelper(c, relayInfo, tokens, meta); pErr == nil {
-					priceData = pd
-					err = nil
-					break
-				}
-			}
-		}
-		if err != nil {
-			newAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
-			return
-		}
+		newAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
+		return
 	}
 
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)

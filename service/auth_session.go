@@ -58,8 +58,12 @@ func createLoginSession(userID int, expectedAuthVersion int64, loginMethod, ip, 
 	if err != nil {
 		return nil, err
 	}
-	if user.Status != common.UserStatusEnabled || user.AuthVersion <= 0 {
+	if user.Status != common.UserStatusEnabled {
 		return nil, ErrLoginSessionInvalid
+	}
+	if user.AuthVersion <= 0 {
+		user.AuthVersion = 1
+		_ = model.DB.Model(&model.User{}).Where("id = ?", userID).Update("auth_version", 1)
 	}
 	if expectedAuthVersion > 0 && user.AuthVersion != expectedAuthVersion {
 		return nil, ErrLoginSessionRevoked
@@ -399,7 +403,7 @@ func authSessionErrorCode(err error) (int, string) {
 		return http.StatusUnauthorized, "AUTH_TOKEN_EXPIRED"
 	case errors.Is(err, ErrLoginSessionRevoked):
 		return http.StatusUnauthorized, "AUTH_SESSION_REVOKED"
-	case errors.Is(err, ErrRefreshTokenInvalid), errors.Is(err, ErrAuthTokenInvalid):
+	case errors.Is(err, ErrRefreshTokenInvalid), errors.Is(err, ErrAuthTokenInvalid), errors.Is(err, ErrLoginSessionInvalid):
 		return http.StatusUnauthorized, "AUTH_UNAUTHORIZED"
 	default:
 		return http.StatusInternalServerError, "AUTH_INTERNAL_ERROR"

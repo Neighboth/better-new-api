@@ -118,6 +118,10 @@ type User struct {
 }
 
 func (user *User) ToBaseUser() *UserBase {
+	authVersion := user.AuthVersion
+	if authVersion <= 0 {
+		authVersion = 1
+	}
 	cache := &UserBase{
 		Id:              user.Id,
 		Group:           user.Group,
@@ -129,7 +133,7 @@ func (user *User) ToBaseUser() *UserBase {
 		Username:        user.Username,
 		Setting:         user.Setting,
 		Email:           user.Email,
-		AuthVersion:     user.AuthVersion,
+		AuthVersion:     authVersion,
 		CacheSchema:     userCacheSchemaVersion,
 	}
 	return cache
@@ -1521,17 +1525,22 @@ func GetUserTokens(id int) (count int64, err error) {
 
 
 func GetActiveAdmin() *User {
+	if DB == nil {
+		return nil
+	}
 	var user User
 	now := time.Now().Unix()
-	// Find an admin whose shift_ends_at is in the future
-	err := DB.Where("role >= ? AND shift_ends_at > ?", common.RoleAdminUser, now).Order("shift_ends_at DESC").First(&user).Error
-	if err == nil {
-		return &user
+	// Find an admin whose shift_ends_at is in the future (if column exists)
+	if DB.Migrator().HasColumn(&User{}, "shift_ends_at") {
+		err := DB.Where("role >= ? AND shift_ends_at > ?", common.RoleAdminUser, now).Order("shift_ends_at DESC").First(&user).Error
+		if err == nil {
+			return &user
+		}
 	}
 	
 	// Fallback: an admin who logged in within the last 30 minutes
 	recentLogin := now - 30*60
-	err = DB.Where("role >= ? AND last_login_at > ?", common.RoleAdminUser, recentLogin).Order("last_login_at DESC").First(&user).Error
+	err := DB.Where("role >= ? AND last_login_at > ?", common.RoleAdminUser, recentLogin).Order("last_login_at DESC").First(&user).Error
 	if err == nil {
 		return &user
 	}
