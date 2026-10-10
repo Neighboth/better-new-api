@@ -410,7 +410,7 @@ func SetApiRouter(router *gin.Engine) {
 			ticketPublicRoute.GET("/guest/:sessionKey", controller.GetGuestTicket)
 			ticketPublicRoute.POST("/guest/:sessionKey/message", controller.AddGuestTicketMessage)
 			ticketPublicRoute.GET("/guest/:sessionKey/transcript", controller.DownloadGuestTicketTranscript)
-			ticketPublicRoute.POST("/:id/connect-human", controller.ConnectHuman)
+			ticketPublicRoute.POST("/:id/connect-human", middleware.TryUserAuth(), controller.ConnectHuman)
 		}
 
 		ticketRoute := apiRouter.Group("/ticket")
