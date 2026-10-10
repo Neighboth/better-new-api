@@ -106,7 +106,7 @@ export function TicketDetailView({
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
-    const token = auth.session?.sid || ''
+    const token = auth.accessToken || auth.session?.sid || ''
     const wsUrl = `${protocol}//${host}/api/ticket/ws?ticket_id=${ticketId}&token=${encodeURIComponent(token)}`
 
     const ws = new WebSocket(wsUrl)
@@ -290,51 +290,76 @@ export function TicketDetailView({
           </div>
         </CardHeader>
 
-        <CardContent className='flex max-h-[600px] min-h-[300px] flex-col overflow-y-auto p-4 space-y-4'>
-          {messages.map((msg) => {
+        <CardContent className='flex min-h-[300px] flex-col overflow-y-auto p-4 space-y-4 bg-muted/10'>
+          {messages.map((msg, idx) => {
             const isStaff = msg.is_admin
+            const postNumber = idx + 1
             return (
               <div
                 key={msg.id}
-                className='flex flex-col gap-2 rounded-lg border p-4 w-full bg-card shadow-sm'
+                className={`rounded-lg border shadow-sm overflow-hidden bg-card transition-all ${
+                  isStaff
+                    ? 'border-primary/40 ring-1 ring-primary/20'
+                    : 'border-border'
+                }`}
               >
-                <div className='flex items-center justify-between border-b pb-2 mb-1'>
-                  <div className='flex items-center gap-3'>
-                    <Avatar className='h-8 w-8 shrink-0'>
+                {/* XenForo Post Header Bar */}
+                <div className='flex items-center justify-between border-b px-4 py-2 bg-muted/40 text-xs text-muted-foreground'>
+                  <div className='flex items-center gap-2'>
+                    <span className='font-medium text-foreground'>
+                      {dayjs(msg.created_at * 1000).format('YYYY-MM-DD HH:mm:ss')}
+                    </span>
+                  </div>
+                  <div className='flex items-center gap-2'>
+                    <span className='font-mono font-semibold text-muted-foreground'>
+                      #{postNumber}
+                    </span>
+                  </div>
+                </div>
+
+                {/* XenForo Post Body with Author Sidebar */}
+                <div className='flex flex-col sm:flex-row'>
+                  {/* Left: Author Block */}
+                  <div className='flex sm:flex-col items-center sm:items-center justify-between sm:justify-start gap-3 p-4 border-b sm:border-b-0 sm:border-r sm:w-44 bg-muted/20 shrink-0 text-center'>
+                    <Avatar className='h-12 w-12 border-2 shadow-sm'>
                       <AvatarFallback
                         className={
                           isStaff
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-muted text-muted-foreground'
+                            ? 'bg-primary text-primary-foreground font-bold text-base'
+                            : 'bg-muted-foreground/10 text-foreground font-bold text-base'
                         }
                       >
                         {isStaff ? (
-                          <Headphones className='h-4 w-4' />
+                          <ShieldCheck className='h-6 w-6' />
                         ) : (
-                          <User className='h-4 w-4' />
+                          <User className='h-6 w-6' />
                         )}
                       </AvatarFallback>
                     </Avatar>
-                    <div className='flex items-center gap-2'>
-                      <span className='font-semibold text-foreground text-sm'>
+                    <div className='flex flex-col items-center gap-1 min-w-0'>
+                      <span className='font-bold text-sm text-foreground truncate max-w-[150px]'>
                         {isStaff
                           ? t('Support Team')
                           : msg.user_name || t('User')}
                       </span>
-                      {isStaff && (
-                        <span className='inline-flex items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary'>
-                          <ShieldCheck className='h-3 w-3' />
-                          {t('Staff')}
+                      {isStaff ? (
+                        <span className='inline-flex items-center gap-1 rounded bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider'>
+                          {t('Staff Member')}
+                        </span>
+                      ) : (
+                        <span className='inline-flex items-center rounded bg-muted text-muted-foreground border px-2 py-0.5 text-[11px] font-medium'>
+                          {t('Member')}
                         </span>
                       )}
                     </div>
                   </div>
-                  <span className='text-xs text-muted-foreground'>
-                    {dayjs(msg.created_at * 1000).format('YYYY-MM-DD HH:mm')}
-                  </span>
-                </div>
-                <div className='text-sm whitespace-pre-wrap leading-relaxed py-1 px-1'>
-                  {msg.content}
+
+                  {/* Right: Message Content */}
+                  <div className='flex-1 p-5 min-w-0 flex flex-col justify-between'>
+                    <div className='text-sm whitespace-pre-wrap leading-relaxed text-foreground select-text'>
+                      {msg.content}
+                    </div>
+                  </div>
                 </div>
               </div>
             )

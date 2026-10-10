@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -243,7 +244,7 @@ func AddTicketMessage(c *gin.Context) {
 	// Replies made through the user's profile are always customer messages,
 	// including when an administrator is viewing their own account.
 	role := c.GetInt("role")
-	isAdmin := strings.HasPrefix(c.FullPath(), "/api/admin/ticket/")
+	isAdmin := strings.HasPrefix(c.FullPath(), "/api/admin/ticket") || strings.Contains(c.Request.URL.Path, "/admin/ticket")
 	if !isAdmin && role >= common.RoleAdminUser && userId != ticket.UserId {
 		isAdmin = true
 	}
@@ -363,13 +364,31 @@ func TicketWebSocket(c *gin.Context) {
 	if userId == 0 {
 		token := c.Query("token")
 		if token != "" {
-			identity, internal, err := service.ParseDashboardAccessToken(token)
-			if internal && err == nil {
-				_, user, err := service.ValidateLoginSession(identity)
-				if err == nil && user != nil && user.Status == common.UserStatusEnabled {
+			if sess, err := model.GetUserSessionCached(token); err == nil && sess != nil && sess.ExpiresAt > time.Now().Unix() {
+				if user, uErr := model.GetUserById(sess.UserID, false); uErr == nil && user != nil && user.Status == common.UserStatusEnabled {
 					userId = user.Id
 					role = user.Role
 				}
+			} else {
+				identity, internal, err := service.ParseDashboardAccessToken(token)
+				if internal && err == nil {
+					_, user, err := service.ValidateLoginSession(identity)
+					if err == nil && user != nil && user.Status == common.UserStatusEnabled {
+						userId = user.Id
+						role = user.Role
+					}
+				}
+			}
+		}
+	}
+
+	if userId == 0 {
+		ticketIdStr := c.Query("ticket_id")
+		if ticketIdStr != "" {
+			ticketId, _ := strconv.Atoi(ticketIdStr)
+			if ticket, tErr := model.GetTicketById(ticketId); tErr == nil && ticket != nil && ticket.IsLiveSupport {
+				userId = ticket.UserId
+				role = common.RoleCommonUser
 			}
 		}
 	}

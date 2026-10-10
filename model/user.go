@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -1524,26 +1525,50 @@ func GetUserTokens(id int) (count int64, err error) {
 }
 
 
+var (
+	adminLastActiveMu sync.RWMutex
+	adminLastActive   = make(map[int]time.Time)
+)
+
+func RecordAdminActivity(userID int) {
+	if userID <= 0 {
+		return
+	}
+	adminLastActiveMu.Lock()
+	adminLastActive[userID] = time.Now()
+	adminLastActiveMu.Unlock()
+}
+
 func GetActiveAdmin() *User {
 	if DB == nil {
 		return nil
 	}
+	cutoff := time.Now().Add(-15 * time.Minute)
+	adminLastActiveMu.RLock()
+	var mostRecentID int
+	var mostRecentTime time.Time
+	for id, t := range adminLastActive {
+		if t.After(cutoff) && t.After(mostRecentTime) {
+			mostRecentID = id
+			mostRecentTime = t
+		}
+	}
+	adminLastActiveMu.RUnlock()
+
 	var user User
-	now := time.Now().Unix()
-	// Find an admin whose shift_ends_at is in the future (if column exists)
-	if DB.Migrator().HasColumn(&User{}, "shift_ends_at") {
-		err := DB.Where("role >= ? AND shift_ends_at > ?", common.RoleAdminUser, now).Order("shift_ends_at DESC").First(&user).Error
-		if err == nil {
+	if mostRecentID > 0 {
+		if err := DB.Where("id = ? AND role >= ?", mostRecentID, common.RoleAdminUser).First(&user).Error; err == nil {
 			return &user
 		}
 	}
-	
-	// Fallback: an admin who logged in within the last 30 minutes
-	recentLogin := now - 30*60
+
+	now := time.Now().Unix()
+	// Fallback: an admin who logged in within the last 15 minutes
+	recentLogin := now - 15*60
 	err := DB.Where("role >= ? AND last_login_at > ?", common.RoleAdminUser, recentLogin).Order("last_login_at DESC").First(&user).Error
 	if err == nil {
 		return &user
 	}
-	
+
 	return nil
 }

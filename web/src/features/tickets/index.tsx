@@ -73,7 +73,12 @@ export function UserTicketsPage() {
         pageSize: 50,
       })
       if (res.success && res.data) {
-        setTickets(res.data.items || [])
+        const sorted = (res.data.items || []).slice().sort((a, b) => {
+          if (a.is_live_support && !b.is_live_support) return -1
+          if (!a.is_live_support && b.is_live_support) return 1
+          return (b.created_at || 0) - (a.created_at || 0)
+        })
+        setTickets(sorted)
         setTotal(res.data.total || 0)
       } else {
         toast.error(res.message || t('Failed to load tickets'))
@@ -212,14 +217,30 @@ export function UserTicketsPage() {
                 {tickets.map((tk) => (
                   <TableRow
                     key={tk.id}
-                    className='cursor-pointer hover:bg-muted/50'
+                    className={`cursor-pointer transition-colors ${
+                      tk.is_live_support
+                        ? 'border-2 border-red-500 bg-red-500/10 hover:bg-red-500/15 dark:bg-red-950/20 dark:hover:bg-red-950/30'
+                        : 'hover:bg-muted/50'
+                    }`}
                     onClick={() => setSelectedTicketId(tk.id)}
                   >
                     <TableCell className='font-mono font-medium text-xs'>
-                      #{tk.id}
+                      <div className='flex items-center gap-1.5'>
+                        <span>#{tk.id}</span>
+                        {tk.is_live_support && (
+                          <span className='inline-flex items-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white'>
+                            LIVE
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className='font-medium'>
-                      {tk.title}
+                      <div className='flex items-center gap-2'>
+                        {tk.is_live_support && (
+                          <span className='h-2 w-2 rounded-full bg-red-500 animate-pulse shrink-0' />
+                        )}
+                        <span>{tk.title}</span>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <TicketCategoryBadge category={tk.category} />

@@ -108,27 +108,36 @@ func ExtractCodexAccountIDFromJWT(token string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	raw, ok := claims[codexJWTClaimPath]
-	if !ok {
-		return "", false
+	if raw, ok := claims[codexJWTClaimPath]; ok {
+		if obj, ok := raw.(map[string]any); ok {
+			if v, ok := obj["chatgpt_account_id"]; ok {
+				if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+					return strings.TrimSpace(s), true
+				}
+			}
+			if v, ok := obj["account_id"]; ok {
+				if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+					return strings.TrimSpace(s), true
+				}
+			}
+		}
 	}
-	obj, ok := raw.(map[string]any)
-	if !ok {
-		return "", false
+	if v, ok := claims["chatgpt_account_id"]; ok {
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s), true
+		}
 	}
-	v, ok := obj["chatgpt_account_id"]
-	if !ok {
-		return "", false
+	if v, ok := claims["account_id"]; ok {
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s), true
+		}
 	}
-	s, ok := v.(string)
-	if !ok {
-		return "", false
+	if v, ok := claims["sub"]; ok {
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s), true
+		}
 	}
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return "", false
-	}
-	return s, true
+	return "default", true
 }
 
 func ExtractEmailFromJWT(token string) (string, bool) {

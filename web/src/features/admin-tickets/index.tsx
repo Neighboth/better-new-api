@@ -79,30 +79,6 @@ export function AdminTicketsPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
-  const [updatingShift, setUpdatingShift] = useState(false)
-  const isShiftActive = auth.user?.shift_ends_at && auth.user.shift_ends_at * 1000 > Date.now()
-
-  const handleToggleShift = async () => {
-    setUpdatingShift(true)
-    try {
-      const active = !isShiftActive
-      const res = await api.put('/api/user/self/shift', { active })
-      if (res.success) {
-        toast.success(active ? t('Shift started (3 hours)') : t('Shift ended'))
-        const newShiftEndsAt = active ? Math.floor(Date.now() / 1000) + 3 * 3600 : 0
-        setAuth({
-          ...auth,
-          user: auth.user ? { ...auth.user, shift_ends_at: newShiftEndsAt } : null
-        })
-      } else {
-        toast.error(res.message || t('Failed to update shift'))
-      }
-    } catch (e: any) {
-      toast.error(e.response?.data?.message || t('Failed to update shift'))
-    } finally {
-      setUpdatingShift(false)
-    }
-  }
 
   const fetchTickets = async () => {
     try {
@@ -116,7 +92,12 @@ export function AdminTicketsPage() {
         pageSize: 50,
       })
       if (res.success && res.data) {
-        setTickets(res.data.items || [])
+        const sorted = (res.data.items || []).slice().sort((a, b) => {
+          if (a.is_live_support && !b.is_live_support) return -1
+          if (!a.is_live_support && b.is_live_support) return 1
+          return (b.created_at || 0) - (a.created_at || 0)
+        })
+        setTickets(sorted)
         setTotal(res.data.total || 0)
       } else {
         toast.error(res.message || t('Failed to load tickets'))
@@ -229,15 +210,6 @@ export function AdminTicketsPage() {
             {t('Manage, review, and reply to user support requests.')}
           </p>
         </div>
-        <Button 
-          variant={isShiftActive ? 'destructive' : 'default'} 
-          onClick={handleToggleShift} 
-          disabled={updatingShift}
-          className='gap-2'
-        >
-          {updatingShift && <Loader2 className='h-4 w-4 animate-spin' />}
-          {isShiftActive ? t('End Shift') : t('Start Shift (3h)')}
-        </Button>
       </div>
 
       {/* Summary Cards */}
@@ -386,11 +358,22 @@ export function AdminTicketsPage() {
                 {tickets.map((tk) => (
                   <TableRow
                     key={tk.id}
-                    className='cursor-pointer hover:bg-muted/50'
+                    className={`cursor-pointer transition-colors ${
+                      tk.is_live_support
+                        ? 'border-2 border-red-500 bg-red-500/10 hover:bg-red-500/15 dark:bg-red-950/20 dark:hover:bg-red-950/30'
+                        : 'hover:bg-muted/50'
+                    }`}
                     onClick={() => setSelectedTicketId(tk.id)}
                   >
                     <TableCell className='font-mono font-medium text-xs'>
-                      #{tk.id}
+                      <div className='flex items-center gap-1.5'>
+                        <span>#{tk.id}</span>
+                        {tk.is_live_support && (
+                          <span className='inline-flex items-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white'>
+                            LIVE
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className='flex flex-col'>
@@ -403,7 +386,12 @@ export function AdminTicketsPage() {
                       </div>
                     </TableCell>
                     <TableCell className='font-medium text-sm'>
-                      {tk.title}
+                      <div className='flex items-center gap-2'>
+                        {tk.is_live_support && (
+                          <span className='h-2 w-2 rounded-full bg-red-500 animate-pulse shrink-0' />
+                        )}
+                        <span>{tk.title}</span>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <TicketCategoryBadge category={tk.category} />

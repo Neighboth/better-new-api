@@ -1058,66 +1058,29 @@ export function ModelMutateDrawer({
                   <div className='flex items-center space-x-2'>
                     <RadioGroupItem value='per-token' id='per-token' />
                     <Label htmlFor='per-token' className='font-normal cursor-pointer'>
-                      {t('Per-token (ratio based)')}
+                      {t('Per-token')}
                     </Label>
                   </div>
                   <div className='flex items-center space-x-2'>
                     <RadioGroupItem value='per-request' id='per-request' />
                     <Label htmlFor='per-request' className='font-normal cursor-pointer'>
-                      {t('Per-request (fixed price)')}
+                      {t('Per-request')}
                     </Label>
                   </div>
                   <div className='flex items-center space-x-2'>
                     <RadioGroupItem value='duration_second' id='duration_second' />
                     <Label htmlFor='duration_second' className='font-normal cursor-pointer'>
-                      {t('Duration-based (per second - STT, TTS, Video)')}
+                      {t('Duration-based')}
                     </Label>
                   </div>
                   <div className='flex items-center space-x-2'>
                     <RadioGroupItem value='characters' id='characters' />
                     <Label htmlFor='characters' className='font-normal cursor-pointer'>
-                      {t('Character-based (per 1M characters - TTS)')}
+                      {t('Character-based')}
                     </Label>
                   </div>
                 </RadioGroup>
               </div>
-
-              {pricingMode === 'per-token' && (
-                <div className='space-y-2 rounded-md border p-3 bg-muted/30'>
-                  <Label className='text-xs font-medium'>{t('Billing Scope')}</Label>
-                  <RadioGroup
-                    value={chargeScope}
-                    onValueChange={(value) => setChargeScope(value as ChargeScope)}
-                    className='grid grid-cols-3 gap-2'
-                  >
-                    <div className='flex items-center space-x-2'>
-                      <RadioGroupItem value='all' id='scope-all' />
-                      <Label htmlFor='scope-all' className='font-normal text-xs cursor-pointer'>
-                        {t('Input & Output')}
-                      </Label>
-                    </div>
-                    <div className='flex items-center space-x-2'>
-                      <RadioGroupItem value='input_only' id='scope-input-only' />
-                      <Label htmlFor='scope-input-only' className='font-normal text-xs cursor-pointer'>
-                        {t('Input Only')}
-                      </Label>
-                    </div>
-                    <div className='flex items-center space-x-2'>
-                      <RadioGroupItem value='output_only' id='scope-output-only' />
-                      <Label htmlFor='scope-output-only' className='font-normal text-xs cursor-pointer'>
-                        {t('Output Only')}
-                      </Label>
-                    </div>
-                  </RadioGroup>
-                  <p className='text-muted-foreground text-[11px]'>
-                    {chargeScope === 'input_only'
-                      ? t('Only input tokens are billed. Output tokens are completely free.')
-                      : chargeScope === 'output_only'
-                      ? t('Only output tokens are billed. Input tokens are completely free.')
-                      : t('Standard token billing: both prompt and completion tokens are billed.')}
-                  </p>
-                </div>
-              )}
 
               {pricingMode === 'duration_second' && (
                 <div className='space-y-2 rounded-md border p-4 bg-muted/20'>
@@ -1171,7 +1134,7 @@ export function ModelMutateDrawer({
                 </div>
               )}
 
-              {pricingMode === 'per-request' ? (
+              {pricingMode === 'per-request' && (
                 <FormField
                   control={form.control}
                   name='price'
@@ -1200,8 +1163,45 @@ export function ModelMutateDrawer({
                     </FormItem>
                   )}
                 />
-              ) : (
+              )}
+
+              {pricingMode === 'per-token' && (
                 <>
+                  <div className='space-y-2 rounded-md border p-3 bg-muted/30'>
+                    <Label className='text-xs font-medium'>{t('Billing Scope')}</Label>
+                    <RadioGroup
+                      value={chargeScope}
+                      onValueChange={(value) => setChargeScope(value as ChargeScope)}
+                      className='grid grid-cols-3 gap-2'
+                    >
+                      <div className='flex items-center space-x-2'>
+                        <RadioGroupItem value='all' id='scope-all' />
+                        <Label htmlFor='scope-all' className='font-normal text-xs cursor-pointer'>
+                          {t('Input & Output')}
+                        </Label>
+                      </div>
+                      <div className='flex items-center space-x-2'>
+                        <RadioGroupItem value='input_only' id='scope-input-only' />
+                        <Label htmlFor='scope-input-only' className='font-normal text-xs cursor-pointer'>
+                          {t('Input Only')}
+                        </Label>
+                      </div>
+                      <div className='flex items-center space-x-2'>
+                        <RadioGroupItem value='output_only' id='scope-output-only' />
+                        <Label htmlFor='scope-output-only' className='font-normal text-xs cursor-pointer'>
+                          {t('Output Only')}
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                    <p className='text-muted-foreground text-[11px]'>
+                      {chargeScope === 'input_only'
+                        ? t('Only input tokens are billed. Output tokens are completely free.')
+                        : chargeScope === 'output_only'
+                        ? t('Only output tokens are billed. Input tokens are completely free.')
+                        : t('Standard token billing: both prompt and completion tokens are billed.')}
+                    </p>
+                  </div>
+
                   <div className='space-y-4'>
                     <Label>{t('Input mode')}</Label>
                     <RadioGroup

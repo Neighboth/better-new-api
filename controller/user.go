@@ -539,7 +539,6 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"linux_do_id":       user.LinuxDOId,
 		"setting":           user.Setting,
 		"stripe_customer":   user.StripeCustomer,
-		"shift_ends_at":     user.ShiftEndsAt,
 		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":       permissions,
 	}
@@ -1697,30 +1696,4 @@ func GetUserBalancePackages(c *gin.Context) {
 		"message": "",
 		"data":    packages,
 	})
-}
-
-func UpdateShift(c *gin.Context) {
-	userId := c.GetInt("id")
-	
-	var req struct {
-		Active bool `json:"active"`
-	}
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid request"})
-		return
-	}
-	
-	var shiftEndsAt int64 = 0
-	if req.Active {
-		// auto-end after 3h
-		shiftEndsAt = time.Now().Add(3 * time.Hour).Unix()
-	}
-	
-	err := model.DB.Model(&model.User{}).Where("id = ?", userId).Update("shift_ends_at", shiftEndsAt).Error
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
-		return
-	}
-	
-	c.JSON(http.StatusOK, gin.H{"success": true})
 }

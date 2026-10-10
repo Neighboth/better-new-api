@@ -68,7 +68,9 @@ func SyncSettingsFromOptions() {
 	if val, ok := common.OptionMap["discord.auto_reply_model"]; ok && val != "" {
 		CurrentSettings.AutoReplyModel = val
 	}
-	if val, ok := common.OptionMap["discord.rpg_enabled"]; ok {
+	if val, ok := common.OptionMap["discord.rpc_enabled"]; ok {
+		CurrentSettings.RPGEnabled = val == "true"
+	} else if val, ok := common.OptionMap["discord.rpg_enabled"]; ok {
 		CurrentSettings.RPGEnabled = val == "true"
 	}
 	if val, ok := common.OptionMap["discord.only_linked_accounts"]; ok {

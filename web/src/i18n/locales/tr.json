@@ -1,5 +1,15 @@
 {
   "translation": {
+    "Please configure and enable io.net, Modal or Hugging Face Spaces deployment service in System Settings.": "Lütfen Sistem Ayarları sayfasından io.net, Modal veya Hugging Face dağıtım servisini yapılandırıp etkinleştirin.",
+    "Duration-based": "Süre bazlı",
+    "Character-based": "Karakter bazlı",
+    "Price per Second (USD/s)": "Saniye Başına Fiyat (USD/sn)",
+    "Price per 1M Characters (USD/1M chars)": "1M Karakter Başına Fiyat (USD/1M karakter)",
+    "Calculated ratio": "Hesaplanan oran",
+    "Billing Scope": "Faturalandırma Kapsamı",
+    "Input & Output": "Giriş ve Çıkış",
+    "Input Only": "Yalnızca Giriş",
+    "Output Only": "Yalnızca Çıkış",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

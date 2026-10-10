@@ -1,5 +1,14 @@
 {
   "translation": {
+    "Duration-based": "Duration-based",
+    "Character-based": "Character-based",
+    "Price per Second (USD/s)": "Price per Second (USD/s)",
+    "Price per 1M Characters (USD/1M chars)": "Price per 1M Characters (USD/1M chars)",
+    "Calculated ratio": "Calculated ratio",
+    "Billing Scope": "Billing Scope",
+    "Input & Output": "Input & Output",
+    "Input Only": "Input Only",
+    "Output Only": "Output Only",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

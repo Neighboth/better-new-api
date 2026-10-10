@@ -6,68 +6,29 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-import { useId, type SVGProps } from 'react'
+import type { SVGProps } from 'react'
 
 type IconAgnesProps = SVGProps<SVGSVGElement> & {
   size?: number
 }
 
-export function IconAgnes({ size = 20, ...props }: IconAgnesProps) {
-  const gradientId = useId()
-  const glowId = useId()
-
+export function IconAgnes({ size = 20, className, ...props }: IconAgnesProps) {
   return (
     <svg
       xmlns='http://www.w3.org/2000/svg'
-      viewBox='0 0 32 32'
+      viewBox='0 0 24 24'
       width={size}
       height={size}
       fill='none'
+      className={className}
       {...props}
     >
-      <defs>
-        <linearGradient
-          id={gradientId}
-          x1='4'
-          y1='28'
-          x2='28'
-          y2='4'
-          gradientUnits='userSpaceOnUse'
-        >
-          <stop stopColor='#8B5CF6' />
-          <stop offset='0.5' stopColor='#EC4899' />
-          <stop offset='1' stopColor='#3B82F6' />
-        </linearGradient>
-        <filter id={glowId} x='-20%' y='-20%' width='140%' height='140%'>
-          <feGaussianBlur stdDeviation='1.5' result='blur' />
-          <feComposite in='SourceGraphic' in2='blur' operator='over' />
-        </filter>
-      </defs>
-      {/* Outer rounded container with subtle border */}
-      <rect
-        x='2'
-        y='2'
-        width='28'
-        height='28'
-        rx='7'
-        fill='#0F172A'
-      />
-      {/* Agnes Stylized A with glowing gradient */}
+      <circle cx='12' cy='12' r='12' fill='#000000' />
       <path
-        d='M16 6L7 25h4.2l2.1-4.8h5.4L20.8 25H25L16 6zm0 6.6l2.1 4.6h-4.2L16 12.6z'
-        fill={`url(#${gradientId})`}
-        filter={`url(#${glowId})`}
+        fill='#FFFFFF'
+        fillRule='evenodd'
+        d='M5.72 14.513s-1.183 3.606.999 3.969c2.182.362 5.8-.673 9.798-8.228 0 0-.494 2.373-.762 3.732a.884.884 0 01-.308.512.905.905 0 01-.567.204h-.533a.157.157 0 00-.088.288c.506.345 1.154 1.093 1.258 2.68a.486.486 0 00.239.387.502.502 0 00.459.029.824.824 0 00.38-.352c.085-.154.132-.325.136-.5l-.073-.661a.753.753 0 01.117-.48.769.769 0 01.39-.31c.474-.169 1.114-.524 1.427-1.251a.108.108 0 00-.076-.147.113.113 0 00-.062.003c-.317.112-.918.298-1.443.295a.26.26 0 01-.244-.185.253.253 0 01-.007-.108l.728-5.013a.482.482 0 00-.273-.512.5.5 0 00-.202-.048c-.2-.003-.4.026-.59.084-.51.153-.991.404-1.256.905-1.248 2.369-7.222 9.47-9.446 4.707zM17.604 7.027a1.203 1.203 0 10-2.376-.383 1.203 1.203 0 002.376.383z'
       />
-      {/* Modern orbital ring arc symbolizing video generation & AI */}
-      <path
-        d='M9 13.5C9.8 11.2 12.6 9.5 16 9.5c4.1 0 7.4 2.4 7.9 5.5'
-        stroke='#A855F7'
-        strokeWidth='1.5'
-        strokeLinecap='round'
-        strokeDasharray='1 3'
-        opacity='0.8'
-      />
-      <circle cx='23.5' cy='15' r='1.5' fill='#38BDF8' />
     </svg>
   )
 }

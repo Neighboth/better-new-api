@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +32,10 @@ func GetModelDeploymentSettings(c *gin.Context) {
 	hasAPIKey := strings.TrimSpace(common.OptionMap["model_deployment.ionet.api_key"]) != ""
 	
 	modalEnabled := common.OptionMap["model_deployment.modal.enabled"] == "true"
-	hasModalAPIKey := strings.TrimSpace(common.OptionMap["model_deployment.modal.api_key"]) != ""
+	hasModalAPIKey := strings.TrimSpace(common.OptionMap["model_deployment.modal.token_id"]) != "" || strings.TrimSpace(common.OptionMap["model_deployment.modal.token_secret"]) != ""
+
+	hfEnabled := common.OptionMap["model_deployment.huggingface.enabled"] == "true"
+	hasHFKey := strings.TrimSpace(common.OptionMap["model_deployment.huggingface.api_key"]) != "" || strings.TrimSpace(common.OptionMap["model_deployment.huggingface.token"]) != ""
 	common.OptionMapRWMutex.RUnlock()
 
 	common.ApiSuccess(c, gin.H{
@@ -48,7 +52,68 @@ func GetModelDeploymentSettings(c *gin.Context) {
 				"configured":  hasModalAPIKey,
 				"can_connect": modalEnabled && hasModalAPIKey,
 			},
+			{
+				"provider":    "huggingface",
+				"enabled":     hfEnabled,
+				"configured":  hasHFKey,
+				"can_connect": hfEnabled && hasHFKey,
+			},
 		},
+	})
+}
+
+func TestHuggingFaceConnection(c *gin.Context) {
+	var req struct {
+		Token string `json:"token"`
+	}
+	rawBody, _ := c.GetRawData()
+	if len(bytes.TrimSpace(rawBody)) > 0 {
+		_ = json.Unmarshal(rawBody, &req)
+	}
+	token := strings.TrimSpace(req.Token)
+	if token == "" {
+		common.OptionMapRWMutex.RLock()
+		token = strings.TrimSpace(common.OptionMap["model_deployment.huggingface.token"])
+		if token == "" {
+			token = strings.TrimSpace(common.OptionMap["model_deployment.huggingface.api_key"])
+		}
+		common.OptionMapRWMutex.RUnlock()
+	}
+	if token == "" {
+		common.ApiErrorMsg(c, "Hugging Face token is required")
+		return
+	}
+
+	httpReq, err := http.NewRequest(http.MethodGet, "https://huggingface.co/api/whoami-v2", nil)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("User-Agent", "BetterNewAPI/1.0")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		common.ApiErrorMsg(c, fmt.Sprintf("failed to connect to Hugging Face: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		common.ApiErrorMsg(c, fmt.Sprintf("invalid Hugging Face token (HTTP %d)", resp.StatusCode))
+		return
+	}
+
+	var whoami struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&whoami)
+
+	common.ApiSuccess(c, gin.H{
+		"name": whoami.Name,
+		"type": whoami.Type,
 	})
 }
 

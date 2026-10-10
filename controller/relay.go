@@ -310,6 +310,9 @@ func shouldRetryOtherChannel(c *gin.Context, apiErr *types.NewAPIError) bool {
 	if c.Writer != nil && c.Writer.Written() {
 		return false
 	}
+	if apiErr.StatusCode == http.StatusBadRequest {
+		return false
+	}
 	switch apiErr.GetErrorCode() {
 	case types.ErrorCodeReadRequestBodyFailed,
 		types.ErrorCodeBadRequestBody,

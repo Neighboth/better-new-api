@@ -1324,6 +1324,19 @@ export function ChannelMutateDrawer({
     if (isEditing && channelData?.data) {
       const defaults = transformChannelToFormDefaults(channelData.data)
       form.reset(defaults)
+      if (channelData.data.type === 63 && channelData.data.key) {
+        const parts = channelData.data.key.split(':')
+        if (parts.length >= 2) {
+          setDeepseekEmail(parts[0])
+          setDeepseekPassword(parts.slice(1).join(':'))
+        } else {
+          setDeepseekEmail(channelData.data.key)
+          setDeepseekPassword('')
+        }
+      } else {
+        setDeepseekEmail('')
+        setDeepseekPassword('')
+      }
       setAdvancedSettingsOpen(
         readAdvancedSettingsPreference() || hasAdvancedSettingsValues(defaults)
       )
@@ -1336,6 +1349,8 @@ export function ChannelMutateDrawer({
         channelData.data.status_code_mapping || ''
     } else if (!isEditing) {
       form.reset(CHANNEL_FORM_DEFAULT_VALUES)
+      setDeepseekEmail('')
+      setDeepseekPassword('')
       setAdvancedSettingsOpen(false)
       initialModelsRef.current = []
       initialModelMappingRef.current = ''
@@ -2989,9 +3004,59 @@ export function ChannelMutateDrawer({
                                 />
                               )}
 
-                              <FormField
-                                control={form.control}
-                                name='key'
+                              {currentType === 63 ? (
+                                <div className='border-border/60 flex flex-col gap-3 rounded-lg border bg-muted/20 p-4'>
+                                  <div>
+                                    <div className='font-semibold text-sm'>{t('DeepSeek Web Giriş Bilgileri')}</div>
+                                    <div className='text-muted-foreground text-xs'>
+                                      {t('Tersine mühendislik ile DeepSeek Web hesabınız API kanalına dönüştürülür. Harici proxy gerekmez.')}
+                                    </div>
+                                  </div>
+                                  <div className='grid gap-3 sm:grid-cols-2'>
+                                    <div>
+                                      <label className='text-xs font-medium mb-1 block'>{t('E-posta / Telefon / Kullanıcı Adı')}</label>
+                                      <Input
+                                        placeholder='user@example.com'
+                                        value={deepseekEmail}
+                                        onChange={(e) => {
+                                          const nextEmail = e.target.value
+                                          setDeepseekEmail(nextEmail)
+                                          form.setValue('key', `${nextEmail}:${deepseekPassword}`, { shouldValidate: true })
+                                          const currModels = form.getValues('models')
+                                          if (!currModels || currModels.length === 0) {
+                                            form.setValue('models', ['deepseek-chat', 'deepseek-reasoner'])
+                                          }
+                                        }}
+                                        className='text-xs'
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className='text-xs font-medium mb-1 block'>{t('Şifre')}</label>
+                                      <Input
+                                        type='password'
+                                        placeholder='••••••••'
+                                        value={deepseekPassword}
+                                        onChange={(e) => {
+                                          const nextPass = e.target.value
+                                          setDeepseekPassword(nextPass)
+                                          form.setValue('key', `${deepseekEmail}:${nextPass}`, { shouldValidate: true })
+                                          const currModels = form.getValues('models')
+                                          if (!currModels || currModels.length === 0) {
+                                            form.setValue('models', ['deepseek-chat', 'deepseek-reasoner'])
+                                          }
+                                        }}
+                                        className='text-xs'
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className='text-[11px] text-muted-foreground'>
+                                    {t('DeepSeek Web hesabınızla doğrudan giriş yapılır. Token otomatik olarak yönetilir.')}
+                                  </div>
+                                </div>
+                              ) : (
+                                <FormField
+                                  control={form.control}
+                                  name='key'
                                 render={({ field }) => {
                                   let keyPlaceholder = t(
                                     getKeyPromptForType(currentType)
@@ -3153,6 +3218,7 @@ export function ChannelMutateDrawer({
                                   )
                                 }}
                               />
+                              )}
 
                               {currentType === 57 && (
                                 <div className='border-border/60 flex flex-col gap-3 rounded-lg border bg-muted/20 p-4'>
@@ -3282,59 +3348,6 @@ export function ChannelMutateDrawer({
                                 </div>
                               )}
 
-                              {currentType === 63 && (
-                                <div className='border-border/60 flex flex-col gap-3 rounded-lg border bg-muted/20 p-4'>
-                                  <div>
-                                    <div className='font-semibold text-sm'>{t('DeepSeek Web Tersine Mühendislik')}</div>
-                                    <div className='text-muted-foreground text-xs'>
-                                      {t('DeepSeek hesap bilgilerinizi girin veya doğrudan kullanıcı tokeninizi anahtar alanına yazın.')}
-                                    </div>
-                                  </div>
-                                  <div className='grid gap-2 sm:grid-cols-2'>
-                                    <div>
-                                      <label className='text-xs font-medium mb-1 block'>{t('E-posta / Kullanıcı Adı')}</label>
-                                      <Input
-                                        placeholder='user@example.com'
-                                        value={deepseekEmail}
-                                        onChange={(e) => setDeepseekEmail(e.target.value)}
-                                        className='text-xs'
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className='text-xs font-medium mb-1 block'>{t('Şifre')}</label>
-                                      <Input
-                                        type='password'
-                                        placeholder='••••••••'
-                                        value={deepseekPassword}
-                                        onChange={(e) => setDeepseekPassword(e.target.value)}
-                                        className='text-xs'
-                                      />
-                                    </div>
-                                  </div>
-                                  <div className='flex justify-end'>
-                                    <Button
-                                      type='button'
-                                      size='sm'
-                                      onClick={() => {
-                                        if (!deepseekEmail || !deepseekPassword) {
-                                          toast.error(t('Lütfen e-posta ve şifrenizi girin'))
-                                          return
-                                        }
-                                        form.setValue('key', `${deepseekEmail}:${deepseekPassword}`, { shouldValidate: true })
-                                        const currModels = form.getValues('models')
-                                        if (!currModels || currModels.length === 0) {
-                                          form.setValue('models', ['deepseek-chat', 'deepseek-reasoner'])
-                                        }
-                                        toast.success(t('Giriş bilgileri anahtara aktarıldı'))
-                                      }}
-                                      disabled={!deepseekEmail || !deepseekPassword}
-                                    >
-                                      <Wand2 className='mr-1.5 h-3.5 w-3.5' />
-                                      {t('Giriş Bilgilerini Anahtara Aktar')}
-                                    </Button>
-                                  </div>
-                                </div>
-                              )}
 
                               {isEditing && isMultiKeyChannel && (
                                 <FormField

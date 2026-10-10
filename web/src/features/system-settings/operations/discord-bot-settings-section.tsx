@@ -128,6 +128,10 @@ export function DiscordBotSettingsSection({
         value: String(values.aiSystemPrompt ?? ''),
       })
       await updateOption.mutateAsync({
+        key: 'discord.rpc_enabled',
+        value: String(values.rpgEnabled),
+      })
+      await updateOption.mutateAsync({
         key: 'discord.rpg_enabled',
         value: String(values.rpgEnabled),
       })
@@ -280,9 +284,19 @@ export function DiscordBotSettingsSection({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value='tr'>Türkçe</SelectItem>
-                      <SelectItem value='en'>English</SelectItem>
-                      <SelectItem value='zh_CN'>简体中文</SelectItem>
+                      <SelectItem value='tr'>Türkçe (tr)</SelectItem>
+                      <SelectItem value='en'>English (en)</SelectItem>
+                      <SelectItem value='zh_CN'>简体中文 (zh-CN)</SelectItem>
+                      <SelectItem value='zh_TW'>繁體中文 (zh-TW)</SelectItem>
+                      <SelectItem value='ja'>日本語 (ja)</SelectItem>
+                      <SelectItem value='ko'>한국어 (ko)</SelectItem>
+                      <SelectItem value='de'>Deutsch (de)</SelectItem>
+                      <SelectItem value='fr'>Français (fr)</SelectItem>
+                      <SelectItem value='es'>Español (es)</SelectItem>
+                      <SelectItem value='ru'>Русский (ru)</SelectItem>
+                      <SelectItem value='vi'>Tiếng Việt (vi)</SelectItem>
+                      <SelectItem value='ar'>العربية (ar)</SelectItem>
+                      <SelectItem value='pt'>Português (pt)</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormDescription>
@@ -387,9 +401,9 @@ export function DiscordBotSettingsSection({
             render={({ field }) => (
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
-                  <FormLabel>{t('Enable RPG & Interactive Features')}</FormLabel>
+                  <FormLabel>{t('Rich Presence (RPC) & Status Activity')}</FormLabel>
                   <FormDescription>
-                    {t('Enable RPG character elements and interactive commands.')}
+                    {t('Show dynamic Rich Presence (RPC) and status activity on Discord.')}
                   </FormDescription>
                 </SettingsSwitchContent>
                 <FormControl>

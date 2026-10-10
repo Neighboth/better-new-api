@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -467,8 +468,37 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		}
 	}
 
-	requestBody := bytes.NewBuffer(jsonData)
-	c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonData))
+	var requestBody io.Reader = bytes.NewBuffer(jsonData)
+	if info.RelayMode == relayconstant.RelayModeAudioTranscription {
+		mpBuf := &bytes.Buffer{}
+		mpWriter := multipart.NewWriter(mpBuf)
+		_ = mpWriter.WriteField("model", testModel)
+		part, fErr := mpWriter.CreateFormFile("file", "sample.wav")
+		if fErr == nil {
+			silentWav := []byte{
+				'R', 'I', 'F', 'F',
+				36, 0, 0, 0,
+				'W', 'A', 'V', 'E',
+				'f', 'm', 't', ' ',
+				16, 0, 0, 0,
+				1, 0,
+				1, 0,
+				0x44, 0xac, 0, 0,
+				0x88, 0x58, 1, 0,
+				2, 0,
+				16, 0,
+				'd', 'a', 't', 'a',
+				0, 0, 0, 0,
+			}
+			_, _ = part.Write(silentWav)
+		}
+		_ = mpWriter.Close()
+		c.Request.Header.Set("Content-Type", mpWriter.FormDataContentType())
+		requestBody = bytes.NewBuffer(mpBuf.Bytes())
+		c.Request.Body = io.NopCloser(bytes.NewBuffer(mpBuf.Bytes()))
+	} else {
+		c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonData))
+	}
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
 		return testResult{
@@ -771,9 +801,10 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				Model: model,
 			}
 		case constant.EndpointTypeAudioSpeech:
-			return &dto.GeneralOpenAIRequest{
+			return &dto.AudioRequest{
 				Model: model,
 				Input: "hi",
+				Voice: "alloy",
 			}
 		case constant.EndpointTypeAudioTranscription:
 			return &dto.AudioRequest{

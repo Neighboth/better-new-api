@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -26,7 +25,7 @@ type channelOAuthExchangeRequest struct {
 func StartChannelOAuth(c *gin.Context) {
 	var req channelOAuthStartRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		common.ApiError(c, err)
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 	provider := strings.ToLower(strings.TrimSpace(req.Provider))
@@ -36,7 +35,7 @@ func StartChannelOAuth(c *gin.Context) {
 	}
 	flow, err := channelOAuthService.Generate(provider)
 	if err != nil {
-		common.ApiError(c, err)
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": flow})
@@ -45,7 +44,7 @@ func StartChannelOAuth(c *gin.Context) {
 func ExchangeChannelOAuth(c *gin.Context) {
 	var req channelOAuthExchangeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		common.ApiError(c, err)
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 	provider := strings.ToLower(strings.TrimSpace(req.Provider))

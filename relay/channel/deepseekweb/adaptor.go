@@ -91,12 +91,15 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 
 func resolveToken(ctx context.Context, apiKey, baseURL string) (string, error) {
 	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return "", errors.New("deepseek web credentials missing: enter username and password or user token")
+	}
 	if !strings.Contains(apiKey, ":") {
 		// Already a user token
 		return apiKey, nil
 	}
 	parts := strings.SplitN(apiKey, ":", 2)
-	email, password := parts[0], parts[1]
+	email, password := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 
 	tokenCacheMu.RLock()
 	cached, ok := tokenCache[email]
@@ -109,6 +112,7 @@ func resolveToken(ctx context.Context, apiKey, baseURL string) (string, error) {
 	payload, _ := json.Marshal(map[string]string{
 		"email":    email,
 		"password": password,
+		"mobile":   email,
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, loginURL, bytes.NewReader(payload))
 	if err != nil {
@@ -116,6 +120,8 @@ func resolveToken(ctx context.Context, apiKey, baseURL string) (string, error) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+	req.Header.Set("Origin", "https://chat.deepseek.com")
+	req.Header.Set("Referer", "https://chat.deepseek.com/")
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
@@ -123,6 +129,11 @@ func resolveToken(ctx context.Context, apiKey, baseURL string) (string, error) {
 		return "", fmt.Errorf("deepseek login failed: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("deepseek login failed (HTTP %d): %s", resp.StatusCode, string(body))
+	}
 
 	var loginResp struct {
 		Code int `json:"code"`

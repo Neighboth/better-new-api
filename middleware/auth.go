@@ -61,6 +61,9 @@ func authHelper(c *gin.Context, minRole int) {
 		return
 	}
 	setDashboardAuthContext(c, user, identity, useAccessToken)
+	if user.Role >= common.RoleAdminUser {
+		model.RecordAdminActivity(user.Id)
+	}
 
 	// 管理/root 写操作审计兜底：内聚在鉴权链路里，保证任何经过 AdminAuth/RootAuth
 	// 的写接口都会自动留痕（无需在路由上单独挂审计中间件，避免漏挂）。
@@ -82,8 +85,11 @@ func TryUserAuth() func(c *gin.Context) {
 			writeDashboardAuthError(c, err)
 			return
 		}
-		if credentialKind != dashboardCredentialUnmatched {
+		if credentialKind != dashboardCredentialUnmatched && user != nil {
 			setDashboardAuthContext(c, user, identity, credentialKind == dashboardCredentialPAT)
+			if user.Role >= common.RoleAdminUser {
+				model.RecordAdminActivity(user.Id)
+			}
 		}
 		c.Next()
 	}
