@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/service/discordbot"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/console_setting"
@@ -438,6 +439,9 @@ func UpdateOption(c *gin.Context) {
 	}
 	if strings.HasPrefix(option.Key, "relay_fallback_setting.") || strings.HasPrefix(option.Key, "checkin_setting.") || strings.HasPrefix(option.Key, "ticket_setting.") {
 		_ = config.GlobalConfig.LoadFromDB(common.OptionMap)
+	}
+	if strings.HasPrefix(option.Key, "discord_bot.") || strings.HasPrefix(option.Key, "discord.") {
+		discordbot.RestartBot()
 	}
 	// 出于安全考虑只记录被修改的配置项名称，不记录配置值（可能含密钥等敏感信息）。
 	recordManageAudit(c, "option.update", map[string]interface{}{

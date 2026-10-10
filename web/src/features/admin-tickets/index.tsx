@@ -80,6 +80,13 @@ export function AdminTicketsPage() {
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
 
+  const isLiveActive = (tk: { is_live_support?: boolean; last_reply_at?: number; created_at?: number }) => {
+    if (!tk.is_live_support) return false
+    const lastTime = tk.last_reply_at || tk.created_at || 0
+    const now = Math.floor(Date.now() / 1000)
+    return (now - lastTime) <= 600
+  }
+
   const fetchTickets = async () => {
     try {
       setLoading(true)
@@ -93,9 +100,11 @@ export function AdminTicketsPage() {
       })
       if (res.success && res.data) {
         const sorted = (res.data.items || []).slice().sort((a, b) => {
-          if (a.is_live_support && !b.is_live_support) return -1
-          if (!a.is_live_support && b.is_live_support) return 1
-          return (b.created_at || 0) - (a.created_at || 0)
+          const aLive = isLiveActive(a)
+          const bLive = isLiveActive(b)
+          if (aLive && !bLive) return -1
+          if (!aLive && bLive) return 1
+          return (b.last_reply_at || b.created_at || 0) - (a.last_reply_at || a.created_at || 0)
         })
         setTickets(sorted)
         setTotal(res.data.total || 0)
@@ -359,7 +368,7 @@ export function AdminTicketsPage() {
                   <TableRow
                     key={tk.id}
                     className={`cursor-pointer transition-colors ${
-                      tk.is_live_support
+                      isLiveActive(tk)
                         ? 'border-2 border-red-500 bg-red-500/10 hover:bg-red-500/15 dark:bg-red-950/20 dark:hover:bg-red-950/30'
                         : 'hover:bg-muted/50'
                     }`}
@@ -368,7 +377,7 @@ export function AdminTicketsPage() {
                     <TableCell className='font-mono font-medium text-xs'>
                       <div className='flex items-center gap-1.5'>
                         <span>#{tk.id}</span>
-                        {tk.is_live_support && (
+                        {isLiveActive(tk) && (
                           <span className='inline-flex items-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white'>
                             LIVE
                           </span>
@@ -387,7 +396,7 @@ export function AdminTicketsPage() {
                     </TableCell>
                     <TableCell className='font-medium text-sm'>
                       <div className='flex items-center gap-2'>
-                        {tk.is_live_support && (
+                        {isLiveActive(tk) && (
                           <span className='h-2 w-2 rounded-full bg-red-500 animate-pulse shrink-0' />
                         )}
                         <span>{tk.title}</span>

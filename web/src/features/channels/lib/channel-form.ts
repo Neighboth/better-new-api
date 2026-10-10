@@ -28,6 +28,7 @@ import {
   OPENAI_FIELD_PASSTHROUGH_TYPES,
 } from '../constants'
 import type { Channel } from '../types'
+import { formatModelsArray } from './model-mapping-validation'
 import {
   CHANNEL_TYPE_ADVANCED_CUSTOM,
   advancedCustomConfigUsesRelativeUpstreamPath,
@@ -203,7 +204,10 @@ export const channelFormSchema = z
     base_url: z.string().optional(),
     key: z.string(),
     openai_organization: z.string().optional(),
-    models: z.string().min(1, ERROR_MESSAGES.REQUIRED_MODELS),
+    models: z.union([
+      z.string().min(1, ERROR_MESSAGES.REQUIRED_MODELS),
+      z.array(z.string()).min(1, ERROR_MESSAGES.REQUIRED_MODELS).transform((arr) => arr.join(',')),
+    ]),
     group: z.array(z.string()).min(1, ERROR_MESSAGES.REQUIRED_GROUP),
     model_mapping: z
       .string()
@@ -789,7 +793,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     base_url: normalizeBaseUrl(formData.base_url) || null,
     key: formData.key,
     openai_organization: formData.openai_organization || null,
-    models: formData.models,
+    models: typeof formData.models === 'string' ? formData.models : formatModelsArray(formData.models),
     group: formatGroups(formData.group),
     model_mapping: formData.model_mapping || null,
     priority: formData.priority || null,
@@ -837,7 +841,7 @@ export function transformFormDataToUpdatePayload(
     type: formData.type,
     base_url: normalizeBaseUrl(formData.base_url) || null,
     openai_organization: formData.openai_organization || null,
-    models: formData.models,
+    models: typeof formData.models === 'string' ? formData.models : formatModelsArray(formData.models),
     group: formatGroups(formData.group),
     model_mapping: formData.model_mapping || null,
     priority: formData.priority ?? 0,

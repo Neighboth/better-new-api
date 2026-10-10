@@ -342,7 +342,7 @@ func migrateNewColumns() {
 		}
 	}
 	if DB.Migrator().HasTable(&Ticket{}) {
-		for _, col := range []string{"is_live_support", "is_guest", "guest_contact", "guest_session_key"} {
+		for _, col := range []string{"is_live_support", "is_guest", "guest_contact", "guest_session_key", "is_claimed", "assigned_admin_id", "human_connected"} {
 			if !DB.Migrator().HasColumn(&Ticket{}, col) {
 				_ = DB.Migrator().AddColumn(&Ticket{}, col)
 			}

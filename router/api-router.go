@@ -179,6 +179,7 @@ func SetApiRouter(router *gin.Engine) {
 				// Custom OAuth bindings
 				selfRoute.GET("/oauth/bindings", controller.GetUserOAuthBindings)
 				selfRoute.DELETE("/oauth/bindings/:provider_id", controller.UnbindCustomOAuth)
+				selfRoute.POST("/heartbeat", controller.UserHeartbeat)
 			}
 
 			adminRoute := userRoute.Group("/")
@@ -409,6 +410,7 @@ func SetApiRouter(router *gin.Engine) {
 			ticketPublicRoute.GET("/guest/:sessionKey", controller.GetGuestTicket)
 			ticketPublicRoute.POST("/guest/:sessionKey/message", controller.AddGuestTicketMessage)
 			ticketPublicRoute.GET("/guest/:sessionKey/transcript", controller.DownloadGuestTicketTranscript)
+			ticketPublicRoute.POST("/:id/connect-human", controller.ConnectHuman)
 		}
 
 		ticketRoute := apiRouter.Group("/ticket")
@@ -419,6 +421,8 @@ func SetApiRouter(router *gin.Engine) {
 			ticketRoute.POST("/:id/message", controller.AddTicketMessage)
 			ticketRoute.PUT("/:id/close", controller.CloseTicket)
 			ticketRoute.GET("/:id/transcript", controller.DownloadTicketTranscript)
+			ticketRoute.POST("/:id/claim", controller.ClaimTicket)
+			ticketRoute.POST("/:id/connect-human", controller.ConnectHuman)
 		}
 
 		adminTicketRoute := apiRouter.Group("/admin/ticket")

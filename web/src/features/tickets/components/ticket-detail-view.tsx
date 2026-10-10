@@ -43,6 +43,8 @@ import {
   closeTicket,
   downloadTicketTranscript,
   getTicketDetail,
+  claimTicket,
+  connectHumanSupport,
 } from '../api'
 import type { Ticket, TicketMessage } from '../types'
 import {
@@ -246,6 +248,28 @@ export function TicketDetailView({
             {t('Download')}
           </Button>
 
+          {isAdminView && ticket.is_live_support && !ticket.is_claimed && (
+            <Button
+              variant='outline'
+              size='sm'
+              className='bg-blue-600/10 text-blue-600 hover:bg-blue-600/20 border-blue-500/30'
+              onClick={async () => {
+                try {
+                  const res = await claimTicket(ticket.id)
+                  if (res.success) {
+                    toast.success(t('Talebi başarıyla üstlendiniz'))
+                    setTicket((prev) => (prev ? { ...prev, is_claimed: true } : prev))
+                  }
+                } catch {
+                  toast.error(t('Talebi üstlenme başarısız oldu'))
+                }
+              }}
+            >
+              <Headphones className='mr-1.5 h-3.5 w-3.5' />
+              {t('Talebi Üstlen')}
+            </Button>
+          )}
+
           {!isClosed && (
             <Button
               variant='outline'
@@ -266,7 +290,7 @@ export function TicketDetailView({
 
       {/* Info card for admin or user */}
       {isAdminView && ticket.user_name && (
-        <div className='flex items-center gap-4 rounded-lg border bg-muted/30 px-4 py-2 text-sm'>
+        <div className='flex items-center gap-4 rounded-none border border-border bg-muted/30 px-4 py-2 text-sm'>
           <span className='font-medium text-muted-foreground'>{t('User')}:</span>
           <span>{ticket.user_name}</span>
           {ticket.user_email && (
@@ -279,8 +303,8 @@ export function TicketDetailView({
       )}
 
       {/* Conversation Thread */}
-      <Card className='flex flex-col'>
-        <CardHeader className='border-b py-3 px-4'>
+      <Card className='flex flex-col rounded-none border border-border shadow-sm'>
+        <CardHeader className='border-b border-border py-2.5 px-4 bg-muted/40 rounded-none'>
           <div className='flex items-center justify-between text-xs text-muted-foreground'>
             <span>{t('Conversation History')}</span>
             <span>
@@ -291,20 +315,42 @@ export function TicketDetailView({
         </CardHeader>
 
         <CardContent className='flex min-h-[300px] flex-col overflow-y-auto p-4 space-y-4 bg-muted/10'>
+          {!isAdminView && ticket.is_claimed && !ticket.human_connected && (
+            <div className='rounded-none border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-foreground flex items-center justify-between gap-3'>
+              <div>
+                <span className='font-bold text-amber-800 dark:text-amber-300'>{t('Destek yetkilisi talebinizi üstlendi!')}</span>
+                <p className='text-muted-foreground text-[11px]'>{t('İsterseniz canlı desteğe bağlanabilir veya yapay zeka ile görüşmeye devam edebilirsiniz.')}</p>
+              </div>
+              <Button
+                size='sm'
+                className='rounded-none bg-emerald-600 hover:bg-emerald-700 text-white font-medium shrink-0'
+                onClick={async () => {
+                  try {
+                    const res = await connectHumanSupport(ticket.id)
+                    if (res.success) {
+                      toast.success(t('Canlı desteğe bağlandınız'))
+                      setTicket((prev) => (prev ? { ...prev, human_connected: true } : prev))
+                    }
+                  } catch {
+                    toast.error(t('Bağlantı hatası'))
+                  }
+                }}
+              >
+                {t('Canlı Desteğe Bağlan')}
+              </Button>
+            </div>
+          )}
+
           {messages.map((msg, idx) => {
             const isStaff = msg.is_admin
             const postNumber = idx + 1
             return (
               <div
                 key={msg.id}
-                className={`rounded-lg border shadow-sm overflow-hidden bg-card transition-all ${
-                  isStaff
-                    ? 'border-primary/40 ring-1 ring-primary/20'
-                    : 'border-border'
-                }`}
+                className='rounded-none border border-border bg-card shadow-sm transition-all overflow-hidden'
               >
                 {/* XenForo Post Header Bar */}
-                <div className='flex items-center justify-between border-b px-4 py-2 bg-muted/40 text-xs text-muted-foreground'>
+                <div className='flex items-center justify-between border-b border-border px-4 py-2 bg-muted/50 text-xs text-muted-foreground rounded-none'>
                   <div className='flex items-center gap-2'>
                     <span className='font-medium text-foreground'>
                       {dayjs(msg.created_at * 1000).format('YYYY-MM-DD HH:mm:ss')}
@@ -320,13 +366,13 @@ export function TicketDetailView({
                 {/* XenForo Post Body with Author Sidebar */}
                 <div className='flex flex-col sm:flex-row'>
                   {/* Left: Author Block */}
-                  <div className='flex sm:flex-col items-center sm:items-center justify-between sm:justify-start gap-3 p-4 border-b sm:border-b-0 sm:border-r sm:w-44 bg-muted/20 shrink-0 text-center'>
-                    <Avatar className='h-12 w-12 border-2 shadow-sm'>
+                  <div className='flex sm:flex-col items-center sm:items-center justify-between sm:justify-start gap-3 p-4 border-b sm:border-b-0 sm:border-r border-border sm:w-44 bg-muted/20 shrink-0 text-center rounded-none'>
+                    <Avatar className='h-12 w-12 rounded-none border border-border shadow-sm'>
                       <AvatarFallback
                         className={
                           isStaff
-                            ? 'bg-primary text-primary-foreground font-bold text-base'
-                            : 'bg-muted-foreground/10 text-foreground font-bold text-base'
+                            ? 'rounded-none bg-slate-700 text-white dark:bg-slate-800 dark:text-slate-100 font-bold text-base'
+                            : 'rounded-none bg-muted-foreground/10 text-foreground font-bold text-base'
                         }
                       >
                         {isStaff ? (
@@ -343,11 +389,11 @@ export function TicketDetailView({
                           : msg.user_name || t('User')}
                       </span>
                       {isStaff ? (
-                        <span className='inline-flex items-center gap-1 rounded bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider'>
+                        <span className='inline-flex items-center gap-1 rounded-none bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider'>
                           {t('Staff Member')}
                         </span>
                       ) : (
-                        <span className='inline-flex items-center rounded bg-muted text-muted-foreground border px-2 py-0.5 text-[11px] font-medium'>
+                        <span className='inline-flex items-center rounded-none bg-muted text-muted-foreground border border-border px-2 py-0.5 text-[10px] font-medium'>
                           {t('Member')}
                         </span>
                       )}

@@ -1543,7 +1543,8 @@ func GetActiveAdmin() *User {
 	if DB == nil {
 		return nil
 	}
-	cutoff := time.Now().Add(-15 * time.Minute)
+	// Active admin heartbeat signal: pinged within last 35 seconds (15-second ping interval)
+	cutoff := time.Now().Add(-35 * time.Second)
 	adminLastActiveMu.RLock()
 	var mostRecentID int
 	var mostRecentTime time.Time
@@ -1560,14 +1561,6 @@ func GetActiveAdmin() *User {
 		if err := DB.Where("id = ? AND role >= ?", mostRecentID, common.RoleAdminUser).First(&user).Error; err == nil {
 			return &user
 		}
-	}
-
-	now := time.Now().Unix()
-	// Fallback: an admin who logged in within the last 15 minutes
-	recentLogin := now - 15*60
-	err := DB.Where("role >= ? AND last_login_at > ?", common.RoleAdminUser, recentLogin).Order("last_login_at DESC").First(&user).Error
-	if err == nil {
-		return &user
 	}
 
 	return nil

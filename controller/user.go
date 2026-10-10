@@ -1697,3 +1697,14 @@ func GetUserBalancePackages(c *gin.Context) {
 		"data":    packages,
 	})
 }
+
+func UserHeartbeat(c *gin.Context) {
+	userId := c.GetInt("id")
+	role := c.GetInt("role")
+	if role >= common.RoleAdminUser && userId > 0 {
+		model.RecordAdminActivity(userId)
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+	})
+}

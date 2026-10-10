@@ -141,8 +141,8 @@ func CreateTicket(c *gin.Context) {
 	service.NotifyAdminNewTicketEmail(ticket, req.Content)
 	
 	if ticket.IsLiveSupport {
-		activeAdmin := model.GetActiveAdmin()
-		if activeAdmin == nil {
+		// AI assists first unless human mode was connected
+		if !ticket.HumanConnected {
 			go service.InvokeAiAssistant(ticket.Id)
 		}
 	}
@@ -299,8 +299,8 @@ func AddTicketMessage(c *gin.Context) {
 		service.NotifyAdminNewTicketEmail(ticket, req.Content)
 		
 		if ticket.IsLiveSupport {
-			activeAdmin := model.GetActiveAdmin()
-			if activeAdmin == nil {
+			// AI assists first unless human mode was connected
+			if !ticket.HumanConnected {
 				go service.InvokeAiAssistant(ticketId)
 			}
 		}
@@ -656,3 +656,73 @@ func DownloadGuestTicketTranscript(c *gin.Context) {
 	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="ticket-%d-transcript.md"`, ticket.Id))
 	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(transcript))
 }
+
+func ClaimTicket(c *gin.Context) {
+	userId := c.GetInt("id")
+	role := c.GetInt("role")
+	if role < common.RoleAdminUser {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"message": "Permission denied",
+		})
+		return
+	}
+	ticketId, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid ticket ID"})
+		return
+	}
+	ticket, err := model.GetTicketById(ticketId)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Ticket not found"})
+		return
+	}
+	ticket.IsClaimed = true
+	ticket.AssignedAdminId = userId
+	if err := model.DB.Model(&model.Ticket{}).Where("id = ?", ticketId).Updates(map[string]any{
+		"is_claimed":        true,
+		"assigned_admin_id": userId,
+		"updated_at":        common.GetTimestamp(),
+	}).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	service.GlobalTicketHub.BroadcastToTicket(ticketId, "ticket_claimed", ticket)
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": ticket})
+}
+
+func ConnectHuman(c *gin.Context) {
+	userId := c.GetInt("id")
+	role := c.GetInt("role")
+	ticketId, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid ticket ID"})
+		return
+	}
+	ticket, err := model.GetTicketById(ticketId)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Ticket not found"})
+		return
+	}
+	if role < common.RoleAdminUser && ticket.UserId != userId && !ticket.IsGuest {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "Permission denied"})
+		return
+	}
+	ticket.HumanConnected = true
+	if err := model.DB.Model(&model.Ticket{}).Where("id = ?", ticketId).Updates(map[string]any{
+		"human_connected": true,
+		"updated_at":      common.GetTimestamp(),
+	}).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	systemMsg, _ := model.AddTicketMessage(ticketId, 0, true, "Canlı desteğe bağlandınız. Destek yetkilisi görüşmeye dahil oldu, size yardımcı olmaktan memnuniyet duyarız.", "")
+	if systemMsg != nil {
+		service.GlobalTicketHub.BroadcastToTicket(ticketId, "new_message", systemMsg)
+	}
+	service.GlobalTicketHub.BroadcastToTicket(ticketId, "human_connected", ticket)
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": ticket})
+}
+

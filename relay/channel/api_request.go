@@ -346,13 +346,21 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", common.SanitizeURLForLog(fullRequestURL))
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	method := c.Request.Method
+	if method == "" || method == http.MethodGet {
+		method = http.MethodPost
+	}
+	req, err := http.NewRequest(method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
 	ApplyUpstreamBodyMetadata(req, requestBody)
 	// set form data
-	req.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))
+	contentType := c.Request.Header.Get("Content-Type")
+	if contentType == "" && info.RelayMode == constant.RelayModeAudioTranscription {
+		contentType = "multipart/form-data"
+	}
+	req.Header.Set("Content-Type", contentType)
 	headers := req.Header
 	err = a.SetupRequestHeader(c, &headers, info)
 	if err != nil {

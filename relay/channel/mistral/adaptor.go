@@ -53,7 +53,12 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		wsURL := strings.Replace(baseURL, "http://", "ws://", 1)
 		wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
 		wsURL = strings.TrimRight(wsURL, "/")
-		return fmt.Sprintf("%s/v1/realtime?model=%s", wsURL, url.QueryEscape(info.UpstreamModelName)), nil
+		modelName := strings.TrimPrefix(info.UpstreamModelName, "mistralai/")
+		endpoint := "/v1/realtime"
+		if strings.Contains(modelName, "transcribe") || strings.Contains(modelName, "voxtral") {
+			endpoint = "/v1/audio/transcriptions/realtime"
+		}
+		return fmt.Sprintf("%s%s?model=%s", wsURL, endpoint, url.QueryEscape(modelName)), nil
 	}
 	return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, info.RequestURLPath, info.ChannelType), nil
 }

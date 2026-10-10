@@ -39,6 +39,9 @@ type Ticket struct {
 	Priority        string `json:"priority" gorm:"type:varchar(32);default:'normal'"`
 	Status          string `json:"status" gorm:"type:varchar(32);index;default:'open'"`
 	LastReplyAt     int64  `json:"last_reply_at" gorm:"bigint;index"`
+	IsClaimed       bool   `json:"is_claimed" gorm:"default:false;index"`
+	AssignedAdminId int    `json:"assigned_admin_id" gorm:"default:0;index"`
+	HumanConnected  bool   `json:"human_connected" gorm:"default:false;index"`
 	CreatedAt       int64  `json:"created_at" gorm:"bigint"`
 	UpdatedAt       int64  `json:"updated_at" gorm:"bigint"`
 

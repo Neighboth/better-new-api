@@ -43,6 +43,7 @@ import {
 } from '@/lib/auth-session'
 import { subscribeAuthSessionEvents } from '@/lib/auth-session-sync'
 import { resolveLegacyRoute } from '@/lib/legacy-route'
+import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 function RootComponent() {
@@ -51,6 +52,20 @@ function RootComponent() {
 
   // Load system configuration (logo, system name, etc.) from backend
   useSystemConfig({ autoLoad: true })
+
+  // 15-second admin heartbeat to mark admin active
+  useEffect(() => {
+    const sendHeartbeat = () => {
+      const user = useAuthStore.getState().auth.user
+      if (user && (user.role ?? 0) >= 10) {
+        api.post('/api/user/heartbeat').catch(() => {})
+      }
+    }
+
+    sendHeartbeat()
+    const interval = setInterval(sendHeartbeat, 15000)
+    return () => clearInterval(interval)
+  }, [])
 
   useEffect(() => {
     const aff = new URLSearchParams(window.location.search).get('aff')?.trim()

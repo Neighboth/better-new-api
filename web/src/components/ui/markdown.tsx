@@ -27,7 +27,8 @@ import { cn } from '@/lib/utils'
 
 interface MarkdownProps {
   breaks?: boolean
-  children: string
+  children?: string
+  content?: string
   className?: string
 }
 
@@ -738,20 +739,24 @@ function addExternalLinkAttributes(html: string): string {
   return template.innerHTML
 }
 
-function renderMarkdown(markdown: string, breaks = false): string {
-  const parsedHtml = markdownParser.parse(markdown, {
+function renderMarkdown(markdown?: string | null, breaks = false): string {
+  if (markdown == null) return ''
+  const content = typeof markdown === 'string' ? markdown : String(markdown)
+  if (!content) return ''
+  const parsedHtml = (markdownParser.parse(content, {
     ...markdownOptions,
     breaks,
-  })
+  }) as string) || ''
   const html = DOMPurify.sanitize(parsedHtml, sanitizeOptions)
 
   return addExternalLinkAttributes(html)
 }
 
 export function Markdown(props: MarkdownProps) {
+  const content = props.children ?? props.content ?? ''
   const html = useMemo(
-    () => renderMarkdown(props.children, props.breaks),
-    [props.breaks, props.children]
+    () => renderMarkdown(content, props.breaks),
+    [props.breaks, content]
   )
 
   return (

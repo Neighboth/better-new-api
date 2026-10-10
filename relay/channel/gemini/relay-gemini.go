@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -559,4 +560,41 @@ func FetchGeminiModels(baseURL, apiKey, proxyURL string) ([]string, error) {
 	}
 
 	return allModels, nil
+}
+
+func GeminiAudioHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (usage any, err *types.NewAPIError) {
+	defer resp.Body.Close()
+	var geminiResponse dto.GeminiChatResponse
+	responseBody, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, types.NewErrorWithStatusCode(readErr, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+	if unmarshalErr := common.Unmarshal(responseBody, &geminiResponse); unmarshalErr != nil {
+		return nil, types.NewErrorWithStatusCode(unmarshalErr, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+	if len(geminiResponse.Candidates) == 0 {
+		return nil, types.NewErrorWithStatusCode(errors.New("no candidates in Gemini audio response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+	var audioData []byte
+	mimeType := "audio/mp3"
+	for _, part := range geminiResponse.Candidates[0].Content.Parts {
+		if part.InlineData != nil && part.InlineData.Data != "" {
+			if part.InlineData.MimeType != "" {
+				mimeType = part.InlineData.MimeType
+			}
+			data, decErr := base64.StdEncoding.DecodeString(part.InlineData.Data)
+			if decErr == nil && len(data) > 0 {
+				audioData = data
+				break
+			}
+		}
+	}
+	if len(audioData) == 0 {
+		return nil, types.NewErrorWithStatusCode(errors.New("no audio data found in Gemini response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+	c.Writer.Header().Set("Content-Type", mimeType)
+	c.Writer.WriteHeader(http.StatusOK)
+	_, _ = c.Writer.Write(audioData)
+	usageObj := buildUsageFromGeminiMetadata(&geminiResponse.UsageMetadata, info.GetEstimatePromptTokens())
+	return &usageObj, nil
 }

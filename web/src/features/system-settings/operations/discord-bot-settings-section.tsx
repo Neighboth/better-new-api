@@ -44,6 +44,13 @@ const schema = z.object({
   embedColor: z.string().optional(),
   aiSystemPrompt: z.string().optional(),
   rpgEnabled: z.boolean(),
+  rpcAppId: z.string().optional(),
+  rpcDetails: z.string().optional(),
+  rpcState: z.string().optional(),
+  rpcLargeImage: z.string().optional(),
+  rpcLargeText: z.string().optional(),
+  rpcSmallImage: z.string().optional(),
+  rpcSmallText: z.string().optional(),
   autoReplyChannelId: z.string().optional(),
   autoReplyModel: z.string().optional(),
   onlyLinkedAccounts: z.boolean(),
@@ -64,6 +71,13 @@ export function DiscordBotSettingsSection({
     embedColor?: string
     aiSystemPrompt?: string
     rpgEnabled?: boolean
+    rpcAppId?: string
+    rpcDetails?: string
+    rpcState?: string
+    rpcLargeImage?: string
+    rpcLargeText?: string
+    rpcSmallImage?: string
+    rpcSmallText?: string
     autoReplyChannelId?: string
     autoReplyModel?: string
     onlyLinkedAccounts?: boolean
@@ -85,6 +99,13 @@ export function DiscordBotSettingsSection({
       aiSystemPrompt:
         defaultValues.aiSystemPrompt ?? 'You are a helpful AI assistant.',
       rpgEnabled: defaultValues.rpgEnabled ?? true,
+      rpcAppId: defaultValues.rpcAppId ?? '',
+      rpcDetails: defaultValues.rpcDetails ?? '',
+      rpcState: defaultValues.rpcState ?? '',
+      rpcLargeImage: defaultValues.rpcLargeImage ?? '',
+      rpcLargeText: defaultValues.rpcLargeText ?? '',
+      rpcSmallImage: defaultValues.rpcSmallImage ?? '',
+      rpcSmallText: defaultValues.rpcSmallText ?? '',
       autoReplyChannelId: defaultValues.autoReplyChannelId ?? '',
       autoReplyModel: defaultValues.autoReplyModel ?? '',
       onlyLinkedAccounts: defaultValues.onlyLinkedAccounts ?? false,
@@ -96,55 +117,83 @@ export function DiscordBotSettingsSection({
   async function onSubmit(values: Values) {
     try {
       await updateOption.mutateAsync({
-        key: 'discord.enabled',
+        key: 'discord_bot.enabled',
         value: String(values.enabled),
       })
       await updateOption.mutateAsync({
-        key: 'discord.bot_token',
+        key: 'discord_bot.token',
         value: String(values.botToken ?? ''),
       })
       await updateOption.mutateAsync({
-        key: 'discord.bot_name',
+        key: 'discord_bot.bot_token',
+        value: String(values.botToken ?? ''),
+      })
+      await updateOption.mutateAsync({
+        key: 'discord_bot.bot_name',
         value: String(values.botName ?? 'MyAIBot'),
       })
       await updateOption.mutateAsync({
-        key: 'discord.prefix',
+        key: 'discord_bot.prefix',
         value: String(values.prefix ?? '!'),
       })
       await updateOption.mutateAsync({
-        key: 'discord.status',
+        key: 'discord_bot.status',
         value: String(values.status ?? 'Ready to help'),
       })
       await updateOption.mutateAsync({
-        key: 'discord.language',
+        key: 'discord_bot.language',
         value: String(values.language ?? 'en'),
       })
       await updateOption.mutateAsync({
-        key: 'discord.embed_color',
+        key: 'discord_bot.embed_color',
         value: String(values.embedColor ?? '#00ff00'),
       })
       await updateOption.mutateAsync({
-        key: 'discord.ai_system_prompt',
+        key: 'discord_bot.ai_system_prompt',
         value: String(values.aiSystemPrompt ?? ''),
       })
       await updateOption.mutateAsync({
-        key: 'discord.rpc_enabled',
+        key: 'discord_bot.rpc_enabled',
         value: String(values.rpgEnabled),
       })
       await updateOption.mutateAsync({
-        key: 'discord.rpg_enabled',
-        value: String(values.rpgEnabled),
+        key: 'discord_bot.rpc_app_id',
+        value: String(values.rpcAppId ?? ''),
       })
       await updateOption.mutateAsync({
-        key: 'discord.auto_reply_channel_id',
+        key: 'discord_bot.rpc_details',
+        value: String(values.rpcDetails ?? ''),
+      })
+      await updateOption.mutateAsync({
+        key: 'discord_bot.rpc_state',
+        value: String(values.rpcState ?? ''),
+      })
+      await updateOption.mutateAsync({
+        key: 'discord_bot.rpc_large_image',
+        value: String(values.rpcLargeImage ?? ''),
+      })
+      await updateOption.mutateAsync({
+        key: 'discord_bot.rpc_large_text',
+        value: String(values.rpcLargeText ?? ''),
+      })
+      await updateOption.mutateAsync({
+        key: 'discord_bot.rpc_small_image',
+        value: String(values.rpcSmallImage ?? ''),
+      })
+      await updateOption.mutateAsync({
+        key: 'discord_bot.rpc_small_text',
+        value: String(values.rpcSmallText ?? ''),
+      })
+      await updateOption.mutateAsync({
+        key: 'discord_bot.auto_reply_channel_id',
         value: String(values.autoReplyChannelId ?? ''),
       })
       await updateOption.mutateAsync({
-        key: 'discord.auto_reply_model',
+        key: 'discord_bot.auto_reply_model',
         value: String(values.autoReplyModel ?? ''),
       })
       await updateOption.mutateAsync({
-        key: 'discord.only_linked_accounts',
+        key: 'discord_bot.only_linked_accounts',
         value: String(values.onlyLinkedAccounts),
       })
 
@@ -415,6 +464,98 @@ export function DiscordBotSettingsSection({
               </SettingsSwitchItem>
             )}
           />
+
+          {form.watch('rpgEnabled') && (
+            <div className='border-border/60 rounded-lg border bg-muted/20 p-4 space-y-4'>
+              <div className='font-semibold text-sm'>{t('Discord RPC (Rich Presence) Detayları')}</div>
+              <div className='grid gap-4 sm:grid-cols-2'>
+                <FormField
+                  control={form.control}
+                  name='rpcAppId'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Application ID (Client ID)')}</FormLabel>
+                      <FormControl>
+                        <Input placeholder='123456789012345678' {...field} value={field.value ?? ''} />
+                      </FormControl>
+                      <FormDescription>{t('Discord Developer Portal Application ID')}</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name='rpcDetails'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Details (Üst Başlık)')}</FormLabel>
+                      <FormControl>
+                        <Input placeholder='AI Router & Hub' {...field} value={field.value ?? ''} />
+                      </FormControl>
+                      <FormDescription>{t('RPC üst metni (örn. AI Servisi)')}</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name='rpcState'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('State (Alt Başlık)')}</FormLabel>
+                      <FormControl>
+                        <Input placeholder='Online & Hazır' {...field} value={field.value ?? ''} />
+                      </FormControl>
+                      <FormDescription>{t('RPC alt metni (örn. Yanıt Veriyor)')}</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name='rpcLargeImage'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Large Image Key')}</FormLabel>
+                      <FormControl>
+                        <Input placeholder='logo_large' {...field} value={field.value ?? ''} />
+                      </FormControl>
+                      <FormDescription>{t('Developer Portal Rich Presence Asset Adı')}</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name='rpcLargeText'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Large Image Text')}</FormLabel>
+                      <FormControl>
+                        <Input placeholder='PixRouter AI' {...field} value={field.value ?? ''} />
+                      </FormControl>
+                      <FormDescription>{t('Büyük görselin üzerine gelince görünen metin')}</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name='rpcSmallImage'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Small Image Key')}</FormLabel>
+                      <FormControl>
+                        <Input placeholder='status_online' {...field} value={field.value ?? ''} />
+                      </FormControl>
+                      <FormDescription>{t('Küçük rozet görseli asset anahtarı')}</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </div>
+          )}
 
           <FormField
             control={form.control}

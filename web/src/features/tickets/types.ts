@@ -42,6 +42,9 @@ export interface Ticket {
   guest_contact?: string
   user_role?: number
   is_live_support?: boolean
+  is_claimed?: boolean
+  assigned_admin_id?: number
+  human_connected?: boolean
 }
 
 export interface TicketMessage {

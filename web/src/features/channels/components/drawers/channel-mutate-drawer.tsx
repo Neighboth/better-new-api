@@ -1,4 +1,4 @@
-/*
+﻿/*
 Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
@@ -671,16 +671,16 @@ export function ChannelMutateDrawer({
         form.setValue('key', res.data.key, { shouldValidate: true })
         if (oauthProvider === 'antigravity') {
           const currentModels = form.getValues('models')
-          if (!currentModels || currentModels.length === 0) {
-            form.setValue('models', ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3.1-flash', 'gemini-2.0-flash'])
+          if (!currentModels || (typeof currentModels === 'string' && currentModels.trim() === '')) {
+            form.setValue('models', 'gemini-2.5-pro,gemini-2.5-flash,gemini-3.1-flash,gemini-2.0-flash')
           }
           if (!form.getValues('base_url')) {
             form.setValue('base_url', 'https://cloudcode-pa.googleapis.com')
           }
         } else if (oauthProvider === 'codex') {
           const currentModels = form.getValues('models')
-          if (!currentModels || currentModels.length === 0) {
-            form.setValue('models', ['gpt-5.6-luna', 'gpt-4o', 'o3-mini'])
+          if (!currentModels || (typeof currentModels === 'string' && currentModels.trim() === '')) {
+            form.setValue('models', 'gpt-5.6-luna,gpt-4o,o3-mini')
           }
           if (!form.getValues('base_url')) {
             form.setValue('base_url', 'https://chatgpt.com')
@@ -3024,7 +3024,7 @@ export function ChannelMutateDrawer({
                                           form.setValue('key', `${nextEmail}:${deepseekPassword}`, { shouldValidate: true })
                                           const currModels = form.getValues('models')
                                           if (!currModels || currModels.length === 0) {
-                                            form.setValue('models', ['deepseek-chat', 'deepseek-reasoner'])
+                                            form.setValue('models', 'deepseek-chat,deepseek-reasoner')
                                           }
                                         }}
                                         className='text-xs'
@@ -3042,7 +3042,7 @@ export function ChannelMutateDrawer({
                                           form.setValue('key', `${deepseekEmail}:${nextPass}`, { shouldValidate: true })
                                           const currModels = form.getValues('models')
                                           if (!currModels || currModels.length === 0) {
-                                            form.setValue('models', ['deepseek-chat', 'deepseek-reasoner'])
+                                            form.setValue('models', 'deepseek-chat,deepseek-reasoner')
                                           }
                                         }}
                                         className='text-xs'
@@ -5148,3 +5148,4 @@ export function ChannelMutateDrawer({
     </>
   )
 }
+

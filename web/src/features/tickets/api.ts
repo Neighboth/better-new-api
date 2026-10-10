@@ -206,3 +206,13 @@ export async function downloadGuestTicketTranscript(sessionKey: string): Promise
   window.URL.revokeObjectURL(url)
 }
 
+export async function claimTicket(ticketId: number): Promise<{ success: boolean; data?: Ticket; message?: string }> {
+  const res = await api.post(`/api/ticket/${ticketId}/claim`)
+  return res.data
+}
+
+export async function connectHumanSupport(ticketId: number): Promise<{ success: boolean; data?: Ticket; message?: string }> {
+  const res = await api.post(`/api/ticket/${ticketId}/connect-human`)
+  return res.data
+}
+

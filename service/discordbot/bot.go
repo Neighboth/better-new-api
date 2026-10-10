@@ -4,9 +4,15 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+)
+
+var (
+	GlobalBot   *Bot
+	globalBotMu sync.Mutex
 )
 
 type Bot struct {
@@ -18,6 +24,57 @@ type MessageHistory struct {
 	Content   string
 	Timestamp time.Time
 	AuthorID  string
+}
+
+func StartBot() error {
+	globalBotMu.Lock()
+	defer globalBotMu.Unlock()
+
+	SyncSettingsFromOptions()
+	if !CurrentSettings.Enabled || strings.TrimSpace(CurrentSettings.BotToken) == "" {
+		if GlobalBot != nil {
+			GlobalBot.Stop()
+			GlobalBot = nil
+		}
+		return nil
+	}
+
+	if GlobalBot != nil {
+		GlobalBot.Stop()
+		GlobalBot = nil
+	}
+
+	bot, err := NewBot()
+	if err != nil {
+		log.Printf("Failed to initialize Discord bot: %v", err)
+		return err
+	}
+
+	if err := bot.Start(); err != nil {
+		log.Printf("Failed to start Discord bot: %v", err)
+		return err
+	}
+
+	GlobalBot = bot
+	log.Printf("Discord bot started successfully")
+	return nil
+}
+
+func StopBot() {
+	globalBotMu.Lock()
+	defer globalBotMu.Unlock()
+
+	if GlobalBot != nil {
+		GlobalBot.Stop()
+		GlobalBot = nil
+		log.Printf("Discord bot stopped")
+	}
+}
+
+func RestartBot() {
+	go func() {
+		_ = StartBot()
+	}()
 }
 
 func NewBot() (*Bot, error) {
@@ -45,12 +102,18 @@ func (b *Bot) Start() error {
 }
 
 func (b *Bot) Stop() {
-	b.Session.Close()
+	if b.Session != nil {
+		_ = b.Session.Close()
+	}
 }
 
 func (b *Bot) ready(s *discordgo.Session, event *discordgo.Ready) {
 	log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
-	s.UpdateGameStatus(0, CurrentSettings.Status)
+	statusText := CurrentSettings.Status
+	if CurrentSettings.RPCEnabled && CurrentSettings.RPCDetails != "" {
+		statusText = fmt.Sprintf("%s - %s", CurrentSettings.RPCDetails, CurrentSettings.RPCState)
+	}
+	_ = s.UpdateGameStatus(0, statusText)
 }
 
 func (b *Bot) messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {

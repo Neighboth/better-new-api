@@ -42,6 +42,7 @@ type testResult struct {
 	context     *gin.Context
 	localErr    error
 	newAPIError *types.NewAPIError
+	message     string
 }
 
 func normalizeChannelTestEndpoint(channel *model.Channel, endpointType string) string {
@@ -222,28 +223,39 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			relayFormat = types.RelayFormatOpenAI
 		}
 	} else {
-		// 根据请求路径自动检测
-		relayFormat = types.RelayFormatOpenAI
-		if c.Request.URL.Path == "/v1/embeddings" {
-			relayFormat = types.RelayFormatEmbedding
-		}
-		if c.Request.URL.Path == "/v1/images/generations" {
-			relayFormat = types.RelayFormatOpenAIImage
-		}
-		if c.Request.URL.Path == "/v1/messages" {
-			relayFormat = types.RelayFormatClaude
-		}
-		if strings.Contains(c.Request.URL.Path, "/v1beta/models") {
-			relayFormat = types.RelayFormatGemini
-		}
-		if c.Request.URL.Path == "/v1/rerank" || c.Request.URL.Path == "/rerank" {
+		lowerModel := strings.ToLower(testModel)
+		if strings.Contains(lowerModel, "rerank") {
 			relayFormat = types.RelayFormatRerank
-		}
-		if c.Request.URL.Path == "/v1/responses" {
+		} else if strings.Contains(lowerModel, "embedding") || strings.HasPrefix(lowerModel, "m3e") || strings.Contains(lowerModel, "bge-") {
+			relayFormat = types.RelayFormatEmbedding
+		} else if strings.Contains(lowerModel, "whisper") || strings.Contains(lowerModel, "transcription") || strings.Contains(lowerModel, "transcribe") || strings.HasPrefix(lowerModel, "stt") || strings.Contains(lowerModel, "voxtral") {
+			relayFormat = types.RelayFormatOpenAIAudio
+		} else if strings.Contains(lowerModel, "tts") || strings.Contains(lowerModel, "speech") || strings.Contains(lowerModel, "cosyvoice") || strings.Contains(lowerModel, "fish-audio") {
+			relayFormat = types.RelayFormatOpenAIAudio
+		} else if strings.Contains(lowerModel, "realtime") || strings.Contains(lowerModel, "live-preview") || strings.Contains(lowerModel, "live-exp") {
+			relayFormat = types.RelayFormatOpenAIRealtime
+		} else if strings.Contains(lowerModel, "video") || strings.Contains(lowerModel, "sora") || strings.Contains(lowerModel, "kling") || strings.Contains(lowerModel, "runway") || strings.Contains(lowerModel, "cogvideo") {
+			relayFormat = types.RelayFormatOpenAIImage
+		} else if strings.Contains(lowerModel, "dall-e") || strings.Contains(lowerModel, "midjourney") || strings.Contains(lowerModel, "flux") || strings.HasPrefix(lowerModel, "imagen") {
+			relayFormat = types.RelayFormatOpenAIImage
+		} else if strings.Contains(lowerModel, "codex") {
 			relayFormat = types.RelayFormatOpenAIResponses
-		}
-		if strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") {
+		} else if c.Request != nil && c.Request.URL != nil && c.Request.URL.Path == "/v1/embeddings" {
+			relayFormat = types.RelayFormatEmbedding
+		} else if c.Request != nil && c.Request.URL != nil && c.Request.URL.Path == "/v1/images/generations" {
+			relayFormat = types.RelayFormatOpenAIImage
+		} else if c.Request != nil && c.Request.URL != nil && c.Request.URL.Path == "/v1/messages" {
+			relayFormat = types.RelayFormatClaude
+		} else if c.Request != nil && c.Request.URL != nil && strings.Contains(c.Request.URL.Path, "/v1beta/models") {
+			relayFormat = types.RelayFormatGemini
+		} else if c.Request != nil && c.Request.URL != nil && (c.Request.URL.Path == "/v1/rerank" || c.Request.URL.Path == "/rerank") {
+			relayFormat = types.RelayFormatRerank
+		} else if c.Request != nil && c.Request.URL != nil && c.Request.URL.Path == "/v1/responses" {
+			relayFormat = types.RelayFormatOpenAIResponses
+		} else if c.Request != nil && c.Request.URL != nil && strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") {
 			relayFormat = types.RelayFormatOpenAIResponsesCompaction
+		} else {
+			relayFormat = types.RelayFormatOpenAI
 		}
 	}
 
@@ -256,6 +268,52 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			context:     c,
 			localErr:    err,
 			newAPIError: types.NewError(err, types.ErrorCodeGenRelayInfoFailed),
+		}
+	}
+
+	// Ensure RelayMode is precisely set for the channel test
+	if endpointType != "" {
+		switch constant.EndpointType(endpointType) {
+		case constant.EndpointTypeAudioSpeech:
+			info.RelayMode = relayconstant.RelayModeAudioSpeech
+		case constant.EndpointTypeAudioTranscription:
+			info.RelayMode = relayconstant.RelayModeAudioTranscription
+		case constant.EndpointTypeOpenAIRealtime:
+			info.RelayMode = relayconstant.RelayModeRealtime
+		case constant.EndpointTypeOpenAIVideo, constant.EndpointTypeImageGeneration:
+			info.RelayMode = relayconstant.RelayModeImagesGenerations
+		case constant.EndpointTypeEmbeddings:
+			info.RelayMode = relayconstant.RelayModeEmbeddings
+		case constant.EndpointTypeJinaRerank:
+			info.RelayMode = relayconstant.RelayModeRerank
+		case constant.EndpointTypeOpenAIResponse:
+			info.RelayMode = relayconstant.RelayModeResponses
+		case constant.EndpointTypeOpenAIResponseCompact:
+			info.RelayMode = relayconstant.RelayModeResponsesCompact
+		}
+	} else {
+		switch req := request.(type) {
+		case *dto.AudioRequest:
+			if strings.TrimSpace(req.Input) != "" {
+				info.RelayMode = relayconstant.RelayModeAudioSpeech
+			} else {
+				info.RelayMode = relayconstant.RelayModeAudioTranscription
+			}
+		case *dto.EmbeddingRequest:
+			info.RelayMode = relayconstant.RelayModeEmbeddings
+		case *dto.ImageRequest:
+			info.RelayMode = relayconstant.RelayModeImagesGenerations
+		case *dto.RerankRequest:
+			info.RelayMode = relayconstant.RelayModeRerank
+		case *dto.OpenAIResponsesRequest:
+			info.RelayMode = relayconstant.RelayModeResponses
+		case *dto.OpenAIResponsesCompactionRequest:
+			info.RelayMode = relayconstant.RelayModeResponsesCompact
+		case *dto.GeneralOpenAIRequest:
+			lower := strings.ToLower(testModel)
+			if strings.Contains(lower, "realtime") || strings.Contains(lower, "live-preview") || strings.Contains(lower, "live-exp") {
+				info.RelayMode = relayconstant.RelayModeRealtime
+			}
 		}
 	}
 
@@ -470,27 +528,16 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 
 	var requestBody io.Reader = bytes.NewBuffer(jsonData)
 	if info.RelayMode == relayconstant.RelayModeAudioTranscription {
+		if c.Request != nil {
+			c.Request.Method = http.MethodPost
+		}
 		mpBuf := &bytes.Buffer{}
 		mpWriter := multipart.NewWriter(mpBuf)
 		_ = mpWriter.WriteField("model", testModel)
-		part, fErr := mpWriter.CreateFormFile("file", "sample.wav")
+		part, fErr := mpWriter.CreateFormFile("file", "sample.mp3")
 		if fErr == nil {
-			silentWav := []byte{
-				'R', 'I', 'F', 'F',
-				36, 0, 0, 0,
-				'W', 'A', 'V', 'E',
-				'f', 'm', 't', ' ',
-				16, 0, 0, 0,
-				1, 0,
-				1, 0,
-				0x44, 0xac, 0, 0,
-				0x88, 0x58, 1, 0,
-				2, 0,
-				16, 0,
-				'd', 'a', 't', 'a',
-				0, 0, 0, 0,
-			}
-			_, _ = part.Write(silentWav)
+			audioBytes := getSTTSampleAudio()
+			_, _ = part.Write(audioBytes)
 		}
 		_ = mpWriter.Close()
 		c.Request.Header.Set("Content-Type", mpWriter.FormDataContentType())
@@ -581,11 +628,24 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		Group:            info.UsingGroup,
 		Other:            other,
 	})
+	var testMessage string
+	if info.RelayMode == relayconstant.RelayModeAudioTranscription {
+		var sttRes struct {
+			Text string `json:"text"`
+		}
+		_ = json.Unmarshal(respBody, &sttRes)
+		transcription := strings.TrimSpace(sttRes.Text)
+		if transcription == "" {
+			transcription = strings.TrimSpace(string(respBody))
+		}
+		testMessage = fmt.Sprintf("Gönderilen sesteki cümleler: Hello, this is a test audio message for speech recognition. Everything is functioning properly.\nModelin anladığı cümleler: %s", transcription)
+	}
 	common.SysLog(fmt.Sprintf("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
 	return testResult{
 		context:     c,
 		localErr:    nil,
 		newAPIError: nil,
+		message:     testMessage,
 	}
 }
 
@@ -801,10 +861,14 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				Model: model,
 			}
 		case constant.EndpointTypeAudioSpeech:
+			voice := "alloy"
+			if channel != nil && (channel.Type == constant.ChannelTypeGemini || channel.Type == constant.ChannelTypeVertexAi) {
+				voice = "Puck"
+			}
 			return &dto.AudioRequest{
 				Model: model,
-				Input: "hi",
-				Voice: "alloy",
+				Input: "Hello, this is a test audio message.",
+				Voice: voice,
 			}
 		case constant.EndpointTypeAudioTranscription:
 			return &dto.AudioRequest{
@@ -884,6 +948,47 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 		return &dto.EmbeddingRequest{
 			Model: model,
 			Input: []any{"hello world"},
+		}
+	}
+
+	lowerModel := strings.ToLower(model)
+	if strings.Contains(lowerModel, "whisper") || strings.Contains(lowerModel, "transcription") || strings.Contains(lowerModel, "transcribe") || strings.HasPrefix(lowerModel, "stt") || strings.Contains(lowerModel, "voxtral") {
+		return &dto.AudioRequest{
+			Model: model,
+		}
+	}
+
+	if strings.Contains(lowerModel, "tts") || strings.Contains(lowerModel, "speech") || strings.Contains(lowerModel, "cosyvoice") || strings.Contains(lowerModel, "fish-audio") {
+		voice := "alloy"
+		if channel != nil && (channel.Type == constant.ChannelTypeGemini || channel.Type == constant.ChannelTypeVertexAi) {
+			voice = "Puck"
+		}
+		return &dto.AudioRequest{
+			Model: model,
+			Input: "Hello, this is a test audio message.",
+			Voice: voice,
+		}
+	}
+
+	if strings.Contains(lowerModel, "realtime") || strings.Contains(lowerModel, "live-preview") || strings.Contains(lowerModel, "live-exp") {
+		return &dto.GeneralOpenAIRequest{
+			Model: model,
+		}
+	}
+
+	if strings.Contains(lowerModel, "video") || strings.Contains(lowerModel, "sora") || strings.Contains(lowerModel, "kling") || strings.Contains(lowerModel, "runway") || strings.Contains(lowerModel, "cogvideo") {
+		return &dto.ImageRequest{
+			Model:  model,
+			Prompt: "a cinematic view of ocean waves",
+		}
+	}
+
+	if strings.Contains(lowerModel, "dall-e") || strings.Contains(lowerModel, "midjourney") || strings.Contains(lowerModel, "flux") || strings.HasPrefix(lowerModel, "imagen") {
+		return &dto.ImageRequest{
+			Model:  model,
+			Prompt: "a cute cat",
+			N:      lo.ToPtr(uint(1)),
+			Size:   "1024x1024",
 		}
 	}
 
@@ -986,7 +1091,7 @@ func TestChannel(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "",
+		"message": result.message,
 		"time":    consumedTime,
 	})
 }

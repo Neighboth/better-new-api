@@ -74,6 +74,7 @@ const BUILTIN_IMAGE = 'ollama/ollama:latest'
 const DEFAULT_TRAFFIC_PORT = 11434
 
 const schema = z.object({
+  provider: z.string().optional().default('ionet'),
   resource_private_name: z.string().min(1),
   image_url: z.string().min(1),
   traffic_port: z.coerce.number().int().min(1).max(65535),
@@ -113,6 +114,7 @@ export function CreateDeploymentDrawer({
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
+      provider: 'ionet',
       resource_private_name: '',
       image_url: BUILTIN_IMAGE,
       traffic_port: DEFAULT_TRAFFIC_PORT,
@@ -343,6 +345,7 @@ export function CreateDeploymentDrawer({
   useEffect(() => {
     if (!open) return
     form.reset({
+      provider: 'ionet',
       resource_private_name: '',
       image_url: BUILTIN_IMAGE,
       traffic_port: DEFAULT_TRAFFIC_PORT,
@@ -405,6 +408,38 @@ export function CreateDeploymentDrawer({
               <h3 className='text-sm font-medium'>
                 {t('Basic Configuration')}
               </h3>
+
+              <FormField
+                control={form.control}
+                name='provider'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('GPU Platform Provider')}</FormLabel>
+                    <Select
+                      value={(field.value as string) || 'ionet'}
+                      onValueChange={field.onChange}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder={t('Select GPU Platform')} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value='ionet'>
+                          io.net Cloud (DePIN GPU Network)
+                        </SelectItem>
+                        <SelectItem value='modal'>
+                          Modal (Serverless GPU & 1TB Storage)
+                        </SelectItem>
+                        <SelectItem value='huggingface'>
+                          Hugging Face (Inference Endpoints)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <FormField
                 control={form.control}

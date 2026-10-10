@@ -49,6 +49,7 @@ import {
   getTicketDetail,
   getTicketConfig,
   getUserTickets,
+  connectHumanSupport,
 } from '../api'
 
 const DISMISS_KEY = 'live_support_dismissed_until'
@@ -162,6 +163,8 @@ export function LiveSupportWidget() {
     return null
   }
 
+  const [connectingHuman, setConnectingHuman] = useState(false)
+
   const handleDismiss = (e: React.MouseEvent) => {
     e.stopPropagation()
     const until = Date.now() + 24 * 60 * 60 * 1000
@@ -171,6 +174,23 @@ export function LiveSupportWidget() {
     setIsDismissed(true)
     setOpen(false)
     toast.info(t('Live support widget dismissed for 24 hours'))
+  }
+
+  const handleConnectHuman = async (ticketId: number) => {
+    try {
+      setConnectingHuman(true)
+      const res = await connectHumanSupport(ticketId)
+      if (res.success) {
+        toast.success(t('Connected to human support'))
+        await Promise.all([refetchTickets(), refetchGuestTicket()])
+      } else {
+        toast.error(res.message || t('Failed to connect to human support'))
+      }
+    } catch {
+      toast.error(t('Failed to connect to human support'))
+    } finally {
+      setConnectingHuman(false)
+    }
   }
 
   const handleSendQuickMessage = async (e: React.FormEvent) => {
@@ -364,6 +384,26 @@ export function LiveSupportWidget() {
                       </div>
                     ))}
                   </div>
+                  {guestTicketResp?.data?.ticket?.is_claimed && !guestTicketResp?.data?.ticket?.human_connected && (
+                    <div className='my-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-foreground flex flex-col gap-2'>
+                      <div className='flex items-center gap-2 font-medium text-amber-700 dark:text-amber-400'>
+                        <Headphones className='h-4 w-4 shrink-0' />
+                        <span>{t('Support representative is ready!')}</span>
+                      </div>
+                      <p className='text-[11px] text-muted-foreground'>
+                        {t('A representative has joined this ticket. You can switch to human support or continue with AI.')}
+                      </p>
+                      <Button
+                        size='sm'
+                        className='w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium'
+                        onClick={() => handleConnectHuman(guestTicketResp.data.ticket.id)}
+                        disabled={connectingHuman}
+                      >
+                        {connectingHuman && <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />}
+                        {t('Canlı Desteğe Bağlan')}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ) : loadingGuestTicket ? (
                 <div className='flex items-center justify-center py-8'>
@@ -428,6 +468,26 @@ export function LiveSupportWidget() {
                         </div>
                       ))}
                     </div>
+                    {liveTicketDetail?.data?.ticket?.is_claimed && !liveTicketDetail?.data?.ticket?.human_connected && (
+                      <div className='my-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-foreground flex flex-col gap-2'>
+                        <div className='flex items-center gap-2 font-medium text-amber-700 dark:text-amber-400'>
+                          <Headphones className='h-4 w-4 shrink-0' />
+                          <span>{t('Support representative is ready!')}</span>
+                        </div>
+                        <p className='text-[11px] text-muted-foreground'>
+                          {t('A representative has joined this ticket. You can switch to human support or continue with AI.')}
+                        </p>
+                        <Button
+                          size='sm'
+                          className='w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium'
+                          onClick={() => handleConnectHuman(activeLiveTicket.id)}
+                          disabled={connectingHuman}
+                        >
+                          {connectingHuman && <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />}
+                          {t('Canlı Desteğe Bağlan')}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className='rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground border'>
