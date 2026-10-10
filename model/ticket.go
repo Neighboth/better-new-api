@@ -184,7 +184,9 @@ func GetUserTickets(userId int, page, pageSize int, status, search string, liveS
 
 	query := DB.Model(&Ticket{}).Where("user_id = ?", userId)
 	if len(liveSupportOnly) > 0 && liveSupportOnly[0] {
-		query = query.Where("is_live_support = ?", true)
+		query = query.Where("is_live_support = 1")
+	} else {
+		query = query.Where("is_live_support = 0 OR is_live_support IS NULL")
 	}
 	if status != "" && status != "all" {
 		query = query.Where("status = ?", status)
@@ -394,11 +396,19 @@ func AddTicketMessage(ticketId int, userId int, isAdmin bool, content string, at
 		return nil, err
 	}
 
-	var user User
-	if err := DB.Select("username, email, role").First(&user, "id = ?", userId).Error; err == nil {
-		msg.UserName = user.Username
-		msg.UserEmail = user.Email
-		msg.UserRole = user.Role
+	if userId == 0 {
+		if isAdmin {
+			msg.UserName = "Destek Yetkilisi"
+		} else {
+			msg.UserName = "Misafir"
+		}
+	} else {
+		var user User
+		if err := DB.Select("username, email, role").First(&user, "id = ?", userId).Error; err == nil {
+			msg.UserName = user.Username
+			msg.UserEmail = user.Email
+			msg.UserRole = user.Role
+		}
 	}
 
 	return msg, nil

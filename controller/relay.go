@@ -301,27 +301,23 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 }
 
 func shouldRetryOtherChannel(c *gin.Context, apiErr *types.NewAPIError) bool {
-	if apiErr == nil || types.IsSkipRetryError(apiErr) || service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
+	if apiErr == nil || service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}
 	if _, specificChannel := c.Get("specific_channel_id"); specificChannel {
 		return false
 	}
-	if types.IsChannelError(apiErr) {
-		return true
+	if c.Writer != nil && c.Writer.Written() {
+		return false
 	}
 	switch apiErr.GetErrorCode() {
-	case types.ErrorCodeDoRequestFailed,
-		types.ErrorCodeBadResponseStatusCode,
-		types.ErrorCodeBadResponse,
-		types.ErrorCodeBadResponseBody,
-		types.ErrorCodeReadResponseBodyFailed,
-		types.ErrorCodeEmptyResponse,
-		types.ErrorCodeAwsInvokeError,
-		types.ErrorCodeChannelResponseTimeExceeded:
-		return true
+	case types.ErrorCodeReadRequestBodyFailed,
+		types.ErrorCodeBadRequestBody,
+		types.ErrorCodeConvertRequestFailed,
+		types.ErrorCodeCountTokenFailed:
+		return false
 	default:
-		return shouldRetry(c, apiErr, 1)
+		return true
 	}
 }
 

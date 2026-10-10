@@ -40,6 +40,10 @@ type ImageRequest struct {
 	Image            json.RawMessage `json:"image,omitempty"`
 	Duration         json.RawMessage `json:"duration,omitempty"`
 	Ratio            json.RawMessage `json:"ratio,omitempty"`
+	Mode             json.RawMessage `json:"mode,omitempty"`
+	AspectRatio      json.RawMessage `json:"aspect_ratio,omitempty"`
+	Resolution       json.RawMessage `json:"resolution,omitempty"`
+	ImageURL         json.RawMessage `json:"image_url,omitempty"`
 	// 用匿名参数接收额外参数
 	Extra map[string]json.RawMessage `json:"-"`
 }

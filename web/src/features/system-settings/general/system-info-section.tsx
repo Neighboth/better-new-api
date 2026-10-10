@@ -66,6 +66,7 @@ const systemInfoSchema = z.object({
   HomePageContent: z.string().optional(),
   'legal.user_agreement': z.string().optional(),
   'legal.privacy_policy': z.string().optional(),
+  DocsLink: z.string().optional(),
 
   // Multilingual System Info (8 Languages)
   SystemName_tr: z.string().optional(),
@@ -76,6 +77,15 @@ const systemInfoSchema = z.object({
   SystemName_ru: z.string().optional(),
   SystemName_ja: z.string().optional(),
   SystemName_vi: z.string().optional(),
+
+  DocsLink_tr: z.string().optional(),
+  DocsLink_en: z.string().optional(),
+  DocsLink_zh_CN: z.string().optional(),
+  DocsLink_zh_TW: z.string().optional(),
+  DocsLink_fr: z.string().optional(),
+  DocsLink_ru: z.string().optional(),
+  DocsLink_ja: z.string().optional(),
+  DocsLink_vi: z.string().optional(),
 
   Footer_tr: z.string().optional(),
   Footer_en: z.string().optional(),
@@ -271,6 +281,27 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                   </FormItem>
                 )}
               />
+
+              <FormField
+                control={form.control}
+                name='DocsLink'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Documentation Link (Default)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder='https://docs.newapi.pro'
+                        {...field}
+                        value={field.value ?? ''}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Default documentation URL for the navigation bar link')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </SettingsFormGrid>
 
             {/* Multilingual System Content Tabs */}
@@ -344,6 +375,29 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                             </FormControl>
                             <FormDescription>
                               {t('Footer text displayed at the bottom of pages')}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name={`DocsLink_${lang.key}` as any}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              {t('Documentation Link')} ({lang.label})
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder='https://docs.newapi.pro'
+                                {...field}
+                                value={field.value ?? ''}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t('Language-specific documentation link. Leave empty to use default.')}
                             </FormDescription>
                             <FormMessage />
                           </FormItem>

@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { ChannelAffinitySection } from '../general/channel-affinity'
 import { IoNetDeploymentSettingsSection } from '../integrations/ionet-deployment-settings-section'
+import { ModalDeploymentSettingsSection } from '../integrations/modal-deployment-settings-section'
 import type { ModelSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 import { ClaudeSettingsCard } from './claude-settings-card'
@@ -179,12 +180,25 @@ const MODELS_SECTIONS = [
     id: 'model-deployment',
     titleKey: 'Model Deployment',
     build: (settings: ModelSettings) => (
-      <IoNetDeploymentSettingsSection
-        defaultValues={{
-          enabled: settings['model_deployment.ionet.enabled'],
-          apiKey: settings['model_deployment.ionet.api_key'],
-        }}
-      />
+      <div className='space-y-6'>
+        <IoNetDeploymentSettingsSection
+          defaultValues={{
+            enabled: settings['model_deployment.ionet.enabled'],
+            apiKey: settings['model_deployment.ionet.api_key'],
+          }}
+        />
+        <ModalDeploymentSettingsSection
+          defaultValues={{
+            enabled: settings['model_deployment.modal.enabled'],
+            tokenId: settings['model_deployment.modal.token_id'],
+            tokenSecret: settings['model_deployment.modal.token_secret'],
+            workspace: settings['model_deployment.modal.workspace'],
+            sharedVolumePath: settings['model_deployment.modal.shared_volume_path'],
+            idleTimeoutSeconds: settings['model_deployment.modal.idle_timeout_seconds'],
+            priority: settings['model_deployment.modal.priority'],
+          }}
+        />
+      </div>
     ),
   },
 ] as const

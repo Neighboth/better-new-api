@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -65,8 +67,11 @@ func InvokeAiAssistant(ticketId int) {
 		return
 	}
 
-	port := *common.Port
-	url := fmt.Sprintf("http://127.0.0.1:%d/v1/chat/completions", port)
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = strconv.Itoa(*common.Port)
+	}
+	url := fmt.Sprintf("http://127.0.0.1:%s/v1/chat/completions", port)
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {

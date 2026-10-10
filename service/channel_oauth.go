@@ -20,11 +20,30 @@ const (
 	ChannelOAuthCodex       = "codex"
 	ChannelOAuthAntigravity = "antigravity"
 
-	codexOAuthClientID       = "app_EMoamEEZ73f0CkXaXp7hrann"
-	codexOAuthRedirectURI    = "http://localhost:1455/auth/callback"
-	antigravityOAuthClientID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
-	antigravityRedirectURI   = "http://localhost:8085/callback"
+	codexOAuthClientID    = "app_EMoamEEZ73f0CkXaXp7hrann"
+	codexOAuthRedirectURI = "http://localhost:1455/auth/callback"
+	antigravityRedirectURI = "http://localhost:8085/callback"
 )
+
+func getAntigravityOAuthClientID() string {
+	if v := strings.TrimSpace(os.Getenv("ANTIGRAVITY_OAUTH_CLIENT_ID")); v != "" {
+		return v
+	}
+	if v, ok := common.OptionMap["antigravity_oauth_client_id"]; ok && strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+	return ""
+}
+
+func getAntigravityOAuthClientSecret() string {
+	if v := strings.TrimSpace(os.Getenv("ANTIGRAVITY_OAUTH_CLIENT_SECRET")); v != "" {
+		return v
+	}
+	if v, ok := common.OptionMap["antigravity_oauth_client_secret"]; ok && strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+	return ""
+}
 
 var (
 	codexOAuthAuthorizeURL       = "https://auth.openai.com/oauth/authorize"
@@ -83,7 +102,10 @@ func (s *ChannelOAuthService) Generate(provider string) (*ChannelOAuthFlow, erro
 		authEndpoint, clientID = codexOAuthAuthorizeURL, codexOAuthClientID
 		redirectURI, scopes = codexOAuthRedirectURI, "openid profile email offline_access"
 	case ChannelOAuthAntigravity:
-		authEndpoint, clientID = antigravityOAuthAuthorizeURL, antigravityOAuthClientID
+		authEndpoint, clientID = antigravityOAuthAuthorizeURL, getAntigravityOAuthClientID()
+		if clientID == "" {
+			return nil, fmt.Errorf("antigravity OAuth client ID is not configured (set ANTIGRAVITY_OAUTH_CLIENT_ID env or option)")
+		}
 		redirectURI = antigravityRedirectURI
 		scopes = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs"
 	default:
@@ -167,11 +189,9 @@ func (s *ChannelOAuthService) Exchange(ctx context.Context, provider, sessionID,
 		"code_verifier": {session.CodeVerifier},
 	}
 	if provider == ChannelOAuthAntigravity {
-		secret := strings.TrimSpace(os.Getenv("ANTIGRAVITY_OAUTH_CLIENT_SECRET"))
-		if secret == "" {
-			return "", fmt.Errorf("ANTIGRAVITY_OAUTH_CLIENT_SECRET is required for Antigravity OAuth token exchange")
+		if secret := getAntigravityOAuthClientSecret(); secret != "" {
+			form.Set("client_secret", secret)
 		}
-		form.Set("client_secret", secret)
 	} else if provider != ChannelOAuthCodex {
 		return "", fmt.Errorf("unsupported channel OAuth provider")
 	}
@@ -321,7 +341,7 @@ func isLoopbackOAuthCallback(u *url.URL) bool {
 
 func oauthClientID(provider string) string {
 	if provider == ChannelOAuthAntigravity {
-		return antigravityOAuthClientID
+		return getAntigravityOAuthClientID()
 	}
 	return codexOAuthClientID
 }

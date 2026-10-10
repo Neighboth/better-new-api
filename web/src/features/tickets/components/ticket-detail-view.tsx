@@ -39,6 +39,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import {
   addTicketMessage,
+  adminAddTicketMessage,
   closeTicket,
   downloadTicketTranscript,
   getTicketDetail,
@@ -147,7 +148,9 @@ export function TicketDetailView({
 
     try {
       setSending(true)
-      const res = await addTicketMessage(ticketId, replyText.trim())
+      const res = isAdminView
+        ? await adminAddTicketMessage(ticketId, replyText.trim())
+        : await addTicketMessage(ticketId, replyText.trim())
       if (res.success && res.data) {
         setReplyText('')
         setMessages((prev) => {

@@ -111,8 +111,9 @@ const extendedModelFormSchema = z.object({
 
 type ExtendedModelFormValues = z.infer<typeof extendedModelFormSchema>
 
-type PricingMode = 'per-token' | 'per-request'
+type PricingMode = 'per-token' | 'per-request' | 'duration_second' | 'characters'
 type PricingSubMode = 'ratio' | 'price'
+type ChargeScope = 'all' | 'input_only' | 'output_only'
 
 type PricingFields = Pick<
   ExtendedModelFormValues,
@@ -128,6 +129,7 @@ type PricingFields = Pick<
 // Form state describing the pricing currently configured for one model name.
 type PricingConfig = {
   mode: PricingMode
+  chargeScope: ChargeScope
   fields: PricingFields
   promptPrice: string
   completionPrice: string
@@ -146,6 +148,7 @@ const EMPTY_PRICING_FIELDS: PricingFields = {
 
 const EMPTY_PRICING_CONFIG: PricingConfig = {
   mode: 'per-token',
+  chargeScope: 'all',
   fields: EMPTY_PRICING_FIELDS,
   promptPrice: '',
   completionPrice: '',
@@ -171,6 +174,12 @@ function readPricingConfig(
   modelName: string
 ): PricingConfig {
   if (!settings || !modelName) return EMPTY_PRICING_CONFIG
+
+  const billingModeMap = safeJsonParse<Record<string, string>>(
+    settings['billing_setting.billing_mode'],
+    { fallback: {}, silent: true }
+  )
+  const savedMode = billingModeMap[modelName]
 
   const price = lookupModelRatio(settings.ModelPrice, modelName)
   const ratio = lookupModelRatio(settings.ModelRatio, modelName)
@@ -204,8 +213,24 @@ function readPricingConfig(
     }
   }
 
+  let mode: PricingMode = 'per-token'
+  let chargeScope: ChargeScope = 'all'
+
+  if (savedMode === 'duration_second') {
+    mode = 'duration_second'
+  } else if (savedMode === 'characters') {
+    mode = 'characters'
+  } else if (savedMode === 'input_only') {
+    mode = 'per-token'
+    chargeScope = 'input_only'
+  } else if (savedMode === 'output_only') {
+    mode = 'per-token'
+    chargeScope = 'output_only'
+  }
+
   return {
-    mode: 'per-token',
+    mode,
+    chargeScope,
     fields: {
       price: '',
       ratio: ratio?.toString() || '',
@@ -247,6 +272,7 @@ export function ModelMutateDrawer({
   const isEditing = Boolean(currentModelId)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [pricingMode, setPricingMode] = useState<PricingMode>('per-token')
+  const [chargeScope, setChargeScope] = useState<ChargeScope>('all')
   const [pricingSubMode, setPricingSubMode] = useState<PricingSubMode>('ratio')
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [promptPrice, setPromptPrice] = useState('')
@@ -428,6 +454,7 @@ export function ModelMutateDrawer({
       )
       setLoadedPricingName(model.model_name)
       setPricingMode(pricing.mode)
+      setChargeScope(pricing.chargeScope)
       setPromptPrice(pricing.promptPrice)
       setCompletionPrice(pricing.completionPrice)
       setAdvancedOpen(pricing.advancedOpen)
@@ -454,6 +481,7 @@ export function ModelMutateDrawer({
       setLoadedPricingName(modelName)
       setPricingSubMode('ratio')
       setPricingMode(pricing.mode)
+      setChargeScope(pricing.chargeScope)
       setPromptPrice(pricing.promptPrice)
       setCompletionPrice(pricing.completionPrice)
       setAdvancedOpen(pricing.advancedOpen)
@@ -508,7 +536,9 @@ export function ModelMutateDrawer({
             (pricingMode === 'per-request' &&
               values.price &&
               values.price !== '') ||
-            (pricingMode === 'per-token' &&
+            ((pricingMode === 'per-token' ||
+              pricingMode === 'duration_second' ||
+              pricingMode === 'characters') &&
               (values.ratio ||
                 values.cacheRatio ||
                 values.completionRatio ||
@@ -548,6 +578,10 @@ export function ModelMutateDrawer({
               modelSettings.AudioCompletionRatio,
               { fallback: {}, silent: true }
             )
+            const billingModeMap = safeJsonParse<Record<string, string>>(
+              modelSettings['billing_setting.billing_mode'],
+              { fallback: {}, silent: true }
+            )
 
             // Remove old model name entries if model name changed (always, even if no new config)
             if (isEditing && oldModelName && oldModelName !== finalModelName) {
@@ -558,17 +592,10 @@ export function ModelMutateDrawer({
               delete imageMap[oldModelName]
               delete audioMap[oldModelName]
               delete audioCompletionMap[oldModelName]
+              delete billingModeMap[oldModelName]
             }
 
-            // Rebuild this model name's entries from the form, but only when
-            // the form speaks for that name: it loaded the name's pricing when
-            // the drawer opened, so clearing every field means "remove
-            // pricing", or the user typed pricing in, which then wins outright
-            // (this is also what replaces the old entries across a mode
-            // switch). A name the form never loaded may still have pricing
-            // configured elsewhere, and an untouched pricing section must not
-            // wipe it -- that covers creating a model over an existing name,
-            // and renaming onto one.
+            // Rebuild this model name's entries from the form
             if (hasRatioConfig || finalModelName === loadedPricingName) {
               delete priceMap[finalModelName]
               delete ratioMap[finalModelName]
@@ -577,6 +604,7 @@ export function ModelMutateDrawer({
               delete imageMap[finalModelName]
               delete audioMap[finalModelName]
               delete audioCompletionMap[finalModelName]
+              delete billingModeMap[finalModelName]
             }
 
             // Only add new entries if user provided new configuration
@@ -587,7 +615,22 @@ export function ModelMutateDrawer({
                 values.price !== ''
               ) {
                 priceMap[finalModelName] = Number.parseFloat(values.price)
+              } else if (pricingMode === 'duration_second') {
+                billingModeMap[finalModelName] = 'duration_second'
+                if (values.ratio && values.ratio !== '') {
+                  ratioMap[finalModelName] = Number.parseFloat(values.ratio)
+                }
+              } else if (pricingMode === 'characters') {
+                billingModeMap[finalModelName] = 'characters'
+                if (values.ratio && values.ratio !== '') {
+                  ratioMap[finalModelName] = Number.parseFloat(values.ratio)
+                }
               } else if (pricingMode === 'per-token') {
+                if (chargeScope === 'input_only') {
+                  billingModeMap[finalModelName] = 'input_only'
+                } else if (chargeScope === 'output_only') {
+                  billingModeMap[finalModelName] = 'output_only'
+                }
                 if (values.ratio && values.ratio !== '') {
                   ratioMap[finalModelName] = Number.parseFloat(values.ratio)
                 }
@@ -624,6 +667,19 @@ export function ModelMutateDrawer({
 
             // Update system options if there are changes
             const updates: Array<{ key: string; value: string }> = []
+
+            const newBillingMode = normalizeJsonString(
+              JSON.stringify(billingModeMap)
+            )
+            if (
+              newBillingMode !==
+              normalizeJsonString(modelSettings['billing_setting.billing_mode'])
+            ) {
+              updates.push({
+                key: 'billing_setting.billing_mode',
+                value: newBillingMode,
+              })
+            }
 
             const newModelPrice = normalizeJsonString(JSON.stringify(priceMap))
             if (
@@ -997,21 +1053,123 @@ export function ModelMutateDrawer({
                   onValueChange={(value) =>
                     setPricingMode(value as PricingMode)
                   }
+                  className='grid grid-cols-1 sm:grid-cols-2 gap-2'
                 >
                   <div className='flex items-center space-x-2'>
                     <RadioGroupItem value='per-token' id='per-token' />
-                    <Label htmlFor='per-token' className='font-normal'>
+                    <Label htmlFor='per-token' className='font-normal cursor-pointer'>
                       {t('Per-token (ratio based)')}
                     </Label>
                   </div>
                   <div className='flex items-center space-x-2'>
                     <RadioGroupItem value='per-request' id='per-request' />
-                    <Label htmlFor='per-request' className='font-normal'>
+                    <Label htmlFor='per-request' className='font-normal cursor-pointer'>
                       {t('Per-request (fixed price)')}
+                    </Label>
+                  </div>
+                  <div className='flex items-center space-x-2'>
+                    <RadioGroupItem value='duration_second' id='duration_second' />
+                    <Label htmlFor='duration_second' className='font-normal cursor-pointer'>
+                      {t('Duration-based (per second - STT, TTS, Video)')}
+                    </Label>
+                  </div>
+                  <div className='flex items-center space-x-2'>
+                    <RadioGroupItem value='characters' id='characters' />
+                    <Label htmlFor='characters' className='font-normal cursor-pointer'>
+                      {t('Character-based (per 1M characters - TTS)')}
                     </Label>
                   </div>
                 </RadioGroup>
               </div>
+
+              {pricingMode === 'per-token' && (
+                <div className='space-y-2 rounded-md border p-3 bg-muted/30'>
+                  <Label className='text-xs font-medium'>{t('Billing Scope')}</Label>
+                  <RadioGroup
+                    value={chargeScope}
+                    onValueChange={(value) => setChargeScope(value as ChargeScope)}
+                    className='grid grid-cols-3 gap-2'
+                  >
+                    <div className='flex items-center space-x-2'>
+                      <RadioGroupItem value='all' id='scope-all' />
+                      <Label htmlFor='scope-all' className='font-normal text-xs cursor-pointer'>
+                        {t('Input & Output')}
+                      </Label>
+                    </div>
+                    <div className='flex items-center space-x-2'>
+                      <RadioGroupItem value='input_only' id='scope-input-only' />
+                      <Label htmlFor='scope-input-only' className='font-normal text-xs cursor-pointer'>
+                        {t('Input Only')}
+                      </Label>
+                    </div>
+                    <div className='flex items-center space-x-2'>
+                      <RadioGroupItem value='output_only' id='scope-output-only' />
+                      <Label htmlFor='scope-output-only' className='font-normal text-xs cursor-pointer'>
+                        {t('Output Only')}
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                  <p className='text-muted-foreground text-[11px]'>
+                    {chargeScope === 'input_only'
+                      ? t('Only input tokens are billed. Output tokens are completely free.')
+                      : chargeScope === 'output_only'
+                      ? t('Only output tokens are billed. Input tokens are completely free.')
+                      : t('Standard token billing: both prompt and completion tokens are billed.')}
+                  </p>
+                </div>
+              )}
+
+              {pricingMode === 'duration_second' && (
+                <div className='space-y-2 rounded-md border p-4 bg-muted/20'>
+                  <Label>{t('Price per Second (USD/s)')}</Label>
+                  <Input
+                    type='text'
+                    placeholder='0.005'
+                    value={promptPrice}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setPromptPrice(val)
+                      if (val && !Number.isNaN(Number.parseFloat(val))) {
+                        const ratio = Number.parseFloat(val) / 2
+                        form.setValue('ratio', ratio.toString())
+                      } else {
+                        form.setValue('ratio', '')
+                      }
+                    }}
+                  />
+                  <p className='text-muted-foreground text-xs'>
+                    {promptPrice && !Number.isNaN(Number.parseFloat(promptPrice))
+                      ? `Calculated ratio: ${(Number.parseFloat(promptPrice) / 2).toFixed(6)}`
+                      : t('Cost in USD per second for audio/video duration. Tokens are not charged.')}
+                  </p>
+                </div>
+              )}
+
+              {pricingMode === 'characters' && (
+                <div className='space-y-2 rounded-md border p-4 bg-muted/20'>
+                  <Label>{t('Price per 1M Characters (USD/1M chars)')}</Label>
+                  <Input
+                    type='text'
+                    placeholder='15.0'
+                    value={promptPrice}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setPromptPrice(val)
+                      if (val && !Number.isNaN(Number.parseFloat(val))) {
+                        const ratio = Number.parseFloat(val) / 2
+                        form.setValue('ratio', ratio.toString())
+                      } else {
+                        form.setValue('ratio', '')
+                      }
+                    }}
+                  />
+                  <p className='text-muted-foreground text-xs'>
+                    {promptPrice && !Number.isNaN(Number.parseFloat(promptPrice))
+                      ? `Calculated ratio: ${(Number.parseFloat(promptPrice) / 2).toFixed(6)}`
+                      : t('Cost in USD per 1M text characters for TTS synthesis.')}
+                  </p>
+                </div>
+              )}
 
               {pricingMode === 'per-request' ? (
                 <FormField
@@ -1069,127 +1227,135 @@ export function ModelMutateDrawer({
 
                   {pricingSubMode === 'ratio' ? (
                     <>
-                      <FormField
-                        control={form.control}
-                        name='ratio'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('Model ratio')}</FormLabel>
-                            <FormControl>
-                              <Input
-                                type='text'
-                                placeholder='1.0'
-                                {...field}
-                                onChange={(e) => {
-                                  const value = e.target.value
-                                  if (validateNumber(value)) {
-                                    field.onChange(value)
-                                    if (value) {
-                                      setPromptPrice(
-                                        (
-                                          Number.parseFloat(value) * 2
-                                        ).toString()
-                                      )
-                                    } else {
-                                      setPromptPrice('')
+                      {chargeScope !== 'output_only' && (
+                        <FormField
+                          control={form.control}
+                          name='ratio'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('Model ratio (Prompt / Input)')}</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='text'
+                                  placeholder='1.0'
+                                  {...field}
+                                  onChange={(e) => {
+                                    const value = e.target.value
+                                    if (validateNumber(value)) {
+                                      field.onChange(value)
+                                      if (value) {
+                                        setPromptPrice(
+                                          (
+                                            Number.parseFloat(value) * 2
+                                          ).toString()
+                                        )
+                                      } else {
+                                        setPromptPrice('')
+                                      }
                                     }
-                                  }
-                                }}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              {field.value &&
-                              !Number.isNaN(Number.parseFloat(field.value))
-                                ? `Calculated price: $${(Number.parseFloat(field.value) * 2).toFixed(4)} per 1M tokens`
-                                : t('Multiplier for prompt tokens.')}
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                                  }}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {field.value &&
+                                !Number.isNaN(Number.parseFloat(field.value))
+                                  ? `Calculated price: $${(Number.parseFloat(field.value) * 2).toFixed(4)} per 1M tokens`
+                                  : t('Multiplier for prompt tokens.')}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )}
 
-                      <FormField
-                        control={form.control}
-                        name='completionRatio'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('Completion ratio')}</FormLabel>
-                            <FormControl>
-                              <Input
-                                type='text'
-                                placeholder='1.0'
-                                {...field}
-                                onChange={(e) => {
-                                  const value = e.target.value
-                                  if (validateNumber(value)) {
-                                    field.onChange(value)
-                                    const ratio = form.getValues('ratio')
-                                    if (value && ratio) {
-                                      const compPrice =
-                                        Number.parseFloat(ratio) *
-                                        2 *
-                                        Number.parseFloat(value)
-                                      setCompletionPrice(compPrice.toString())
-                                    } else {
-                                      setCompletionPrice('')
+                      {chargeScope !== 'input_only' && (
+                        <FormField
+                          control={form.control}
+                          name='completionRatio'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('Completion ratio (Output)')}</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='text'
+                                  placeholder='1.0'
+                                  {...field}
+                                  onChange={(e) => {
+                                    const value = e.target.value
+                                    if (validateNumber(value)) {
+                                      field.onChange(value)
+                                      const ratio = form.getValues('ratio')
+                                      if (value && ratio) {
+                                        const compPrice =
+                                          Number.parseFloat(ratio) *
+                                          2 *
+                                          Number.parseFloat(value)
+                                        setCompletionPrice(compPrice.toString())
+                                      } else {
+                                        setCompletionPrice('')
+                                      }
                                     }
-                                  }
-                                }}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              {field.value &&
-                              !Number.isNaN(Number.parseFloat(field.value)) &&
-                              promptPrice &&
-                              !Number.isNaN(Number.parseFloat(promptPrice))
-                                ? `Calculated price: $${(Number.parseFloat(promptPrice) * Number.parseFloat(field.value)).toFixed(4)} per 1M tokens`
-                                : t('Multiplier for completion tokens.')}
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                                  }}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {field.value &&
+                                !Number.isNaN(Number.parseFloat(field.value)) &&
+                                promptPrice &&
+                                !Number.isNaN(Number.parseFloat(promptPrice))
+                                  ? `Calculated price: $${(Number.parseFloat(promptPrice) * Number.parseFloat(field.value)).toFixed(4)} per 1M tokens`
+                                  : t('Multiplier for completion tokens.')}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )}
                     </>
                   ) : (
                     <div className='space-y-4'>
-                      <div className='space-y-2'>
-                        <Label>{t('Prompt price ($/1M tokens)')}</Label>
-                        <Input
-                          type='text'
-                          placeholder='2.0'
-                          value={promptPrice}
-                          onChange={(e) =>
-                            handlePromptPriceChange(e.target.value)
-                          }
-                        />
-                        <p className='text-muted-foreground text-sm'>
-                          {promptPrice &&
-                          !Number.isNaN(Number.parseFloat(promptPrice))
-                            ? `Calculated ratio: ${(Number.parseFloat(promptPrice) / 2).toFixed(4)}`
-                            : t('Enter Input price to calculate ratio')}
-                        </p>
-                      </div>
+                      {chargeScope !== 'output_only' && (
+                        <div className='space-y-2'>
+                          <Label>{t('Prompt price ($/1M tokens)')}</Label>
+                          <Input
+                            type='text'
+                            placeholder='2.0'
+                            value={promptPrice}
+                            onChange={(e) =>
+                              handlePromptPriceChange(e.target.value)
+                            }
+                          />
+                          <p className='text-muted-foreground text-sm'>
+                            {promptPrice &&
+                            !Number.isNaN(Number.parseFloat(promptPrice))
+                              ? `Calculated ratio: ${(Number.parseFloat(promptPrice) / 2).toFixed(4)}`
+                              : t('Enter Input price to calculate ratio')}
+                          </p>
+                        </div>
+                      )}
 
-                      <div className='space-y-2'>
-                        <Label>{t('Completion price ($/1M tokens)')}</Label>
-                        <Input
-                          type='text'
-                          placeholder='4.0'
-                          value={completionPrice}
-                          onChange={(e) =>
-                            handleCompletionPriceChange(e.target.value)
-                          }
-                        />
-                        <p className='text-muted-foreground text-sm'>
-                          {completionPrice &&
-                          !Number.isNaN(Number.parseFloat(completionPrice)) &&
-                          promptPrice &&
-                          !Number.isNaN(Number.parseFloat(promptPrice)) &&
-                          Number.parseFloat(promptPrice) > 0
-                            ? `Calculated ratio: ${(Number.parseFloat(completionPrice) / Number.parseFloat(promptPrice)).toFixed(4)}`
-                            : t('Enter Completion price to calculate ratio')}
-                        </p>
-                      </div>
+                      {chargeScope !== 'input_only' && (
+                        <div className='space-y-2'>
+                          <Label>{t('Completion price ($/1M tokens)')}</Label>
+                          <Input
+                            type='text'
+                            placeholder='4.0'
+                            value={completionPrice}
+                            onChange={(e) =>
+                              handleCompletionPriceChange(e.target.value)
+                            }
+                          />
+                          <p className='text-muted-foreground text-sm'>
+                            {completionPrice &&
+                            !Number.isNaN(Number.parseFloat(completionPrice)) &&
+                            promptPrice &&
+                            !Number.isNaN(Number.parseFloat(promptPrice)) &&
+                            Number.parseFloat(promptPrice) > 0
+                              ? `Calculated ratio: ${(Number.parseFloat(completionPrice) / Number.parseFloat(promptPrice)).toFixed(4)}`
+                              : t('Enter Completion price to calculate ratio')}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
 

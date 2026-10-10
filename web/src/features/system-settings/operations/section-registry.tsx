@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { SystemBehaviorSection } from '../general/system-behavior-section'
 import { RelayFallbackSection } from '../general/relay-fallback-section'
 import { TicketSettingsSection } from './ticket-settings-section'
+import { DiscordBotSettingsSection } from './discord-bot-settings-section'
 import { EmailSettingsSection } from '../integrations/email-settings-section'
 import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section'
 import { WorkerSettingsSection } from '../integrations/worker-settings-section'
@@ -80,6 +81,35 @@ const OPERATIONS_SECTIONS = [
             settings['ticket_setting.notify_admin_on_new_ticket'] ?? true,
           notifyUserOnReply:
             settings['ticket_setting.notify_user_on_reply'] ?? true,
+          aiAssistantEnabled:
+            settings['ticket_setting.ai_assistant_enabled'] ?? true,
+          aiAssistantModel:
+            settings['ticket_setting.ai_assistant_model'] ?? 'gemini-1.5-flash',
+          aiAssistantSystemPrompt:
+            settings['ticket_setting.ai_assistant_system_prompt'] ??
+            'You are a helpful customer support agent for our API platform. Use markdown and BUTTON[Text](url) when directing users to external links.',
+        }}
+      />
+    ),
+  },
+  {
+    id: 'discord-bot',
+    titleKey: 'Discord Bot',
+    build: (settings: OperationsSettings) => (
+      <DiscordBotSettingsSection
+        defaultValues={{
+          enabled: settings['discord.enabled'] ?? false,
+          botToken: settings['discord.bot_token'] ?? '',
+          botName: settings['discord.bot_name'] ?? 'MyAIBot',
+          prefix: settings['discord.prefix'] ?? '!',
+          status: settings['discord.status'] ?? 'Ready to help',
+          language: settings['discord.language'] ?? 'en',
+          embedColor: settings['discord.embed_color'] ?? '#00ff00',
+          aiSystemPrompt: settings['discord.ai_system_prompt'] ?? 'You are a helpful AI assistant.',
+          rpgEnabled: settings['discord.rpg_enabled'] ?? true,
+          autoReplyChannelId: settings['discord.auto_reply_channel_id'] ?? '',
+          autoReplyModel: settings['discord.auto_reply_model'] ?? '',
+          onlyLinkedAccounts: settings['discord.only_linked_accounts'] ?? false,
         }}
       />
     ),

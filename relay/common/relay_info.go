@@ -359,6 +359,8 @@ var streamSupportedChannels = map[int]bool{
 	constant.ChannelTypeSub2API:        true,
 	constant.ChannelTypeNewAPI:         true,
 	constant.ChannelTypeAntigravity:    true,
+	constant.ChannelTypeAgnes:          true,
+	constant.ChannelTypeDeepSeekWeb:    true,
 	constant.ChannelTypeTencent:        true,
 }
 

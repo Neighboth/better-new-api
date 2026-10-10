@@ -34,6 +34,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
 type testResult struct {
@@ -147,6 +148,12 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			requestPath = "/v1/responses"
 		}
 
+		// Live / Realtime models
+		if strings.Contains(strings.ToLower(testModel), "live") || strings.Contains(strings.ToLower(testModel), "realtime") {
+			endpointType = string(constant.EndpointTypeOpenAIRealtime)
+			requestPath = "/v1/realtime"
+		}
+
 	}
 	// Gemini 原生流式通过 URL action（:streamGenerateContent）表达而非请求体字段，
 	// GeminiChatRequest.IsStream 依据请求 URL 判定，合成请求路径需与生产入口保持一致
@@ -206,6 +213,10 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			relayFormat = types.RelayFormatOpenAIImage
 		case constant.EndpointTypeOpenAIRealtime:
 			relayFormat = types.RelayFormatOpenAIRealtime
+		case constant.EndpointTypeAudioSpeech:
+			relayFormat = types.RelayFormatOpenAIAudio
+		case constant.EndpointTypeAudioTranscription:
+			relayFormat = types.RelayFormatOpenAIAudio
 		default:
 			relayFormat = types.RelayFormatOpenAI
 		}
@@ -372,6 +383,10 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 				newAPIError: types.NewError(errors.New("invalid response compaction request type"), types.ErrorCodeConvertRequestFailed),
 			}
 		}
+	case relayconstant.RelayModeAudioSpeech, relayconstant.RelayModeAudioTranscription:
+		convertedRequest = request
+	case relayconstant.RelayModeRealtime:
+		convertedRequest = map[string]any{"model": testModel}
 	default:
 		switch req := request.(type) {
 		case *dto.GeneralOpenAIRequest:
@@ -429,6 +444,26 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 				localErr:    err,
 				newAPIError: types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid),
 			}
+		}
+	}
+
+	if info.RelayMode == relayconstant.RelayModeRealtime {
+		resp, err := adaptor.DoRequest(c, info, nil)
+		if err != nil {
+			return testResult{
+				context:     c,
+				localErr:    err,
+				newAPIError: types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError),
+			}
+		}
+		if ws, ok := resp.(*websocket.Conn); ok && ws != nil {
+			_ = ws.Close()
+		}
+		c.Writer.WriteHeader(http.StatusOK)
+		return testResult{
+			context:     c,
+			localErr:    nil,
+			newAPIError: nil,
 		}
 	}
 
@@ -733,6 +768,15 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 			}
 		case constant.EndpointTypeOpenAIRealtime:
 			return &dto.GeneralOpenAIRequest{
+				Model: model,
+			}
+		case constant.EndpointTypeAudioSpeech:
+			return &dto.GeneralOpenAIRequest{
+				Model: model,
+				Input: "hi",
+			}
+		case constant.EndpointTypeAudioTranscription:
+			return &dto.AudioRequest{
 				Model: model,
 			}
 		case constant.EndpointTypeOpenAIResponse:

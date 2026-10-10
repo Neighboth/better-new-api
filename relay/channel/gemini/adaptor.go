@@ -139,6 +139,9 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		} else if strings.HasPrefix(baseUrl, "http://") {
 			baseUrl = "ws://" + strings.TrimPrefix(baseUrl, "http://")
 		}
+		if info.ApiKey != "" {
+			return fmt.Sprintf("%s/%s?key=%s", baseUrl, action, info.ApiKey), nil
+		}
 		return fmt.Sprintf("%s/%s", baseUrl, action), nil
 	}
 

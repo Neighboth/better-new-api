@@ -22,17 +22,22 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Form,
   FormControl,
   FormDescription,
   FormField,
+  FormItem,
   FormLabel,
+  FormMessage,
 } from '@/components/ui/form'
 import { Switch } from '@/components/ui/switch'
 
 import {
   SettingsForm,
+  SettingsFormGrid,
   SettingsSwitchContent,
   SettingsSwitchItem,
 } from '../components/settings-form-layout'
@@ -45,6 +50,9 @@ const schema = z.object({
   liveSupportEnabled: z.boolean(),
   notifyAdminOnNewTicket: z.boolean(),
   notifyUserOnReply: z.boolean(),
+  aiAssistantEnabled: z.boolean(),
+  aiAssistantModel: z.string(),
+  aiAssistantSystemPrompt: z.string(),
 })
 
 type Values = z.infer<typeof schema>
@@ -57,6 +65,9 @@ export function TicketSettingsSection({
     liveSupportEnabled: boolean
     notifyAdminOnNewTicket: boolean
     notifyUserOnReply: boolean
+    aiAssistantEnabled?: boolean
+    aiAssistantModel?: string
+    aiAssistantSystemPrompt?: string
   }
 }) {
   const { t } = useTranslation()
@@ -69,6 +80,11 @@ export function TicketSettingsSection({
       liveSupportEnabled: defaultValues.liveSupportEnabled,
       notifyAdminOnNewTicket: defaultValues.notifyAdminOnNewTicket,
       notifyUserOnReply: defaultValues.notifyUserOnReply,
+      aiAssistantEnabled: defaultValues.aiAssistantEnabled ?? true,
+      aiAssistantModel: defaultValues.aiAssistantModel ?? 'gemini-1.5-flash',
+      aiAssistantSystemPrompt:
+        defaultValues.aiAssistantSystemPrompt ??
+        'You are a helpful customer support agent for our API platform. Use markdown and BUTTON[Text](url) when directing users to external links.',
     },
   })
 
@@ -89,6 +105,18 @@ export function TicketSettingsSection({
       await updateOption.mutateAsync({
         key: 'ticket_setting.notify_user_on_reply',
         value: values.notifyUserOnReply,
+      })
+      await updateOption.mutateAsync({
+        key: 'ticket_setting.ai_assistant_enabled',
+        value: values.aiAssistantEnabled,
+      })
+      await updateOption.mutateAsync({
+        key: 'ticket_setting.ai_assistant_model',
+        value: values.aiAssistantModel,
+      })
+      await updateOption.mutateAsync({
+        key: 'ticket_setting.ai_assistant_system_prompt',
+        value: values.aiAssistantSystemPrompt,
       })
 
       form.reset(values)
@@ -183,6 +211,70 @@ export function TicketSettingsSection({
                   />
                 </FormControl>
               </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='aiAssistantEnabled'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>{t('Enable AI Support Assistant')}</FormLabel>
+                  <FormDescription>
+                    {t('Automatically respond to live support and tickets using AI when no human agent is online.')}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
+            )}
+          />
+
+          <SettingsFormGrid>
+            <FormField
+              control={form.control}
+              name='aiAssistantModel'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('AI Assistant Model')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder='gemini-1.5-flash'
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t('Model used by the AI support assistant (e.g. gemini-1.5-flash, gpt-4o-mini).')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </SettingsFormGrid>
+
+          <FormField
+            control={form.control}
+            name='aiAssistantSystemPrompt'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('AI Assistant System Prompt')}</FormLabel>
+                <FormControl>
+                  <Textarea
+                    placeholder='You are a helpful customer support agent...'
+                    rows={4}
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('Instructions for the AI assistant. Supports Markdown and clickable BUTTON[Text](url) syntax.')}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
             )}
           />
 

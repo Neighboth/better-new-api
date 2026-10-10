@@ -83,6 +83,13 @@ const defaultModelSettings: ModelSettings = {
   'channel_affinity_setting.rules': '[]',
   'model_deployment.ionet.api_key': '',
   'model_deployment.ionet.enabled': false,
+  'model_deployment.modal.enabled': false,
+  'model_deployment.modal.token_id': '',
+  'model_deployment.modal.token_secret': '',
+  'model_deployment.modal.workspace': '',
+  'model_deployment.modal.shared_volume_path': '/vol/models',
+  'model_deployment.modal.idle_timeout_seconds': 300,
+  'model_deployment.modal.priority': 'modal_first',
 }
 
 export function ModelSettings() {

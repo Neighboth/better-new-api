@@ -413,10 +413,6 @@ export function LiveSupportWidget() {
             ) : (
               // Authenticated User View
               <>
-                <div className='rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground border'>
-                  👋 {t('Welcome! Have a question or facing an issue? Send a message below and our support team will respond quickly.')}
-                </div>
-
                 {activeLiveTicket ? (
                   <div className='space-y-2'>
                     <div className='text-[11px] text-muted-foreground border-b pb-2'>

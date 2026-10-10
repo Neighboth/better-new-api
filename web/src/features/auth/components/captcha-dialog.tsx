@@ -78,21 +78,10 @@ export function CaptchaDialog({
         toast.error(t('Failed to load captcha'))
         return current
       }
-      const next = current + 1
-      const nextProvider = providers[next]
-      const label =
-        nextProvider.type === 'turnstile'
-          ? 'Turnstile'
-          : nextProvider.type === 'recaptcha'
-          ? 'reCAPTCHA'
-          : nextProvider.type === 'hcaptcha'
-          ? 'hCaptcha'
-          : t('Image')
-      toast.info(`${t('Switched to fallback captcha')}: ${label}`)
-      return next
+      return current + 1
     })
     setToken('')
-  }, [providers, t])
+  }, [providers.length, t])
 
   const handleWidgetExpired = useCallback(() => {
     setToken('')
@@ -126,40 +115,6 @@ export function CaptchaDialog({
       contentHeight='auto'
       bodyClassName='space-y-4'
     >
-      {providers.length > 1 && (
-        <div className='flex flex-wrap items-center justify-center gap-1.5 pb-1'>
-          {providers.map((p, idx) => {
-            const isSelected = idx === providerIndex
-            const label =
-              p.type === 'turnstile'
-                ? 'Turnstile'
-                : p.type === 'recaptcha'
-                ? 'reCAPTCHA'
-                : p.type === 'hcaptcha'
-                ? 'hCaptcha'
-                : t('Image')
-            return (
-              <button
-                key={p.type}
-                type='button'
-                onClick={() => {
-                  setProviderIndex(idx)
-                  setToken('')
-                  setWidgetKey((k) => k + 1)
-                }}
-                className={`text-xs px-2.5 py-1 rounded-full font-medium transition-colors ${
-                  isSelected
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'
-                }`}
-              >
-                {label}
-              </button>
-            )
-          })}
-        </div>
-      )}
-
       <div className='flex flex-col items-center gap-4'>
         {provider.type === 'turnstile' && (
           <Turnstile

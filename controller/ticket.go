@@ -242,7 +242,11 @@ func AddTicketMessage(c *gin.Context) {
 
 	// Replies made through the user's profile are always customer messages,
 	// including when an administrator is viewing their own account.
+	role := c.GetInt("role")
 	isAdmin := strings.HasPrefix(c.FullPath(), "/api/admin/ticket/")
+	if !isAdmin && role >= common.RoleAdminUser && userId != ticket.UserId {
+		isAdmin = true
+	}
 	if !isAdmin && ticket.UserId != userId {
 		c.JSON(http.StatusForbidden, gin.H{
 			"success": false,

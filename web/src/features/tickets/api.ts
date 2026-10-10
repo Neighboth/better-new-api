@@ -94,6 +94,21 @@ export async function closeTicket(id: number): Promise<ApiResponse<void>> {
 
 // Admin APIs
 
+export async function adminAddTicketMessage(
+  ticketId: number,
+  content: string,
+  attachments?: string
+): Promise<ApiResponse<TicketMessage>> {
+  const res = await api.post<ApiResponse<TicketMessage>>(
+    `/api/admin/ticket/${ticketId}/message`,
+    {
+      content,
+      attachments,
+    }
+  )
+  return res.data
+}
+
 export async function adminGetAllTickets(params: {
   page?: number
   pageSize?: number

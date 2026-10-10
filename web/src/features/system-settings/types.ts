@@ -376,6 +376,13 @@ export type ModelSettings = {
   'channel_affinity_setting.rules': string
   'model_deployment.ionet.api_key': string
   'model_deployment.ionet.enabled': boolean
+  'model_deployment.modal.enabled'?: boolean
+  'model_deployment.modal.token_id'?: string
+  'model_deployment.modal.token_secret'?: string
+  'model_deployment.modal.workspace'?: string
+  'model_deployment.modal.shared_volume_path'?: string
+  'model_deployment.modal.idle_timeout_seconds'?: number
+  'model_deployment.modal.priority'?: string
 }
 
 export type BillingSettings = {
@@ -667,6 +674,23 @@ export type OperationsSettings = {
   'ticket_setting.live_support_enabled'?: boolean
   'ticket_setting.notify_admin_on_new_ticket'?: boolean
   'ticket_setting.notify_user_on_reply'?: boolean
+  'ticket_setting.ai_assistant_enabled'?: boolean
+  'ticket_setting.ai_assistant_model'?: string
+  'ticket_setting.ai_assistant_system_prompt'?: string
+
+  // Discord Bot
+  'discord.enabled'?: boolean
+  'discord.bot_token'?: string
+  'discord.bot_name'?: string
+  'discord.prefix'?: string
+  'discord.status'?: string
+  'discord.language'?: string
+  'discord.embed_color'?: string
+  'discord.ai_system_prompt'?: string
+  'discord.rpg_enabled'?: boolean
+  'discord.auto_reply_channel_id'?: string
+  'discord.auto_reply_model'?: string
+  'discord.only_linked_accounts'?: boolean
 }
 
 export type SecuritySettings = {

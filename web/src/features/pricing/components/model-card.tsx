@@ -128,6 +128,74 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         </span>
       )
     }
+  } else if (props.model.billing_mode === 'input_only') {
+    priceSummary = (
+      <span className='text-muted-foreground whitespace-nowrap'>
+        {t('Input')}{' '}
+        <span className='text-foreground font-mono font-semibold'>
+          {formatPrice(
+            props.model,
+            'input',
+            tokenUnit,
+            showRechargePrice,
+            priceRate,
+            usdExchangeRate,
+            props.selectedGroup
+          )}
+        </span>
+      </span>
+    )
+  } else if (props.model.billing_mode === 'output_only') {
+    priceSummary = (
+      <span className='text-muted-foreground whitespace-nowrap'>
+        {t('Output')}{' '}
+        <span className='text-foreground font-mono font-semibold'>
+          {formatPrice(
+            props.model,
+            'output',
+            tokenUnit,
+            showRechargePrice,
+            priceRate,
+            usdExchangeRate,
+            props.selectedGroup
+          )}
+        </span>
+      </span>
+    )
+  } else if (props.model.billing_mode === 'duration_second') {
+    priceSummary = (
+      <span className='text-muted-foreground whitespace-nowrap'>
+        {t('Per Second')}{' '}
+        <span className='text-foreground font-mono font-semibold'>
+          {formatPrice(
+            props.model,
+            'input',
+            tokenUnit,
+            showRechargePrice,
+            priceRate,
+            usdExchangeRate,
+            props.selectedGroup
+          )}
+        </span>
+      </span>
+    )
+  } else if (props.model.billing_mode === 'characters') {
+    priceSummary = (
+      <span className='text-muted-foreground whitespace-nowrap'>
+        {t('1M Characters')}{' '}
+        <span className='text-foreground font-mono font-semibold'>
+          {formatPrice(
+            props.model,
+            'input',
+            tokenUnit,
+            showRechargePrice,
+            priceRate,
+            usdExchangeRate,
+            props.selectedGroup
+          )}
+        </span>
+      </span>
+    )
   } else if (isTokenBased) {
     priceSummary = (
       <>

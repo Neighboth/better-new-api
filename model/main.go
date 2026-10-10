@@ -335,14 +335,17 @@ func migrateNewColumns() {
 	if DB == nil {
 		return
 	}
+	_ = DB.AutoMigrate(&Ticket{}, &TicketMessage{})
 	if DB.Migrator().HasTable(&User{}) {
 		if !DB.Migrator().HasColumn(&User{}, "shift_ends_at") {
 			_ = DB.Migrator().AddColumn(&User{}, "shift_ends_at")
 		}
 	}
 	if DB.Migrator().HasTable(&Ticket{}) {
-		if !DB.Migrator().HasColumn(&Ticket{}, "is_live_support") {
-			_ = DB.Migrator().AddColumn(&Ticket{}, "is_live_support")
+		for _, col := range []string{"is_live_support", "is_guest", "guest_contact", "guest_session_key"} {
+			if !DB.Migrator().HasColumn(&Ticket{}, col) {
+				_ = DB.Migrator().AddColumn(&Ticket{}, col)
+			}
 		}
 	}
 }

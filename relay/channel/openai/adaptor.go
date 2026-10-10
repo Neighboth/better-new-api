@@ -176,7 +176,13 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 			info.RelayMode != relayconstant.RelayModeResponsesCompact {
 			return fmt.Sprintf("%s/v1/chat/completions", info.ChannelBaseUrl), nil
 		}
-		return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, info.RequestURLPath, info.ChannelType), nil
+		path := info.RequestURLPath
+		if info.ChannelType == constant.ChannelTypeAgnes && info.RelayMode == relayconstant.RelayModeImagesGenerations {
+			path = "/v1/videos"
+		} else if info.RelayMode == relayconstant.RelayModeImagesGenerations && strings.Contains(path, "video") {
+			path = "/v1/video/generations"
+		}
+		return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, path, info.ChannelType), nil
 	}
 }
 
@@ -568,6 +574,49 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		writer.Close()
 		c.Request.Header.Set("Content-Type", writer.FormDataContentType())
 		return &requestBody, nil
+
+	case relayconstant.RelayModeImagesGenerations:
+		if info.ChannelType == constant.ChannelTypeAgnes {
+			mode := "text"
+			if len(request.Image) > 0 || len(request.ImageURL) > 0 || len(request.Images) > 0 {
+				mode = "image"
+			}
+			agnesReq := map[string]any{
+				"model":  request.Model,
+				"prompt": request.Prompt,
+				"mode":   mode,
+			}
+			if len(request.Duration) > 0 {
+				var d any
+				if err := json.Unmarshal(request.Duration, &d); err == nil {
+					agnesReq["duration"] = d
+				}
+			}
+			if len(request.Ratio) > 0 {
+				var r any
+				if err := json.Unmarshal(request.Ratio, &r); err == nil {
+					agnesReq["ratio"] = r
+				}
+			} else if len(request.AspectRatio) > 0 {
+				var r any
+				if err := json.Unmarshal(request.AspectRatio, &r); err == nil {
+					agnesReq["ratio"] = r
+				}
+			}
+			if len(request.Image) > 0 {
+				var img any
+				if err := json.Unmarshal(request.Image, &img); err == nil {
+					agnesReq["image"] = img
+				}
+			} else if len(request.ImageURL) > 0 {
+				var img any
+				if err := json.Unmarshal(request.ImageURL, &img); err == nil {
+					agnesReq["image"] = img
+				}
+			}
+			return agnesReq, nil
+		}
+		return request, nil
 
 	default:
 		return request, nil

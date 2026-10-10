@@ -634,8 +634,11 @@ export function ChannelMutateDrawer({
   const [oauthDialogOpen, setOauthDialogOpen] = useState(false)
   const [oauthProvider, setOauthProvider] = useState<ChannelOAuthProvider | null>(null)
   const [oauthSessionId, setOauthSessionId] = useState<string>('')
+  const [oauthAuthUrl, setOauthAuthUrl] = useState<string>('')
   const [oauthCallbackUrl, setOauthCallbackUrl] = useState<string>('')
   const [isOauthExchanging, setIsOauthExchanging] = useState(false)
+  const [deepseekEmail, setDeepseekEmail] = useState<string>('')
+  const [deepseekPassword, setDeepseekPassword] = useState<string>('')
 
   const handleStartOAuth = async (provider: ChannelOAuthProvider) => {
     try {
@@ -643,9 +646,14 @@ export function ChannelMutateDrawer({
       if (res.success && res.data) {
         setOauthProvider(provider)
         setOauthSessionId(res.data.session_id)
+        setOauthAuthUrl(res.data.auth_url)
         setOauthCallbackUrl('')
         setOauthDialogOpen(true)
-        window.open(res.data.auth_url, '_blank', 'width=600,height=700')
+        try {
+          window.open(res.data.auth_url, '_blank', 'noopener,noreferrer')
+        } catch {
+          // ignore popup blocker error
+        }
       } else {
         toast.error(res.message || t('Failed to start OAuth flow'))
       }
@@ -661,6 +669,23 @@ export function ChannelMutateDrawer({
       const res = await exchangeChannelOAuth(oauthProvider, oauthSessionId, oauthCallbackUrl)
       if (res.success && res.data) {
         form.setValue('key', res.data.key, { shouldValidate: true })
+        if (oauthProvider === 'antigravity') {
+          const currentModels = form.getValues('models')
+          if (!currentModels || currentModels.length === 0) {
+            form.setValue('models', ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3.1-flash', 'gemini-2.0-flash'])
+          }
+          if (!form.getValues('base_url')) {
+            form.setValue('base_url', 'https://cloudcode-pa.googleapis.com')
+          }
+        } else if (oauthProvider === 'codex') {
+          const currentModels = form.getValues('models')
+          if (!currentModels || currentModels.length === 0) {
+            form.setValue('models', ['gpt-5.6-luna', 'gpt-4o', 'o3-mini'])
+          }
+          if (!form.getValues('base_url')) {
+            form.setValue('base_url', 'https://chatgpt.com')
+          }
+        }
         setOauthDialogOpen(false)
         toast.success(t('Successfully acquired credentials'))
       } else {
@@ -3130,22 +3155,23 @@ export function ChannelMutateDrawer({
                               />
 
                               {currentType === 57 && (
-                                <div className='border-border/60 flex flex-col gap-3 border-y py-4'>
+                                <div className='border-border/60 flex flex-col gap-3 rounded-lg border bg-muted/20 p-4'>
                                   <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
-                                    <div className='text-muted-foreground text-xs'>
-                                      {t(
-                                        'Codex channels use an OAuth JSON credential as the key.'
-                                      )}
+                                    <div>
+                                      <div className='font-semibold text-sm'>{t('ChatGPT (Codex) OAuth Entegrasyonu')}</div>
+                                      <div className='text-muted-foreground text-xs'>
+                                        {t('OpenAI ile giriş yapın, yönlendirilen localhost linkini yapıştırarak kimlik bilgisini alın.')}
+                                      </div>
                                     </div>
                                     <div className='flex flex-wrap items-center gap-2'>
                                       <Button
                                         type='button'
-                                        variant='outline'
+                                        variant='default'
                                         size='sm'
                                         onClick={() => handleStartOAuth('codex')}
                                       >
                                         <Wand2 className='mr-2 h-4 w-4' />
-                                        {t('Get credential via OAuth')}
+                                        {t('1. OAuth Girişini Başlat')}
                                       </Button>
                                       {isEditing && channelId && (
                                         <Button
@@ -3170,6 +3196,32 @@ export function ChannelMutateDrawer({
                                       )}
                                     </div>
                                   </div>
+                                  {oauthAuthUrl && oauthProvider === 'codex' && (
+                                    <div className='flex flex-col gap-2 pt-2 border-t'>
+                                      <div className='text-xs font-medium text-primary'>
+                                        <a href={oauthAuthUrl} target='_blank' rel='noopener noreferrer' className='hover:underline'>
+                                          🔗 {t('Pencere açılmadıysa buraya tıklayarak giriş yapın (Yeni Sekme)')}
+                                        </a>
+                                      </div>
+                                      <div className='flex items-center gap-2'>
+                                        <Input
+                                          placeholder='http://localhost:1455/auth/callback?code=...'
+                                          value={oauthCallbackUrl}
+                                          onChange={(e) => setOauthCallbackUrl(e.target.value)}
+                                          className='text-xs'
+                                        />
+                                        <Button
+                                          type='button'
+                                          size='sm'
+                                          onClick={handleExchangeOAuth}
+                                          disabled={isOauthExchanging || !oauthCallbackUrl}
+                                        >
+                                          {isOauthExchanging && <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />}
+                                          {t('Doğrula ve Al')}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
                                   <Alert className='border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-50'>
                                     <AlertDescription>
                                       {t(
@@ -3181,24 +3233,105 @@ export function ChannelMutateDrawer({
                               )}
 
                               {currentType === 61 && (
-                                <div className='border-border/60 flex flex-col gap-3 border-y py-4'>
+                                <div className='border-border/60 flex flex-col gap-3 rounded-lg border bg-muted/20 p-4'>
                                   <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
-                                    <div className='text-muted-foreground text-xs'>
-                                      {t(
-                                        'Google Antigravity channels can use an OAuth credential as the key.'
-                                      )}
+                                    <div>
+                                      <div className='font-semibold text-sm'>{t('Google Antigravity OAuth Entegrasyonu')}</div>
+                                      <div className='text-muted-foreground text-xs'>
+                                        {t('Google ile giriş yapın, yönlendirilen localhost linkini yapıştırarak kimlik bilgisini alın.')}
+                                      </div>
                                     </div>
                                     <div className='flex flex-wrap items-center gap-2'>
                                       <Button
                                         type='button'
-                                        variant='outline'
+                                        variant='default'
                                         size='sm'
                                         onClick={() => handleStartOAuth('antigravity')}
                                       >
                                         <Wand2 className='mr-2 h-4 w-4' />
-                                        {t('Get credential via OAuth')}
+                                        {t('1. OAuth Girişini Başlat')}
                                       </Button>
                                     </div>
+                                  </div>
+                                  {oauthAuthUrl && oauthProvider === 'antigravity' && (
+                                    <div className='flex flex-col gap-2 pt-2 border-t'>
+                                      <div className='text-xs font-medium text-primary'>
+                                        <a href={oauthAuthUrl} target='_blank' rel='noopener noreferrer' className='hover:underline'>
+                                          🔗 {t('Pencere açılmadıysa buraya tıklayarak giriş yapın (Yeni Sekme)')}
+                                        </a>
+                                      </div>
+                                      <div className='flex items-center gap-2'>
+                                        <Input
+                                          placeholder='http://localhost:8085/callback?code=...'
+                                          value={oauthCallbackUrl}
+                                          onChange={(e) => setOauthCallbackUrl(e.target.value)}
+                                          className='text-xs'
+                                        />
+                                        <Button
+                                          type='button'
+                                          size='sm'
+                                          onClick={handleExchangeOAuth}
+                                          disabled={isOauthExchanging || !oauthCallbackUrl}
+                                        >
+                                          {isOauthExchanging && <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />}
+                                          {t('Doğrula ve Al')}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {currentType === 63 && (
+                                <div className='border-border/60 flex flex-col gap-3 rounded-lg border bg-muted/20 p-4'>
+                                  <div>
+                                    <div className='font-semibold text-sm'>{t('DeepSeek Web Tersine Mühendislik')}</div>
+                                    <div className='text-muted-foreground text-xs'>
+                                      {t('DeepSeek hesap bilgilerinizi girin veya doğrudan kullanıcı tokeninizi anahtar alanına yazın.')}
+                                    </div>
+                                  </div>
+                                  <div className='grid gap-2 sm:grid-cols-2'>
+                                    <div>
+                                      <label className='text-xs font-medium mb-1 block'>{t('E-posta / Kullanıcı Adı')}</label>
+                                      <Input
+                                        placeholder='user@example.com'
+                                        value={deepseekEmail}
+                                        onChange={(e) => setDeepseekEmail(e.target.value)}
+                                        className='text-xs'
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className='text-xs font-medium mb-1 block'>{t('Şifre')}</label>
+                                      <Input
+                                        type='password'
+                                        placeholder='••••••••'
+                                        value={deepseekPassword}
+                                        onChange={(e) => setDeepseekPassword(e.target.value)}
+                                        className='text-xs'
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className='flex justify-end'>
+                                    <Button
+                                      type='button'
+                                      size='sm'
+                                      onClick={() => {
+                                        if (!deepseekEmail || !deepseekPassword) {
+                                          toast.error(t('Lütfen e-posta ve şifrenizi girin'))
+                                          return
+                                        }
+                                        form.setValue('key', `${deepseekEmail}:${deepseekPassword}`, { shouldValidate: true })
+                                        const currModels = form.getValues('models')
+                                        if (!currModels || currModels.length === 0) {
+                                          form.setValue('models', ['deepseek-chat', 'deepseek-reasoner'])
+                                        }
+                                        toast.success(t('Giriş bilgileri anahtara aktarıldı'))
+                                      }}
+                                      disabled={!deepseekEmail || !deepseekPassword}
+                                    >
+                                      <Wand2 className='mr-1.5 h-3.5 w-3.5' />
+                                      {t('Giriş Bilgilerini Anahtara Aktar')}
+                                    </Button>
                                   </div>
                                 </div>
                               )}
@@ -4957,13 +5090,27 @@ export function ChannelMutateDrawer({
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-4">
+            {oauthAuthUrl && (
+              <div className="rounded-md border p-3 bg-muted/40 text-xs space-y-1.5">
+                <span className="font-semibold block text-foreground">{t('1. Pencere açılmadıysa aşağıdaki bağlantıya tıklayarak giriş yapın:')}</span>
+                <a
+                  href={oauthAuthUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline font-mono break-all inline-block"
+                >
+                  🔗 {t('Giriş Sayfasını Aç (Yeni Sekme)')}
+                </a>
+              </div>
+            )}
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">{t('Callback URL')}</label>
+              <label className="text-sm font-medium">{t('2. Yönlendirilen Localhost URL Adresi')}</label>
               <Input
-                placeholder="http://localhost:3000/callback?code=..."
+                placeholder="http://localhost:1455/auth/callback?code=... veya http://localhost:8085/callback?code=..."
                 value={oauthCallbackUrl}
                 onChange={(e) => setOauthCallbackUrl(e.target.value)}
               />
+              <p className="text-muted-foreground text-xs">{t('Giriş yaptıktan sonra tarayıcınızın adres çubuğunda açılan localhost linkini kopyalayıp buraya yapıştırın.')}</p>
             </div>
           </div>
           <DialogFooter>

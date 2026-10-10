@@ -37,6 +37,18 @@ export function ModelBillingModeBadge(props: ModelBillingModeBadgeProps) {
   if (isDynamicPricingModel(props.model)) {
     label = t('Dynamic Pricing')
     variant = 'warning'
+  } else if (props.model.billing_mode === 'duration_second') {
+    label = t('Duration-based (s)')
+    variant = 'info'
+  } else if (props.model.billing_mode === 'characters') {
+    label = t('1M Characters')
+    variant = 'info'
+  } else if (props.model.billing_mode === 'input_only') {
+    label = t('Input Only')
+    variant = 'info'
+  } else if (props.model.billing_mode === 'output_only') {
+    label = t('Output Only')
+    variant = 'info'
   } else if (isTokenBasedModel(props.model)) {
     label = t('Token-based')
     variant = 'info'

@@ -80,6 +80,22 @@ const defaultOperationsSettings: OperationsSettings = {
   'ticket_setting.live_support_enabled': true,
   'ticket_setting.notify_admin_on_new_ticket': true,
   'ticket_setting.notify_user_on_reply': true,
+  'ticket_setting.ai_assistant_enabled': true,
+  'ticket_setting.ai_assistant_model': 'gemini-1.5-flash',
+  'ticket_setting.ai_assistant_system_prompt':
+    'You are a helpful customer support agent for our API platform. Use markdown and BUTTON[Text](url) when directing users to external links.',
+  'discord.enabled': false,
+  'discord.bot_token': '',
+  'discord.bot_name': 'MyAIBot',
+  'discord.prefix': '!',
+  'discord.status': 'Ready to help',
+  'discord.language': 'en',
+  'discord.embed_color': '#00ff00',
+  'discord.ai_system_prompt': 'You are a helpful AI assistant.',
+  'discord.rpg_enabled': true,
+  'discord.auto_reply_channel_id': '',
+  'discord.auto_reply_model': '',
+  'discord.only_linked_accounts': false,
 }
 
 export function OperationsSettings() {

@@ -63,6 +63,9 @@ export function getChannelTypeIcon(type: number): string {
     24: 'Gemini', // Gemini
     11: 'Google', // PaLM
     41: 'Gemini', // Vertex AI
+    61: 'Google', // Google Antigravity
+    62: 'Agnes', // Agnes AI
+    63: 'DeepSeek', // DeepSeek Web
 
     // Cloud providers
     33: 'Aws', // AWS

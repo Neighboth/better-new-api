@@ -198,11 +198,19 @@ const endpointTypeOptions: Array<{ value: string; label: string }> = [
   },
   {
     value: 'openai-video',
-    label: 'Video Generation (/v1/videos/generations)',
+    label: 'Video Generation (/v1/video/generations)',
   },
   {
     value: 'openai-realtime',
     label: 'Realtime Live (/v1/realtime)',
+  },
+  {
+    value: 'audio-speech',
+    label: 'Audio Speech TTS (/v1/audio/speech)',
+  },
+  {
+    value: 'audio-transcription',
+    label: 'Audio Transcription STT (/v1/audio/transcriptions)',
   },
   { value: 'embeddings', label: 'Embeddings (/v1/embeddings)' },
 ]
@@ -216,6 +224,8 @@ const STREAM_INCOMPATIBLE_ENDPOINTS = new Set([
   'image-generation',
   'openai-video',
   'openai-realtime',
+  'audio-speech',
+  'audio-transcription',
   'jina-rerank',
   'openai-response-compact',
 ])
