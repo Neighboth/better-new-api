@@ -3,13 +3,17 @@ package antigravity
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -39,10 +43,63 @@ type V1InternalResponse struct {
 }
 
 type AntigravityKey struct {
-	AccessToken string `json:"access_token"`
-	Token       string `json:"token"`
-	ProjectID   string `json:"project_id"`
-	Project     string `json:"project"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	Token        string `json:"token"`
+	ProjectID    string `json:"project_id"`
+	Project      string `json:"project"`
+	Expired      string `json:"expired"`
+}
+
+func refreshAntigravityKey(ak *AntigravityKey) (string, error) {
+	if ak.RefreshToken == "" {
+		return "", errors.New("antigravity: no refresh token available")
+	}
+	clientID := service.GetAntigravityOAuthClientID()
+	clientSecret := service.GetAntigravityOAuthClientSecret()
+	form := url.Values{
+		"grant_type":    {"refresh_token"},
+		"client_id":     {clientID},
+		"refresh_token": {ak.RefreshToken},
+	}
+	if clientSecret != "" {
+		form.Set("client_secret", clientSecret)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://oauth2.googleapis.com/token", strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var res struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int64  `json:"expires_in"`
+		Error       string `json:"error"`
+		Description string `json:"error_description"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK || res.AccessToken == "" {
+		msg := res.Description
+		if msg == "" {
+			msg = res.Error
+		}
+		return "", fmt.Errorf("Google token refresh failed (HTTP %d): %s", resp.StatusCode, msg)
+	}
+	ak.AccessToken = res.AccessToken
+	if res.ExpiresIn > 0 {
+		ak.Expired = time.Now().Add(time.Duration(res.ExpiresIn) * time.Second).Format(time.RFC3339)
+	}
+	return res.AccessToken, nil
 }
 
 func parseAntigravityKey(key string) (token string, project string) {
@@ -57,6 +114,22 @@ func parseAntigravityKey(key string) (token string, project string) {
 			p := ak.ProjectID
 			if p == "" {
 				p = ak.Project
+			}
+			needsRefresh := t == ""
+			if ak.Expired != "" {
+				if expTime, errE := time.Parse(time.RFC3339, ak.Expired); errE == nil {
+					if time.Now().After(expTime.Add(-5 * time.Minute)) {
+						needsRefresh = true
+					}
+				}
+			}
+			if needsRefresh && ak.RefreshToken != "" {
+				if newTok, errR := refreshAntigravityKey(&ak); errR == nil && newTok != "" {
+					t = newTok
+					if updatedBytes, errM := json.Marshal(ak); errM == nil {
+						_ = model.DB.Model(&model.Channel{}).Where("`key` = ?", key).Update("key", string(updatedBytes)).Error
+					}
+				}
 			}
 			if t != "" {
 				return t, p
@@ -117,12 +190,14 @@ func wrapV1InternalRequest(info *relaycommon.RelayInfo, geminiReq *dto.GeminiCha
 		parts := strings.Split(modelName, "/")
 		modelName = parts[len(parts)-1]
 	}
-	switch strings.ToLower(modelName) {
-	case "sonnet-5.5", "claude-5.5-sonnet":
-		modelName = "claude-sonnet-5.5"
-	case "opus-5.5", "claude-5.5-opus":
+	lower := strings.ToLower(modelName)
+	if strings.Contains(lower, "flash") {
+		modelName = "gemini-3.8-flash"
+	} else if strings.Contains(lower, "opus") {
 		modelName = "claude-opus-5.5"
-	case "3.8-flash", "flash-3.8":
+	} else if strings.Contains(lower, "sonnet") {
+		modelName = "claude-sonnet-5.5"
+	} else if !strings.HasPrefix(lower, "gemini") && !strings.HasPrefix(lower, "claude") {
 		modelName = "gemini-3.8-flash"
 	}
 
@@ -205,7 +280,33 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
-	return channel.DoApiRequest(a, c, info, requestBody)
+	var bodyBytes []byte
+	if requestBody != nil {
+		bodyBytes, _ = io.ReadAll(requestBody)
+		requestBody = bytes.NewReader(bodyBytes)
+	}
+	resp, err := channel.DoApiRequest(a, c, info, requestBody)
+	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+		var ak AntigravityKey
+		if json.Unmarshal([]byte(info.ApiKey), &ak) == nil && ak.RefreshToken != "" {
+			if newTok, errR := refreshAntigravityKey(&ak); errR == nil && newTok != "" {
+				_ = resp.Body.Close()
+				if updatedBytes, errM := json.Marshal(ak); errM == nil {
+					newKeyStr := string(updatedBytes)
+					info.ApiKey = newKeyStr
+					if info.ChannelId > 0 {
+						_ = model.DB.Model(&model.Channel{}).Where("id = ?", info.ChannelId).Update("key", newKeyStr).Error
+					}
+				}
+				var retryBody io.Reader
+				if bodyBytes != nil {
+					retryBody = bytes.NewReader(bodyBytes)
+				}
+				return channel.DoApiRequest(a, c, info, retryBody)
+			}
+		}
+	}
+	return resp, err
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {

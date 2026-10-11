@@ -436,7 +436,7 @@ function ChannelTestDialogContent({
     setPagination({ pageIndex: 0, pageSize: 30 })
   }, [])
 
-  const isCodexChannel = currentRow?.type === 62 || currentRow?.name?.toLowerCase().includes('codex')
+  const isCodexChannel = currentRow?.type === 57 || currentRow?.name?.toLowerCase().includes('codex')
   const streamDisabled = STREAM_INCOMPATIBLE_ENDPOINTS.has(endpointType) || isCodexChannel
   const effectiveStreamTest = isCodexChannel ? true : (!streamDisabled && isStreamTest)
 

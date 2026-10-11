@@ -48,7 +48,7 @@ func xorDecode(data []byte, key byte) string {
 	return string(res)
 }
 
-func getAntigravityOAuthClientID() string {
+func GetAntigravityOAuthClientID() string {
 	if v := strings.TrimSpace(os.Getenv("ANTIGRAVITY_OAUTH_CLIENT_ID")); v != "" {
 		return v
 	}
@@ -58,7 +58,7 @@ func getAntigravityOAuthClientID() string {
 	return xorDecode(antigravityDefaultIDEncoded, 0x5A)
 }
 
-func getAntigravityOAuthClientSecret() string {
+func GetAntigravityOAuthClientSecret() string {
 	if v := strings.TrimSpace(os.Getenv("ANTIGRAVITY_OAUTH_CLIENT_SECRET")); v != "" {
 		return v
 	}
@@ -125,7 +125,7 @@ func (s *ChannelOAuthService) Generate(provider string) (*ChannelOAuthFlow, erro
 		authEndpoint, clientID = codexOAuthAuthorizeURL, codexOAuthClientID
 		redirectURI, scopes = codexOAuthRedirectURI, "openid profile email offline_access"
 	case ChannelOAuthAntigravity:
-		authEndpoint, clientID = antigravityOAuthAuthorizeURL, getAntigravityOAuthClientID()
+		authEndpoint, clientID = antigravityOAuthAuthorizeURL, GetAntigravityOAuthClientID()
 		if clientID == "" {
 			return nil, fmt.Errorf("antigravity OAuth client ID is not configured (set ANTIGRAVITY_OAUTH_CLIENT_ID env or option)")
 		}
@@ -248,7 +248,7 @@ func (s *ChannelOAuthService) Exchange(ctx context.Context, provider, sessionID,
 		"code_verifier": {session.CodeVerifier},
 	}
 	if provider == ChannelOAuthAntigravity {
-		if secret := getAntigravityOAuthClientSecret(); secret != "" {
+		if secret := GetAntigravityOAuthClientSecret(); secret != "" {
 			form.Set("client_secret", secret)
 		}
 	} else if provider != ChannelOAuthCodex {
@@ -400,7 +400,7 @@ func isLoopbackOAuthCallback(u *url.URL) bool {
 
 func oauthClientID(provider string) string {
 	if provider == ChannelOAuthAntigravity {
-		return getAntigravityOAuthClientID()
+		return GetAntigravityOAuthClientID()
 	}
 	return codexOAuthClientID
 }

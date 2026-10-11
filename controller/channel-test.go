@@ -184,15 +184,28 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 			requestPath = "/v1/responses"
 		}
 
+		// Audio Speech (TTS) models
+		lowerM := strings.ToLower(testModel)
+		if strings.Contains(lowerM, "tts") || strings.Contains(lowerM, "speech") || strings.Contains(lowerM, "cosyvoice") || strings.Contains(lowerM, "fish-audio") {
+			endpointType = string(constant.EndpointTypeAudioSpeech)
+			requestPath = "/v1/audio/speech"
+		}
+
+		// Audio Transcription (STT) models
+		if strings.Contains(lowerM, "whisper") || strings.Contains(lowerM, "transcription") || strings.Contains(lowerM, "transcribe") || strings.HasPrefix(lowerM, "stt") || strings.Contains(lowerM, "voxtral") {
+			endpointType = string(constant.EndpointTypeAudioTranscription)
+			requestPath = "/v1/audio/transcriptions"
+		}
+
 		// Live / Realtime models
-		if strings.Contains(strings.ToLower(testModel), "live") || strings.Contains(strings.ToLower(testModel), "realtime") {
+		if strings.Contains(lowerM, "live") || strings.Contains(lowerM, "realtime") {
 			endpointType = string(constant.EndpointTypeOpenAIRealtime)
 			requestPath = "/v1/realtime"
 		}
 	}
 
 	// Codex backend requires streaming responses (Stream must be set to true)
-	if channel.Type == 62 || strings.Contains(strings.ToLower(testModel), "codex") {
+	if channel.Type == constant.ChannelTypeCodex || strings.Contains(strings.ToLower(testModel), "codex") {
 		isStream = true
 	}
 	// Gemini 原生流式通过 URL action（:streamGenerateContent）表达而非请求体字段，
