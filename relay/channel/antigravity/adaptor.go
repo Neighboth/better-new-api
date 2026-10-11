@@ -49,7 +49,8 @@ type AntigravityKey struct {
 	ProjectID    string `json:"project_id"`
 	Project      string `json:"project"`
 	Expired      string `json:"expired"`
-	Plan         string `json:"plan,omitempty"` // "pro" (Google AI Pro), "plus" (Google AI Plus), "ultra" (Google AI Ultra), "free"
+	Plan          string `json:"plan,omitempty"`           // "pro" (Google AI Pro), "plus" (Google AI Plus), "ultra" (Google AI Ultra), "free"
+	ThinkingLevel string `json:"thinking_level,omitempty"` // "none", "low", "medium", "high" (or empty for default low on flash)
 }
 
 func refreshAntigravityKey(ak *AntigravityKey) (string, error) {
@@ -172,7 +173,7 @@ func fetchAntigravityProject(token string, baseURL string) string {
 	return p
 }
 
-func parseAntigravityKey(key string) (token string, project string, plan string) {
+func parseAntigravityKey(key string) (token string, project string, plan string, thinkingLevel string) {
 	key = strings.TrimSpace(key)
 	if strings.HasPrefix(key, "{") {
 		var ak AntigravityKey
@@ -186,6 +187,7 @@ func parseAntigravityKey(key string) (token string, project string, plan string)
 				p = ak.Project
 			}
 			pl := ak.Plan
+			tl := strings.ToLower(strings.TrimSpace(ak.ThinkingLevel))
 			needsRefresh := t == ""
 			if ak.Expired != "" {
 				if expTime, errE := time.Parse(time.RFC3339, ak.Expired); errE == nil {
@@ -225,11 +227,11 @@ func parseAntigravityKey(key string) (token string, project string, plan string)
 				pl = "pro"
 			}
 			if t != "" {
-				return t, p, pl
+				return t, p, pl, tl
 			}
 		}
 	}
-	return key, "", "pro"
+	return key, "", "pro", ""
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {}
@@ -257,7 +259,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
-	token, _, _ := parseAntigravityKey(info.ApiKey)
+	token, _, _, _ := parseAntigravityKey(info.ApiKey)
 	if token == "" {
 		return errors.New("antigravity channel: api key or access token is required")
 	}
@@ -273,7 +275,7 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 }
 
 func wrapV1InternalRequest(info *relaycommon.RelayInfo, geminiReq *dto.GeminiChatRequest) *V1InternalRequest {
-	_, project, _ := parseAntigravityKey(info.ApiKey)
+	_, project, _, channelThinkingLevel := parseAntigravityKey(info.ApiKey)
 	if project == "" {
 		project = "aicode-consumers"
 	}
@@ -287,22 +289,48 @@ func wrapV1InternalRequest(info *relaycommon.RelayInfo, geminiReq *dto.GeminiCha
 		modelName = parts[len(parts)-1]
 	}
 
+	// Determine desired thinking level:
+	// 1. If user already specified in request (e.g. reasoning_effort or thinking_level), honor it.
+	// 2. Otherwise use channel config thinking_level if configured.
+	// 3. Defaults to "low" for flash models. If "none" / "off", do not set thinkingConfig.
+	targetThinkingLevel := channelThinkingLevel
+	if geminiReq != nil && geminiReq.GenerationConfig.ThinkingConfig != nil && geminiReq.GenerationConfig.ThinkingConfig.ThinkingLevel != "" {
+		targetThinkingLevel = strings.ToLower(geminiReq.GenerationConfig.ThinkingConfig.ThinkingLevel)
+	}
+
 	// Model normalization for Antigravity backend:
 	// Maps user requested models to cloudcode-pa upstream targets
 	lowModel := strings.ToLower(modelName)
 	if strings.Contains(lowModel, "flash") {
-		// Target gemini-3-flash with low thinking level requested by user
+		// Target gemini-3-flash
 		modelName = "gemini-3-flash"
 		if geminiReq != nil {
-			geminiReq.GenerationConfig.ThinkingConfig = &dto.GeminiThinkingConfig{
-				ThinkingLevel: "low",
+			if targetThinkingLevel == "none" || targetThinkingLevel == "off" {
+				geminiReq.GenerationConfig.ThinkingConfig = nil
+			} else {
+				if targetThinkingLevel == "" {
+					targetThinkingLevel = "low"
+				}
+				geminiReq.GenerationConfig.ThinkingConfig = &dto.GeminiThinkingConfig{
+					ThinkingLevel: targetThinkingLevel,
+				}
 			}
 		}
 	} else if strings.Contains(lowModel, "sonnet") {
 		modelName = "claude-sonnet-4-6"
+		if geminiReq != nil && targetThinkingLevel != "" && targetThinkingLevel != "none" && targetThinkingLevel != "off" {
+			geminiReq.GenerationConfig.ThinkingConfig = &dto.GeminiThinkingConfig{
+				ThinkingLevel: targetThinkingLevel,
+			}
+		}
 	} else if strings.Contains(lowModel, "opus") {
 		// Use claude-sonnet-4-6 as fallback if opus is capacity restricted
 		modelName = "claude-sonnet-4-6"
+		if geminiReq != nil && targetThinkingLevel != "" && targetThinkingLevel != "none" && targetThinkingLevel != "off" {
+			geminiReq.GenerationConfig.ThinkingConfig = &dto.GeminiThinkingConfig{
+				ThinkingLevel: targetThinkingLevel,
+			}
+		}
 	}
 
 	return &V1InternalRequest{

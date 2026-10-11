@@ -360,28 +360,54 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 				var contentChunk string
 				var reasoningChunk string
 
-				// 1. Try DeepSeek Web patch format: {"p":"response/content","o":"APPEND","v":"..."} or {"p":"response/fragments/-1/content","v":"..."}
+				// 1. Try DeepSeek Web patch format:
+				// - New fragment appended: {"p":"response/fragments","o":"APPEND","v":[{"type":"RESPONSE","content":"Hi"}]}
+				// - Fragment content updated: {"p":"response/fragments/-1/content","v":"!"}
 				var patch struct {
-					P string `json:"p"`
-					O string `json:"o"`
-					V any    `json:"v"`
+					P string          `json:"p"`
+					O string          `json:"o"`
+					V json.RawMessage `json:"v"`
 				}
 				if json.Unmarshal([]byte(dataContent), &patch) == nil && patch.P != "" {
 					if patch.P == "response/status" {
-						if statusStr, ok := patch.V.(string); ok && statusStr == "FINISHED" {
+						var statusStr string
+						if json.Unmarshal(patch.V, &statusStr) == nil && statusStr == "FINISHED" {
 							break
 						}
-					} else if patch.P == "response/content" || strings.HasSuffix(patch.P, "/content") {
-						if vStr, ok := patch.V.(string); ok {
-							contentChunk = vStr
+					} else if patch.P == "response/fragments" && patch.O == "APPEND" {
+						var newFrags []struct {
+							Type    string `json:"type"`
+							Content string `json:"content"`
+						}
+						if json.Unmarshal(patch.V, &newFrags) == nil && len(newFrags) > 0 {
+							for _, nf := range newFrags {
+								fragType := strings.ToUpper(nf.Type)
+								c.Set("deepseek_active_fragment_type", fragType)
+								if fragType == "THINK" || fragType == "THINKING" {
+									reasoningChunk += nf.Content
+								} else {
+									contentChunk += nf.Content
+								}
+							}
+						}
+					} else if patch.P == "response/fragments/-1/content" || strings.HasSuffix(patch.P, "/content") {
+						var vStr string
+						if json.Unmarshal(patch.V, &vStr) == nil && vStr != "" {
+							activeFrag := c.GetString("deepseek_active_fragment_type")
+							if activeFrag == "THINK" || activeFrag == "THINKING" {
+								reasoningChunk = vStr
+							} else {
+								contentChunk = vStr
+							}
 						}
 					} else if patch.P == "response/thinking_content" || strings.HasSuffix(patch.P, "/thinking_content") {
-						if vStr, ok := patch.V.(string); ok {
+						var vStr string
+						if json.Unmarshal(patch.V, &vStr) == nil && vStr != "" {
 							reasoningChunk = vStr
 						}
 					}
 				} else {
-					// 1b. Try initial response object: {"v":{"response":{"fragments":[{"type":"RESPONSE","content":"P"}]}}}
+					// 1b. Try initial response object: {"v":{"response":{"fragments":[{"type":"THINK","content":"..."}]}}}
 					var initV struct {
 						V struct {
 							Response struct {
@@ -394,32 +420,40 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 					}
 					if json.Unmarshal([]byte(dataContent), &initV) == nil && len(initV.V.Response.Fragments) > 0 {
 						for _, f := range initV.V.Response.Fragments {
-							if f.Type == "RESPONSE" || f.Type == "" {
-								contentChunk += f.Content
-							} else if f.Type == "THINKING" {
+							fragType := strings.ToUpper(f.Type)
+							c.Set("deepseek_active_fragment_type", fragType)
+							if fragType == "THINK" || fragType == "THINKING" {
 								reasoningChunk += f.Content
+							} else {
+								contentChunk += f.Content
 							}
 						}
-					}
-					// 2. Try standard OpenAI chunk format
-					var oaiChunk struct {
-						Choices []struct {
-							Delta struct {
-								Content          string `json:"content"`
-								ReasoningContent string `json:"reasoning_content"`
-							} `json:"delta"`
-						} `json:"choices"`
-					}
-					if json.Unmarshal([]byte(dataContent), &oaiChunk) == nil && len(oaiChunk.Choices) > 0 {
-						contentChunk = oaiChunk.Choices[0].Delta.Content
-						reasoningChunk = oaiChunk.Choices[0].Delta.ReasoningContent
 					} else {
-						// 3. Fallback: direct {"v": "..."}
+						// 2. Try simple {"v": "..."} token (very common in DeepSeek SSE streams)
 						var simpleV struct {
 							V string `json:"v"`
 						}
 						if json.Unmarshal([]byte(dataContent), &simpleV) == nil && simpleV.V != "" {
-							contentChunk = simpleV.V
+							activeFrag := c.GetString("deepseek_active_fragment_type")
+							if activeFrag == "THINK" || activeFrag == "THINKING" {
+								reasoningChunk = simpleV.V
+							} else {
+								contentChunk = simpleV.V
+							}
+						} else {
+							// 3. Fallback: OpenAI chunk format
+							var oaiChunk struct {
+								Choices []struct {
+									Delta struct {
+										Content          string `json:"content"`
+										ReasoningContent string `json:"reasoning_content"`
+									} `json:"delta"`
+								} `json:"choices"`
+							}
+							if json.Unmarshal([]byte(dataContent), &oaiChunk) == nil && len(oaiChunk.Choices) > 0 {
+								contentChunk = oaiChunk.Choices[0].Delta.Content
+								reasoningChunk = oaiChunk.Choices[0].Delta.ReasoningContent
+							}
 						}
 					}
 				}

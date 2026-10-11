@@ -3491,6 +3491,79 @@ export function ChannelMutateDrawer({
                                       })()}
                                     </div>
                                   </div>
+
+                                  {/* Thinking Level Selection for Antigravity */}
+                                  <div className='pt-2 border-t flex flex-col sm:flex-row sm:items-center justify-between gap-2'>
+                                    <div className='text-xs'>
+                                      <span className='font-medium text-foreground'>{t('Thinking (Düşünme) Seviyesi:')}</span>
+                                      <span className='text-muted-foreground ml-1.5'>
+                                        {t('(None: dokunulmaz/kapalı, Low, Medium, High)')}
+                                      </span>
+                                    </div>
+                                    <div className='flex items-center gap-2'>
+                                      {(() => {
+                                        const rawKey = form.watch('key') || ''
+                                        let currentThinking = 'low'
+                                        try {
+                                          if (rawKey.trim().startsWith('{')) {
+                                            const parsed = JSON.parse(rawKey)
+                                            if (parsed.thinking_level) currentThinking = parsed.thinking_level
+                                          }
+                                        } catch (_) {}
+
+                                        const setThinking = (lvl: string) => {
+                                          try {
+                                            if (rawKey.trim().startsWith('{')) {
+                                              const parsed = JSON.parse(rawKey)
+                                              parsed.thinking_level = lvl
+                                              form.setValue('key', JSON.stringify(parsed), { shouldValidate: true })
+                                            }
+                                          } catch (_) {}
+                                        }
+
+                                        return (
+                                          <div className='flex items-center gap-1 bg-background/80 p-1 rounded-md border text-xs'>
+                                            <Button
+                                              type='button'
+                                              variant={currentThinking === 'none' ? 'secondary' : 'ghost'}
+                                              size='sm'
+                                              className='h-7 px-2 text-xs'
+                                              onClick={() => setThinking('none')}
+                                            >
+                                              None
+                                            </Button>
+                                            <Button
+                                              type='button'
+                                              variant={currentThinking === 'low' ? 'secondary' : 'ghost'}
+                                              size='sm'
+                                              className='h-7 px-2 text-xs'
+                                              onClick={() => setThinking('low')}
+                                            >
+                                              Low
+                                            </Button>
+                                            <Button
+                                              type='button'
+                                              variant={currentThinking === 'medium' ? 'secondary' : 'ghost'}
+                                              size='sm'
+                                              className='h-7 px-2 text-xs'
+                                              onClick={() => setThinking('medium')}
+                                            >
+                                              Medium
+                                            </Button>
+                                            <Button
+                                              type='button'
+                                              variant={currentThinking === 'high' ? 'secondary' : 'ghost'}
+                                              size='sm'
+                                              className='h-7 px-2 text-xs'
+                                              onClick={() => setThinking('high')}
+                                            >
+                                              High
+                                            </Button>
+                                          </div>
+                                        )
+                                      })()}
+                                    </div>
+                                  </div>
                                 </div>
                               )}
 
