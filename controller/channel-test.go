@@ -97,6 +97,17 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			}
 		}
 
+		if strings.Contains(strings.ToLower(errStr), "kurdish") ||
+			strings.Contains(strings.ToLower(errStr), "central kurdish") ||
+			strings.Contains(strings.ToLower(errStr), "ckb") ||
+			strings.Contains(strings.ToLower(errStr), "unsupported_language") ||
+			strings.Contains(strings.ToLower(errStr), "latin script") {
+			retryRes := testChannelInternal(ctx, channel, testUserID, testModel, endpointType, isStream, "male")
+			if retryRes.localErr == nil {
+				return retryRes
+			}
+		}
+
 		if fallbackVoice != "" {
 			retryRes := testChannelInternal(ctx, channel, testUserID, testModel, endpointType, isStream, fallbackVoice)
 			if retryRes.localErr == nil {
@@ -930,6 +941,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 			}
 		case constant.EndpointTypeAudioSpeech:
 			voice := "alloy"
+			input := "Hello, this is a test audio message."
 			lowerM := strings.ToLower(model)
 			if channel != nil && (channel.Type == constant.ChannelTypeGemini || channel.Type == constant.ChannelTypeVertexAi) {
 				voice = "Puck"
@@ -937,13 +949,14 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				voice = "en_paul_neutral"
 			} else if strings.Contains(lowerM, "kurdish") || strings.Contains(lowerM, "ckb") || strings.Contains(lowerM, "ku") {
 				voice = "male"
+				input = "سڵاو، ئەمە پەیامێکی دەنگی تاقیکارییە."
 			}
 			if overrideVoice != "" {
 				voice = overrideVoice
 			}
 			return &dto.AudioRequest{
 				Model: model,
-				Input: "Hello, this is a test audio message.",
+				Input: input,
 				Voice: voice,
 			}
 		case constant.EndpointTypeAudioTranscription:

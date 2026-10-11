@@ -215,7 +215,12 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	if err == nil {
 		createReq.Header.Set("Authorization", "Bearer "+token)
 		createReq.Header.Set("Content-Type", "application/json")
-		createReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+		createReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+		createReq.Header.Set("Origin", "https://chat.deepseek.com")
+		createReq.Header.Set("Referer", "https://chat.deepseek.com/")
+		createReq.Header.Set("x-client-platform", "web")
+		createReq.Header.Set("x-app-version", "20241129.1")
+		createReq.Header.Set("x-client-version", "1.0.0-always")
 		client := &http.Client{Timeout: 10 * time.Second}
 		if sResp, sErr := client.Do(createReq); sErr == nil {
 			var sessResp struct {
@@ -272,6 +277,11 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	httpReq.Header.Set("Authorization", "Bearer "+token)
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
+	httpReq.Header.Set("Origin", "https://chat.deepseek.com")
+	httpReq.Header.Set("Referer", "https://chat.deepseek.com/")
+	httpReq.Header.Set("x-client-platform", "web")
+	httpReq.Header.Set("x-app-version", "20241129.1")
+	httpReq.Header.Set("x-client-version", "1.0.0-always")
 	httpReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
 
 	client := &http.Client{Timeout: 120 * time.Second}
@@ -309,32 +319,71 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 				if dataContent == "[DONE]" {
 					break
 				}
-				var chunk struct {
-					Choices []struct {
-						Delta struct {
-							Content          string `json:"content"`
-							ReasoningContent string `json:"reasoning_content"`
-						} `json:"delta"`
-					} `json:"choices"`
+
+				var contentChunk string
+				var reasoningChunk string
+
+				// 1. Try DeepSeek Web patch format: {"p":"response/content","o":"APPEND","v":"..."}
+				var patch struct {
+					P string `json:"p"`
+					O string `json:"o"`
+					V any    `json:"v"`
 				}
-				if json.Unmarshal([]byte(dataContent), &chunk) == nil && len(chunk.Choices) > 0 {
-					delta := chunk.Choices[0].Delta
-					if delta.Content != "" {
-						totalResponse.WriteString(delta.Content)
+				if json.Unmarshal([]byte(dataContent), &patch) == nil && patch.P != "" {
+					if patch.P == "response/status" {
+						if statusStr, ok := patch.V.(string); ok && statusStr == "FINISHED" {
+							break
+						}
+					} else if patch.P == "response/content" {
+						if vStr, ok := patch.V.(string); ok {
+							contentChunk = vStr
+						}
+					} else if patch.P == "response/thinking_content" {
+						if vStr, ok := patch.V.(string); ok {
+							reasoningChunk = vStr
+						}
 					}
-					if delta.ReasoningContent != "" {
-						reasoningResponse.WriteString(delta.ReasoningContent)
+				} else {
+					// 2. Try standard OpenAI chunk format
+					var oaiChunk struct {
+						Choices []struct {
+							Delta struct {
+								Content          string `json:"content"`
+								ReasoningContent string `json:"reasoning_content"`
+							} `json:"delta"`
+						} `json:"choices"`
+					}
+					if json.Unmarshal([]byte(dataContent), &oaiChunk) == nil && len(oaiChunk.Choices) > 0 {
+						contentChunk = oaiChunk.Choices[0].Delta.Content
+						reasoningChunk = oaiChunk.Choices[0].Delta.ReasoningContent
+					} else {
+						// 3. Fallback: direct {"v": "..."}
+						var simpleV struct {
+							V string `json:"v"`
+						}
+						if json.Unmarshal([]byte(dataContent), &simpleV) == nil && simpleV.V != "" {
+							contentChunk = simpleV.V
+						}
+					}
+				}
+
+				if contentChunk != "" || reasoningChunk != "" {
+					if contentChunk != "" {
+						totalResponse.WriteString(contentChunk)
+					}
+					if reasoningChunk != "" {
+						reasoningResponse.WriteString(reasoningChunk)
 					}
 
 					if isStream {
 						deltaChoice := dto.ChatCompletionsStreamResponseChoiceDelta{}
-						if delta.Content != "" {
-							deltaChoice.Content = &delta.Content
+						if contentChunk != "" {
+							deltaChoice.Content = &contentChunk
 						}
-						if delta.ReasoningContent != "" {
-							deltaChoice.ReasoningContent = &delta.ReasoningContent
+						if reasoningChunk != "" {
+							deltaChoice.ReasoningContent = &reasoningChunk
 						}
-						oaiChunk := dto.ChatCompletionsStreamResponse{
+						chunkResp := dto.ChatCompletionsStreamResponse{
 							Id:      responseId,
 							Object:  "chat.completion.chunk",
 							Created: createdTime,
@@ -346,7 +395,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 								},
 							},
 						}
-						chunkBytes, _ := json.Marshal(oaiChunk)
+						chunkBytes, _ := json.Marshal(chunkResp)
 						c.Writer.Write([]byte(fmt.Sprintf("data: %s\n\n", string(chunkBytes))))
 						c.Writer.Flush()
 					}
@@ -356,6 +405,10 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		if readErr != nil {
 			break
 		}
+	}
+
+	if totalResponse.Len() == 0 && reasoningResponse.Len() == 0 {
+		return nil, types.NewError(errors.New("deepseek web: boş yanıt alındı (empty response from upstream)"), types.ErrorCodeBadResponse)
 	}
 
 	if isStream {

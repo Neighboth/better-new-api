@@ -102,6 +102,49 @@ func refreshAntigravityKey(ak *AntigravityKey) (string, error) {
 	return res.AccessToken, nil
 }
 
+func fetchAntigravityProject(token string, baseURL string) string {
+	if token == "" {
+		return ""
+	}
+	if baseURL == "" {
+		baseURL = "https://daily-cloudcode-pa.googleapis.com"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1internal:loadCodeAssist", strings.NewReader(`{"metadata":{"ideType":"ANTIGRAVITY"}}`))
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "antigravity/1.10.4 windows/amd64")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var res struct {
+		CloudaicompanionProject string `json:"cloudaicompanionProject"`
+		Project                 string `json:"project"`
+		Data                    struct {
+			Project string `json:"project"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err == nil {
+		if res.CloudaicompanionProject != "" {
+			return res.CloudaicompanionProject
+		}
+		if res.Project != "" {
+			return res.Project
+		}
+		if res.Data.Project != "" {
+			return res.Data.Project
+		}
+	}
+	return ""
+}
+
 func parseAntigravityKey(key string) (token string, project string) {
 	key = strings.TrimSpace(key)
 	if strings.HasPrefix(key, "{") {
@@ -131,6 +174,15 @@ func parseAntigravityKey(key string) (token string, project string) {
 					}
 				}
 			}
+			if p == "" && t != "" {
+				p = fetchAntigravityProject(t, "")
+				if p != "" {
+					ak.ProjectID = p
+					if updatedBytes, errM := json.Marshal(ak); errM == nil {
+						_ = model.DB.Model(&model.Channel{}).Where("`key` = ?", key).Update("key", string(updatedBytes)).Error
+					}
+				}
+			}
 			if t != "" {
 				return t, p
 			}
@@ -152,7 +204,7 @@ func (a *Adaptor) GetModelList() []string {
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	baseUrl := info.ChannelBaseUrl
 	if baseUrl == "" {
-		baseUrl = "https://cloudcode-pa.googleapis.com"
+		baseUrl = "https://daily-cloudcode-pa.googleapis.com"
 	}
 	action := "generateContent"
 	if info.IsStream {
@@ -185,20 +237,10 @@ func wrapV1InternalRequest(info *relaycommon.RelayInfo, geminiReq *dto.GeminiCha
 	if modelName == "" {
 		modelName = info.OriginModelName
 	}
-	// normalize model name (e.g., strip vendor prefix if needed)
+	// normalize model name (strip vendor prefix e.g. google/ or antigravity/)
 	if strings.Contains(modelName, "/") {
 		parts := strings.Split(modelName, "/")
 		modelName = parts[len(parts)-1]
-	}
-	lower := strings.ToLower(modelName)
-	if strings.Contains(lower, "flash") {
-		modelName = "gemini-3.8-flash"
-	} else if strings.Contains(lower, "opus") {
-		modelName = "claude-opus-5.5"
-	} else if strings.Contains(lower, "sonnet") {
-		modelName = "claude-sonnet-5.5"
-	} else if !strings.HasPrefix(lower, "gemini") && !strings.HasPrefix(lower, "claude") {
-		modelName = "gemini-3.8-flash"
 	}
 
 	return &V1InternalRequest{
@@ -286,9 +328,10 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		requestBody = bytes.NewReader(bodyBytes)
 	}
 	resp, err := channel.DoApiRequest(a, c, info, requestBody)
-	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+	if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusTooManyRequests) {
 		var ak AntigravityKey
-		if json.Unmarshal([]byte(info.ApiKey), &ak) == nil && ak.RefreshToken != "" {
+		keyParsed := json.Unmarshal([]byte(info.ApiKey), &ak) == nil
+		if keyParsed && ak.RefreshToken != "" && resp.StatusCode == http.StatusUnauthorized {
 			if newTok, errR := refreshAntigravityKey(&ak); errR == nil && newTok != "" {
 				_ = resp.Body.Close()
 				if updatedBytes, errM := json.Marshal(ak); errM == nil {
@@ -303,6 +346,25 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 					retryBody = bytes.NewReader(bodyBytes)
 				}
 				return channel.DoApiRequest(a, c, info, retryBody)
+			}
+		}
+		// If 429 RESOURCE_EXHAUSTED or 401 and base URL was daily, try switching to prod or vice-versa
+		if resp.StatusCode == http.StatusTooManyRequests {
+			currentBase := info.ChannelBaseUrl
+			if currentBase == "" || strings.Contains(currentBase, "daily") {
+				_ = resp.Body.Close()
+				info.ChannelBaseUrl = "https://cloudcode-pa.googleapis.com"
+				var retryBody io.Reader
+				if bodyBytes != nil {
+					retryBody = bytes.NewReader(bodyBytes)
+				}
+				secondResp, secondErr := channel.DoApiRequest(a, c, info, retryBody)
+				if secondResp != nil && secondResp.StatusCode == http.StatusOK {
+					return secondResp, secondErr
+				}
+				if secondResp != nil {
+					return secondResp, secondErr
+				}
 			}
 		}
 	}
