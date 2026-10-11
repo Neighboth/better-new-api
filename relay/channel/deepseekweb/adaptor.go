@@ -212,30 +212,38 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	// Create session first
 	createSessionURL := baseUrl + "/api/v0/chat_session/create"
 	createReq, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, createSessionURL, strings.NewReader(`{}`))
-	if err == nil {
-		createReq.Header.Set("Authorization", "Bearer "+token)
-		createReq.Header.Set("Content-Type", "application/json")
-		createReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-		createReq.Header.Set("Origin", "https://chat.deepseek.com")
-		createReq.Header.Set("Referer", "https://chat.deepseek.com/")
-		createReq.Header.Set("x-client-platform", "web")
-		createReq.Header.Set("x-app-version", "20241129.1")
-		createReq.Header.Set("x-client-version", "1.0.0-always")
-		client := &http.Client{Timeout: 10 * time.Second}
-		if sResp, sErr := client.Do(createReq); sErr == nil {
-			var sessResp struct {
-				Data struct {
-					BizData struct {
-						ID string `json:"id"`
-					} `json:"biz_data"`
-				} `json:"data"`
-			}
-			_ = json.NewDecoder(sResp.Body).Decode(&sessResp)
-			sResp.Body.Close()
-			if sessResp.Data.BizData.ID != "" {
-				c.Set("deepseek_session_id", sessResp.Data.BizData.ID)
-			}
-		}
+	if err != nil {
+		return nil, fmt.Errorf("failed to create session request: %w", err)
+	}
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+	createReq.Header.Set("Origin", "https://chat.deepseek.com")
+	createReq.Header.Set("Referer", "https://chat.deepseek.com/")
+	createReq.Header.Set("x-client-platform", "web")
+	createReq.Header.Set("x-app-version", "20241129.1")
+	createReq.Header.Set("x-client-version", "1.0.0-always")
+	client := &http.Client{Timeout: 15 * time.Second}
+	sResp, sErr := client.Do(createReq)
+	if sErr != nil {
+		return nil, fmt.Errorf("deepseek session creation request failed: %w", sErr)
+	}
+	defer sResp.Body.Close()
+	if sResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(sResp.Body)
+		return nil, fmt.Errorf("deepseek session creation failed (HTTP %d): %s", sResp.StatusCode, string(body))
+	}
+	var sessResp struct {
+		Data struct {
+			BizData struct {
+				ID string `json:"id"`
+			} `json:"biz_data"`
+		} `json:"data"`
+	}
+	_ = json.NewDecoder(sResp.Body).Decode(&sessResp)
+	sessID := sessResp.Data.BizData.ID
+	if sessID == "" {
+		return nil, errors.New("deepseek web: session id not returned by server")
 	}
 
 	// Read input request
@@ -257,42 +265,54 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		prompt = "Hello"
 	}
 
-	sessID := c.GetString("deepseek_session_id")
 	thinkingEnabled := strings.Contains(strings.ToLower(info.UpstreamModelName), "reasoner") || strings.Contains(strings.ToLower(info.UpstreamModelName), "r1")
 
 	// Get PoW challenge and solve it
 	var powHeaderVal string
 	powReqURL := baseUrl + "/api/v0/chat/create_pow_challenge"
 	powReq, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, powReqURL, strings.NewReader(`{"target_path":"/api/v0/chat/completion"}`))
-	if err == nil {
-		powReq.Header.Set("Authorization", "Bearer "+token)
-		powReq.Header.Set("Content-Type", "application/json")
-		powReq.Header.Set("Origin", "https://chat.deepseek.com")
-		powReq.Header.Set("Referer", "https://chat.deepseek.com/")
-		powReq.Header.Set("x-client-platform", "web")
-		powReq.Header.Set("x-app-version", "20241129.1")
-		powReq.Header.Set("x-client-version", "1.0.0-always")
-		powReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-
-		powClient := &http.Client{Timeout: 10 * time.Second}
-		if powResp, powErr := powClient.Do(powReq); powErr == nil {
-			var powData struct {
-				Data struct {
-					BizData struct {
-						Challenge PowChallenge `json:"challenge"`
-					} `json:"biz_data"`
-				} `json:"data"`
-			}
-			if decErr := json.NewDecoder(powResp.Body).Decode(&powData); decErr == nil {
-				if powData.Data.BizData.Challenge.Challenge != "" {
-					if solvedStr, sErr := SolvePoWChallenge(&powData.Data.BizData.Challenge); sErr == nil && solvedStr != "" {
-						powHeaderVal = solvedStr
-					}
-				}
-			}
-			powResp.Body.Close()
-		}
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pow challenge request: %w", err)
 	}
+	powReq.Header.Set("Authorization", "Bearer "+token)
+	powReq.Header.Set("Content-Type", "application/json")
+	powReq.Header.Set("Origin", "https://chat.deepseek.com")
+	powReq.Header.Set("Referer", "https://chat.deepseek.com/")
+	powReq.Header.Set("x-client-platform", "web")
+	powReq.Header.Set("x-app-version", "20241129.1")
+	powReq.Header.Set("x-client-version", "1.0.0-always")
+	powReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+
+	powClient := &http.Client{Timeout: 15 * time.Second}
+	powResp, powErr := powClient.Do(powReq)
+	if powErr != nil {
+		return nil, fmt.Errorf("deepseek pow challenge request failed: %w", powErr)
+	}
+	defer powResp.Body.Close()
+	if powResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(powResp.Body)
+		return nil, fmt.Errorf("deepseek pow challenge failed (HTTP %d): %s", powResp.StatusCode, string(body))
+	}
+
+	var powData struct {
+		Data struct {
+			BizData struct {
+				Challenge PowChallenge `json:"challenge"`
+			} `json:"biz_data"`
+		} `json:"data"`
+	}
+	if decErr := json.NewDecoder(powResp.Body).Decode(&powData); decErr != nil {
+		return nil, fmt.Errorf("failed to decode pow challenge: %w", decErr)
+	}
+	if powData.Data.BizData.Challenge.Challenge == "" {
+		return nil, errors.New("deepseek web: empty pow challenge returned")
+	}
+
+	solvedStr, sErr := SolvePoWChallenge(&powData.Data.BizData.Challenge)
+	if sErr != nil {
+		return nil, fmt.Errorf("failed to solve pow challenge: %w", sErr)
+	}
+	powHeaderVal = solvedStr
 
 	webReqPayload := map[string]any{
 		"chat_session_id":   sessID,
@@ -321,7 +341,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		httpReq.Header.Set("x-ds-pow-response", powHeaderVal)
 	}
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client = &http.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, err
@@ -347,6 +367,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	responseId := fmt.Sprintf("chatcmpl-%s", common.GetUUID())
 	createdTime := time.Now().Unix()
 
+	var activeFrag string
 	for {
 		line, readErr := reader.ReadString('\n')
 		if len(line) > 0 {
@@ -382,7 +403,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 						if json.Unmarshal(patch.V, &newFrags) == nil && len(newFrags) > 0 {
 							for _, nf := range newFrags {
 								fragType := strings.ToUpper(nf.Type)
-								c.Set("deepseek_active_fragment_type", fragType)
+								activeFrag = fragType
 								if fragType == "THINK" || fragType == "THINKING" {
 									reasoningChunk += nf.Content
 								} else {
@@ -393,7 +414,6 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 					} else if patch.P == "response/fragments/-1/content" || strings.HasSuffix(patch.P, "/content") {
 						var vStr string
 						if json.Unmarshal(patch.V, &vStr) == nil && vStr != "" {
-							activeFrag := c.GetString("deepseek_active_fragment_type")
 							if activeFrag == "THINK" || activeFrag == "THINKING" {
 								reasoningChunk = vStr
 							} else {
@@ -421,7 +441,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 					if json.Unmarshal([]byte(dataContent), &initV) == nil && len(initV.V.Response.Fragments) > 0 {
 						for _, f := range initV.V.Response.Fragments {
 							fragType := strings.ToUpper(f.Type)
-							c.Set("deepseek_active_fragment_type", fragType)
+							activeFrag = fragType
 							if fragType == "THINK" || fragType == "THINKING" {
 								reasoningChunk += f.Content
 							} else {
@@ -434,7 +454,6 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 							V string `json:"v"`
 						}
 						if json.Unmarshal([]byte(dataContent), &simpleV) == nil && simpleV.V != "" {
-							activeFrag := c.GetString("deepseek_active_fragment_type")
 							if activeFrag == "THINK" || activeFrag == "THINKING" {
 								reasoningChunk = simpleV.V
 							} else {
@@ -506,6 +525,15 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		c.Writer.Write([]byte("data: [DONE]\n\n"))
 		c.Writer.Flush()
 	} else {
+		finalContent := totalResponse.String()
+		if finalContent == "" && reasoningResponse.Len() > 0 {
+			finalContent = reasoningResponse.String()
+		}
+		var finalReasoning *string
+		if reasoningResponse.Len() > 0 {
+			rStr := reasoningResponse.String()
+			finalReasoning = &rStr
+		}
 		fullResp := dto.OpenAITextResponse{
 			Id:      responseId,
 			Object:  "chat.completion",
@@ -515,8 +543,9 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 				{
 					Index: 0,
 					Message: dto.Message{
-						Role:    "assistant",
-						Content: totalResponse.String(),
+						Role:             "assistant",
+						Content:          finalContent,
+						ReasoningContent: finalReasoning,
 					},
 					FinishReason: "stop",
 				},

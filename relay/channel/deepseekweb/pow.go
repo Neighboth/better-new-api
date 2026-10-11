@@ -60,8 +60,8 @@ func getWasmFilePath() (string, error) {
 
 const nodeSolverScript = `
 const fs = require('fs');
-const wasmPath = process.argv[2];
-const challengeConfig = JSON.parse(process.argv[3]);
+const wasmPath = process.argv[1];
+const challengeConfig = JSON.parse(process.argv[2]);
 
 async function solve() {
     const wasmBuffer = fs.readFileSync(wasmPath);
@@ -132,9 +132,9 @@ func SolvePoWChallenge(challenge *PowChallenge) (string, error) {
 
 	// Run node with inline script
 	cmd := exec.Command("node", "-e", nodeSolverScript, wasmFile, string(challengeJson))
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("node pow solver failed: %w", err)
+		return "", fmt.Errorf("node pow solver failed (%w): %s", err, string(output))
 	}
 
 	var res struct {
