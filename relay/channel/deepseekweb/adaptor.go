@@ -94,6 +94,21 @@ func resolveToken(ctx context.Context, apiKey, baseURL string) (string, error) {
 	if apiKey == "" {
 		return "", errors.New("deepseek web credentials missing: enter username and password or user token")
 	}
+	if strings.HasPrefix(apiKey, "{") {
+		var tokenObj map[string]any
+		if err := json.Unmarshal([]byte(apiKey), &tokenObj); err == nil {
+			if val, ok := tokenObj["value"].(string); ok && val != "" {
+				return val, nil
+			}
+			if val, ok := tokenObj["token"].(string); ok && val != "" {
+				return val, nil
+			}
+			if val, ok := tokenObj["userToken"].(string); ok && val != "" {
+				return val, nil
+			}
+		}
+	}
+	apiKey = strings.Trim(apiKey, "\"")
 	if !strings.Contains(apiKey, ":") {
 		// Already a user token
 		return apiKey, nil

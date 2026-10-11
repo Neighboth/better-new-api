@@ -505,12 +505,16 @@ export function CreateDeploymentDrawer({
                         items={
                           provider === 'modal'
                             ? [
-                                { value: 'modal-t4', label: 'NVIDIA T4 (16GB)' },
-                                { value: 'modal-l4', label: 'NVIDIA L4 (24GB)' },
-                                { value: 'modal-a10g', label: 'NVIDIA A10G (24GB)' },
-                                { value: 'modal-a100-40gb', label: 'NVIDIA A100 (40GB)' },
-                                { value: 'modal-a100-80gb', label: 'NVIDIA A100 (80GB)' },
+                                { value: 'modal-b300', label: 'NVIDIA B300 (288GB)' },
+                                { value: 'modal-b200', label: 'NVIDIA B200 (180GB)' },
+                                { value: 'modal-h200', label: 'NVIDIA H200 (141GB)' },
                                 { value: 'modal-h100', label: 'NVIDIA H100 (80GB)' },
+                                { value: 'modal-a100-80gb', label: 'NVIDIA A100 (80GB)' },
+                                { value: 'modal-a100-40gb', label: 'NVIDIA A100 (40GB)' },
+                                { value: 'modal-l40s', label: 'NVIDIA L40S (48GB)' },
+                                { value: 'modal-a10g', label: 'NVIDIA A10G (24GB)' },
+                                { value: 'modal-l4', label: 'NVIDIA L4 (24GB)' },
+                                { value: 'modal-t4', label: 'NVIDIA T4 (16GB)' },
                                 { value: 'modal-cpu', label: 'Modal Serverless CPU' },
                               ]
                             : provider === 'huggingface'
@@ -540,12 +544,16 @@ export function CreateDeploymentDrawer({
                           <SelectGroup>
                             {provider === 'modal' ? (
                               <>
-                                <SelectItem value='modal-t4'>NVIDIA T4 (16GB)</SelectItem>
-                                <SelectItem value='modal-l4'>NVIDIA L4 (24GB)</SelectItem>
-                                <SelectItem value='modal-a10g'>NVIDIA A10G (24GB)</SelectItem>
-                                <SelectItem value='modal-a100-40gb'>NVIDIA A100 (40GB)</SelectItem>
-                                <SelectItem value='modal-a100-80gb'>NVIDIA A100 (80GB)</SelectItem>
+                                <SelectItem value='modal-b300'>NVIDIA B300 (288GB)</SelectItem>
+                                <SelectItem value='modal-b200'>NVIDIA B200 (180GB)</SelectItem>
+                                <SelectItem value='modal-h200'>NVIDIA H200 (141GB)</SelectItem>
                                 <SelectItem value='modal-h100'>NVIDIA H100 (80GB)</SelectItem>
+                                <SelectItem value='modal-a100-80gb'>NVIDIA A100 (80GB)</SelectItem>
+                                <SelectItem value='modal-a100-40gb'>NVIDIA A100 (40GB)</SelectItem>
+                                <SelectItem value='modal-l40s'>NVIDIA L40S (48GB)</SelectItem>
+                                <SelectItem value='modal-a10g'>NVIDIA A10G (24GB)</SelectItem>
+                                <SelectItem value='modal-l4'>NVIDIA L4 (24GB)</SelectItem>
+                                <SelectItem value='modal-t4'>NVIDIA T4 (16GB)</SelectItem>
                                 <SelectItem value='modal-cpu'>Modal Serverless CPU</SelectItem>
                               </>
                             ) : provider === 'huggingface' ? (

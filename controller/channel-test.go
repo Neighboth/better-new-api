@@ -74,6 +74,40 @@ func resolveChannelTestUserID(c *gin.Context) (int, error) {
 }
 
 func testChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool) testResult {
+	res := testChannelInternal(ctx, channel, testUserID, testModel, endpointType, isStream, "")
+	if res.localErr != nil {
+		errStr := res.localErr.Error()
+		fallbackVoice := ""
+		if strings.Contains(errStr, "Supported:") {
+			idx := strings.Index(errStr, "Supported:")
+			after := errStr[idx+len("Supported:"):]
+			parts := strings.FieldsFunc(after, func(r rune) bool {
+				return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '.' || r == '"' || r == '\''
+			})
+			if len(parts) > 0 && len(parts[0]) > 0 {
+				fallbackVoice = parts[0]
+			}
+		} else if strings.Contains(strings.ToLower(errStr), "invalid_voice") ||
+			strings.Contains(strings.ToLower(errStr), "voice 'alloy' not found") ||
+			strings.Contains(strings.ToLower(errStr), "either ref_audio or voice must be provided") {
+			if strings.Contains(strings.ToLower(testModel), "mistral") || strings.Contains(strings.ToLower(testModel), "voxtral") {
+				fallbackVoice = "en_paul_neutral"
+			} else {
+				fallbackVoice = "male"
+			}
+		}
+
+		if fallbackVoice != "" {
+			retryRes := testChannelInternal(ctx, channel, testUserID, testModel, endpointType, isStream, fallbackVoice)
+			if retryRes.localErr == nil {
+				return retryRes
+			}
+		}
+	}
+	return res
+}
+
+func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool, overrideVoice string) testResult {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -263,7 +297,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		}
 	}
 
-	request := buildTestRequest(testModel, endpointType, channel, isStream)
+	request := buildTestRequest(testModel, endpointType, channel, isStream, overrideVoice)
 
 	info, err := relaycommon.GenRelayInfo(c, relayFormat, request, nil)
 
@@ -446,7 +480,24 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 				newAPIError: types.NewError(errors.New("invalid response compaction request type"), types.ErrorCodeConvertRequestFailed),
 			}
 		}
-	case relayconstant.RelayModeAudioSpeech, relayconstant.RelayModeAudioTranscription:
+	case relayconstant.RelayModeAudioSpeech:
+		if audioReq, ok := request.(*dto.AudioRequest); ok {
+			audioReader, convErr := adaptor.ConvertAudioRequest(c, info, *audioReq)
+			if convErr == nil && audioReader != nil {
+				audioBytes, _ := io.ReadAll(audioReader)
+				var rawMap any
+				if errU := json.Unmarshal(audioBytes, &rawMap); errU == nil {
+					convertedRequest = rawMap
+				} else {
+					convertedRequest = audioReq
+				}
+			} else {
+				convertedRequest = audioReq
+			}
+		} else {
+			convertedRequest = request
+		}
+	case relayconstant.RelayModeAudioTranscription:
 		convertedRequest = request
 	case relayconstant.RelayModeRealtime:
 		convertedRequest = map[string]any{"model": testModel}
@@ -827,7 +878,7 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
 	return message
 }
 
-func buildTestRequest(model string, endpointType string, channel *model.Channel, isStream bool) dto.Request {
+func buildTestRequest(model string, endpointType string, channel *model.Channel, isStream bool, overrideVoice string) dto.Request {
 	testResponsesInput := json.RawMessage(`[{"role":"user","content":"hi"}]`)
 
 	// 根据端点类型构建不同的测试请求
@@ -866,10 +917,16 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 			}
 		case constant.EndpointTypeAudioSpeech:
 			voice := "alloy"
+			lowerM := strings.ToLower(model)
 			if channel != nil && (channel.Type == constant.ChannelTypeGemini || channel.Type == constant.ChannelTypeVertexAi) {
 				voice = "Puck"
-			} else if channel != nil && channel.Type == constant.ChannelTypeMistral || strings.Contains(strings.ToLower(model), "voxtral") || strings.Contains(strings.ToLower(model), "mistral") {
+			} else if (channel != nil && channel.Type == constant.ChannelTypeMistral) || strings.Contains(lowerM, "voxtral") || strings.Contains(lowerM, "mistral") {
 				voice = "en_paul_neutral"
+			} else if strings.Contains(lowerM, "kurdish") || strings.Contains(lowerM, "ckb") || strings.Contains(lowerM, "ku") {
+				voice = "male"
+			}
+			if overrideVoice != "" {
+				voice = overrideVoice
 			}
 			return &dto.AudioRequest{
 				Model: model,
@@ -970,6 +1027,11 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 			voice = "Puck"
 		} else if (channel != nil && channel.Type == constant.ChannelTypeMistral) || strings.Contains(lowerModel, "voxtral") || strings.Contains(lowerModel, "mistral") {
 			voice = "en_paul_neutral"
+		} else if strings.Contains(lowerModel, "kurdish") || strings.Contains(lowerModel, "ckb") || strings.Contains(lowerModel, "ku") {
+			voice = "male"
+		}
+		if overrideVoice != "" {
+			voice = overrideVoice
 		}
 		return &dto.AudioRequest{
 			Model: model,

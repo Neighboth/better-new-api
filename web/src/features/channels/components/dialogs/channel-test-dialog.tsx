@@ -436,8 +436,9 @@ function ChannelTestDialogContent({
     setPagination({ pageIndex: 0, pageSize: 30 })
   }, [])
 
-  const streamDisabled = STREAM_INCOMPATIBLE_ENDPOINTS.has(endpointType)
-  const effectiveStreamTest = !streamDisabled && isStreamTest
+  const isCodexChannel = currentRow?.type === 62 || currentRow?.name?.toLowerCase().includes('codex')
+  const streamDisabled = STREAM_INCOMPATIBLE_ENDPOINTS.has(endpointType) || isCodexChannel
+  const effectiveStreamTest = isCodexChannel ? true : (!streamDisabled && isStreamTest)
 
   const handleEndpointTypeChange = useCallback((value: string | null) => {
     if (value === null) return
@@ -1065,10 +1066,17 @@ function ChannelTestDialogContent({
                 />
                 <span className='text-sm'>
                   {effectiveStreamTest ? t('Enabled') : t('Disabled')}
+                  {isCodexChannel && (
+                    <span className='ml-1 text-xs text-amber-500 font-medium'>
+                      ({t('Codex için zorunlu')})
+                    </span>
+                  )}
                 </span>
               </div>
               <p className='text-muted-foreground text-xs'>
-                {t('Enable streaming mode for the test request.')}
+                {isCodexChannel
+                  ? t('Codex kanallarında yanıtların stream olarak test edilmesi zorunludur.')
+                  : t('Enable streaming mode for the test request.')}
               </p>
             </div>
           </div>

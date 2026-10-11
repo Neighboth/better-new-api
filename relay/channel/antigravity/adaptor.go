@@ -117,6 +117,14 @@ func wrapV1InternalRequest(info *relaycommon.RelayInfo, geminiReq *dto.GeminiCha
 		parts := strings.Split(modelName, "/")
 		modelName = parts[len(parts)-1]
 	}
+	switch strings.ToLower(modelName) {
+	case "sonnet-5.5", "claude-5.5-sonnet":
+		modelName = "claude-sonnet-5.5"
+	case "opus-5.5", "claude-5.5-opus":
+		modelName = "claude-opus-5.5"
+	case "3.8-flash", "flash-3.8":
+		modelName = "gemini-3.8-flash"
+	}
 
 	return &V1InternalRequest{
 		Project:     project,
