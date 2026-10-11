@@ -168,11 +168,11 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     id: 61,
     name: CHANNEL_TYPES[61],
     icon: 'google',
-    defaultBaseUrl: 'https://cloudcode-pa.googleapis.com',
+    defaultBaseUrl: 'https://daily-cloudcode-pa.googleapis.com',
     hints: {
-      baseUrl: 'Default: https://cloudcode-pa.googleapis.com',
-      key: 'Google Cloud Bearer / OAuth Token (ya da service account)',
-      models: 'gemini-2.5-pro,gemini-2.5-flash',
+      baseUrl: 'Default: https://daily-cloudcode-pa.googleapis.com',
+      key: 'Google Antigravity JSON Key veya OAuth girişi yapınız',
+      models: 'gemini-3.8-flash,claude-opus-5.5,claude-sonnet-5.5',
     },
   },
   62: {

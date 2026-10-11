@@ -260,6 +260,40 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	sessID := c.GetString("deepseek_session_id")
 	thinkingEnabled := strings.Contains(strings.ToLower(info.UpstreamModelName), "reasoner") || strings.Contains(strings.ToLower(info.UpstreamModelName), "r1")
 
+	// Get PoW challenge and solve it
+	var powHeaderVal string
+	powReqURL := baseUrl + "/api/v0/chat/create_pow_challenge"
+	powReq, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, powReqURL, strings.NewReader(`{"target_path":"/api/v0/chat/completion"}`))
+	if err == nil {
+		powReq.Header.Set("Authorization", "Bearer "+token)
+		powReq.Header.Set("Content-Type", "application/json")
+		powReq.Header.Set("Origin", "https://chat.deepseek.com")
+		powReq.Header.Set("Referer", "https://chat.deepseek.com/")
+		powReq.Header.Set("x-client-platform", "web")
+		powReq.Header.Set("x-app-version", "20241129.1")
+		powReq.Header.Set("x-client-version", "1.0.0-always")
+		powReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+
+		powClient := &http.Client{Timeout: 10 * time.Second}
+		if powResp, powErr := powClient.Do(powReq); powErr == nil {
+			var powData struct {
+				Data struct {
+					BizData struct {
+						Challenge PowChallenge `json:"challenge"`
+					} `json:"biz_data"`
+				} `json:"data"`
+			}
+			if decErr := json.NewDecoder(powResp.Body).Decode(&powData); decErr == nil {
+				if powData.Data.BizData.Challenge.Challenge != "" {
+					if solvedStr, sErr := SolvePoWChallenge(&powData.Data.BizData.Challenge); sErr == nil && solvedStr != "" {
+						powHeaderVal = solvedStr
+					}
+				}
+			}
+			powResp.Body.Close()
+		}
+	}
+
 	webReqPayload := map[string]any{
 		"chat_session_id":   sessID,
 		"parent_message_id": nil,
@@ -283,6 +317,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	httpReq.Header.Set("x-app-version", "20241129.1")
 	httpReq.Header.Set("x-client-version", "1.0.0-always")
 	httpReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+	if powHeaderVal != "" {
+		httpReq.Header.Set("x-ds-pow-response", powHeaderVal)
+	}
 
 	client := &http.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(httpReq)
@@ -323,7 +360,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 				var contentChunk string
 				var reasoningChunk string
 
-				// 1. Try DeepSeek Web patch format: {"p":"response/content","o":"APPEND","v":"..."}
+				// 1. Try DeepSeek Web patch format: {"p":"response/content","o":"APPEND","v":"..."} or {"p":"response/fragments/-1/content","v":"..."}
 				var patch struct {
 					P string `json:"p"`
 					O string `json:"o"`
@@ -334,16 +371,36 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 						if statusStr, ok := patch.V.(string); ok && statusStr == "FINISHED" {
 							break
 						}
-					} else if patch.P == "response/content" {
+					} else if patch.P == "response/content" || strings.HasSuffix(patch.P, "/content") {
 						if vStr, ok := patch.V.(string); ok {
 							contentChunk = vStr
 						}
-					} else if patch.P == "response/thinking_content" {
+					} else if patch.P == "response/thinking_content" || strings.HasSuffix(patch.P, "/thinking_content") {
 						if vStr, ok := patch.V.(string); ok {
 							reasoningChunk = vStr
 						}
 					}
 				} else {
+					// 1b. Try initial response object: {"v":{"response":{"fragments":[{"type":"RESPONSE","content":"P"}]}}}
+					var initV struct {
+						V struct {
+							Response struct {
+								Fragments []struct {
+									Type    string `json:"type"`
+									Content string `json:"content"`
+								} `json:"fragments"`
+							} `json:"response"`
+						} `json:"v"`
+					}
+					if json.Unmarshal([]byte(dataContent), &initV) == nil && len(initV.V.Response.Fragments) > 0 {
+						for _, f := range initV.V.Response.Fragments {
+							if f.Type == "RESPONSE" || f.Type == "" {
+								contentChunk += f.Content
+							} else if f.Type == "THINKING" {
+								reasoningChunk += f.Content
+							}
+						}
+					}
 					// 2. Try standard OpenAI chunk format
 					var oaiChunk struct {
 						Choices []struct {

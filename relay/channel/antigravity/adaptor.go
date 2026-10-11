@@ -49,6 +49,7 @@ type AntigravityKey struct {
 	ProjectID    string `json:"project_id"`
 	Project      string `json:"project"`
 	Expired      string `json:"expired"`
+	Plan         string `json:"plan,omitempty"` // "pro" (Google AI Pro), "plus" (Google AI Plus), "ultra" (Google AI Ultra), "free"
 }
 
 func refreshAntigravityKey(ak *AntigravityKey) (string, error) {
@@ -102,18 +103,19 @@ func refreshAntigravityKey(ak *AntigravityKey) (string, error) {
 	return res.AccessToken, nil
 }
 
-func fetchAntigravityProject(token string, baseURL string) string {
+func fetchAntigravityInfo(token string, baseURL string) (project string, detectedPlan string) {
 	if token == "" {
-		return ""
+		return "", ""
 	}
 	if baseURL == "" {
-		baseURL = "https://daily-cloudcode-pa.googleapis.com"
+		baseUrl := "https://daily-cloudcode-pa.googleapis.com"
+		baseURL = baseUrl
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1internal:loadCodeAssist", strings.NewReader(`{"metadata":{"ideType":"ANTIGRAVITY"}}`))
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
@@ -121,31 +123,56 @@ func fetchAntigravityProject(token string, baseURL string) string {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	defer resp.Body.Close()
 	var res struct {
 		CloudaicompanionProject string `json:"cloudaicompanionProject"`
 		Project                 string `json:"project"`
-		Data                    struct {
+		PaidTier                struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"paidTier"`
+		CurrentTier struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"currentTier"`
+		Data struct {
 			Project string `json:"project"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&res); err == nil {
-		if res.CloudaicompanionProject != "" {
-			return res.CloudaicompanionProject
+		p := res.CloudaicompanionProject
+		if p == "" {
+			p = res.Project
 		}
-		if res.Project != "" {
-			return res.Project
+		if p == "" {
+			p = res.Data.Project
 		}
-		if res.Data.Project != "" {
-			return res.Data.Project
+
+		plan := "pro"
+		tierStr := strings.ToLower(res.PaidTier.Name + " " + res.PaidTier.ID + " " + res.CurrentTier.Name + " " + res.CurrentTier.ID)
+		if strings.Contains(tierStr, "ultra") {
+			plan = "ultra"
+		} else if strings.Contains(tierStr, "plus") {
+			plan = "plus"
+		} else if strings.Contains(tierStr, "pro") {
+			plan = "pro"
+		} else if strings.Contains(tierStr, "free") {
+			plan = "free"
 		}
+
+		return p, plan
 	}
-	return ""
+	return "", ""
 }
 
-func parseAntigravityKey(key string) (token string, project string) {
+func fetchAntigravityProject(token string, baseURL string) string {
+	p, _ := fetchAntigravityInfo(token, baseURL)
+	return p
+}
+
+func parseAntigravityKey(key string) (token string, project string, plan string) {
 	key = strings.TrimSpace(key)
 	if strings.HasPrefix(key, "{") {
 		var ak AntigravityKey
@@ -158,6 +185,7 @@ func parseAntigravityKey(key string) (token string, project string) {
 			if p == "" {
 				p = ak.Project
 			}
+			pl := ak.Plan
 			needsRefresh := t == ""
 			if ak.Expired != "" {
 				if expTime, errE := time.Parse(time.RFC3339, ak.Expired); errE == nil {
@@ -174,21 +202,34 @@ func parseAntigravityKey(key string) (token string, project string) {
 					}
 				}
 			}
-			if p == "" && t != "" {
-				p = fetchAntigravityProject(t, "")
-				if p != "" {
+			if (p == "" || pl == "") && t != "" {
+				newP, newPl := fetchAntigravityInfo(t, "")
+				changed := false
+				if p == "" && newP != "" {
+					p = newP
 					ak.ProjectID = p
+					changed = true
+				}
+				if pl == "" && newPl != "" {
+					pl = newPl
+					ak.Plan = pl
+					changed = true
+				}
+				if changed {
 					if updatedBytes, errM := json.Marshal(ak); errM == nil {
 						_ = model.DB.Model(&model.Channel{}).Where("`key` = ?", key).Update("key", string(updatedBytes)).Error
 					}
 				}
 			}
+			if pl == "" {
+				pl = "pro"
+			}
 			if t != "" {
-				return t, p
+				return t, p, pl
 			}
 		}
 	}
-	return key, ""
+	return key, "", "pro"
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {}
@@ -216,7 +257,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
-	token, _ := parseAntigravityKey(info.ApiKey)
+	token, _, _ := parseAntigravityKey(info.ApiKey)
 	if token == "" {
 		return errors.New("antigravity channel: api key or access token is required")
 	}
@@ -232,7 +273,10 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 }
 
 func wrapV1InternalRequest(info *relaycommon.RelayInfo, geminiReq *dto.GeminiChatRequest) *V1InternalRequest {
-	_, project := parseAntigravityKey(info.ApiKey)
+	_, project, _ := parseAntigravityKey(info.ApiKey)
+	if project == "" {
+		project = "aicode-consumers"
+	}
 	modelName := info.UpstreamModelName
 	if modelName == "" {
 		modelName = info.OriginModelName
@@ -241,6 +285,24 @@ func wrapV1InternalRequest(info *relaycommon.RelayInfo, geminiReq *dto.GeminiCha
 	if strings.Contains(modelName, "/") {
 		parts := strings.Split(modelName, "/")
 		modelName = parts[len(parts)-1]
+	}
+
+	// Model normalization for Antigravity backend:
+	// Maps user requested models to cloudcode-pa upstream targets
+	lowModel := strings.ToLower(modelName)
+	if strings.Contains(lowModel, "flash") {
+		// Target gemini-3-flash with low thinking level requested by user
+		modelName = "gemini-3-flash"
+		if geminiReq != nil {
+			geminiReq.GenerationConfig.ThinkingConfig = &dto.GeminiThinkingConfig{
+				ThinkingLevel: "low",
+			}
+		}
+	} else if strings.Contains(lowModel, "sonnet") {
+		modelName = "claude-sonnet-4-6"
+	} else if strings.Contains(lowModel, "opus") {
+		// Use claude-sonnet-4-6 as fallback if opus is capacity restricted
+		modelName = "claude-sonnet-4-6"
 	}
 
 	return &V1InternalRequest{

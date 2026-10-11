@@ -674,10 +674,10 @@ export function ChannelMutateDrawer({
         if (oauthProvider === 'antigravity') {
           const currentModels = form.getValues('models')
           if (!currentModels || (typeof currentModels === 'string' && currentModels.trim() === '')) {
-            form.setValue('models', 'gemini-3.8-flash,claude-opus-5.5,claude-sonnet-5.5,opus-5.5,sonnet-5.5')
+            form.setValue('models', 'gemini-3.8-flash,claude-opus-5.5,claude-sonnet-5.5')
           }
           if (!form.getValues('base_url')) {
-            form.setValue('base_url', 'https://cloudcode-pa.googleapis.com')
+            form.setValue('base_url', 'https://daily-cloudcode-pa.googleapis.com')
           }
         } else if (oauthProvider === 'codex') {
           const currentModels = form.getValues('models')
@@ -3375,9 +3375,9 @@ export function ChannelMutateDrawer({
                                 <div className='border-border/60 flex flex-col gap-3 rounded-lg border bg-muted/20 p-4'>
                                   <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
                                     <div>
-                                      <div className='font-semibold text-sm'>{t('Google Antigravity OAuth Entegrasyonu')}</div>
+                                      <div className='font-semibold text-sm'>{t('Google Antigravity OAuth & Plan Entegrasyonu')}</div>
                                       <div className='text-muted-foreground text-xs'>
-                                        {t('Google ile giriş yapın, yönlendirilen localhost linkini yapıştırarak kimlik bilgisini alın.')}
+                                        {t('Google ile giriş yapın veya mevcut Key JSON bilginizi kullanın. Planı otomatik algılar, dilerseniz değiştirebilirsiniz.')}
                                       </div>
                                     </div>
                                     <div className='flex flex-wrap items-center gap-2'>
@@ -3418,6 +3418,79 @@ export function ChannelMutateDrawer({
                                       </div>
                                     </div>
                                   )}
+
+                                  {/* Plan Selection for Antigravity */}
+                                  <div className='pt-2 border-t flex flex-col sm:flex-row sm:items-center justify-between gap-2'>
+                                    <div className='text-xs'>
+                                      <span className='font-medium text-foreground'>{t('Google AI Abonelik Planı:')}</span>
+                                      <span className='text-muted-foreground ml-1.5'>
+                                        {t('(Başta token içeriğinden otomatik algılanır, buradan özelleştirebilirsiniz)')}
+                                      </span>
+                                    </div>
+                                    <div className='flex items-center gap-2'>
+                                      {(() => {
+                                        const rawKey = form.watch('key') || ''
+                                        let currentPlan = 'pro'
+                                        try {
+                                          if (rawKey.trim().startsWith('{')) {
+                                            const parsed = JSON.parse(rawKey)
+                                            if (parsed.plan) currentPlan = parsed.plan
+                                          }
+                                        } catch (_) {}
+
+                                        const setPlan = (planVal: string) => {
+                                          try {
+                                            if (rawKey.trim().startsWith('{')) {
+                                              const parsed = JSON.parse(rawKey)
+                                              parsed.plan = planVal
+                                              form.setValue('key', JSON.stringify(parsed), { shouldValidate: true })
+                                            }
+                                          } catch (_) {}
+                                        }
+
+                                        return (
+                                          <div className='flex items-center gap-1 bg-background/80 p-1 rounded-md border text-xs'>
+                                            <Button
+                                              type='button'
+                                              variant={currentPlan === 'pro' ? 'secondary' : 'ghost'}
+                                              size='sm'
+                                              className='h-7 px-2.5 text-xs'
+                                              onClick={() => setPlan('pro')}
+                                            >
+                                              ⭐ AI Pro
+                                            </Button>
+                                            <Button
+                                              type='button'
+                                              variant={currentPlan === 'plus' ? 'secondary' : 'ghost'}
+                                              size='sm'
+                                              className='h-7 px-2.5 text-xs'
+                                              onClick={() => setPlan('plus')}
+                                            >
+                                              🚀 AI Plus
+                                            </Button>
+                                            <Button
+                                              type='button'
+                                              variant={currentPlan === 'ultra' ? 'secondary' : 'ghost'}
+                                              size='sm'
+                                              className='h-7 px-2.5 text-xs'
+                                              onClick={() => setPlan('ultra')}
+                                            >
+                                              ⚡ AI Ultra
+                                            </Button>
+                                            <Button
+                                              type='button'
+                                              variant={currentPlan === 'free' ? 'secondary' : 'ghost'}
+                                              size='sm'
+                                              className='h-7 px-2.5 text-xs'
+                                              onClick={() => setPlan('free')}
+                                            >
+                                              🌱 Free
+                                            </Button>
+                                          </div>
+                                        )
+                                      })()}
+                                    </div>
+                                  </div>
                                 </div>
                               )}
 
