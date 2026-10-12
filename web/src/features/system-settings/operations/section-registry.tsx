@@ -98,15 +98,20 @@ const OPERATIONS_SECTIONS = [
     build: (settings: OperationsSettings) => (
       <DiscordBotSettingsSection
         defaultValues={{
-          enabled: settings['discord_bot.enabled'] ?? settings['discord.enabled'] ?? false,
-          botToken: settings['discord_bot.token'] ?? settings['discord_bot.bot_token'] ?? settings['discord.bot_token'] ?? '',
-          botName: settings['discord_bot.bot_name'] ?? settings['discord.bot_name'] ?? 'MyAIBot',
-          prefix: settings['discord_bot.prefix'] ?? settings['discord.prefix'] ?? '!',
-          status: settings['discord_bot.status'] ?? settings['discord.status'] ?? 'Ready to help',
-          language: settings['discord_bot.language'] ?? settings['discord.language'] ?? 'en',
-          embedColor: settings['discord_bot.embed_color'] ?? settings['discord.embed_color'] ?? '#00ff00',
-          aiSystemPrompt: settings['discord_bot.ai_system_prompt'] ?? settings['discord.ai_system_prompt'] ?? 'You are a helpful AI assistant.',
-          rpgEnabled: settings['discord_bot.rpc_enabled'] ?? settings['discord.rpc_enabled'] ?? settings['discord.rpg_enabled'] ?? true,
+          enabled: settings['discord_bot.enabled'] ?? false,
+          botToken:
+            settings['discord_bot.token'] ??
+            settings['discord_bot.bot_token'] ??
+            '',
+          botName: settings['discord_bot.bot_name'] ?? 'MyAIBot',
+          prefix: settings['discord_bot.prefix'] ?? '!',
+          status: settings['discord_bot.status'] ?? 'Ready to help',
+          language: settings['discord_bot.language'] ?? 'en',
+          embedColor: settings['discord_bot.embed_color'] ?? '#00ff00',
+          aiSystemPrompt:
+            settings['discord_bot.ai_system_prompt'] ??
+            'You are a helpful AI assistant.',
+          rpgEnabled: settings['discord_bot.rpc_enabled'] ?? true,
           rpcAppId: settings['discord_bot.rpc_app_id'] ?? '',
           rpcDetails: settings['discord_bot.rpc_details'] ?? '',
           rpcState: settings['discord_bot.rpc_state'] ?? '',
@@ -114,9 +119,12 @@ const OPERATIONS_SECTIONS = [
           rpcLargeText: settings['discord_bot.rpc_large_text'] ?? '',
           rpcSmallImage: settings['discord_bot.rpc_small_image'] ?? '',
           rpcSmallText: settings['discord_bot.rpc_small_text'] ?? '',
-          autoReplyChannelId: settings['discord_bot.auto_reply_channel_id'] ?? settings['discord.auto_reply_channel_id'] ?? '',
-          autoReplyModel: settings['discord_bot.auto_reply_model'] ?? settings['discord.auto_reply_model'] ?? '',
-          onlyLinkedAccounts: settings['discord_bot.only_linked_accounts'] ?? settings['discord.only_linked_accounts'] ?? false,
+          autoReplyChannelId:
+            settings['discord_bot.auto_reply_channel_id'] ?? '',
+          autoReplyModel: settings['discord_bot.auto_reply_model'] ?? '',
+          imageModel: settings['discord_bot.image_model'] ?? '',
+          onlyLinkedAccounts:
+            settings['discord_bot.only_linked_accounts'] ?? false,
         }}
       />
     ),

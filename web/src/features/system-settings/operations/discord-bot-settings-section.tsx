@@ -53,6 +53,7 @@ const schema = z.object({
   rpcSmallText: z.string().optional(),
   autoReplyChannelId: z.string().optional(),
   autoReplyModel: z.string().optional(),
+  imageModel: z.string().optional(),
   onlyLinkedAccounts: z.boolean(),
 })
 
@@ -80,6 +81,7 @@ export function DiscordBotSettingsSection({
     rpcSmallText?: string
     autoReplyChannelId?: string
     autoReplyModel?: string
+    imageModel?: string
     onlyLinkedAccounts?: boolean
   }
 }) {
@@ -108,6 +110,7 @@ export function DiscordBotSettingsSection({
       rpcSmallText: defaultValues.rpcSmallText ?? '',
       autoReplyChannelId: defaultValues.autoReplyChannelId ?? '',
       autoReplyModel: defaultValues.autoReplyModel ?? '',
+      imageModel: defaultValues.imageModel ?? '',
       onlyLinkedAccounts: defaultValues.onlyLinkedAccounts ?? false,
     },
   })
@@ -193,6 +196,10 @@ export function DiscordBotSettingsSection({
         value: String(values.autoReplyModel ?? ''),
       })
       await updateOption.mutateAsync({
+        key: 'discord_bot.image_model',
+        value: String(values.imageModel ?? ''),
+      })
+      await updateOption.mutateAsync({
         key: 'discord_bot.only_linked_accounts',
         value: String(values.onlyLinkedAccounts),
       })
@@ -220,6 +227,7 @@ export function DiscordBotSettingsSection({
                       'Connect a Discord bot to interact with users, display models menu, generate images, and auto-reply in designated channels.'
                     )}
                   </FormDescription>
+                  <FormMessage />
                 </SettingsSwitchContent>
                 <FormControl>
                   <Switch
@@ -420,6 +428,29 @@ export function DiscordBotSettingsSection({
                 </FormItem>
               )}
             />
+
+            <FormField
+              control={form.control}
+              name='imageModel'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Image Model')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder='dall-e-3'
+                      {...field}
+                      value={field.value ?? ''}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Image model used by the !imagine command. Leave empty to disable image generation.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </SettingsFormGrid>
 
           <FormField
@@ -454,6 +485,7 @@ export function DiscordBotSettingsSection({
                   <FormDescription>
                     {t('Show dynamic Rich Presence (RPC) and status activity on Discord.')}
                   </FormDescription>
+                  <FormMessage />
                 </SettingsSwitchContent>
                 <FormControl>
                   <Switch
@@ -569,6 +601,7 @@ export function DiscordBotSettingsSection({
                       'Deduct quota from linked user accounts. If enabled, commands from unlinked Discord users will not be charged balance.'
                     )}
                   </FormDescription>
+                  <FormMessage />
                 </SettingsSwitchContent>
                 <FormControl>
                   <Switch

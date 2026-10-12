@@ -1,19 +1,12 @@
 package discordbot
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -23,10 +16,14 @@ var (
 )
 
 type Bot struct {
-	Session     *discordgo.Session
+	Session *discordgo.Session
+
 	historyMu   sync.RWMutex
-	History     map[string][]MessageHistory // channelID -> messages
 	UserHistory map[string][]MessageHistory // "userID@channelID" -> messages
+
+	ownerMu       sync.Mutex
+	ownerSessions map[string]*ownerSession     // discord user id -> authenticated session
+	ownerAuth     map[string]*ownerAuthRequest // discord user id -> pending password challenge
 }
 
 type MessageHistory struct {
@@ -40,26 +37,24 @@ func StartBot() error {
 	globalBotMu.Lock()
 	defer globalBotMu.Unlock()
 
-	SyncSettingsFromOptions()
-	if !CurrentSettings.Enabled || strings.TrimSpace(CurrentSettings.BotToken) == "" {
-		if GlobalBot != nil {
-			GlobalBot.Stop()
-			GlobalBot = nil
-		}
+	settings := SyncSettingsFromOptions()
+	if !settings.Enabled {
+		stopBotLocked()
+		log.Printf("Discord bot is disabled (discord_bot.enabled is not \"true\"); not starting")
 		return nil
 	}
-
-	if GlobalBot != nil {
-		GlobalBot.Stop()
-		GlobalBot = nil
+	if strings.TrimSpace(settings.BotToken) == "" {
+		stopBotLocked()
+		log.Printf("Discord bot is enabled but discord_bot.token is empty; not starting")
+		return nil
 	}
+	stopBotLocked()
 
 	bot, err := NewBot()
 	if err != nil {
 		log.Printf("Failed to initialize Discord bot: %v", err)
 		return err
 	}
-
 	if err := bot.Start(); err != nil {
 		log.Printf("Failed to start Discord bot: %v", err)
 		return err
@@ -73,39 +68,53 @@ func StartBot() error {
 func StopBot() {
 	globalBotMu.Lock()
 	defer globalBotMu.Unlock()
+	stopBotLocked()
+}
 
-	if GlobalBot != nil {
-		GlobalBot.Stop()
-		GlobalBot = nil
-		log.Printf("Discord bot stopped")
+func stopBotLocked() {
+	if GlobalBot == nil {
+		return
 	}
+	GlobalBot.Stop()
+	GlobalBot = nil
+	log.Printf("Discord bot stopped")
 }
 
 func RestartBot() {
 	go func() {
-		_ = StartBot()
+		if err := StartBot(); err != nil {
+			log.Printf("Discord bot restart failed: %v", err)
+		}
 	}()
 }
 
 func NewBot() (*Bot, error) {
-	s, err := discordgo.New("Bot " + CurrentSettings.BotToken)
+	session, err := discordgo.New("Bot " + currentSettings().BotToken)
 	if err != nil {
 		return nil, err
 	}
 
-	b := &Bot{
-		Session:     s,
-		History:     make(map[string][]MessageHistory),
-		UserHistory: make(map[string][]MessageHistory),
+	bot := &Bot{
+		Session:       session,
+		UserHistory:   make(map[string][]MessageHistory),
+		ownerSessions: make(map[string]*ownerSession),
+		ownerAuth:     make(map[string]*ownerAuthRequest),
 	}
 
-	s.AddHandler(b.messageCreate)
-	s.AddHandler(b.ready)
-	s.AddHandler(b.HandleInteraction)
+	session.AddHandler(bot.messageCreate)
+	session.AddHandler(bot.ready)
+	session.AddHandler(bot.HandleInteraction)
 
-	s.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentDirectMessages | discordgo.IntentsGuilds
+	// IntentMessageContent is a privileged intent: without it Discord delivers an
+	// empty content field for every message, which made the bot ignore all
+	// commands while still appearing online. It must also be enabled in the
+	// Discord Developer Portal (Bot -> Privileged Gateway Intents).
+	session.Identify.Intents = discordgo.IntentsGuilds |
+		discordgo.IntentsGuildMessages |
+		discordgo.IntentDirectMessages |
+		discordgo.IntentMessageContent
 
-	return b, nil
+	return bot, nil
 }
 
 func (b *Bot) Start() error {
@@ -119,12 +128,19 @@ func (b *Bot) Stop() {
 }
 
 func (b *Bot) ready(s *discordgo.Session, event *discordgo.Ready) {
-	log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
-	statusText := CurrentSettings.Status
-	if CurrentSettings.RPCEnabled && CurrentSettings.RPCDetails != "" {
-		statusText = fmt.Sprintf("%s - %s", CurrentSettings.RPCDetails, CurrentSettings.RPCState)
+	log.Printf("Discord bot logged in as %s (id %s)", s.State.User.Username, s.State.User.ID)
+
+	settings := currentSettings()
+	statusText := settings.Status
+	if settings.RPCEnabled && settings.RPCDetails != "" {
+		statusText = strings.TrimSpace(settings.RPCDetails + " - " + settings.RPCState)
 	}
-	_ = s.UpdateGameStatus(0, statusText)
+	if statusText == "" {
+		statusText = "Ready to help"
+	}
+	if err := s.UpdateGameStatus(0, statusText); err != nil {
+		log.Printf("Discord bot could not update its status: %v", err)
+	}
 }
 
 func (b *Bot) messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -132,189 +148,121 @@ func (b *Bot) messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
+	settings := currentSettings()
 	content := strings.TrimSpace(m.Content)
 	if content == "" {
 		return
 	}
 
-	// Handle commands
-	if strings.HasPrefix(content, CurrentSettings.Prefix) {
-		b.handleCommand(s, m)
+	// A pending owner-panel challenge consumes the next DM before anything else,
+	// so the typed password is never treated as a command or auto-reply prompt.
+	if m.GuildID == "" && b.consumeOwnerAuthReply(s, m) {
 		return
 	}
 
-	// Auto-reply feature in designated channel
-	if CurrentSettings.AutoReplyChannelID != "" && m.ChannelID == CurrentSettings.AutoReplyChannelID {
-		b.handleAutoReply(s, m)
+	if settings.Prefix != "" && strings.HasPrefix(content, settings.Prefix) {
+		b.handleCommand(s, m, settings)
+		return
+	}
+
+	if settings.AutoReplyChannelID != "" && m.ChannelID == settings.AutoReplyChannelID {
+		b.handleAutoReply(s, m, settings)
 	}
 }
 
-func (b *Bot) handleAutoReply(s *discordgo.Session, m *discordgo.MessageCreate) {
+func (b *Bot) handleAutoReply(s *discordgo.Session, m *discordgo.MessageCreate, settings Settings) {
 	b.historyMu.Lock()
 	userKey := m.Author.ID + "@" + m.ChannelID
-	now := time.Now()
-	thirtyDaysAgo := now.Add(-30 * 24 * time.Hour)
+	cutoff := time.Now().Add(-30 * 24 * time.Hour)
 
-	// Filter history to last 30 days
-	var validUserHistory []MessageHistory
-	for _, h := range b.UserHistory[userKey] {
-		if h.Timestamp.After(thirtyDaysAgo) {
-			validUserHistory = append(validUserHistory, h)
+	history := b.UserHistory[userKey][:0]
+	for _, entry := range b.UserHistory[userKey] {
+		if entry.Timestamp.After(cutoff) {
+			history = append(history, entry)
 		}
 	}
-	validUserHistory = append(validUserHistory, MessageHistory{
-		Role:      "user",
-		Content:   m.Content,
-		Timestamp: now,
-		AuthorID:  m.Author.ID,
-	})
-	b.UserHistory[userKey] = validUserHistory
+	history = append(history, MessageHistory{Role: "user", Content: m.Content, Timestamp: time.Now(), AuthorID: m.Author.ID})
+	b.UserHistory[userKey] = history
 	b.historyMu.Unlock()
 
-	// Build API request messages
-	type chatMsg struct {
+	type chatMessage struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	}
-	var apiMsgs []chatMsg
-
-	systemPrompt := CurrentSettings.AISystemPrompt
+	systemPrompt := settings.AISystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = "You are a helpful, friendly AI assistant. Reply concisely and format your text beautifully."
 	}
-	apiMsgs = append(apiMsgs, chatMsg{
-		Role:    "system",
-		Content: systemPrompt,
-	})
-
-	for _, h := range validUserHistory {
-		apiMsgs = append(apiMsgs, chatMsg{
-			Role:    h.Role,
-			Content: h.Content,
-		})
+	messages := []chatMessage{{Role: "system", Content: systemPrompt}}
+	for _, entry := range history {
+		messages = append(messages, chatMessage{Role: entry.Role, Content: entry.Content})
 	}
 
-	modelName := CurrentSettings.AutoReplyModel
+	modelName := settings.AutoReplyModel
 	if modelName == "" {
 		modelName = "gpt-4o-mini"
 	}
 
-	reqBody := map[string]any{
-		"model":    modelName,
-		"messages": apiMsgs,
-		"stream":   false,
-	}
-
-	jsonBytes, err := json.Marshal(reqBody)
+	reply, err := callLocalChatCompletion(chatMessageRequest{
+		Model:    modelName,
+		Messages: messages,
+	})
 	if err != nil {
-		log.Printf("Failed to marshal discord bot AI request: %v", err)
+		log.Printf("Discord auto-reply failed: %v", err)
+		_, _ = sendPanel(s, m.ChannelID,
+			textDisplay("⚠️ **Yanıt üretilemedi**\n"+err.Error()),
+		)
 		return
 	}
 
-	// Determine port and token
-	port := os.Getenv("PORT")
-	if port == "" && common.Port != nil {
-		port = strconv.Itoa(*common.Port)
-	}
-	if port == "" {
-		port = "3000"
-	}
-
-	var rootToken string
-	var tok model.Token
-	if err := model.DB.Where("user_id = 1").First(&tok).Error; err == nil {
-		rootToken = tok.Key
-	} else if err := model.DB.Where("status = 1").First(&tok).Error; err == nil {
-		rootToken = tok.Key
-	}
-
-	httpReq, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%s/v1/chat/completions", port), bytes.NewReader(jsonBytes))
-	if err != nil {
-		log.Printf("Failed to create AI request: %v", err)
-		return
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if rootToken != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+rootToken)
-	}
-
-	// Show typing indicator in discord
-	_ = s.ChannelTyping(m.ChannelID)
-
-	client := &http.Client{Timeout: 90 * time.Second}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		log.Printf("Failed to execute AI request: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("Discord AI completion returned status: %d", resp.StatusCode)
-		return
-	}
-
-	var completionResp struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&completionResp); err != nil || len(completionResp.Choices) == 0 {
-		log.Printf("Failed to decode AI response: %v", err)
-		return
-	}
-
-	aiReply := strings.TrimSpace(completionResp.Choices[0].Message.Content)
-	if aiReply == "" {
-		return
-	}
-
-	// Save AI reply to 30-day user history
 	b.historyMu.Lock()
 	b.UserHistory[userKey] = append(b.UserHistory[userKey], MessageHistory{
 		Role:      "assistant",
-		Content:   aiReply,
+		Content:   reply,
 		Timestamp: time.Now(),
 		AuthorID:  s.State.User.ID,
 	})
 	b.historyMu.Unlock()
 
-	// Send formatted Discord reply
-	embedColor := CurrentSettings.EmbedColor
-	if embedColor <= 0 {
-		embedColor = 0x5865F2 // Discord Blurple
+	if _, err := sendPanel(s, m.ChannelID,
+		textDisplay(reply),
+		separator(),
+		textDisplay(fmt.Sprintf("_%s • %s_", settings.BotName, modelName)),
+	); err != nil {
+		log.Printf("Discord auto-reply could not be delivered: %v", err)
 	}
+}
 
-	// If message is short enough for embed description (max 4096)
-	if len(aiReply) <= 4000 {
-		embed := &discordgo.MessageEmbed{
-			Description: aiReply,
-			Color:       embedColor,
-			Footer: &discordgo.MessageEmbedFooter{
-				Text: fmt.Sprintf("%s • %s", CurrentSettings.BotName, modelName),
-			},
-			Timestamp: time.Now().Format(time.RFC3339),
-		}
-		_, _ = s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
-			Embeds: []*discordgo.MessageEmbed{embed},
-			Reference: &discordgo.MessageReference{
-				MessageID: m.ID,
-				ChannelID: m.ChannelID,
-				GuildID:   m.GuildID,
-			},
-		})
-	} else {
-		// Split message if extremely long
-		for len(aiReply) > 0 {
-			chunkSize := 1950
-			if len(aiReply) < chunkSize {
-				chunkSize = len(aiReply)
-			}
-			chunk := aiReply[:chunkSize]
-			aiReply = aiReply[chunkSize:]
-			_, _ = s.ChannelMessageSend(m.ChannelID, chunk)
-		}
+type chatMessageRequest struct {
+	Model    string `json:"model"`
+	Messages any    `json:"messages"`
+	Stream   bool   `json:"stream"`
+}
+
+// callLocalChatCompletion asks this instance's relay for one non-streamed answer.
+func callLocalChatCompletion(request chatMessageRequest) (string, error) {
+	var completion struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
 	}
+	if err := postToLocalRelay("/v1/chat/completions", request, &completion); err != nil {
+		return "", err
+	}
+	if completion.Error != nil && completion.Error.Message != "" {
+		return "", fmt.Errorf("%s", completion.Error.Message)
+	}
+	if len(completion.Choices) == 0 {
+		return "", fmt.Errorf("relay returned no completion choices")
+	}
+	reply := strings.TrimSpace(completion.Choices[0].Message.Content)
+	if reply == "" {
+		return "", fmt.Errorf("model returned an empty answer")
+	}
+	return reply, nil
 }

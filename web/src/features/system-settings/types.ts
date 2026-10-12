@@ -678,19 +678,31 @@ export type OperationsSettings = {
   'ticket_setting.ai_assistant_model'?: string
   'ticket_setting.ai_assistant_system_prompt'?: string
 
-  // Discord Bot
-  'discord.enabled'?: boolean
-  'discord.bot_token'?: string
-  'discord.bot_name'?: string
-  'discord.prefix'?: string
-  'discord.status'?: string
-  'discord.language'?: string
-  'discord.embed_color'?: string
-  'discord.ai_system_prompt'?: string
-  'discord.rpg_enabled'?: boolean
-  'discord.auto_reply_channel_id'?: string
-  'discord.auto_reply_model'?: string
-  'discord.only_linked_accounts'?: boolean
+  // Discord Bot. These keys must be declared here as well: the options fetcher
+  // only converts a stored value to its JavaScript type when the key exists in
+  // the section defaults, so an undeclared boolean arrives as the string
+  // "false" — which is truthy and failed form validation.
+  'discord_bot.enabled'?: boolean
+  'discord_bot.token'?: string
+  'discord_bot.bot_token'?: string
+  'discord_bot.bot_name'?: string
+  'discord_bot.prefix'?: string
+  'discord_bot.status'?: string
+  'discord_bot.language'?: string
+  'discord_bot.embed_color'?: string
+  'discord_bot.ai_system_prompt'?: string
+  'discord_bot.rpc_enabled'?: boolean
+  'discord_bot.rpc_app_id'?: string
+  'discord_bot.rpc_details'?: string
+  'discord_bot.rpc_state'?: string
+  'discord_bot.rpc_large_image'?: string
+  'discord_bot.rpc_large_text'?: string
+  'discord_bot.rpc_small_image'?: string
+  'discord_bot.rpc_small_text'?: string
+  'discord_bot.auto_reply_channel_id'?: string
+  'discord_bot.auto_reply_model'?: string
+  'discord_bot.image_model'?: string
+  'discord_bot.only_linked_accounts'?: boolean
 }
 
 export type SecuritySettings = {

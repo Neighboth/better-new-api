@@ -84,18 +84,30 @@ const defaultOperationsSettings: OperationsSettings = {
   'ticket_setting.ai_assistant_model': 'gemini-1.5-flash',
   'ticket_setting.ai_assistant_system_prompt':
     'You are a helpful customer support agent for our API platform. Use markdown and BUTTON[Text](url) when directing users to external links.',
-  'discord.enabled': false,
-  'discord.bot_token': '',
-  'discord.bot_name': 'MyAIBot',
-  'discord.prefix': '!',
-  'discord.status': 'Ready to help',
-  'discord.language': 'en',
-  'discord.embed_color': '#00ff00',
-  'discord.ai_system_prompt': 'You are a helpful AI assistant.',
-  'discord.rpg_enabled': true,
-  'discord.auto_reply_channel_id': '',
-  'discord.auto_reply_model': '',
-  'discord.only_linked_accounts': false,
+  // Discord Bot. The bot reads only the discord_bot.* namespace: discord.*
+  // belongs to the Discord OAuth login, and sharing keys between the two made
+  // the bot switch follow the login switch.
+  'discord_bot.enabled': false,
+  'discord_bot.token': '',
+  'discord_bot.bot_token': '',
+  'discord_bot.bot_name': 'MyAIBot',
+  'discord_bot.prefix': '!',
+  'discord_bot.status': 'Ready to help',
+  'discord_bot.language': 'en',
+  'discord_bot.embed_color': '#00ff00',
+  'discord_bot.ai_system_prompt': 'You are a helpful AI assistant.',
+  'discord_bot.rpc_enabled': true,
+  'discord_bot.rpc_app_id': '',
+  'discord_bot.rpc_details': 'AI Platform Assistant',
+  'discord_bot.rpc_state': 'Online',
+  'discord_bot.rpc_large_image': 'bot_logo',
+  'discord_bot.rpc_large_text': 'AI Service',
+  'discord_bot.rpc_small_image': '',
+  'discord_bot.rpc_small_text': '',
+  'discord_bot.auto_reply_channel_id': '',
+  'discord_bot.auto_reply_model': 'gpt-4o-mini',
+  'discord_bot.image_model': '',
+  'discord_bot.only_linked_accounts': false,
 }
 
 export function OperationsSettings() {

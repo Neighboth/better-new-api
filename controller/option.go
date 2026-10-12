@@ -440,7 +440,9 @@ func UpdateOption(c *gin.Context) {
 	if strings.HasPrefix(option.Key, "relay_fallback_setting.") || strings.HasPrefix(option.Key, "checkin_setting.") || strings.HasPrefix(option.Key, "ticket_setting.") {
 		_ = config.GlobalConfig.LoadFromDB(common.OptionMap)
 	}
-	if strings.HasPrefix(option.Key, "discord_bot.") || strings.HasPrefix(option.Key, "discord.") {
+	// Only the discord_bot.* namespace configures the bot; discord.* belongs to
+	// the Discord OAuth login and must not restart it.
+	if strings.HasPrefix(option.Key, "discord_bot.") {
 		discordbot.RestartBot()
 	}
 	// 出于安全考虑只记录被修改的配置项名称，不记录配置值（可能含密钥等敏感信息）。

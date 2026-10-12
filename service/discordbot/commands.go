@@ -1,108 +1,209 @@
 package discordbot
 
 import (
+	"fmt"
+	"log"
+	"sort"
 	"strings"
 
+	"github.com/QuantumNous/new-api/model"
 	"github.com/bwmarrin/discordgo"
 )
 
-func (b *Bot) handleCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
-	args := strings.Split(m.Content[len(CurrentSettings.Prefix):], " ")
-	command := strings.ToLower(args[0])
-
-	switch command {
-	case "reset":
-		b.historyMu.Lock()
-		userKey := m.Author.ID + "@" + m.ChannelID
-		delete(b.UserHistory, userKey)
-		delete(b.History, m.ChannelID)
-		b.historyMu.Unlock()
-		
-		s.ChannelMessageSendReply(m.ChannelID, "Sohbet hafızanız başarıyla sıfırlandı. Yeni bir konuşmaya başlayabiliriz!", &discordgo.MessageReference{
-			MessageID: m.ID,
-			ChannelID: m.ChannelID,
-			GuildID:   m.GuildID,
-		})
-	
-	case "models":
-		b.sendModelsMenu(s, m.ChannelID)
-	
-	case "imagine":
-		prompt := strings.Join(args[1:], " ")
-		b.generateImage(s, m, prompt)
+// Commands are prefix based. Every reply is rendered with Components V2 so the
+// bot never mixes the legacy `content`/`embeds` fields with components.
+func (b *Bot) handleCommand(s *discordgo.Session, m *discordgo.MessageCreate, settings Settings) {
+	trimmed := strings.TrimSpace(m.Content)
+	if !strings.HasPrefix(trimmed, settings.Prefix) {
+		return
 	}
-}
-
-func (b *Bot) sendModelsMenu(s *discordgo.Session, channelID string) {
-	embed := &discordgo.MessageEmbed{
-		Title:       "Available Models",
-		Description: "Select a model category from the dropdown below.",
-		Color:       CurrentSettings.EmbedColor,
-	}
-
-	components := []discordgo.MessageComponent{
-		discordgo.ActionsRow{
-			Components: []discordgo.MessageComponent{
-				discordgo.SelectMenu{
-					CustomID:    "model_select",
-					Placeholder: "Select a category...",
-					Options: []discordgo.SelectMenuOption{
-						{Label: "Video", Value: "video", Description: "Video generation models"},
-						{Label: "Image", Value: "image", Description: "Image generation models"},
-						{Label: "TTS", Value: "tts", Description: "Text-to-Speech models"},
-						{Label: "STT", Value: "stt", Description: "Speech-to-Text models"},
-						{Label: "Realtime", Value: "realtime", Description: "Realtime AI models"},
-						{Label: "Free", Value: "free", Description: "Models with 0 cost"},
-					},
-				},
-			},
-		},
-	}
-
-	s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
-		Embeds:     []*discordgo.MessageEmbed{embed},
-		Components: components,
-	})
-}
-
-// Handle Select Menu Interactions
-func (b *Bot) HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if i.Type != discordgo.InteractionMessageComponent {
+	args := strings.Fields(strings.TrimPrefix(trimmed, settings.Prefix))
+	if len(args) == 0 {
 		return
 	}
 
-	data := i.MessageComponentData()
-	if data.CustomID == "model_select" {
-		selected := data.Values[0]
-		content := "You selected category: " + selected + ". Available models: ModelA, ModelB" // Mocked models
-
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: content,
-				Flags:   discordgo.MessageFlagsEphemeral, // Private message
-			},
-		})
+	switch strings.ToLower(args[0]) {
+	case "help", "yardim", "yardım":
+		b.sendHelpPanel(s, m.ChannelID, settings)
+	case "reset":
+		b.resetHistory(s, m)
+	case "models", "modeller":
+		b.sendModelsPanel(s, m.ChannelID)
+	case "imagine", "resim":
+		b.generateImage(s, m, strings.Join(args[1:], " "), settings)
+	case "owner", "panel", "admin", "yonetim", "yönetim":
+		b.handleOwnerPanelCommand(s, m)
 	}
 }
 
-func (b *Bot) generateImage(s *discordgo.Session, m *discordgo.MessageCreate, prompt string) {
-	if CurrentSettings.OnlyLinkedAccounts {
-		// Mock account check
-		linked := false // Assume false for now
-		if !linked {
-			s.ChannelMessageSend(m.ChannelID, "You must link your account to generate images.")
+func (b *Bot) resetHistory(s *discordgo.Session, m *discordgo.MessageCreate) {
+	b.historyMu.Lock()
+	delete(b.UserHistory, m.Author.ID+"@"+m.ChannelID)
+	b.historyMu.Unlock()
+
+	_, err := sendPanel(s, m.ChannelID,
+		textDisplay("🧹 **Sohbet hafızası sıfırlandı**\nYeni bir konuşmaya başlayabiliriz."),
+	)
+	if err != nil {
+		log.Printf("Discord reset reply failed: %v", err)
+	}
+}
+
+func (b *Bot) sendHelpPanel(s *discordgo.Session, channelID string, settings Settings) {
+	prefix := settings.Prefix
+	lines := []string{
+		fmt.Sprintf("%s **%s** — komut listesi", inlineCode(prefix+"help"), settings.BotName),
+		"",
+		fmt.Sprintf("%s — bu yardım panelini gösterir", inlineCode(prefix+"help")),
+		fmt.Sprintf("%s — bu kanaldaki sohbet hafızanızı sıfırlar", inlineCode(prefix+"reset")),
+		fmt.Sprintf("%s — sunucudaki kullanılabilir modelleri listeler", inlineCode(prefix+"models")),
+		fmt.Sprintf("%s `<prompt>` — görsel üretir", inlineCode(prefix+"imagine")),
+		fmt.Sprintf("%s — yönetici paneli (yalnızca DM, hesabı bağlı yöneticiler)", inlineCode(prefix+"owner")),
+	}
+	_, err := sendPanel(s, channelID, textDisplay(strings.Join(lines, "\n")))
+	if err != nil {
+		log.Printf("Discord help reply failed: %v", err)
+	}
+}
+
+type modelListResponse struct {
+	Data []struct {
+		ID      string `json:"id"`
+		OwnedBy string `json:"owned_by"`
+	} `json:"data"`
+}
+
+func (b *Bot) fetchAvailableModels() ([]string, error) {
+	var response modelListResponse
+	if err := getFromLocalRelay("/v1/models", &response); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(response.Data))
+	for _, item := range response.Data {
+		if item.ID != "" {
+			names = append(names, item.ID)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+func (b *Bot) sendModelsPanel(s *discordgo.Session, channelID string) {
+	names, err := b.fetchAvailableModels()
+	if err != nil {
+		_, _ = sendPanel(s, channelID, textDisplay("⚠️ **Modeller alınamadı**\n"+err.Error()))
+		return
+	}
+	_, _ = sendPanel(s, channelID,
+		textDisplay(fmt.Sprintf("📦 **Kullanılabilir modeller** (%d)", len(names))),
+		separator(),
+		textDisplay(bulletList(names, "_Bu sunucuda etkin model yok._")),
+	)
+}
+
+type imageGenerationResponse struct {
+	Data []struct {
+		URL           string `json:"url"`
+		RevisedPrompt string `json:"revised_prompt"`
+	} `json:"data"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+func (b *Bot) generateImage(s *discordgo.Session, m *discordgo.MessageCreate, prompt string, settings Settings) {
+	if strings.TrimSpace(prompt) == "" {
+		_, _ = sendPanel(s, m.ChannelID, textDisplay("⚠️ Kullanım: `"+settings.Prefix+"imagine <prompt>`"))
+		return
+	}
+	if settings.ImageModel == "" {
+		_, _ = sendPanel(s, m.ChannelID, textDisplay(
+			"⚠️ **Görsel modeli yapılandırılmamış**\nYönetici panelinden `discord_bot.image_model` ayarını doldurun."))
+		return
+	}
+	if !b.userIsLinked(m.Author.ID) && settings.OnlyLinkedAccounts {
+		_, _ = sendPanel(s, m.ChannelID, textDisplay(
+			"🔗 **Hesap bağlı değil**\nGörsel üretmek için site hesabınızı Discord ile bağlamanız gerekiyor."))
+		return
+	}
+
+	var response imageGenerationResponse
+	err := postToLocalRelay("/v1/images/generations", map[string]any{
+		"model":  settings.ImageModel,
+		"prompt": prompt,
+		"n":      1,
+	}, &response)
+	if err != nil {
+		_, _ = sendPanel(s, m.ChannelID, textDisplay("⚠️ **Görsel üretilemedi**\n"+err.Error()))
+		return
+	}
+	if response.Error != nil && response.Error.Message != "" {
+		_, _ = sendPanel(s, m.ChannelID, textDisplay("⚠️ **Görsel üretilemedi**\n"+response.Error.Message))
+		return
+	}
+	if len(response.Data) == 0 || response.Data[0].URL == "" {
+		_, _ = sendPanel(s, m.ChannelID, textDisplay("⚠️ **Görsel üretilemedi**\nSağlayıcı görsel döndürmedi."))
+		return
+	}
+
+	_, _ = sendPanel(s, m.ChannelID,
+		textDisplay("🎨 **Görsel hazır**\n`"+truncateText(prompt, 200)+"`"),
+		discordgo.MediaGallery{Items: []discordgo.MediaGalleryItem{{Media: discordgo.UnfurledMediaItem{URL: response.Data[0].URL}}}},
+	)
+}
+
+// userIsLinked reports whether a Discord account is bound to a site user.
+func (b *Bot) userIsLinked(discordUserID string) bool {
+	user, err := findUserByDiscordID(discordUserID)
+	return err == nil && user != nil
+}
+
+// findUserByDiscordID resolves a site user from a Discord snowflake. The model
+// helper FillUserByDiscordId swallows its lookup error, so the query is repeated
+// here to keep "not found" distinguishable from a database failure.
+func findUserByDiscordID(discordUserID string) (*model.User, error) {
+	if strings.TrimSpace(discordUserID) == "" {
+		return nil, fmt.Errorf("discord hesabı belirtilmedi")
+	}
+	var user model.User
+	if err := model.DB.Where("discord_id = ?", discordUserID).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// HandleInteraction routes component and modal interactions. Non owner-panel
+// interactions fall back to the legacy model selector.
+func (b *Bot) HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	switch i.Type {
+	case discordgo.InteractionMessageComponent:
+		data := i.MessageComponentData()
+		if strings.HasPrefix(data.CustomID, ownerPanelPrefix) {
+			b.handleOwnerPanelComponent(s, i, data)
+			return
+		}
+		b.handleLegacyComponent(s, i, data)
+	case discordgo.InteractionModalSubmit:
+		data := i.ModalSubmitData()
+		if strings.HasPrefix(data.CustomID, ownerPanelPrefix) {
+			b.handleOwnerPanelModal(s, i, data)
 			return
 		}
 	}
+}
 
-	// Mock deduct balance
-	balanceDeducted := true
-	if !balanceDeducted {
-		s.ChannelMessageSend(m.ChannelID, "Insufficient balance.")
+func (b *Bot) handleLegacyComponent(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.MessageComponentInteractionData) {
+	if data.CustomID != "model_select" || len(data.Values) == 0 {
 		return
 	}
-
-	// Generate image
-	s.ChannelMessageSend(m.ChannelID, "Generating image for prompt: "+prompt+"... (mocked result)")
+	names, err := b.fetchAvailableModels()
+	if err != nil {
+		_ = respondPanel(s, i, textDisplay("⚠️ **Modeller alınamadı**\n"+err.Error()))
+		return
+	}
+	_ = respondPanel(s, i,
+		textDisplay(fmt.Sprintf("📦 **%s** kategorisi seçildi", data.Values[0])),
+		separator(),
+		textDisplay(bulletList(names, "_Etkin model yok._")),
+	)
 }
