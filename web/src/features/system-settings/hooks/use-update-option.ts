@@ -28,6 +28,7 @@ const STATUS_RELATED_KEYS = new Set([
   'SystemName',
   'Footer',
   'Logo',
+  'LogoDark',
   'Favicon',
   'HideHeaderSiteName',
   'HeaderLogoHeight',
