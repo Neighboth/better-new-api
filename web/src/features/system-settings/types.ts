@@ -117,6 +117,7 @@ export type SiteSettings = {
   About: string
   HomePageContent: string
   ServerAddress: string
+  DocsLink?: string
   'legal.user_agreement': string
   'legal.privacy_policy': string
   HeaderNavModules: string
@@ -242,6 +243,15 @@ export type SiteSettings = {
   'legal.privacy_policy_ru'?: string
   'legal.privacy_policy_ja'?: string
   'legal.privacy_policy_vi'?: string
+
+  DocsLink_tr?: string
+  DocsLink_en?: string
+  DocsLink_zh_CN?: string
+  DocsLink_zh_TW?: string
+  DocsLink_fr?: string
+  DocsLink_ru?: string
+  DocsLink_ja?: string
+  DocsLink_vi?: string
 }
 
 export type AuthSettings = {
