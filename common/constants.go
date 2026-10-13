@@ -15,6 +15,9 @@ var Version = "v0.0.0"            // this hard coding will be replaced automatic
 var SystemName = "New API"
 var Footer = ""
 var Logo = ""
+var Favicon = ""
+var HideHeaderSiteName = false
+var HeaderLogoHeight = 24
 var TopUpLink = ""
 
 // var ChatLink = ""

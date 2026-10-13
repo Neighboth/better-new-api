@@ -215,7 +215,10 @@ func RenderIndexPage(indexPage []byte) []byte {
 	description := seoOption("SEODescription")
 	keywords := seoOption("SEOKeywords")
 	socialImage := seoOption("SEOSocialImage")
-	icon := common.Logo
+	icon := common.Favicon
+	if icon == "" {
+		icon = common.Logo
+	}
 	if icon == "" {
 		icon = "/logo.png"
 	}
@@ -242,12 +245,18 @@ func RenderResellerIndexPage(indexPage []byte, rc *model.ResellerConfig) []byte 
 	if keywords == "" {
 		keywords = seoOption("SEOKeywords")
 	}
-	icon := rc.Logo
+	icon := rc.Favicon
+	if icon == "" {
+		icon = rc.Logo
+	}
+	if icon == "" {
+		icon = common.Favicon
+	}
 	if icon == "" {
 		icon = common.Logo
-		if icon == "" {
-			icon = "/logo.png"
-		}
+	}
+	if icon == "" {
+		icon = "/logo.png"
 	}
 	return RenderCustomIndexPage(indexPage, siteName, title, desc, keywords, icon, icon)
 }
@@ -546,7 +555,10 @@ func RenderIndexPageForLocale(indexPage []byte, lang string, baseURL string, cur
 	description := getLegalOption("SEODescription", lang)
 	keywords := getLegalOption("SEOKeywords", lang)
 	socialImage := seoOption("SEOSocialImage")
-	icon := common.Logo
+	icon := common.Favicon
+	if icon == "" {
+		icon = common.Logo
+	}
 	if icon == "" {
 		icon = "/logo.png"
 	}

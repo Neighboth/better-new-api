@@ -110,6 +110,9 @@ export type SiteSettings = {
   Notice: string
   SystemName: string
   Logo: string
+  Favicon: string
+  HideHeaderSiteName: boolean
+  HeaderLogoHeight: number
   Footer: string
   About: string
   HomePageContent: string
