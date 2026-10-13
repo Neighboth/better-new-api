@@ -27,6 +27,7 @@ func TestSubscriptionGroupTransitionsPreserveAuthVersionAndSessions(t *testing.T
 		Role:        common.RoleCommonUser,
 		Status:      common.UserStatusEnabled,
 		Group:       "default",
+		AffCode:     "subauth_" + common.GetRandomString(6),
 		AuthVersion: 1,
 	}
 	require.NoError(t, DB.Create(&user).Error)
@@ -109,6 +110,7 @@ func TestSubscriptionGroupCacheRefreshFailureDoesNotChangeCommittedResult(t *tes
 		Role:        common.RoleCommonUser,
 		Status:      common.UserStatusEnabled,
 		Group:       "default",
+		AffCode:     "subcache_" + common.GetRandomString(6),
 		AuthVersion: 1,
 	}
 	require.NoError(t, DB.Create(&user).Error)
