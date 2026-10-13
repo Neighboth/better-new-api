@@ -66,11 +66,9 @@ import type { Ticket } from '@/features/tickets/types'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { api } from '@/lib/api'
-
 export function AdminTicketsPage() {
   const { t } = useTranslation()
-  const { auth, setAuth } = useAuthStore()
+  const { auth } = useAuthStore()
   const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [total, setTotal] = useState(0)

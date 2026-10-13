@@ -396,6 +396,11 @@ export type ModelSettings = {
   'model_deployment.modal.shared_volume_path'?: string
   'model_deployment.modal.idle_timeout_seconds'?: number
   'model_deployment.modal.priority'?: string
+  'model_deployment.huggingface.enabled'?: boolean
+  'model_deployment.huggingface.token'?: string
+  'model_deployment.huggingface.org'?: string
+  'model_deployment.huggingface.hardware'?: string
+  'model_deployment.huggingface.priority'?: string
 }
 
 export type BillingSettings = {
@@ -682,6 +687,7 @@ export type OperationsSettings = {
   'relay_fallback_setting.fallback_image_models'?: string
   'relay_fallback_setting.fallback_tts_models'?: string
   'relay_fallback_setting.fallback_stt_models'?: string
+  'relay_fallback_setting.fallback_video_models'?: string
   'relay_fallback_setting.fallback_system_prompt': string
   'ticket_setting.enabled'?: boolean
   'ticket_setting.live_support_enabled'?: boolean

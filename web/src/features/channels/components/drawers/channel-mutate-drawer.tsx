@@ -786,7 +786,7 @@ export function ChannelMutateDrawer({
 
   // Form setup
   const form = useForm<ChannelFormValues>({
-    resolver: zodResolver(channelFormSchema),
+    resolver: zodResolver(channelFormSchema) as any,
     defaultValues: CHANNEL_FORM_DEFAULT_VALUES,
   })
 

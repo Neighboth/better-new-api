@@ -62,6 +62,8 @@ const OPERATIONS_SECTIONS = [
             settings['relay_fallback_setting.fallback_tts_models'] ?? '',
           fallback_stt_models:
             settings['relay_fallback_setting.fallback_stt_models'] ?? '',
+          fallback_video_models:
+            settings['relay_fallback_setting.fallback_video_models'] ?? '',
           fallback_system_prompt:
             settings['relay_fallback_setting.fallback_system_prompt'] ?? '',
         }}
@@ -157,31 +159,7 @@ const OPERATIONS_SECTIONS = [
     id: 'email',
     titleKey: 'SMTP Email',
     build: (settings: OperationsSettings) => (
-      <EmailSettingsSection
-        defaultValues={{
-          SMTPServer: settings.SMTPServer,
-          SMTPPort: settings.SMTPPort,
-          SMTPAccount: settings.SMTPAccount,
-          SMTPFrom: settings.SMTPFrom,
-          SMTPToken: settings.SMTPToken,
-          SMTPSSLEnabled: settings.SMTPSSLEnabled,
-          SMTPStartTLSEnabled: settings.SMTPStartTLSEnabled,
-          SMTPInsecureSkipVerify: settings.SMTPInsecureSkipVerify,
-          SMTPForceAuthLogin: settings.SMTPForceAuthLogin,
-          EmailSubject_verification_tr: settings.EmailSubject_verification_tr ?? '',
-          EmailBody_verification_tr: settings.EmailBody_verification_tr ?? '',
-          EmailSubject_verification_en: settings.EmailSubject_verification_en ?? '',
-          EmailBody_verification_en: settings.EmailBody_verification_en ?? '',
-          EmailSubject_verification_zh_CN: settings.EmailSubject_verification_zh_CN ?? '',
-          EmailBody_verification_zh_CN: settings.EmailBody_verification_zh_CN ?? '',
-          EmailSubject_password_reset_tr: settings.EmailSubject_password_reset_tr ?? '',
-          EmailBody_password_reset_tr: settings.EmailBody_password_reset_tr ?? '',
-          EmailSubject_password_reset_en: settings.EmailSubject_password_reset_en ?? '',
-          EmailBody_password_reset_en: settings.EmailBody_password_reset_en ?? '',
-          EmailSubject_password_reset_zh_CN: settings.EmailSubject_password_reset_zh_CN ?? '',
-          EmailBody_password_reset_zh_CN: settings.EmailBody_password_reset_zh_CN ?? '',
-        }}
-      />
+      <EmailSettingsSection defaultValues={settings as any} />
     ),
   },
   {

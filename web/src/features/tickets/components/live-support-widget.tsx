@@ -17,10 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from '@tanstack/react-router'
 import {
   Download,
-  ExternalLink,
   Headphones,
   Loader2,
   MessageCircle,
@@ -85,7 +83,6 @@ const MessageContent = ({ content, isAdmin }: { content: string, isAdmin?: boole
 
 export function LiveSupportWidget() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const { auth } = useAuthStore()
   const [open, setOpen] = useState(false)
   const [quickMessage, setQuickMessage] = useState('')
@@ -209,7 +206,7 @@ export function LiveSupportWidget() {
             priority: 'normal',
             content: quickMessage.trim(),
             live_support: true,
-          })
+          } as any)
 
       if (res.success) {
         toast.success(t('Message sent to support! We will reply shortly.'))
