@@ -32,6 +32,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -40,6 +41,8 @@ import { FormNavigationGuard } from '../components/form-navigation-guard'
 import {
   SettingsForm,
   SettingsFormGrid,
+  SettingsSwitchContent,
+  SettingsSwitchItem,
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
@@ -61,6 +64,9 @@ const systemInfoSchema = z.object({
   SystemName: z.string().optional(),
   ServerAddress: z.string().optional(),
   Logo: z.string().url().optional().or(z.literal('')),
+  Favicon: z.string().url().optional().or(z.literal('')),
+  HideHeaderSiteName: z.boolean().optional(),
+  HeaderLogoHeight: z.coerce.number().min(10).max(200).optional(),
   Footer: z.string().optional(),
   About: z.string().optional(),
   HomePageContent: z.string().optional(),
@@ -161,10 +167,13 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
     return 'en'
   }, [i18n.language])
 
-  const normalizedDefaults: Record<string, string> = {
+  const normalizedDefaults: Record<string, any> = {
     SystemName: normalizeValue(defaultValues.SystemName),
     ServerAddress: normalizeValue(defaultValues.ServerAddress),
     Logo: normalizeValue(defaultValues.Logo),
+    Favicon: normalizeValue(defaultValues.Favicon),
+    HideHeaderSiteName: defaultValues.HideHeaderSiteName === true || defaultValues.HideHeaderSiteName === 'true',
+    HeaderLogoHeight: defaultValues.HeaderLogoHeight ? Number(defaultValues.HeaderLogoHeight) : 24,
     Footer: normalizeValue(defaultValues.Footer),
     About: normalizeValue(defaultValues.About),
     HomePageContent: normalizeValue(defaultValues.HomePageContent),
@@ -206,9 +215,14 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
         }
 
         for (const [key, value] of Object.entries(changedFields)) {
-          let v = normalizeValue(value)
-          if (key === 'ServerAddress') {
-            v = v.replace(/\/+$/, '')
+          let v: string | boolean | number
+          if (typeof value === 'boolean' || typeof value === 'number') {
+            v = value
+          } else {
+            v = normalizeValue(value)
+            if (key === 'ServerAddress') {
+              v = v.replace(/\/+$/, '')
+            }
           }
           await updateOption.mutateAsync({
             key,
@@ -272,10 +286,56 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                       <Input
                         placeholder={t('https://example.com/logo.png')}
                         {...field}
+                        value={field.value ?? ''}
                       />
                     </FormControl>
                     <FormDescription>
-                      {t('URL to your logo image (optional)')}
+                      {t('URL to your logo image (used in header, footer, etc.)')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='Favicon'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Favicon URL')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder={t('https://example.com/favicon.png')}
+                        {...field}
+                        value={field.value ?? ''}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Direct link to browser tab icon. If empty, uses Logo URL.')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='HeaderLogoHeight'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Header Logo Height (px)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={10}
+                        max={200}
+                        placeholder='24'
+                        {...field}
+                        value={field.value ?? 24}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Set height of the header logo in pixels (e.g., 24-60px for wider logos)')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -303,6 +363,33 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                 )}
               />
             </SettingsFormGrid>
+
+            <div className='mt-6 rounded-lg border p-4 bg-card shadow-xs'>
+              <FormField
+                control={form.control}
+                name='HideHeaderSiteName'
+                render={({ field }) => (
+                  <FormItem>
+                    <SettingsSwitchItem>
+                      <SettingsSwitchContent>
+                        <FormLabel className='text-sm font-semibold'>
+                          {t('Hide Site Name in Header')}
+                        </FormLabel>
+                        <FormDescription>
+                          {t('Show only logo in header without site name text')}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  </FormItem>
+                )}
+              />
+            </div>
 
             {/* Multilingual System Content Tabs */}
             <div className='rounded-lg border p-4 space-y-4 bg-card shadow-xs mt-6'>

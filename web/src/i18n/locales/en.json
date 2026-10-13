@@ -2400,7 +2400,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Related Projects",
     "footer.defaultCopyright": "All rights reserved.",
-    "footer.new\u0061pi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
+    "footer.newapi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment",
     "For private deployments, format: https://fastgpt.run/api/openapi": "For private deployments, format: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.",
@@ -6107,5 +6107,11 @@
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Zoom"
-  }
+  },
+  "URL to your logo image (used in header, footer, etc.)": "URL to your logo image (used in header, footer, etc.)",
+  "Direct link to browser tab icon. If empty, uses Logo URL.": "Direct link to browser tab icon. If empty, uses Logo URL.",
+  "Header Logo Height (px)": "Header Logo Height (px)",
+  "Set height of the header logo in pixels (e.g., 24-60px for wider logos)": "Set height of the header logo in pixels (e.g., 24-60px for wider logos)",
+  "Hide Site Name in Header": "Hide Site Name in Header",
+  "Show only logo in header without site name text": "Show only logo in header without site name text"
 }

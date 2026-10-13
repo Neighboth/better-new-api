@@ -2391,7 +2391,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "相關項目",
     "footer.defaultCopyright": "版權所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
+    "footer.newapi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "對於 2025 年 5 月 10 日之後新增的渠道，在部署時無需從模型名稱中移除 \".\"",
     "For private deployments, format: https://fastgpt.run/api/openapi": "對於私有部署，格式為：https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "基於安全考量，現有存取令牌無法再次顯示。僅在需要新令牌時重新生成。",
@@ -6098,5 +6098,11 @@
     "Zhipu": "智譜",
     "Zhipu V4": "智譜 V4",
     "Zoom": "縮放"
-  }
+  },
+  "URL to your logo image (used in header, footer, etc.)": "網站 Logo 圖片 URL（用於頁眉、頁尾等）",
+  "Direct link to browser tab icon. If empty, uses Logo URL.": "瀏覽器標籤頁圖示直鏈。留空則使用 Logo URL。",
+  "Header Logo Height (px)": "頁眉 Logo 高度 (px)",
+  "Set height of the header logo in pixels (e.g., 24-60px for wider logos)": "設定頁眉 Logo 的像素高度（例如較寬的 Logo 可設為 24-60px）",
+  "Hide Site Name in Header": "在頁眉中隱藏網站名稱",
+  "Show only logo in header without site name text": "頁眉僅顯示 Logo，不顯示網站名稱文字"
 }
