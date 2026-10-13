@@ -83,6 +83,7 @@ func GetStatus(c *gin.Context) {
 		"theme":                       "default",
 		"system_name":                 sysName,
 		"logo":                        common.Logo,
+		"logo_dark":                   common.LogoDark,
 		"favicon":                     common.Favicon,
 		"hide_header_site_name":       common.HideHeaderSiteName,
 		"header_logo_height":          common.HeaderLogoHeight,
@@ -203,6 +204,7 @@ func GetStatus(c *gin.Context) {
 		}
 		if rc.Logo != "" {
 			data["logo"] = rc.Logo
+			data["logo_dark"] = rc.Logo
 		}
 		if rc.HomepageContent != "" {
 			data["home_page_content"] = rc.HomepageContent

@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useCallback } from 'react'
 
+import { useTheme } from '@/context/theme-provider'
 import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
 import { applyFaviconToDom } from '@/lib/dom-utils'
 import {
@@ -38,6 +39,7 @@ interface StatusApiResponse {
   data: {
     system_name?: string
     logo?: string
+    logo_dark?: string
     favicon?: string
     hide_header_site_name?: boolean
     header_logo_height?: number
@@ -100,6 +102,7 @@ export function mapStatusDataToConfig(
   return {
     systemName: data.system_name || DEFAULT_SYSTEM_NAME,
     logo: data.logo || DEFAULT_LOGO,
+    logoDark: data.logo_dark || '',
     favicon: data.favicon || '',
     hideHeaderSiteName: Boolean(data.hide_header_site_name),
     headerLogoHeight: data.header_logo_height || 24,
@@ -153,6 +156,7 @@ function preloadImage(
  */
 export function useSystemConfig(options: UseSystemConfigOptions = {}) {
   const { autoLoad = false } = options
+  const { resolvedTheme } = useTheme()
   const {
     config,
     loading,
@@ -161,6 +165,11 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
     setLoadedLogoUrl,
     setLoading,
   } = useSystemConfigStore()
+
+  const activeLogo =
+    resolvedTheme === 'dark' && config.logoDark
+      ? config.logoDark
+      : config.logo || DEFAULT_LOGO
 
   // Load config from backend
   const loadConfig = useCallback(async () => {
@@ -182,34 +191,36 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
 
   // Preload logo image when URL changes & update favicon
   useEffect(() => {
-    const { logo, favicon } = config
+    const { favicon } = config
 
-    applyFaviconToDom(favicon || logo)
+    applyFaviconToDom(favicon || activeLogo)
 
     // Skip if logo is already loaded
-    if (!logo || logo === loadedLogoUrl) return
+    if (!activeLogo || activeLogo === loadedLogoUrl) return
 
     // Preload new logo
     return preloadImage(
-      logo,
+      activeLogo,
       () => {
-        setLoadedLogoUrl(logo)
+        setLoadedLogoUrl(activeLogo)
       },
       () => {
-        if (logo !== DEFAULT_LOGO) {
+        if (activeLogo !== DEFAULT_LOGO) {
           // eslint-disable-next-line no-console
-          console.error('Failed to load logo:', logo)
+          console.error('Failed to load logo:', activeLogo)
         }
         // Mark as loaded even on error to prevent infinite retry
-        setLoadedLogoUrl(logo)
+        setLoadedLogoUrl(activeLogo)
       }
     )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.logo, config.favicon, loadedLogoUrl, setLoadedLogoUrl])
+  }, [activeLogo, config.favicon, loadedLogoUrl, setLoadedLogoUrl])
 
   return {
     ...config,
+    logo: activeLogo,
+    logoLight: config.logo,
+    logoDark: config.logoDark,
     loading,
-    logoLoaded: config.logo === loadedLogoUrl && !!loadedLogoUrl,
+    logoLoaded: activeLogo === loadedLogoUrl && !!loadedLogoUrl,
   }
 }

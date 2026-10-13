@@ -76,7 +76,12 @@ func InitOptionMap() {
 	common.OptionMap["Footer"] = common.Footer
 	common.OptionMap["SystemName"] = common.SystemName
 	common.OptionMap["Logo"] = common.Logo
+	common.OptionMap["LogoDark"] = common.LogoDark
 	common.OptionMap["Favicon"] = common.Favicon
+	common.OptionMap["legal.user_agreement"] = ""
+	common.OptionMap["legal.privacy_policy"] = ""
+	common.OptionMap["TermsOfService"] = ""
+	common.OptionMap["PrivacyPolicy"] = ""
 	common.OptionMap["HideHeaderSiteName"] = strconv.FormatBool(common.HideHeaderSiteName)
 	common.OptionMap["HeaderLogoHeight"] = strconv.Itoa(common.HeaderLogoHeight)
 	common.OptionMap["GoogleAnalyticsId"] = ""
@@ -644,6 +649,8 @@ func updateOptionMap(key string, value string) (err error) {
 		common.SystemName = value
 	case "Logo":
 		common.Logo = value
+	case "LogoDark":
+		common.LogoDark = value
 	case "Favicon":
 		common.Favicon = value
 	case "HeaderLogoHeight":

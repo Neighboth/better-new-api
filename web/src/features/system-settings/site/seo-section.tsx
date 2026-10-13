@@ -142,6 +142,15 @@ type SEOSectionProps = {
   defaultValues: SEOFormValues
 }
 
+function getFirstNonEmpty(...values: unknown[]): string {
+  for (const value of values) {
+    if (value === undefined || value === null) continue
+    const s = String(value)
+    if (s.trim() !== '') return s
+  }
+  return ''
+}
+
 const robotsPolicyLabels: Record<(typeof robotsPolicies)[number], string> = {
   allow_all: 'Allow every crawler (fully open)',
   block_all: 'Block every crawler',
@@ -186,14 +195,14 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
       res[`SEOTitlePrefix_${lang.key}`] = (defaultValues as any)[`SEOTitlePrefix_${lang.key}`] ?? ''
       res[`SEODescription_${lang.key}`] = (defaultValues as any)[`SEODescription_${lang.key}`] ?? ''
       res[`SEOKeywords_${lang.key}`] = (defaultValues as any)[`SEOKeywords_${lang.key}`] ?? ''
-      res[`PrivacyPolicy_${lang.key}`] =
-        (defaultValues as any)[`PrivacyPolicy_${lang.key}`] ??
-        (defaultValues as any)[`legal.privacy_policy_${lang.key}`] ??
-        ''
-      res[`TermsOfService_${lang.key}`] =
-        (defaultValues as any)[`TermsOfService_${lang.key}`] ??
-        (defaultValues as any)[`legal.user_agreement_${lang.key}`] ??
-        ''
+      res[`PrivacyPolicy_${lang.key}`] = getFirstNonEmpty(
+        (defaultValues as any)[`PrivacyPolicy_${lang.key}`],
+        (defaultValues as any)[`legal.privacy_policy_${lang.key}`]
+      )
+      res[`TermsOfService_${lang.key}`] = getFirstNonEmpty(
+        (defaultValues as any)[`TermsOfService_${lang.key}`],
+        (defaultValues as any)[`legal.user_agreement_${lang.key}`]
+      )
     })
     return res as unknown as SEOFormValues
   }, [defaultValues])
@@ -232,6 +241,12 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
           } else if (key.startsWith('TermsOfService_')) {
             const l = key.replace('TermsOfService_', '')
             await updateOption.mutateAsync({ key: `legal.user_agreement_${l}`, value: v })
+          } else if (key.startsWith('legal.privacy_policy_')) {
+            const l = key.replace('legal.privacy_policy_', '')
+            await updateOption.mutateAsync({ key: `PrivacyPolicy_${l}`, value: v })
+          } else if (key.startsWith('legal.user_agreement_')) {
+            const l = key.replace('legal.user_agreement_', '')
+            await updateOption.mutateAsync({ key: `TermsOfService_${l}`, value: v })
           }
         }
       },

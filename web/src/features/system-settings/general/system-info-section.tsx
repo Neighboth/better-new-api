@@ -64,6 +64,7 @@ const systemInfoSchema = z.object({
   SystemName: z.string().optional(),
   ServerAddress: z.string().optional(),
   Logo: z.string().url().optional().or(z.literal('')),
+  LogoDark: z.string().url().optional().or(z.literal('')),
   Favicon: z.string().url().optional().or(z.literal('')),
   HideHeaderSiteName: z.boolean().optional(),
   HeaderLogoHeight: z.coerce.number().min(10).max(200).optional(),
@@ -150,6 +151,14 @@ function normalizeValue(value: unknown): string {
   return typeof value === 'string' ? value : String(value)
 }
 
+function getFirstNonEmpty(...values: unknown[]): string {
+  for (const value of values) {
+    const s = normalizeValue(value)
+    if (s.trim() !== '') return s
+  }
+  return ''
+}
+
 export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
   const { t, i18n } = useTranslation()
   const updateOption = useUpdateOption()
@@ -171,20 +180,27 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
     SystemName: normalizeValue(defaultValues.SystemName),
     ServerAddress: normalizeValue(defaultValues.ServerAddress),
     Logo: normalizeValue(defaultValues.Logo),
+    LogoDark: normalizeValue(defaultValues.LogoDark),
     Favicon: normalizeValue(defaultValues.Favicon),
     HideHeaderSiteName: defaultValues.HideHeaderSiteName === true || defaultValues.HideHeaderSiteName === 'true',
     HeaderLogoHeight: defaultValues.HeaderLogoHeight ? Number(defaultValues.HeaderLogoHeight) : 24,
     Footer: normalizeValue(defaultValues.Footer),
     About: normalizeValue(defaultValues.About),
     HomePageContent: normalizeValue(defaultValues.HomePageContent),
-    DocsLink: normalizeValue(
-      defaultValues.DocsLink ?? defaultValues['general_setting.docs_link'] ?? defaultValues.general_setting?.docs_link
+    DocsLink: getFirstNonEmpty(
+      defaultValues.DocsLink,
+      defaultValues['general_setting.docs_link'],
+      defaultValues.general_setting?.docs_link
     ),
-    'legal.user_agreement': normalizeValue(
-      defaultValues['legal.user_agreement'] ?? defaultValues.legal?.user_agreement
+    'legal.user_agreement': getFirstNonEmpty(
+      defaultValues['legal.user_agreement'],
+      defaultValues.legal?.user_agreement,
+      defaultValues.TermsOfService
     ),
-    'legal.privacy_policy': normalizeValue(
-      defaultValues['legal.privacy_policy'] ?? defaultValues.legal?.privacy_policy
+    'legal.privacy_policy': getFirstNonEmpty(
+      defaultValues['legal.privacy_policy'],
+      defaultValues.legal?.privacy_policy,
+      defaultValues.PrivacyPolicy
     ),
   }
 
@@ -195,11 +211,13 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
     normalizedDefaults[`About_${lang.key}`] = normalizeValue(defaultValues[`About_${lang.key}`])
     normalizedDefaults[`HomePageContent_${lang.key}`] = normalizeValue(defaultValues[`HomePageContent_${lang.key}`])
     normalizedDefaults[`DocsLink_${lang.key}`] = normalizeValue(defaultValues[`DocsLink_${lang.key}`])
-    normalizedDefaults[`legal.user_agreement_${lang.key}`] = normalizeValue(
-      defaultValues[`legal.user_agreement_${lang.key}`] ?? defaultValues[`TermsOfService_${lang.key}`]
+    normalizedDefaults[`legal.user_agreement_${lang.key}`] = getFirstNonEmpty(
+      defaultValues[`legal.user_agreement_${lang.key}`],
+      defaultValues[`TermsOfService_${lang.key}`]
     )
-    normalizedDefaults[`legal.privacy_policy_${lang.key}`] = normalizeValue(
-      defaultValues[`legal.privacy_policy_${lang.key}`] ?? defaultValues[`PrivacyPolicy_${lang.key}`]
+    normalizedDefaults[`legal.privacy_policy_${lang.key}`] = getFirstNonEmpty(
+      defaultValues[`legal.privacy_policy_${lang.key}`],
+      defaultValues[`PrivacyPolicy_${lang.key}`]
     )
   })
 
@@ -239,6 +257,12 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
           } else if (key.startsWith('legal.user_agreement_')) {
             const l = key.replace('legal.user_agreement_', '')
             await updateOption.mutateAsync({ key: `TermsOfService_${l}`, value: v })
+          } else if (key === 'legal.privacy_policy' || key === 'PrivacyPolicy') {
+            await updateOption.mutateAsync({ key: 'legal.privacy_policy', value: v })
+            await updateOption.mutateAsync({ key: 'PrivacyPolicy', value: v })
+          } else if (key === 'legal.user_agreement' || key === 'TermsOfService') {
+            await updateOption.mutateAsync({ key: 'legal.user_agreement', value: v })
+            await updateOption.mutateAsync({ key: 'TermsOfService', value: v })
           }
         }
       },
@@ -285,7 +309,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                 name='Logo'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Logo URL')}</FormLabel>
+                    <FormLabel>{t('Logo URL (Light Theme)')}</FormLabel>
                     <FormControl>
                       <Input
                         placeholder={t('https://example.com/logo.png')}
@@ -294,7 +318,28 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                       />
                     </FormControl>
                     <FormDescription>
-                      {t('URL to your logo image (used in header, footer, etc.)')}
+                      {t('URL to your logo image used in light theme')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='LogoDark'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Logo URL (Dark Theme)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder={t('https://example.com/logo-dark.png')}
+                        {...field}
+                        value={field.value ?? ''}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('URL to your logo image used in dark theme (falls back to light logo if empty)')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
