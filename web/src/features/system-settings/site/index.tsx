@@ -28,10 +28,14 @@ const defaultSiteSettings: SiteSettings = {
   Notice: '',
   SystemName: 'New API',
   Logo: '',
+  Favicon: '',
+  HideHeaderSiteName: false,
+  HeaderLogoHeight: 24,
   Footer: '',
   About: '',
   HomePageContent: '',
   ServerAddress: '',
+  DocsLink: '',
   'legal.user_agreement': '',
   'legal.privacy_policy': '',
   HeaderNavModules: '',
@@ -156,6 +160,15 @@ const defaultSiteSettings: SiteSettings = {
   'legal.privacy_policy_ru': '',
   'legal.privacy_policy_ja': '',
   'legal.privacy_policy_vi': '',
+
+  DocsLink_tr: '',
+  DocsLink_en: '',
+  DocsLink_zh_CN: '',
+  DocsLink_zh_TW: '',
+  DocsLink_fr: '',
+  DocsLink_ru: '',
+  DocsLink_ja: '',
+  DocsLink_vi: '',
 }
 
 export function SiteSettings() {
