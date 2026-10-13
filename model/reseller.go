@@ -81,6 +81,9 @@ func GetOrCreateResellerConfig(userId int) (*ResellerConfig, error) {
 }
 
 func GetResellerConfigByDomain(domain string) (*ResellerConfig, error) {
+	if DB == nil {
+		return nil, gorm.ErrRecordNotFound
+	}
 	domain = strings.TrimSpace(strings.ToLower(domain))
 	if domain == "" {
 		return nil, gorm.ErrRecordNotFound

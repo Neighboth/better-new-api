@@ -38,6 +38,9 @@ interface StatusApiResponse {
   data: {
     system_name?: string
     logo?: string
+    favicon?: string
+    hide_header_site_name?: boolean
+    header_logo_height?: number
     footer_html?: string
     demo_site_enabled?: boolean
     display_token_stat_enabled?: boolean
@@ -97,6 +100,9 @@ export function mapStatusDataToConfig(
   return {
     systemName: data.system_name || DEFAULT_SYSTEM_NAME,
     logo: data.logo || DEFAULT_LOGO,
+    favicon: data.favicon || '',
+    hideHeaderSiteName: Boolean(data.hide_header_site_name),
+    headerLogoHeight: data.header_logo_height || 24,
     footerHtml: data.footer_html,
     demoSiteEnabled: data.demo_site_enabled,
     displayTokenStatEnabled: data.display_token_stat_enabled,
@@ -174,9 +180,11 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
     if (autoLoad) loadConfig()
   }, [autoLoad, loadConfig])
 
-  // Preload logo image when URL changes
+  // Preload logo image when URL changes & update favicon
   useEffect(() => {
-    const { logo } = config
+    const { logo, favicon } = config
+
+    applyFaviconToDom(favicon || logo)
 
     // Skip if logo is already loaded
     if (!logo || logo === loadedLogoUrl) return
@@ -186,7 +194,6 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
       logo,
       () => {
         setLoadedLogoUrl(logo)
-        applyFaviconToDom(logo)
       },
       () => {
         if (logo !== DEFAULT_LOGO) {
@@ -198,7 +205,7 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
       }
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.logo, loadedLogoUrl, setLoadedLogoUrl])
+  }, [config.logo, config.favicon, loadedLogoUrl, setLoadedLogoUrl])
 
   return {
     ...config,
