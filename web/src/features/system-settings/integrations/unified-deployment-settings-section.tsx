@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -33,8 +32,6 @@ import { testDeploymentConnectionWithKey } from '@/features/models/api'
 import {
   SettingsForm,
   SettingsFormGrid,
-  SettingsSwitchContent,
-  SettingsSwitchItem,
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
@@ -142,17 +139,17 @@ export function UnifiedDeploymentSettingsSection({
     }
     setIoTestState({ loading: true, ok: null, error: null })
     try {
-      const res = await testDeploymentConnectionWithKey(key)
-      if (res.success) {
+      const res: any = await testDeploymentConnectionWithKey(key)
+      if (res.data?.success || res.success) {
         setIoTestState({ loading: false, ok: true, error: null })
         toast.success(t('Successfully connected to io.net'))
       } else {
         setIoTestState({
           loading: false,
           ok: false,
-          error: res.message || t('Connection failed'),
+          error: res.data?.message || res.message || t('Connection failed'),
         })
-        toast.error(res.message || t('Connection failed'))
+        toast.error(res.data?.message || res.message || t('Connection failed'))
       }
     } catch (e: any) {
       setIoTestState({
@@ -175,26 +172,26 @@ export function UnifiedDeploymentSettingsSection({
       const res = await api.post('/api/deployments/huggingface/test-connection', {
         token,
       })
-      if (res.success) {
+      if (res.data?.success) {
         setHfTestState({
           loading: false,
           ok: true,
           error: null,
-          username: res.data?.name || null,
+          username: res.data?.data?.name || null,
         })
         toast.success(
           t('Connected to Hugging Face successfully: {{name}}', {
-            name: res.data?.name || '',
+            name: res.data?.data?.name || '',
           })
         )
       } else {
         setHfTestState({
           loading: false,
           ok: false,
-          error: res.message || t('Connection failed'),
+          error: res.data?.message || t('Connection failed'),
           username: null,
         })
-        toast.error(res.message || t('Connection failed'))
+        toast.error(res.data?.message || t('Connection failed'))
       }
     } catch (e: any) {
       setHfTestState({
@@ -285,9 +282,6 @@ export function UnifiedDeploymentSettingsSection({
   return (
     <SettingsSection
       title={t('Model Deployment Settings')}
-      description={t(
-        'Configure serverless GPU and container deployment providers (io.net, Modal, Hugging Face Spaces) for hosting model instances.'
-      )}
     >
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>

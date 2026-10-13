@@ -177,6 +177,9 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
     Footer: normalizeValue(defaultValues.Footer),
     About: normalizeValue(defaultValues.About),
     HomePageContent: normalizeValue(defaultValues.HomePageContent),
+    DocsLink: normalizeValue(
+      defaultValues.DocsLink ?? defaultValues['general_setting.docs_link'] ?? defaultValues.general_setting?.docs_link
+    ),
     'legal.user_agreement': normalizeValue(
       defaultValues['legal.user_agreement'] ?? defaultValues.legal?.user_agreement
     ),
@@ -191,6 +194,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
     normalizedDefaults[`Footer_${lang.key}`] = normalizeValue(defaultValues[`Footer_${lang.key}`])
     normalizedDefaults[`About_${lang.key}`] = normalizeValue(defaultValues[`About_${lang.key}`])
     normalizedDefaults[`HomePageContent_${lang.key}`] = normalizeValue(defaultValues[`HomePageContent_${lang.key}`])
+    normalizedDefaults[`DocsLink_${lang.key}`] = normalizeValue(defaultValues[`DocsLink_${lang.key}`])
     normalizedDefaults[`legal.user_agreement_${lang.key}`] = normalizeValue(
       defaultValues[`legal.user_agreement_${lang.key}`] ?? defaultValues[`TermsOfService_${lang.key}`]
     )
