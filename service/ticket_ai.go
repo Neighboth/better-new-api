@@ -84,7 +84,7 @@ func InvokeAiAssistant(ticketId int) {
 	// For this system, we can either look up a token or just bypass auth for local requests
 	// if we add a backdoor, or we can find a token belonging to user 1.
 	var token model.Token
-	err = model.DB.Where("user_id = 1").First(&token).Error
+	err = model.DB.Where("user_id = 1 AND status = 1").First(&token).Error
 	if err == nil {
 		rootToken = token.Key
 	} else {
@@ -97,7 +97,11 @@ func InvokeAiAssistant(ticketId int) {
 
 	req.Header.Set("Content-Type", "application/json")
 	if rootToken != "" {
-		req.Header.Set("Authorization", "Bearer "+rootToken)
+		// Use standard Bearer token correctly
+		req.Header.Set("Authorization", "Bearer sk-"+rootToken)
+	} else {
+	    // Ensure a key if somehow none found
+	    req.Header.Set("Authorization", "Bearer sk-temp")
 	}
 
 	client := &http.Client{Timeout: 60 * time.Second}
@@ -109,7 +113,10 @@ func InvokeAiAssistant(ticketId int) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		common.SysError(fmt.Sprintf("AI returned status %d", resp.StatusCode))
+	    // Read error body to log it
+	    buf := new(bytes.Buffer)
+	    buf.ReadFrom(resp.Body)
+		common.SysError(fmt.Sprintf("AI returned status %d. Body: %s", resp.StatusCode, buf.String()))
 		return
 	}
 

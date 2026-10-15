@@ -273,6 +273,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			continue
 		}
 		if _, specificChannel := c.Get("specific_channel_id"); !specificChannel {
+			if !shouldRetry(c, newAPIError, 1) {
+				break
+			}
 			if !advanceFallbackModel(c, relayInfo, retryParam, fbState) {
 				break
 			}
