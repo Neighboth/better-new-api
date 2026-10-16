@@ -353,10 +353,9 @@ export async function listHfEndpoints(params?: {
   data?: Array<{
     name: string
     namespace: string
-    status?: { state?: string }
+    status?: { state?: string; url?: string; createdAt?: string }
     model?: { repository?: string; task?: string }
     compute?: { accelerator?: string; instanceType?: string }
-    endpointUrl?: string
   }>
 }> {
   const res = await api.get('/api/deployments/huggingface/endpoints', {

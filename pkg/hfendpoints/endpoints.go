@@ -102,7 +102,11 @@ func (c *Client) do(method, path string, body []byte) ([]byte, error) {
 }
 
 type EndpointState struct {
-	State string `json:"state"`
+	State     string `json:"state"`
+	URL       string `json:"url"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+	Message   string `json:"message"`
 }
 
 type EndpointModel struct {
@@ -124,8 +128,6 @@ type Endpoint struct {
 	Status    EndpointState  `json:"status"`
 	Model     EndpointModel  `json:"model"`
 	Compute   EndpointCompute `json:"compute"`
-	URL       string         `json:"endpointUrl"`
-	CreatedAt string         `json:"createdAt"`
 }
 
 type listResponse struct {
@@ -145,7 +147,13 @@ func (c *Client) ListEndpoints(namespace string) ([]Endpoint, error) {
 		if err2 := unmarshal(data, &bare); err2 != nil {
 			return nil, err
 		}
+		for i := range bare {
+			bare[i].Namespace = namespace
+		}
 		return bare, nil
+	}
+	for i := range parsed.Items {
+		parsed.Items[i].Namespace = namespace
 	}
 	return parsed.Items, nil
 }
@@ -240,6 +248,7 @@ func (c *Client) GetEndpoint(namespace, name string) (*Endpoint, error) {
 	if err := unmarshal(data, &endpoint); err != nil {
 		return nil, err
 	}
+	endpoint.Namespace = namespace
 	return &endpoint, nil
 }
 

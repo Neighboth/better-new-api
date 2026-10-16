@@ -18,11 +18,9 @@ import { getDeploymentStatusConfig } from '../constants'
 export interface HfEndpointRow {
   name: string
   namespace?: string
-  status?: { state?: string }
+  status?: { state?: string; url?: string; createdAt?: string }
   model?: { repository?: string; task?: string }
   compute?: { accelerator?: string; instanceType?: string; instanceSize?: string }
-  endpointUrl?: string
-  createdAt?: string
 }
 
 export function normalizeHfStatus(raw: unknown): string {
@@ -190,12 +188,12 @@ export function useHfEndpointsColumns(opts: {
     },
     {
       id: 'created',
-      accessorFn: (row) => row.createdAt || '',
+      accessorFn: (row) => row.status?.createdAt || '',
       header: t('Created'),
       meta: { mobileHidden: true },
       cell: ({ row }) => (
         <div className='min-w-[140px] font-mono text-sm'>
-          {formatTimestampToDate(toTimestamp(row.original.createdAt))}
+          {formatTimestampToDate(toTimestamp(row.original.status?.createdAt))}
         </div>
       ),
       size: 180,
