@@ -1,5 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from '@tanstack/react-router'
+import {
   fireEvent,
   render,
   screen,
@@ -28,15 +35,30 @@ const { createHfEndpoint, deleteHfEndpoint, listHfEndpoints } = await import(
   '../../api'
 )
 
-function renderPanel() {
+async function renderPanel() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  render(
-    <QueryClientProvider client={client}>
+  const rootRoute = createRootRoute()
+  const modelsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/_authenticated/models/$section',
+    component: () => (
       <I18nextProvider i18n={i18n}>
         <HfEndpointsPanel />
       </I18nextProvider>
+    ),
+  })
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([modelsRoute]),
+    history: createMemoryHistory({
+      initialEntries: ['/_authenticated/models/deployments'],
+    }),
+  })
+  await router.load()
+  render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   )
 }
@@ -51,6 +73,12 @@ beforeEach(() => {
         status: { state: 'running' },
         model: { repository: 'meta-llama/Llama-3-8B' },
       },
+      {
+        name: 'other-ep',
+        namespace: 'acme',
+        status: { state: 'paused' },
+        model: { repository: 'org/other' },
+      },
     ],
   })
 })
@@ -60,32 +88,42 @@ afterEach(() => {
 })
 
 describe('HfEndpointsPanel', () => {
-  test('lists endpoints from the API', async () => {
+  test('lists endpoints in the table', async () => {
     renderPanel()
     expect(await screen.findByText('acme/my-llm')).toBeInTheDocument()
     expect(screen.getByText(/meta-llama\/Llama-3-8B/)).toBeInTheDocument()
+  })
+
+  test('search filters the table', async () => {
+    renderPanel()
+    await screen.findByText('acme/my-llm')
+    fireEvent.change(screen.getByPlaceholderText('Search deployments...'), {
+      target: { value: 'other-ep' },
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('acme/my-llm')).not.toBeInTheDocument()
+    })
+    expect(screen.getByText('acme/other-ep')).toBeInTheDocument()
   })
 
   test('create opens a dialog and stays disabled until required fields are filled', async () => {
     renderPanel()
     await screen.findByText('acme/my-llm')
 
-    // Top-right button opens the dialog.
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Create endpoint' })
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Create endpoint' }))
     const dialog = await screen.findByRole('dialog')
     const dialogButton = within(dialog).getByRole('button', {
       name: 'Create endpoint',
     })
     expect(dialogButton).toBeDisabled()
 
-    fireEvent.change(screen.getByPlaceholderText('my-llm'), {
+    fireEvent.change(within(dialog).getByPlaceholderText('my-llm'), {
       target: { value: 'new-ep' },
     })
-    fireEvent.change(screen.getByPlaceholderText('meta-llama/Llama-3-8B'), {
-      target: { value: 'org/model' },
-    })
+    fireEvent.change(
+      within(dialog).getByPlaceholderText('meta-llama/Llama-3-8B'),
+      { target: { value: 'org/model' } }
+    )
     expect(dialogButton).not.toBeDisabled()
 
     vi.mocked(createHfEndpoint).mockResolvedValue({ success: true })
@@ -100,20 +138,19 @@ describe('HfEndpointsPanel', () => {
     })
   })
 
-  test('delete confirms first and then calls the API with the namespace', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  test('delete asks for confirmation and calls the API with the namespace', async () => {
+    vi.mocked(deleteHfEndpoint).mockResolvedValue({ success: true })
     renderPanel()
     await screen.findByText('acme/my-llm')
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
-    expect(confirmSpy).toHaveBeenCalled()
+
+    const menus = screen.getAllByRole('button', { name: 'Open menu' })
+    fireEvent.click(menus[0])
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }))
     expect(deleteHfEndpoint).not.toHaveBeenCalled()
 
-    confirmSpy.mockReturnValue(true)
-    vi.mocked(deleteHfEndpoint).mockResolvedValue({ success: true })
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
     await waitFor(() => {
       expect(deleteHfEndpoint).toHaveBeenCalledWith('my-llm', 'acme')
     })
-    confirmSpy.mockRestore()
   })
 })
