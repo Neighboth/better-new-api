@@ -1,9 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -30,6 +38,7 @@ const HF_HARDWARE = [
 export function HfEndpointsPanel() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const [dialogOpen, setDialogOpen] = useState(false)
   const [name, setName] = useState('')
   const [repository, setRepository] = useState('')
   const [hardware, setHardware] = useState<string>('t4-small')
@@ -56,6 +65,7 @@ export function HfEndpointsPanel() {
         toast.success(t('Endpoint created successfully'))
         setName('')
         setRepository('')
+        setDialogOpen(false)
         queryClient.invalidateQueries({ queryKey: ['hf-endpoints'] })
         return
       }
@@ -67,7 +77,8 @@ export function HfEndpointsPanel() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (endpointName: string) => deleteHfEndpoint(endpointName),
+    mutationFn: (endpoint: { name: string; namespace?: string }) =>
+      deleteHfEndpoint(endpoint.name, endpoint.namespace),
     onSuccess: (data) => {
       if (data?.success) {
         toast.success(t('Endpoint deleted successfully'))
@@ -82,72 +93,19 @@ export function HfEndpointsPanel() {
   })
 
   const endpoints = endpointsQuery.data?.data ?? []
+  const canCreate =
+    !createMutation.isPending && name.trim() !== '' && repository.trim() !== ''
 
   return (
-    <div className='space-y-6'>
-      <div className='rounded-lg border p-4 space-y-4'>
-        <h4 className='font-semibold text-sm'>
-          {t('Create Hugging Face endpoint')}
-        </h4>
-        <div className='grid gap-4 md:grid-cols-2'>
-          <div className='space-y-1'>
-            <label className='text-sm font-medium'>{t('Endpoint name')}</label>
-            <Input
-              placeholder='my-llm'
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div className='space-y-1'>
-            <label className='text-sm font-medium'>{t('Model repository')}</label>
-            <Input
-              placeholder='meta-llama/Llama-3-8B'
-              value={repository}
-              onChange={(e) => setRepository(e.target.value)}
-            />
-          </div>
-          <div className='space-y-1'>
-            <label className='text-sm font-medium'>{t('Hardware')}</label>
-            <Select value={hardware} onValueChange={(v) => setHardware(v ?? 't4-small')}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {HF_HARDWARE.map((hw) => (
-                  <SelectItem key={hw} value={hw}>
-                    {hw}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className='space-y-1'>
-            <label className='text-sm font-medium'>{t('Task')}</label>
-            <Input
-              placeholder='text-generation'
-              value={task}
-              onChange={(e) => setTask(e.target.value)}
-            />
-          </div>
-        </div>
-        <div className='flex items-center justify-between gap-4'>
-          <label className='text-sm font-medium'>
-            {t('Protected endpoint (token required)')}
-          </label>
-          <Switch checked={isProtected} onCheckedChange={setIsProtected} />
-        </div>
-        <Button
-          onClick={() => createMutation.mutate()}
-          disabled={
-            createMutation.isPending || !name.trim() || !repository.trim()
-          }
-        >
+    <div className='flex h-full min-h-0 flex-col gap-4'>
+      <div className='flex justify-end'>
+        <Button onClick={() => setDialogOpen(true)} size='sm'>
+          <Plus className='h-4 w-4' />
           {t('Create endpoint')}
         </Button>
       </div>
 
       <div className='rounded-lg border p-4 space-y-3'>
-        <h4 className='font-semibold text-sm'>{t('Endpoints')}</h4>
         {endpointsQuery.isLoading && (
           <p className='text-muted-foreground text-sm'>{t('Loading...')}</p>
         )}
@@ -189,7 +147,10 @@ export function HfEndpointsPanel() {
                     t('Delete endpoint {{name}}?', { name: ep.name })
                   )
                 ) {
-                  deleteMutation.mutate(ep.name)
+                  deleteMutation.mutate({
+                    name: ep.name,
+                    namespace: ep.namespace,
+                  })
                 }
               }}
             >
@@ -198,6 +159,84 @@ export function HfEndpointsPanel() {
           </div>
         ))}
       </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('Create Hugging Face endpoint')}</DialogTitle>
+          </DialogHeader>
+          <div className='grid gap-4 py-2'>
+            <div className='space-y-1'>
+              <label className='text-sm font-medium'>
+                {t('Endpoint name')}
+              </label>
+              <Input
+                placeholder='my-llm'
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div className='space-y-1'>
+              <label className='text-sm font-medium'>
+                {t('Model repository')}
+              </label>
+              <Input
+                placeholder='meta-llama/Llama-3-8B'
+                value={repository}
+                onChange={(e) => setRepository(e.target.value)}
+              />
+            </div>
+            <div className='grid gap-4 sm:grid-cols-2'>
+              <div className='space-y-1'>
+                <label className='text-sm font-medium'>{t('Hardware')}</label>
+                <Select
+                  value={hardware}
+                  onValueChange={(v) => setHardware(v ?? 't4-small')}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {HF_HARDWARE.map((hw) => (
+                      <SelectItem key={hw} value={hw}>
+                        {hw}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className='space-y-1'>
+                <label className='text-sm font-medium'>{t('Task')}</label>
+                <Input
+                  placeholder='text-generation'
+                  value={task}
+                  onChange={(e) => setTask(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className='flex items-center justify-between gap-4'>
+              <label className='text-sm font-medium'>
+                {t('Protected endpoint (token required)')}
+              </label>
+              <Switch
+                checked={isProtected}
+                onCheckedChange={setIsProtected}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant='outline' onClick={() => setDialogOpen(false)}>
+              {t('Cancel')}
+            </Button>
+            <Button
+              onClick={() => createMutation.mutate()}
+              disabled={!canCreate}
+            >
+              {t('Create endpoint')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

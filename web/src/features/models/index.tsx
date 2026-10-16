@@ -32,6 +32,7 @@ import { listDeployments } from './api'
 import { DeploymentAccessGuard } from './components/deployment-access-guard'
 import { DeploymentsTable } from './components/deployments-table'
 import { HfEndpointsPanel } from './components/hf-endpoints-panel'
+import { ModalDeployHelper } from './components/modal-deploy-helper'
 import { CreateDeploymentDrawer } from './components/dialogs/create-deployment-drawer'
 import { ModelsDialogs } from './components/models-dialogs'
 import { ModelsPrimaryButtons } from './components/models-primary-buttons'
@@ -175,6 +176,7 @@ function DeploymentsSection() {
   // automatically.
   if (!deploymentLoading && isAnyEnabled && !isIoNetEnabled && !isHfEnabled) {
     return (
+      <>
       <div className='mx-auto mt-8 max-w-md'>
         <div className='text-center'>
           <div className='mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-100 dark:bg-emerald-900/20'>
@@ -200,6 +202,10 @@ function DeploymentsSection() {
           </Button>
         </div>
       </div>
+      <div className='mx-auto mt-6 max-w-3xl'>
+        <ModalDeployHelper />
+      </div>
+      </>
     )
   }
 
