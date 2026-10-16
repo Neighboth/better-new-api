@@ -42,7 +42,6 @@ import {
   deleteHfEndpoint,
   listHfEndpoints,
 } from '../api'
-import { getDeploymentStatusOptions } from '../constants'
 import {
   normalizeHfStatus,
   useHfEndpointsColumns,
@@ -214,11 +213,19 @@ export function HfEndpointsPanel() {
   })
 
   const statusFilterOptions = useMemo(() => {
-    return [...getDeploymentStatusOptions(t)].map((opt) => ({
-      label: opt.label,
-      value: opt.value,
-    }))
-  }, [t])
+    const seen = new Set<string>()
+    for (const ep of allEndpoints) {
+      seen.add(normalizeHfStatus(ep.status?.state))
+    }
+    const states = [...seen].filter((s) => s && s !== 'unknown').sort()
+    if (seen.has('unknown') || states.length === 0) {
+      states.push('unknown')
+    }
+    return [
+      { label: t('All Status'), value: 'all' },
+      ...states.map((s) => ({ label: s, value: s })),
+    ]
+  }, [allEndpoints, t])
 
   const canCreate =
     !createMutation.isPending && name.trim() !== '' && repository.trim() !== ''
@@ -226,7 +233,19 @@ export function HfEndpointsPanel() {
   return (
     <>
       <div className='flex h-full min-h-0 flex-col gap-4'>
-        <div className='flex justify-end'>
+        <div className='flex items-center justify-between gap-2'>
+          {endpointsQuery.isError ? (
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => endpointsQuery.refetch()}
+              disabled={endpointsQuery.isFetching}
+            >
+              {t('Retry')}
+            </Button>
+          ) : (
+            <span />
+          )}
           <Button onClick={() => setDialogOpen(true)} size='sm'>
             <Plus className='h-4 w-4' />
             {t('Create endpoint')}

@@ -67,7 +67,9 @@ function ModelsContent() {
 
   // Deployment create dialog state
   const [createDeploymentOpen, setCreateDeploymentOpen] = useState(false)
-  const { isIoNetEnabled: isIoNetAvailable } = useModelDeploymentSettings()
+  const deploymentSettings = useModelDeploymentSettings()
+  const { isIoNetEnabled: isIoNetAvailable } = deploymentSettings
+  const [providerTab, setProviderTab] = useState('ionet')
 
   // keep context state in sync (for components that rely on it)
   useEffect(() => {
@@ -96,7 +98,8 @@ function ModelsContent() {
           {activeSection === 'metadata' ? (
             <ModelsPrimaryButtons />
           ) : (
-            isIoNetAvailable && (
+            isIoNetAvailable &&
+            providerTab !== 'huggingface' && (
               <Button onClick={() => setCreateDeploymentOpen(true)} size='sm'>
                 <Plus className='h-4 w-4' />
                 {t('Create deployment')}
@@ -119,7 +122,11 @@ function ModelsContent() {
               {activeSection === 'metadata' ? (
                 <ModelsTable />
               ) : (
-                <DeploymentsSection />
+                <DeploymentsSection
+                  settings={deploymentSettings}
+                  providerTab={providerTab}
+                  onProviderTabChange={setProviderTab}
+                />
               )}
             </div>
           </div>
@@ -135,7 +142,13 @@ function ModelsContent() {
   )
 }
 
-function DeploymentsSection() {
+type DeploymentSettings = ReturnType<typeof useModelDeploymentSettings>
+
+function DeploymentsSection(props: {
+  settings: DeploymentSettings
+  providerTab: string
+  onProviderTabChange: (tab: string) => void
+}) {
   const queryClient = useQueryClient()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -149,8 +162,9 @@ function DeploymentsSection() {
     connectionOk,
     connectionError,
     testConnection,
-  } = useModelDeploymentSettings()
-  const [hfTab, setHfTab] = useState('ionet')
+  } = props.settings
+  const hfTab = props.providerTab
+  const setHfTab = props.onProviderTabChange
 
   // Prefetch deployments list while connection check is in progress.
   useEffect(() => {
