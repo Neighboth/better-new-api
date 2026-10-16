@@ -3437,7 +3437,7 @@ export function ChannelMutateDrawer({
                                             const parsed = JSON.parse(rawKey)
                                             if (parsed.plan) currentPlan = parsed.plan
                                           }
-                                        } catch (_) {}
+                                        } catch {}
 
                                         const setPlan = (planVal: string) => {
                                           try {
@@ -3446,7 +3446,7 @@ export function ChannelMutateDrawer({
                                               parsed.plan = planVal
                                               form.setValue('key', JSON.stringify(parsed), { shouldValidate: true })
                                             }
-                                          } catch (_) {}
+                                          } catch {}
                                         }
 
                                         return (
@@ -3510,7 +3510,7 @@ export function ChannelMutateDrawer({
                                             const parsed = JSON.parse(rawKey)
                                             if (parsed.thinking_level) currentThinking = parsed.thinking_level
                                           }
-                                        } catch (_) {}
+                                        } catch {}
 
                                         const setThinking = (lvl: string) => {
                                           try {
@@ -3519,7 +3519,7 @@ export function ChannelMutateDrawer({
                                               parsed.thinking_level = lvl
                                               form.setValue('key', JSON.stringify(parsed), { shouldValidate: true })
                                             }
-                                          } catch (_) {}
+                                          } catch {}
                                         }
 
                                         return (
