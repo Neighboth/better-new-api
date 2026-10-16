@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import { Plus } from 'lucide-react'
+import { AlertCircle, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -16,6 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -264,6 +265,15 @@ export function HfEndpointsPanel() {
           <DialogHeader>
             <DialogTitle>{t('Create Hugging Face endpoint')}</DialogTitle>
           </DialogHeader>
+          <Alert variant='default'>
+            <AlertCircle className='h-4 w-4' />
+            <AlertTitle>{t('How this works')}</AlertTitle>
+            <AlertDescription>
+              {t(
+                '1) Your Hugging Face token needs billing enabled and access to the namespace (your username or an org you belong to). 2) Pick a model repository and hardware; the endpoint scales to zero after 15 idle minutes to save cost. 3) After it turns running, open its details to get the URL and add it as a channel.'
+              )}
+            </AlertDescription>
+          </Alert>
           <div className='grid gap-4 py-2'>
             <div className='space-y-1'>
               <label className='text-sm font-medium'>
@@ -315,7 +325,7 @@ export function HfEndpointsPanel() {
             </div>
             <div className='flex items-center justify-between gap-4'>
               <label className='text-sm font-medium'>
-                {t('Protected endpoint (token required)')}
+                {t('Private endpoint (token required)')}
               </label>
               <Switch
                 checked={isProtected}
