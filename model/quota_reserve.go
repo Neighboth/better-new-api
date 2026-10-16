@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
@@ -35,7 +36,7 @@ if tonumber(redis.call('HGET', KEYS[1], 'Id') or '0') ~= tonumber(ARGV[2])
   or redis.call('HEXISTS', KEYS[1], 'Quota') == 0 then
   return -1
 end
-redis.call('HINCRBY', KEYS[1], 'Quota', ARGV[1])
+redis.call('HINCRBY', KEYS[1], 'Quota', tonumber(ARGV[1]))
 return 1`
 
 const tokenQuotaReserveScript = `
@@ -125,7 +126,7 @@ func persistTokenQuotaDelta(id int, delta int) error {
 		return nil
 	}
 	result := DB.Model(&Token{}).Where("id = ?", id).Updates(
-		map[string]any{
+		map[string]interface{}{
 			"remain_quota":  gorm.Expr("remain_quota + ?", delta),
 			"used_quota":    gorm.Expr("used_quota - ?", delta),
 			"accessed_time": common.GetTimestamp(),
@@ -150,7 +151,7 @@ func reserveUserQuotaDB(id int, quota int) (bool, error) {
 func reserveTokenQuotaDB(id int, quota int) (bool, error) {
 	result := DB.Model(&Token{}).
 		Where("id = ? AND remain_quota >= ?", id, quota).
-		Updates(map[string]any{
+		Updates(map[string]interface{}{
 			"remain_quota":  gorm.Expr("remain_quota - ?", quota),
 			"used_quota":    gorm.Expr("used_quota + ?", quota),
 			"accessed_time": common.GetTimestamp(),
@@ -163,7 +164,7 @@ func reserveTokenQuotaDB(id int, quota int) (bool, error) {
 // Redis 异常或水合失败时降级为数据库条件更新，保证服务可用。
 func TryReserveUserQuota(id int, quota int) (bool, error) {
 	if quota < 0 {
-		return false, errors.New("quota cannot be negative")
+		return false, errors.New("quota 不能为负数！")
 	}
 	if quota == 0 {
 		return true, nil
@@ -180,7 +181,7 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 	}
 	if err != nil || result == cacheQuotaMiss {
 		if err != nil {
-			common.SysLog(common.LogText("user quota cache reserve unavailable, falling back to database: %s", err.Error()))
+			common.SysLog("user quota cache reserve unavailable, falling back to database: " + err.Error())
 		}
 		return reserveUserQuotaDB(id, quota)
 	}
@@ -190,7 +191,7 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 	if err = persistUserQuotaDelta(id, -quota); err != nil {
 		compensated, compensateErr := cacheApplyUserQuotaDelta(id, int64(quota))
 		if compensateErr != nil || compensated != cacheQuotaOK {
-			common.SysError(common.LogText("failed to compensate reserved user quota: result=%d error=%v", compensated, compensateErr))
+			common.SysError(fmt.Sprintf("failed to compensate reserved user quota: result=%d error=%v", compensated, compensateErr))
 		}
 		return false, err
 	}
@@ -201,7 +202,7 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 // tokens skip the balance check but still update remain/used accounting.
 func TryReserveTokenQuota(id int, key string, quota int, unlimited bool) (bool, error) {
 	if quota < 0 {
-		return false, errors.New("quota cannot be negative")
+		return false, errors.New("quota 不能为负数！")
 	}
 	if quota == 0 {
 		return true, nil
@@ -221,7 +222,7 @@ func TryReserveTokenQuota(id int, key string, quota int, unlimited bool) (bool, 
 	}
 	if err != nil || result == cacheQuotaMiss {
 		if err != nil {
-			common.SysLog(common.LogText("token quota cache reserve unavailable, falling back to database: %s", err.Error()))
+			common.SysLog("token quota cache reserve unavailable, falling back to database: " + err.Error())
 		}
 		return reserveTokenQuotaDB(id, quota)
 	}
@@ -231,7 +232,7 @@ func TryReserveTokenQuota(id int, key string, quota int, unlimited bool) (bool, 
 	if err = persistTokenQuotaDelta(id, -quota); err != nil {
 		compensated, compensateErr := cacheApplyTokenQuotaDelta(id, key, int64(quota))
 		if compensateErr != nil || compensated != cacheQuotaOK {
-			common.SysError(common.LogText("failed to compensate reserved token quota: result=%d error=%v", compensated, compensateErr))
+			common.SysError(fmt.Sprintf("failed to compensate reserved token quota: result=%d error=%v", compensated, compensateErr))
 		}
 		return false, err
 	}

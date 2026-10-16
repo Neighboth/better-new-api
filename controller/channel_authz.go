@@ -67,6 +67,7 @@ var channelSensitiveFields = map[string]struct{}{
 	"openai_organization": {},
 	"header_override":     {},
 	"param_override":      {},
+	"model_ratio_override": {},
 	"setting":             {},
 	"other":               {},
 	"settings":            {},

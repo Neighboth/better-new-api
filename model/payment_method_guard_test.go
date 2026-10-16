@@ -297,7 +297,7 @@ func TestRechargeEpayRejectsQuotaOverflowBeforeCompletingOrder(t *testing.T) {
 	truncateTables(t)
 
 	oldQuotaPerUnit := common.QuotaPerUnit
-	common.QuotaPerUnit = float64(common.MaxWalletQuota + 1)
+	common.QuotaPerUnit = float64(common.MaxQuota)
 	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
 
 	user := insertUserForPaymentGuardTest(t, 505, 3)
@@ -323,15 +323,15 @@ func TestRechargeEpayEnforcesFinalWalletQuotaLimit(t *testing.T) {
 	}{
 		{
 			name:         "allows exact highest representable wallet balance",
-			currentQuota: common.MaxWalletQuota - 1_000_000,
-			wantQuota:    common.MaxWalletQuota,
+			currentQuota: common.MaxQuota - 1 - 1_000_000,
+			wantQuota:    common.MaxQuota - 1,
 			wantStatus:   common.TopUpStatusSuccess,
 		},
 		{
-			name:         "rejects balance above wallet quota domain",
-			currentQuota: common.MaxWalletQuota - 999_999,
+			name:         "rejects balance above int32 quota domain",
+			currentQuota: common.MaxQuota - 1_000_000,
 			wantErr:      true,
-			wantQuota:    common.MaxWalletQuota - 999_999,
+			wantQuota:    common.MaxQuota - 1_000_000,
 			wantStatus:   common.TopUpStatusPending,
 		},
 	}

@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import {
   PromptInput,
@@ -26,19 +27,33 @@ import {
   type PromptInputMessage,
 } from '@/components/ai-elements/prompt-input'
 
-import { getSubmittableInputText } from '../../lib'
+import {
+  ATTACHMENT_ACCEPT,
+  MAX_ATTACHMENTS,
+  MAX_ATTACHMENT_SIZE_BYTES,
+} from '../../constants'
+import {
+  countUnsupportedFiles,
+  getSubmittableInputText,
+  toImageAttachments,
+} from '../../lib'
 import type {
+  MessageAttachment,
   ModelOption,
   GroupOption,
   ParameterEnabled,
   PlaygroundConfig,
 } from '../../types'
+import { PlaygroundInputAttachments } from './playground-input-attachments'
 import { PlaygroundInputControls } from './playground-input-controls'
 import { PlaygroundInputTools } from './playground-input-tools'
 
 interface PlaygroundInputProps {
   config: PlaygroundConfig
-  onSubmit: (text: string) => void
+  onSubmit: (payload: {
+    text: string
+    attachments?: MessageAttachment[]
+  }) => void
   onStop?: () => void
   disabled?: boolean
   isGenerating?: boolean
@@ -49,12 +64,11 @@ interface PlaygroundInputProps {
   groups: GroupOption[]
   groupValue: string
   onGroupChange: (value: string) => void
-  hasMessages?: boolean
   onConfigChange: <K extends keyof PlaygroundConfig>(
     key: K,
     value: PlaygroundConfig[K]
   ) => void
-  onClearMessages?: () => void
+  onNewChat?: () => void
   onParameterEnabledChange: (
     key: keyof ParameterEnabled,
     value: boolean
@@ -62,50 +76,53 @@ interface PlaygroundInputProps {
   parameterEnabled: ParameterEnabled
 }
 
-export function PlaygroundInput({
-  config,
-  onSubmit,
-  onStop,
-  disabled,
-  isGenerating,
-  models,
-  modelValue,
-  onModelChange,
-  isModelLoading = false,
-  groups,
-  groupValue,
-  onGroupChange,
-  hasMessages = false,
-  onConfigChange,
-  onClearMessages,
-  onParameterEnabledChange,
-  parameterEnabled,
-}: PlaygroundInputProps) {
+export function PlaygroundInput(props: PlaygroundInputProps) {
   const { t } = useTranslation()
   const [text, setText] = useState('')
 
-  const handleSubmit = (message: PromptInputMessage) => {
-    const submittableText = getSubmittableInputText(message, disabled)
+  const appendText = (snippet: string) => {
+    setText(
+      (current) => (current.trim() ? `${current.trim()}\n\n` : '') + snippet
+    )
+  }
 
-    if (!submittableText) return
-    onSubmit(submittableText)
+  const handleSubmit = (message: PromptInputMessage) => {
+    const submittableText = getSubmittableInputText(message, props.disabled)
+
+    if (submittableText === null) return
+
+    const unsupportedCount = countUnsupportedFiles(message.files)
+    if (unsupportedCount > 0) {
+      toast.error(t('Only image attachments are supported'))
+    }
+
+    const attachments = toImageAttachments(message.files)
+    if (!submittableText.trim() && attachments.length === 0) return
+
+    props.onSubmit({ text: submittableText, attachments })
     setText('')
   }
 
   return (
     <div className='grid shrink-0 gap-4 px-1 md:pb-4'>
       <PromptInput
+        accept={ATTACHMENT_ACCEPT}
         className='relative'
         groupClassName='bg-background/95 dark:bg-background/80 border-border/70 shadow-[0_18px_60px_-32px_rgba(0,0,0,0.65)] ring-1 ring-foreground/5 rounded-xl overflow-hidden transition-all duration-200 focus-within:border-primary/45 focus-within:ring-primary/15 focus-within:shadow-[0_22px_70px_-34px_rgba(0,0,0,0.75)]'
+        maxFileSize={MAX_ATTACHMENT_SIZE_BYTES}
+        maxFiles={MAX_ATTACHMENTS}
+        onError={(error) => toast.error(error.message)}
         onSubmit={handleSubmit}
       >
+        <PlaygroundInputAttachments />
+
         <PromptInputTextarea
           autoComplete='off'
           autoCorrect='off'
           autoCapitalize='off'
           spellCheck={false}
           className='min-h-20 px-5 pt-4 pb-3 leading-7 md:min-h-24 md:text-base'
-          disabled={disabled}
+          disabled={props.disabled}
           onChange={(event) => setText(event.target.value)}
           placeholder={t('Ask anything')}
           value={text}
@@ -113,26 +130,26 @@ export function PlaygroundInput({
 
         <PromptInputFooter className='border-border/60 bg-muted/20 dark:bg-muted/10 border-t px-3 py-2.5 backdrop-blur'>
           <PlaygroundInputControls
-            disabled={disabled}
-            groups={groups}
-            groupValue={groupValue}
-            isGenerating={isGenerating}
-            isModelLoading={isModelLoading}
-            models={models}
-            modelValue={modelValue}
-            onGroupChange={onGroupChange}
-            onModelChange={onModelChange}
-            onStop={onStop}
+            disabled={props.disabled}
+            groups={props.groups}
+            groupValue={props.groupValue}
+            isGenerating={props.isGenerating}
+            isModelLoading={props.isModelLoading}
+            models={props.models}
+            modelValue={props.modelValue}
+            onGroupChange={props.onGroupChange}
+            onModelChange={props.onModelChange}
+            onStop={props.onStop}
             text={text}
             tools={
               <PlaygroundInputTools
-                config={config}
-                disabled={disabled}
-                hasMessages={hasMessages}
-                onConfigChange={onConfigChange}
-                onClearMessages={onClearMessages}
-                onParameterEnabledChange={onParameterEnabledChange}
-                parameterEnabled={parameterEnabled}
+                config={props.config}
+                disabled={props.disabled}
+                onAppendText={appendText}
+                onConfigChange={props.onConfigChange}
+                onNewChat={props.onNewChat}
+                onParameterEnabledChange={props.onParameterEnabledChange}
+                parameterEnabled={props.parameterEnabled}
               />
             }
           />

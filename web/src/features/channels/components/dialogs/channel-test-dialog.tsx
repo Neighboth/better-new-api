@@ -60,9 +60,16 @@ import {
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Combobox } from '@/components/ui/combobox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Sheet,
   SheetContent,
@@ -79,7 +86,6 @@ import {
 } from '@/components/ui/tooltip'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useIsMobile } from '@/hooks/use-mobile'
-import { handleServerError } from '@/lib/handle-server-error'
 
 import { updateChannel } from '../../api'
 import {
@@ -115,6 +121,7 @@ type TestResult = {
   completedAt?: number
   error?: string
   errorCode?: string
+  message?: string
 }
 
 type BatchProgress = {
@@ -190,12 +197,36 @@ const endpointTypeOptions: Array<{ value: string; label: string }> = [
     value: 'image-generation',
     label: 'Image Generation (/v1/images/generations)',
   },
+  {
+    value: 'openai-video',
+    label: 'Video Generation (/v1/video/generations)',
+  },
+  {
+    value: 'openai-realtime',
+    label: 'Realtime Live (/v1/realtime)',
+  },
+  {
+    value: 'audio-speech',
+    label: 'Audio Speech TTS (/v1/audio/speech)',
+  },
+  {
+    value: 'audio-transcription',
+    label: 'Audio Transcription STT (/v1/audio/transcriptions)',
+  },
   { value: 'embeddings', label: 'Embeddings (/v1/embeddings)' },
 ]
+
+const endpointSelectContentClass = 'w-[460px] max-w-[calc(100vw-2rem)]'
+const endpointSelectItemClass =
+  'items-start py-2 [&_[data-slot=select-item-text]]:min-w-0 [&_[data-slot=select-item-text]]:shrink [&_[data-slot=select-item-text]]:whitespace-normal'
 
 const STREAM_INCOMPATIBLE_ENDPOINTS = new Set([
   'embeddings',
   'image-generation',
+  'openai-video',
+  'openai-realtime',
+  'audio-speech',
+  'audio-transcription',
   'jina-rerank',
   'openai-response-compact',
 ])
@@ -405,8 +436,9 @@ function ChannelTestDialogContent({
     setPagination({ pageIndex: 0, pageSize: 30 })
   }, [])
 
-  const streamDisabled = STREAM_INCOMPATIBLE_ENDPOINTS.has(endpointType)
-  const effectiveStreamTest = !streamDisabled && isStreamTest
+  const isCodexChannel = currentRow?.type === 57 || currentRow?.name?.toLowerCase().includes('codex')
+  const streamDisabled = STREAM_INCOMPATIBLE_ENDPOINTS.has(endpointType) || isCodexChannel
+  const effectiveStreamTest = isCodexChannel ? true : (!streamDisabled && isStreamTest)
 
   const handleEndpointTypeChange = useCallback((value: string | null) => {
     if (value === null) return
@@ -562,6 +594,7 @@ function ChannelTestDialogContent({
               completedAt,
               error,
               errorCode,
+              message: success && error ? error : undefined,
             }
             updateTestResult(model, finalResult)
           }
@@ -793,10 +826,14 @@ function ChannelTestDialogContent({
         refreshChannelLists()
         setIsDeleteFailedDialogOpen(false)
       } else {
-        handleServerError(response, t('Failed to delete failed models'))
+        toast.error(response.message || t('Failed to delete failed models'))
       }
     } catch (error: unknown) {
-      handleServerError(error, t('Failed to delete failed models'))
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t('Failed to delete failed models')
+      )
     } finally {
       setIsDeletingFailed(false)
     }
@@ -969,7 +1006,7 @@ function ChannelTestDialogContent({
             <span className='min-w-0 truncate'>{currentRow.name}</span>
           </span>
         }
-        contentClassName='max-h-[min(90dvh,var(--dialog-available-height))] overflow-y-auto sm:max-w-4xl'
+        contentClassName='max-h-[90vh] overflow-hidden sm:max-w-4xl'
         contentHeight='auto'
         bodyClassName='space-y-4'
         footer={
@@ -982,14 +1019,36 @@ function ChannelTestDialogContent({
           <div className='grid gap-4 md:grid-cols-2'>
             <div className='grid gap-2'>
               <Label htmlFor='endpoint-type'>{t('Endpoint Type')}</Label>
-              <Combobox
-                options={endpointSelectItems}
+              <Select
+                items={endpointSelectItems}
                 value={endpointType}
                 onValueChange={handleEndpointTypeChange}
-                id='endpoint-type'
-                className='w-full min-w-0'
-                placeholder={t('Auto detect (default)')}
-              />
+              >
+                <SelectTrigger id='endpoint-type' className='w-full min-w-0'>
+                  <SelectValue
+                    className='min-w-0 truncate'
+                    placeholder={t('Auto detect (default)')}
+                  />
+                </SelectTrigger>
+                <SelectContent
+                  alignItemWithTrigger={false}
+                  className={endpointSelectContentClass}
+                >
+                  <SelectGroup>
+                    {endpointSelectItems.map((option) => (
+                      <SelectItem
+                        key={option.value}
+                        value={option.value}
+                        className={endpointSelectItemClass}
+                      >
+                        <span className='min-w-0 leading-snug break-words whitespace-normal'>
+                          {option.label}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
               <p className='text-muted-foreground text-xs'>
                 {t(
                   'Override the endpoint used for testing. Leave empty to auto detect.'
@@ -1007,10 +1066,17 @@ function ChannelTestDialogContent({
                 />
                 <span className='text-sm'>
                   {effectiveStreamTest ? t('Enabled') : t('Disabled')}
+                  {isCodexChannel && (
+                    <span className='ml-1 text-xs text-amber-500 font-medium'>
+                      ({t('Codex için zorunlu')})
+                    </span>
+                  )}
                 </span>
               </div>
               <p className='text-muted-foreground text-xs'>
-                {t('Enable streaming mode for the test request.')}
+                {isCodexChannel
+                  ? t('Codex kanallarında yanıtların stream olarak test edilmesi zorunludur.')
+                  : t('Enable streaming mode for the test request.')}
               </p>
             </div>
           </div>
@@ -1204,12 +1270,33 @@ function TestResultCell({
   }
 
   if (result.status === 'success') {
-    return typeof result.responseTime === 'number' ? (
-      <span className='text-muted-foreground text-sm'>
-        {formatResponseTime(result.responseTime, t)}
-      </span>
-    ) : (
-      <span className='text-muted-foreground text-sm'>-</span>
+    return (
+      <div className='flex items-center gap-2'>
+        {typeof result.responseTime === 'number' ? (
+          <span className='text-muted-foreground text-sm'>
+            {formatResponseTime(result.responseTime, t)}
+          </span>
+        ) : (
+          <span className='text-muted-foreground text-sm'>-</span>
+        )}
+        {result.message ? (
+          <Button
+            variant='ghost'
+            size='sm'
+            className='h-6 px-1.5 text-xs text-blue-500 hover:text-blue-600'
+            onClick={() =>
+              onOpenDetails({
+                model,
+                summary: t('Transkripsiyon / Yanıt Sonucu'),
+                details: result.message!,
+              })
+            }
+          >
+            <Info className='size-3.5 mr-1' />
+            {t('Detay')}
+          </Button>
+        ) : null}
+      </div>
     )
   }
 

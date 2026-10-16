@@ -85,7 +85,7 @@ const CONTENT_SECTIONS = [
   },
   {
     id: 'uptime-kuma',
-    titleKey: 'Uptime Kuma',
+    titleKey: 'Uptime Monitoring',
     build: (settings: ContentSettings) => (
       <UptimeKumaSection
         enabled={settings['console_setting.uptime_kuma_enabled']}

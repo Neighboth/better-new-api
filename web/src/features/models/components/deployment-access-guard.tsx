@@ -154,7 +154,7 @@ export function DeploymentAccessGuard({
             <AlertTitle>{t('Configuration required')}</AlertTitle>
             <AlertDescription>
               {t(
-                'Please enable io.net model deployment service and configure an API key in System Settings.'
+                'Please configure and enable io.net, Modal or Hugging Face Spaces deployment service in System Settings.'
               )}
             </AlertDescription>
           </Alert>

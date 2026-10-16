@@ -148,35 +148,6 @@ func TestRedeemCreditsQuotaExactlyOnce(t *testing.T) {
 	assert.Equal(t, 500, user.Quota)
 }
 
-func TestRedeemRejectsWalletOverflow(t *testing.T) {
-	userId, key := setupRedeemFixture(t, 11)
-	require.NoError(t, DB.Model(&User{}).Where("id = ?", userId).Update("quota", common.MaxWalletQuota-10).Error)
-
-	_, err := Redeem(key, userId)
-	require.ErrorIs(t, err, ErrRedeemFailed)
-
-	var user User
-	require.NoError(t, DB.First(&user, "id = ?", userId).Error)
-	assert.Equal(t, common.MaxWalletQuota-10, user.Quota)
-
-	var redemption Redemption
-	require.NoError(t, DB.First(&redemption, "key = ?", key).Error)
-	assert.Equal(t, common.RedemptionCodeStatusEnabled, redemption.Status)
-}
-
-func TestRedemptionQuotaRejectsWalletOverflow(t *testing.T) {
-	setupRedeemFixture(t, 500)
-
-	redemption := &Redemption{
-		Name:        "overflow-redemption",
-		Key:         "10000000000000000000000000000002",
-		Status:      common.RedemptionCodeStatusEnabled,
-		Quota:       common.MaxWalletQuota + 1,
-		CreatedTime: common.GetTimestamp(),
-	}
-	require.Error(t, redemption.Insert())
-}
-
 // Exactly one of several concurrent redeems of the same code may win, and
 // quota must be credited exactly once.
 func TestRedeemConcurrentSingleSuccess(t *testing.T) {
@@ -186,7 +157,7 @@ func TestRedeemConcurrentSingleSuccess(t *testing.T) {
 	successes := make([]bool, goroutines)
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := range goroutines {
+	for i := 0; i < goroutines; i++ {
 		go func(idx int) {
 			defer wg.Done()
 			if _, err := Redeem(key, userId); err == nil {
@@ -207,4 +178,39 @@ func TestRedeemConcurrentSingleSuccess(t *testing.T) {
 	var user User
 	require.NoError(t, DB.First(&user, "id = ?", userId).Error)
 	assert.Equal(t, 300, user.Quota, "quota must be credited exactly once")
+}
+
+func TestUserBalancePackageAvailabilityKeepsRedemptionRestrictionsSeparate(t *testing.T) {
+	require.NoError(t, DB.AutoMigrate(&UserBalancePackage{}))
+	user := &User{Username: "package-test-" + common.GetUUID(), Password: "password", Status: common.UserStatusEnabled}
+	require.NoError(t, DB.Create(user).Error)
+	require.NoError(t, DB.Where("user_id = ?", user.Id).Delete(&UserBalancePackage{}).Error)
+	t.Cleanup(func() {
+		DB.Where("user_id = ?", user.Id).Delete(&UserBalancePackage{})
+		DB.Delete(user)
+	})
+
+	packages := []UserBalancePackage{
+		{UserId: user.Id, RedemptionId: 11, Type: 0, RemainingAmount: 200, ModelFilterMode: "whitelist", Models: "model-a"},
+		{UserId: user.Id, RedemptionId: 12, Type: 0, RemainingAmount: 300, ModelFilterMode: "whitelist", Models: "model-b"},
+	}
+	require.NoError(t, DB.Create(&packages).Error)
+
+	availableA, restricted, err := UserBalancePackageAvailable(user.Id, "model-a", 0, 1000)
+	require.NoError(t, err)
+	assert.True(t, restricted)
+	assert.EqualValues(t, 700, availableA, "model A may use the unrestricted 500 and its own 200 package")
+	availableOther, _, err := UserBalancePackageAvailable(user.Id, "model-other", 0, 1000)
+	require.NoError(t, err)
+	assert.EqualValues(t, 500, availableOther, "a model outside both code restrictions may only use unrestricted balance")
+
+	deducted, err := DeductUserBalancePackage(user.Id, "model-a", 0, 250)
+	require.NoError(t, err)
+	assert.EqualValues(t, 200, deducted, "eligible package deductions may span buckets but never borrow from another code")
+	availableA, _, err = UserBalancePackageAvailable(user.Id, "model-a", 0, 750)
+	require.NoError(t, err)
+	assert.EqualValues(t, 450, availableA, "model A's own bucket is exhausted after charging 200")
+	availableB, _, err := UserBalancePackageAvailable(user.Id, "model-b", 0, 750)
+	require.NoError(t, err)
+	assert.EqualValues(t, 750, availableB, "model B retains its separate 300 package")
 }

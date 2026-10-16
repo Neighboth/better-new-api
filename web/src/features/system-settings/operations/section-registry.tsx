@@ -17,11 +17,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { SystemBehaviorSection } from '../general/system-behavior-section'
+import { RelayFallbackSection } from '../general/relay-fallback-section'
+import { TicketSettingsSection } from './ticket-settings-section'
+import { OnlineSearchSettingsSection } from './online-search-settings-section'
+import { DiscordBotSettingsSection } from './discord-bot-settings-section'
 import { EmailSettingsSection } from '../integrations/email-settings-section'
 import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section'
 import { WorkerSettingsSection } from '../integrations/worker-settings-section'
 import { LogSettingsSection } from '../maintenance/log-settings-section'
 import { PerformanceSection } from '../maintenance/performance-section'
+import { SystemFilesSection } from '../maintenance/system-files-section'
 import { UpdateCheckerSection } from '../maintenance/update-checker-section'
 import type { OperationsSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
@@ -38,7 +43,116 @@ const OPERATIONS_SECTIONS = [
           SelfUseModeEnabled: settings.SelfUseModeEnabled,
         }}
       />
+      ),
+    },
+    {
+      id: 'relay-fallback',
+    titleKey: 'Relay Fallback',
+    build: (settings: OperationsSettings) => (
+      <RelayFallbackSection
+        defaultValues={{
+          enable_fallback:
+            settings['relay_fallback_setting.enable_fallback'] ?? false,
+          fallback_models:
+            settings['relay_fallback_setting.fallback_models'] ?? '',
+          fallback_chat_models:
+            settings['relay_fallback_setting.fallback_chat_models'] ?? '',
+          fallback_image_models:
+            settings['relay_fallback_setting.fallback_image_models'] ?? '',
+          fallback_tts_models:
+            settings['relay_fallback_setting.fallback_tts_models'] ?? '',
+          fallback_stt_models:
+            settings['relay_fallback_setting.fallback_stt_models'] ?? '',
+          fallback_video_models:
+            settings['relay_fallback_setting.fallback_video_models'] ?? '',
+          fallback_system_prompt:
+            settings['relay_fallback_setting.fallback_system_prompt'] ?? '',
+        }}
+      />
     ),
+  },
+  {
+    id: 'ticket',
+    titleKey: 'Support & Tickets',
+    build: (settings: OperationsSettings) => (
+      <TicketSettingsSection
+        defaultValues={{
+          enabled: settings['ticket_setting.enabled'] ?? true,
+          liveSupportEnabled:
+            settings['ticket_setting.live_support_enabled'] ?? true,
+          notifyAdminOnNewTicket:
+            settings['ticket_setting.notify_admin_on_new_ticket'] ?? true,
+          notifyUserOnReply:
+            settings['ticket_setting.notify_user_on_reply'] ?? true,
+          aiAssistantEnabled:
+            settings['ticket_setting.ai_assistant_enabled'] ?? true,
+          aiAssistantModel:
+            settings['ticket_setting.ai_assistant_model'] ?? 'gemini-1.5-flash',
+          aiAssistantSystemPrompt:
+            settings['ticket_setting.ai_assistant_system_prompt'] ??
+            'You are a helpful customer support agent for our API platform. Use markdown and BUTTON[Text](url) when directing users to external links.',
+        }}
+      />
+    ),
+  },
+  {
+    id: 'online-search',
+    titleKey: 'Online Search',
+    build: (settings: OperationsSettings) => (
+      <OnlineSearchSettingsSection
+        defaultValues={{
+          searxngUrl: settings['online_search_setting.searxng_url'] ?? '',
+          onlineSearchPrice: Number(
+            settings['online_search_setting.price_per_search'] ?? 0
+          ),
+          onlineSearchMax: Number(
+            settings['online_search_setting.max_searches'] ?? 5
+          ),
+        }}
+      />
+    ),
+  },
+  {
+    id: 'discord-bot',
+    titleKey: 'Discord Bot',
+    build: (settings: OperationsSettings) => (
+      <DiscordBotSettingsSection
+        defaultValues={{
+          enabled: settings['discord_bot.enabled'] ?? false,
+          botToken:
+            settings['discord_bot.token'] ??
+            settings['discord_bot.bot_token'] ??
+            '',
+          botName: settings['discord_bot.bot_name'] ?? 'MyAIBot',
+          prefix: settings['discord_bot.prefix'] ?? '!',
+          status: settings['discord_bot.status'] ?? 'Ready to help',
+          language: settings['discord_bot.language'] ?? 'en',
+          embedColor: settings['discord_bot.embed_color'] ?? '#00ff00',
+          aiSystemPrompt:
+            settings['discord_bot.ai_system_prompt'] ??
+            'You are a helpful AI assistant.',
+          rpgEnabled: settings['discord_bot.rpc_enabled'] ?? true,
+          rpcAppId: settings['discord_bot.rpc_app_id'] ?? '',
+          rpcDetails: settings['discord_bot.rpc_details'] ?? '',
+          rpcState: settings['discord_bot.rpc_state'] ?? '',
+          rpcLargeImage: settings['discord_bot.rpc_large_image'] ?? '',
+          rpcLargeText: settings['discord_bot.rpc_large_text'] ?? '',
+          rpcSmallImage: settings['discord_bot.rpc_small_image'] ?? '',
+          rpcSmallText: settings['discord_bot.rpc_small_text'] ?? '',
+          autoReplyChannelId:
+            settings['discord_bot.auto_reply_channel_id'] ?? '',
+          autoReplyModel: settings['discord_bot.auto_reply_model'] ?? '',
+          imageModel: settings['discord_bot.image_model'] ?? '',
+          onlyLinkedAccounts:
+            settings['discord_bot.only_linked_accounts'] ?? false,
+        }}
+      />
+    ),
+  },
+  {
+    id: 'files',
+    titleKey: 'Files Manager',
+    build: () => <SystemFilesSection />,
   },
   {
     id: 'alerts',
@@ -63,19 +177,7 @@ const OPERATIONS_SECTIONS = [
     id: 'email',
     titleKey: 'SMTP Email',
     build: (settings: OperationsSettings) => (
-      <EmailSettingsSection
-        defaultValues={{
-          SMTPServer: settings.SMTPServer,
-          SMTPPort: settings.SMTPPort,
-          SMTPAccount: settings.SMTPAccount,
-          SMTPFrom: settings.SMTPFrom,
-          SMTPToken: settings.SMTPToken,
-          SMTPSSLEnabled: settings.SMTPSSLEnabled,
-          SMTPStartTLSEnabled: settings.SMTPStartTLSEnabled,
-          SMTPInsecureSkipVerify: settings.SMTPInsecureSkipVerify,
-          SMTPForceAuthLogin: settings.SMTPForceAuthLogin,
-        }}
-      />
+      <EmailSettingsSection defaultValues={settings as any} />
     ),
   },
   {
@@ -97,13 +199,7 @@ const OPERATIONS_SECTIONS = [
     titleKey: 'Log Maintenance',
     build: (settings: OperationsSettings) => (
       <LogSettingsSection
-        defaultValues={{
-          LogConsumeEnabled: Boolean(settings.LogConsumeEnabled),
-          'log_setting.user_export_enabled':
-            settings['log_setting.user_export_enabled'] ?? true,
-          'log_setting.max_range_days':
-            settings['log_setting.max_range_days'] ?? 365,
-        }}
+        defaultEnabled={Boolean(settings.LogConsumeEnabled)}
       />
     ),
   },

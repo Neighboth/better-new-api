@@ -47,18 +47,17 @@ func BuildAPIBaseURL(baseURL, version, projectID, region string) string {
 	}
 
 	region = normalizeVertexRegion(region)
-	host := region + "-aiplatform.googleapis.com"
-	switch region {
-	case "global":
-		host = "aiplatform.googleapis.com"
-	case "us", "eu":
-		// The US and EU multi-regions are served from their own hostnames.
-		host = "aiplatform." + region + ".rep.googleapis.com"
-	}
 	if strings.TrimSpace(projectID) == "" {
-		return fmt.Sprintf("https://%s/%s", host, version)
+		if region == "global" {
+			return fmt.Sprintf("https://aiplatform.googleapis.com/%s", version)
+		}
+		return fmt.Sprintf("https://%s-aiplatform.googleapis.com/%s", region, version)
 	}
-	return fmt.Sprintf("https://%s/%s/projects/%s/locations/%s", host, version, projectID, region)
+
+	if region == "global" {
+		return fmt.Sprintf("https://aiplatform.googleapis.com/%s/projects/%s/locations/global", version, projectID)
+	}
+	return fmt.Sprintf("https://%s-aiplatform.googleapis.com/%s/projects/%s/locations/%s", region, version, projectID, region)
 }
 
 func BuildPublisherModelURL(baseURL, version, projectID, region, publisher, modelName, action string) string {

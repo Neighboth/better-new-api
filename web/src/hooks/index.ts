@@ -30,3 +30,6 @@ export { useDebounce } from './use-debounce'
 
 // Media Query
 export { useMediaQuery } from './use-media-query'
+
+// SEO
+export { useSeoMeta } from './use-seo-meta'

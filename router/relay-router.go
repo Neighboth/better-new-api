@@ -1,8 +1,6 @@
 package router
 
 import (
-	"strings"
-
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
@@ -67,16 +65,12 @@ func SetRelayRouter(router *gin.Engine) {
 	playgroundRouter.Use(middleware.UserAuth(), middleware.Distribute())
 	{
 		playgroundRouter.POST("/chat/completions", controller.Playground)
+		playgroundRouter.POST("/images/generations", controller.PlaygroundImages)
 	}
 	relayV1Router := router.Group("/v1")
 	relayV1Router.Use(middleware.RouteTag("relay"))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())
 	relayV1Router.Use(middleware.TokenAuth())
-	{
-		// Responses WebSocket route. Channel selection happens after the first
-		// response.create event; each event runs the ordinary request limiter.
-		relayV1Router.GET("/responses", controller.ResponsesWebSocket)
-	}
 	relayV1Router.Use(middleware.ModelRequestRateLimit())
 	{
 		// WebSocket 路由（统一到 Relay）
@@ -87,13 +81,22 @@ func SetRelayRouter(router *gin.Engine) {
 		})
 	}
 	{
+		wsRootRouter := router.Group("")
+		wsRootRouter.Use(middleware.RouteTag("relay"))
+		wsRootRouter.Use(middleware.SystemPerformanceCheck())
+		wsRootRouter.Use(middleware.TokenAuth())
+		wsRootRouter.Use(middleware.ModelRequestRateLimit())
+		wsRootRouter.Use(middleware.Distribute())
+		wsRootRouter.GET("/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIRealtime)
+		})
+	}
+	{
 		//http router
 		httpRouter := relayV1Router.Group("")
 		httpRouter.Use(middleware.Distribute())
 
 		// claude related routes
-		// TODO: /messages/count_tokens is disabled. The current controller.CountClaudeTokens
-		// httpRouter.POST("/messages/count_tokens", controller.CountClaudeTokens)
 		httpRouter.POST("/messages", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatClaude)
 		})
@@ -107,6 +110,9 @@ func SetRelayRouter(router *gin.Engine) {
 		})
 
 		// response related routes
+		httpRouter.POST("/responses", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIResponses)
+		})
 		httpRouter.POST("/responses/compact", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIResponsesCompaction)
 		})
@@ -116,10 +122,23 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatOpenAIAlphaSearch)
 		})
 
-		// image related routes. /images/generations and /images/edits are
-		// host protocol endpoints (openai_image) registered by
-		// SetTaskPluginProtocolRouter; unclaimed models fall back to Relay.
+		// image, video & 3d related routes
 		httpRouter.POST("/edits", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIImage)
+		})
+		httpRouter.POST("/images/generations", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIImage)
+		})
+		httpRouter.POST("/images/edits", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIImage)
+		})
+		httpRouter.POST("/images/variations", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIImage)
+		})
+		httpRouter.POST("/videos/generations", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIImage)
+		})
+		httpRouter.POST("/3d/generations", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIImage)
 		})
 
@@ -136,6 +155,9 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatOpenAIAudio)
 		})
 		httpRouter.POST("/audio/speech", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIAudio)
+		})
+		httpRouter.POST("/speech", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIAudio)
 		})
 
@@ -158,7 +180,6 @@ func SetRelayRouter(router *gin.Engine) {
 		})
 
 		// not implemented
-		httpRouter.POST("/images/variations", controller.RelayNotImplemented)
 		httpRouter.GET("/files", controller.RelayNotImplemented)
 		httpRouter.POST("/files", controller.RelayNotImplemented)
 		httpRouter.DELETE("/files/:id", controller.RelayNotImplemented)
@@ -183,16 +204,17 @@ func SetRelayRouter(router *gin.Engine) {
 	registerMjRouterGroup(relayMjModeRouter)
 	//relayMjRouter.Use()
 
+	relaySunoRouter := router.Group("/suno")
+	relaySunoRouter.Use(middleware.RouteTag("relay"))
+	relaySunoRouter.Use(middleware.SystemPerformanceCheck())
+	relaySunoRouter.Use(middleware.TokenAuth(), middleware.Distribute())
+	{
+		relaySunoRouter.POST("/submit/:action", controller.RelayTask)
+		relaySunoRouter.POST("/fetch", controller.RelayTaskFetch)
+		relaySunoRouter.GET("/fetch/:id", controller.RelayTaskFetch)
+	}
+
 	relayGeminiRouter := router.Group("/v1beta")
-	// :countTokens is not implemented. Answer it like an unregistered route
-	// before auth/channel selection instead of silently relaying it as
-	// generateContent (#7283).
-	relayGeminiRouter.Use(func(c *gin.Context) {
-		if strings.HasSuffix(c.Request.URL.Path, ":countTokens") {
-			controller.RelayNotFound(c)
-			c.Abort()
-		}
-	})
 	relayGeminiRouter.Use(middleware.RouteTag("relay"))
 	relayGeminiRouter.Use(middleware.SystemPerformanceCheck())
 	relayGeminiRouter.Use(middleware.TokenAuth())
@@ -202,6 +224,21 @@ func SetRelayRouter(router *gin.Engine) {
 		// Gemini API 路径格式: /v1beta/models/{model_name}:{action}
 		relayGeminiRouter.POST("/models/*path", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatGemini)
+		})
+	}
+
+	relayRootAudioRouter := router.Group("")
+	relayRootAudioRouter.Use(middleware.RouteTag("relay"))
+	relayRootAudioRouter.Use(middleware.SystemPerformanceCheck())
+	relayRootAudioRouter.Use(middleware.TokenAuth())
+	relayRootAudioRouter.Use(middleware.ModelRequestRateLimit())
+	relayRootAudioRouter.Use(middleware.Distribute())
+	{
+		relayRootAudioRouter.POST("/speech", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIAudio)
+		})
+		relayRootAudioRouter.POST("/audio/speech", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIAudio)
 		})
 	}
 }

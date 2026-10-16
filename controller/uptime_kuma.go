@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"net/http"
 	"strconv"
@@ -14,6 +15,18 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
 )
+
+type rssFeed struct {
+	XMLName xml.Name `xml:"rss"`
+	Channel struct {
+		Title string `xml:"title"`
+		Items []struct {
+			Title       string `xml:"title"`
+			Description string `xml:"description"`
+			PubDate     string `xml:"pubDate"`
+		} `xml:"item"`
+	} `xml:"channel"`
+}
 
 const (
 	requestTimeout   = 30 * time.Second
@@ -32,10 +45,11 @@ type Monitor struct {
 
 type UptimeGroupResult struct {
 	CategoryName string    `json:"categoryName"`
+	CustomName   string    `json:"customName,omitempty"`
 	Monitors     []Monitor `json:"monitors"`
 }
 
-func getAndDecode(ctx context.Context, client *http.Client, url string, dest any) error {
+func getAndDecode(ctx context.Context, client *http.Client, url string, dest interface{}) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -54,14 +68,123 @@ func getAndDecode(ctx context.Context, client *http.Client, url string, dest any
 	return json.NewDecoder(resp.Body).Decode(dest)
 }
 
-func fetchGroupData(ctx context.Context, client *http.Client, groupConfig map[string]any) UptimeGroupResult {
+func fetchGroupData(ctx context.Context, client *http.Client, groupConfig map[string]interface{}) UptimeGroupResult {
 	url, _ := groupConfig["url"].(string)
 	slug, _ := groupConfig["slug"].(string)
 	categoryName, _ := groupConfig["categoryName"].(string)
+	providerType, _ := groupConfig["type"].(string)
+	apiKey, _ := groupConfig["apiKey"].(string)
 
 	result := UptimeGroupResult{
 		CategoryName: categoryName,
+		CustomName:   getMapString(groupConfig, "customName"),
 		Monitors:     []Monitor{},
+	}
+
+	// Handle Instatus
+	if providerType == "instatus" || strings.Contains(url, "instatus.com") {
+		instatusJSONURL := url
+		if !strings.HasSuffix(instatusJSONURL, "/summary.json") {
+			instatusJSONURL = strings.TrimSuffix(instatusJSONURL, "/") + "/summary.json"
+		}
+		var instatusData struct {
+			Page struct {
+				Name   string `json:"name"`
+				Status string `json:"status"`
+			} `json:"page"`
+			Components []struct {
+				Name   string `json:"name"`
+				Status string `json:"status"`
+			} `json:"components"`
+		}
+		if err := getAndDecode(ctx, client, instatusJSONURL, &instatusData); err == nil && len(instatusData.Components) > 0 {
+			for _, comp := range instatusData.Components {
+				st := 1
+				if strings.ToUpper(comp.Status) != "OPERATIONAL" && strings.ToUpper(comp.Status) != "UP" {
+					st = 0
+				}
+				result.Monitors = append(result.Monitors, Monitor{
+					Name:   comp.Name,
+					Status: st,
+					Uptime: 100,
+				})
+			}
+			return result
+		}
+
+		// Fallback to RSS parsing (e.g. https://new-api.instatus.com/history.rss)
+		rssURL := url
+		if !strings.HasSuffix(rssURL, ".rss") {
+			rssURL = strings.TrimSuffix(rssURL, "/") + "/history.rss"
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rssURL, nil)
+		if err == nil {
+			resp, err := client.Do(req)
+			if err == nil && resp.StatusCode == http.StatusOK {
+				var feed rssFeed
+				if xml.NewDecoder(resp.Body).Decode(&feed) == nil {
+					resp.Body.Close()
+					channelTitle := feed.Channel.Title
+					if result.CustomName != "" {
+						channelTitle = result.CustomName
+					} else if channelTitle == "" {
+						channelTitle = categoryName
+					}
+					st := 1
+					if len(feed.Channel.Items) > 0 {
+						// Check latest item description
+						latest := strings.ToLower(feed.Channel.Items[0].Title + " " + feed.Channel.Items[0].Description)
+						if strings.Contains(latest, "outage") || strings.Contains(latest, "degraded") || strings.Contains(latest, "down") {
+							st = 0
+						}
+					}
+					result.Monitors = append(result.Monitors, Monitor{
+						Name:   channelTitle,
+						Status: st,
+						Uptime: 100,
+					})
+					return result
+				}
+				resp.Body.Close()
+			}
+		}
+	}
+
+	// Handle UptimeRobot API
+	if providerType == "uptimerobot" || apiKey != "" || strings.Contains(url, "uptimerobot.com") {
+		reqURL := "https://api.uptimerobot.com/v2/getMonitors"
+		postBody := strings.NewReader("api_key=" + apiKey + "&format=json&custom_uptime_ratios=30")
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, postBody)
+		if err == nil {
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			resp, err := client.Do(req)
+			if err == nil && resp.StatusCode == http.StatusOK {
+				var urData struct {
+					Monitors []struct {
+						FriendlyName string  `json:"friendly_name"`
+						Status       int     `json:"status"`
+						UptimeRatio  string  `json:"custom_uptime_ratio"`
+					} `json:"monitors"`
+				}
+				if json.NewDecoder(resp.Body).Decode(&urData) == nil {
+					resp.Body.Close()
+					for _, m := range urData.Monitors {
+						st := 0
+						if m.Status == 2 { // 2 = Up in UptimeRobot
+							st = 1
+						}
+						up, _ := strconv.ParseFloat(m.UptimeRatio, 64)
+						result.Monitors = append(result.Monitors, Monitor{
+							Name:   m.FriendlyName,
+							Status: st,
+							Uptime: up,
+						})
+					}
+					return result
+				}
+				resp.Body.Close()
+			}
+		}
 	}
 
 	if url == "" || slug == "" {
@@ -143,6 +266,7 @@ func GetUptimeKumaStatus(c *gin.Context) {
 
 	g, gCtx := errgroup.WithContext(ctx)
 	for i, group := range groups {
+		i, group := i, group
 		g.Go(func() error {
 			results[i] = fetchGroupData(gCtx, client, group)
 			return nil
@@ -151,4 +275,12 @@ func GetUptimeKumaStatus(c *gin.Context) {
 
 	g.Wait()
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": results})
+}
+func getMapString(m map[string]interface{}, key string) string {
+	if val, ok := m[key]; ok {
+		if str, ok := val.(string); ok {
+			return str
+		}
+	}
+	return ""
 }

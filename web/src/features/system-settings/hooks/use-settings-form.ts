@@ -244,7 +244,8 @@ export function useSettingsForm<T extends FieldValues>({
 
   const handleSubmit = async (data: T) => {
     const dirtyValues = collectDirtyValues(form.formState.dirtyFields, data)
-    const changedEntries = Object.entries(dirtyValues).filter(
+    const flattenedDirty = flattenValues(dirtyValues)
+    const changedEntries = Object.entries(flattenedDirty).filter(
       ([key, value]) => !compare(value, baselineRef.current[key])
     )
 

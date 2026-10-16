@@ -169,7 +169,7 @@ func validateMultipartTaskRequest(c *gin.Context, info *RelayInfo, action string
 		Mode:     formData.Get("mode"),
 		Image:    formData.Get("image"),
 		Size:     formData.Get("size"),
-		Metadata: make(map[string]any),
+		Metadata: make(map[string]interface{}),
 	}
 
 	if durationStr := formData.Get("seconds"); durationStr != "" {
@@ -238,9 +238,9 @@ func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
 		return taskErr
 	}
 
-	action := constant.TaskActionTextToVideo
+	action := constant.TaskActionTextGenerate
 	if hasInputReference {
-		action = constant.TaskActionImageToVideo
+		action = constant.TaskActionGenerate
 	}
 	if strings.HasPrefix(model, "sora-2") {
 

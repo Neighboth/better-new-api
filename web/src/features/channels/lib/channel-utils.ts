@@ -54,8 +54,6 @@ export function getChannelTypeIcon(type: number): string {
     58: 'NewAPI', // Advanced Custom
     59: 'Sub2API', // Sub2API
     60: 'NewAPI', // New API
-    62: 'Vllm', // vLLM
-    63: 'SGLang', // SGLang
     3: 'Azure', // Azure
 
     // Anthropic
@@ -65,6 +63,9 @@ export function getChannelTypeIcon(type: number): string {
     24: 'Gemini', // Gemini
     11: 'Google', // PaLM
     41: 'Gemini', // Vertex AI
+    61: 'Google', // Google Antigravity
+    62: 'Agnes', // Agnes AI
+    63: 'DeepSeek', // DeepSeek Web
 
     // Cloud providers
     33: 'Aws', // AWS
@@ -104,7 +105,7 @@ export function getChannelTypeIcon(type: number): string {
     52: 'Vidu', // Vidu
     36: 'Suno', // SunoAPI
     55: 'OpenAI', // Sora
-    54: 'Doubao', // Doubao
+    54: 'Doubao', // DoubaoVideo
     56: 'Replicate', // Replicate
 
     // Tools & Platforms

@@ -30,7 +30,6 @@ const OBFUSCATED_KEYS = [
 ]
 
 const BRAND_AND_LITERAL_KEYS = new Set([
-  '1M token',
   'AI Proxy',
   'AIGC2D',
   'Alipay',
@@ -48,7 +47,6 @@ const BRAND_AND_LITERAL_KEYS = new Set([
   'Client Secret',
   'Cloudflare',
   'Cohere',
-  'credit',
   'DeepSeek',
   'Discord',
   'DoubaoVideo',
@@ -60,6 +58,7 @@ const BRAND_AND_LITERAL_KEYS = new Set([
   'JustSong',
   'LingYiWanWu',
   'LinuxDO',
+  'Markdown',
   'MjProxy',
   'MjProxyPlus',
   'MiniMax',
@@ -91,6 +90,7 @@ const BRAND_AND_LITERAL_KEYS = new Set([
   'TTFT P50',
   'TTFT P95',
   'TTFT P99',
+  'URL (iframe)',
   'Uptime Kuma',
   'Uptime Kuma URL',
   'Vertex AI',

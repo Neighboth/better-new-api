@@ -20,8 +20,6 @@ import i18next from 'i18next'
 import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
 
-import { handleServerError } from '@/lib/handle-server-error'
-
 import {
   calculateAmount,
   calculateStripeAmount,
@@ -127,7 +125,7 @@ export function usePayment() {
             })
 
         if (!isApiSuccess(response)) {
-          handleServerError(response, i18next.t('Payment request failed'))
+          toast.error(response.message || i18next.t('Payment request failed'))
           return false
         }
 
@@ -139,18 +137,26 @@ export function usePayment() {
         }
 
         // Handle non-Stripe payment
-        if (!isStripe && response.data) {
-          const url = (response as unknown as { url?: string }).url
+        if (!isStripe) {
+          const url = (response as unknown as { url?: string }).url || (response.data as { url?: string })?.url
           if (url) {
-            submitPaymentForm(url, response.data)
+            if (
+              response.data &&
+              typeof response.data === 'object' &&
+              Object.keys(response.data).length > 1
+            ) {
+              submitPaymentForm(url, response.data as Record<string, unknown>)
+            } else {
+              window.open(url, '_blank')
+            }
             toast.success(i18next.t('Redirecting to payment page...'))
             return true
           }
         }
 
         return false
-      } catch (error) {
-        handleServerError(error, i18next.t('Payment request failed'))
+      } catch {
+        toast.error(i18next.t('Payment request failed'))
         return false
       } finally {
         setProcessing(false)

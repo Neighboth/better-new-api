@@ -17,12 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
-import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { API_ENDPOINTS } from './constants'
 import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
+  ImageGenerationRequest,
+  ImageGenerationResponse,
   ModelOption,
   GroupOption,
 } from './types'
@@ -32,9 +33,28 @@ import type {
  */
 export async function sendChatCompletion(
   payload: ChatCompletionRequest,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  timeout?: number
 ): Promise<ChatCompletionResponse> {
-  const res = await api.post(API_ENDPOINTS.CHAT_COMPLETIONS, payload, {
+  const config: Record<string, unknown> = {
+    signal,
+    skipErrorHandler: true,
+  }
+  if (timeout) {
+    config.timeout = timeout
+  }
+  const res = await api.post(API_ENDPOINTS.CHAT_COMPLETIONS, payload, config)
+  return res.data
+}
+
+/**
+ * Generate images from a prompt
+ */
+export async function generateImages(
+  payload: ImageGenerationRequest,
+  signal?: AbortSignal
+): Promise<ImageGenerationResponse> {
+  const res = await api.post(API_ENDPOINTS.IMAGE_GENERATIONS, payload, {
     signal,
     skipErrorHandler: true,
   } as Record<string, unknown>)
@@ -49,7 +69,6 @@ export async function getUserModels(group: string): Promise<ModelOption[]> {
     params: { group },
   })
   const { data } = res
-  requireServerSuccess(data)
 
   if (!data.success || !Array.isArray(data.data)) {
     return []
@@ -67,16 +86,12 @@ export async function getUserModels(group: string): Promise<ModelOption[]> {
 export async function getUserGroups(): Promise<GroupOption[]> {
   const res = await api.get(API_ENDPOINTS.USER_GROUPS)
   const { data } = res
-  requireServerSuccess(data)
 
   if (!data.success || !data.data) {
     return []
   }
 
-  const groupData = data.data as Record<
-    string,
-    { desc: string; ratio: number | string }
-  >
+  const groupData = data.data as Record<string, { desc: string; ratio: number }>
 
   // label is for button display (name only); desc is for dropdown content
   return Object.entries(groupData).map(([group, info]) => ({

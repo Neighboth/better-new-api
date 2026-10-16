@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import i18next from 'i18next'
 import type { ChangeEvent } from 'react'
 import type { Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -35,6 +34,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatQuota } from '@/lib/format'
 
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
@@ -53,24 +53,36 @@ import { useUpdateOption } from '../hooks/use-update-option'
 
 const quotaSchema = z.object({
   QuotaForNewUser: z.coerce.number().min(0),
+  PreConsumedQuota: z.coerce.number().min(0),
   QuotaForInviter: z.coerce.number().min(0),
   QuotaForInvitee: z.coerce.number().min(0),
   TopUpLink: z.string(),
+  general_setting: z.object({
+    docs_link: z.string(),
+  }),
+  DocsLink_tr: z.string().optional(),
+  DocsLink_en: z.string().optional(),
+  DocsLink_zh_CN: z.string().optional(),
+  DocsLink_zh_TW: z.string().optional(),
+  DocsLink_fr: z.string().optional(),
+  DocsLink_ru: z.string().optional(),
+  DocsLink_ja: z.string().optional(),
+  DocsLink_vi: z.string().optional(),
   quota_setting: z.object({
     enable_free_model_pre_consume: z.boolean(),
-    trust_quota_usd: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.coerce
-        .number({ error: () => i18next.t('Please enter a valid number') })
-        .min(0, {
-          error: () => i18next.t('Must be greater than or equal to 0'),
-        })
-    ),
-    pre_consume_multiplier: z.coerce
-      .number({ error: () => i18next.t('Please enter a valid number') })
-      .positive({ error: () => i18next.t('Must be greater than 0') }),
   }),
 })
+
+const SEO_LANGUAGES = [
+  { key: 'tr', label: 'Türkçe', flag: '🇹🇷' },
+  { key: 'en', label: 'English', flag: '🇬🇧' },
+  { key: 'zh_CN', label: '简体中文', flag: '🇨🇳' },
+  { key: 'zh_TW', label: '繁體中文', flag: '🇹🇼' },
+  { key: 'fr', label: 'Français', flag: '🇫🇷' },
+  { key: 'ru', label: 'Русский', flag: '🇷🇺' },
+  { key: 'ja', label: '日本語', flag: '🇯🇵' },
+  { key: 'vi', label: 'Tiếng Việt', flag: '🇻🇳' },
+]
 
 type QuotaFormValues = z.infer<typeof quotaSchema>
 type QuotaInputValue = number | ''
@@ -168,56 +180,22 @@ export function QuotaSettingsSection({
 
             <FormField
               control={form.control}
-              name='quota_setting.trust_quota_usd'
+              name='PreConsumedQuota'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>
-                    {t('Wallet pre-consume bypass threshold (USD)')}
-                  </FormLabel>
+                  <FormLabel>{t('Pre-Consumed Quota')}</FormLabel>
                   <FormControl>
                     <Input
                       type='number'
-                      min={0}
-                      step='any'
                       value={field.value ?? ''}
-                      onChange={field.onChange}
+                      onChange={handleNumberChange(field.onChange)}
                       name={field.name}
                       onBlur={field.onBlur}
                       ref={field.ref}
                     />
                   </FormControl>
                   <FormDescription>
-                    {t(
-                      'Skip pre-consumption when the wallet balance and limited API key balance both exceed this amount. Set to 0 to always pre-consume. Subscriptions and asynchronous tasks always reserve quota.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='quota_setting.pre_consume_multiplier'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Input pre-consume multiplier')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      min={0}
-                      step='any'
-                      value={field.value ?? ''}
-                      onChange={field.onChange}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Reserve the estimated input cost multiplied by this value, without estimating output tokens. Defaults to 1; positive decimals such as 0.5 and 1.5 are supported. Final charges use actual usage. Per-request and task prices are unaffected.'
-                    )}
+                    {t('Quota consumed before charging users')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -324,6 +302,57 @@ export function QuotaSettingsSection({
                 </FormItem>
               )}
             />
+
+            <div className='col-span-full border rounded-md p-4 bg-muted/20'>
+              <div className='mb-4'>
+                <h3 className='text-sm font-medium mb-1'>{t('Documentation Link')}</h3>
+                <p className='text-[13px] text-muted-foreground'>
+                  {t('Link to your documentation site. You can set a default link and language-specific links.')}
+                </p>
+              </div>
+              <Tabs defaultValue='default' className='w-full'>
+                <TabsList className='grid w-full grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-1 h-auto p-1 mb-4'>
+                  <TabsTrigger value='default' className='text-xs py-1.5 px-2'>{t('Default')}</TabsTrigger>
+                  {SEO_LANGUAGES.map((lang) => (
+                    <TabsTrigger key={lang.key} value={lang.key} className='text-xs py-1.5 px-2 flex items-center justify-center gap-1.5'>
+                      <span>{lang.flag}</span>
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+                
+                <TabsContent value='default' className='mt-0'>
+                  <FormField
+                    control={form.control}
+                    name='general_setting.docs_link'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormControl>
+                          <Input placeholder={t('https://docs.example.com')} {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </TabsContent>
+                
+                {SEO_LANGUAGES.map((lang) => (
+                  <TabsContent key={lang.key} value={lang.key} className='mt-0'>
+                    <FormField
+                      control={form.control}
+                      name={`DocsLink_${lang.key}` as any}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormControl>
+                            <Input placeholder={t('Leave empty to use default link')} {...field} value={field.value as string || ''} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </TabsContent>
+                ))}
+              </Tabs>
+            </div>
           </SettingsFormGrid>
         </SettingsForm>
       </Form>

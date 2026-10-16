@@ -41,9 +41,15 @@ export interface CurrencyConfig {
 export interface SystemConfig {
   systemName: string
   logo: string
+  logoDark?: string
+  favicon?: string
+  hideHeaderSiteName?: boolean
+  headerLogoHeight?: number
   footerHtml?: string
   demoSiteEnabled?: boolean
   displayTokenStatEnabled?: boolean
+  ticketEnabled?: boolean
+  captchaProviderOrder?: string
   currency: CurrencyConfig
 }
 
@@ -75,6 +81,10 @@ export const useSystemConfigStore = create<SystemConfigState>()(
       config: {
         systemName: DEFAULT_SYSTEM_NAME,
         logo: DEFAULT_LOGO,
+        logoDark: '',
+        favicon: '',
+        hideHeaderSiteName: false,
+        headerLogoHeight: 24,
         currency: { ...DEFAULT_CURRENCY_CONFIG },
       },
       loading: true,

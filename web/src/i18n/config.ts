@@ -26,6 +26,7 @@ import fr from './locales/fr.json'
 import ja from './locales/ja.json'
 import ru from './locales/ru.json'
 import vi from './locales/vi.json'
+import tr from './locales/tr.json'
 import zhTW from './locales/zh-TW.json'
 import zhCN from './locales/zh.json'
 
@@ -37,6 +38,7 @@ export const resources = {
   ja,
   vi,
   zhTW,
+  tr,
 } as const
 
 i18n
@@ -45,7 +47,7 @@ i18n
   .init({
     resources,
     fallbackLng: 'en',
-    supportedLngs: ['en', 'zhCN', 'fr', 'ru', 'ja', 'vi', 'zhTW'],
+    supportedLngs: ['en', 'zhCN', 'fr', 'ru', 'ja', 'vi', 'zhTW', 'tr'],
     load: 'currentOnly',
     nsSeparator: false, // Allow literal colons in keys (e.g., URLs, labels)
     debug: import.meta.env.DEV,
@@ -53,8 +55,10 @@ i18n
       escapeValue: false, // not needed for react as it escapes by default
     },
     detection: {
-      order: ['localStorage', 'navigator'],
-      caches: ['localStorage'],
+      order: ['querystring', 'cookie', 'localStorage', 'navigator'],
+      lookupQuerystring: 'lang',
+      lookupCookie: 'i18nextLng',
+      caches: ['localStorage', 'cookie'],
       // Browsers report `zh-CN`/`zh-TW`/`zh`; map them onto our `zhCN`/`zhTW`
       // codes (non-Chinese codes pass through for normal supportedLngs matching).
       convertDetectedLanguage,

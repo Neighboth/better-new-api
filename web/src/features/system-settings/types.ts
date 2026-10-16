@@ -39,32 +39,6 @@ export type UpdateOptionResponse = {
   message: string
 }
 
-export interface PasskeyDomainChange {
-  rp_id: string
-  legacy_rp_ids: string
-  origins: string
-  previous_rp_id: string
-  effective_rp_id: string
-  removed_rp_ids: string[]
-  affected_credentials: number
-  unknown_credentials: number
-  confirmation_required: boolean
-  removal_confirmation: string
-}
-
-export interface UpdatePasskeyDomainsRequest {
-  rp_id: string
-  legacy_rp_ids: string
-  origins: string
-  preview: boolean
-  removal_confirmation?: string
-}
-
-export interface UpdatePasskeyDomainsResponse extends UpdateOptionResponse {
-  code?: string
-  data: PasskeyDomainChange
-}
-
 export type ConfirmPaymentComplianceResponse = {
   success: boolean
   message: string
@@ -130,30 +104,155 @@ export type SystemTaskListResponse = {
   success: boolean
   message: string
   data?: SystemTask[]
-  total: number
-}
-
-export type SystemTaskFilters = {
-  type?: string
-  status?: SystemTaskStatus | ''
-  scope?: 'active' | 'history'
-  offset?: number
 }
 
 export type SiteSettings = {
   Notice: string
   SystemName: string
   Logo: string
+  LogoDark: string
+  Favicon: string
+  HideHeaderSiteName: boolean
+  HeaderLogoHeight: number
   Footer: string
   About: string
   HomePageContent: string
   ServerAddress: string
-  TaskPublicAddress: string
-  'general_setting.docs_link': string
+  DocsLink?: string
   'legal.user_agreement': string
   'legal.privacy_policy': string
   HeaderNavModules: string
   SidebarModulesAdmin: string
+  CustomNavItems: string
+  SEOTitlePrefix: string
+  SEODescription: string
+  SEOKeywords: string
+  SEOSocialImage: string
+  RobotsPolicy: 'allow_all' | 'block_all' | 'block_ai' | 'custom'
+  RobotsCustomRules: string
+  SitemapCustomUrls: string
+  LLMSTxt: string
+  LLMSFullTxt: string
+  BlogEnabled: boolean
+  AdSenseClientId: string
+  AdSenseSlotId: string
+  AdsEnabled: boolean
+  AdsMode: 'adsense' | 'custom' | 'both'
+  CustomAds: string
+  GoogleAnalyticsId?: string
+  UmamiWebsiteId?: string
+  UmamiScriptUrl?: string
+  ClarityProjectId?: string
+
+  // Multilingual SEO (8 Languages: tr, en, zh_CN, zh_TW, fr, ru, ja, vi)
+  SEOTitlePrefix_tr?: string
+  SEOTitlePrefix_en?: string
+  SEOTitlePrefix_zh_CN?: string
+  SEOTitlePrefix_zh_TW?: string
+  SEOTitlePrefix_fr?: string
+  SEOTitlePrefix_ru?: string
+  SEOTitlePrefix_ja?: string
+  SEOTitlePrefix_vi?: string
+
+  SEODescription_tr?: string
+  SEODescription_en?: string
+  SEODescription_zh_CN?: string
+  SEODescription_zh_TW?: string
+  SEODescription_fr?: string
+  SEODescription_ru?: string
+  SEODescription_ja?: string
+  SEODescription_vi?: string
+
+  SEOKeywords_tr?: string
+  SEOKeywords_en?: string
+  SEOKeywords_zh_CN?: string
+  SEOKeywords_zh_TW?: string
+  SEOKeywords_fr?: string
+  SEOKeywords_ru?: string
+  SEOKeywords_ja?: string
+  SEOKeywords_vi?: string
+
+  PrivacyPolicy_tr?: string
+  PrivacyPolicy_en?: string
+  PrivacyPolicy_zh_CN?: string
+  PrivacyPolicy_zh_TW?: string
+  PrivacyPolicy_fr?: string
+  PrivacyPolicy_ru?: string
+  PrivacyPolicy_ja?: string
+  PrivacyPolicy_vi?: string
+
+  TermsOfService_tr?: string
+  TermsOfService_en?: string
+  TermsOfService_zh_CN?: string
+  TermsOfService_zh_TW?: string
+  TermsOfService_fr?: string
+  TermsOfService_ru?: string
+  TermsOfService_ja?: string
+  TermsOfService_vi?: string
+
+  // Multilingual System Info (8 Languages: tr, en, zh_CN, zh_TW, fr, ru, ja, vi)
+  SystemName_tr?: string
+  SystemName_en?: string
+  SystemName_zh_CN?: string
+  SystemName_zh_TW?: string
+  SystemName_fr?: string
+  SystemName_ru?: string
+  SystemName_ja?: string
+  SystemName_vi?: string
+
+  Footer_tr?: string
+  Footer_en?: string
+  Footer_zh_CN?: string
+  Footer_zh_TW?: string
+  Footer_fr?: string
+  Footer_ru?: string
+  Footer_ja?: string
+  Footer_vi?: string
+
+  About_tr?: string
+  About_en?: string
+  About_zh_CN?: string
+  About_zh_TW?: string
+  About_fr?: string
+  About_ru?: string
+  About_ja?: string
+  About_vi?: string
+
+  HomePageContent_tr?: string
+  HomePageContent_en?: string
+  HomePageContent_zh_CN?: string
+  HomePageContent_zh_TW?: string
+  HomePageContent_fr?: string
+  HomePageContent_ru?: string
+  HomePageContent_ja?: string
+  HomePageContent_vi?: string
+
+  'legal.user_agreement_tr'?: string
+  'legal.user_agreement_en'?: string
+  'legal.user_agreement_zh_CN'?: string
+  'legal.user_agreement_zh_TW'?: string
+  'legal.user_agreement_fr'?: string
+  'legal.user_agreement_ru'?: string
+  'legal.user_agreement_ja'?: string
+  'legal.user_agreement_vi'?: string
+
+  'legal.privacy_policy_tr'?: string
+  'legal.privacy_policy_en'?: string
+  'legal.privacy_policy_zh_CN'?: string
+  'legal.privacy_policy_zh_TW'?: string
+  'legal.privacy_policy_fr'?: string
+  'legal.privacy_policy_ru'?: string
+  'legal.privacy_policy_ja'?: string
+  'legal.privacy_policy_vi'?: string
+
+  DocsLink_tr?: string
+  DocsLink_en?: string
+  DocsLink_zh_CN?: string
+  DocsLink_zh_TW?: string
+  DocsLink_fr?: string
+  DocsLink_ru?: string
+  DocsLink_ja?: string
+  DocsLink_vi?: string
 }
 
 export type AuthSettings = {
@@ -180,8 +279,6 @@ export type AuthSettings = {
   'oidc.token_endpoint': string
   'oidc.user_info_endpoint': string
   TelegramOAuthEnabled: boolean
-  'telegram.client_id': string
-  'telegram.client_secret': string
   TelegramBotToken: string
   TelegramBotName: string
   LinuxDOOAuthEnabled: boolean
@@ -195,10 +292,16 @@ export type AuthSettings = {
   TurnstileCheckEnabled: boolean
   TurnstileSiteKey: string
   TurnstileSecretKey: string
+  CaptchaType: 'off' | 'turnstile' | 'recaptcha' | 'hcaptcha' | 'image'
+  CaptchaFallbackEnabled: boolean
+  CaptchaProviderOrder?: string
+  RecaptchaSiteKey: string
+  RecaptchaSecretKey: string
+  HCaptchaSiteKey: string
+  HCaptchaSecretKey: string
   'passkey.enabled': boolean
   'passkey.rp_display_name': string
   'passkey.rp_id': string
-  'passkey.legacy_rp_ids': string
   'passkey.origins': string
   'passkey.allow_insecure_origin': boolean
   'passkey.user_verification': 'required' | 'preferred' | 'discouraged'
@@ -256,7 +359,6 @@ export type ModelSettings = {
   ExposeRatioEnabled: boolean
   'billing_setting.billing_mode': string
   'billing_setting.billing_expr': string
-  'billing_setting.plugin_billing_expr': string
   'tool_price_setting.prices': string
   TopupGroupRatio: string
   GroupRatio: string
@@ -266,18 +368,58 @@ export type ModelSettings = {
   MaxTokenAutoGroups: number
   DefaultUseAutoGroup: boolean
   'group_ratio_setting.group_special_usable_group': string
+  RetryTimes: number
+  ChannelDisableThreshold: string
+  AutomaticDisableChannelEnabled: boolean
+  AutomaticEnableChannelEnabled: boolean
+  AutomaticDisableKeywords: string
+  AutomaticDisableStatusCodes: string
+  AutomaticRetryStatusCodes: string
+  'monitor_setting.auto_test_channel_enabled': boolean
+  'monitor_setting.auto_test_channel_minutes': number
+  'monitor_setting.channel_test_concurrency': number
+  'monitor_setting.channel_test_mode':
+    | 'scheduled_all'
+    | 'auto_ban_only'
+    | 'passive_recovery'
+  'channel_affinity_setting.enabled': boolean
+  'channel_affinity_setting.switch_on_success': boolean
+  'channel_affinity_setting.keep_on_channel_disabled': boolean
+  'channel_affinity_setting.max_entries': number
+  'channel_affinity_setting.default_ttl_seconds': number
+  'channel_affinity_setting.rules': string
   'model_deployment.ionet.api_key': string
   'model_deployment.ionet.enabled': boolean
+  'model_deployment.modal.enabled'?: boolean
+  'model_deployment.modal.token_id'?: string
+  'model_deployment.modal.token_secret'?: string
+  'model_deployment.modal.workspace'?: string
+  'model_deployment.modal.shared_volume_path'?: string
+  'model_deployment.modal.idle_timeout_seconds'?: number
+  'model_deployment.modal.priority'?: string
+  'model_deployment.huggingface.enabled'?: boolean
+  'model_deployment.huggingface.token'?: string
+  'model_deployment.huggingface.org'?: string
+  'model_deployment.huggingface.hardware'?: string
+  'model_deployment.huggingface.priority'?: string
 }
 
 export type BillingSettings = {
   QuotaForNewUser: number
+  PreConsumedQuota: number
   QuotaForInviter: number
   QuotaForInvitee: number
   TopUpLink: string
+  'general_setting.docs_link': string
+  DocsLink_tr: string
+  DocsLink_en: string
+  DocsLink_zh_CN: string
+  DocsLink_zh_TW: string
+  DocsLink_fr: string
+  DocsLink_ru: string
+  DocsLink_ja: string
+  DocsLink_vi: string
   'quota_setting.enable_free_model_pre_consume': boolean
-  'quota_setting.trust_quota_usd': number
-  'quota_setting.pre_consume_multiplier': number
   QuotaPerUnit: number
   USDExchangeRate: number
   'general_setting.quota_display_type': string
@@ -296,7 +438,6 @@ export type BillingSettings = {
   ExposeRatioEnabled: boolean
   'billing_setting.billing_mode': string
   'billing_setting.billing_expr': string
-  'billing_setting.plugin_billing_expr': string
   'tool_price_setting.prices': string
   TopupGroupRatio: string
   GroupRatio: string
@@ -352,6 +493,35 @@ export type BillingSettings = {
   // section (saved via /api/option/waffo-pancake/save).
   WaffoPancakeStoreID: string
   WaffoPancakeProductID: string
+  EnableBillingRequests: boolean
+  EnableBillingTokens: boolean
+  EnableBillingSubscription: boolean
+  EnableBillingWallet: boolean
+  BillingPoolModelFilterModeRequests?: string
+  BillingPoolModelsRequests?: string
+  BillingPoolModelFilterModeTokens?: string
+  BillingPoolModelsTokens?: string
+  BillingPoolModelFilterModeSubscription?: string
+  BillingPoolModelsSubscription?: string
+  BillingPoolModelFilterModeWallet?: string
+  BillingPoolModelsWallet?: string
+  EpayProviders?: string
+  ShopierApiKey: string
+  ShopierApiSecret: string
+  ShopierWebsiteIndex: string
+  PayTRMerchantId: string
+  PayTRMerchantKey: string
+  PayTRMerchantSalt: string
+  PayTRTestMode: boolean
+  PayPalClientId: string
+  PayPalClientSecret: string
+  PayPalMode: string
+  IyzicoApiKey: string
+  IyzicoSecretKey: string
+  IyzicoBaseUrl: string
+  ShopifyStoreDomain: string
+  ShopifyAccessToken: string
+  ShopifyWebhookSecret: string
   'checkin_setting.enabled': boolean
   'checkin_setting.min_quota': number
   'checkin_setting.max_quota': number
@@ -371,12 +541,135 @@ export type OperationsSettings = {
   SMTPStartTLSEnabled: boolean
   SMTPInsecureSkipVerify: boolean
   SMTPForceAuthLogin: boolean
+  // Email verification (8 languages: tr, en, zh_CN, zh_TW, fr, ru, ja, vi)
+  EmailSubject_verification_tr?: string
+  EmailBody_verification_tr?: string
+  EmailSubject_verification_en?: string
+  EmailBody_verification_en?: string
+  EmailSubject_verification_zh_CN?: string
+  EmailBody_verification_zh_CN?: string
+  EmailSubject_verification_zh_TW?: string
+  EmailBody_verification_zh_TW?: string
+  EmailSubject_verification_fr?: string
+  EmailBody_verification_fr?: string
+  EmailSubject_verification_ru?: string
+  EmailBody_verification_ru?: string
+  EmailSubject_verification_ja?: string
+  EmailBody_verification_ja?: string
+  EmailSubject_verification_vi?: string
+  EmailBody_verification_vi?: string
+
+  // Password reset (8 languages: tr, en, zh_CN, zh_TW, fr, ru, ja, vi)
+  EmailSubject_password_reset_tr?: string
+  EmailBody_password_reset_tr?: string
+  EmailSubject_password_reset_en?: string
+  EmailBody_password_reset_en?: string
+  EmailSubject_password_reset_zh_CN?: string
+  EmailBody_password_reset_zh_CN?: string
+  EmailSubject_password_reset_zh_TW?: string
+  EmailBody_password_reset_zh_TW?: string
+  EmailSubject_password_reset_fr?: string
+  EmailBody_password_reset_fr?: string
+  EmailSubject_password_reset_ru?: string
+  EmailBody_password_reset_ru?: string
+  EmailSubject_password_reset_ja?: string
+  EmailBody_password_reset_ja?: string
+  EmailSubject_password_reset_vi?: string
+  EmailBody_password_reset_vi?: string
+
+  // system_error
+  EmailSubject_system_error_tr?: string
+  EmailBody_system_error_tr?: string
+  EmailSubject_system_error_en?: string
+  EmailBody_system_error_en?: string
+  EmailSubject_system_error_zh_CN?: string
+  EmailBody_system_error_zh_CN?: string
+  EmailSubject_system_error_zh_TW?: string
+  EmailBody_system_error_zh_TW?: string
+  EmailSubject_system_error_fr?: string
+  EmailBody_system_error_fr?: string
+  EmailSubject_system_error_ru?: string
+  EmailBody_system_error_ru?: string
+  EmailSubject_system_error_ja?: string
+  EmailBody_system_error_ja?: string
+  EmailSubject_system_error_vi?: string
+  EmailBody_system_error_vi?: string
+
+  // quota_warning
+  EmailSubject_quota_warning_tr?: string
+  EmailBody_quota_warning_tr?: string
+  EmailSubject_quota_warning_en?: string
+  EmailBody_quota_warning_en?: string
+  EmailSubject_quota_warning_zh_CN?: string
+  EmailBody_quota_warning_zh_CN?: string
+  EmailSubject_quota_warning_zh_TW?: string
+  EmailBody_quota_warning_zh_TW?: string
+  EmailSubject_quota_warning_fr?: string
+  EmailBody_quota_warning_fr?: string
+  EmailSubject_quota_warning_ru?: string
+  EmailBody_quota_warning_ru?: string
+  EmailSubject_quota_warning_ja?: string
+  EmailBody_quota_warning_ja?: string
+  EmailSubject_quota_warning_vi?: string
+  EmailBody_quota_warning_vi?: string
+
+  // ticket_created
+  EmailSubject_ticket_created_tr?: string
+  EmailBody_ticket_created_tr?: string
+  EmailSubject_ticket_created_en?: string
+  EmailBody_ticket_created_en?: string
+  EmailSubject_ticket_created_zh_CN?: string
+  EmailBody_ticket_created_zh_CN?: string
+  EmailSubject_ticket_created_zh_TW?: string
+  EmailBody_ticket_created_zh_TW?: string
+  EmailSubject_ticket_created_fr?: string
+  EmailBody_ticket_created_fr?: string
+  EmailSubject_ticket_created_ru?: string
+  EmailBody_ticket_created_ru?: string
+  EmailSubject_ticket_created_ja?: string
+  EmailBody_ticket_created_ja?: string
+  EmailSubject_ticket_created_vi?: string
+  EmailBody_ticket_created_vi?: string
+
+  // ticket_replied
+  EmailSubject_ticket_replied_tr?: string
+  EmailBody_ticket_replied_tr?: string
+  EmailSubject_ticket_replied_en?: string
+  EmailBody_ticket_replied_en?: string
+  EmailSubject_ticket_replied_zh_CN?: string
+  EmailBody_ticket_replied_zh_CN?: string
+  EmailSubject_ticket_replied_zh_TW?: string
+  EmailBody_ticket_replied_zh_TW?: string
+  EmailSubject_ticket_replied_fr?: string
+  EmailBody_ticket_replied_fr?: string
+  EmailSubject_ticket_replied_ru?: string
+  EmailBody_ticket_replied_ru?: string
+  EmailSubject_ticket_replied_ja?: string
+  EmailBody_ticket_replied_ja?: string
+  EmailSubject_ticket_replied_vi?: string
+  EmailBody_ticket_replied_vi?: string
+
+  // channel_disabled
+  EmailSubject_channel_disabled_tr?: string
+  EmailBody_channel_disabled_tr?: string
+  EmailSubject_channel_disabled_en?: string
+  EmailBody_channel_disabled_en?: string
+  EmailSubject_channel_disabled_zh_CN?: string
+  EmailBody_channel_disabled_zh_CN?: string
+  EmailSubject_channel_disabled_zh_TW?: string
+  EmailBody_channel_disabled_zh_TW?: string
+  EmailSubject_channel_disabled_fr?: string
+  EmailBody_channel_disabled_fr?: string
+  EmailSubject_channel_disabled_ru?: string
+  EmailBody_channel_disabled_ru?: string
+  EmailSubject_channel_disabled_ja?: string
+  EmailBody_channel_disabled_ja?: string
+  EmailSubject_channel_disabled_vi?: string
+  EmailBody_channel_disabled_vi?: string
   WorkerUrl: string
   WorkerValidKey: string
   WorkerAllowHttpImageRequestEnabled: boolean
   LogConsumeEnabled: boolean
-  'log_setting.user_export_enabled': boolean
-  'log_setting.max_range_days': number
   'performance_setting.disk_cache_enabled': boolean
   'performance_setting.disk_cache_threshold_mb': number
   'performance_setting.disk_cache_max_size_mb': number
@@ -389,6 +682,50 @@ export type OperationsSettings = {
   'perf_metrics_setting.flush_interval': number
   'perf_metrics_setting.bucket_time': 'hour' | 'minute' | '5min'
   'perf_metrics_setting.retention_days': number
+  'relay_fallback_setting.enable_fallback': boolean
+  'relay_fallback_setting.fallback_models': string
+  'relay_fallback_setting.fallback_chat_models'?: string
+  'relay_fallback_setting.fallback_image_models'?: string
+  'relay_fallback_setting.fallback_tts_models'?: string
+  'relay_fallback_setting.fallback_stt_models'?: string
+  'relay_fallback_setting.fallback_video_models'?: string
+  'relay_fallback_setting.fallback_system_prompt': string
+  'ticket_setting.enabled'?: boolean
+  'ticket_setting.live_support_enabled'?: boolean
+  'ticket_setting.notify_admin_on_new_ticket'?: boolean
+  'ticket_setting.notify_user_on_reply'?: boolean
+  'ticket_setting.ai_assistant_enabled'?: boolean
+  'ticket_setting.ai_assistant_model'?: string
+  'ticket_setting.ai_assistant_system_prompt'?: string
+  'online_search_setting.searxng_url'?: string
+  'online_search_setting.price_per_search'?: number
+  'online_search_setting.max_searches'?: number
+
+  // Discord Bot. These keys must be declared here as well: the options fetcher
+  // only converts a stored value to its JavaScript type when the key exists in
+  // the section defaults, so an undeclared boolean arrives as the string
+  // "false" — which is truthy and failed form validation.
+  'discord_bot.enabled'?: boolean
+  'discord_bot.token'?: string
+  'discord_bot.bot_token'?: string
+  'discord_bot.bot_name'?: string
+  'discord_bot.prefix'?: string
+  'discord_bot.status'?: string
+  'discord_bot.language'?: string
+  'discord_bot.embed_color'?: string
+  'discord_bot.ai_system_prompt'?: string
+  'discord_bot.rpc_enabled'?: boolean
+  'discord_bot.rpc_app_id'?: string
+  'discord_bot.rpc_details'?: string
+  'discord_bot.rpc_state'?: string
+  'discord_bot.rpc_large_image'?: string
+  'discord_bot.rpc_large_text'?: string
+  'discord_bot.rpc_small_image'?: string
+  'discord_bot.rpc_small_text'?: string
+  'discord_bot.auto_reply_channel_id'?: string
+  'discord_bot.auto_reply_model'?: string
+  'discord_bot.image_model'?: string
+  'discord_bot.only_linked_accounts'?: boolean
 }
 
 export type SecuritySettings = {
@@ -442,12 +779,6 @@ export type DifferencesMap = Record<
   Partial<Record<RatioType, RatioDifference>>
 >
 
-export type PricingSyncValues = Partial<Record<RatioType, number | string>>
-export type PricingSyncModels = Record<
-  string,
-  { current: PricingSyncValues; upstreams: Record<string, PricingSyncValues> }
->
-
 export type UpstreamChannelsResponse = {
   success: boolean
   message: string
@@ -477,7 +808,6 @@ export type UpstreamRatiosResponse = {
   message: string
   data: {
     differences: DifferencesMap
-    prices: PricingSyncModels
     test_results: TestResult[]
   }
 }

@@ -26,10 +26,9 @@ import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 
 interface MarkdownProps {
-  /** Resolve relative document links against their source, never the dashboard URL. */
-  baseUrl?: string
   breaks?: boolean
-  children: string
+  children?: string
+  content?: string
   className?: string
 }
 
@@ -52,6 +51,7 @@ const allowedAttributes = [
   'd',
   'data-diagram',
   'disabled',
+  'dir',
   'fill',
   'height',
   'id',
@@ -97,6 +97,7 @@ const allowedTags = [
   'annotation',
   'circle',
   'defs',
+  'div',
   'ellipse',
   'line',
   'math',
@@ -122,7 +123,9 @@ const allowedTags = [
   'polygon',
   'rect',
   'semantics',
+  'span',
   'stop',
+  'style',
   'svg',
   'text',
   'tspan',
@@ -720,7 +723,7 @@ const markdownParser = new Marked({
 
 markdownParser.use(...markdownExtensions)
 
-function addExternalLinkAttributes(html: string, baseUrl?: string): string {
+function addExternalLinkAttributes(html: string): string {
   if (typeof window === 'undefined') {
     return html
   }
@@ -729,18 +732,6 @@ function addExternalLinkAttributes(html: string, baseUrl?: string): string {
   template.innerHTML = html
 
   template.content.querySelectorAll('a[href]').forEach((link) => {
-    if (baseUrl) {
-      try {
-        const url = new URL(link.getAttribute('href') ?? '', baseUrl)
-        if (['http:', 'https:', 'mailto:'].includes(url.protocol)) {
-          link.setAttribute('href', url.href)
-        } else {
-          link.removeAttribute('href')
-        }
-      } catch {
-        link.removeAttribute('href')
-      }
-    }
     link.setAttribute('target', '_blank')
     link.setAttribute('rel', 'noopener noreferrer')
   })
@@ -748,24 +739,24 @@ function addExternalLinkAttributes(html: string, baseUrl?: string): string {
   return template.innerHTML
 }
 
-function renderMarkdown(
-  markdown: string,
-  breaks = false,
-  baseUrl?: string
-): string {
-  const parsedHtml = markdownParser.parse(markdown, {
+function renderMarkdown(markdown?: string | null, breaks = false): string {
+  if (markdown == null) return ''
+  const content = typeof markdown === 'string' ? markdown : String(markdown)
+  if (!content) return ''
+  const parsedHtml = (markdownParser.parse(content, {
     ...markdownOptions,
     breaks,
-  })
+  }) as string) || ''
   const html = DOMPurify.sanitize(parsedHtml, sanitizeOptions)
 
-  return addExternalLinkAttributes(html, baseUrl)
+  return addExternalLinkAttributes(html)
 }
 
 export function Markdown(props: MarkdownProps) {
+  const content = props.children ?? props.content ?? ''
   const html = useMemo(
-    () => renderMarkdown(props.children, props.breaks, props.baseUrl),
-    [props.breaks, props.children, props.baseUrl]
+    () => renderMarkdown(content, props.breaks),
+    [props.breaks, content]
   )
 
   return (

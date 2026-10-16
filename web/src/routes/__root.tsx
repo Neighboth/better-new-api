@@ -30,6 +30,7 @@ import { useEffect } from 'react'
 import { NavigationProgress } from '@/components/navigation-progress'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeCustomizationProvider } from '@/context/theme-customization-provider'
+import { LiveSupportWidget } from '@/features/tickets/components/live-support-widget'
 import { saveAffiliateCode } from '@/features/auth/lib/storage'
 import { GeneralError } from '@/features/errors/general-error'
 import { NotFoundError } from '@/features/errors/not-found-error'
@@ -42,6 +43,7 @@ import {
 } from '@/lib/auth-session'
 import { subscribeAuthSessionEvents } from '@/lib/auth-session-sync'
 import { resolveLegacyRoute } from '@/lib/legacy-route'
+import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 function RootComponent() {
@@ -50,6 +52,20 @@ function RootComponent() {
 
   // Load system configuration (logo, system name, etc.) from backend
   useSystemConfig({ autoLoad: true })
+
+  // 15-second admin heartbeat to mark admin active
+  useEffect(() => {
+    const sendHeartbeat = () => {
+      const user = useAuthStore.getState().auth.user
+      if (user && (user.role ?? 0) >= 10) {
+        api.post('/api/user/heartbeat').catch(() => {})
+      }
+    }
+
+    sendHeartbeat()
+    const interval = setInterval(sendHeartbeat, 15000)
+    return () => clearInterval(interval)
+  }, [])
 
   useEffect(() => {
     const aff = new URLSearchParams(window.location.search).get('aff')?.trim()
@@ -96,6 +112,7 @@ function RootComponent() {
     <ThemeCustomizationProvider>
       <NavigationProgress />
       <Outlet />
+      <LiveSupportWidget />
       <Toaster closeButton duration={5000} position='top-center' richColors />
       {import.meta.env.MODE === 'development' && (
         <>
@@ -107,8 +124,37 @@ function RootComponent() {
   )
 }
 
-// 同一页面会话内避免重复检查；刷新后重新校验当前服务实例。
-let setupStatusChecked = false
+// 缓存 setup 状态检查结果，避免每次导航都重复调用 API
+// 使用 localStorage 持久化，避免页面刷新后重复检查
+const SETUP_CHECKED_KEY = 'setup_status_checked'
+
+function getSetupStatusFromCache(): boolean {
+  try {
+    if (typeof window !== 'undefined') {
+      return window.localStorage.getItem(SETUP_CHECKED_KEY) === 'true'
+    }
+  } catch {
+    /* empty */
+  }
+  return false
+}
+
+function setSetupStatusCache(value: boolean): void {
+  try {
+    if (typeof window !== 'undefined') {
+      if (value) {
+        window.localStorage.setItem(SETUP_CHECKED_KEY, 'true')
+      } else {
+        window.localStorage.removeItem(SETUP_CHECKED_KEY)
+      }
+    }
+  } catch {
+    /* empty */
+  }
+}
+
+// 内存中的标记，避免同一会话中重复检查
+let setupStatusChecked = getSetupStatusFromCache()
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient
@@ -138,12 +184,11 @@ export const Route = createRootRouteWithContext<{
         authBootstrap,
       ])
 
-      if (status?.success && status.data) {
-        if (!status.data.status) {
-          throw redirect({ to: '/setup' })
-        }
-        setupStatusChecked = true
+      if (status?.success && status.data && !status.data.status) {
+        throw redirect({ to: '/setup' })
       }
+      setupStatusChecked = true
+      setSetupStatusCache(true)
     } else {
       await authBootstrap
     }

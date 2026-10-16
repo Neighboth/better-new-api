@@ -1,7 +1,6 @@
 package model
 
 import (
-	"slices"
 	"strings"
 )
 
@@ -37,6 +36,7 @@ var defaultVendorRules = map[string]string{
 	"kling":    "快手",
 	"jimeng":   "即梦",
 	"vidu":     "Vidu",
+	"google":   "Google",
 }
 
 // 供应商默认图标映射
@@ -71,31 +71,27 @@ var defaultVendorIcons = map[string]string{
 
 // initDefaultVendorMapping 简化的默认供应商映射
 func initDefaultVendorMapping(metaMap map[string]*Model, vendorMap map[int]*Vendor, enableAbilities []AbilityWithChannel) {
-	patterns := make([]string, 0, len(defaultVendorRules))
-	for pattern := range defaultVendorRules {
-		patterns = append(patterns, pattern)
-	}
-	slices.SortFunc(patterns, func(a, b string) int {
-		if len(a) != len(b) {
-			return len(b) - len(a)
-		}
-		return strings.Compare(a, b)
-	})
 	for _, ability := range enableAbilities {
 		modelName := ability.Model
-		if _, exists := metaMap[modelName]; exists {
-			continue
+
+		modelLower := strings.ToLower(modelName)
+		vendorID := matchVendorByKeywords(modelLower, vendorMap)
+		if vendorID == 0 {
+			for pattern, vendorName := range defaultVendorRules {
+				if strings.Contains(modelLower, pattern) {
+					vendorID = getOrCreateVendor(vendorName, vendorMap)
+					break
+				}
+			}
 		}
 
-		// 匹配供应商
-		vendorID := 0
-		modelLower := strings.ToLower(modelName)
-		for _, pattern := range patterns {
-			vendorName := defaultVendorRules[pattern]
-			if strings.Contains(modelLower, pattern) {
-				vendorID = getDisplayVendor(vendorName, vendorMap)
-				break
+		if meta, exists := metaMap[modelName]; exists {
+			if meta.VendorID == 0 && vendorID != 0 {
+				meta.VendorID = vendorID
+				// Also update the database to persist this assignment
+				DB.Model(&Model{}).Where("model_name = ?", modelName).Update("vendor_id", vendorID)
 			}
+			continue
 		}
 
 		// 创建模型元数据
@@ -108,46 +104,44 @@ func initDefaultVendorMapping(metaMap map[string]*Model, vendorMap map[int]*Vend
 	}
 }
 
-// Default vendor entries are presentation data. Reading pricing must never
-// recreate a deleted/merged database record.
-var defaultVendorDisplayIDs = map[string]int{
-	"360":        -1001,
-	"Anthropic":  -1002,
-	"Cloudflare": -1003,
-	"Cohere":     -1004,
-	"DeepSeek":   -1005,
-	"Google":     -1006,
-	"Jina":       -1007,
-	"Meta":       -1008,
-	"MiniMax":    -1009,
-	"Mistral":    -1010,
-	"Moonshot":   -1011,
-	"OpenAI":     -1012,
-	"Vidu":       -1013,
-	"xAI":        -1014,
-	"即梦":         -1015,
-	"字节跳动":       -1016,
-	"快手":         -1017,
-	"智谱":         -1018,
-	"百度":         -1019,
-	"腾讯":         -1020,
-	"讯飞":         -1021,
-	"阿里巴巴":       -1022,
-	"零一万物":       -1023,
+func matchVendorByKeywords(modelLower string, vendorMap map[int]*Vendor) int {
+	for id, vendor := range vendorMap {
+		if vendor.Keywords == "" {
+			continue
+		}
+		keywords := strings.Split(vendor.Keywords, ",")
+		for _, kw := range keywords {
+			kw = strings.TrimSpace(strings.ToLower(kw))
+			if kw != "" && strings.Contains(modelLower, kw) {
+				return id
+			}
+		}
+	}
+	return 0
 }
 
-func getDisplayVendor(vendorName string, vendorMap map[int]*Vendor) int {
+// 查找或创建供应商
+func getOrCreateVendor(vendorName string, vendorMap map[int]*Vendor) int {
+	// 查找现有供应商
 	for id, vendor := range vendorMap {
-		if strings.EqualFold(vendor.Name, vendorName) {
+		if vendor.Name == vendorName {
 			return id
 		}
 	}
-	id := defaultVendorDisplayIDs[vendorName]
-	if id == 0 {
+
+	// 创建新供应商
+	newVendor := &Vendor{
+		Name:   vendorName,
+		Status: 1,
+		Icon:   getDefaultVendorIcon(vendorName),
+	}
+
+	if err := newVendor.Insert(); err != nil {
 		return 0
 	}
-	vendorMap[id] = &Vendor{Id: id, Name: vendorName, Status: 1, Icon: getDefaultVendorIcon(vendorName)}
-	return id
+
+	vendorMap[newVendor.Id] = newVendor
+	return newVendor.Id
 }
 
 // 获取供应商默认图标

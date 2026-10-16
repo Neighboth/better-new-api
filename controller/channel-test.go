@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -16,7 +18,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -34,12 +35,14 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
 type testResult struct {
 	context     *gin.Context
 	localErr    error
 	newAPIError *types.NewAPIError
+	message     string
 }
 
 func normalizeChannelTestEndpoint(channel *model.Channel, endpointType string) string {
@@ -71,6 +74,51 @@ func resolveChannelTestUserID(c *gin.Context) (int, error) {
 }
 
 func testChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool) testResult {
+	res := testChannelInternal(ctx, channel, testUserID, testModel, endpointType, isStream, "")
+	if res.localErr != nil {
+		errStr := res.localErr.Error()
+		fallbackVoice := ""
+		if strings.Contains(errStr, "Supported:") {
+			idx := strings.Index(errStr, "Supported:")
+			after := errStr[idx+len("Supported:"):]
+			parts := strings.FieldsFunc(after, func(r rune) bool {
+				return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '.' || r == '"' || r == '\''
+			})
+			if len(parts) > 0 && len(parts[0]) > 0 {
+				fallbackVoice = parts[0]
+			}
+		} else if strings.Contains(strings.ToLower(errStr), "invalid_voice") ||
+			strings.Contains(strings.ToLower(errStr), "voice 'alloy' not found") ||
+			strings.Contains(strings.ToLower(errStr), "either ref_audio or voice must be provided") {
+			if strings.Contains(strings.ToLower(testModel), "mistral") || strings.Contains(strings.ToLower(testModel), "voxtral") {
+				fallbackVoice = "en_paul_neutral"
+			} else {
+				fallbackVoice = "male"
+			}
+		}
+
+		if strings.Contains(strings.ToLower(errStr), "kurdish") ||
+			strings.Contains(strings.ToLower(errStr), "central kurdish") ||
+			strings.Contains(strings.ToLower(errStr), "ckb") ||
+			strings.Contains(strings.ToLower(errStr), "unsupported_language") ||
+			strings.Contains(strings.ToLower(errStr), "latin script") {
+			retryRes := testChannelInternal(ctx, channel, testUserID, testModel, endpointType, isStream, "male")
+			if retryRes.localErr == nil {
+				return retryRes
+			}
+		}
+
+		if fallbackVoice != "" {
+			retryRes := testChannelInternal(ctx, channel, testUserID, testModel, endpointType, isStream, fallbackVoice)
+			if retryRes.localErr == nil {
+				return retryRes
+			}
+		}
+	}
+	return res
+}
+
+func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool, overrideVoice string) testResult {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -83,7 +131,6 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		constant.ChannelTypeJimeng,
 		constant.ChannelTypeDoubaoVideo,
 		constant.ChannelTypeVidu,
-		constant.ChannelTypeTaskPlugin,
 	}
 	if lo.Contains(unsupportedTestChannelTypes, channel.Type) {
 		channelTypeName := constant.GetChannelTypeName(channel.Type)
@@ -112,11 +159,15 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	endpointType = normalizeChannelTestEndpoint(channel, endpointType)
 
 	requestPath := "/v1/chat/completions"
+	requestMethod := http.MethodPost
 
 	// 如果指定了端点类型，使用指定的端点类型
 	if endpointType != "" {
 		if endpointInfo, ok := common.GetDefaultEndpointInfo(constant.EndpointType(endpointType)); ok {
 			requestPath = endpointInfo.Path
+			if endpointInfo.Method != "" {
+				requestMethod = endpointInfo.Method
+			}
 		}
 	} else {
 		// 如果没有指定端点类型，使用原有的自动检测逻辑
@@ -144,13 +195,36 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			requestPath = "/v1/responses"
 		}
 
+		// Audio Speech (TTS) models
+		lowerM := strings.ToLower(testModel)
+		if strings.Contains(lowerM, "tts") || strings.Contains(lowerM, "speech") || strings.Contains(lowerM, "cosyvoice") || strings.Contains(lowerM, "fish-audio") {
+			endpointType = string(constant.EndpointTypeAudioSpeech)
+			requestPath = "/v1/audio/speech"
+		}
+
+		// Audio Transcription (STT) models
+		if strings.Contains(lowerM, "whisper") || strings.Contains(lowerM, "transcription") || strings.Contains(lowerM, "transcribe") || strings.HasPrefix(lowerM, "stt") || strings.Contains(lowerM, "voxtral") {
+			endpointType = string(constant.EndpointTypeAudioTranscription)
+			requestPath = "/v1/audio/transcriptions"
+		}
+
+		// Live / Realtime models
+		if strings.Contains(lowerM, "live") || strings.Contains(lowerM, "realtime") {
+			endpointType = string(constant.EndpointTypeOpenAIRealtime)
+			requestPath = "/v1/realtime"
+		}
+	}
+
+	// Codex backend requires streaming responses (Stream must be set to true)
+	if channel.Type == constant.ChannelTypeCodex || strings.Contains(strings.ToLower(testModel), "codex") {
+		isStream = true
 	}
 	// Gemini 原生流式通过 URL action（:streamGenerateContent）表达而非请求体字段，
 	// GeminiChatRequest.IsStream 依据请求 URL 判定，合成请求路径需与生产入口保持一致
 	if isStream && constant.EndpointType(endpointType) == constant.EndpointTypeGemini {
 		requestPath = strings.Replace(requestPath, ":generateContent", ":streamGenerateContent", 1)
 	}
-	c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, requestPath, nil)
+	c.Request = httptest.NewRequestWithContext(ctx, requestMethod, requestPath, nil)
 
 	cache, err := model.GetUserCache(testUserID)
 	if err != nil {
@@ -199,36 +273,55 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			relayFormat = types.RelayFormatOpenAIImage
 		case constant.EndpointTypeEmbeddings:
 			relayFormat = types.RelayFormatEmbedding
+		case constant.EndpointTypeOpenAIVideo:
+			relayFormat = types.RelayFormatOpenAIImage
+		case constant.EndpointTypeOpenAIRealtime:
+			relayFormat = types.RelayFormatOpenAIRealtime
+		case constant.EndpointTypeAudioSpeech:
+			relayFormat = types.RelayFormatOpenAIAudio
+		case constant.EndpointTypeAudioTranscription:
+			relayFormat = types.RelayFormatOpenAIAudio
 		default:
 			relayFormat = types.RelayFormatOpenAI
 		}
 	} else {
-		// 根据请求路径自动检测
-		relayFormat = types.RelayFormatOpenAI
-		if c.Request.URL.Path == "/v1/embeddings" {
-			relayFormat = types.RelayFormatEmbedding
-		}
-		if c.Request.URL.Path == "/v1/images/generations" {
-			relayFormat = types.RelayFormatOpenAIImage
-		}
-		if c.Request.URL.Path == "/v1/messages" {
-			relayFormat = types.RelayFormatClaude
-		}
-		if strings.Contains(c.Request.URL.Path, "/v1beta/models") {
-			relayFormat = types.RelayFormatGemini
-		}
-		if c.Request.URL.Path == "/v1/rerank" || c.Request.URL.Path == "/rerank" {
+		lowerModel := strings.ToLower(testModel)
+		if strings.Contains(lowerModel, "rerank") {
 			relayFormat = types.RelayFormatRerank
-		}
-		if c.Request.URL.Path == "/v1/responses" {
+		} else if strings.Contains(lowerModel, "embedding") || strings.HasPrefix(lowerModel, "m3e") || strings.Contains(lowerModel, "bge-") {
+			relayFormat = types.RelayFormatEmbedding
+		} else if strings.Contains(lowerModel, "whisper") || strings.Contains(lowerModel, "transcription") || strings.Contains(lowerModel, "transcribe") || strings.HasPrefix(lowerModel, "stt") || strings.Contains(lowerModel, "voxtral") {
+			relayFormat = types.RelayFormatOpenAIAudio
+		} else if strings.Contains(lowerModel, "tts") || strings.Contains(lowerModel, "speech") || strings.Contains(lowerModel, "cosyvoice") || strings.Contains(lowerModel, "fish-audio") {
+			relayFormat = types.RelayFormatOpenAIAudio
+		} else if strings.Contains(lowerModel, "realtime") || strings.Contains(lowerModel, "live-preview") || strings.Contains(lowerModel, "live-exp") {
+			relayFormat = types.RelayFormatOpenAIRealtime
+		} else if strings.Contains(lowerModel, "video") || strings.Contains(lowerModel, "sora") || strings.Contains(lowerModel, "kling") || strings.Contains(lowerModel, "runway") || strings.Contains(lowerModel, "cogvideo") {
+			relayFormat = types.RelayFormatOpenAIImage
+		} else if strings.Contains(lowerModel, "dall-e") || strings.Contains(lowerModel, "midjourney") || strings.Contains(lowerModel, "flux") || strings.HasPrefix(lowerModel, "imagen") {
+			relayFormat = types.RelayFormatOpenAIImage
+		} else if strings.Contains(lowerModel, "codex") {
 			relayFormat = types.RelayFormatOpenAIResponses
-		}
-		if strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") {
+		} else if c.Request != nil && c.Request.URL != nil && c.Request.URL.Path == "/v1/embeddings" {
+			relayFormat = types.RelayFormatEmbedding
+		} else if c.Request != nil && c.Request.URL != nil && c.Request.URL.Path == "/v1/images/generations" {
+			relayFormat = types.RelayFormatOpenAIImage
+		} else if c.Request != nil && c.Request.URL != nil && c.Request.URL.Path == "/v1/messages" {
+			relayFormat = types.RelayFormatClaude
+		} else if c.Request != nil && c.Request.URL != nil && strings.Contains(c.Request.URL.Path, "/v1beta/models") {
+			relayFormat = types.RelayFormatGemini
+		} else if c.Request != nil && c.Request.URL != nil && (c.Request.URL.Path == "/v1/rerank" || c.Request.URL.Path == "/rerank") {
+			relayFormat = types.RelayFormatRerank
+		} else if c.Request != nil && c.Request.URL != nil && c.Request.URL.Path == "/v1/responses" {
+			relayFormat = types.RelayFormatOpenAIResponses
+		} else if c.Request != nil && c.Request.URL != nil && strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") {
 			relayFormat = types.RelayFormatOpenAIResponsesCompaction
+		} else {
+			relayFormat = types.RelayFormatOpenAI
 		}
 	}
 
-	request := buildTestRequest(testModel, endpointType, channel, isStream)
+	request := buildTestRequest(testModel, endpointType, channel, isStream, overrideVoice)
 
 	info, err := relaycommon.GenRelayInfo(c, relayFormat, request, nil)
 
@@ -237,6 +330,52 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			context:     c,
 			localErr:    err,
 			newAPIError: types.NewError(err, types.ErrorCodeGenRelayInfoFailed),
+		}
+	}
+
+	// Ensure RelayMode is precisely set for the channel test
+	if endpointType != "" {
+		switch constant.EndpointType(endpointType) {
+		case constant.EndpointTypeAudioSpeech:
+			info.RelayMode = relayconstant.RelayModeAudioSpeech
+		case constant.EndpointTypeAudioTranscription:
+			info.RelayMode = relayconstant.RelayModeAudioTranscription
+		case constant.EndpointTypeOpenAIRealtime:
+			info.RelayMode = relayconstant.RelayModeRealtime
+		case constant.EndpointTypeOpenAIVideo, constant.EndpointTypeImageGeneration:
+			info.RelayMode = relayconstant.RelayModeImagesGenerations
+		case constant.EndpointTypeEmbeddings:
+			info.RelayMode = relayconstant.RelayModeEmbeddings
+		case constant.EndpointTypeJinaRerank:
+			info.RelayMode = relayconstant.RelayModeRerank
+		case constant.EndpointTypeOpenAIResponse:
+			info.RelayMode = relayconstant.RelayModeResponses
+		case constant.EndpointTypeOpenAIResponseCompact:
+			info.RelayMode = relayconstant.RelayModeResponsesCompact
+		}
+	} else {
+		switch req := request.(type) {
+		case *dto.AudioRequest:
+			if strings.TrimSpace(req.Input) != "" {
+				info.RelayMode = relayconstant.RelayModeAudioSpeech
+			} else {
+				info.RelayMode = relayconstant.RelayModeAudioTranscription
+			}
+		case *dto.EmbeddingRequest:
+			info.RelayMode = relayconstant.RelayModeEmbeddings
+		case *dto.ImageRequest:
+			info.RelayMode = relayconstant.RelayModeImagesGenerations
+		case *dto.RerankRequest:
+			info.RelayMode = relayconstant.RelayModeRerank
+		case *dto.OpenAIResponsesRequest:
+			info.RelayMode = relayconstant.RelayModeResponses
+		case *dto.OpenAIResponsesCompactionRequest:
+			info.RelayMode = relayconstant.RelayModeResponsesCompact
+		case *dto.GeneralOpenAIRequest:
+			lower := strings.ToLower(testModel)
+			if strings.Contains(lower, "realtime") || strings.Contains(lower, "live-preview") || strings.Contains(lower, "live-exp") {
+				info.RelayMode = relayconstant.RelayModeRealtime
+			}
 		}
 	}
 
@@ -258,13 +397,6 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			context:     c,
 			localErr:    err,
 			newAPIError: types.NewError(err, types.ErrorCodeChannelModelMappedError),
-		}
-	}
-	if err := helper.ApplyReasoningModelSuffix(c, info, request); err != nil {
-		return testResult{
-			context:     c,
-			localErr:    err,
-			newAPIError: types.NewErrorWithStatusCode(err, types.ErrorCodeConvertRequestFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry()),
 		}
 	}
 
@@ -293,7 +425,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	//// 创建一个用于日志的 info 副本，移除 ApiKey
 	//logInfo := info
 	//logInfo.ApiKey = ""
-	common.SysLog(common.LogText("testing channel %d with model %s , info %+v ", channel.Id, testModel, info.ToString()))
+	common.SysLog(fmt.Sprintf("testing channel %d with model %s , info %+v ", channel.Id, testModel, info.ToString()))
 
 	priceData, err := helper.ModelPriceHelper(c, info, 0, request.GetTokenCountMeta())
 	if err != nil {
@@ -372,6 +504,27 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 				newAPIError: types.NewError(errors.New("invalid response compaction request type"), types.ErrorCodeConvertRequestFailed),
 			}
 		}
+	case relayconstant.RelayModeAudioSpeech:
+		if audioReq, ok := request.(*dto.AudioRequest); ok {
+			audioReader, convErr := adaptor.ConvertAudioRequest(c, info, *audioReq)
+			if convErr == nil && audioReader != nil {
+				audioBytes, _ := io.ReadAll(audioReader)
+				var rawMap any
+				if errU := json.Unmarshal(audioBytes, &rawMap); errU == nil {
+					convertedRequest = rawMap
+				} else {
+					convertedRequest = audioReq
+				}
+			} else {
+				convertedRequest = audioReq
+			}
+		} else {
+			convertedRequest = request
+		}
+	case relayconstant.RelayModeAudioTranscription:
+		convertedRequest = request
+	case relayconstant.RelayModeRealtime:
+		convertedRequest = map[string]any{"model": testModel}
 	default:
 		switch req := request.(type) {
 		case *dto.GeneralOpenAIRequest:
@@ -432,8 +585,46 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		}
 	}
 
-	requestBody := bytes.NewBuffer(jsonData)
-	c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonData))
+	if info.RelayMode == relayconstant.RelayModeRealtime {
+		resp, err := adaptor.DoRequest(c, info, nil)
+		if err != nil {
+			return testResult{
+				context:     c,
+				localErr:    err,
+				newAPIError: types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError),
+			}
+		}
+		if ws, ok := resp.(*websocket.Conn); ok && ws != nil {
+			_ = ws.Close()
+		}
+		c.Writer.WriteHeader(http.StatusOK)
+		return testResult{
+			context:     c,
+			localErr:    nil,
+			newAPIError: nil,
+		}
+	}
+
+	var requestBody io.Reader = bytes.NewBuffer(jsonData)
+	if info.RelayMode == relayconstant.RelayModeAudioTranscription {
+		if c.Request != nil {
+			c.Request.Method = http.MethodPost
+		}
+		mpBuf := &bytes.Buffer{}
+		mpWriter := multipart.NewWriter(mpBuf)
+		_ = mpWriter.WriteField("model", testModel)
+		part, fErr := mpWriter.CreateFormFile("file", "sample.mp3")
+		if fErr == nil {
+			audioBytes := getSTTSampleAudio()
+			_, _ = part.Write(audioBytes)
+		}
+		_ = mpWriter.Close()
+		c.Request.Header.Set("Content-Type", mpWriter.FormDataContentType())
+		requestBody = bytes.NewBuffer(mpBuf.Bytes())
+		c.Request.Body = io.NopCloser(bytes.NewBuffer(mpBuf.Bytes()))
+	} else {
+		c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonData))
+	}
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
 		return testResult{
@@ -447,7 +638,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		httpResp = resp.(*http.Response)
 		if httpResp.StatusCode != http.StatusOK {
 			err := service.RelayErrorHandler(c.Request.Context(), httpResp, true)
-			common.SysError(common.LogText(
+			common.SysError(fmt.Sprintf(
 				"channel test bad response: channel_id=%d name=%s type=%d model=%s endpoint_type=%s status=%d err=%v",
 				channel.Id,
 				channel.Name,
@@ -508,19 +699,32 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		PromptTokens:     usage.PromptTokens,
 		CompletionTokens: usage.CompletionTokens,
 		ModelName:        info.OriginModelName,
-		TokenName:        "Model test",
+		TokenName:        "模型测试",
 		Quota:            quota,
-		Content:          []*common.Message{common.NewMessage("Model test")},
+		Content:          "模型测试",
 		UseTimeSeconds:   int(consumedTime),
 		IsStream:         info.IsStream,
 		Group:            info.UsingGroup,
 		Other:            other,
 	})
-	common.SysLog(common.LogText("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
+	var testMessage string
+	if info.RelayMode == relayconstant.RelayModeAudioTranscription {
+		var sttRes struct {
+			Text string `json:"text"`
+		}
+		_ = json.Unmarshal(respBody, &sttRes)
+		transcription := strings.TrimSpace(sttRes.Text)
+		if transcription == "" {
+			transcription = strings.TrimSpace(string(respBody))
+		}
+		testMessage = fmt.Sprintf("Gönderilen sesteki cümleler: Hello, this is a test audio message for speech recognition. Everything is functioning properly.\nModelin anladığı cümleler: %s", transcription)
+	}
+	common.SysLog(fmt.Sprintf("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
 	return testResult{
 		context:     c,
 		localErr:    nil,
 		newAPIError: nil,
+		message:     testMessage,
 	}
 }
 
@@ -548,19 +752,18 @@ func settleTestQuota(info *relaycommon.RelayInfo, priceData hosttypes.PriceData,
 
 	quota := 0
 	if !priceData.UsePrice {
-		completionQuota := common.QuotaRound(float64(usage.CompletionTokens) * priceData.CompletionRatio)
-		quota = common.QuotaRound(float64(usage.PromptTokens) + float64(completionQuota))
-		quota = common.QuotaRound(float64(quota) * priceData.ModelRatio)
+		quota = usage.PromptTokens + int(math.Round(float64(usage.CompletionTokens)*priceData.CompletionRatio))
+		quota = int(math.Round(float64(quota) * priceData.ModelRatio))
 		if priceData.ModelRatio != 0 && quota <= 0 {
 			quota = 1
 		}
 		return quota, nil
 	}
 
-	return common.QuotaFromFloat(priceData.ModelPrice * common.QuotaPerUnit), nil
+	return int(priceData.ModelPrice * common.QuotaPerUnit), nil
 }
 
-func buildTestLogOther(c *gin.Context, info *relaycommon.RelayInfo, priceData hosttypes.PriceData, usage *dto.Usage, tieredResult *billingexpr.TieredResult) *model.LogOther {
+func buildTestLogOther(c *gin.Context, info *relaycommon.RelayInfo, priceData hosttypes.PriceData, usage *dto.Usage, tieredResult *billingexpr.TieredResult) map[string]interface{} {
 	other := service.GenerateTextOtherInfo(c, info, priceData.ModelRatio, priceData.GroupRatioInfo.GroupRatio, priceData.CompletionRatio,
 		usage.PromptTokensDetails.CachedTokens, priceData.CacheRatio, priceData.ModelPrice, priceData.GroupRatioInfo.GroupSpecialRatio)
 	if tieredResult != nil {
@@ -614,7 +817,7 @@ func detectErrorFromTestResponseBody(respBody []byte) error {
 		return fmt.Errorf("upstream error: %s", message)
 	}
 
-	for line := range bytes.SplitSeq(b, []byte{'\n'}) {
+	for _, line := range bytes.Split(b, []byte{'\n'}) {
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
 			continue
@@ -640,7 +843,7 @@ func validateStreamTestResponseBody(respBody []byte) error {
 		return errors.New("stream response body is empty")
 	}
 
-	for line := range bytes.SplitSeq(b, []byte{'\n'}) {
+	for _, line := range bytes.Split(b, []byte{'\n'}) {
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 || !bytes.HasPrefix(line, []byte("data:")) {
 			continue
@@ -699,7 +902,7 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
 	return message
 }
 
-func buildTestRequest(model string, endpointType string, channel *model.Channel, isStream bool) dto.Request {
+func buildTestRequest(model string, endpointType string, channel *model.Channel, isStream bool, overrideVoice string) dto.Request {
 	testResponsesInput := json.RawMessage(`[{"role":"user","content":"hi"}]`)
 
 	// 根据端点类型构建不同的测试请求
@@ -726,6 +929,39 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				Query:     "What is Deep Learning?",
 				Documents: []any{"Deep Learning is a subset of machine learning.", "Machine learning is a field of artificial intelligence."},
 				TopN:      lo.ToPtr(2),
+			}
+		case constant.EndpointTypeOpenAIVideo:
+			return &dto.ImageRequest{
+				Model:  model,
+				Prompt: "a cute cat",
+			}
+		case constant.EndpointTypeOpenAIRealtime:
+			return &dto.GeneralOpenAIRequest{
+				Model: model,
+			}
+		case constant.EndpointTypeAudioSpeech:
+			voice := "alloy"
+			input := "Hello, this is a test audio message."
+			lowerM := strings.ToLower(model)
+			if channel != nil && (channel.Type == constant.ChannelTypeGemini || channel.Type == constant.ChannelTypeVertexAi) {
+				voice = "Puck"
+			} else if (channel != nil && channel.Type == constant.ChannelTypeMistral) || strings.Contains(lowerM, "voxtral") || strings.Contains(lowerM, "mistral") {
+				voice = "en_paul_neutral"
+			} else if strings.Contains(lowerM, "kurdish") || strings.Contains(lowerM, "ckb") || strings.Contains(lowerM, "ku") {
+				voice = "male"
+				input = "سڵاو، ئەمە پەیامێکی دەنگی تاقیکارییە."
+			}
+			if overrideVoice != "" {
+				voice = overrideVoice
+			}
+			return &dto.AudioRequest{
+				Model: model,
+				Input: input,
+				Voice: voice,
+			}
+		case constant.EndpointTypeAudioTranscription:
+			return &dto.AudioRequest{
+				Model: model,
 			}
 		case constant.EndpointTypeOpenAIResponse:
 			// 返回 OpenAIResponsesRequest
@@ -801,6 +1037,54 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 		return &dto.EmbeddingRequest{
 			Model: model,
 			Input: []any{"hello world"},
+		}
+	}
+
+	lowerModel := strings.ToLower(model)
+	if strings.Contains(lowerModel, "whisper") || strings.Contains(lowerModel, "transcription") || strings.Contains(lowerModel, "transcribe") || strings.HasPrefix(lowerModel, "stt") || strings.Contains(lowerModel, "voxtral") {
+		return &dto.AudioRequest{
+			Model: model,
+		}
+	}
+
+	if strings.Contains(lowerModel, "tts") || strings.Contains(lowerModel, "speech") || strings.Contains(lowerModel, "cosyvoice") || strings.Contains(lowerModel, "fish-audio") {
+		voice := "alloy"
+		if channel != nil && (channel.Type == constant.ChannelTypeGemini || channel.Type == constant.ChannelTypeVertexAi) {
+			voice = "Puck"
+		} else if (channel != nil && channel.Type == constant.ChannelTypeMistral) || strings.Contains(lowerModel, "voxtral") || strings.Contains(lowerModel, "mistral") {
+			voice = "en_paul_neutral"
+		} else if strings.Contains(lowerModel, "kurdish") || strings.Contains(lowerModel, "ckb") || strings.Contains(lowerModel, "ku") {
+			voice = "male"
+		}
+		if overrideVoice != "" {
+			voice = overrideVoice
+		}
+		return &dto.AudioRequest{
+			Model: model,
+			Input: "Hello, this is a test audio message.",
+			Voice: voice,
+		}
+	}
+
+	if strings.Contains(lowerModel, "realtime") || strings.Contains(lowerModel, "live-preview") || strings.Contains(lowerModel, "live-exp") {
+		return &dto.GeneralOpenAIRequest{
+			Model: model,
+		}
+	}
+
+	if strings.Contains(lowerModel, "video") || strings.Contains(lowerModel, "sora") || strings.Contains(lowerModel, "kling") || strings.Contains(lowerModel, "runway") || strings.Contains(lowerModel, "cogvideo") {
+		return &dto.ImageRequest{
+			Model:  model,
+			Prompt: "a cinematic view of ocean waves",
+		}
+	}
+
+	if strings.Contains(lowerModel, "dall-e") || strings.Contains(lowerModel, "midjourney") || strings.Contains(lowerModel, "flux") || strings.HasPrefix(lowerModel, "imagen") {
+		return &dto.ImageRequest{
+			Model:  model,
+			Prompt: "a cute cat",
+			N:      lo.ToPtr(uint(1)),
+			Size:   "1024x1024",
 		}
 	}
 
@@ -903,7 +1187,7 @@ func TestChannel(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "",
+		"message": result.message,
 		"time":    consumedTime,
 	})
 }
@@ -938,12 +1222,7 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 
 	if common.AutomaticDisableChannelEnabled && !shouldBanChannel {
 		if milliseconds > disableThreshold {
-			// The reason is stored with the channel and sent in the disable
-			// notice; no request states a language here.
-			err := errors.New(i18n.Translate("", i18n.MsgChannelResponseTimeExceeded, map[string]any{
-				"Seconds":   fmt.Sprintf("%.2f", float64(milliseconds)/1000.0),
-				"Threshold": fmt.Sprintf("%.2f", float64(disableThreshold)/1000.0),
-			}))
+			err := fmt.Errorf("响应时间 %.2fs 超过阈值 %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0)
 			newAPIError = types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout)
 			shouldBanChannel = true
 		}
@@ -956,7 +1235,7 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 	}
 
 	if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
-		processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, nil)
+		processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 		summary.Disabled++
 	}
 
@@ -1109,8 +1388,7 @@ func runChannelTestTask(ctx context.Context, mode string, notify bool, report fu
 	concurrency := operation_setting.GetMonitorSetting().ChannelTestConcurrency
 	summary := performChannelTests(ctx, selected, testUserID, allowDisable, concurrency, report)
 	if notify && (ctx == nil || ctx.Err() == nil) {
-		lang := service.RootUserLanguage()
-		service.NotifyRootUser(dto.NotifyTypeChannelTest, i18n.Translate(lang, i18n.MsgChannelTestCompletedSubject), i18n.Translate(lang, i18n.MsgChannelTestCompletedContent))
+		service.NotifyRootUser(dto.NotifyTypeChannelTest, "通道测试完成", "所有通道测试已完成")
 	}
 	return summary, nil
 }
@@ -1145,12 +1423,15 @@ func TestAllChannels(c *gin.Context) {
 		return
 	}
 	if !created {
-		msg := common.NewMessage("A channel test task is already running or queued. Cannot start this manual task")
-		common.ApiErrorStatus(c, http.StatusConflict, msg, gin.H{"data": gin.H{
-			"task_id": task.TaskID,
-			"status":  task.Status,
-			"type":    task.Type,
-		}})
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"message": "已有通道测试任务正在运行或等待中，不能启动本次手动任务",
+			"data": gin.H{
+				"task_id": task.TaskID,
+				"status":  task.Status,
+				"type":    task.Type,
+			},
+		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{

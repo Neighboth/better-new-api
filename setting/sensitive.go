@@ -2,8 +2,8 @@ package setting
 
 import "strings"
 
-var CheckSensitiveEnabled = false
-var CheckSensitiveOnPromptEnabled = false
+var CheckSensitiveEnabled = true
+var CheckSensitiveOnPromptEnabled = true
 
 //var CheckSensitiveOnCompletionEnabled = true
 
@@ -14,7 +14,10 @@ var StopOnSensitiveEnabled = true
 var StreamCacheQueueLength = 0
 
 // SensitiveWords 敏感词
-var SensitiveWords []string
+// var SensitiveWords []string
+var SensitiveWords = []string{
+	"test_sensitive",
+}
 
 func SensitiveWordsToString() string {
 	return strings.Join(SensitiveWords, "\n")
@@ -22,8 +25,8 @@ func SensitiveWordsToString() string {
 
 func SensitiveWordsFromString(s string) {
 	SensitiveWords = []string{}
-	sw := strings.SplitSeq(s, "\n")
-	for w := range sw {
+	sw := strings.Split(s, "\n")
+	for _, w := range sw {
 		w = strings.TrimSpace(w)
 		if w != "" {
 			SensitiveWords = append(SensitiveWords, w)

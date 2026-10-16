@@ -34,7 +34,6 @@ import {
 import { JsonCodeEditor } from '@/components/json-code-editor'
 import { MultiSelect } from '@/components/multi-select'
 import { Button } from '@/components/ui/button'
-import { Combobox } from '@/components/ui/combobox'
 import {
   Form,
   FormControl,
@@ -61,8 +60,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { handleServerError } from '@/lib/handle-server-error'
-import { requireServerSuccess } from '@/lib/server-error-message'
 
 import {
   checkClusterNameAvailability,
@@ -77,6 +74,7 @@ const BUILTIN_IMAGE = 'ollama/ollama:latest'
 const DEFAULT_TRAFFIC_PORT = 11434
 
 const schema = z.object({
+  provider: z.string().optional().default('ionet'),
   resource_private_name: z.string().min(1),
   image_url: z.string().min(1),
   traffic_port: z.coerce.number().int().min(1).max(65535),
@@ -116,6 +114,7 @@ export function CreateDeploymentDrawer({
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
+      provider: 'ionet',
       resource_private_name: '',
       image_url: BUILTIN_IMAGE,
       traffic_port: DEFAULT_TRAFFIC_PORT,
@@ -134,6 +133,7 @@ export function CreateDeploymentDrawer({
     },
   })
 
+  const provider = (form.watch('provider') as string) || 'ionet'
   const hardwareId = form.watch('hardware_id')
   const gpuCount = toNumber(form.watch('gpus_per_container'), 1)
   const locationIds = form.watch('location_ids')
@@ -145,7 +145,7 @@ export function CreateDeploymentDrawer({
 
   const { data: hardwareTypesData, isLoading: isLoadingHardware } = useQuery({
     queryKey: ['deployment-hardware-types'],
-    queryFn: async () => requireServerSuccess(await getHardwareTypes()),
+    queryFn: getHardwareTypes,
     enabled: open,
   })
 
@@ -174,13 +174,11 @@ export function CreateDeploymentDrawer({
 
   const { data: replicasData, isLoading: isLoadingReplicas } = useQuery({
     queryKey: ['deployment-available-replicas', hardwareId, gpuCount],
-    queryFn: async () =>
-      requireServerSuccess(
-        await getAvailableReplicas({
-          hardware_id: hardwareId,
-          gpu_count: gpuCount,
-        })
-      ),
+    queryFn: () =>
+      getAvailableReplicas({
+        hardware_id: hardwareId,
+        gpu_count: gpuCount,
+      }),
     enabled: open && Boolean(hardwareId) && gpuCount > 0,
   })
 
@@ -201,7 +199,7 @@ export function CreateDeploymentDrawer({
         map.set(key, { label: String(name), value: key })
       }
     })
-    return [...map.values()]
+    return Array.from(map.values())
   }, [replicasData])
 
   const { data: priceData, isLoading: _isLoadingPrice } = useQuery({
@@ -214,17 +212,15 @@ export function CreateDeploymentDrawer({
       locationIds,
       currency,
     ],
-    queryFn: async () =>
-      requireServerSuccess(
-        await estimatePrice({
-          location_ids: locationIds,
-          hardware_id: hardwareId,
-          gpus_per_container: gpuCount,
-          duration_hours: durationHours,
-          replica_count: replicaCount,
-          currency: currency || 'usdc',
-        })
-      ),
+    queryFn: () =>
+      estimatePrice({
+        location_ids: locationIds,
+        hardware_id: hardwareId,
+        gpus_per_container: gpuCount,
+        duration_hours: durationHours,
+        replica_count: replicaCount,
+        currency: currency || 'usdc',
+      }),
     enabled:
       open &&
       Boolean(hardwareId) &&
@@ -239,7 +235,7 @@ export function CreateDeploymentDrawer({
     queryFn: async () => {
       const name = (resourceName || '').trim()
       if (!name) return null
-      return requireServerSuccess(await checkClusterNameAvailability(name))
+      return await checkClusterNameAvailability(name)
     },
     enabled: open && Boolean(resourceName && resourceName.trim().length > 0),
     staleTime: 10_000,
@@ -250,6 +246,14 @@ export function CreateDeploymentDrawer({
 
   const createMutation = useMutation({
     mutationFn: async (values: FormValues) => {
+      const provider = (values.provider as string) || 'ionet'
+      if (provider !== 'ionet') {
+        throw new Error(
+          t(
+            'Only io.net deployments can be created from here. Modal and Hugging Face are configured under System Settings and route automatically.'
+          )
+        )
+      }
       const env =
         values.env_json && values.env_json.trim()
           ? (JSON.parse(values.env_json) as Record<string, unknown>)
@@ -339,10 +343,10 @@ export function CreateDeploymentDrawer({
         onOpenChange(false)
         return
       }
-      handleServerError(data, t('Failed to create deployment'))
+      toast.error(data?.message || t('Failed to create deployment'))
     },
     onError: (err: Error) => {
-      handleServerError(err, t('Failed to create deployment'))
+      toast.error(err.message || t('Failed to create deployment'))
     },
   })
 
@@ -350,6 +354,7 @@ export function CreateDeploymentDrawer({
   useEffect(() => {
     if (!open) return
     form.reset({
+      provider: 'ionet',
       resource_private_name: '',
       image_url: BUILTIN_IMAGE,
       traffic_port: DEFAULT_TRAFFIC_PORT,
@@ -415,6 +420,38 @@ export function CreateDeploymentDrawer({
 
               <FormField
                 control={form.control}
+                name='provider'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('GPU Platform Provider')}</FormLabel>
+                    <Select
+                      value={(field.value as string) || 'ionet'}
+                      onValueChange={field.onChange}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder={t('Select GPU Platform')} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value='ionet'>
+                          io.net Cloud (DePIN GPU Network)
+                        </SelectItem>
+                        <SelectItem value='modal'>
+                          Modal (Serverless GPU & 1TB Storage)
+                        </SelectItem>
+                        <SelectItem value='huggingface'>
+                          Hugging Face (Inference Endpoints)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name='resource_private_name'
                 render={({ field }) => (
                   <FormItem>
@@ -424,18 +461,13 @@ export function CreateDeploymentDrawer({
                     </FormControl>
                     {open && field.value?.trim() ? (
                       <div className='text-muted-foreground text-xs'>
-                        {isCheckingName && t('Checking name...')}
-                        {!isCheckingName &&
-                          nameAvailable === true &&
-                          t('Name is available')}
-                        {!isCheckingName &&
-                          !(nameAvailable === true) &&
-                          nameAvailable === false &&
-                          t('Name is not available')}
-                        {!isCheckingName &&
-                          !(nameAvailable === true) &&
-                          !(nameAvailable === false) &&
-                          ''}
+                        {isCheckingName
+                          ? t('Checking name...')
+                          : nameAvailable === true
+                            ? t('Name is available')
+                            : nameAvailable === false
+                              ? t('Name is not available')
+                              : ''}
                       </div>
                     ) : null}
                     <FormMessage />
@@ -470,56 +502,129 @@ export function CreateDeploymentDrawer({
                   name='hardware_id'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Hardware type')}</FormLabel>
-                      <FormControl>
-                        <Combobox
-                          options={hardwareOptions.map((opt) => ({
-                            value: opt.value,
-                            label: opt.label,
-                          }))}
-                          value={field.value}
-                          onValueChange={(v) => field.onChange(v)}
-                          disabled={isLoadingHardware}
-                          className='w-full'
-                          placeholder={t('Select')}
-                        />
-                      </FormControl>
+                      <FormLabel>
+                        {provider === 'modal'
+                          ? t('Modal GPU / CPU Profile')
+                          : provider === 'huggingface'
+                            ? t('Hugging Face Instance Size')
+                            : t('Hardware type')}
+                      </FormLabel>
+                      <Select
+                        items={
+                          provider === 'modal'
+                            ? [
+                                { value: 'modal-b300', label: 'NVIDIA B300 (288GB)' },
+                                { value: 'modal-b200', label: 'NVIDIA B200 (180GB)' },
+                                { value: 'modal-h200', label: 'NVIDIA H200 (141GB)' },
+                                { value: 'modal-h100', label: 'NVIDIA H100 (80GB)' },
+                                { value: 'modal-a100-80gb', label: 'NVIDIA A100 (80GB)' },
+                                { value: 'modal-a100-40gb', label: 'NVIDIA A100 (40GB)' },
+                                { value: 'modal-l40s', label: 'NVIDIA L40S (48GB)' },
+                                { value: 'modal-a10g', label: 'NVIDIA A10G (24GB)' },
+                                { value: 'modal-l4', label: 'NVIDIA L4 (24GB)' },
+                                { value: 'modal-t4', label: 'NVIDIA T4 (16GB)' },
+                                { value: 'modal-cpu', label: 'Modal Serverless CPU' },
+                              ]
+                            : provider === 'huggingface'
+                              ? [
+                                  { value: 'hf-cpu-basic', label: 'CPU • 2 vCPU • 16GB RAM (Free Tier)' },
+                                  { value: 'hf-t4-small', label: 'NVIDIA T4 • 4 vCPU • 16GB' },
+                                  { value: 'hf-a10g-small', label: 'NVIDIA A10G • 4 vCPU • 24GB' },
+                                  { value: 'hf-a100-large', label: 'NVIDIA A100 • 12 vCPU • 80GB' },
+                                ]
+                              : [
+                                  ...hardwareOptions.map((opt) => ({
+                                    value: opt.value,
+                                    label: opt.label,
+                                  })),
+                                ]
+                        }
+                        value={field.value}
+                        onValueChange={(v) => field.onChange(v)}
+                        disabled={provider === 'ionet' && isLoadingHardware}
+                      >
+                        <FormControl>
+                          <SelectTrigger className='w-full'>
+                            <SelectValue placeholder={t('Select')} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent alignItemWithTrigger={false}>
+                          <SelectGroup>
+                            {provider === 'modal' ? (
+                              <>
+                                <SelectItem value='modal-b300'>NVIDIA B300 (288GB)</SelectItem>
+                                <SelectItem value='modal-b200'>NVIDIA B200 (180GB)</SelectItem>
+                                <SelectItem value='modal-h200'>NVIDIA H200 (141GB)</SelectItem>
+                                <SelectItem value='modal-h100'>NVIDIA H100 (80GB)</SelectItem>
+                                <SelectItem value='modal-a100-80gb'>NVIDIA A100 (80GB)</SelectItem>
+                                <SelectItem value='modal-a100-40gb'>NVIDIA A100 (40GB)</SelectItem>
+                                <SelectItem value='modal-l40s'>NVIDIA L40S (48GB)</SelectItem>
+                                <SelectItem value='modal-a10g'>NVIDIA A10G (24GB)</SelectItem>
+                                <SelectItem value='modal-l4'>NVIDIA L4 (24GB)</SelectItem>
+                                <SelectItem value='modal-t4'>NVIDIA T4 (16GB)</SelectItem>
+                                <SelectItem value='modal-cpu'>Modal Serverless CPU</SelectItem>
+                              </>
+                            ) : provider === 'huggingface' ? (
+                              <>
+                                <SelectItem value='hf-cpu-basic'>CPU • 2 vCPU • 16GB RAM (Free Tier)</SelectItem>
+                                <SelectItem value='hf-t4-small'>NVIDIA T4 • 4 vCPU • 16GB</SelectItem>
+                                <SelectItem value='hf-a10g-small'>NVIDIA A10G • 4 vCPU • 24GB</SelectItem>
+                                <SelectItem value='hf-a100-large'>NVIDIA A100 • 12 vCPU • 80GB</SelectItem>
+                              </>
+                            ) : (
+                              hardwareOptions.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
               </div>
 
-              <FormField
-                control={form.control}
-                name='location_ids'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Deployment location')}</FormLabel>
-                    <FormControl>
-                      <MultiSelect
-                        options={locationOptions}
-                        selected={(field.value || []) as string[]}
-                        onChange={(vals) => {
-                          if (isLoadingReplicas || !hardwareId) return
-                          field.onChange(vals)
-                        }}
-                        placeholder={
-                          isLoadingReplicas
-                            ? t('Loading...')
-                            : t('Select locations')
-                        }
-                        className={
-                          isLoadingReplicas || !hardwareId
-                            ? 'pointer-events-none opacity-60'
-                            : ''
-                        }
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {provider === 'ionet' ? (
+                <FormField
+                  control={form.control}
+                  name='location_ids'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Deployment location')}</FormLabel>
+                      <FormControl>
+                        <MultiSelect
+                          options={locationOptions}
+                          selected={(field.value || []) as string[]}
+                          onChange={(vals) => {
+                            if (isLoadingReplicas || !hardwareId) return
+                            field.onChange(vals)
+                          }}
+                          placeholder={
+                            isLoadingReplicas
+                              ? t('Loading...')
+                              : t('Select locations')
+                          }
+                          className={
+                            isLoadingReplicas || !hardwareId
+                              ? 'pointer-events-none opacity-60'
+                              : ''
+                          }
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : (
+                <div className='rounded-md border border-muted bg-muted/30 p-3 text-xs text-muted-foreground'>
+                  {provider === 'modal'
+                    ? t('Modal sunucusuz (serverless) mimari kullanır; coğrafi lokasyonlar Modal Cloud tarafından otomatik olarak en düşük gecikmeyle yönlendirilir ve 1TB kalıcı Network File System (Volume) bağlanır.')
+                    : t('Hugging Face Spaces ve Inference Endpoints lokasyonu varsayılan olarak us-east-1 / eu-west-1 üzerinde otomatik yönetilir.')}
+                </div>
+              )}
 
               <div className='grid gap-4 sm:grid-cols-2'>
                 <FormField

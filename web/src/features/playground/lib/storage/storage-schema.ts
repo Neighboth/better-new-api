@@ -21,6 +21,9 @@ import { z } from 'zod'
 export const STORAGE_VERSION = 1
 export const MAX_STORED_MESSAGES = 100
 export const MAX_STORED_MESSAGES_BYTES = 1024 * 1024
+// Inline images live in their own storage entry, so they get their own budget.
+export const MAX_STORED_IMAGE_BYTES = 1536 * 1024
+export const MAX_STORED_IMAGES_BYTES = 4 * 1024 * 1024
 export const MAX_LOADED_MESSAGES_CHARS = 120_000
 export const MAX_LOADED_MESSAGE_CHARS = 40_000
 
@@ -34,6 +37,16 @@ export const playgroundConfigSchema = z.object({
   presence_penalty: z.number().optional(),
   seed: z.number().nullable().optional(),
   stream: z.boolean().optional(),
+})
+
+export const toolsEnabledSchema = z.object({
+  generate_image: z.boolean().optional(),
+  update_plan: z.boolean().optional(),
+})
+
+export const thinkingSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  level: z.enum(['lite', 'low', 'medium', 'high', 'ultra']).optional(),
 })
 
 export const parameterEnabledSchema = z.object({
@@ -58,6 +71,12 @@ const messageVersionSchema = z.object({
   content: z.string(),
 })
 
+const attachmentSchema = z.object({
+  url: z.string(),
+  mediaType: z.string().optional(),
+  filename: z.string().optional(),
+})
+
 const sourceSchema = z.object({
   href: z.string(),
   title: z.string(),
@@ -71,15 +90,48 @@ const reasoningSchema = z.object({
   durationMs: z.number().optional(),
 })
 
+const planStepSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: z.enum(['pending', 'in_progress', 'completed']),
+})
+
+const toolEventSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.enum(['running', 'done', 'error']),
+  summary: z.string().optional(),
+  error: z.string().optional(),
+  startedAt: z.number().optional(),
+  completedAt: z.number().optional(),
+  anchor: z.number().optional(),
+  arguments: z.string().optional(),
+  result: z.string().optional(),
+  plan: z.array(planStepSchema).optional(),
+})
+
+const thoughtBlockSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  anchor: z.number(),
+  startedAt: z.number().optional(),
+  completedAt: z.number().optional(),
+})
+
 const messageSchema = z.object({
   key: z.string(),
   from: messageRoleSchema,
   versions: z.array(messageVersionSchema).min(1),
+  attachments: z.array(attachmentSchema).optional(),
   createdAt: z.number().optional(),
   startedAt: z.number().optional(),
   completedAt: z.number().optional(),
   durationMs: z.number().optional(),
   sources: z.array(sourceSchema).optional(),
+  toolEvents: z.array(toolEventSchema).optional(),
+  thoughts: z.array(thoughtBlockSchema).optional(),
+  plan: z.array(planStepSchema).optional(),
+  activeTool: z.string().nullable().optional(),
   reasoning: reasoningSchema.optional(),
   isReasoningStreaming: z.boolean().optional(),
   isReasoningComplete: z.boolean().optional(),
@@ -89,3 +141,5 @@ const messageSchema = z.object({
 })
 
 export const messagesSchema = z.array(messageSchema)
+
+export const imageStoreSchema = z.record(z.string(), z.string())

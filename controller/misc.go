@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -25,7 +26,10 @@ import (
 func TestStatus(c *gin.Context) {
 	err := model.PingDB()
 	if err != nil {
-		writeAccountStatusError(c, http.StatusServiceUnavailable, "Database connection failed")
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"message": "数据库连接失败",
+		})
 		return
 	}
 	// 获取HTTP统计信息
@@ -41,11 +45,27 @@ func TestStatus(c *gin.Context) {
 func GetStatus(c *gin.Context) {
 
 	cs := console_setting.GetConsoleSetting()
-	passkeySetting := system_setting.PasskeySettingsSnapshot()
 	common.OptionMapRWMutex.RLock()
 	defer common.OptionMapRWMutex.RUnlock()
 
+	passkeySetting := system_setting.GetPasskeySettings()
 	legalSetting := system_setting.GetLegalSettings()
+
+	lang := resolveRequestLanguage(c)
+	sysName := getLocalizedMiscOption("SystemName", lang)
+	if sysName == "" {
+		sysName = common.SystemName
+	}
+	footerHtml := getLocalizedMiscOption("Footer", lang)
+	if footerHtml == "" {
+		footerHtml = common.Footer
+	}
+	homePageContent := getLocalizedMiscOption("HomePageContent", lang)
+
+	docsLink := getLocalizedMiscOption("DocsLink", lang)
+	if docsLink == "" {
+		docsLink = operation_setting.GetGeneralSetting().DocsLink
+	}
 
 	data := gin.H{
 		"version":                     common.Version,
@@ -59,18 +79,32 @@ func GetStatus(c *gin.Context) {
 		"linuxdo_client_id":           common.LinuxDOClientId,
 		"linuxdo_minimum_trust_level": common.LinuxDOMinimumTrustLevel,
 		"telegram_oauth":              common.TelegramOAuthEnabled,
-		"telegram_oauth_configured":   oauth.TelegramConfigurationError() == nil,
 		"telegram_bot_name":           common.TelegramBotName,
 		"theme":                       "default",
-		"system_name":                 common.SystemName,
+		"system_name":                 sysName,
 		"logo":                        common.Logo,
-		"footer_html":                 common.Footer,
+		"logo_dark":                   common.LogoDark,
+		"favicon":                     common.Favicon,
+		"hide_header_site_name":       common.HideHeaderSiteName,
+		"header_logo_height":          common.HeaderLogoHeight,
+		"footer_html":                 footerHtml,
+		"home_page_content":           homePageContent,
 		"wechat_qrcode":               common.WeChatAccountQRCodeImageURL,
 		"wechat_login":                common.WeChatAuthEnabled,
 		"server_address":              system_setting.ServerAddress,
 		"turnstile_check":             common.TurnstileCheckEnabled,
 		"turnstile_site_key":          common.TurnstileSiteKey,
-		"docs_link":                   operation_setting.GetGeneralSetting().DocsLink,
+		"captcha_type":                common.GetEffectiveCaptchaType(),
+		"captcha_fallback":            common.CaptchaFallbackEnabled(),
+		"captcha_provider_order":      common.OptionMap["CaptchaProviderOrder"],
+		"recaptcha_site_key":          common.RecaptchaSiteKey,
+		"hcaptcha_site_key":           common.HCaptchaSiteKey,
+		"ticket_enabled":              operation_setting.IsTicketEnabled(),
+		"epay_providers":              common.OptionMap["EpayProviders"],
+		"blog_enabled":                common.OptionMap["BlogEnabled"] == "true",
+		"adsense_client_id":           common.OptionMap["AdSenseClientId"],
+		"adsense_slot_id":             common.OptionMap["AdSenseSlotId"],
+		"docs_link":                   docsLink,
 		"quota_per_unit":              common.QuotaPerUnit,
 		// 兼容旧前端：保留 display_in_currency，同时提供新的 quota_display_type
 		"display_in_currency":           operation_setting.IsCurrencyDisplay(),
@@ -92,8 +126,6 @@ func GetStatus(c *gin.Context) {
 		"password_register_enabled":     common.PasswordRegisterEnabled,
 		"default_use_auto_group":        setting.DefaultUseAutoGroup,
 
-		"password_login_encryption_enabled": common.PasswordLoginEncryptionEnabled,
-
 		"usd_exchange_rate": operation_setting.USDExchangeRate,
 		"price":             operation_setting.Price,
 		"stripe_unit_price": setting.StripeUnitPrice,
@@ -107,6 +139,7 @@ func GetStatus(c *gin.Context) {
 		// 模块管理配置
 		"HeaderNavModules":    common.OptionMap["HeaderNavModules"],
 		"SidebarModulesAdmin": common.OptionMap["SidebarModulesAdmin"],
+		"CustomNavItems":      common.OptionMap["CustomNavItems"],
 
 		"oidc_enabled":                system_setting.GetOIDCSettings().Enabled,
 		"oidc_client_id":              system_setting.GetOIDCSettings().ClientId,
@@ -114,17 +147,15 @@ func GetStatus(c *gin.Context) {
 		"oidc_display_name":           system_setting.GetOIDCSettings().GetEffectiveDisplayName(),
 		"passkey_login":               passkeySetting.Enabled,
 		"passkey_display_name":        passkeySetting.RPDisplayName,
-		"passkey_rp_id":               passkeySetting.EffectiveRPID(),
-		"passkey_rp_ids":              passkeySetting.RelyingPartyIDs(),
+		"passkey_rp_id":               passkeySetting.RPID,
+		"passkey_origins":             passkeySetting.Origins,
 		"passkey_allow_insecure":      passkeySetting.AllowInsecureOrigin,
 		"passkey_user_verification":   passkeySetting.UserVerification,
 		"passkey_attachment":          passkeySetting.AttachmentPreference,
 		"setup":                       constant.Setup,
-		"user_agreement_enabled":      legalSetting.UserAgreement != "",
-		"privacy_policy_enabled":      legalSetting.PrivacyPolicy != "",
+		"user_agreement_enabled":      legalSetting.UserAgreement != "" || hasAnyLegalOption("legal.user_agreement", "TermsOfService"),
+		"privacy_policy_enabled":      legalSetting.PrivacyPolicy != "" || hasAnyLegalOption("legal.privacy_policy", "PrivacyPolicy"),
 		"checkin_enabled":             operation_setting.GetCheckinSetting().Enabled,
-		"log_export_enabled":          operation_setting.GetLogSetting().UserExportEnabled,
-		"log_max_range_days":          operation_setting.GetLogSetting().MaxRangeDays,
 	}
 
 	// 根据启用状态注入可选内容
@@ -166,6 +197,20 @@ func GetStatus(c *gin.Context) {
 		data["custom_oauth_providers"] = providersInfo
 	}
 
+	host := strings.Split(c.Request.Host, ":")[0]
+	if rc, err := model.GetResellerConfigByDomain(host); err == nil && rc != nil && rc.ChildPanelEnabled {
+		if rc.SiteName != "" {
+			data["system_name"] = rc.SiteName
+		}
+		if rc.Logo != "" {
+			data["logo"] = rc.Logo
+			data["logo_dark"] = rc.Logo
+		}
+		if rc.HomepageContent != "" {
+			data["home_page_content"] = rc.HomepageContent
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -176,24 +221,97 @@ func GetStatus(c *gin.Context) {
 
 func GetNotice(c *gin.Context) {
 	common.OptionMapRWMutex.RLock()
-	notice := common.OptionMap["Notice"]
-	common.OptionMapRWMutex.RUnlock()
-	serveRevalidatedJSON(c, notice)
+	defer common.OptionMapRWMutex.RUnlock()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    common.OptionMap["Notice"],
+	})
+	return
+}
+
+func getLocalizedMiscOption(baseKey, lang string) string {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	val := strings.TrimSpace(common.OptionMap[baseKey+"_"+lang])
+	if val == "" && (lang == "zh_CN" || lang == "zhCN") {
+		val = strings.TrimSpace(common.OptionMap[baseKey+"_zhCN"])
+		if val == "" {
+			val = strings.TrimSpace(common.OptionMap[baseKey+"_zh_CN"])
+		}
+	}
+	if val == "" && (lang == "zh_TW" || lang == "zhTW") {
+		val = strings.TrimSpace(common.OptionMap[baseKey+"_zhTW"])
+		if val == "" {
+			val = strings.TrimSpace(common.OptionMap[baseKey+"_zh_TW"])
+		}
+	}
+	if val == "" && lang != "en" {
+		val = strings.TrimSpace(common.OptionMap[baseKey+"_en"])
+	}
+	if val == "" {
+		val = strings.TrimSpace(common.OptionMap[baseKey])
+	}
+	return val
+}
+
+func hasAnyLegalOption(baseKeys ...string) bool {
+	langs := []string{"tr", "en", "zh_CN", "zh_TW", "fr", "ru", "ja", "vi"}
+	for _, base := range baseKeys {
+		if strings.TrimSpace(common.OptionMap[base]) != "" {
+			return true
+		}
+		for _, l := range langs {
+			if strings.TrimSpace(common.OptionMap[base+"_"+l]) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func GetAbout(c *gin.Context) {
-	common.OptionMapRWMutex.RLock()
-	about := common.OptionMap["About"]
-	common.OptionMapRWMutex.RUnlock()
-	serveRevalidatedJSON(c, about)
+	lang := resolveRequestLanguage(c)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    getLocalizedMiscOption("About", lang),
+	})
+	return
 }
 
 func GetUserAgreement(c *gin.Context) {
-	serveRevalidatedJSON(c, system_setting.GetLegalSettings().UserAgreement)
+	lang := resolveRequestLanguage(c)
+	val := getLocalizedMiscOption("legal.user_agreement", lang)
+	if val == "" {
+		val = getLocalizedMiscOption("TermsOfService", lang)
+	}
+	if val == "" {
+		val = system_setting.GetLegalSettings().UserAgreement
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    val,
+	})
+	return
 }
 
 func GetPrivacyPolicy(c *gin.Context) {
-	serveRevalidatedJSON(c, system_setting.GetLegalSettings().PrivacyPolicy)
+	lang := resolveRequestLanguage(c)
+	val := getLocalizedMiscOption("legal.privacy_policy", lang)
+	if val == "" {
+		val = getLocalizedMiscOption("PrivacyPolicy", lang)
+	}
+	if val == "" {
+		val = system_setting.GetLegalSettings().PrivacyPolicy
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    val,
+	})
+	return
 }
 
 func GetMidjourney(c *gin.Context) {
@@ -208,36 +326,70 @@ func GetMidjourney(c *gin.Context) {
 }
 
 func GetHomePageContent(c *gin.Context) {
-	common.OptionMapRWMutex.RLock()
-	homePageContent := common.OptionMap["HomePageContent"]
-	common.OptionMapRWMutex.RUnlock()
-	serveRevalidatedJSON(c, homePageContent)
+	lang := resolveRequestLanguage(c)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    getLocalizedMiscOption("HomePageContent", lang),
+	})
+	return
 }
 
 func SendEmailVerification(c *gin.Context) {
-	email, err := service.ValidateAccountEmail(c.Query("email"))
-	if err != nil {
-		writeSecurityOperationError(c, err)
+	email := model.NormalizeEmail(c.Query("email"))
+	if err := common.Validate.Var(email, "required,email"); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
+	}
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "无效的邮箱地址",
+		})
+		return
+	}
+	localPart := parts[0]
+	domainPart := parts[1]
+	if common.EmailDomainRestrictionEnabled {
+		allowed := false
+		for _, domain := range common.EmailDomainWhitelist {
+			if domainPart == domain {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "The administrator has enabled the email domain name whitelist, and your email address is not allowed due to special symbols or it's not in the whitelist.",
+			})
+			return
+		}
+	}
+	if common.EmailAliasRestrictionEnabled {
+		containsSpecialSymbols := strings.Contains(localPart, "+") || strings.Contains(localPart, ".")
+		if containsSpecialSymbols {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "管理员已启用邮箱地址别名限制，您的邮箱地址由于包含特殊符号而被拒绝。",
+			})
+			return
+		}
 	}
 
 	if model.IsEmailAlreadyTaken(email) {
-		common.ApiErrorT(c, "Email address is already in use")
+		common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
 		return
 	}
 	code := common.GenerateVerificationCode(6)
 	common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose)
-	// The address may not belong to an account yet, so the mail follows the
-	// request language.
-	systemName := map[string]any{"SystemName": common.SystemName}
-	subject := i18n.T(c, i18n.MsgEmailVerificationSubject, systemName)
-	content := fmt.Sprintf("<p>%s</p>"+
-		"<p>%s</p>"+
-		"<p>%s</p>",
-		i18n.T(c, i18n.MsgEmailVerificationGreeting, systemName),
-		i18n.T(c, i18n.MsgEmailVerificationCode, map[string]any{"Code": code}),
-		i18n.T(c, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
-	err = common.SendEmail(subject, email, content)
+	lang := resolveEmailLanguage(c)
+	subject, content := service.RenderEmail("verification", lang, map[string]string{
+		"code":  code,
+		"email": email,
+	})
+	err := common.SendEmail(subject, email, content)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -249,42 +401,76 @@ func SendEmailVerification(c *gin.Context) {
 	return
 }
 
+func resolveEmailLanguage(c *gin.Context) string {
+	if lang := strings.TrimSpace(c.Query("lang")); lang != "" {
+		return service.NormalizeEmailLang(lang)
+	}
+	if cookie, err := c.Cookie("i18nextLng"); err == nil && cookie != "" {
+		return service.NormalizeEmailLang(cookie)
+	}
+	accept := c.GetHeader("Accept-Language")
+	if strings.Contains(strings.ToLower(accept), "tr") {
+		return "tr"
+	}
+	if strings.Contains(strings.ToLower(accept), "zh") {
+		return "zh_CN"
+	}
+	return "en"
+}
+
 func SendPasswordResetEmail(c *gin.Context) {
 	email := model.NormalizeEmail(c.Query("email"))
 	if err := common.Validate.Var(email, "required,email"); err != nil {
-		common.ApiErrorT(c, "Invalid parameters")
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if user, err := model.GetUniqueUserByEmail(email); err == nil {
+	if _, err := model.GetUniqueUserByEmail(email); err == nil {
 		code := common.GenerateVerificationCode(0)
 		common.RegisterVerificationCodeWithKey(email, code, common.PasswordResetPurpose)
 		link := fmt.Sprintf("%s/user/reset?email=%s&token=%s", system_setting.ServerAddress, email, code)
-		lang := user.GetSetting().Language
-		if lang == "" {
-			lang = i18n.StatedLang(c)
-		}
-		systemName := map[string]any{"SystemName": common.SystemName}
-		linkParams := map[string]any{"Link": link}
-		subject := i18n.Translate(lang, i18n.MsgEmailPasswordResetSubject, systemName)
-		content := fmt.Sprintf("<p>%s</p>"+
-			"<p>%s</p>"+
-			"<p>%s </p>"+
-			"<p>%s</p>",
-			i18n.Translate(lang, i18n.MsgEmailPasswordResetGreeting, systemName),
-			i18n.Translate(lang, i18n.MsgEmailPasswordResetLink, linkParams),
-			i18n.Translate(lang, i18n.MsgEmailPasswordResetLinkFallback, linkParams),
-			i18n.Translate(lang, i18n.MsgEmailPasswordResetValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
+		lang := resolveEmailLanguage(c)
+		subject, content := service.RenderEmail("password_reset", lang, map[string]string{
+			"link":  link,
+			"email": email,
+		})
 		err := common.SendEmail(subject, email, content)
 		if err != nil {
-			logger.LogError(c.Request.Context(), common.LogText("failed to send password reset email to %s: %s", email, err.Error()))
+			logger.LogError(c.Request.Context(), fmt.Sprintf("failed to send password reset email to %s: %s", email, err.Error()))
 		}
 	} else if err != nil && !errors.Is(err, model.ErrEmailNotFound) {
-		logger.LogWarn(c.Request.Context(), common.LogText("skip password reset email for %s: %s", email, err.Error()))
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("skip password reset email for %s: %s", email, err.Error()))
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
 	})
+}
+
+func SendTestEmail(c *gin.Context) {
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		// Keep the old query-string form working for existing scripts.
+		req.Email = c.Query("email")
+	}
+	email := model.NormalizeEmail(req.Email)
+	if err := common.Validate.Var(email, "required,email"); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Email is required"})
+		return
+	}
+	code := common.GenerateVerificationCode(6)
+	lang := resolveEmailLanguage(c)
+	subject, content := service.RenderEmail("verification", lang, map[string]string{
+		"code":  code,
+		"email": email,
+	})
+	err := common.SendEmail(subject, email, content)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Test email sent successfully"})
 }
 
 type PasswordResetRequest struct {
@@ -301,18 +487,18 @@ func ResetPassword(c *gin.Context) {
 	}
 	req.Email = model.NormalizeEmail(req.Email)
 	if req.Email == "" || req.Token == "" {
-		common.ApiErrorT(c, "Invalid parameters")
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
 	if !common.VerifyCodeWithKey(req.Email, req.Token, common.PasswordResetPurpose) {
-		common.ApiErrorT(c, "Password reset link is invalid or has expired")
+		common.ApiErrorI18n(c, i18n.MsgUserPasswordResetLinkInvalid)
 		return
 	}
 	password := common.GenerateVerificationCode(12)
 	err = model.ResetUserPasswordByEmail(req.Email, password)
 	if err != nil {
 		if errors.Is(err, model.ErrEmailNotFound) || errors.Is(err, model.ErrEmailAmbiguous) {
-			common.ApiErrorT(c, "Password reset link is invalid or has expired")
+			common.ApiErrorI18n(c, i18n.MsgUserPasswordResetLinkInvalid)
 			return
 		}
 		common.ApiError(c, err)

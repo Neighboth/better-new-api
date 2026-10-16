@@ -16,6 +16,9 @@ const (
 	EndpointTypeImageGeneration       EndpointType = "image-generation"
 	EndpointTypeEmbeddings            EndpointType = "embeddings"
 	EndpointTypeOpenAIVideo           EndpointType = "openai-video"
+	EndpointTypeOpenAIRealtime        EndpointType = "openai-realtime"
+	EndpointTypeAudioSpeech          EndpointType = "audio-speech"
+	EndpointTypeAudioTranscription   EndpointType = "audio-transcription"
 )
 
 // Finish reasons shared by the OpenAI-compatible response formats.

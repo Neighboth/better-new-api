@@ -28,6 +28,7 @@ import {
   ShieldAlert,
   Link2,
   CreditCard,
+  Store,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -46,10 +47,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import type { AdminUserManageAction } from '@/features/auth/secure-verification'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
-import { handleServerError } from '@/lib/handle-server-error'
-import { AuthOperationError } from '@/lib/secure-verification'
+import { ADMIN_PERMISSION_RESOURCES, hasPermission } from '@/lib/admin-permissions'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
 import {
@@ -59,16 +59,10 @@ import {
   isUserDeleted,
 } from '../constants'
 import { getUserActionMessage } from '../lib'
-import type { User } from '../types'
+import type { User, ManageUserAction } from '../types'
+import { ResellerManageDialog } from './dialogs/reseller-manage-dialog'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
 import { useUsers } from './users-provider'
-
-const MANAGE_ACTION_TITLES: Record<AdminUserManageAction, string> = {
-  disable: 'Verify to disable user',
-  enable: 'Verify to enable user',
-  promote: 'Verify to promote user',
-  demote: 'Verify to demote user',
-}
 
 interface DataTableRowActionsProps {
   row: Row<User>
@@ -77,17 +71,15 @@ interface DataTableRowActionsProps {
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
   const user = row.original
-  const {
-    setOpen,
-    setCurrentRow,
-    triggerRefresh,
-    requestVerification,
-    verificationActive,
-  } = useUsers()
+  const currentUser = useAuthStore((s) => s.auth.user)
+  const canWrite = hasPermission(currentUser, ADMIN_PERMISSION_RESOURCES.USER, 'write')
+  const canDelete = hasPermission(currentUser, ADMIN_PERMISSION_RESOURCES.USER, 'delete')
+  const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
+  const [resellerManageOpen, setResellerManageOpen] = useState(false)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -99,57 +91,33 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     setOpen('delete')
   }
 
-  const handleManage = async (action: AdminUserManageAction) => {
+  const handleManage = async (action: Exclude<ManageUserAction, 'delete'>) => {
     try {
-      const proof = await requestVerification({
-        scope: 'admin.user.manage',
-        context: { user_id: user.id, action },
-        title: t(MANAGE_ACTION_TITLES[action]),
-        description: t(
-          'Confirm your identity before changing the account {{username}}.',
-          { username: user.username }
-        ),
-      })
-      if (!proof) return
-      const result = await manageUser(user.id, action, proof.proof_token)
+      const result = await manageUser(user.id, action)
       if (result.success) {
         toast.success(t(getUserActionMessage(action)))
         triggerRefresh()
       } else {
-        handleServerError(result, t('Failed to {{action}} user', { action }))
+        toast.error(
+          result.message || t('Failed to {{action}} user', { action })
+        )
       }
-    } catch (error) {
-      handleServerError(
-        AuthOperationError.from(error),
-        t(ERROR_MESSAGES.UNEXPECTED)
-      )
+    } catch {
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     }
   }
 
   const handleResetPasskey = async () => {
     try {
-      const proof = await requestVerification({
-        scope: 'admin.user.passkey.reset',
-        context: { user_id: user.id },
-        title: t('Verify to reset Passkey'),
-        description: t(
-          'Confirm your identity before changing the account {{username}}.',
-          { username: user.username }
-        ),
-      })
-      if (!proof) return
-      const result = await resetUserPasskey(user.id, proof.proof_token)
+      const result = await resetUserPasskey(user.id)
       if (result.success) {
         toast.success(t('Passkey reset successfully'))
         triggerRefresh()
       } else {
-        handleServerError(result, t('Failed to reset Passkey'))
+        toast.error(result.message || t('Failed to reset Passkey'))
       }
-    } catch (error) {
-      handleServerError(
-        AuthOperationError.from(error),
-        t(ERROR_MESSAGES.UNEXPECTED)
-      )
+    } catch {
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setResetPasskeyOpen(false)
     }
@@ -157,35 +125,21 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
 
   const handleResetTwoFA = async () => {
     try {
-      const proof = await requestVerification({
-        scope: 'admin.user.2fa.disable',
-        context: { user_id: user.id },
-        title: t('Verify to reset 2FA'),
-        description: t(
-          'Confirm your identity before changing the account {{username}}.',
-          { username: user.username }
-        ),
-      })
-      if (!proof) return
-      const result = await resetUserTwoFA(user.id, proof.proof_token)
+      const result = await resetUserTwoFA(user.id)
       if (result.success) {
         toast.success(t('Two-factor authentication reset'))
         triggerRefresh()
       } else {
-        handleServerError(result, t('Failed to reset 2FA'))
+        toast.error(result.message || t('Failed to reset 2FA'))
       }
-    } catch (error) {
-      handleServerError(
-        AuthOperationError.from(error),
-        t(ERROR_MESSAGES.UNEXPECTED)
-      )
+    } catch {
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setResetTwoFAOpen(false)
     }
   }
 
   const isDisabled = user.status === USER_STATUS.DISABLED
-  const isAdmin = user.role >= USER_ROLE.ADMIN
   const isRoot = user.role === USER_ROLE.ROOT
 
   if (isUserDeleted(user)) {
@@ -194,34 +148,52 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
 
   return (
     <div className='-ml-1.5 flex items-center gap-1'>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant='ghost'
-              size='icon-sm'
-              onClick={handleEdit}
-              aria-label={t('Edit')}
-            />
-          }
-        >
-          <Pencil />
-        </TooltipTrigger>
-        <TooltipContent>{t('Edit')}</TooltipContent>
-      </Tooltip>
+      {canWrite && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant='ghost'
+                size='icon-sm'
+                onClick={handleEdit}
+                aria-label={t('Edit')}
+              />
+            }
+          >
+            <Pencil />
+          </TooltipTrigger>
+          <TooltipContent>{t('Edit')}</TooltipContent>
+        </Tooltip>
+      )}
 
       <DataTableRowActionMenu
         ariaLabel={t('Open menu')}
         contentClassName='w-48'
       >
-        {isDisabled ? (
+        {user.role === USER_ROLE.RESELLER && (
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault()
+              setResellerManageOpen(true)
+            }}
+          >
+            {t('Manage Reseller')}
+            <DropdownMenuShortcut>
+              <Store size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+        )}
+
+        {canWrite && isDisabled && (
           <DropdownMenuItem onClick={() => handleManage('enable')}>
             {t('Enable')}
             <DropdownMenuShortcut>
               <Power size={16} />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
-        ) : (
+        )}
+
+        {canWrite && !isDisabled && (
           <DropdownMenuItem
             onClick={() => handleManage('disable')}
             disabled={isRoot}
@@ -233,7 +205,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         )}
 
-        {isAdmin && !isRoot && (
+        {canWrite && !isRoot && (user.role === USER_ROLE.ADMIN || user.role === USER_ROLE.RESELLER) && (
           <DropdownMenuItem onClick={() => handleManage('demote')}>
             {t('Demote')}
             <DropdownMenuShortcut>
@@ -242,7 +214,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         )}
 
-        {!isAdmin && (
+        {canWrite && (user.role === USER_ROLE.USER || user.role === USER_ROLE.RESELLER) && (
           <DropdownMenuItem onClick={() => handleManage('promote')}>
             {t('Promote')}
             <DropdownMenuShortcut>
@@ -303,22 +275,25 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuShortcut>
         </DropdownMenuItem>
 
-        <DropdownMenuSeparator />
-
-        <DropdownMenuItem
-          onClick={handleDelete}
-          className='text-destructive focus:text-destructive'
-          disabled={isRoot}
-        >
-          {t('Delete')}
-          <DropdownMenuShortcut>
-            <Trash2 size={16} />
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
+        {canDelete && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={handleDelete}
+              className='text-destructive focus:text-destructive'
+              disabled={isRoot}
+            >
+              {t('Delete')}
+              <DropdownMenuShortcut>
+                <Trash2 size={16} />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+          </>
+        )}
       </DataTableRowActionMenu>
 
       <ConfirmDialog
-        open={resetPasskeyOpen && !verificationActive}
+        open={resetPasskeyOpen}
         onOpenChange={setResetPasskeyOpen}
         title={t('Reset Passkey')}
         desc={t(
@@ -330,7 +305,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       />
 
       <ConfirmDialog
-        open={resetTwoFAOpen && !verificationActive}
+        open={resetTwoFAOpen}
         onOpenChange={setResetTwoFAOpen}
         title={t('Reset Two-Factor Authentication')}
         desc={t(
@@ -353,6 +328,12 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         onOpenChange={setSubscriptionsDialogOpen}
         user={{ id: user.id, username: user.username }}
         onSuccess={triggerRefresh}
+      />
+
+      <ResellerManageDialog
+        open={resellerManageOpen}
+        onOpenChange={setResellerManageOpen}
+        user={user}
       />
     </div>
   )

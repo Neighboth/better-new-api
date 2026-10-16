@@ -29,10 +29,15 @@ export const redemptionSchema = z.object({
   key: z.string(),
   status: z.number(), // 1: enabled, 2: disabled, 3: used
   quota: z.number(),
+  type: z.number().optional(),
   created_time: z.number(),
   redeemed_time: z.number(),
   expired_time: z.number(), // 0 for never expires
+  model_filter_mode: z.string().optional(),
+  models: z.string().optional(),
   used_user_id: z.number(),
+  used_username: z.string().optional(),
+  is_reseller: z.boolean().optional(),
 })
 
 export type Redemption = z.infer<typeof redemptionSchema>
@@ -74,7 +79,10 @@ export interface RedemptionFormData {
   id?: number
   name: string
   quota: number
+  type?: number
   expired_time: number
+  model_filter_mode?: 'none' | 'whitelist'
+  models?: string
   count?: number // Only for create
   status?: number // Only for status update
 }

@@ -26,26 +26,20 @@ import type { TokenUnit } from './types'
 
 /** Sort options for pricing models */
 export const SORT_OPTIONS = {
+  POPULARITY: 'popularity',
   NAME: 'name',
-  INPUT_PRICE_LOW: 'input-price-low',
-  INPUT_PRICE_HIGH: 'input-price-high',
-  OUTPUT_PRICE_LOW: 'output-price-low',
-  OUTPUT_PRICE_HIGH: 'output-price-high',
-  REQUEST_PRICE_LOW: 'request-price-low',
-  REQUEST_PRICE_HIGH: 'request-price-high',
+  PRICE_LOW: 'price-low',
+  PRICE_HIGH: 'price-high',
 } as const
 
 export type SortOption = (typeof SORT_OPTIONS)[keyof typeof SORT_OPTIONS]
 
 export function getSortLabels(t: TFunction): Record<SortOption, string> {
   return {
+    [SORT_OPTIONS.POPULARITY]: t('Most Popular'),
     [SORT_OPTIONS.NAME]: t('Name'),
-    [SORT_OPTIONS.INPUT_PRICE_LOW]: t('Input Price: Low to High'),
-    [SORT_OPTIONS.INPUT_PRICE_HIGH]: t('Input Price: High to Low'),
-    [SORT_OPTIONS.OUTPUT_PRICE_LOW]: t('Output Price: Low to High'),
-    [SORT_OPTIONS.OUTPUT_PRICE_HIGH]: t('Output Price: High to Low'),
-    [SORT_OPTIONS.REQUEST_PRICE_LOW]: t('Per-request Price: Low to High'),
-    [SORT_OPTIONS.REQUEST_PRICE_HIGH]: t('Per-request Price: High to Low'),
+    [SORT_OPTIONS.PRICE_LOW]: t('Price: Low to High'),
+    [SORT_OPTIONS.PRICE_HIGH]: t('Price: High to Low'),
   }
 }
 
@@ -57,7 +51,6 @@ export const QUOTA_TYPES = {
   ALL: 'all',
   TOKEN: 'token',
   REQUEST: 'request',
-  TASK: 'task',
 } as const
 
 export type QuotaTypeOption = (typeof QUOTA_TYPES)[keyof typeof QUOTA_TYPES]
@@ -70,7 +63,6 @@ export function getQuotaTypeLabels(
     [QUOTA_TYPES.ALL]: t('All Models'),
     [QUOTA_TYPES.TOKEN]: t('Token-based'),
     [QUOTA_TYPES.REQUEST]: t('Per Request'),
-    [QUOTA_TYPES.TASK]: t('Task billing'),
   }
 }
 

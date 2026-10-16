@@ -48,7 +48,7 @@ type SystemBrandProps = {
 export function SystemBrand(props: SystemBrandProps) {
   const { t } = useTranslation()
   const { status } = useStatus()
-  const { logo } = useSystemConfig()
+  const { logo, hideHeaderSiteName, headerLogoHeight = 24 } = useSystemConfig()
 
   const variant = props.variant ?? 'sidebar'
   const name = status?.system_name || props.defaultName || 'New API'
@@ -56,23 +56,31 @@ export function SystemBrand(props: SystemBrandProps) {
     status?.version || props.defaultVersion || t('Unknown version')
 
   if (variant === 'inline') {
+    const containerHeight = Math.max(headerLogoHeight, 28)
     return (
       <Link
         to='/'
         aria-label={t('Go to home')}
         className={cn(
-          'text-foreground inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-sm font-medium transition-colors outline-none select-none',
+          'text-foreground inline-flex items-center gap-2 rounded-md px-1.5 text-sm font-medium transition-colors outline-none select-none',
           'hover:bg-accent focus-visible:ring-ring/40 focus-visible:ring-2'
         )}
+        style={{ height: `${containerHeight}px` }}
       >
-        <div className='flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-md'>
+        <div
+          className='flex items-center justify-center overflow-hidden rounded-md'
+          style={{ height: `${headerLogoHeight}px`, minWidth: `${headerLogoHeight}px` }}
+        >
           <img
             src={logo}
             alt={t('Logo')}
-            className='size-full rounded-md object-cover'
+            className='w-auto max-w-xs object-contain'
+            style={{ height: `${headerLogoHeight}px` }}
           />
         </div>
-        <span className='max-w-[12rem] truncate'>{name}</span>
+        {!hideHeaderSiteName && (
+          <span className='max-w-[12rem] truncate'>{name}</span>
+        )}
       </Link>
     )
   }

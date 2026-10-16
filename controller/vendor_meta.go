@@ -1,9 +1,13 @@
 package controller
 
 import (
-	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -11,14 +15,28 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetAllVendors uses the same paged filters and counts as the search endpoint.
-func GetAllVendors(c *gin.Context) { SearchVendors(c) }
-
-func SearchVendors(c *gin.Context) {
+// GetAllVendors 获取供应商列表（分页）
+func GetAllVendors(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
-	vendors, total, err := model.SearchVendors(c.Query("keyword"), pageInfo.GetStartIdx(), pageInfo.GetPageSize(), c.Query("association"))
+	vendors, err := model.GetAllVendors(pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
-		vendorAPIError(c, err)
+		common.ApiError(c, err)
+		return
+	}
+	var total int64
+	model.DB.Model(&model.Vendor{}).Count(&total)
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(vendors)
+	common.ApiSuccess(c, pageInfo)
+}
+
+// SearchVendors 搜索供应商
+func SearchVendors(c *gin.Context) {
+	keyword := c.Query("keyword")
+	pageInfo := common.GetPageQuery(c)
+	vendors, total, err := model.SearchVendors(keyword, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	if err != nil {
+		common.ApiError(c, err)
 		return
 	}
 	pageInfo.SetTotal(int(total))
@@ -31,12 +49,12 @@ func GetVendorMeta(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		vendorAPIError(c, err)
+		common.ApiError(c, err)
 		return
 	}
 	v, err := model.GetVendorByID(id)
 	if err != nil {
-		vendorAPIError(c, err)
+		common.ApiError(c, err)
 		return
 	}
 	common.ApiSuccess(c, v)
@@ -46,14 +64,27 @@ func GetVendorMeta(c *gin.Context) {
 func CreateVendorMeta(c *gin.Context) {
 	var v model.Vendor
 	if err := c.ShouldBindJSON(&v); err != nil {
-		vendorAPIError(c, err)
+		common.ApiError(c, err)
 		return
 	}
+	if v.Name == "" {
+		common.ApiErrorMsg(c, "供应商名称不能为空")
+		return
+	}
+	// 创建前先检查名称
+	if dup, err := model.IsVendorNameDuplicated(0, v.Name); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if dup {
+		common.ApiErrorMsg(c, "供应商名称已存在")
+		return
+	}
+
 	if err := v.Insert(); err != nil {
-		vendorAPIError(c, err)
+		common.ApiError(c, err)
 		return
 	}
-	recordManageAudit(c, "vendor.metadata.save", map[string]any{"vendor_id": v.Id, "name": v.Name})
+	model.RefreshPricing()
 	common.ApiSuccess(c, &v)
 }
 
@@ -61,18 +92,38 @@ func CreateVendorMeta(c *gin.Context) {
 func UpdateVendorMeta(c *gin.Context) {
 	var v model.Vendor
 	if err := c.ShouldBindJSON(&v); err != nil {
-		vendorAPIError(c, err)
+		common.ApiError(c, err)
 		return
 	}
 	if v.Id == 0 {
-		common.ApiErrorT(c, "Missing vendor ID")
+		common.ApiErrorMsg(c, "缺少供应商 ID")
 		return
 	}
+
+	existing, err := model.GetVendorByID(v.Id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	if existing.IsBuiltin {
+		v.Name = existing.Name
+		v.IsBuiltin = true
+	} else {
+		if dup, err := model.IsVendorNameDuplicated(v.Id, v.Name); err != nil {
+			common.ApiError(c, err)
+			return
+		} else if dup {
+			common.ApiErrorMsg(c, "供应商名称已存在")
+			return
+		}
+	}
+
 	if err := v.Update(); err != nil {
-		vendorAPIError(c, err)
+		common.ApiError(c, err)
 		return
 	}
-	recordManageAudit(c, "vendor.metadata.save", map[string]any{"vendor_id": v.Id, "name": v.Name})
+	model.RefreshPricing()
 	common.ApiSuccess(c, &v)
 }
 
@@ -81,58 +132,64 @@ func DeleteVendorMeta(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		vendorAPIError(c, err)
+		common.ApiError(c, err)
 		return
 	}
-	if err := model.DeleteVendors([]int{id}); err != nil {
-		vendorAPIError(c, err)
+	v, err := model.GetVendorByID(id)
+	if err == nil && v.IsBuiltin {
+		common.ApiErrorMsg(c, "Sisteme gömülü (Builtin) vendorlar silinemez.")
 		return
 	}
-	recordManageAudit(c, "vendor.metadata.delete", map[string]any{"vendor_id": id})
+	if err := model.DB.Delete(&model.Vendor{}, id).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	model.RefreshPricing()
 	common.ApiSuccess(c, nil)
 }
 
-func vendorAPIError(c *gin.Context, err error) {
-	status := http.StatusBadRequest
-	payload := gin.H{"success": false, "message": err.Error()}
-	var references *model.VendorReferenceError
-	if errors.Is(err, model.ErrVendorConflict) {
-		status = http.StatusConflict
-		payload["code"] = "VENDOR_CONFLICT"
-	}
-	if errors.As(err, &references) {
-		status = http.StatusConflict
-		payload["code"] = "VENDOR_REFERENCED"
-		payload["reference_counts"] = references.Counts
-	}
-	c.JSON(status, payload)
-}
-
-func PreviewVendorOperation(c *gin.Context) {
-	var request model.VendorOperation
-	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
-		vendorAPIError(c, err)
-		return
-	}
-	preview, err := model.PreviewVendorOperation(request)
+// UploadVendorLogo handles uploading a vendor logo image file
+func UploadVendorLogo(c *gin.Context) {
+	file, err := c.FormFile("file")
 	if err != nil {
-		vendorAPIError(c, err)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "No file uploaded: " + err.Error()})
 		return
 	}
-	common.ApiSuccess(c, preview)
-}
 
-func ApplyVendorOperation(c *gin.Context) {
-	var request model.VendorOperation
-	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
-		vendorAPIError(c, err)
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".webp" && ext != ".svg" {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Unsupported file format"})
 		return
 	}
-	result, err := model.ApplyVendorOperation(request)
+
+	f, err := file.Open()
 	if err != nil {
-		vendorAPIError(c, err)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to read file: " + err.Error()})
 		return
 	}
-	recordManageAudit(c, "vendor."+request.Action, map[string]any{"source_vendor_ids": request.VendorIDs, "target_vendor_id": request.TargetVendorID, "updated_model_ids": result.UpdatedModels, "deleted_vendor_ids": result.DeletedVendors})
-	common.ApiSuccess(c, result)
+	defer f.Close()
+
+	fileBytes := make([]byte, file.Size)
+	_, _ = f.Read(fileBytes)
+
+	fileName := fmt.Sprintf("%d_%s%s", time.Now().UnixNano(), common.GetRandomString(6), ext)
+
+	// Create vendors uploads directory if it doesn't exist
+	uploadDir := filepath.Join("uploads", "vendors")
+	if err := os.MkdirAll(uploadDir, 0777); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to create directory: " + err.Error()})
+		return
+	}
+
+	filePath := filepath.Join(uploadDir, fileName)
+	if err := os.WriteFile(filePath, fileBytes, 0644); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to save file: " + err.Error()})
+		return
+	}
+
+	url := "/uploads/vendors/" + fileName
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    url,
+	})
 }

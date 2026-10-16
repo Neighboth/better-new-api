@@ -49,7 +49,13 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { handleServerError } from '@/lib/handle-server-error'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 import { SettingsSwitchField } from '../components/settings-form-layout'
 import { SettingsSection } from '../components/settings-section'
@@ -58,6 +64,8 @@ import { useUpdateOption } from '../hooks/use-update-option'
 type UptimeKumaGroup = {
   id: number
   categoryName: string
+  customName?: string
+  provider?: string
   url: string
   slug: string
 }
@@ -73,16 +81,10 @@ const createUptimeKumaSchema = (t: (key: string) => string) =>
       .string()
       .min(1, { error: t('Category name is required') })
       .max(50, { error: t('Category name must be less than 50 characters') }),
+    provider: z.enum(['uptime_kuma', 'instatus']),
+    customName: z.string().optional(),
     url: z.string().url({ error: t('Must be a valid URL') }),
-    slug: z
-      .string()
-      .min(1, { error: t('Slug is required') })
-      .max(100, { error: t('Slug must be less than 100 characters') })
-      .regex(/^[a-zA-Z0-9_-]+$/, {
-        error: t(
-          'Slug can only contain letters, numbers, hyphens, and underscores'
-        ),
-      }),
+    slug: z.string().optional(),
   })
 
 type UptimeKumaFormValues = z.infer<ReturnType<typeof createUptimeKumaSchema>>
@@ -106,6 +108,8 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
     resolver: zodResolver(uptimeKumaSchema),
     defaultValues: {
       categoryName: '',
+      provider: 'uptime_kuma',
+      customName: '',
       url: '',
       slug: '',
     },
@@ -139,8 +143,8 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
       })
       setIsEnabled(checked)
       toast.success(t('Setting saved'))
-    } catch (error) {
-      handleServerError(error, t('Failed to update setting'))
+    } catch {
+      toast.error(t('Failed to update setting'))
     }
   }
 
@@ -148,6 +152,8 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
     setEditingGroup(null)
     form.reset({
       categoryName: '',
+      provider: 'uptime_kuma',
+      customName: '',
       url: '',
       slug: '',
     })
@@ -156,8 +162,11 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
 
   const handleEdit = (group: UptimeKumaGroup) => {
     setEditingGroup(group)
+    const p = (group.provider as 'uptime_kuma' | 'uptime_robot' | 'instatus') || 'uptime_kuma'
     form.reset({
       categoryName: group.categoryName,
+      customName: group.customName || '',
+      provider: p === 'uptime_robot' ? 'uptime_kuma' : p,
       url: group.url,
       slug: group.slug,
     })
@@ -198,17 +207,20 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
     setEditingGroup(null)
   }
 
+  const selectedProvider = form.watch('provider')
+
   const handleSubmitForm = (values: UptimeKumaFormValues) => {
+    const formattedValues = { ...values, slug: values.slug || '' }
     if (editingGroup) {
       setGroups((prev) =>
         prev.map((item) =>
-          item.id === editingGroup.id ? { ...item, ...values } : item
+          item.id === editingGroup.id ? { ...item, ...formattedValues } : item
         )
       )
       toast.success(t('Group updated. Click "Save Settings" to apply.'))
     } else {
       const newId = Math.max(...groups.map((item) => item.id), 0) + 1
-      setGroups((prev) => [...prev, { id: newId, ...values }])
+      setGroups((prev) => [...prev, { id: newId, ...formattedValues }])
       toast.success(t('Group added. Click "Save Settings" to apply.'))
     }
     setHasChanges(true)
@@ -223,8 +235,8 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
       })
       setHasChanges(false)
       toast.success(t('Uptime Kuma groups saved successfully'))
-    } catch (error) {
-      handleServerError(error, t('Failed to save Uptime Kuma groups'))
+    } catch {
+      toast.error(t('Failed to save Uptime Kuma groups'))
     }
   }
 
@@ -239,7 +251,7 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
   }
 
   return (
-    <SettingsSection title={t('Uptime Kuma')}>
+    <SettingsSection title={t('Uptime Monitoring')}>
       <div className='space-y-4'>
         <div className='flex flex-wrap items-center justify-between gap-2'>
           <div className='flex flex-wrap items-center gap-2'>
@@ -309,8 +321,18 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
               cell: (group) => group.categoryName,
             },
             {
+              id: 'provider',
+              header: t('Provider'),
+              cellClassName: 'capitalize text-sm text-muted-foreground',
+              cell: (group) => {
+                const p = group.provider || 'uptime_kuma'
+                if (p === 'instatus') return 'Instatus'
+                return 'Uptime Kuma'
+              },
+            },
+            {
               id: 'url',
-              header: t('Uptime Kuma URL'),
+              header: t('URL / Endpoint'),
               cellClassName: 'text-primary max-w-xs truncate font-mono text-sm',
               cell: (group) => group.url,
             },
@@ -342,8 +364,8 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
         onOpenChange={setShowDialog}
         title={
           editingGroup
-            ? t('Edit Uptime Kuma Group')
-            : t('Add Uptime Kuma Group')
+            ? t('Edit Monitoring Group')
+            : t('Add Monitoring Group')
         }
         description={t(
           'Configure monitoring status page groups for the dashboard'
@@ -394,18 +416,15 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
             />
             <FormField
               control={form.control}
-              name='url'
+              name='customName'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Uptime Kuma URL')}</FormLabel>
+                  <FormLabel>{t('Uptime Name (Optional)')}</FormLabel>
                   <FormControl>
-                    <Input
-                      placeholder={t('https://status.example.com')}
-                      {...field}
-                    />
+                    <Input placeholder={t('My Services')} {...field} />
                   </FormControl>
                   <FormDescription>
-                    {t('Base URL of your Uptime Kuma instance')}
+                    {t('Custom name to display instead of the default group/channel name')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -413,22 +432,70 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
             />
             <FormField
               control={form.control}
-              name='slug'
+              name='provider'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Status Page Slug')}</FormLabel>
+                  <FormLabel>{t('Provider')}</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent alignItemWithTrigger={false}>
+                      <SelectItem value='uptime_kuma'>Uptime Kuma</SelectItem>
+                      <SelectItem value='instatus'>Instatus</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='url'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    {selectedProvider === 'instatus' ? t('Instatus Page / RSS URL') : t('Status Page Base URL')}
+                  </FormLabel>
                   <FormControl>
-                    <Input placeholder={t('my-status')} {...field} />
+                    <Input
+                      placeholder={
+                        selectedProvider === 'instatus'
+                          ? 'https://new-api.instatus.com/history.rss'
+                          : 'https://status.example.com'
+                      }
+                      {...field}
+                    />
                   </FormControl>
                   <FormDescription>
-                    {t('The slug is appended to the URL:')} {'{url}'}
-                    {t('/status/')}
-                    {'{slug}'}
+                    {selectedProvider === 'instatus' ? t('Instatus page URL or RSS feed (e.g. https://example.instatus.com/history.rss)') : t('Base URL of your Uptime Kuma instance')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
             />
+            {selectedProvider !== 'instatus' && (
+              <FormField
+                control={form.control}
+                name='slug'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('Status Page Slug')}
+                    </FormLabel>
+                    <FormControl>
+                      <Input placeholder={t('my-status')} {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      {t('The status page slug configured in your provider settings')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
           </form>
         </Form>
       </Dialog>

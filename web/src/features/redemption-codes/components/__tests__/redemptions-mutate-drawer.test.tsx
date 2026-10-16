@@ -32,8 +32,17 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { Toaster, toast } = await import('sonner')
 const { api } = await import('@/lib/api')
 const { useSystemConfigStore } = await import('@/stores/system-config-store')
+const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { RedemptionsProvider } = await import('../redemptions-provider')
 const { RedemptionsMutateDrawer } = await import('../redemptions-mutate-drawer')
+
+const testQueryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+    },
+  },
+})
 
 await i18n.use(initReactI18next).init({
   lng: 'en',
@@ -95,16 +104,18 @@ function deferred<T>() {
 
 function drawerTree(currentRow: Redemption) {
   return (
-    <I18nextProvider i18n={i18n}>
-      <RedemptionsProvider>
-        <RedemptionsMutateDrawer
-          open
-          currentRow={currentRow}
-          onOpenChange={() => undefined}
-        />
-      </RedemptionsProvider>
-      <Toaster duration={60_000} />
-    </I18nextProvider>
+    <QueryClientProvider client={testQueryClient}>
+      <I18nextProvider i18n={i18n}>
+        <RedemptionsProvider>
+          <RedemptionsMutateDrawer
+            open
+            currentRow={currentRow}
+            onOpenChange={() => undefined}
+          />
+        </RedemptionsProvider>
+        <Toaster duration={60_000} />
+      </I18nextProvider>
+    </QueryClientProvider>
   )
 }
 
@@ -213,7 +224,7 @@ describe('redemption drawer', () => {
 
     await renderDrawer(redemption(1))
     await waitFor(() =>
-      expect(document.body).toHaveTextContent('network failure')
+      expect(document.body).toHaveTextContent('Something went wrong!')
     )
 
     expect(getSaveButton()).toBeDisabled()
@@ -221,23 +232,19 @@ describe('redemption drawer', () => {
     expect(updates).toEqual([])
   })
 
-  test.each([
-    {
-      message: 'Redemption code is no longer available',
-      expected: 'Redemption code is no longer available',
-    },
-    { message: undefined, expected: 'Failed to load' },
-  ])(
-    'blocks updates and reports the server reason or localized fallback: $expected',
-    async ({ message, expected }) => {
-      apiClient.get = async () => ({
-        data: { success: false, message },
-      })
-      await renderDrawer(redemption(1))
-      await waitFor(() => expect(document.body).toHaveTextContent(expected))
-      expect(getSaveButton()).toBeDisabled()
-    }
-  )
+  test('blocks updates and uses localized feedback for unsuccessful responses', async () => {
+    apiClient.get = async () => ({
+      data: { success: false, message: 'raw server message' },
+    })
+
+    await renderDrawer(redemption(1))
+    await waitFor(() =>
+      expect(document.body).toHaveTextContent('Failed to load')
+    )
+
+    expect(getSaveButton()).toBeDisabled()
+    expect(document.body).not.toHaveTextContent('raw server message')
+  })
 
   test('keeps the original quota when another field changes', async () => {
     const original = redemption(1)
