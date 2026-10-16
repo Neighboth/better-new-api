@@ -1,9 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { getRouteApi } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { DataTablePage, useDataTable } from '@/components/data-table'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,6 +25,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { useMediaQuery } from '@/hooks'
+import { useTableUrlState } from '@/hooks/use-table-url-state'
 import {
   Select,
   SelectContent,
@@ -27,6 +41,14 @@ import {
   deleteHfEndpoint,
   listHfEndpoints,
 } from '../api'
+import { getDeploymentStatusOptions } from '../constants'
+import {
+  normalizeHfStatus,
+  useHfEndpointsColumns,
+  type HfEndpointRow,
+} from './hf-endpoints-columns'
+
+const route = getRouteApi('/_authenticated/models/$section')
 
 const HF_HARDWARE = [
   'cpu-basic',
@@ -38,6 +60,39 @@ const HF_HARDWARE = [
 export function HfEndpointsPanel() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const isMobile = useMediaQuery('(max-width: 640px)')
+
+  const {
+    globalFilter,
+    onGlobalFilterChange,
+    columnFilters,
+    onColumnFiltersChange,
+    pagination,
+    onPaginationChange,
+    ensurePageInRange,
+  } = useTableUrlState({
+    search: route.useSearch(),
+    navigate: route.useNavigate(),
+    pagination: {
+      pageKey: 'hPage',
+      pageSizeKey: 'hPageSize',
+      defaultPage: 1,
+      defaultPageSize: isMobile ? 8 : 10,
+    },
+    globalFilter: { enabled: true, key: 'hFilter' },
+    columnFilters: [
+      { columnId: 'status', searchKey: 'hStatus', type: 'array' },
+    ],
+  })
+
+  const keyword = globalFilter ?? ''
+  const statusFilter =
+    (columnFilters.find((f) => f.id === 'status')?.value as string[]) || []
+  const activeStatus =
+    statusFilter.length > 0 && !statusFilter.includes('all')
+      ? statusFilter[0]
+      : undefined
+
   const [dialogOpen, setDialogOpen] = useState(false)
   const [name, setName] = useState('')
   const [repository, setRepository] = useState('')
@@ -45,11 +100,42 @@ export function HfEndpointsPanel() {
   const [task, setTask] = useState('text-generation')
   const [isProtected, setIsProtected] = useState(true)
 
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const [detailsEndpoint, setDetailsEndpoint] =
+    useState<HfEndpointRow | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<HfEndpointRow | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+
   const endpointsQuery = useQuery({
     queryKey: ['hf-endpoints'],
     queryFn: () => listHfEndpoints(),
     staleTime: 30 * 1000,
   })
+
+  const allEndpoints = useMemo<HfEndpointRow[]>(
+    () => endpointsQuery.data?.data ?? [],
+    [endpointsQuery.data]
+  )
+
+  const filtered = useMemo(() => {
+    const kw = keyword.trim().toLowerCase()
+    return allEndpoints.filter((ep) => {
+      if (activeStatus && normalizeHfStatus(ep.status?.state) !== activeStatus) {
+        return false
+      }
+      if (!kw) return true
+      const haystack =
+        `${ep.namespace ?? ''}/${ep.name} ${ep.model?.repository ?? ''}`.toLowerCase()
+      return haystack.includes(kw)
+    })
+  }, [allEndpoints, keyword, activeStatus])
+
+  const totalCount = filtered.length
+  const paged = useMemo(() => {
+    const start = pagination.pageIndex * pagination.pageSize
+    return filtered.slice(start, start + pagination.pageSize)
+  }, [filtered, pagination.pageIndex, pagination.pageSize])
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -76,88 +162,101 @@ export function HfEndpointsPanel() {
     },
   })
 
-  const deleteMutation = useMutation({
-    mutationFn: (endpoint: { name: string; namespace?: string }) =>
-      deleteHfEndpoint(endpoint.name, endpoint.namespace),
-    onSuccess: (data) => {
-      if (data?.success) {
-        toast.success(t('Endpoint deleted successfully'))
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    setIsDeleting(true)
+    try {
+      const res = await deleteHfEndpoint(
+        deleteTarget.name,
+        deleteTarget.namespace
+      )
+      if (res?.success) {
+        toast.success(t('Deleted successfully'))
         queryClient.invalidateQueries({ queryKey: ['hf-endpoints'] })
-        return
+      } else {
+        toast.error(res?.message || t('Delete failed'))
       }
-      toast.error(data?.message || t('Failed to delete endpoint'))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('Delete failed'))
+    } finally {
+      setIsDeleting(false)
+      setDeleteOpen(false)
+      setDeleteTarget(null)
+    }
+  }
+
+  const columns = useHfEndpointsColumns({
+    onViewDetails: (endpoint) => {
+      setDetailsEndpoint(endpoint)
+      setDetailsOpen(true)
     },
-    onError: (err: Error) => {
-      toast.error(err.message || t('Failed to delete endpoint'))
+    onDelete: (endpoint) => {
+      setDeleteTarget(endpoint)
+      setDeleteOpen(true)
     },
   })
 
-  const endpoints = endpointsQuery.data?.data ?? []
+  const { table } = useDataTable({
+    data: paged,
+    columns,
+    totalCount,
+    columnFilters,
+    pagination,
+    globalFilter,
+    onColumnFiltersChange,
+    onPaginationChange,
+    onGlobalFilterChange,
+    manualPagination: true,
+    manualFiltering: true,
+    withSortedRowModel: false,
+    ensurePageInRange,
+  })
+
+  const statusFilterOptions = useMemo(() => {
+    return [...getDeploymentStatusOptions(t)].map((opt) => ({
+      label: opt.label,
+      value: opt.value,
+    }))
+  }, [t])
+
   const canCreate =
     !createMutation.isPending && name.trim() !== '' && repository.trim() !== ''
 
   return (
-    <div className='flex h-full min-h-0 flex-col gap-4'>
-      <div className='flex justify-end'>
-        <Button onClick={() => setDialogOpen(true)} size='sm'>
-          <Plus className='h-4 w-4' />
-          {t('Create endpoint')}
-        </Button>
-      </div>
-
-      <div className='rounded-lg border p-4 space-y-3'>
-        {endpointsQuery.isLoading && (
-          <p className='text-muted-foreground text-sm'>{t('Loading...')}</p>
-        )}
-        {endpointsQuery.isError && (
-          <p className='text-destructive text-sm'>
-            {t('Failed to load endpoints')}
-          </p>
-        )}
-        {!endpointsQuery.isLoading &&
-          !endpointsQuery.isError &&
-          endpoints.length === 0 && (
-            <p className='text-muted-foreground text-sm'>
-              {t('No endpoints yet.')}
-            </p>
-          )}
-        {endpoints.map((ep) => (
-          <div
-            key={`${ep.namespace}/${ep.name}`}
-            className='flex items-center justify-between gap-3 rounded-md border px-3 py-2'
-          >
-            <div className='min-w-0'>
-              <div className='truncate font-mono text-sm'>
-                {ep.namespace ? `${ep.namespace}/` : ''}
-                {ep.name}
-              </div>
-              <div className='text-muted-foreground truncate text-xs'>
-                {[ep.model?.repository, ep.status?.state]
-                  .filter(Boolean)
-                  .join(' - ')}
-              </div>
-            </div>
-            <Button
-              variant='destructive'
-              size='sm'
-              disabled={deleteMutation.isPending}
-              onClick={() => {
-                if (
-                  window.confirm(
-                    t('Delete endpoint {{name}}?', { name: ep.name })
-                  )
-                ) {
-                  deleteMutation.mutate({
-                    name: ep.name,
-                    namespace: ep.namespace,
-                  })
-                }
-              }}
-            >
-              {t('Delete')}
-            </Button>
-          </div>
-        ))}
+    <>
+      <div className='flex h-full min-h-0 flex-col gap-4'>
+        <div className='flex justify-end'>
+          <Button onClick={() => setDialogOpen(true)} size='sm'>
+            <Plus className='h-4 w-4' />
+            {t('Create endpoint')}
+          </Button>
+        </div>
+        <div className='min-h-0 flex-1'>
+          <DataTablePage
+            table={table}
+            columns={columns}
+            isLoading={endpointsQuery.isLoading}
+            isFetching={endpointsQuery.isFetching}
+            emptyTitle={t('No Deployments Found')}
+            emptyDescription={t(
+              'No deployments available. Create one to get started.'
+            )}
+            skeletonKeyPrefix='hf-endpoint-skeleton'
+            applyHeaderSize
+            toolbarProps={{
+              searchPlaceholder: t('Search deployments...'),
+              searchDebounceMs: 500,
+              filters: [
+                {
+                  columnId: 'status',
+                  title: t('Status'),
+                  options: statusFilterOptions,
+                  singleSelect: true,
+                },
+              ],
+            }}
+          />
+        </div>
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -237,6 +336,42 @@ export function HfEndpointsPanel() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+
+      <Dialog
+        open={detailsOpen}
+        onOpenChange={(open) => {
+          setDetailsOpen(open)
+          if (!open) setDetailsEndpoint(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('Endpoint details')}</DialogTitle>
+          </DialogHeader>
+          <pre className='max-h-96 overflow-auto rounded-md bg-muted p-3 font-mono text-xs'>
+            {JSON.stringify(detailsEndpoint, null, 2)}
+          </pre>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Delete endpoint')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('Delete endpoint {{name}}?', {
+                name: deleteTarget ? deleteTarget.name : '',
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={isDeleting}>
+              {isDeleting ? t('Deleting...') : t('Delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
