@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { HfEndpointsPanel } from '../hf-endpoints-panel'
@@ -60,13 +66,19 @@ describe('HfEndpointsPanel', () => {
     expect(screen.getByText(/meta-llama\/Llama-3-8B/)).toBeInTheDocument()
   })
 
-  test('create stays disabled until name and repository are filled', async () => {
+  test('create opens a dialog and stays disabled until required fields are filled', async () => {
     renderPanel()
     await screen.findByText('acme/my-llm')
-    const createButton = screen.getByRole('button', {
+
+    // Top-right button opens the dialog.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Create endpoint' })
+    )
+    const dialog = await screen.findByRole('dialog')
+    const dialogButton = within(dialog).getByRole('button', {
       name: 'Create endpoint',
     })
-    expect(createButton).toBeDisabled()
+    expect(dialogButton).toBeDisabled()
 
     fireEvent.change(screen.getByPlaceholderText('my-llm'), {
       target: { value: 'new-ep' },
@@ -74,10 +86,10 @@ describe('HfEndpointsPanel', () => {
     fireEvent.change(screen.getByPlaceholderText('meta-llama/Llama-3-8B'), {
       target: { value: 'org/model' },
     })
-    expect(createButton).not.toBeDisabled()
+    expect(dialogButton).not.toBeDisabled()
 
     vi.mocked(createHfEndpoint).mockResolvedValue({ success: true })
-    fireEvent.click(createButton)
+    fireEvent.click(dialogButton)
     await waitFor(() => {
       expect(createHfEndpoint).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -88,7 +100,7 @@ describe('HfEndpointsPanel', () => {
     })
   })
 
-  test('delete confirms first and then calls the API', async () => {
+  test('delete confirms first and then calls the API with the namespace', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
     renderPanel()
     await screen.findByText('acme/my-llm')
@@ -100,7 +112,7 @@ describe('HfEndpointsPanel', () => {
     vi.mocked(deleteHfEndpoint).mockResolvedValue({ success: true })
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
     await waitFor(() => {
-      expect(deleteHfEndpoint).toHaveBeenCalledWith('my-llm')
+      expect(deleteHfEndpoint).toHaveBeenCalledWith('my-llm', 'acme')
     })
     confirmSpy.mockRestore()
   })

@@ -1,8 +1,10 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/hfendpoints"
@@ -40,13 +42,55 @@ func hfNamespace(c *gin.Context, explicit string) string {
 	return ""
 }
 
+// hfWhoamiName resolves the account (user or org) name behind a token so
+// endpoint calls work even when no organization is configured.
+func hfWhoamiName(token string) (string, error) {
+	httpReq, err := http.NewRequest(http.MethodGet, "https://huggingface.co/api/whoami-v2", nil)
+	if err != nil {
+		return "", err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("User-Agent", "BetterNewAPI/1.0")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("hugging face whoami returned HTTP %d", resp.StatusCode)
+	}
+	var whoami struct {
+		Name string `json:"name"`
+	}
+	if err := common.DecodeJson(resp.Body, &whoami); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(whoami.Name), nil
+}
+
+func hfResolveNamespace(c *gin.Context, token, explicit string) (string, error) {
+	if ns := hfNamespace(c, explicit); ns != "" {
+		return ns, nil
+	}
+	name, err := hfWhoamiName(token)
+	if err != nil {
+		return "", fmt.Errorf("namespace is required (set the organization in settings or pass it explicitly)")
+	}
+	return name, nil
+}
+
 // ListHfEndpoints lists the Inference Endpoints of a namespace.
 func ListHfEndpoints(c *gin.Context) {
 	token, ok := getHfToken(c)
 	if !ok {
 		return
 	}
-	namespace := hfNamespace(c, c.Query("namespace"))
+	namespace, err := hfResolveNamespace(c, token, c.Query("namespace"))
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
 	endpoints, err := hfendpoints.NewClient(token).ListEndpoints(namespace)
 	if err != nil {
 		common.ApiError(c, err)
@@ -99,9 +143,9 @@ func CreateHfEndpoint(c *gin.Context) {
 			}
 		}
 	}
-	namespace := hfNamespace(c, req.Namespace)
-	if namespace == "" {
-		common.ApiErrorMsg(c, "namespace is required (set the organization in settings or pass it explicitly)")
+	namespace, err := hfResolveNamespace(c, token, req.Namespace)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
 		return
 	}
 	created, err := hfendpoints.NewClient(token).CreateEndpoint(hfendpoints.CreateEndpointRequest{
@@ -132,7 +176,11 @@ func GetHfEndpoint(c *gin.Context) {
 	if !ok {
 		return
 	}
-	namespace := hfNamespace(c, c.Query("namespace"))
+	namespace, err := hfResolveNamespace(c, token, c.Query("namespace"))
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
 	name := strings.TrimSpace(c.Param("name"))
 	if namespace == "" || name == "" {
 		common.ApiErrorMsg(c, "namespace and name are required")
@@ -156,7 +204,11 @@ func DeleteHfEndpoint(c *gin.Context) {
 	if !ok {
 		return
 	}
-	namespace := hfNamespace(c, c.Query("namespace"))
+	namespace, err := hfResolveNamespace(c, token, c.Query("namespace"))
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
 	name := strings.TrimSpace(c.Param("name"))
 	if namespace == "" || name == "" {
 		common.ApiErrorMsg(c, "namespace and name are required")
