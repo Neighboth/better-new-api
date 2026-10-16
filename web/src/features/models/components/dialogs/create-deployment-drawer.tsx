@@ -37,6 +37,7 @@ import { Button } from '@/components/ui/button'
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -424,6 +425,11 @@ export function CreateDeploymentDrawer({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t('GPU Platform Provider')}</FormLabel>
+                    <FormDescription>
+                      {t(
+                        'This dialog creates io.net containers. Hugging Face endpoints are created from the Hugging Face tab; Modal uses the deploy script in System Settings.'
+                      )}
+                    </FormDescription>
                     <Select
                       value={(field.value as string) || 'ionet'}
                       onValueChange={field.onChange}
@@ -436,12 +442,6 @@ export function CreateDeploymentDrawer({
                       <SelectContent>
                         <SelectItem value='ionet'>
                           io.net Cloud (DePIN GPU Network)
-                        </SelectItem>
-                        <SelectItem value='modal'>
-                          Modal (Serverless GPU & 1TB Storage)
-                        </SelectItem>
-                        <SelectItem value='huggingface'>
-                          Hugging Face (Inference Endpoints)
                         </SelectItem>
                       </SelectContent>
                     </Select>

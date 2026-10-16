@@ -30,29 +30,9 @@ interface ConnectionState {
   error: string | null
 }
 
-// Connection cache (5 minutes TTL)
-const CONNECTION_CACHE_TTL = 5 * 60 * 1000
-let connectionCache: {
-  ok: boolean
-  timestamp: number
-} | null = null
-
-function getCachedConnection(): boolean | null {
-  if (!connectionCache) return null
-  if (Date.now() - connectionCache.timestamp > CONNECTION_CACHE_TTL) {
-    connectionCache = null
-    return null
-  }
-  return connectionCache.ok
-}
-
-function setCachedConnection(ok: boolean) {
-  connectionCache = { ok, timestamp: Date.now() }
-}
-
-export function clearConnectionCache() {
-  connectionCache = null
-}
+// NOTE: no connection cache on purpose. The settings form saves ~20 keys,
+// each triggering a refetch; a stale cache would keep showing a passing
+// connection after the key was changed to an invalid one.
 
 type LoadingPhase = 'idle' | 'settings' | 'connection' | 'done'
 
@@ -69,8 +49,10 @@ export function useModelDeploymentSettings() {
   })
   const initialLoadRef = useRef(true)
 
-  // Parallel fetch: settings + connection test (when enabled)
-  const fetchAll = useCallback(async (useCache = true) => {
+  // Parallel fetch: settings + connection test (when enabled).
+  // Always live-tests io.net: a fake key must fail loudly instead of
+  // passing on a stale cached result.
+  const fetchAll = useCallback(async () => {
     setLoading(true)
     setLoadingPhase('settings')
 
@@ -109,34 +91,21 @@ export function useModelDeploymentSettings() {
         setLoading(false)
         return
       }
-      if (useCache) {
-        const cached = getCachedConnection()
-        if (cached !== null) {
-          setConnectionState({ loading: false, ok: cached, error: null })
-          setLoadingPhase('done')
-          setLoading(false)
-          return
-        }
-      }
-
-      // Test connection
+      // Test connection live.
       setLoadingPhase('connection')
       setConnectionState({ loading: true, ok: null, error: null })
 
       try {
         const connResponse = await testDeploymentConnection()
         if (connResponse?.success) {
-          setCachedConnection(true)
           setConnectionState({ loading: false, ok: true, error: null })
         } else {
           const message = connResponse?.message || 'Connection failed'
-          setCachedConnection(false)
           setConnectionState({ loading: false, ok: false, error: message })
         }
       } catch (error: unknown) {
         const errMsg =
           error instanceof Error ? error.message : 'Connection failed'
-        setCachedConnection(false)
         setConnectionState({ loading: false, ok: false, error: errMsg })
       }
     } catch {
@@ -152,7 +121,7 @@ export function useModelDeploymentSettings() {
   useEffect(() => {
     if (initialLoadRef.current) {
       initialLoadRef.current = false
-      fetchAll(true)
+      fetchAll()
     }
   }, [fetchAll])
 
@@ -166,43 +135,38 @@ export function useModelDeploymentSettings() {
       isHfEnabled
   )
 
-  // Manual retry (skip cache)
+  // Manual retry (always live).
   const testConnection = useCallback(async () => {
-    clearConnectionCache()
     setConnectionState({ loading: true, ok: null, error: null })
     setLoadingPhase('connection')
 
     try {
       const response = await testDeploymentConnection()
       if (response?.success) {
-        setCachedConnection(true)
         setConnectionState({ loading: false, ok: true, error: null })
         return
       }
       const message = response?.message || 'Connection failed'
-      setCachedConnection(false)
       setConnectionState({ loading: false, ok: false, error: message })
     } catch (error: unknown) {
       const errMsg =
         error instanceof Error ? error.message : 'Connection failed'
-      setCachedConnection(false)
       setConnectionState({ loading: false, ok: false, error: errMsg })
     } finally {
       setLoadingPhase('done')
     }
   }, [])
 
-  // Refresh all (skip cache)
+  // Refresh all (always live, so a changed key is re-validated).
   const refresh = useCallback(() => {
-    clearConnectionCache()
-    return fetchAll(false)
+    return fetchAll()
   }, [fetchAll])
 
-  // Refresh on window focus (useful after saving settings in another page)
+  // Refresh on window focus (useful after saving settings in another page).
+  // Intentionally live: settings may have changed since the last check.
   useEffect(() => {
     const handler = () => {
-      // Use cache on focus to avoid unnecessary requests
-      fetchAll(true)
+      fetchAll()
     }
     window.addEventListener('focus', handler)
     return () => window.removeEventListener('focus', handler)
