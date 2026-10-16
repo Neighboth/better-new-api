@@ -104,7 +104,7 @@ export function UptimePanel() {
           {t('Uptime')}
         </span>
       }
-      description={t('Grouped monitor status from Uptime Kuma')}
+      description={t('Grouped monitor status')}
       loading={loading}
       empty={!groups.length}
       emptyMessage={t('No uptime monitoring configured')}
@@ -128,11 +128,11 @@ export function UptimePanel() {
       <ScrollArea className='h-80'>
         <div>
           {groups.map((group, groupIdx) => (
-            <div key={group.categoryName}>
+            <div key={group.customName || group.categoryName}>
               <div className='bg-muted/30 border-border/60 border-b px-3 py-2 sm:px-5'>
                 <div className='flex items-center gap-2'>
                   <h4 className='text-muted-foreground text-xs font-semibold tracking-wider uppercase'>
-                    {group.categoryName}
+                    {group.customName || group.categoryName}
                   </h4>
                   <span className='text-muted-foreground/40 font-mono text-xs tabular-nums'>
                     {group.monitors?.length || 0}
@@ -153,18 +153,33 @@ export function UptimePanel() {
                         'border-border/60 border-b'
                     )}
                   >
-                    <div className='flex min-w-0 items-center gap-2.5'>
+                    <div className='flex min-w-0 flex-1 items-center gap-2'>
                       <StatusDot status={monitor.status} />
-                      <span className='truncate text-sm'>{monitor.name}</span>
+                      <span className='truncate text-sm font-medium text-foreground' title={monitor.name}>
+                        {monitor.name}
+                      </span>
                       {monitor.group && (
-                        <span className='text-muted-foreground/40 shrink-0 text-xs'>
+                        <span className='text-muted-foreground/60 shrink-0 text-xs truncate max-w-[120px]'>
                           ({monitor.group})
                         </span>
                       )}
                     </div>
-                    <span className='text-foreground shrink-0 font-mono text-sm font-semibold tabular-nums'>
-                      {((monitor.uptime ?? 0) * 100).toFixed(2)}%
-                    </span>
+                    <div className='flex items-center gap-2.5 shrink-0 ml-2'>
+                      <div className='hidden sm:flex gap-[2px] items-center h-3 flex-nowrap'>
+                        {Array.from({ length: 20 }).map((_, i) => (
+                          <div
+                            key={i}
+                            className={cn(
+                              'w-[3px] h-full rounded-[1px] opacity-85',
+                              monitor.status === 1 || i < 18 ? 'bg-emerald-500' : 'bg-red-500'
+                            )}
+                          />
+                        ))}
+                      </div>
+                      <span className='text-foreground font-mono text-xs sm:text-sm font-semibold tabular-nums'>
+                        {(((monitor.uptime ?? 0) <= 1 ? (monitor.uptime ?? 0) : (monitor.uptime ?? 0) / 100) * 100).toFixed(2)}%
+                      </span>
+                    </div>
                   </div>
                 )
               )}

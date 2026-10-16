@@ -28,15 +28,82 @@ export interface MessageVersion {
   content: string
 }
 
+export interface MessageAttachment {
+  url: string
+  mediaType?: string
+  filename?: string
+}
+
+// Playground tool types
+export type PlaygroundToolId =
+  | 'generate_image'
+  | 'update_plan'
+  | 'think'
+
+// Tools that are always offered to the model. `think` is added dynamically
+// when the user forces thinking on a model without native reasoning.
+export type AlwaysOnToolId = Exclude<PlaygroundToolId, 'think'>
+
+export type PlaygroundToolsEnabled = Record<AlwaysOnToolId, boolean>
+
+export type ThinkingLevel = 'lite' | 'low' | 'medium' | 'high' | 'ultra'
+
+export type PlanStepStatus = 'pending' | 'in_progress' | 'completed'
+
+export interface PlanStep {
+  id: string
+  title: string
+  status: PlanStepStatus
+}
+
+export type ToolEventStatus = 'running' | 'done' | 'error'
+
+export interface ToolEvent {
+  id: string
+  /** Tool name as called by the model; may be an unknown tool. */
+  name: string
+  status: ToolEventStatus
+  summary?: string
+  error?: string
+  startedAt?: number
+  completedAt?: number
+  /**
+   * Character offset into the assistant content where the call happened, so
+   * transient indicators render at the usage position instead of the top.
+   */
+  anchor?: number
+  /** Raw arguments JSON of the call, kept for API transcript replay. */
+  arguments?: string
+  /** Tool result payload sent back to the model, kept for transcript replay. */
+  result?: string
+  /** Plan snapshot produced by this update_plan call. */
+  plan?: PlanStep[]
+}
+
+/** A think-tool thought rendered exactly like a native reasoning block. */
+export interface ThoughtBlock {
+  id: string
+  content: string
+  /** Character offset into the assistant content where the thought occurred. */
+  anchor: number
+  startedAt?: number
+  completedAt?: number
+}
+
 export interface Message {
   key: string
   from: MessageRole
   versions: MessageVersion[]
+  attachments?: MessageAttachment[]
   createdAt?: number
   startedAt?: number
   completedAt?: number
   durationMs?: number
   sources?: { href: string; title: string }[]
+  toolEvents?: ToolEvent[]
+  thoughts?: ThoughtBlock[]
+  plan?: PlanStep[]
+  activeTool?: string | null
   reasoning?: {
     content: string
     duration: number
@@ -52,9 +119,32 @@ export interface Message {
 }
 
 // API payload types
+export interface ToolCallFunction {
+  name: string
+  arguments: string
+}
+
+export interface ToolCall {
+  id: string
+  type: 'function'
+  function: ToolCallFunction
+}
+
 export interface ChatCompletionMessage {
-  role: MessageRole
-  content: string | ContentPart[]
+  role: MessageRole | 'tool'
+  content: string | ContentPart[] | null
+  tool_calls?: ToolCall[]
+  tool_call_id?: string
+  name?: string
+}
+
+export interface ChatCompletionTool {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: Record<string, unknown>
+  }
 }
 
 export interface ContentPart {
@@ -76,6 +166,20 @@ export interface ChatCompletionRequest {
   frequency_penalty?: number
   presence_penalty?: number
   seed?: number
+  tools?: ChatCompletionTool[]
+  tool_choice?: 'auto'
+  reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high'
+  response_format?: { type: 'json_object' | 'text' }
+}
+
+export interface ToolCallDelta {
+  index: number
+  id?: string
+  type?: string
+  function?: {
+    name?: string
+    arguments?: string
+  }
 }
 
 export interface ChatCompletionChunk {
@@ -88,8 +192,8 @@ export interface ChatCompletionChunk {
     delta: {
       role?: MessageRole
       content?: string
-      reasoning_content?: string | null
-      reasoning?: string | null
+      reasoning_content?: string
+      tool_calls?: ToolCallDelta[]
     }
     finish_reason: string | null
   }>
@@ -105,8 +209,8 @@ export interface ChatCompletionResponse {
     message: {
       role: MessageRole
       content: string
-      reasoning_content?: string | null
-      reasoning?: string | null
+      reasoning_content?: string
+      tool_calls?: ToolCall[]
     }
     finish_reason: string
   }>
@@ -115,6 +219,22 @@ export interface ChatCompletionResponse {
     completion_tokens: number
     total_tokens: number
   }
+}
+
+export interface ImageGenerationRequest {
+  model: string
+  group?: string
+  prompt: string
+  n?: number
+}
+
+export interface ImageGenerationResponse {
+  created?: number
+  data?: Array<{
+    url?: string
+    b64_json?: string
+    revised_prompt?: string
+  }>
 }
 
 // Configuration types
@@ -148,6 +268,6 @@ export interface ModelOption {
 export interface GroupOption {
   label: string
   value: string
-  ratio: number | string
+  ratio: number
   desc?: string
 }

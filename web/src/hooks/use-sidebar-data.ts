@@ -19,19 +19,20 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   Activity,
   Box,
-  ClipboardList,
   CreditCard,
   FileText,
   FlaskConical,
+  Headphones,
   Key,
   LayoutDashboard,
+  LifeBuoy,
   ListTodo,
   MessageSquare,
-  PlugZap,
+  Newspaper,
   Radio,
   ServerCog,
   Settings,
-  ShieldCheck,
+  Store,
   Ticket,
   User,
   Users,
@@ -39,8 +40,12 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import type { SidebarData } from '@/components/layout/types'
+import { getCustomNavIcon } from '@/components/custom-nav-icon'
+import type { NavGroup, SidebarData } from '@/components/layout/types'
+import { buildCustomNavUrl, useCustomNavItems } from '@/hooks/use-custom-nav-items'
+import { ADMIN_PERMISSION_RESOURCES } from '@/lib/admin-permissions'
 import { ROLE } from '@/lib/roles'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -50,134 +55,196 @@ import { ROLE } from '@/lib/roles'
  */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
+  const customNavItems = useCustomNavItems()
+  const ticketEnabled = useSystemConfigStore(
+    (state) => state.config.ticketEnabled ?? true
+  )
 
-  return {
-    navGroups: [
-      {
-        id: 'chat',
-        title: t('Chat'),
-        items: [
-          {
-            title: t('Playground'),
-            url: '/playground',
-            icon: FlaskConical,
+  const navGroups: NavGroup[] = [
+    {
+      id: 'chat',
+      title: t('Chat'),
+      items: [
+        {
+          title: t('Playground'),
+          url: '/playground',
+          icon: FlaskConical,
+        },
+        {
+          title: t('Chat'),
+          icon: MessageSquare,
+          type: 'chat-presets',
+        },
+      ],
+    },
+    {
+      id: 'general',
+      title: t('General'),
+      items: [
+        {
+          title: t('Overview'),
+          url: '/dashboard/overview',
+          icon: Activity,
+        },
+        {
+          title: t('Dashboard'),
+          url: '/dashboard/models',
+          icon: LayoutDashboard,
+        },
+        {
+          title: t('API Keys'),
+          url: '/keys',
+          icon: Key,
+        },
+        {
+          title: t('Usage Logs'),
+          url: '/usage-logs/common',
+          icon: FileText,
+        },
+        {
+          title: t('Task Logs'),
+          url: '/usage-logs/task',
+          activeUrls: ['/usage-logs/drawing'],
+          configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
+          icon: ListTodo,
+        },
+      ],
+    },
+    {
+      id: 'personal',
+      title: t('Personal'),
+      items: [
+        {
+          title: t('Wallet'),
+          url: '/wallet',
+          icon: Wallet,
+        },
+        {
+          title: t('Profile'),
+          url: '/profile',
+          icon: User,
+        },
+        ...(ticketEnabled
+          ? [
+              {
+                title: t('Support Tickets'),
+                url: '/tickets' as const,
+                icon: LifeBuoy,
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      id: 'admin',
+      title: t('Admin'),
+      items: [
+        {
+          title: t('Channels'),
+          url: '/channels',
+          icon: Radio,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.CHANNEL,
+            action: 'read',
           },
-          {
-            title: t('Chat'),
-            icon: MessageSquare,
-            type: 'chat-presets',
+        },
+        {
+          title: t('Models'),
+          url: '/models/metadata',
+          icon: Box,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.MODEL,
+            action: 'read',
           },
-        ],
-      },
-      {
-        id: 'general',
-        title: t('General'),
-        items: [
-          {
-            title: t('Overview'),
-            url: '/dashboard/overview',
-            icon: Activity,
+        },
+        {
+          title: t('Users'),
+          url: '/users',
+          icon: Users,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.USER,
+            action: 'read',
           },
-          {
-            title: t('Dashboard'),
-            url: '/dashboard/models',
-            icon: LayoutDashboard,
+        },
+        {
+          title: t('Blog Management'),
+          url: '/blog-management',
+          icon: Newspaper,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.BLOG,
+            action: 'read',
           },
-          {
-            title: t('API Keys'),
-            url: '/keys',
-            icon: Key,
+        },
+        {
+          title: t('Redemption Codes'),
+          url: '/redemption-codes',
+          icon: Ticket,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.REDEMPTION,
+            action: 'read',
           },
-          {
-            title: t('Usage Logs'),
-            url: '/usage-logs/common',
-            icon: FileText,
+        },
+        {
+          title: t('Subscriptions'),
+          url: '/subscriptions',
+          icon: CreditCard,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.SUBSCRIPTION,
+            action: 'read',
           },
-          {
-            title: t('Audit Logs'),
-            url: '/usage-logs/audit',
-            icon: ClipboardList,
+        },
+        ...(ticketEnabled
+          ? [
+              {
+                title: t('Ticket Management'),
+                url: '/admin-tickets' as const,
+                icon: Headphones,
+                requiredPermission: {
+                  resource: ADMIN_PERMISSION_RESOURCES.TICKET,
+                  action: 'read',
+                },
+              },
+            ]
+          : []),
+        {
+          title: t('Reseller'),
+          url: '/reseller',
+          icon: Store,
+        },
+        {
+          title: t('System Info'),
+          url: '/system-info',
+          icon: ServerCog,
+          requiredRole: ROLE.SUPER_ADMIN,
+        },
+        {
+          title: t('System Settings'),
+          url: '/system-settings/site',
+          activeUrls: ['/system-settings'],
+          icon: Settings,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.SYSTEM_SETTING,
+            action: 'read',
           },
-          {
-            title: t('Task Logs'),
-            url: '/usage-logs/task',
-            activeUrls: ['/usage-logs/drawing'],
-            configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
-            icon: ListTodo,
-          },
-        ],
-      },
-      {
-        id: 'personal',
-        title: t('Personal'),
-        items: [
-          {
-            title: t('Wallet'),
-            url: '/wallet',
-            icon: Wallet,
-          },
-          {
-            title: t('Profile'),
-            url: '/profile',
-            icon: User,
-          },
-          {
-            title: t('Security & Access'),
-            url: '/security',
-            icon: ShieldCheck,
-          },
-        ],
-      },
-      {
-        id: 'admin',
-        title: t('Admin'),
-        items: [
-          {
-            title: t('Channels'),
-            url: '/channels',
-            icon: Radio,
-          },
-          {
-            title: t('Models'),
-            url: '/models/metadata',
-            icon: Box,
-          },
-          {
-            title: t('Users'),
-            url: '/users',
-            icon: Users,
-          },
-          {
-            title: t('Redemption Codes'),
-            url: '/redemption-codes',
-            icon: Ticket,
-          },
-          {
-            title: t('Subscriptions'),
-            url: '/subscriptions',
-            icon: CreditCard,
-          },
-          {
-            title: t('System Info'),
-            url: '/system-info',
-            icon: ServerCog,
-            requiredRole: ROLE.SUPER_ADMIN,
-          },
-          {
-            title: t('Task Plugins'),
-            url: '/task-plugins',
-            icon: PlugZap,
-            requiredRole: ROLE.SUPER_ADMIN,
-          },
-          {
-            title: t('System Settings'),
-            url: '/system-settings/site',
-            activeUrls: ['/system-settings'],
-            icon: Settings,
-            requiredRole: ROLE.SUPER_ADMIN,
-          },
-        ],
-      },
-    ],
-  }
+        },
+      ],
+    },
+  ]
+
+  customNavItems.forEach((item) => {
+    const group = navGroups.find((navGroup) => {
+      return navGroup.id === item.sidebarSection
+    })
+    if (!group) return
+    if (item.placement !== 'sidebar' && item.placement !== 'both') return
+
+    group.items.push({
+      title: item.label,
+      url: buildCustomNavUrl(item.id, 'sidebar'),
+      activeUrls: [`/custom/${item.id}`],
+      icon: getCustomNavIcon(item.icon),
+    })
+  })
+
+  return { navGroups }
 }

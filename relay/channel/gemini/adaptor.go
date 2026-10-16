@@ -1,20 +1,22 @@
 package gemini
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/reasoning"
 
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
@@ -24,9 +26,6 @@ type Adaptor struct {
 }
 
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
-	if err := relayconvert.ApplyGeminiThinkingConfigChecked(request, info); err != nil {
-		return nil, err
-	}
 	if len(request.Contents) > 0 {
 		for i, content := range request.Contents {
 			if i == 0 {
@@ -47,7 +46,7 @@ func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayInfo, req *dto.ClaudeRequest) (any, error) {
-	result, err := service.ConvertRequest(c, info, types.RelayFormatGemini, req)
+	result, err := relayconvert.ConvertRequest(c, info, types.RelayFormatGemini, req)
 	if err != nil {
 		return nil, err
 	}
@@ -59,8 +58,35 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
-	//TODO implement me
-	return nil, errors.New("not implemented")
+	voice := strings.TrimSpace(request.Voice)
+	if voice == "" {
+		voice = "Puck"
+	}
+	body := map[string]any{
+		"contents": []map[string]any{
+			{
+				"role": "user",
+				"parts": []map[string]any{
+					{"text": request.Input},
+				},
+			},
+		},
+		"generationConfig": map[string]any{
+			"responseModalities": []string{"AUDIO"},
+			"speechConfig": map[string]any{
+				"voiceConfig": map[string]any{
+					"prebuiltVoiceConfig": map[string]any{
+						"voiceName": voice,
+					},
+				},
+			},
+		},
+	}
+	data, err := common.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.NewReader(data), nil
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
@@ -134,6 +160,34 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if info.RelayMode == constant.RelayModeRealtime {
+		action := "ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+		baseUrl := info.ChannelBaseUrl
+		if strings.HasPrefix(baseUrl, "https://") {
+			baseUrl = "wss://" + strings.TrimPrefix(baseUrl, "https://")
+		} else if strings.HasPrefix(baseUrl, "http://") {
+			baseUrl = "ws://" + strings.TrimPrefix(baseUrl, "http://")
+		}
+		if info.ApiKey != "" {
+			return fmt.Sprintf("%s/%s?key=%s", baseUrl, action, info.ApiKey), nil
+		}
+		return fmt.Sprintf("%s/%s", baseUrl, action), nil
+	}
+
+	if model_setting.GetGeminiSettings().ThinkingAdapterEnabled &&
+		!model_setting.ShouldPreserveThinkingSuffix(info.OriginModelName) {
+		// 新增逻辑：处理 -thinking-<budget> 格式
+		if strings.Contains(info.UpstreamModelName, "-thinking-") {
+			parts := strings.Split(info.UpstreamModelName, "-thinking-")
+			info.UpstreamModelName = parts[0]
+		} else if strings.HasSuffix(info.UpstreamModelName, "-thinking") { // 旧的适配
+			info.UpstreamModelName = strings.TrimSuffix(info.UpstreamModelName, "-thinking")
+		} else if strings.HasSuffix(info.UpstreamModelName, "-nothinking") {
+			info.UpstreamModelName = strings.TrimSuffix(info.UpstreamModelName, "-nothinking")
+		} else if baseModel, level, ok := reasoning.TrimEffortSuffix(info.UpstreamModelName); ok && level != "" {
+			info.UpstreamModelName = baseModel
+		}
+	}
 
 	version := model_setting.GetGeminiVersionSetting(info.UpstreamModelName)
 
@@ -171,7 +225,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
-	result, err := service.ConvertRequest(c, info, types.RelayFormatGemini, request)
+	result, err := relayconvert.ConvertRequest(c, info, types.RelayFormatGemini, request)
 	if err != nil {
 		return nil, err
 	}
@@ -195,9 +249,9 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 	// batch endpoint upstream to avoid payload/endpoint mismatches.
 	info.IsGeminiBatchEmbedding = true
 	// process all inputs
-	geminiRequests := make([]map[string]any, 0, len(inputs))
+	geminiRequests := make([]map[string]interface{}, 0, len(inputs))
 	for _, input := range inputs {
-		geminiRequest := map[string]any{
+		geminiRequest := map[string]interface{}{
 			"model": fmt.Sprintf("models/%s", info.UpstreamModelName),
 			"content": dto.GeminiChatContent{
 				Parts: []dto.GeminiPart{
@@ -221,13 +275,13 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 		geminiRequests = append(geminiRequests, geminiRequest)
 	}
 
-	return map[string]any{
+	return map[string]interface{}{
 		"requests": geminiRequests,
 	}, nil
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
-	result, err := service.ConvertRequest(c, info, types.RelayFormatGemini, &request)
+	result, err := relayconvert.ConvertRequest(c, info, types.RelayFormatGemini, &request)
 	if err != nil {
 		return nil, err
 	}
@@ -239,6 +293,9 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if info.RelayMode == constant.RelayModeRealtime {
+		return channel.DoWssRequest(a, c, info, requestBody)
+	}
 	return channel.DoApiRequest(a, c, info, requestBody)
 }
 
@@ -260,6 +317,10 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		} else {
 			return GeminiTextGenerationHandler(c, info, resp)
 		}
+	}
+
+	if info.RelayMode == constant.RelayModeAudioSpeech {
+		return GeminiAudioHandler(c, info, resp)
 	}
 
 	if strings.HasPrefix(info.UpstreamModelName, "imagen") {

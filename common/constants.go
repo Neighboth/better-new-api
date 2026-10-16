@@ -15,6 +15,10 @@ var Version = "v0.0.0"            // this hard coding will be replaced automatic
 var SystemName = "New API"
 var Footer = ""
 var Logo = ""
+var LogoDark = ""
+var Favicon = ""
+var HideHeaderSiteName = false
+var HeaderLogoHeight = 24
 var TopUpLink = ""
 
 // var ChatLink = ""
@@ -35,11 +39,6 @@ var DefaultCollapseSidebar = false // default value of collapse sidebar
 var SessionSecret = uuid.New().String()
 var CryptoSecret = uuid.New().String()
 var SessionCookieSecure = false
-
-// DefaultLanguage is the DEFAULT_LANGUAGE environment variable: the language of
-// server log lines and of text for a reader who states no language: en, zh-CN
-// or zh-TW. English when empty.
-var DefaultLanguage string
 var SessionCookieTrustedURLs []string
 
 const (
@@ -65,7 +64,6 @@ var ItemsPerPage = 10
 var MaxRecentItems = 1000
 
 var PasswordLoginEnabled = true
-var PasswordLoginEncryptionEnabled = false
 var PasswordRegisterEnabled = true
 var EmailVerificationEnabled = false
 var GitHubOAuthEnabled = false
@@ -124,6 +122,62 @@ var WeChatAccountQRCodeImageURL = ""
 var TurnstileSiteKey = ""
 var TurnstileSecretKey = ""
 
+// CaptchaType selects the human verification provider: off, turnstile,
+// recaptcha, hcaptcha or image. Empty means "not configured", in which case
+// the legacy TurnstileCheckEnabled flag decides.
+var CaptchaType = ""
+var RecaptchaSiteKey = ""
+var RecaptchaSecretKey = ""
+var HCaptchaSiteKey = ""
+var HCaptchaSecretKey = ""
+
+const (
+	CaptchaTypeOff       = "off"
+	CaptchaTypeTurnstile = "turnstile"
+	CaptchaTypeRecaptcha = "recaptcha"
+	CaptchaTypeHCaptcha  = "hcaptcha"
+	CaptchaTypeImage     = "image"
+)
+
+// GetEffectiveCaptchaType resolves which captcha provider is active. An
+// explicitly configured CaptchaType wins; otherwise the legacy Turnstile
+// toggle is honored for backward compatibility.
+func GetEffectiveCaptchaType() string {
+	switch CaptchaType {
+	case CaptchaTypeTurnstile, CaptchaTypeRecaptcha, CaptchaTypeHCaptcha, CaptchaTypeImage:
+		return CaptchaType
+	case CaptchaTypeOff:
+		return CaptchaTypeOff
+	}
+	if TurnstileCheckEnabled && TurnstileSiteKey != "" {
+		return CaptchaTypeTurnstile
+	}
+	return CaptchaTypeOff
+}
+
+// IsCaptchaProviderConfigured reports whether the given provider has all the
+// keys it needs. The self-hosted image captcha needs no keys and is always
+// available as the last-resort fallback.
+func IsCaptchaProviderConfigured(provider string) bool {
+	switch provider {
+	case CaptchaTypeTurnstile:
+		return TurnstileSiteKey != "" && TurnstileSecretKey != ""
+	case CaptchaTypeRecaptcha:
+		return RecaptchaSiteKey != "" && RecaptchaSecretKey != ""
+	case CaptchaTypeHCaptcha:
+		return HCaptchaSiteKey != "" && HCaptchaSecretKey != ""
+	case CaptchaTypeImage:
+		return true
+	}
+	return false
+}
+
+// CaptchaFallbackEnabled reports whether the admin allows falling back to a
+// different captcha provider when the primary one fails to load.
+func CaptchaFallbackEnabled() bool {
+	return OptionMap["CaptchaFallbackEnabled"] == "true"
+}
+
 var TelegramBotToken = ""
 var TelegramBotName = ""
 
@@ -134,9 +188,6 @@ var ChannelDisableThreshold = 5.0
 var AutomaticDisableChannelEnabled = false
 var AutomaticEnableChannelEnabled = false
 var QuotaRemindThreshold = 1000
-
-// PreConsumedQuota is retained for old option clients; token reservations now
-// use quota_setting.pre_consume_multiplier and the estimated input cost.
 var PreConsumedQuota = 500
 
 var RetryTimes = 0
@@ -171,16 +222,6 @@ var BatchUpdateInterval int
 var RelayTimeout int // unit is second
 
 var RelayIdleConnTimeout int // unit is second
-
-// RelayResponseHeaderTimeout limits how long the relay transport waits for the
-// upstream response headers after the request has been fully written.
-// 0 disables it (previous behaviour: wait forever).
-//
-// Note this is NOT the same as RelayTimeout (http.Client.Timeout), which covers
-// the whole response read and therefore breaks legitimate long streaming calls.
-// ResponseHeaderTimeout only bounds the wait for the response headers; once the
-// headers arrive, streaming is unaffected.
-var RelayResponseHeaderTimeout int // unit is second
 var RelayMaxIdleConns int
 var RelayMaxIdleConnsPerHost int
 
@@ -195,14 +236,15 @@ const (
 )
 
 const (
-	RoleGuestUser  = 0
-	RoleCommonUser = 1
-	RoleAdminUser  = 10
-	RoleRootUser   = 100
+	RoleGuestUser    = 0
+	RoleCommonUser   = 1
+	RoleResellerUser = 5
+	RoleAdminUser    = 10
+	RoleRootUser     = 100
 )
 
 func IsValidateRole(role int) bool {
-	return role == RoleGuestUser || role == RoleCommonUser || role == RoleAdminUser || role == RoleRootUser
+	return role == RoleGuestUser || role == RoleCommonUser || role == RoleResellerUser || role == RoleAdminUser || role == RoleRootUser
 }
 
 var (
@@ -222,10 +264,6 @@ var (
 	GlobalWebRateLimitEnable   bool
 	GlobalWebRateLimitNum      int
 	GlobalWebRateLimitDuration int64
-
-	GlobalStaticRateLimitEnable   bool
-	GlobalStaticRateLimitNum      int
-	GlobalStaticRateLimitDuration int64
 
 	CriticalRateLimitEnable   bool
 	CriticalRateLimitNum            = 20

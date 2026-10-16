@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Code2, Eye, ShieldAlert } from 'lucide-react'
+import { Code2, Eye, Plus, ShieldAlert, Trash2 } from 'lucide-react'
 import * as React from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -44,10 +44,15 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { getPaymentErrorTranslation } from '@/features/wallet/lib/payment'
-import { handleServerError } from '@/lib/handle-server-error'
 import { cn } from '@/lib/utils'
 
 import { confirmPaymentCompliance } from '../api'
@@ -104,6 +109,7 @@ const paymentSchema = z.object({
   }, 'Provide a valid callback URL starting with http:// or https://'),
   EpayId: z.string(),
   EpayKey: z.string(),
+  EpayProviders: z.string().optional(),
   Price: z.coerce.number().min(0),
   MinTopUp: z.coerce.number().min(0),
   CustomCallbackAddress: z
@@ -178,6 +184,22 @@ const paymentSchema = z.object({
   WaffoPancakeMerchantID: z.string(),
   WaffoPancakePrivateKey: z.string(),
   WaffoPancakeReturnURL: z.string(),
+  ShopierApiKey: z.string(),
+  ShopierApiSecret: z.string(),
+  ShopierWebsiteIndex: z.string(),
+  PayTRMerchantId: z.string(),
+  PayTRMerchantKey: z.string(),
+  PayTRMerchantSalt: z.string(),
+  PayTRTestMode: z.boolean(),
+  PayPalClientId: z.string(),
+  PayPalClientSecret: z.string(),
+  PayPalMode: z.string(),
+  IyzicoApiKey: z.string(),
+  IyzicoSecretKey: z.string(),
+  IyzicoBaseUrl: z.string(),
+  ShopifyStoreDomain: z.string(),
+  ShopifyAccessToken: z.string(),
+  ShopifyWebhookSecret: z.string(),
 })
 
 type PaymentFormValues = z.infer<typeof paymentSchema>
@@ -341,11 +363,11 @@ export function PaymentSettingsSection({
         setShowComplianceDialog(false)
         queryClient.invalidateQueries({ queryKey: ['system-options'] })
       } else {
-        handleServerError(data, t('Failed to confirm compliance'))
+        toast.error(data.message || t('Failed to confirm compliance'))
       }
     },
     onError: (error: Error) => {
-      handleServerError(error, t('Failed to confirm compliance'))
+      toast.error(error.message || t('Failed to confirm compliance'))
     },
   })
 
@@ -418,11 +440,65 @@ export function PaymentSettingsSection({
     })
   }, [defaultsSignature, form])
 
+  const rawEpayProviders = form.watch('EpayProviders')
+  const epayProvidersList = React.useMemo<
+    { id: string; name: string; pay_address: string; partner_id: string; key: string }[]
+  >(() => {
+    try {
+      const parsed = JSON.parse(rawEpayProviders || '[]')
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }, [rawEpayProviders])
+
+  const handleAddEpayProvider = React.useCallback(() => {
+    const next = [
+      ...epayProvidersList,
+      {
+        id: `epay-${Date.now().toString(36)}`,
+        name: '',
+        pay_address: '',
+        partner_id: '',
+        key: '',
+      },
+    ]
+    form.setValue('EpayProviders', JSON.stringify(next), {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+  }, [epayProvidersList, form])
+
+  const handleRemoveEpayProvider = React.useCallback(
+    (index: number) => {
+      const next = epayProvidersList.filter((_, i) => i !== index)
+      form.setValue('EpayProviders', JSON.stringify(next), {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+    },
+    [epayProvidersList, form]
+  )
+
+  const handleUpdateEpayProvider = React.useCallback(
+    (index: number, field: string, value: string) => {
+      const next = epayProvidersList.map((p, i) =>
+        i === index ? { ...p, [field]: value } : p
+      )
+      form.setValue('EpayProviders', JSON.stringify(next), {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+    },
+    [epayProvidersList, form]
+  )
+
   const onSubmit = async (values: PaymentFormValues) => {
     const sanitized = {
       PayAddress: removeTrailingSlash(values.PayAddress),
       EpayId: values.EpayId.trim(),
       EpayKey: values.EpayKey.trim(),
+      EpayProviders: (values.EpayProviders || '').trim(),
       Price: values.Price,
       MinTopUp: values.MinTopUp,
       CustomCallbackAddress: removeTrailingSlash(values.CustomCallbackAddress),
@@ -459,12 +535,29 @@ export function PaymentSettingsSection({
       WaffoPancakeReturnURL: removeTrailingSlash(
         values.WaffoPancakeReturnURL.trim()
       ),
+      ShopierApiKey: values.ShopierApiKey.trim(),
+      ShopierApiSecret: values.ShopierApiSecret.trim(),
+      ShopierWebsiteIndex: values.ShopierWebsiteIndex.trim(),
+      PayTRMerchantId: values.PayTRMerchantId.trim(),
+      PayTRMerchantKey: values.PayTRMerchantKey.trim(),
+      PayTRMerchantSalt: values.PayTRMerchantSalt.trim(),
+      PayTRTestMode: values.PayTRTestMode,
+      PayPalClientId: values.PayPalClientId.trim(),
+      PayPalClientSecret: values.PayPalClientSecret.trim(),
+      PayPalMode: values.PayPalMode.trim(),
+      IyzicoApiKey: values.IyzicoApiKey.trim(),
+      IyzicoSecretKey: values.IyzicoSecretKey.trim(),
+      IyzicoBaseUrl: values.IyzicoBaseUrl.trim(),
+      ShopifyStoreDomain: values.ShopifyStoreDomain.trim(),
+      ShopifyAccessToken: values.ShopifyAccessToken.trim(),
+      ShopifyWebhookSecret: values.ShopifyWebhookSecret.trim(),
     }
 
     const initial = {
       PayAddress: removeTrailingSlash(initialRef.current.PayAddress),
       EpayId: initialRef.current.EpayId.trim(),
       EpayKey: initialRef.current.EpayKey.trim(),
+      EpayProviders: (initialRef.current.EpayProviders || '').trim(),
       Price: initialRef.current.Price,
       MinTopUp: initialRef.current.MinTopUp,
       CustomCallbackAddress: removeTrailingSlash(
@@ -506,6 +599,22 @@ export function PaymentSettingsSection({
       WaffoPancakeReturnURL: removeTrailingSlash(
         initialRef.current.WaffoPancakeReturnURL.trim()
       ),
+      ShopierApiKey: (initialRef.current.ShopierApiKey || '').trim(),
+      ShopierApiSecret: (initialRef.current.ShopierApiSecret || '').trim(),
+      ShopierWebsiteIndex: (initialRef.current.ShopierWebsiteIndex || '').trim(),
+      PayTRMerchantId: (initialRef.current.PayTRMerchantId || '').trim(),
+      PayTRMerchantKey: (initialRef.current.PayTRMerchantKey || '').trim(),
+      PayTRMerchantSalt: (initialRef.current.PayTRMerchantSalt || '').trim(),
+      PayTRTestMode: Boolean(initialRef.current.PayTRTestMode),
+      PayPalClientId: (initialRef.current.PayPalClientId || '').trim(),
+      PayPalClientSecret: (initialRef.current.PayPalClientSecret || '').trim(),
+      PayPalMode: (initialRef.current.PayPalMode || 'sandbox').trim(),
+      IyzicoApiKey: (initialRef.current.IyzicoApiKey || '').trim(),
+      IyzicoSecretKey: (initialRef.current.IyzicoSecretKey || '').trim(),
+      IyzicoBaseUrl: (initialRef.current.IyzicoBaseUrl || 'https://sandbox-api.iyzipay.com').trim(),
+      ShopifyStoreDomain: (initialRef.current.ShopifyStoreDomain || '').trim(),
+      ShopifyAccessToken: (initialRef.current.ShopifyAccessToken || '').trim(),
+      ShopifyWebhookSecret: (initialRef.current.ShopifyWebhookSecret || '').trim(),
     }
 
     const updates: Array<{ key: string; value: string | number | boolean }> = []
@@ -520,6 +629,10 @@ export function PaymentSettingsSection({
 
     if (sanitized.EpayKey && sanitized.EpayKey !== initial.EpayKey) {
       updates.push({ key: 'EpayKey', value: sanitized.EpayKey })
+    }
+
+    if (sanitized.EpayProviders !== initial.EpayProviders) {
+      updates.push({ key: 'EpayProviders', value: sanitized.EpayProviders })
     }
 
     if (sanitized.Price !== initial.Price) {
@@ -703,6 +816,59 @@ export function PaymentSettingsSection({
       updates.push({ key: 'WaffoPayMethods', value: sanitized.WaffoPayMethods })
     }
 
+    if (sanitized.ShopierApiKey !== initial.ShopierApiKey) {
+      updates.push({ key: 'ShopierApiKey', value: sanitized.ShopierApiKey })
+    }
+    if (sanitized.ShopierApiSecret && sanitized.ShopierApiSecret !== initial.ShopierApiSecret) {
+      updates.push({ key: 'ShopierApiSecret', value: sanitized.ShopierApiSecret })
+    }
+    if (sanitized.ShopierWebsiteIndex !== initial.ShopierWebsiteIndex) {
+      updates.push({ key: 'ShopierWebsiteIndex', value: sanitized.ShopierWebsiteIndex })
+    }
+
+    if (sanitized.PayTRMerchantId !== initial.PayTRMerchantId) {
+      updates.push({ key: 'PayTRMerchantId', value: sanitized.PayTRMerchantId })
+    }
+    if (sanitized.PayTRMerchantKey && sanitized.PayTRMerchantKey !== initial.PayTRMerchantKey) {
+      updates.push({ key: 'PayTRMerchantKey', value: sanitized.PayTRMerchantKey })
+    }
+    if (sanitized.PayTRMerchantSalt && sanitized.PayTRMerchantSalt !== initial.PayTRMerchantSalt) {
+      updates.push({ key: 'PayTRMerchantSalt', value: sanitized.PayTRMerchantSalt })
+    }
+    if (sanitized.PayTRTestMode !== initial.PayTRTestMode) {
+      updates.push({ key: 'PayTRTestMode', value: sanitized.PayTRTestMode })
+    }
+
+    if (sanitized.PayPalClientId !== initial.PayPalClientId) {
+      updates.push({ key: 'PayPalClientId', value: sanitized.PayPalClientId })
+    }
+    if (sanitized.PayPalClientSecret && sanitized.PayPalClientSecret !== initial.PayPalClientSecret) {
+      updates.push({ key: 'PayPalClientSecret', value: sanitized.PayPalClientSecret })
+    }
+    if (sanitized.PayPalMode !== initial.PayPalMode) {
+      updates.push({ key: 'PayPalMode', value: sanitized.PayPalMode })
+    }
+
+    if (sanitized.IyzicoApiKey !== initial.IyzicoApiKey) {
+      updates.push({ key: 'IyzicoApiKey', value: sanitized.IyzicoApiKey })
+    }
+    if (sanitized.IyzicoSecretKey && sanitized.IyzicoSecretKey !== initial.IyzicoSecretKey) {
+      updates.push({ key: 'IyzicoSecretKey', value: sanitized.IyzicoSecretKey })
+    }
+    if (sanitized.IyzicoBaseUrl !== initial.IyzicoBaseUrl) {
+      updates.push({ key: 'IyzicoBaseUrl', value: sanitized.IyzicoBaseUrl })
+    }
+
+    if (sanitized.ShopifyStoreDomain !== initial.ShopifyStoreDomain) {
+      updates.push({ key: 'ShopifyStoreDomain', value: sanitized.ShopifyStoreDomain })
+    }
+    if (sanitized.ShopifyAccessToken && sanitized.ShopifyAccessToken !== initial.ShopifyAccessToken) {
+      updates.push({ key: 'ShopifyAccessToken', value: sanitized.ShopifyAccessToken })
+    }
+    if (sanitized.ShopifyWebhookSecret && sanitized.ShopifyWebhookSecret !== initial.ShopifyWebhookSecret) {
+      updates.push({ key: 'ShopifyWebhookSecret', value: sanitized.ShopifyWebhookSecret })
+    }
+
     const hasWaffoPancakeChanges =
       sanitized.WaffoPancakeMerchantID !== initial.WaffoPancakeMerchantID ||
       sanitized.WaffoPancakePrivateKey.length > 0 ||
@@ -759,17 +925,14 @@ export function PaymentSettingsSection({
         return
       }
 
-      const reason =
-        getPaymentErrorTranslation(body) ??
-        (typeof body?.data === 'string' ? body.data : undefined)
-      handleServerError(body, undefined, {
-        title: reason
+      const reason = typeof body?.data === 'string' ? body.data : undefined
+      toast.error(
+        reason
           ? `${t('Waffo Pancake save failed')}: ${reason}`
-          : t('Waffo Pancake save failed'),
-      })
+          : t('Waffo Pancake save failed')
+      )
     } catch (error) {
-      handleServerError(
-        error,
+      toast.error(
         `${t('Waffo Pancake save failed')}: ${
           error instanceof Error ? error.message : String(error)
         }`
@@ -878,17 +1041,22 @@ export function PaymentSettingsSection({
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             isSaving={updateOption.isPending || isSubmitting}
-            saveLabel='Save all settings'
+            saveLabel={t('Save all settings')}
           />
           <Tabs defaultValue='general' className='min-w-0'>
             <div className='overflow-x-auto pb-1'>
-              <TabsList className='grid min-w-[44rem] grid-cols-6'>
+              <TabsList className='grid min-w-[70rem] grid-cols-11'>
                 <TabsTrigger value='general'>{t('General')}</TabsTrigger>
-                <TabsTrigger value='epay'>Epay</TabsTrigger>
+                <TabsTrigger value='epay'>{t('EPay')}</TabsTrigger>
                 <TabsTrigger value='stripe'>{t('Stripe')}</TabsTrigger>
-                <TabsTrigger value='creem'>Creem</TabsTrigger>
-                <TabsTrigger value='waffo-pancake'>Waffo Pancake</TabsTrigger>
-                <TabsTrigger value='waffo'>Waffo</TabsTrigger>
+                <TabsTrigger value='shopier'>{t('Shopier')}</TabsTrigger>
+                <TabsTrigger value='paytr'>{t('PayTR')}</TabsTrigger>
+                <TabsTrigger value='paypal'>{t('PayPal')}</TabsTrigger>
+                <TabsTrigger value='iyzico'>{t('iyzico')}</TabsTrigger>
+                <TabsTrigger value='shopify'>{t('Shopify')}</TabsTrigger>
+                <TabsTrigger value='creem'>{t('Creem')}</TabsTrigger>
+                <TabsTrigger value='waffo-pancake'>{t('Waffo Pancake')}</TabsTrigger>
+                <TabsTrigger value='waffo'>{t('Waffo')}</TabsTrigger>
               </TabsList>
             </div>
 
@@ -1255,6 +1423,101 @@ export function PaymentSettingsSection({
                     )}
                   />
                 </div>
+
+                <div className='mt-8 pt-6 border-t space-y-4'>
+                  <div className='flex items-center justify-between'>
+                    <div>
+                      <h4 className='text-sm font-semibold'>{t('Multiple EPay Providers')}</h4>
+                      <p className='text-xs text-muted-foreground'>
+                        {t('Configure additional EPay merchants or payment channels for your users.')}
+                      </p>
+                    </div>
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      onClick={handleAddEpayProvider}
+                    >
+                      <Plus className='h-4 w-4 mr-1.5' />
+                      {t('Add Provider')}
+                    </Button>
+                  </div>
+
+                  {epayProvidersList.length === 0 ? (
+                    <div className='rounded-md border border-dashed p-6 text-center text-xs text-muted-foreground'>
+                      {t('No additional EPay providers configured. The default provider above will be used.')}
+                    </div>
+                  ) : (
+                    <div className='space-y-3'>
+                      {epayProvidersList.map((provider, index) => (
+                        <div key={index} className='rounded-lg border p-4 bg-muted/20 space-y-3'>
+                          <div className='flex items-center justify-between'>
+                            <span className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
+                              #{index + 1} {provider.name || provider.id || t('Provider')}
+                            </span>
+                            <Button
+                              type='button'
+                              variant='ghost'
+                              size='icon'
+                              className='h-7 w-7 text-destructive hover:bg-destructive/10'
+                              onClick={() => handleRemoveEpayProvider(index)}
+                            >
+                              <Trash2 className='h-3.5 w-3.5' />
+                            </Button>
+                          </div>
+                          <div className='grid gap-3 sm:grid-cols-2 md:grid-cols-4'>
+                            <div>
+                              <label className='text-[11px] font-medium text-muted-foreground'>{t('ID / Slug')}</label>
+                              <Input
+                                placeholder='epay-1'
+                                value={provider.id || ''}
+                                className='h-8 text-xs'
+                                onChange={(e) => handleUpdateEpayProvider(index, 'id', e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <label className='text-[11px] font-medium text-muted-foreground'>{t('Display Name')}</label>
+                              <Input
+                                placeholder='Alipay / WeChat'
+                                value={provider.name || ''}
+                                className='h-8 text-xs'
+                                onChange={(e) => handleUpdateEpayProvider(index, 'name', e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <label className='text-[11px] font-medium text-muted-foreground'>{t('Gateway URL')}</label>
+                              <Input
+                                placeholder='https://pay.example.com'
+                                value={provider.pay_address || ''}
+                                className='h-8 text-xs'
+                                onChange={(e) => handleUpdateEpayProvider(index, 'pay_address', e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <label className='text-[11px] font-medium text-muted-foreground'>{t('Merchant ID')}</label>
+                              <Input
+                                placeholder='10002'
+                                value={provider.partner_id || ''}
+                                className='h-8 text-xs'
+                                onChange={(e) => handleUpdateEpayProvider(index, 'partner_id', e.target.value)}
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className='text-[11px] font-medium text-muted-foreground'>{t('Secret Key')}</label>
+                            <Input
+                              type='password'
+                              placeholder={t('Secret Key')}
+                              value={provider.key || ''}
+                              className='h-8 text-xs'
+                              onChange={(e) => handleUpdateEpayProvider(index, 'key', e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </TabsContent>
 
@@ -1444,6 +1707,447 @@ export function PaymentSettingsSection({
                           />
                         </FormControl>
                       </SettingsSwitchItem>
+                    )}
+                  />
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value='shopier' className={paymentTabContentClassName}>
+              <div className='space-y-4'>
+                <div>
+                  <h3 className='text-lg font-medium'>{t('Shopier Gateway')}</h3>
+                  <p className='text-muted-foreground text-sm'>
+                    {t('Configuration for Shopier payment integration')}
+                  </p>
+                </div>
+
+                <div className='rounded-md bg-blue-50 p-4 text-sm text-blue-900 dark:bg-blue-950 dark:text-blue-100'>
+                  <p className='font-medium'>{t('Shopier Callback / Notification URL:')}</p>
+                  <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
+                    {'<ServerAddress>/api/user/shopier/notify'}
+                  </code>
+                </div>
+
+                <div className='grid gap-6 md:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='ShopierApiKey'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Shopier API Key')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder='Shopier API Key'
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value)}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='ShopierWebsiteIndex'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Shopier Website Index')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder='1'
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value)}
+                          />
+                        </FormControl>
+                        <FormDescription>{t('Website Index defined in your Shopier dashboard')}</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className='grid gap-6 md:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='ShopierApiSecret'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Shopier API Secret')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='password'
+                            placeholder={t('Enter new secret to update')}
+                            autoComplete='new-password'
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value)}
+                          />
+                        </FormControl>
+                        <FormDescription>{t('Leave blank unless rotating the secret')}</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value='paytr' className={paymentTabContentClassName}>
+              <div className='space-y-4'>
+                <div>
+                  <h3 className='text-lg font-medium'>{t('PayTR Gateway')}</h3>
+                  <p className='text-muted-foreground text-sm'>
+                    {t('Configuration for PayTR payment integration')}
+                  </p>
+                </div>
+
+                <div className='rounded-md bg-blue-50 p-4 text-sm text-blue-900 dark:bg-blue-950 dark:text-blue-100'>
+                  <p className='font-medium'>{t('PayTR Notification URL:')}</p>
+                  <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
+                    {'<ServerAddress>/api/user/paytr/notify'}
+                  </code>
+                </div>
+
+                <div className='grid gap-6 md:grid-cols-3'>
+                  <FormField
+                    control={form.control}
+                    name='PayTRMerchantId'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Merchant ID')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder='Merchant ID'
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value)}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='PayTRMerchantKey'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Merchant Key')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='password'
+                            placeholder={t('Enter new key to update')}
+                            autoComplete='new-password'
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value)}
+                          />
+                        </FormControl>
+                        <FormDescription>{t('Leave blank unless rotating')}</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='PayTRMerchantSalt'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Merchant Salt')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='password'
+                            placeholder={t('Enter new salt to update')}
+                            autoComplete='new-password'
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value)}
+                          />
+                        </FormControl>
+                        <FormDescription>{t('Leave blank unless rotating')}</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name='PayTRTestMode'
+                  render={({ field }) => (
+                    <FormItem className='flex flex-row items-center justify-between rounded-lg border p-4'>
+                      <div className='space-y-0.5'>
+                        <FormLabel className='text-base'>{t('PayTR Test Mode')}</FormLabel>
+                        <FormDescription>
+                          {t('Enable test transactions without real payments')}
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </TabsContent>
+
+            <TabsContent value='paypal' className={paymentTabContentClassName}>
+              <div className='space-y-4'>
+                <div>
+                  <h3 className='text-lg font-medium'>{t('PayPal Gateway')}</h3>
+                  <p className='text-muted-foreground text-sm'>
+                    {t('Configuration for PayPal REST API payment integration')}
+                  </p>
+                </div>
+
+                <div className='rounded-md bg-blue-50 p-4 text-sm text-blue-900 dark:bg-blue-950 dark:text-blue-100'>
+                  <p className='font-medium'>{t('PayPal Return URL:')}</p>
+                  <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
+                    {'<ServerAddress>/api/user/paypal/capture'}
+                  </code>
+                </div>
+
+                <div className='grid gap-6 md:grid-cols-3'>
+                  <FormField
+                    control={form.control}
+                    name='PayPalClientId'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Client ID')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder='PayPal Client ID'
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value)}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='PayPalClientSecret'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Client Secret')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='password'
+                            placeholder={t('Enter new secret to update')}
+                            autoComplete='new-password'
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value)}
+                          />
+                        </FormControl>
+                        <FormDescription>{t('Leave blank unless rotating')}</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='PayPalMode'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('PayPal Environment')}</FormLabel>
+                        <Select
+                          value={field.value || 'sandbox'}
+                          onValueChange={field.onChange}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder={t('Select Environment')} />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='sandbox'>
+                              {t('Sandbox (Test)')}
+                            </SelectItem>
+                            <SelectItem value='live'>
+                              {t('Production (Live)')}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>{t('Select sandbox for testing or live for production')}</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value='iyzico' className={paymentTabContentClassName}>
+              <div className='space-y-4'>
+                <div>
+                  <h3 className='text-lg font-medium'>{t('iyzico Gateway')}</h3>
+                  <p className='text-muted-foreground text-sm'>
+                    {t('Configuration for iyzico Checkout Form integration')}
+                  </p>
+                </div>
+
+                <div className='rounded-md bg-blue-50 p-4 text-sm text-blue-900 dark:bg-blue-950 dark:text-blue-100'>
+                  <p className='font-medium'>{t('iyzico Callback URL:')}</p>
+                  <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
+                    {'<ServerAddress>/api/user/iyzico/callback'}
+                  </code>
+                </div>
+
+                <div className='grid gap-6 md:grid-cols-3'>
+                  <FormField
+                    control={form.control}
+                    name='IyzicoApiKey'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('API Key')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder='iyzico API Key'
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value)}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='IyzicoSecretKey'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Secret Key')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='password'
+                            placeholder={t('Enter new key to update')}
+                            autoComplete='new-password'
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value)}
+                          />
+                        </FormControl>
+                        <FormDescription>{t('Leave blank unless rotating')}</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='IyzicoBaseUrl'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Environment / Base URL')}</FormLabel>
+                        <Select
+                          value={field.value || 'https://sandbox-api.iyzipay.com'}
+                          onValueChange={field.onChange}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder={t('Select Environment')} />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='https://sandbox-api.iyzipay.com'>
+                              {t('Sandbox (Test)')} - https://sandbox-api.iyzipay.com
+                            </SelectItem>
+                            <SelectItem value='https://api.iyzipay.com'>
+                              {t('Production (Live)')} - https://api.iyzipay.com
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          {t('Select sandbox for testing or production for live transactions')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value='shopify' className={paymentTabContentClassName}>
+              <div className='space-y-4'>
+                <div>
+                  <h3 className='text-lg font-medium'>{t('Shopify Integration')}</h3>
+                  <p className='text-muted-foreground text-sm'>
+                    {t('Configuration for Shopify store orders and webhook synchronization')}
+                  </p>
+                </div>
+
+                <div className='rounded-md bg-blue-50 p-4 text-sm text-blue-900 dark:bg-blue-950 dark:text-blue-100'>
+                  <p className='font-medium'>{t('Shopify Webhook URL (Topic: orders/paid):')}</p>
+                  <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
+                    {'<ServerAddress>/api/user/shopify/webhook'}
+                  </code>
+                </div>
+
+                <div className='grid gap-6 md:grid-cols-3'>
+                  <FormField
+                    control={form.control}
+                    name='ShopifyStoreDomain'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Store Domain')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder='store-name.myshopify.com'
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value)}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='ShopifyAccessToken'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Admin API Access Token')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='password'
+                            placeholder={t('shpat_xxx')}
+                            autoComplete='new-password'
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value)}
+                          />
+                        </FormControl>
+                        <FormDescription>{t('Leave blank unless rotating')}</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='ShopifyWebhookSecret'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Webhook Signing Secret')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='password'
+                            placeholder={t('Enter new secret to update')}
+                            autoComplete='new-password'
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value)}
+                          />
+                        </FormControl>
+                        <FormDescription>{t('Leave blank unless rotating')}</FormDescription>
+                        <FormMessage />
+                      </FormItem>
                     )}
                   />
                 </div>

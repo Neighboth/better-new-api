@@ -17,13 +17,15 @@ type UserBase struct {
 	Id          int    `json:"id"`
 	Group       string `json:"group"`
 	Email       string `json:"email"`
-	Quota       int    `json:"quota"`
-	Status      int    `json:"status"`
-	Role        int    `json:"role"`
-	Username    string `json:"username"`
-	Setting     string `json:"setting"`
-	AuthVersion int64  `json:"-"`
-	CacheSchema int    `json:"-"`
+	Quota           int    `json:"quota"`
+	RequestsBalance int    `json:"requests_balance"`
+	TokensBalance   int64  `json:"tokens_balance"`
+	Status          int    `json:"status"`
+	Role            int    `json:"role"`
+	Username        string `json:"username"`
+	Setting         string `json:"setting"`
+	AuthVersion     int64  `json:"-"`
+	CacheSchema     int    `json:"-"`
 }
 
 func (user *UserBase) WriteContext(c *gin.Context) {
@@ -40,7 +42,7 @@ func (user *UserBase) GetSetting() dto.UserSetting {
 	if user.Setting != "" {
 		err := common.Unmarshal([]byte(user.Setting), &setting)
 		if err != nil {
-			common.SysLog(common.LogText("failed to unmarshal setting: %s", err.Error()))
+			common.SysLog("failed to unmarshal setting: " + err.Error())
 		}
 	}
 	return setting
@@ -108,7 +110,7 @@ func GetUserCache(userId int) (*UserBase, error) {
 			if errors.Is(err, ErrUserAuthCachePending) {
 				return nil, err
 			}
-			common.SysLog(common.LogText("failed to synchronously populate user cache: %s", err.Error()))
+			common.SysLog("failed to synchronously populate user cache: " + err.Error())
 		}
 	}
 	return user.ToBaseUser(), nil
@@ -160,7 +162,7 @@ func syncCreditUserQuotaCache(userId int, quota int, operation string) {
 		return
 	}
 	if err := cacheIncrUserQuota(userId, int64(quota)); err != nil {
-		common.SysLog(common.LogText("failed to sync %s credit to user quota cache: %s", operation, err.Error()))
+		common.SysLog(fmt.Sprintf("failed to sync %s credit to user quota cache: %s", operation, err.Error()))
 	}
 }
 
@@ -253,7 +255,7 @@ func updateUserSettingCache(userId int, setting string) error {
 // updateUserCacheField prevents individual cache refreshes from bypassing the
 // auth-version fence. It intentionally does nothing when the complete hash is
 // absent; the next GetUserCache call will repopulate it from the database.
-func updateUserCacheField(userId int, field string, value any) error {
+func updateUserCacheField(userId int, field string, value interface{}) error {
 	if !common.RedisEnabled {
 		return nil
 	}

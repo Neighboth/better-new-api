@@ -16,10 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useAuthStore } from '@/stores/auth-store'
-
 import { MESSAGE_STATUS, STORAGE_KEYS } from '../../constants'
-import type { PlaygroundConfig, ParameterEnabled, Message } from '../../types'
+import type {
+  PlaygroundConfig,
+  ParameterEnabled,
+  PlaygroundToolsEnabled,
+  Message,
+  ThinkingLevel,
+} from '../../types'
 import {
   finalizeMessage,
   isAssistantMessagePending,
@@ -28,6 +32,13 @@ import {
 import { completeAssistantTiming } from '../message/message-timing-utils'
 import { hasMessageContent } from '../message/message-utils'
 import {
+  extractInlineImages,
+  type ImageStore,
+  resolveInlineImages,
+  stripImageRefs,
+} from './image-store'
+import {
+  imageStoreSchema,
   MAX_LOADED_MESSAGE_CHARS,
   MAX_LOADED_MESSAGES_CHARS,
   MAX_STORED_MESSAGES,
@@ -36,6 +47,8 @@ import {
   messagesSchema,
   parameterEnabledSchema,
   playgroundConfigSchema,
+  thinkingSettingsSchema,
+  toolsEnabledSchema,
 } from './storage-schema'
 
 type StoredEnvelope<T> = {
@@ -48,18 +61,7 @@ const MIN_PREFIX_COLLAPSE_LENGTH = 2000
 const MIN_REPEATED_SECTION_COUNT = 3
 const SECTION_HEADING_LINE_PATTERN = /^#{2,6}\s+\d+\.\s+.+$/gm
 
-function getUserStorageKey(key: string): string | null {
-  // Legacy data has no owner; never assign it to the next signed-in account.
-  for (const legacyKey of Object.values(STORAGE_KEYS)) {
-    localStorage.removeItem(legacyKey)
-  }
-  const userId = useAuthStore.getState().auth.user?.id
-  return userId == null ? null : `${key}:${userId}`
-}
-
-function readStoredValue(baseKey: string): unknown | null {
-  const key = getUserStorageKey(baseKey)
-  if (!key) return null
+function readStoredValue(key: string): unknown | null {
   const saved = localStorage.getItem(key)
   if (!saved) return null
 
@@ -67,13 +69,11 @@ function readStoredValue(baseKey: string): unknown | null {
 }
 
 function readStoredMessagesValue(): unknown | null {
-  const key = getUserStorageKey(STORAGE_KEYS.MESSAGES)
-  if (!key) return null
-  const saved = localStorage.getItem(key)
+  const saved = localStorage.getItem(STORAGE_KEYS.MESSAGES)
   if (!saved) return null
 
   if (saved.length > MAX_STORED_MESSAGES_BYTES) {
-    localStorage.removeItem(key)
+    localStorage.removeItem(STORAGE_KEYS.MESSAGES)
     return null
   }
 
@@ -92,9 +92,7 @@ function unwrapStoredValue(value: unknown): unknown {
   return value
 }
 
-function writeStoredValue<T>(baseKey: string, data: T): void {
-  const key = getUserStorageKey(baseKey)
-  if (!key) return
+function writeStoredValue<T>(key: string, data: T): void {
   const payload: StoredEnvelope<T> = {
     version: STORAGE_VERSION,
     data,
@@ -109,6 +107,33 @@ function trimMessages(messages: Message[]): Message[] {
   }
 
   return messages.slice(-MAX_STORED_MESSAGES)
+}
+
+function readImageStore(): ImageStore {
+  try {
+    const saved = readStoredValue(STORAGE_KEYS.IMAGES)
+    if (!saved) return {}
+
+    return imageStoreSchema.parse(unwrapStoredValue(saved))
+  } catch {
+    localStorage.removeItem(STORAGE_KEYS.IMAGES)
+    return {}
+  }
+}
+
+function writeImageStore(images: ImageStore): boolean {
+  try {
+    if (Object.keys(images).length === 0) {
+      localStorage.removeItem(STORAGE_KEYS.IMAGES)
+      return true
+    }
+
+    writeStoredValue(STORAGE_KEYS.IMAGES, images)
+    return true
+  } catch {
+    localStorage.removeItem(STORAGE_KEYS.IMAGES)
+    return false
+  }
 }
 
 function getMessageSize(message: Message): number {
@@ -240,7 +265,19 @@ function normalizeStoredMessageForLoad(message: Message): Message {
     changed = true
   }
 
-  const normalized = changed ? { ...message, versions, reasoning } : message
+  let normalized = changed ? { ...message, versions, reasoning } : message
+
+  // Tool execution state is transient: a persisted "using tool" indicator or a
+  // still-running tool event means the page was closed mid-request.
+  if (normalized.activeTool || hasRunningToolEvent(normalized)) {
+    normalized = {
+      ...normalized,
+      activeTool: null,
+      toolEvents: normalized.toolEvents?.map((event) =>
+        event.status === 'running' ? { ...event, status: 'error' } : event
+      ),
+    }
+  }
 
   if (!isAssistantMessagePending(normalized)) {
     return normalized
@@ -267,6 +304,12 @@ function normalizeStoredMessageForLoad(message: Message): Message {
       isReasoningStreaming: false,
     },
     completedAt
+  )
+}
+
+function hasRunningToolEvent(message: Message): boolean {
+  return Boolean(
+    message.toolEvents?.some((event) => event.status === 'running')
   )
 }
 
@@ -353,6 +396,71 @@ export function saveParameterEnabled(
 }
 
 /**
+ * Load tool availability toggles from localStorage
+ */
+export function loadToolsEnabled(): Partial<PlaygroundToolsEnabled> {
+  try {
+    const saved = readStoredValue(STORAGE_KEYS.TOOLS_ENABLED)
+    if (!saved) return {}
+
+    return toolsEnabledSchema.parse(unwrapStoredValue(saved))
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to load tools enabled:', error)
+  }
+  return {}
+}
+
+/**
+ * Save tool availability toggles to localStorage
+ */
+export function saveToolsEnabled(
+  toolsEnabled: Partial<PlaygroundToolsEnabled>
+): void {
+  try {
+    const parsed = toolsEnabledSchema.parse(toolsEnabled)
+    writeStoredValue(STORAGE_KEYS.TOOLS_ENABLED, parsed)
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to save tools enabled:', error)
+  }
+}
+
+/**
+ * Load forced-thinking settings from localStorage
+ */
+export function loadThinkingSettings(): {
+  enabled?: boolean
+  level?: ThinkingLevel
+} {
+  try {
+    const saved = readStoredValue(STORAGE_KEYS.THINKING)
+    if (!saved) return {}
+
+    return thinkingSettingsSchema.parse(unwrapStoredValue(saved))
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to load thinking settings:', error)
+  }
+  return {}
+}
+
+/**
+ * Save forced-thinking settings to localStorage
+ */
+export function saveThinkingSettings(settings: {
+  enabled: boolean
+  level: ThinkingLevel
+}): void {
+  try {
+    writeStoredValue(STORAGE_KEYS.THINKING, settings)
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to save thinking settings:', error)
+  }
+}
+
+/**
  * Load messages from localStorage
  */
 export function loadMessages(): Message[] | null {
@@ -360,7 +468,8 @@ export function loadMessages(): Message[] | null {
     const saved = readStoredMessagesValue()
     if (!saved) return null
 
-    const parsed = messagesSchema.parse(unwrapStoredValue(saved)) as Message[]
+    const stored = messagesSchema.parse(unwrapStoredValue(saved)) as Message[]
+    const parsed = resolveInlineImages(stored, readImageStore())
     const normalized = parsed.map(normalizeStoredMessageForLoad)
     const normalizedChanged = normalized.some(
       (message, index) => message !== parsed[index]
@@ -391,8 +500,12 @@ export function loadMessages(): Message[] | null {
  */
 export function saveMessages(messages: Message[]): void {
   try {
-    const trimmed = trimMessages(messages)
-    const parsed = messagesSchema.parse(trimmed) as Message[]
+    const extraction = extractInlineImages(trimMessages(messages))
+    const imagesStored = writeImageStore(extraction.images)
+    const persistable = imagesStored
+      ? extraction.messages
+      : stripImageRefs(extraction.messages)
+    const parsed = messagesSchema.parse(persistable) as Message[]
     writeStoredValue(STORAGE_KEYS.MESSAGES, parsed)
   } catch (error) {
     // eslint-disable-next-line no-console
@@ -401,14 +514,16 @@ export function saveMessages(messages: Message[]): void {
 }
 
 /**
- * Clear the signed-in user's playground data
+ * Clear all playground data
  */
 export function clearPlaygroundData(): void {
   try {
-    for (const baseKey of Object.values(STORAGE_KEYS)) {
-      const key = getUserStorageKey(baseKey)
-      if (key) localStorage.removeItem(key)
-    }
+    localStorage.removeItem(STORAGE_KEYS.CONFIG)
+    localStorage.removeItem(STORAGE_KEYS.PARAMETER_ENABLED)
+    localStorage.removeItem(STORAGE_KEYS.TOOLS_ENABLED)
+    localStorage.removeItem(STORAGE_KEYS.THINKING)
+    localStorage.removeItem(STORAGE_KEYS.MESSAGES)
+    localStorage.removeItem(STORAGE_KEYS.IMAGES)
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error('Failed to clear playground data:', error)

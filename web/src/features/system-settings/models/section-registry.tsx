@@ -16,13 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { IoNetDeploymentSettingsSection } from '../integrations/ionet-deployment-settings-section'
+import { ChannelAffinitySection } from '../general/channel-affinity'
+import { UnifiedDeploymentSettingsSection } from '../integrations/unified-deployment-settings-section'
 import type { ModelSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 import { ClaudeSettingsCard } from './claude-settings-card'
 import { GeminiSettingsCard } from './gemini-settings-card'
 import { GlobalSettingsCard } from './global-settings-card'
 import { GrokSettingsCard } from './grok-settings-card'
+import { RoutingReliabilitySection } from './routing-reliability-section'
+import { VendorSettingsSection } from './vendor-settings-section'
 
 function formatJsonForEditor(value: string, fallback: string) {
   const raw = (value ?? '').toString().trim()
@@ -35,6 +38,11 @@ function formatJsonForEditor(value: string, fallback: string) {
 }
 
 const MODELS_SECTIONS = [
+  {
+    id: 'vendors',
+    titleKey: 'Vendor Management',
+    build: () => <VendorSettingsSection />,
+  },
   {
     id: 'global',
     titleKey: 'Global Model Configuration',
@@ -63,7 +71,32 @@ const MODELS_SECTIONS = [
       />
     ),
   },
-
+  {
+    id: 'routing-reliability',
+    titleKey: 'Routing Reliability',
+    build: (settings: ModelSettings) => (
+      <RoutingReliabilitySection
+        defaultValues={{
+          RetryTimes: settings.RetryTimes,
+          ChannelDisableThreshold: settings.ChannelDisableThreshold,
+          AutomaticDisableChannelEnabled:
+            settings.AutomaticDisableChannelEnabled,
+          AutomaticEnableChannelEnabled: settings.AutomaticEnableChannelEnabled,
+          AutomaticDisableKeywords: settings.AutomaticDisableKeywords,
+          AutomaticDisableStatusCodes: settings.AutomaticDisableStatusCodes,
+          AutomaticRetryStatusCodes: settings.AutomaticRetryStatusCodes,
+          'monitor_setting.auto_test_channel_enabled':
+            settings['monitor_setting.auto_test_channel_enabled'],
+          'monitor_setting.auto_test_channel_minutes':
+            settings['monitor_setting.auto_test_channel_minutes'],
+          'monitor_setting.channel_test_concurrency':
+            settings['monitor_setting.channel_test_concurrency'],
+          'monitor_setting.channel_test_mode':
+            settings['monitor_setting.channel_test_mode'],
+        }}
+      />
+    ),
+  },
   {
     id: 'gemini',
     titleKey: 'Gemini',
@@ -120,15 +153,56 @@ const MODELS_SECTIONS = [
       />
     ),
   },
-
+  {
+    id: 'channel-affinity',
+    titleKey: 'Channel Affinity',
+    build: (settings: ModelSettings) => (
+      <ChannelAffinitySection
+        defaultValues={{
+          'channel_affinity_setting.enabled':
+            settings['channel_affinity_setting.enabled'],
+          'channel_affinity_setting.switch_on_success':
+            settings['channel_affinity_setting.switch_on_success'],
+          'channel_affinity_setting.keep_on_channel_disabled':
+            settings['channel_affinity_setting.keep_on_channel_disabled'],
+          'channel_affinity_setting.max_entries':
+            settings['channel_affinity_setting.max_entries'],
+          'channel_affinity_setting.default_ttl_seconds':
+            settings['channel_affinity_setting.default_ttl_seconds'],
+          'channel_affinity_setting.rules':
+            settings['channel_affinity_setting.rules'],
+        }}
+      />
+    ),
+  },
   {
     id: 'model-deployment',
     titleKey: 'Model Deployment',
     build: (settings: ModelSettings) => (
-      <IoNetDeploymentSettingsSection
+      <UnifiedDeploymentSettingsSection
         defaultValues={{
-          enabled: settings['model_deployment.ionet.enabled'],
-          apiKey: settings['model_deployment.ionet.api_key'],
+          ionet: {
+            enabled: settings['model_deployment.ionet.enabled'],
+            apiKey: settings['model_deployment.ionet.api_key'],
+          },
+          modal: {
+            enabled: settings['model_deployment.modal.enabled'],
+            tokenId: settings['model_deployment.modal.token_id'],
+            tokenSecret: settings['model_deployment.modal.token_secret'],
+            workspace: settings['model_deployment.modal.workspace'],
+            sharedVolumePath:
+              settings['model_deployment.modal.shared_volume_path'],
+            idleTimeoutSeconds:
+              settings['model_deployment.modal.idle_timeout_seconds'],
+            priority: settings['model_deployment.modal.priority'],
+          },
+          huggingface: {
+            enabled: settings['model_deployment.huggingface.enabled'],
+            token: settings['model_deployment.huggingface.token'],
+            org: settings['model_deployment.huggingface.org'],
+            hardware: settings['model_deployment.huggingface.hardware'],
+            priority: settings['model_deployment.huggingface.priority'],
+          },
         }}
       />
     ),

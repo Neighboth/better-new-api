@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
@@ -28,6 +28,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { CTA, Features, Hero, HowItWorks, Stats } from './components'
 import { useHomePageContent } from './hooks'
+import { withThemeParam } from './lib/theme-param'
 
 export function Home() {
   const { i18n, t } = useTranslation()
@@ -52,11 +53,16 @@ export function Home() {
     }
   }, [i18n.language, resolvedTheme])
 
+  const themedContent = useMemo(() => {
+    if (!isUrl || !content) return content
+    return withThemeParam(content, resolvedTheme === 'dark' ? 'dark' : 'light')
+  }, [content, isUrl, resolvedTheme])
+
   useEffect(() => {
     if (isUrl) {
       syncIframePreferences()
     }
-  }, [isUrl, syncIframePreferences])
+  }, [isUrl, syncIframePreferences, themedContent])
 
   if (!isLoaded) {
     return (
@@ -79,13 +85,17 @@ export function Home() {
             this on desktop, while some mobile browsers allow it via allow-popups,
             causing inconsistent behavior. This token only permits user-activated
             top-level navigation and does NOT grant same-origin access.
+            Theme is passed via ?theme=light|dark and postMessage({themeMode}),
+            updating live when the site theme changes without a page reload.
           */}
           <iframe
             ref={iframeRef}
-            src={content}
+            src={themedContent}
             className='h-screen w-full border-none'
             title={t('Custom Home Page')}
             sandbox='allow-forms allow-popups allow-popups-to-escape-sandbox allow-scripts allow-top-navigation-by-user-activation'
+            allow='fullscreen'
+            referrerPolicy='no-referrer'
             onLoad={syncIframePreferences}
           />
         </PublicLayout>

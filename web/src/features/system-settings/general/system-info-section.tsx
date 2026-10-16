@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useMemo } from 'react'
 import type { Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
@@ -31,6 +32,8 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
@@ -38,35 +41,111 @@ import { FormNavigationGuard } from '../components/form-navigation-guard'
 import {
   SettingsForm,
   SettingsFormGrid,
-  SettingsFormGridItem,
+  SettingsSwitchContent,
+  SettingsSwitchItem,
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useSettingsForm } from '../hooks/use-settings-form'
 import { useUpdateOption } from '../hooks/use-update-option'
-import { isValidTaskPublicAddress } from './task-public-address'
 
-const _systemInfoSchema = z.object({
-  SystemName: z.string().min(1),
+export const SYSTEM_INFO_LANGUAGES = [
+  { key: 'tr', flag: '🇹🇷', label: 'Türkçe' },
+  { key: 'en', flag: '🇬🇧', label: 'English' },
+  { key: 'zh_CN', flag: '🇨🇳', label: '简体中文' },
+  { key: 'zh_TW', flag: '🇹🇼', label: '繁體中文' },
+  { key: 'fr', flag: '🇫🇷', label: 'Français' },
+  { key: 'ru', flag: '🇷🇺', label: 'Русский' },
+  { key: 'ja', flag: '🇯🇵', label: '日本語' },
+  { key: 'vi', flag: '🇻🇳', label: 'Tiếng Việt' },
+] as const
+
+const legalSchema = z.object({
+  user_agreement: z.string().optional(),
+  privacy_policy: z.string().optional(),
+  user_agreement_tr: z.string().optional(),
+  user_agreement_en: z.string().optional(),
+  user_agreement_zh_CN: z.string().optional(),
+  user_agreement_zh_TW: z.string().optional(),
+  user_agreement_fr: z.string().optional(),
+  user_agreement_ru: z.string().optional(),
+  user_agreement_ja: z.string().optional(),
+  user_agreement_vi: z.string().optional(),
+  privacy_policy_tr: z.string().optional(),
+  privacy_policy_en: z.string().optional(),
+  privacy_policy_zh_CN: z.string().optional(),
+  privacy_policy_zh_TW: z.string().optional(),
+  privacy_policy_fr: z.string().optional(),
+  privacy_policy_ru: z.string().optional(),
+  privacy_policy_ja: z.string().optional(),
+  privacy_policy_vi: z.string().optional(),
+})
+
+const systemInfoSchema = z.object({
+  SystemName: z.string().optional(),
   ServerAddress: z.string().optional(),
-  TaskPublicAddress: z.string().refine(isValidTaskPublicAddress),
   Logo: z.string().url().optional().or(z.literal('')),
+  LogoDark: z.string().url().optional().or(z.literal('')),
+  Favicon: z.string().url().optional().or(z.literal('')),
+  HideHeaderSiteName: z.boolean().optional(),
+  HeaderLogoHeight: z.coerce.number().min(10).max(200).optional(),
   Footer: z.string().optional(),
   About: z.string().optional(),
   HomePageContent: z.string().optional(),
-  general_setting: z.object({
-    docs_link: z.string(),
-  }),
-  legal: z.object({
-    user_agreement: z.string().optional(),
-    privacy_policy: z.string().optional(),
-  }),
+  legal: legalSchema.optional(),
+  DocsLink: z.string().optional(),
+
+  // Multilingual System Info (8 Languages)
+  SystemName_tr: z.string().optional(),
+  SystemName_en: z.string().optional(),
+  SystemName_zh_CN: z.string().optional(),
+  SystemName_zh_TW: z.string().optional(),
+  SystemName_fr: z.string().optional(),
+  SystemName_ru: z.string().optional(),
+  SystemName_ja: z.string().optional(),
+  SystemName_vi: z.string().optional(),
+
+  DocsLink_tr: z.string().optional(),
+  DocsLink_en: z.string().optional(),
+  DocsLink_zh_CN: z.string().optional(),
+  DocsLink_zh_TW: z.string().optional(),
+  DocsLink_fr: z.string().optional(),
+  DocsLink_ru: z.string().optional(),
+  DocsLink_ja: z.string().optional(),
+  DocsLink_vi: z.string().optional(),
+
+  Footer_tr: z.string().optional(),
+  Footer_en: z.string().optional(),
+  Footer_zh_CN: z.string().optional(),
+  Footer_zh_TW: z.string().optional(),
+  Footer_fr: z.string().optional(),
+  Footer_ru: z.string().optional(),
+  Footer_ja: z.string().optional(),
+  Footer_vi: z.string().optional(),
+
+  About_tr: z.string().optional(),
+  About_en: z.string().optional(),
+  About_zh_CN: z.string().optional(),
+  About_zh_TW: z.string().optional(),
+  About_fr: z.string().optional(),
+  About_ru: z.string().optional(),
+  About_ja: z.string().optional(),
+  About_vi: z.string().optional(),
+
+  HomePageContent_tr: z.string().optional(),
+  HomePageContent_en: z.string().optional(),
+  HomePageContent_zh_CN: z.string().optional(),
+  HomePageContent_zh_TW: z.string().optional(),
+  HomePageContent_fr: z.string().optional(),
+  HomePageContent_ru: z.string().optional(),
+  HomePageContent_ja: z.string().optional(),
+  HomePageContent_vi: z.string().optional(),
 })
 
-type SystemInfoFormValues = z.infer<typeof _systemInfoSchema>
+export type SystemInfoFormValues = z.infer<typeof systemInfoSchema>
 
 type SystemInfoSectionProps = {
-  defaultValues: SystemInfoFormValues
+  defaultValues: Record<string, any>
 }
 
 function normalizeValue(value: unknown): string {
@@ -74,69 +153,121 @@ function normalizeValue(value: unknown): string {
   return typeof value === 'string' ? value : String(value)
 }
 
+function getFirstNonEmpty(...values: unknown[]): string {
+  for (const value of values) {
+    const s = normalizeValue(value)
+    if (s.trim() !== '') return s
+  }
+  return ''
+}
+
 export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const updateOption = useUpdateOption()
 
-  const normalizedDefaults: SystemInfoFormValues = {
+  const defaultTab = useMemo(() => {
+    const l = (i18n.language || 'tr').toLowerCase()
+    if (l.startsWith('tr')) return 'tr'
+    if (l.startsWith('zh')) {
+      return l.includes('tw') || l.includes('hk') || l.includes('hant') ? 'zh_TW' : 'zh_CN'
+    }
+    if (l.startsWith('fr')) return 'fr'
+    if (l.startsWith('ru')) return 'ru'
+    if (l.startsWith('ja')) return 'ja'
+    if (l.startsWith('vi')) return 'vi'
+    return 'en'
+  }, [i18n.language])
+
+  const normalizedDefaults: Record<string, any> = {
     SystemName: normalizeValue(defaultValues.SystemName),
     ServerAddress: normalizeValue(defaultValues.ServerAddress),
-    TaskPublicAddress: normalizeValue(defaultValues.TaskPublicAddress),
     Logo: normalizeValue(defaultValues.Logo),
+    LogoDark: normalizeValue(defaultValues.LogoDark),
+    Favicon: normalizeValue(defaultValues.Favicon),
+    HideHeaderSiteName: defaultValues.HideHeaderSiteName === true || defaultValues.HideHeaderSiteName === 'true',
+    HeaderLogoHeight: defaultValues.HeaderLogoHeight ? Number(defaultValues.HeaderLogoHeight) : 24,
     Footer: normalizeValue(defaultValues.Footer),
     About: normalizeValue(defaultValues.About),
     HomePageContent: normalizeValue(defaultValues.HomePageContent),
-    general_setting: {
-      docs_link: normalizeValue(defaultValues.general_setting?.docs_link),
-    },
+    DocsLink: getFirstNonEmpty(
+      defaultValues.DocsLink,
+      defaultValues['general_setting.docs_link'],
+      defaultValues.general_setting?.docs_link
+    ),
     legal: {
-      user_agreement: normalizeValue(defaultValues.legal?.user_agreement),
-      privacy_policy: normalizeValue(defaultValues.legal?.privacy_policy),
+      user_agreement: getFirstNonEmpty(
+        defaultValues['legal.user_agreement'],
+        defaultValues.legal?.user_agreement,
+        defaultValues.TermsOfService
+      ),
+      privacy_policy: getFirstNonEmpty(
+        defaultValues['legal.privacy_policy'],
+        defaultValues.legal?.privacy_policy,
+        defaultValues.PrivacyPolicy
+      ),
     },
   }
 
-  const systemInfoSchemaWithI18n = z.object({
-    SystemName: z.string().min(1, {
-      error: () => t('System name is required'),
-    }),
-    ServerAddress: z.string().optional(),
-    TaskPublicAddress: z.string().refine(isValidTaskPublicAddress, {
-      error: () =>
-        t(
-          'Enter an absolute HTTP(S) URL without credentials, query parameters, or fragments'
-        ),
-    }),
-    Logo: z.string().url().optional().or(z.literal('')),
-    Footer: z.string().optional(),
-    About: z.string().optional(),
-    HomePageContent: z.string().optional(),
-    general_setting: z.object({
-      docs_link: z.string(),
-    }),
-    legal: z.object({
-      user_agreement: z.string().optional(),
-      privacy_policy: z.string().optional(),
-    }),
+  // Populate localized defaults
+  SYSTEM_INFO_LANGUAGES.forEach((lang) => {
+    normalizedDefaults[`SystemName_${lang.key}`] = normalizeValue(defaultValues[`SystemName_${lang.key}`])
+    normalizedDefaults[`Footer_${lang.key}`] = normalizeValue(defaultValues[`Footer_${lang.key}`])
+    normalizedDefaults[`About_${lang.key}`] = normalizeValue(defaultValues[`About_${lang.key}`])
+    normalizedDefaults[`HomePageContent_${lang.key}`] = normalizeValue(defaultValues[`HomePageContent_${lang.key}`])
+    normalizedDefaults[`DocsLink_${lang.key}`] = normalizeValue(defaultValues[`DocsLink_${lang.key}`])
+    normalizedDefaults.legal[`user_agreement_${lang.key}`] = getFirstNonEmpty(
+      defaultValues[`legal.user_agreement_${lang.key}`],
+      defaultValues[`TermsOfService_${lang.key}`]
+    )
+    normalizedDefaults.legal[`privacy_policy_${lang.key}`] = getFirstNonEmpty(
+      defaultValues[`legal.privacy_policy_${lang.key}`],
+      defaultValues[`PrivacyPolicy_${lang.key}`]
+    )
   })
 
   const { form, handleSubmit, handleReset, isDirty, isSubmitting } =
     useSettingsForm<SystemInfoFormValues>({
-      resolver: zodResolver(systemInfoSchemaWithI18n) as Resolver<
+      resolver: zodResolver(systemInfoSchema) as Resolver<
         SystemInfoFormValues,
         unknown,
         SystemInfoFormValues
       >,
-      defaultValues: normalizedDefaults,
-      onSubmit: async (_data, changedFields) => {
+      defaultValues: normalizedDefaults as any,
+      onSubmit: async (data, changedFields) => {
+        // Fallback root fields if empty
+        if (!data.SystemName) {
+          data.SystemName = data.SystemName_en || data.SystemName_tr || 'New API'
+          changedFields['SystemName'] = data.SystemName
+        }
+
         for (const [key, value] of Object.entries(changedFields)) {
-          let v = normalizeValue(value)
-          if (key === 'ServerAddress' || key === 'TaskPublicAddress') {
-            v = v.replace(/\/+$/, '')
+          let v: string | boolean | number
+          if (typeof value === 'boolean' || typeof value === 'number') {
+            v = value
+          } else {
+            v = normalizeValue(value)
+            if (key === 'ServerAddress') {
+              v = v.replace(/\/+$/, '')
+            }
           }
           await updateOption.mutateAsync({
             key,
             value: v,
           })
+
+          if (key.startsWith('legal.privacy_policy_')) {
+            const l = key.replace('legal.privacy_policy_', '')
+            await updateOption.mutateAsync({ key: `PrivacyPolicy_${l}`, value: v })
+          } else if (key.startsWith('legal.user_agreement_')) {
+            const l = key.replace('legal.user_agreement_', '')
+            await updateOption.mutateAsync({ key: `TermsOfService_${l}`, value: v })
+          } else if (key === 'legal.privacy_policy' || key === 'PrivacyPolicy') {
+            await updateOption.mutateAsync({ key: 'legal.privacy_policy', value: v })
+            await updateOption.mutateAsync({ key: 'PrivacyPolicy', value: v })
+          } else if (key === 'legal.user_agreement' || key === 'TermsOfService') {
+            await updateOption.mutateAsync({ key: 'legal.user_agreement', value: v })
+            await updateOption.mutateAsync({ key: 'TermsOfService', value: v })
+          }
         }
       },
     })
@@ -155,24 +286,9 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
               isResetDisabled={!isDirty}
             />
             <FormDirtyIndicator isDirty={isDirty} />
-            <SettingsFormGrid>
-              <FormField
-                control={form.control}
-                name='SystemName'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('System Name')}</FormLabel>
-                    <FormControl>
-                      <Input placeholder={t('New API')} {...field} />
-                    </FormControl>
-                    <FormDescription>
-                      {t('The name displayed across the application')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
 
+            {/* Language-Neutral Global Settings */}
+            <SettingsFormGrid>
               <FormField
                 control={form.control}
                 name='ServerAddress'
@@ -194,40 +310,19 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
 
               <FormField
                 control={form.control}
-                name='TaskPublicAddress'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Async Task Public Address')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='https://media.example.com/tasks'
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t(
-                        'Public base URL for async task media. Supports a dedicated media domain, port, or Nginx path prefix; falls back to Server Address when empty.'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
                 name='Logo'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Logo URL')}</FormLabel>
+                    <FormLabel>{t('Logo URL (Light Theme)')}</FormLabel>
                     <FormControl>
                       <Input
                         placeholder={t('https://example.com/logo.png')}
                         {...field}
+                        value={field.value ?? ''}
                       />
                     </FormControl>
                     <FormDescription>
-                      {t('URL to your logo image (optional)')}
+                      {t('URL to your logo image used in light theme')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -236,18 +331,19 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
 
               <FormField
                 control={form.control}
-                name='general_setting.docs_link'
+                name='LogoDark'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Documentation Link')}</FormLabel>
+                    <FormLabel>{t('Logo URL (Dark Theme)')}</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder={t('https://docs.example.com')}
+                        placeholder={t('https://example.com/logo-dark.png')}
                         {...field}
+                        value={field.value ?? ''}
                       />
                     </FormControl>
                     <FormDescription>
-                      {t('Link to your documentation site')}
+                      {t('URL to your logo image used in dark theme (falls back to light logo if empty)')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -256,21 +352,19 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
 
               <FormField
                 control={form.control}
-                name='Footer'
+                name='Favicon'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Footer')}</FormLabel>
+                    <FormLabel>{t('Favicon URL')}</FormLabel>
                     <FormControl>
-                      <Textarea
-                        placeholder={t(
-                          '© 2025 Your Company. All rights reserved.'
-                        )}
-                        rows={4}
+                      <Input
+                        placeholder={t('https://example.com/favicon.png')}
                         {...field}
+                        value={field.value ?? ''}
                       />
                     </FormControl>
                     <FormDescription>
-                      {t('Footer text displayed at the bottom of pages')}
+                      {t('Direct link to browser tab icon. If empty, uses Logo URL.')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -279,73 +373,22 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
 
               <FormField
                 control={form.control}
-                name='About'
+                name='HeaderLogoHeight'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('About')}</FormLabel>
+                    <FormLabel>{t('Header Logo Height (px)')}</FormLabel>
                     <FormControl>
-                      <Textarea
-                        placeholder={t(
-                          'Enter HTML code (e.g., <p>About us...</p>) or a URL (e.g., https://example.com) to embed as iframe'
-                        )}
-                        rows={4}
+                      <Input
+                        type='number'
+                        min={10}
+                        max={200}
+                        placeholder='24'
                         {...field}
+                        value={field.value ?? 24}
                       />
                     </FormControl>
                     <FormDescription>
-                      {t(
-                        'Supports HTML markup or iframe embedding. Enter HTML code directly, or provide a complete URL to automatically embed it as an iframe.'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <SettingsFormGridItem span='full'>
-                <FormField
-                  control={form.control}
-                  name='HomePageContent'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Home Page Content')}</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          placeholder={t('Welcome to our New API...')}
-                          rows={6}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'Content displayed on the home page (supports Markdown)'
-                        )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </SettingsFormGridItem>
-
-              <FormField
-                control={form.control}
-                name='legal.user_agreement'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('User Agreement')}</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder={t(
-                          'Provide Markdown, HTML, or an external URL for the user agreement'
-                        )}
-                        rows={6}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t(
-                        'Leave empty to disable the agreement requirement. Supports Markdown, HTML, or a full URL to redirect users.'
-                      )}
+                      {t('Set height of the header logo in pixels (e.g., 24-60px for wider logos)')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -354,29 +397,269 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
 
               <FormField
                 control={form.control}
-                name='legal.privacy_policy'
+                name='DocsLink'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Privacy Policy')}</FormLabel>
+                    <FormLabel>{t('Documentation Link (Default)')}</FormLabel>
                     <FormControl>
-                      <Textarea
-                        placeholder={t(
-                          'Provide Markdown, HTML, or an external URL for the privacy policy'
-                        )}
-                        rows={6}
+                      <Input
+                        placeholder='https://docs.newapi.pro'
                         {...field}
+                        value={field.value ?? ''}
                       />
                     </FormControl>
                     <FormDescription>
-                      {t(
-                        'Leave empty to disable the privacy policy requirement. Supports Markdown, HTML, or a full URL to redirect users.'
-                      )}
+                      {t('Default documentation URL for the navigation bar link')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
             </SettingsFormGrid>
+
+            <div className='mt-6 rounded-lg border p-4 bg-card shadow-xs'>
+              <FormField
+                control={form.control}
+                name='HideHeaderSiteName'
+                render={({ field }) => (
+                  <FormItem>
+                    <SettingsSwitchItem>
+                      <SettingsSwitchContent>
+                        <FormLabel className='text-sm font-semibold'>
+                          {t('Hide Site Name in Header')}
+                        </FormLabel>
+                        <FormDescription>
+                          {t('Show only logo in header without site name text')}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            {/* Multilingual System Content Tabs */}
+            <div className='rounded-lg border p-4 space-y-4 bg-card shadow-xs mt-6'>
+              <div>
+                <h4 className='font-semibold text-sm'>{t('Multilingual System Content')}</h4>
+                <p className='text-muted-foreground text-xs mt-1'>
+                  {t(
+                    'Configure system name, footer, about, homepage content and legal policies for each language supported by the system.'
+                  )}
+                </p>
+              </div>
+
+              <Tabs defaultValue={defaultTab} className='w-full'>
+                <TabsList className='grid w-full grid-cols-4 sm:grid-cols-8 gap-1 h-auto p-1'>
+                  {SYSTEM_INFO_LANGUAGES.map((lang) => (
+                    <TabsTrigger
+                      key={lang.key}
+                      value={lang.key}
+                      className='text-xs py-1.5 px-2 flex items-center justify-center gap-1.5'
+                    >
+                      <span>{lang.flag}</span>
+                      <span className='truncate'>{lang.label}</span>
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+
+                {SYSTEM_INFO_LANGUAGES.map((lang) => (
+                  <TabsContent key={lang.key} value={lang.key} className='space-y-4 pt-3'>
+                    <SettingsFormGrid>
+                      <FormField
+                        control={form.control}
+                        name={`SystemName_${lang.key}` as any}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              {t('System Name')} ({lang.label})
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder={t('New API')}
+                                {...field}
+                                value={field.value ?? ''}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t('The name displayed across the application')}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name={`Footer_${lang.key}` as any}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              {t('Footer')} ({lang.label})
+                            </FormLabel>
+                            <FormControl>
+                              <Textarea
+                                placeholder={t(
+                                  '© 2025 Your Company. All rights reserved.'
+                                )}
+                                rows={3}
+                                {...field}
+                                value={field.value ?? ''}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t('Footer text displayed at the bottom of pages')}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name={`DocsLink_${lang.key}` as any}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              {t('Documentation Link')} ({lang.label})
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder='https://docs.newapi.pro'
+                                {...field}
+                                value={field.value ?? ''}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t('Language-specific documentation link. Leave empty to use default.')}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </SettingsFormGrid>
+
+                    <FormField
+                      control={form.control}
+                      name={`About_${lang.key}` as any}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {t('About')} ({lang.label})
+                          </FormLabel>
+                          <FormControl>
+                            <Textarea
+                              placeholder={t(
+                                'Enter HTML code (e.g., <p>About us...</p>) or a URL (e.g., https://example.com) to embed as iframe'
+                              )}
+                              rows={4}
+                              {...field}
+                              value={field.value ?? ''}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Supports HTML markup or iframe embedding. Enter HTML code directly, or provide a complete URL to automatically embed it as an iframe.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name={`HomePageContent_${lang.key}` as any}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {t('Home Page Content')} ({lang.label})
+                          </FormLabel>
+                          <FormControl>
+                            <Textarea
+                              placeholder={t('Welcome to our New API...')}
+                              rows={6}
+                              {...field}
+                              value={field.value ?? ''}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Content displayed on the home page (supports Markdown)'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <SettingsFormGrid>
+                      <FormField
+                        control={form.control}
+                        name={`legal.user_agreement_${lang.key}` as any}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              {t('User Agreement')} ({lang.label})
+                            </FormLabel>
+                            <FormControl>
+                              <Textarea
+                                placeholder={t(
+                                  'Provide Markdown, HTML, or an external URL for the user agreement'
+                                )}
+                                rows={5}
+                                {...field}
+                                value={field.value ?? ''}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t(
+                                'Leave empty to disable the agreement requirement. Supports Markdown, HTML, or a full URL to redirect users.'
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name={`legal.privacy_policy_${lang.key}` as any}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              {t('Privacy Policy')} ({lang.label})
+                            </FormLabel>
+                            <FormControl>
+                              <Textarea
+                                placeholder={t(
+                                  'Provide Markdown, HTML, or an external URL for the privacy policy'
+                                )}
+                                rows={5}
+                                {...field}
+                                value={field.value ?? ''}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t(
+                                'Leave empty to disable the privacy policy requirement. Supports Markdown, HTML, or a full URL to redirect users.'
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </SettingsFormGrid>
+                  </TabsContent>
+                ))}
+              </Tabs>
+            </div>
           </SettingsForm>
         </Form>
       </SettingsSection>

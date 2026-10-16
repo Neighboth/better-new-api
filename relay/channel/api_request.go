@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	common2 "github.com/QuantumNous/new-api/common"
-	appconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
@@ -348,13 +346,21 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", common.SanitizeURLForLog(fullRequestURL))
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	method := c.Request.Method
+	if method == "" || method == http.MethodGet {
+		method = http.MethodPost
+	}
+	req, err := http.NewRequest(method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
 	ApplyUpstreamBodyMetadata(req, requestBody)
 	// set form data
-	req.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))
+	contentType := c.Request.Header.Get("Content-Type")
+	if contentType == "" && info.RelayMode == constant.RelayModeAudioTranscription {
+		contentType = "multipart/form-data"
+	}
+	req.Header.Set("Content-Type", contentType)
 	headers := req.Header
 	err = a.SetupRequestHeader(c, &headers, info)
 	if err != nil {
@@ -374,18 +380,10 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	return resp, nil
 }
 
-// DoWssRequest dials the adaptor's upstream over WebSocket for the realtime
-// and Responses WebSocket relays. It honors the channel proxy, is bound to the
-// request context, and reports a rejected handshake as a *types.NewAPIError
-// carrying the upstream status code (types.NewError preserves it).
 func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*websocket.Conn, error) {
 	fullRequestURL, err := a.GetRequestURL(info)
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
-	}
-	fullRequestURL = toWebSocketURL(fullRequestURL)
-	if targetURL, parseErr := url.Parse(fullRequestURL); parseErr == nil {
-		common2.SetContextKey(c, appconstant.ContextKeyUpstreamRequestOrigin, targetURL.Scheme+"://"+targetURL.Host)
 	}
 	targetHeader := http.Header{}
 	err = a.SetupRequestHeader(c, &targetHeader, info)
@@ -402,42 +400,14 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		targetHeader.Set(key, value)
 	}
 	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
-	dialer := *websocket.DefaultDialer
-	if info.ChannelSetting.Proxy != "" {
-		proxyURL, _, proxyErr := common2.ParseProxyURLRuntime(info.ChannelSetting.Proxy)
-		if proxyErr != nil {
-			return nil, proxyErr
-		}
-		dialer.Proxy = http.ProxyURL(proxyURL)
-	}
-	if info.ChannelSetting.TLSInsecureSkipVerify {
-		dialer.TLSClientConfig = common2.InsecureTLSConfig
-	}
-	targetConn, resp, err := dialer.DialContext(c.Request.Context(), fullRequestURL, targetHeader)
+	targetConn, _, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
 	if err != nil {
-		statusCode := http.StatusInternalServerError
-		if resp != nil {
-			statusCode = resp.StatusCode
-			if resp.Body != nil {
-				_ = resp.Body.Close()
-			}
-		}
-		return nil, types.NewErrorWithStatusCode(fmt.Errorf("dial failed to %s: %w", common.SanitizeURLForLog(fullRequestURL), err), types.ErrorCodeDoRequestFailed, statusCode)
+		return nil, fmt.Errorf("dial failed to %s: %w", common.SanitizeURLForLog(fullRequestURL), err)
 	}
+	// send request body
+	//all, err := io.ReadAll(requestBody)
+	//err = service.WssString(c, targetConn, string(all))
 	return targetConn, nil
-}
-
-// toWebSocketURL maps an http(s) endpoint to ws(s). Realtime adaptors already
-// return ws(s) URLs, which pass through unchanged.
-func toWebSocketURL(raw string) string {
-	switch {
-	case strings.HasPrefix(raw, "https://"):
-		return "wss://" + strings.TrimPrefix(raw, "https://")
-	case strings.HasPrefix(raw, "http://"):
-		return "ws://" + strings.TrimPrefix(raw, "http://")
-	default:
-		return raw
-	}
 }
 
 func startPingKeepAlive(c *gin.Context, pingInterval time.Duration) (context.CancelFunc, <-chan struct{}) {
@@ -507,7 +477,7 @@ func sendPingData(c *gin.Context, mutex *sync.Mutex) error {
 	helper.ExtendWriteDeadline(c)
 	err := helper.PingData(c)
 	if err != nil {
-		logger.LogError(c, common2.LogText("SSE ping error: %s", err.Error()))
+		logger.LogError(c, "SSE ping error: "+err.Error())
 		return err
 	}
 
@@ -538,11 +508,13 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	relayClient.CheckRedirect = keepUpstreamRedirectResponse
 	if common2.DebugEnabled && req != nil && req.URL != nil {
 		policy := service.NormalizeHTTPTransportPolicy(info.ChannelSetting)
-		logger.LogDebug(c, "http transport select: host=%s protocol=%s shards=%d policy=%s",
+		logger.LogDebug(c, fmt.Sprintf(
+			"http transport select: host=%s protocol=%s shards=%d policy=%s",
 			req.URL.Host,
 			policy.Protocol,
 			policy.Shards,
-			policy.String())
+			policy.String(),
+		))
 	}
 
 	var stopPinger context.CancelFunc
@@ -565,10 +537,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
-	common2.SetContextKey(c, appconstant.ContextKeyUpstreamRequestOrigin, req.URL.Scheme+"://"+req.URL.Host)
 	resp, err := relayClient.Do(req)
 	if err != nil {
-		logger.LogError(c, common2.LogText("do request failed: %s", err.Error()))
+		logger.LogError(c, "do request failed: "+err.Error())
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 	}
 	if resp == nil {
@@ -576,12 +547,14 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 	if common2.DebugEnabled {
 		policy := service.NormalizeHTTPTransportPolicy(info.ChannelSetting)
-		logger.LogDebug(c, "http transport negotiated: host=%s protocol=%s shards=%d policy=%s negotiated=%s",
+		logger.LogDebug(c, fmt.Sprintf(
+			"http transport negotiated: host=%s protocol=%s shards=%d policy=%s negotiated=%s",
 			req.URL.Host,
 			policy.Protocol,
 			policy.Shards,
 			policy.String(),
-			resp.Proto)
+			resp.Proto,
+		))
 	}
 
 	if upID := resp.Header.Get(common2.RequestIdKey); upID != "" {
@@ -598,7 +571,7 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	if err != nil {
 		return nil, err
 	}
-	req, err := newTaskAPIRequest(c, fullRequestURL, requestBody)
+	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
@@ -621,11 +594,4 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 		return nil, fmt.Errorf("do request failed: %w", err)
 	}
 	return resp, nil
-}
-
-func newTaskAPIRequest(c *gin.Context, fullRequestURL string, requestBody io.Reader) (*http.Request, error) {
-	if c == nil || c.Request == nil {
-		return nil, errors.New("task client request is missing")
-	}
-	return http.NewRequestWithContext(c.Request.Context(), c.Request.Method, fullRequestURL, requestBody)
 }

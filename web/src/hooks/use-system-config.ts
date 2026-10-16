@@ -16,20 +16,117 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useCallback } from 'react'
 
-import { DEFAULT_LOGO } from '@/lib/constants'
+import { useTheme } from '@/context/theme-provider'
+import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
 import { applyFaviconToDom } from '@/lib/dom-utils'
-import { ensureStatus } from '@/lib/status-query'
-import { useSystemConfigStore } from '@/stores/system-config-store'
+import {
+  useSystemConfigStore,
+  type CurrencyConfig,
+  type CurrencyDisplayType,
+  type SystemConfig,
+  DEFAULT_CURRENCY_CONFIG,
+} from '@/stores/system-config-store'
 
 interface UseSystemConfigOptions {
   /** Automatically fetch config from backend (use only in root component) */
   autoLoad?: boolean
 }
 
-/** Preload an image, returning a cleanup that detaches the pending handlers. */
+interface StatusApiResponse {
+  success: boolean
+  data: {
+    system_name?: string
+    logo?: string
+    logo_dark?: string
+    favicon?: string
+    hide_header_site_name?: boolean
+    header_logo_height?: number
+    footer_html?: string
+    demo_site_enabled?: boolean
+    display_token_stat_enabled?: boolean
+    ticket_enabled?: boolean
+    captcha_provider_order?: string
+    display_in_currency?: boolean
+    quota_display_type?: CurrencyDisplayType
+    quota_per_unit?: number
+    usd_exchange_rate?: number
+    custom_currency_symbol?: string
+    custom_currency_exchange_rate?: number
+  }
+}
+
+function toNumber(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && !Number.isNaN(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (!Number.isNaN(parsed)) return parsed
+  }
+  return fallback
+}
+
+/**
+ * Map `/api/status` response data to our persisted system config structure
+ */
+export function mapStatusDataToConfig(
+  data: StatusApiResponse['data'] | undefined
+): Partial<SystemConfig> {
+  if (!data) return {}
+
+  const quotaDisplayType =
+    (data.quota_display_type as CurrencyDisplayType | undefined) ??
+    DEFAULT_CURRENCY_CONFIG.quotaDisplayType
+
+  const currency: CurrencyConfig = {
+    displayInCurrency:
+      data.display_in_currency ?? DEFAULT_CURRENCY_CONFIG.displayInCurrency,
+    quotaDisplayType,
+    quotaPerUnit: toNumber(
+      data.quota_per_unit,
+      DEFAULT_CURRENCY_CONFIG.quotaPerUnit
+    ),
+    usdExchangeRate: toNumber(
+      data.usd_exchange_rate,
+      DEFAULT_CURRENCY_CONFIG.usdExchangeRate
+    ),
+    customCurrencySymbol:
+      data.custom_currency_symbol?.trim() ||
+      DEFAULT_CURRENCY_CONFIG.customCurrencySymbol,
+    customCurrencyExchangeRate: toNumber(
+      data.custom_currency_exchange_rate,
+      DEFAULT_CURRENCY_CONFIG.customCurrencyExchangeRate
+    ),
+  }
+
+  return {
+    systemName: data.system_name || DEFAULT_SYSTEM_NAME,
+    logo: data.logo || DEFAULT_LOGO,
+    logoDark: data.logo_dark || '',
+    favicon: data.favicon || '',
+    hideHeaderSiteName: Boolean(data.hide_header_site_name),
+    headerLogoHeight: data.header_logo_height || 24,
+    footerHtml: data.footer_html,
+    demoSiteEnabled: data.demo_site_enabled,
+    displayTokenStatEnabled: data.display_token_stat_enabled,
+    ticketEnabled: data.ticket_enabled !== undefined ? Boolean(data.ticket_enabled) : true,
+    captchaProviderOrder: data.captcha_provider_order || '',
+    currency,
+  }
+}
+
+// Fetch system config from API
+async function fetchSystemConfig(): Promise<Partial<SystemConfig>> {
+  const response = await fetch('/api/status')
+  if (!response.ok) throw new Error('Failed to fetch status')
+
+  const data: StatusApiResponse = await response.json()
+  if (!data.success) throw new Error('API returned error')
+
+  return mapStatusDataToConfig(data.data)
+}
+
+// Preload image and return cleanup function
 function preloadImage(
   src: string,
   onLoad: () => void,
@@ -59,58 +156,82 @@ function preloadImage(
  */
 export function useSystemConfig(options: UseSystemConfigOptions = {}) {
   const { autoLoad = false } = options
-  const queryClient = useQueryClient()
-  const { config, loading, loadedLogoUrl, setLoadedLogoUrl, setLoading } =
-    useSystemConfigStore()
+  const { resolvedTheme } = useTheme()
+  const {
+    config,
+    loading,
+    loadedLogoUrl,
+    setConfig,
+    setLoadedLogoUrl,
+    setLoading,
+  } = useSystemConfigStore()
 
-  // Load config from backend via the shared `/api/status` cache.
-  // `ensureStatus` writes the mapped config into this store itself, so there is
-  // no second request and no second mapping path here.
+  const activeLogo =
+    resolvedTheme === 'dark' && config.logoDark
+      ? config.logoDark
+      : config.logo || DEFAULT_LOGO
+
+  // Load config from backend
   const loadConfig = useCallback(async () => {
     try {
       setLoading(true)
-      await ensureStatus(queryClient)
+      const newConfig = await fetchSystemConfig()
+      setConfig(newConfig)
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Failed to load system config:', error)
     } finally {
       setLoading(false)
     }
-  }, [queryClient, setLoading])
+  }, [setConfig, setLoading])
 
   useEffect(() => {
     if (autoLoad) loadConfig()
   }, [autoLoad, loadConfig])
 
-  // Preload logo image when URL changes
+  // Preload logo image when URL changes & update favicon
+  // Preload the inactive theme logo in the background so theme switches apply instantly.
   useEffect(() => {
-    const { logo } = config
+    const inactiveLogo =
+      resolvedTheme === 'dark' ? config.logo : config.logoDark
+    if (inactiveLogo && inactiveLogo !== activeLogo) {
+      const img = new Image()
+      img.decoding = 'async'
+      img.src = inactiveLogo
+    }
+  }, [activeLogo, config.logo, config.logoDark, resolvedTheme])
+
+  useEffect(() => {
+    const { favicon } = config
+
+    applyFaviconToDom(favicon || activeLogo)
 
     // Skip if logo is already loaded
-    if (!logo || logo === loadedLogoUrl) return
+    if (!activeLogo || activeLogo === loadedLogoUrl) return
 
     // Preload new logo
     return preloadImage(
-      logo,
+      activeLogo,
       () => {
-        setLoadedLogoUrl(logo)
-        applyFaviconToDom(logo)
+        setLoadedLogoUrl(activeLogo)
       },
       () => {
-        if (logo !== DEFAULT_LOGO) {
+        if (activeLogo !== DEFAULT_LOGO) {
           // eslint-disable-next-line no-console
-          console.error('Failed to load logo:', logo)
+          console.error('Failed to load logo:', activeLogo)
         }
         // Mark as loaded even on error to prevent infinite retry
-        setLoadedLogoUrl(logo)
+        setLoadedLogoUrl(activeLogo)
       }
     )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.logo, loadedLogoUrl, setLoadedLogoUrl])
+  }, [activeLogo, config.favicon, loadedLogoUrl, setLoadedLogoUrl])
 
   return {
     ...config,
+    logo: activeLogo,
+    logoLight: config.logo,
+    logoDark: config.logoDark,
     loading,
-    logoLoaded: config.logo === loadedLogoUrl && !!loadedLogoUrl,
+    logoLoaded: activeLogo === loadedLogoUrl && !!loadedLogoUrl,
   }
 }

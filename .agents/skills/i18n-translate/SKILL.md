@@ -56,7 +56,7 @@ Do not skip this workflow because the fix is "just one key".
 For a single known missing key (still script-only, no direct JSON edits):
 
 1. Confirm the exact key at the call site and verify it is absent from all locale files.
-2. Add the key via `add-missing-keys.mjs`, populating its `newKeys` object for every supported locale: `en`, `zh`, `zh-TW`, `fr`, `ja`, `ru`, `vi`. Even one key goes through the script; do not hand-edit the JSON.
+2. Add the key via `add-missing-keys.mjs`, populating its `newKeys` object for every supported locale: `en`, `zh`, `zh-TW`, `fr`, `ja`, `ru`, `vi`, `tr`. Even one key goes through the script; do not hand-edit the JSON.
 3. The script preserves the flat `"translation"` object and keeps keys alphabetically sorted automatically.
 4. Run a targeted search for the key in code and locale files.
 5. Run `bun run i18n:sync` to normalize file order. This step is mandatory, not optional.
@@ -167,7 +167,7 @@ const brandNames = new Set([
   'WeChat','Xinference','Xunfei','AI Proxy','One API',
 ])
 
-const locales = ['fr', 'ja', 'ru', 'zh', 'zh-TW', 'vi']
+const locales = ['fr', 'ja', 'ru', 'zh', 'zh-TW', 'vi', 'tr']
 
 for (const locale of locales) {
   const locFile = JSON.parse(await fs.readFile(path.join(LOCALES_DIR, `${locale}.json`), 'utf8'))
@@ -216,6 +216,7 @@ const newKeys = {
   ja: { /* "key": "日本語翻訳" */ },
   ru: { /* "key": "Русский перевод" */ },
   vi: { /* "key": "Bản dịch tiếng Việt" */ },
+  tr: { /* "key": "Türkçe çeviri" */ },
 }
 
 async function main() {
@@ -291,6 +292,7 @@ Delete temporary scripts after completion.
 | Japanese | ja | Use katakana for technical loanwords |
 | Russian | ru | Use formal register |
 | Vietnamese | vi | Use standard Vietnamese |
+| Turkish | tr | Use standard Turkish |
 
 **Keep as English (do not translate):**
 - Brand/product names (OpenAI, Claude, Gemini, etc.)

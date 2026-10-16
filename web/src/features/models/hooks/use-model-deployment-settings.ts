@@ -19,6 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { getDeploymentSettings, testDeploymentConnection } from '../api'
+import {
+  parseDeploymentProviders,
+  type DeploymentProviderStatus,
+} from '../lib/deployment-providers'
 
 interface ConnectionState {
   loading: boolean
@@ -72,14 +76,23 @@ export function useModelDeploymentSettings() {
 
     try {
       // Step 1: Fetch settings first (usually fast)
-      const response = await getDeploymentSettings()
-      const isEnabled = response?.success && response?.data?.enabled === true
+      // Backend returns { providers: [{provider, enabled, configured, can_connect}] }
+      const response = (await getDeploymentSettings()) as unknown as {
+        data?: {
+          providers?: DeploymentProviderStatus[]
+        }
+      }
+      const { ionetEnabled, modalEnabled, hfEnabled, anyEnabled } =
+        parseDeploymentProviders(response?.data?.providers)
 
       setSettings({
-        'model_deployment.ionet.enabled': isEnabled,
+        'model_deployment.ionet.enabled': ionetEnabled,
+        'model_deployment.modal.enabled': modalEnabled,
+        'model_deployment.huggingface.enabled': hfEnabled,
+        'model_deployment.enabled': anyEnabled,
       })
 
-      if (!isEnabled) {
+      if (!anyEnabled) {
         // Not enabled, done
         setConnectionState({ loading: false, ok: null, error: null })
         setLoadingPhase('done')
@@ -88,6 +101,14 @@ export function useModelDeploymentSettings() {
       }
 
       // Step 2: Check connection (check cache first)
+      // Only io.net has a generic list/test endpoint. Modal/HF-only setups
+      // must not be blocked by an io.net connection test.
+      if (!ionetEnabled) {
+        setConnectionState({ loading: false, ok: true, error: null })
+        setLoadingPhase('done')
+        setLoading(false)
+        return
+      }
       if (useCache) {
         const cached = getCachedConnection()
         if (cached !== null) {
@@ -136,6 +157,14 @@ export function useModelDeploymentSettings() {
   }, [fetchAll])
 
   const isIoNetEnabled = Boolean(settings['model_deployment.ionet.enabled'])
+  const isModalEnabled = Boolean(settings['model_deployment.modal.enabled'])
+  const isHfEnabled = Boolean(settings['model_deployment.huggingface.enabled'])
+  const isAnyEnabled = Boolean(
+    settings['model_deployment.enabled'] ??
+      isIoNetEnabled ??
+      isModalEnabled ??
+      isHfEnabled
+  )
 
   // Manual retry (skip cache)
   const testConnection = useCallback(async () => {
@@ -184,6 +213,9 @@ export function useModelDeploymentSettings() {
     loadingPhase,
     settings,
     isIoNetEnabled,
+    isModalEnabled,
+    isHfEnabled,
+    isAnyEnabled,
     refresh,
     connectionLoading: connectionState.loading,
     connectionOk: connectionState.ok,

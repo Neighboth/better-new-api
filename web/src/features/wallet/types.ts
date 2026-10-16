@@ -242,6 +242,12 @@ export interface UserWalletData {
   aff_count: number
   /** User group */
   group: string
+  /** Request pool balance */
+  requests_balance?: number
+  /** Token pool balance */
+  tokens_balance?: number
+  /** Active billing cascade priority array */
+  billing_priority?: string[]
 }
 
 /**

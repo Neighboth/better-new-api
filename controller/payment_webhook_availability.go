@@ -100,9 +100,17 @@ func isEpayTopUpEnabled() bool {
 }
 
 func isEpayWebhookConfigured() bool {
-	return strings.TrimSpace(operation_setting.PayAddress) != "" &&
+	if strings.TrimSpace(operation_setting.PayAddress) != "" &&
 		strings.TrimSpace(operation_setting.EpayId) != "" &&
-		strings.TrimSpace(operation_setting.EpayKey) != ""
+		strings.TrimSpace(operation_setting.EpayKey) != "" {
+		return true
+	}
+	for _, p := range GetEpayProviders() {
+		if strings.TrimSpace(p.PayAddress) != "" && strings.TrimSpace(p.PartnerId) != "" && strings.TrimSpace(p.Key) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func isEpayWebhookEnabled() bool {

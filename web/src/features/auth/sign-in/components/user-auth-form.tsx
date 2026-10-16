@@ -18,7 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from '@tanstack/react-router'
-import { Loader2, LogIn, KeyRound } from 'lucide-react'
+import axios from 'axios'
+import { Loader2, LogIn } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -27,7 +28,6 @@ import type { z } from 'zod'
 
 import { Dialog } from '@/components/dialog'
 import { PasswordInput } from '@/components/password-input'
-import { Turnstile } from '@/components/turnstile'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -40,25 +40,27 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { login, wechatLoginByCode } from '@/features/auth/api'
-import { LegalConsent } from '@/features/auth/components/legal-consent'
-import { OAuthProviders } from '@/features/auth/components/oauth-providers'
+import { CaptchaDialog } from '@/features/auth/components/captcha-dialog'
+import {
+  OtherLoginDialog,
+  OtherLoginTrigger,
+} from '@/features/auth/components/other-login-dialog'
+import { TermsFooter } from '@/features/auth/components/terms-footer'
 import { loginFormSchema } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
-import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
+import { useCaptcha } from '@/features/auth/hooks/use-captcha'
 import { beginPasskeyLogin, finishPasskeyLogin } from '@/features/auth/passkey'
-import {
-  requestPasskeyAssertion,
-  rememberPasskeyRPID,
-  type PasskeyDomains,
-} from '@/features/auth/passkey/assertion'
-import { PasskeyDomainSelector } from '@/features/auth/passkey/components/passkey-domain-selector'
 import type { AuthFormProps } from '@/features/auth/types'
 import { useStatus } from '@/hooks/use-status'
-import { handleServerError } from '@/lib/handle-server-error'
-import { isPasskeySupported as detectPasskeySupport } from '@/lib/passkey'
-import { AuthOperationError } from '@/lib/secure-verification'
-import { createServerError } from '@/lib/server-error-message'
+import { isAuthBundle } from '@/lib/api'
+import {
+  buildAssertionResult,
+  prepareCredentialRequestOptions,
+  isPasskeySupported as detectPasskeySupport,
+} from '@/lib/passkey'
+import { getServerErrorMessageKey } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
 export function UserAuthForm({
   className,
@@ -68,22 +70,22 @@ export function UserAuthForm({
   const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(false)
   const [wechatCode, setWeChatCode] = useState('')
-  const [agreedToLegal, setAgreedToLegal] = useState(false)
   const [passkeySupported, setPasskeySupported] = useState(false)
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false)
-  const [passkeyDomains, setPasskeyDomains] = useState<PasskeyDomains | null>(
-    null
-  )
-  const [passkeyRPID, setPasskeyRPID] = useState<string>()
-  const passkeyOperation = useRef<AbortController | null>(null)
-  useEffect(() => () => passkeyOperation.current?.abort(), [])
   const [isWeChatDialogOpen, setIsWeChatDialogOpen] = useState(false)
   const [isWeChatSubmitting, setIsWeChatSubmitting] = useState(false)
-  const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
-  const legalConsentErrorMessage = t('Please agree to the legal terms first')
+  const [isOtherLoginOpen, setIsOtherLoginOpen] = useState(false)
+  const [isCaptchaOpen, setIsCaptchaOpen] = useState(false)
+  const pendingFormData = useRef<z.infer<typeof loginFormSchema> | null>(null)
   const loginFailedMessage = t('Login failed')
 
   const { status } = useStatus()
+  const { isCaptchaEnabled, providers } = useCaptcha()
+  const { handleLoginSuccess, redirectTo2FA } = useAuthRedirect()
+  const setPending2FAFlowToken = useAuthStore(
+    (state) => state.auth.setPending2FAFlowToken
+  )
+
   const passkeyLoginEnabled = Boolean(
     status?.passkey_login ?? status?.data?.passkey_login
   )
@@ -91,26 +93,6 @@ export function UserAuthForm({
     (status?.password_login_enabled ??
       status?.data?.password_login_enabled ??
       true) !== false
-  const passwordLoginEncryptionEnabled =
-    (status?.password_login_encryption_enabled ??
-      status?.data?.password_login_encryption_enabled ??
-      false) === true
-  const {
-    isTurnstileEnabled,
-    turnstileSiteKey,
-    turnstileToken,
-    setTurnstileToken,
-    validateTurnstile,
-  } = useTurnstile()
-  const { handleLoginResult } = useAuthRedirect()
-
-  const hasUserAgreement = Boolean(status?.user_agreement_enabled)
-  const hasPrivacyPolicy = Boolean(status?.privacy_policy_enabled)
-  const requiresLegalConsent = hasUserAgreement || hasPrivacyPolicy
-  const passkeyButtonDisabled =
-    isPasskeyLoading ||
-    !passkeySupported ||
-    (requiresLegalConsent && !agreedToLegal)
   const hasWeChatLogin = Boolean(status?.wechat_login)
   const hasOAuthLogin = Boolean(
     status?.github_oauth ||
@@ -120,16 +102,8 @@ export function UserAuthForm({
     status?.telegram_oauth ||
     (status?.custom_oauth_providers?.length ?? 0) > 0
   )
-  const hasAlternativeLogin =
+  const hasOtherLoginMethods =
     passkeyLoginEnabled || hasWeChatLogin || hasOAuthLogin
-
-  useEffect(() => {
-    if (requiresLegalConsent) {
-      setAgreedToLegal(false)
-    } else {
-      setAgreedToLegal(true)
-    }
-  }, [requiresLegalConsent])
 
   useEffect(() => {
     detectPasskeySupport()
@@ -160,49 +134,69 @@ export function UserAuthForm({
   }, [status])
 
   async function onSubmit(data: z.infer<typeof loginFormSchema>) {
-    if (requiresLegalConsent && !agreedToLegal) {
-      toast.error(legalConsentErrorMessage)
+    if (isCaptchaEnabled) {
+      pendingFormData.current = data
+      setIsCaptchaOpen(true)
       return
     }
+    await doLogin(data, '', '')
+  }
 
-    if (!validateTurnstile()) return
-
-    const submittedTurnstileToken = turnstileToken
-    if (isTurnstileEnabled) {
-      setTurnstileToken('')
-      setTurnstileWidgetKey((current) => current + 1)
-    }
-
+  async function doLogin(
+    data: z.infer<typeof loginFormSchema>,
+    captchaToken: string,
+    captchaProvider: string
+  ) {
     setIsLoading(true)
     try {
       const res = await login({
         username: data.username,
         password: data.password,
-        turnstile: submittedTurnstileToken,
-        passwordEncryptionEnabled: passwordLoginEncryptionEnabled,
+        turnstile: captchaToken,
+        captcha_provider: captchaProvider,
       })
 
       if (res.success) {
-        form.setValue('password', '')
-        if (await handleLoginResult(res.data, redirectTo)) {
-          toast.success(t('Welcome back!'))
+        if (res.data && 'require_2fa' in res.data && res.data.require_2fa) {
+          if (!res.data.flow_token) {
+            throw new Error(t('Login flow expired. Please sign in again.'))
+          }
+          setPending2FAFlowToken(res.data.flow_token)
+          redirectTo2FA()
+          return
         }
+
+        if (!isAuthBundle(res.data)) {
+          throw new Error(t('Login failed'))
+        }
+        await handleLoginSuccess(res.data, redirectTo)
+        toast.success(t('Welcome back!'))
       } else {
-        handleServerError(createServerError(res, loginFailedMessage))
+        if (getServerErrorMessageKey(res)) return
+        toast.error(res?.message || loginFailedMessage)
+        reopenCaptcha(data)
       }
     } catch (error: unknown) {
-      handleServerError(AuthOperationError.from(error, loginFailedMessage))
+      if (axios.isAxiosError(error)) {
+        reopenCaptcha(data)
+        return
+      }
+      toast.error(error instanceof Error ? error.message : loginFailedMessage)
+      reopenCaptcha(data)
     } finally {
       setIsLoading(false)
     }
   }
 
-  const handleOpenWeChatDialog = () => {
-    if (requiresLegalConsent && !agreedToLegal) {
-      toast.error(legalConsentErrorMessage)
-      return
-    }
+  /** A rejected login invalidates the captcha token, so re-open the dialog. */
+  function reopenCaptcha(data: z.infer<typeof loginFormSchema>) {
+    if (!isCaptchaEnabled) return
+    pendingFormData.current = data
+    setIsCaptchaOpen(true)
+  }
 
+  const handleOpenWeChatDialog = () => {
+    setIsOtherLoginOpen(false)
     setIsWeChatDialogOpen(true)
   }
 
@@ -223,29 +217,23 @@ export function UserAuthForm({
     setIsWeChatSubmitting(true)
     try {
       const res = await wechatLoginByCode(wechatCode)
-      if (res?.success) {
+      if (res?.success && isAuthBundle(res.data)) {
+        await handleLoginSuccess(res.data, redirectTo)
+        toast.success(t('Signed in via WeChat'))
         handleWeChatDialogChange(false)
-        if (await handleLoginResult(res.data, redirectTo)) {
-          toast.success(t('Signed in via WeChat'))
-        }
       } else {
-        handleServerError(createServerError(res, loginFailedMessage))
+        if (getServerErrorMessageKey(res)) return
+        toast.error(res?.message || loginFailedMessage)
       }
     } catch (error: unknown) {
-      handleServerError(
-        new AuthOperationError(loginFailedMessage, undefined, { cause: error })
-      )
+      if (getServerErrorMessageKey(error)) return
+      toast.error(loginFailedMessage)
     } finally {
       setIsWeChatSubmitting(false)
     }
   }
 
   async function handlePasskeyLogin() {
-    if (requiresLegalConsent && !agreedToLegal) {
-      toast.error(legalConsentErrorMessage)
-      return
-    }
-
     if (!passkeySupported) {
       toast.error(t('Passkey is not supported on this device'))
       return
@@ -256,91 +244,62 @@ export function UserAuthForm({
       return
     }
 
-    if (passkeyOperation.current) return
-    const controller = new AbortController()
-    passkeyOperation.current = controller
     setIsPasskeyLoading(true)
     try {
-      const passkey = await requestPasskeyAssertion(
-        (rpID) => beginPasskeyLogin(rpID, controller.signal),
-        controller.signal,
-        { rpID: passkeyRPID, onDomains: setPasskeyDomains }
-      )
-      const finish = await finishPasskeyLogin(
-        passkey.flowToken,
-        passkey.assertion,
-        controller.signal
-      )
-      controller.signal.throwIfAborted()
-      if (!finish.success) {
-        throw createServerError(finish, t('Failed to complete Passkey login'))
+      const begin = await beginPasskeyLogin()
+      if (!begin.success) {
+        if (getServerErrorMessageKey(begin)) return
+        throw new Error(begin.message || t('Failed to start Passkey login'))
       }
 
-      rememberPasskeyRPID(passkey.rpID)
-      if (await handleLoginResult(finish.data, redirectTo)) {
-        toast.success(t('Signed in with Passkey'))
+      const publicKey = prepareCredentialRequestOptions(
+        begin.data?.options ?? begin.data
+      )
+      const flowToken = begin.data?.flow_token
+      if (!flowToken) {
+        throw new Error(t('Login flow expired. Please sign in again.'))
       }
+
+      const credential = (await navigator.credentials.get({
+        publicKey,
+      })) as PublicKeyCredential | null
+
+      if (!credential) {
+        toast.info(t('Passkey login was cancelled'))
+        return
+      }
+
+      const assertion = buildAssertionResult(credential)
+      if (!assertion) {
+        throw new Error(t('Invalid Passkey response'))
+      }
+
+      const finish = await finishPasskeyLogin(flowToken, assertion)
+      if (!finish.success) {
+        if (getServerErrorMessageKey(finish)) return
+        throw new Error(finish.message || t('Failed to complete Passkey login'))
+      }
+
+      if (!isAuthBundle(finish.data)) {
+        throw new Error(t('Missing user data from Passkey login response'))
+      }
+
+      await handleLoginSuccess(finish.data, redirectTo)
+      toast.success(t('Signed in with Passkey'))
+      setIsOtherLoginOpen(false)
     } catch (error: unknown) {
-      if (controller.signal.aborted) return
+      if (getServerErrorMessageKey(error)) return
       if (error instanceof DOMException && error.name === 'NotAllowedError') {
         toast.info(t('Passkey login was cancelled or timed out'))
       } else if (error instanceof Error) {
-        handleServerError(AuthOperationError.from(error))
+        toast.error(error.message)
       } else {
-        handleServerError(
-          AuthOperationError.from(error, t('Passkey login failed'))
-        )
+        toast.error(t('Passkey login failed'))
       }
     } finally {
-      if (passkeyOperation.current === controller) {
-        passkeyOperation.current = null
-      }
       setIsPasskeyLoading(false)
     }
   }
-
-  const alternativeLoginMethods = (
-    <>
-      {passkeyLoginEnabled && (
-        <div className='mt-2 space-y-1'>
-          <Button
-            type='button'
-            variant='outline'
-            disabled={passkeyButtonDisabled}
-            onClick={handlePasskeyLogin}
-            className='h-11 w-full justify-center gap-2 rounded-lg'
-          >
-            {isPasskeyLoading ? (
-              <Loader2 className='h-4 w-4 animate-spin' />
-            ) : (
-              <KeyRound className='h-4 w-4' />
-            )}
-            {t('Sign in with Passkey')}
-          </Button>
-          <PasskeyDomainSelector
-            domains={passkeyDomains}
-            value={passkeyRPID}
-            onChange={setPasskeyRPID}
-            disabled={passkeyButtonDisabled}
-          />
-          {!passkeySupported && (
-            <p className='text-muted-foreground text-xs'>
-              {t('Passkey is not supported on this device.')}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* OAuth Providers */}
-      <OAuthProviders
-        status={status}
-        redirectTo={redirectTo}
-        disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
-        onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
-        isWeChatLoading={isWeChatSubmitting}
-      />
-    </>
-  )
 
   return (
     <Form {...form}>
@@ -349,8 +308,6 @@ export function UserAuthForm({
         className={cn('grid gap-4', className)}
         {...props}
       >
-        {hasAlternativeLogin && alternativeLoginMethods}
-
         {passwordLoginEnabled && (
           <>
             {/* Username Field */}
@@ -404,30 +361,45 @@ export function UserAuthForm({
               {isLoading ? <Loader2 className='animate-spin' /> : <LogIn />}
               {t('Sign in')}
             </Button>
-
-            {/* Turnstile */}
-            {isTurnstileEnabled && (
-              <div className='mt-2'>
-                <Turnstile
-                  key={turnstileWidgetKey}
-                  siteKey={turnstileSiteKey}
-                  onVerify={setTurnstileToken}
-                  onExpire={() => setTurnstileToken('')}
-                />
-              </div>
-            )}
           </>
         )}
 
-        <LegalConsent
-          status={status}
-          checked={agreedToLegal}
-          onCheckedChange={setAgreedToLegal}
-          className='mt-1'
-        />
-
-        {!hasAlternativeLogin && alternativeLoginMethods}
+        {/* Legal text + alternative methods */}
+        <TermsFooter variant='sign-in' status={status} />
+        {hasOtherLoginMethods && (
+          <OtherLoginTrigger
+            onClick={() => setIsOtherLoginOpen(true)}
+            disabled={isLoading}
+          />
+        )}
       </form>
+
+      <OtherLoginDialog
+        open={isOtherLoginOpen}
+        onOpenChange={setIsOtherLoginOpen}
+        variant='sign-in'
+        status={status}
+        redirectTo={redirectTo}
+        disabled={isLoading}
+        passkeyEnabled={passkeyLoginEnabled}
+        passkeySupported={passkeySupported}
+        isPasskeyLoading={isPasskeyLoading}
+        onPasskey={handlePasskeyLogin}
+        onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
+        isWeChatLoading={isWeChatSubmitting}
+      />
+
+      <CaptchaDialog
+        open={isCaptchaOpen}
+        onOpenChange={setIsCaptchaOpen}
+        providers={providers}
+        onVerified={(token, provider) => {
+          const data = pendingFormData.current
+          if (data) {
+            void doLogin(data, token, provider)
+          }
+        }}
+      />
 
       {hasWeChatLogin && (
         <Dialog
@@ -454,11 +426,7 @@ export function UserAuthForm({
               <Button
                 type='button'
                 onClick={handleWeChatLogin}
-                disabled={
-                  isWeChatSubmitting ||
-                  !wechatCode.trim() ||
-                  (requiresLegalConsent && !agreedToLegal)
-                }
+                disabled={isWeChatSubmitting || !wechatCode.trim()}
                 className='gap-2'
               >
                 {isWeChatSubmitting ? (
@@ -473,23 +441,29 @@ export function UserAuthForm({
             <div className='flex justify-center'>
               <img
                 src={wechatQrCodeUrl}
-                alt={t('WeChat login QR code')}
-                className='h-40 w-40 rounded-md border object-contain'
+                alt={t('WeChat QR code')}
+                className='h-40 w-40 rounded-md border object-cover'
               />
             </div>
           ) : (
             <p className='text-muted-foreground text-sm'>
-              {t('QR code is not configured. Please contact support.')}
+              {t('WeChat QR code is not configured yet.')}
             </p>
           )}
           <div className='grid gap-2'>
             <Label htmlFor='wechat-code'>{t('Verification code')}</Label>
             <Input
               id='wechat-code'
-              placeholder={t('Enter the verification code')}
+              placeholder={t('Enter the code you received')}
               value={wechatCode}
               onChange={(event) => setWeChatCode(event.target.value)}
-              autoComplete='one-time-code'
+              disabled={isWeChatSubmitting}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void handleWeChatLogin()
+                }
+              }}
             />
           </div>
         </Dialog>

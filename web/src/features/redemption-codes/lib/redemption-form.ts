@@ -41,6 +41,9 @@ export function getRedemptionFormSchema(t: TFunction) {
       .string()
       .min(REDEMPTION_VALIDATION.NAME_MIN_LENGTH, msg.NAME_LENGTH_INVALID)
       .max(REDEMPTION_VALIDATION.NAME_MAX_LENGTH, msg.NAME_LENGTH_INVALID),
+    type: z.number().default(0),
+    model_filter_mode: z.enum(['none', 'whitelist']).default('none'),
+    models: z.array(z.string()).default([]),
     quota_dollars: z.number().min(0, t('Quota must be a positive number')),
     expired_time: z.date().optional(),
     count: z
@@ -48,11 +51,22 @@ export function getRedemptionFormSchema(t: TFunction) {
       .min(REDEMPTION_VALIDATION.COUNT_MIN, msg.COUNT_INVALID)
       .max(REDEMPTION_VALIDATION.COUNT_MAX, msg.COUNT_INVALID)
       .optional(),
+  }).superRefine((values, context) => {
+    if (values.model_filter_mode === 'whitelist' && values.models.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['models'],
+        message: t('Select at least one model for a restricted code.'),
+      })
+    }
   })
 }
 
 export type RedemptionFormValues = {
   name: string
+  type: number
+  model_filter_mode: 'none' | 'whitelist'
+  models: string[]
   quota_dollars: number
   expired_time?: Date
   count?: number
@@ -64,6 +78,9 @@ export type RedemptionFormValues = {
 
 export const REDEMPTION_FORM_DEFAULT_VALUES: RedemptionFormValues = {
   name: '',
+  type: 0,
+  model_filter_mode: 'none',
+  models: [],
   quota_dollars: 10,
   expired_time: undefined,
   count: 1,
@@ -79,9 +96,13 @@ export const REDEMPTION_FORM_DEFAULT_VALUES: RedemptionFormValues = {
 export function transformFormDataToPayload(
   data: RedemptionFormValues
 ): RedemptionFormData {
+  const isUnits = data.type === 1 || data.type === 2
   return {
     name: data.name,
-    quota: parseQuotaFromDollars(data.quota_dollars),
+    type: data.type || 0,
+    model_filter_mode: data.model_filter_mode,
+    models: data.model_filter_mode === 'whitelist' ? data.models.join(',') : '',
+    quota: isUnits ? Math.floor(data.quota_dollars) : parseQuotaFromDollars(data.quota_dollars),
     expired_time: data.expired_time
       ? Math.floor(data.expired_time.getTime() / 1000)
       : 0,
@@ -95,9 +116,15 @@ export function transformFormDataToPayload(
 export function transformRedemptionToFormDefaults(
   redemption: Redemption
 ): RedemptionFormValues {
+  const isUnits = redemption.type === 1 || redemption.type === 2
   return {
     name: redemption.name,
-    quota_dollars: quotaUnitsToEditableAmount(redemption.quota),
+    type: redemption.type || 0,
+    model_filter_mode: redemption.model_filter_mode === 'whitelist' ? 'whitelist' : 'none',
+    models: redemption.models
+      ? redemption.models.split(',').map((model) => model.trim()).filter(Boolean)
+      : [],
+    quota_dollars: isUnits ? redemption.quota : quotaUnitsToEditableAmount(redemption.quota),
     expired_time:
       redemption.expired_time > 0
         ? new Date(redemption.expired_time * 1000)

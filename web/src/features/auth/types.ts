@@ -18,8 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { AuthBundle } from '@/stores/auth-store'
 
-import type { LoginResult } from './secure-verification/types'
-
 // ============================================================================
 // API Payloads
 // ============================================================================
@@ -28,7 +26,7 @@ export interface LoginPayload {
   username: string
   password: string
   turnstile?: string
-  passwordEncryptionEnabled?: boolean
+  captcha_provider?: string
 }
 
 export interface TwoFAPayload {
@@ -43,22 +41,24 @@ export interface RegisterPayload {
   verification_code?: string
   aff_code?: string
   turnstile?: string
+  captcha_provider?: string
 }
 
 export interface PasswordResetPayload {
   email: string
   turnstile?: string
+  captcha_provider?: string
 }
 
 export interface EmailVerificationPayload {
   email: string
   turnstile?: string
+  captcha_provider?: string
 }
 
 export interface BindEmailPayload {
-  flow_token: string
-  new_code: string
-  old_code?: string
+  email: string
+  code: string
 }
 
 // ============================================================================
@@ -68,7 +68,13 @@ export interface BindEmailPayload {
 export interface LoginResponse {
   success: boolean
   message: string
-  data?: LoginResult
+  data?:
+    | AuthBundle
+    | {
+        require_2fa?: boolean
+        flow_token?: string
+        expires_at?: number
+      }
 }
 
 export interface Login2FAResponse {
@@ -105,7 +111,6 @@ export interface SystemStatus {
     linuxdo_oauth?: boolean
     linuxdo_client_id?: string
     telegram_oauth?: boolean
-    telegram_oauth_configured?: boolean
     telegram_bot_name?: string
     passkey_login?: boolean
     wechat_login?: boolean
@@ -117,6 +122,11 @@ export interface SystemStatus {
     WeChatAccountQRCodeImageURL?: string
     turnstile_check?: boolean
     turnstile_site_key?: string
+    captcha_type?: 'off' | 'turnstile' | 'recaptcha' | 'hcaptcha' | 'image'
+    captcha_fallback?: boolean
+    recaptcha_site_key?: string
+    hcaptcha_site_key?: string
+    blog_enabled?: boolean
     email_verification?: boolean
     self_use_mode_enabled?: boolean
     display_in_currency?: boolean
@@ -132,7 +142,6 @@ export interface SystemStatus {
     oauth_register_enabled?: boolean
     register_enabled?: boolean
     password_login_enabled?: boolean
-    password_login_encryption_enabled?: boolean
     password_register_enabled?: boolean
     custom_oauth_providers?: CustomOAuthProviderInfo[]
     [key: string]: unknown
@@ -152,7 +161,6 @@ export interface SystemStatus {
   linuxdo_oauth?: boolean
   linuxdo_client_id?: string
   telegram_oauth?: boolean
-  telegram_oauth_configured?: boolean
   telegram_bot_name?: string
   passkey_login?: boolean
   wechat_login?: boolean
@@ -164,6 +172,10 @@ export interface SystemStatus {
   WeChatAccountQRCodeImageURL?: string
   turnstile_check?: boolean
   turnstile_site_key?: string
+  captcha_type?: 'off' | 'turnstile' | 'recaptcha' | 'hcaptcha' | 'image'
+  recaptcha_site_key?: string
+  hcaptcha_site_key?: string
+  blog_enabled?: boolean
   email_verification?: boolean
   self_use_mode_enabled?: boolean
   display_in_currency?: boolean
@@ -179,11 +191,8 @@ export interface SystemStatus {
   oauth_register_enabled?: boolean
   register_enabled?: boolean
   password_login_enabled?: boolean
-  password_login_encryption_enabled?: boolean
   password_register_enabled?: boolean
   custom_oauth_providers?: CustomOAuthProviderInfo[]
-  log_export_enabled?: boolean
-  log_max_range_days?: number
   [key: string]: unknown
 }
 

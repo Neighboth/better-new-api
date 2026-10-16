@@ -2,13 +2,13 @@ package router
 
 import (
 	"embed"
-	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/gin-contrib/gzip"
+	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,30 +18,39 @@ type WebAssets struct {
 	IndexPage []byte
 }
 
-func SetWebRouter(router *gin.Engine, assets WebAssets, pluginDispatcher gin.HandlerFunc) {
+func SetWebRouter(router *gin.Engine, assets WebAssets) {
 	frontendFS := common.EmbedFolder(assets.BuildFS, "web/dist")
-	compress := gzip.Gzip(gzip.DefaultCompression)
 
-	router.NoRoute(
-		pluginDispatcher,
-		middleware.RouteTag("web"),
-		func(c *gin.Context) {
-			// ServeFrontendFiles sends build files already compressed.
-			if !frontendFS.Exists("/", c.Request.URL.Path) {
-				compress(c)
-			}
-		},
-		middleware.AccessTokenAudit(),
-		middleware.GlobalWebRateLimit(frontendFS),
-		middleware.Cache(),
-		middleware.ServeFrontendFiles(frontendFS),
-		func(c *gin.Context) {
-			if strings.HasPrefix(c.Request.RequestURI, "/v1") || strings.HasPrefix(c.Request.RequestURI, "/api") || strings.HasPrefix(c.Request.RequestURI, "/assets") {
-				controller.RelayNotFound(c)
-				return
-			}
-			c.Header("Cache-Control", "no-cache")
-			c.Data(http.StatusOK, "text/html; charset=utf-8", assets.IndexPage)
-		},
-	)
+	router.Use(gzip.Gzip(gzip.DefaultCompression))
+	router.Use(middleware.GlobalWebRateLimit())
+	router.Use(middleware.Cache())
+
+	// SEO endpoints must be registered before the static file server so they
+	// win even if a same-named file ever lands in the build output.
+	router.GET("/robots.txt", controller.BuildRobotsTxt)
+	router.GET("/llms.txt", controller.GetLLMSTxt)
+	router.GET("/llms-full.txt", controller.GetLLMSFullTxt)
+	router.GET("/full-llms.txt", controller.GetLLMSFullTxt)
+	router.GET("/sitemap.xml", controller.GetSitemapXML)
+	router.GET("/blog/:id", func(c *gin.Context) {
+		controller.ServeBlogIndex(c, assets.IndexPage)
+	})
+	router.GET("/", func(c *gin.Context) {
+		c.Set(middleware.RouteTagKey, "web")
+		controller.ServeIndex(c, assets.IndexPage)
+	})
+	router.GET("/index.html", func(c *gin.Context) {
+		c.Set(middleware.RouteTagKey, "web")
+		controller.ServeIndex(c, assets.IndexPage)
+	})
+
+	router.Use(static.Serve("/", frontendFS))
+	router.NoRoute(func(c *gin.Context) {
+		c.Set(middleware.RouteTagKey, "web")
+		if strings.HasPrefix(c.Request.RequestURI, "/v1") || strings.HasPrefix(c.Request.RequestURI, "/api") || strings.HasPrefix(c.Request.RequestURI, "/assets") {
+			controller.RelayNotFound(c)
+			return
+		}
+		controller.ServeIndex(c, assets.IndexPage)
+	})
 }

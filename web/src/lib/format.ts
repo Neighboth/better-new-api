@@ -79,6 +79,34 @@ export function formatQuota(quota: number): string {
 }
 
 /**
+ * Format redemption quota depending on type:
+ * 0 (or undefined): standard dollar/currency quota format
+ * 1: Request count (e.g. "10 İstek" or "10 Requests")
+ * 2: Token count (e.g. "7M Token" or "500K Token")
+ */
+export function formatRedemptionQuota(
+  quota: number,
+  type?: number,
+  t?: (key: string) => string
+): string {
+  if (type === 1) {
+    const label = t ? t('Requests') : 'İstek'
+    return `${quota.toLocaleString()} ${label}`
+  }
+  if (type === 2) {
+    const label = t ? t('Token') : 'Token'
+    if (quota >= 1_000_000 && quota % 100_000 === 0) {
+      return `${quota / 1_000_000}M ${label}`
+    }
+    if (quota >= 1_000 && quota % 1_000 === 0) {
+      return `${quota / 1_000}K ${label}`
+    }
+    return `${quota.toLocaleString()} ${label}`
+  }
+  return formatQuota(quota)
+}
+
+/**
  * Parse quota from the current display input back to quota units.
  */
 export function parseQuotaFromDollars(amount: number): number {

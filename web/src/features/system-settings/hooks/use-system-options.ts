@@ -18,14 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 
-import { requireServerSuccess } from '@/lib/server-error-message'
-
 import { getSystemOptions } from '../api'
 
 export function useSystemOptions() {
   return useQuery({
     queryKey: ['system-options'],
-    queryFn: async () => requireServerSuccess(await getSystemOptions()),
+    queryFn: getSystemOptions,
     staleTime: 5 * 60 * 1000,
   })
 }
@@ -122,6 +120,8 @@ export function getOptionValue<
         result[option.key as keyof T] = parseResult.fallback as T[keyof T]
         errors.push({ key: option.key, error: parseResult.error })
       }
+    } else {
+      ;(result as Record<string, unknown>)[option.key] = option.value
     }
   })
 

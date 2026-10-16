@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -29,13 +30,90 @@ func GetModelDeploymentSettings(c *gin.Context) {
 	common.OptionMapRWMutex.RLock()
 	enabled := common.OptionMap["model_deployment.ionet.enabled"] == "true"
 	hasAPIKey := strings.TrimSpace(common.OptionMap["model_deployment.ionet.api_key"]) != ""
+	
+	modalEnabled := common.OptionMap["model_deployment.modal.enabled"] == "true"
+	hasModalAPIKey := strings.TrimSpace(common.OptionMap["model_deployment.modal.token_id"]) != "" || strings.TrimSpace(common.OptionMap["model_deployment.modal.token_secret"]) != ""
+
+	hfEnabled := common.OptionMap["model_deployment.huggingface.enabled"] == "true"
+	hasHFKey := strings.TrimSpace(common.OptionMap["model_deployment.huggingface.api_key"]) != "" || strings.TrimSpace(common.OptionMap["model_deployment.huggingface.token"]) != ""
 	common.OptionMapRWMutex.RUnlock()
 
 	common.ApiSuccess(c, gin.H{
-		"provider":    "io.net",
-		"enabled":     enabled,
-		"configured":  hasAPIKey,
-		"can_connect": enabled && hasAPIKey,
+		"providers": []gin.H{
+			{
+				"provider":    "io.net",
+				"enabled":     enabled,
+				"configured":  hasAPIKey,
+				"can_connect": enabled && hasAPIKey,
+			},
+			{
+				"provider":    "modal",
+				"enabled":     modalEnabled,
+				"configured":  hasModalAPIKey,
+				"can_connect": modalEnabled && hasModalAPIKey,
+			},
+			{
+				"provider":    "huggingface",
+				"enabled":     hfEnabled,
+				"configured":  hasHFKey,
+				"can_connect": hfEnabled && hasHFKey,
+			},
+		},
+	})
+}
+
+func TestHuggingFaceConnection(c *gin.Context) {
+	var req struct {
+		Token string `json:"token"`
+	}
+	rawBody, _ := c.GetRawData()
+	if len(bytes.TrimSpace(rawBody)) > 0 {
+		_ = json.Unmarshal(rawBody, &req)
+	}
+	token := strings.TrimSpace(req.Token)
+	if token == "" {
+		common.OptionMapRWMutex.RLock()
+		token = strings.TrimSpace(common.OptionMap["model_deployment.huggingface.token"])
+		if token == "" {
+			token = strings.TrimSpace(common.OptionMap["model_deployment.huggingface.api_key"])
+		}
+		common.OptionMapRWMutex.RUnlock()
+	}
+	if token == "" {
+		common.ApiErrorMsg(c, "Hugging Face token is required")
+		return
+	}
+
+	httpReq, err := http.NewRequest(http.MethodGet, "https://huggingface.co/api/whoami-v2", nil)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("User-Agent", "BetterNewAPI/1.0")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		common.ApiErrorMsg(c, fmt.Sprintf("failed to connect to Hugging Face: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		common.ApiErrorMsg(c, fmt.Sprintf("invalid Hugging Face token (HTTP %d)", resp.StatusCode))
+		return
+	}
+
+	var whoami struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&whoami)
+
+	common.ApiSuccess(c, gin.H{
+		"name": whoami.Name,
+		"type": whoami.Type,
 	})
 }
 
@@ -135,7 +213,7 @@ func requireContainerID(c *gin.Context) (string, bool) {
 	return containerID, true
 }
 
-func mapIoNetDeployment(d ionet.Deployment) map[string]any {
+func mapIoNetDeployment(d ionet.Deployment) map[string]interface{} {
 	var created int64
 	if d.CreatedAt.IsZero() {
 		created = time.Now().Unix()
@@ -156,7 +234,7 @@ func mapIoNetDeployment(d ionet.Deployment) map[string]any {
 
 	hardwareInfo := fmt.Sprintf("%s %s x%d", d.BrandName, d.HardwareName, d.HardwareQuantity)
 
-	return map[string]any{
+	return map[string]interface{}{
 		"id":                        d.ID,
 		"deployment_name":           d.Name,
 		"container_name":            d.Name,
@@ -176,7 +254,7 @@ func mapIoNetDeployment(d ionet.Deployment) map[string]any {
 		"model_name":                "",
 		"model_version":             "",
 		"instance_count":            d.HardwareQuantity,
-		"resource_config": map[string]any{
+		"resource_config": map[string]interface{}{
 			"cpu":    "",
 			"memory": "",
 			"gpu":    strconv.Itoa(d.HardwareQuantity),
@@ -225,7 +303,7 @@ func GetAllDeployments(c *gin.Context) {
 		return
 	}
 
-	items := make([]map[string]any, 0, len(dl.Deployments))
+	items := make([]map[string]interface{}, 0, len(dl.Deployments))
 	for _, d := range dl.Deployments {
 		items = append(items, mapIoNetDeployment(d))
 	}
@@ -274,7 +352,7 @@ func SearchDeployments(c *gin.Context) {
 		}
 	}
 
-	items := make([]map[string]any, 0, len(filtered))
+	items := make([]map[string]interface{}, 0, len(filtered))
 	for _, d := range filtered {
 		items = append(items, mapIoNetDeployment(d))
 	}
@@ -310,7 +388,7 @@ func GetDeployment(c *gin.Context) {
 		return
 	}
 
-	data := map[string]any{
+	data := map[string]interface{}{
 		"id":              details.ID,
 		"deployment_name": details.ID,
 		"model_name":      "",
@@ -318,7 +396,7 @@ func GetDeployment(c *gin.Context) {
 		"status":          strings.ToLower(details.Status),
 		"instance_count":  details.TotalContainers,
 		"hardware_id":     details.HardwareID,
-		"resource_config": map[string]any{
+		"resource_config": map[string]interface{}{
 			"cpu":    "",
 			"memory": "",
 			"gpu":    strconv.Itoa(details.TotalGPUs),
@@ -668,7 +746,10 @@ func GetDeploymentLogs(c *gin.Context) {
 	var limit int = 100
 	if limitStr != "" {
 		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
-			limit = min(parsedLimit, 1000)
+			limit = parsedLimit
+			if limit > 1000 {
+				limit = 1000
+			}
 		}
 	}
 
@@ -717,19 +798,19 @@ func ListDeploymentContainers(c *gin.Context) {
 		return
 	}
 
-	items := make([]map[string]any, 0)
+	items := make([]map[string]interface{}, 0)
 	if containers != nil {
-		items = make([]map[string]any, 0, len(containers.Workers))
+		items = make([]map[string]interface{}, 0, len(containers.Workers))
 		for _, ctr := range containers.Workers {
-			events := make([]map[string]any, 0, len(ctr.ContainerEvents))
+			events := make([]map[string]interface{}, 0, len(ctr.ContainerEvents))
 			for _, event := range ctr.ContainerEvents {
-				events = append(events, map[string]any{
+				events = append(events, map[string]interface{}{
 					"time":    event.Time.Unix(),
 					"message": event.Message,
 				})
 			}
 
-			items = append(items, map[string]any{
+			items = append(items, map[string]interface{}{
 				"container_id":       ctr.ContainerID,
 				"device_id":          ctr.DeviceID,
 				"status":             strings.ToLower(strings.TrimSpace(ctr.Status)),
@@ -781,9 +862,9 @@ func GetContainerDetails(c *gin.Context) {
 		return
 	}
 
-	events := make([]map[string]any, 0, len(details.ContainerEvents))
+	events := make([]map[string]interface{}, 0, len(details.ContainerEvents))
 	for _, event := range details.ContainerEvents {
-		events = append(events, map[string]any{
+		events = append(events, map[string]interface{}{
 			"time":    event.Time.Unix(),
 			"message": event.Message,
 		})

@@ -16,23 +16,25 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ColumnDef } from '@tanstack/react-table'
+import { type ColumnDef } from '@tanstack/react-table'
+import { Ban } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { MaskedValueDisplay } from '@/components/masked-value-display'
 import { StatusBadge } from '@/components/status-badge'
 import { TableId } from '@/components/table-id'
+import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { formatQuota, formatTimestampToDate } from '@/lib/format'
+import { formatRedemptionQuota, formatTimestampToDate } from '@/lib/format'
 
 import { REDEMPTION_FILTER_EXPIRED, REDEMPTION_STATUSES } from '../constants'
 import { isRedemptionExpired, isTimestampExpired } from '../lib'
-import type { Redemption } from '../types'
+import { type Redemption } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
 
 export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
@@ -77,7 +79,34 @@ export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
       header: t('Name'),
       meta: { mobileTitle: true },
       cell: ({ row }) => (
-        <span className='font-medium'>{row.getValue('name')}</span>
+        <div className='flex items-center gap-2'>
+          <span className='font-medium'>{row.getValue('name')}</span>
+          {row.original.model_filter_mode === 'whitelist' && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Ban
+                    aria-label={t('Model restricted')}
+                    className='size-4 shrink-0 text-destructive'
+                  />
+                }
+              />
+              <TooltipContent>
+                {t('Restricted to: {{models}}', {
+                  models: row.original.models?.split(',').join(', ') ?? '',
+                })}
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {row.original.is_reseller && (
+            <Badge
+              variant='outline'
+              className='text-[10px] px-1.5 py-0 h-4 font-semibold text-amber-600 border-amber-400 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300'
+            >
+              {t('[Bayi]')}
+            </Badge>
+          )}
+        </div>
       ),
       size: 180,
     },
@@ -135,7 +164,7 @@ export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
     {
       id: 'code',
       accessorKey: 'key',
-      header: t('Redemption Code'),
+      header: t('Code'),
       cell: function CodeCell({ row }) {
         const redemption = row.original
         const key = redemption.key
@@ -161,7 +190,7 @@ export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
         const quota = row.getValue('quota') as number
         return (
           <StatusBadge
-            label={formatQuota(quota)}
+            label={formatRedemptionQuota(quota, row.original.type, t)}
             variant='neutral'
             copyable={false}
             className='-ml-1.5'

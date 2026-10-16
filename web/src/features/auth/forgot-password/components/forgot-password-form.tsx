@@ -24,7 +24,6 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { z } from 'zod'
 
-import { Turnstile } from '@/components/turnstile'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -36,15 +35,13 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { sendPasswordResetEmail } from '@/features/auth/api'
+import { CaptchaDialog } from '@/features/auth/components/captcha-dialog'
 import {
   forgotPasswordFormSchema,
   PASSWORD_RESET_COUNTDOWN,
 } from '@/features/auth/constants'
-import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
+import { useCaptcha } from '@/features/auth/hooks/use-captcha'
 import { useCountdown } from '@/hooks/use-countdown'
-import { handleServerError } from '@/lib/handle-server-error'
-import { AuthOperationError } from '@/lib/secure-verification'
-import { createServerError } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 export function ForgotPasswordForm({
@@ -54,13 +51,9 @@ export function ForgotPasswordForm({
   const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(false)
 
-  const {
-    isTurnstileEnabled,
-    turnstileSiteKey,
-    turnstileToken,
-    setTurnstileToken,
-    validateTurnstile,
-  } = useTurnstile()
+  const { isCaptchaEnabled, providers } = useCaptcha()
+  const [isCaptchaOpen, setIsCaptchaOpen] = useState(false)
+  const [pendingEmail, setPendingEmail] = useState('')
   const {
     secondsLeft,
     isActive,
@@ -71,27 +64,39 @@ export function ForgotPasswordForm({
     resolver: zodResolver(forgotPasswordFormSchema),
     defaultValues: { email: '' },
   })
-  const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
 
   async function onSubmit(data: z.infer<typeof forgotPasswordFormSchema>) {
-    if (!validateTurnstile()) return
+    if (isCaptchaEnabled) {
+      setPendingEmail(data.email)
+      setIsCaptchaOpen(true)
+      return
+    }
+    await doSend(data.email, '', '')
+  }
 
+  async function doSend(
+    email: string,
+    captchaToken: string,
+    captchaProvider: string
+  ) {
     setIsLoading(true)
     try {
-      const res = await sendPasswordResetEmail(data.email, turnstileToken)
+      const res = await sendPasswordResetEmail(
+        email,
+        captchaToken,
+        captchaProvider
+      )
       if (res?.success) {
         form.reset()
         startCountdown()
         toast.success(t('Reset email sent, please check your inbox'))
       } else {
-        handleServerError(
-          createServerError(res, t('Failed to send reset email'))
-        )
+        toast.error(res?.message || t('Failed to send reset email'))
+        if (isCaptchaEnabled) setIsCaptchaOpen(true)
       }
-    } catch (_error) {
-      handleServerError(
-        AuthOperationError.from(_error, t('Failed to send reset email'))
-      )
+    } catch {
+      // Errors are handled by global interceptor
+      if (isCaptchaEnabled) setIsCaptchaOpen(true)
     } finally {
       setIsLoading(false)
     }
@@ -121,23 +126,23 @@ export function ForgotPasswordForm({
         <Button
           type='submit'
           className='mt-2'
-          disabled={isLoading || isActive || !turnstileReady}
+          disabled={isLoading || isActive}
         >
           {isActive
             ? t('Resend ({{seconds}}s)', { seconds: secondsLeft })
             : t('Send reset email')}
           {isLoading ? <Loader2 className='animate-spin' /> : <ArrowRight />}
         </Button>
-
-        {isTurnstileEnabled && (
-          <div className='mt-2'>
-            <Turnstile
-              siteKey={turnstileSiteKey}
-              onVerify={setTurnstileToken}
-            />
-          </div>
-        )}
       </form>
+
+      <CaptchaDialog
+        open={isCaptchaOpen}
+        onOpenChange={setIsCaptchaOpen}
+        providers={providers}
+        onVerified={(token, provider) =>
+          void doSend(pendingEmail, token, provider)
+        }
+      />
     </Form>
   )
 }

@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
+import { Markdown } from '@/components/ui/markdown'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 type DescriptionDialogProps = {
@@ -47,9 +48,9 @@ export function DescriptionDialog({
     >
       <ScrollArea className='max-h-96'>
         <div className='space-y-2 pr-4'>
-          <p className='text-foreground text-sm leading-relaxed break-words whitespace-pre-wrap'>
-            {description}
-          </p>
+          <div className='text-foreground text-sm leading-relaxed break-words prose prose-sm dark:prose-invert max-w-none'>
+            <Markdown>{description}</Markdown>
+          </div>
         </div>
       </ScrollArea>
     </Dialog>

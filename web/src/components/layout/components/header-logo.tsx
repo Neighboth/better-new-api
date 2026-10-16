@@ -36,16 +36,18 @@ export function HeaderLogo({
   loading,
   logoLoaded,
   className,
-}: HeaderLogoProps) {
+  style,
+}: HeaderLogoProps & { style?: React.CSSProperties }) {
   return (
     <img
       src={src}
       alt={alt}
       className={cn(
-        'h-6 w-6 rounded-full transition-opacity duration-200',
+        'transition-opacity duration-200 object-contain',
         !loading && logoLoaded ? 'opacity-100' : 'opacity-0',
         className
       )}
+      style={style}
     />
   )
 }

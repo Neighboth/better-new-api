@@ -120,6 +120,7 @@ func TestCacheGetRandomSatisfiedChannelUsesTokenAutoGroupsWhenGlobalAutoIsEmpty(
 	assert.Empty(t, setting.GetAutoGroups(), "the selection must not depend on the global Auto list")
 
 	param.IncreaseRetry()
+	param.IgnoredChannelIds = append(param.IgnoredChannelIds, first.Id)
 	second, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
 	require.NoError(t, err)
 	require.NotNil(t, second)

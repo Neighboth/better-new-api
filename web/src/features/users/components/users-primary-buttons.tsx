@@ -20,12 +20,20 @@ import { Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { ADMIN_PERMISSION_RESOURCES, hasPermission } from '@/lib/admin-permissions'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { useUsers } from './users-provider'
 
 export function UsersPrimaryButtons() {
   const { t } = useTranslation()
+  const user = useAuthStore((s) => s.auth.user)
+  const canWrite = hasPermission(user, ADMIN_PERMISSION_RESOURCES.USER, 'write')
   const { setOpen, setCurrentRow } = useUsers()
+
+  if (!canWrite) {
+    return null
+  }
 
   const handleCreate = () => {
     setCurrentRow(null)

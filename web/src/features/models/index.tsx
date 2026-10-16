@@ -23,9 +23,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
+import { AlertCircle, Server, Settings } from 'lucide-react'
+
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { listDeployments } from './api'
 import { DeploymentAccessGuard } from './components/deployment-access-guard'
@@ -35,7 +37,6 @@ import { ModelsDialogs } from './components/models-dialogs'
 import { ModelsPrimaryButtons } from './components/models-primary-buttons'
 import { ModelsProvider, useModels } from './components/models-provider'
 import { ModelsTable } from './components/models-table'
-import { VendorsTable } from './components/vendors-table'
 import { useModelDeploymentSettings } from './hooks/use-model-deployment-settings'
 import { deploymentsQueryKeys } from './lib'
 import {
@@ -46,31 +47,26 @@ import {
 
 const route = getRouteApi('/_authenticated/models/$section')
 
-const SECTION_META: Record<
-  ModelsSectionId,
-  { titleKey: string; tabKey: string }
-> = {
+const SECTION_META: Record<ModelsSectionId, { titleKey: string }> = {
   metadata: {
-    titleKey: 'Model management',
-    tabKey: 'Models',
+    titleKey: 'Metadata',
   },
-  vendors: { titleKey: 'Vendor management', tabKey: 'Vendors' },
   deployments: {
     titleKey: 'Deployments',
-    tabKey: 'Deployments',
   },
 }
 
 function ModelsContent() {
   const { t } = useTranslation()
-  const navigate = useNavigate({ from: '/models/$section' })
-  const { tabCategory, setTabCategory, setOpen, setCurrentVendor } = useModels()
+  const navigate = useNavigate()
+  const { tabCategory, setTabCategory } = useModels()
   const params = route.useParams()
   const activeSection = (params.section ??
     MODELS_DEFAULT_SECTION) as ModelsSectionId
 
   // Deployment create dialog state
   const [createDeploymentOpen, setCreateDeploymentOpen] = useState(false)
+  const { isIoNetEnabled: isIoNetAvailable } = useModelDeploymentSettings()
 
   // keep context state in sync (for components that rely on it)
   useEffect(() => {
@@ -84,7 +80,6 @@ function ModelsContent() {
       void navigate({
         to: '/models/$section',
         params: { section: section as ModelsSectionId },
-        search: (previous) => previous,
       })
     },
     [navigate]
@@ -92,52 +87,40 @@ function ModelsContent() {
 
   const meta = SECTION_META[activeSection] ?? SECTION_META.metadata
 
-  let actions = <ModelsPrimaryButtons />
-  let content = <ModelsTable />
-  if (activeSection === 'vendors') {
-    actions = (
-      <Button
-        size='sm'
-        onClick={() => {
-          setCurrentVendor(null)
-          setOpen('create-vendor')
-        }}
-      >
-        <Plus className='size-4' />
-        {t('Add Vendor')}
-      </Button>
-    )
-    content = <VendorsTable />
-  } else if (activeSection === 'deployments') {
-    actions = (
-      <Button onClick={() => setCreateDeploymentOpen(true)} size='sm'>
-        <Plus className='size-4' />
-        {t('Create deployment')}
-      </Button>
-    )
-    content = <DeploymentsSection />
-  }
-
   return (
     <>
-      <SectionPageLayout
-        fixedContent
-        stackActionsOnMobile={activeSection === 'metadata'}
-      >
+      <SectionPageLayout>
         <SectionPageLayout.Title>{t(meta.titleKey)}</SectionPageLayout.Title>
-        <SectionPageLayout.Actions>{actions}</SectionPageLayout.Actions>
+        <SectionPageLayout.Actions>
+          {activeSection === 'metadata' ? (
+            <ModelsPrimaryButtons />
+          ) : (
+            isIoNetAvailable && (
+              <Button onClick={() => setCreateDeploymentOpen(true)} size='sm'>
+                <Plus className='h-4 w-4' />
+                {t('Create deployment')}
+              </Button>
+            )
+          )}
+        </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <div className='flex h-full min-h-0 flex-col gap-4'>
             <Tabs value={activeSection} onValueChange={handleSectionChange}>
               <TabsList className='max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto'>
                 {MODELS_SECTION_IDS.map((section) => (
                   <TabsTrigger key={section} value={section}>
-                    {t(SECTION_META[section].tabKey)}
+                    {t(SECTION_META[section].titleKey)}
                   </TabsTrigger>
                 ))}
               </TabsList>
             </Tabs>
-            <div className='min-h-0 flex-1'>{content}</div>
+            <div className='min-h-0 flex-1'>
+              {activeSection === 'metadata' ? (
+                <ModelsTable />
+              ) : (
+                <DeploymentsSection />
+              )}
+            </div>
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
@@ -153,10 +136,15 @@ function ModelsContent() {
 
 function DeploymentsSection() {
   const queryClient = useQueryClient()
+  const { t } = useTranslation()
+  const navigate = useNavigate()
   const {
     loading: deploymentLoading,
     loadingPhase,
     isIoNetEnabled,
+    isModalEnabled,
+    isHfEnabled,
+    isAnyEnabled,
     connectionLoading,
     connectionOk,
     connectionError,
@@ -169,18 +157,61 @@ function DeploymentsSection() {
       const defaultParams = { p: 1, page_size: 10 }
       queryClient.prefetchQuery({
         queryKey: deploymentsQueryKeys.list(defaultParams),
-        queryFn: async () =>
-          requireServerSuccess(await listDeployments(defaultParams)),
+        queryFn: () => listDeployments(defaultParams),
         staleTime: 30 * 1000,
       })
     }
   }, [isIoNetEnabled, loadingPhase, queryClient])
 
+  const handleGoToSettings = () => {
+    navigate({
+      to: '/system-settings/models/$section',
+      params: { section: 'model-deployment' },
+    })
+  }
+
+  // io.net disabled but Modal/Hugging Face enabled: those providers have no
+  // container list API here; deployments live on the provider side and route
+  // automatically.
+  if (!deploymentLoading && isAnyEnabled && !isIoNetEnabled) {
+    const active: string[] = []
+    if (isModalEnabled) active.push('Modal')
+    if (isHfEnabled) active.push('Hugging Face')
+    return (
+      <div className='mx-auto mt-8 max-w-md'>
+        <div className='text-center'>
+          <div className='mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-100 dark:bg-emerald-900/20'>
+            <Server className='h-8 w-8 text-emerald-600 dark:text-emerald-400' />
+          </div>
+          <h3 className='mb-6 text-xl font-semibold'>
+            {t('Serverless deployments active')}
+          </h3>
+        </div>
+        <div className='space-y-4'>
+          <Alert variant='default'>
+            <AlertCircle className='h-4 w-4' />
+            <AlertTitle>{t('Active providers')}</AlertTitle>
+            <AlertDescription>
+              {t(
+                'Active providers: {{providers}}. Modal and Hugging Face deployments are managed on the provider side and route automatically by priority; no container list is shown here.',
+                { providers: active.join(', ') || '-' }
+              )}
+            </AlertDescription>
+          </Alert>
+          <Button onClick={handleGoToSettings} className='w-full'>
+            <Settings className='mr-2 h-4 w-4' />
+            {t('Go to settings')}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <DeploymentAccessGuard
       loading={deploymentLoading}
       loadingPhase={loadingPhase}
-      isEnabled={isIoNetEnabled}
+      isEnabled={isAnyEnabled}
       connectionLoading={connectionLoading}
       connectionOk={connectionOk}
       connectionError={connectionError}

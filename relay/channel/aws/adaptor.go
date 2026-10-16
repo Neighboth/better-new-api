@@ -39,10 +39,6 @@ func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dt
 }
 
 func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ClaudeRequest) (any, error) {
-	claudeAdaptor := claude.Adaptor{}
-	if _, err := claudeAdaptor.ConvertClaudeRequest(c, info, request); err != nil {
-		return nil, err
-	}
 	for i, message := range request.Messages {
 		updated := false
 		if !message.IsStringContent() {
@@ -93,9 +89,6 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	if info.ChannelOtherSettings.AwsApiType == dto.AwsApiTypeMantle {
-		return mantleRequestURL(info)
-	}
 	if info.ChannelOtherSettings.AwsKeyType == dto.AwsKeyTypeApiKey {
 		awsModelId := getAwsModelID(info.UpstreamModelName)
 		a.ClientMode = ClientModeApiKey
@@ -157,22 +150,6 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
-	switch info.ChannelOtherSettings.AwsApiType {
-	case dto.AwsApiTypeMantle:
-		req, err := a.newMantleRequest(c, info, requestBody)
-		if err != nil {
-			return nil, err
-		}
-		resp, err := channel.DoRequest(c, req, info)
-		if err != nil {
-			return nil, newAwsInvokeError(c.Request.Context(), err, "Mantle Messages")
-		}
-		return resp, nil
-	case "", dto.AwsApiTypeInvokeModel:
-		// Unconfigured channels retain the existing InvokeModel behavior.
-	default:
-		return nil, errors.New("invalid AWS API type")
-	}
 	if a.ClientMode == ClientModeApiKey {
 		return channel.DoApiRequest(a, c, info, requestBody)
 	} else {
@@ -181,7 +158,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
-	if info.ChannelOtherSettings.AwsApiType == dto.AwsApiTypeMantle || a.ClientMode == ClientModeApiKey {
+	if a.ClientMode == ClientModeApiKey {
 		claudeAdaptor := claude.Adaptor{}
 		usage, err = claudeAdaptor.DoResponse(c, resp, info)
 	} else {

@@ -1,14 +1,11 @@
 package model
 
 import (
-	"maps"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -51,15 +48,14 @@ func InitOptionMap() {
 	common.OptionMap["AutomaticDisableChannelEnabled"] = strconv.FormatBool(common.AutomaticDisableChannelEnabled)
 	common.OptionMap["AutomaticEnableChannelEnabled"] = strconv.FormatBool(common.AutomaticEnableChannelEnabled)
 	common.OptionMap["LogConsumeEnabled"] = strconv.FormatBool(common.LogConsumeEnabled)
+	common.OptionMap["EnableBillingRequests"] = "true"
+	common.OptionMap["EnableBillingTokens"] = "true"
+	common.OptionMap["EnableBillingSubscription"] = "true"
+	common.OptionMap["EnableBillingWallet"] = "true"
 	common.OptionMap["DisplayInCurrencyEnabled"] = strconv.FormatBool(common.DisplayInCurrencyEnabled)
 	common.OptionMap["DisplayTokenStatEnabled"] = strconv.FormatBool(common.DisplayTokenStatEnabled)
 	common.OptionMap["DrawingEnabled"] = strconv.FormatBool(common.DrawingEnabled)
 	common.OptionMap["TaskEnabled"] = strconv.FormatBool(common.TaskEnabled)
-	common.OptionMap["TaskPluginEnabled"] = strconv.FormatBool(constant.TaskPluginEnabled)
-	jsplugin.DefaultRegistry.SetEnabled(constant.TaskPluginEnabled)
-	common.OptionMap[setting.TaskPluginMarketplaceSourcesKey] = setting.TaskPluginMarketplaceSources2JsonString()
-	common.OptionMap[setting.TaskPluginDisabledFactoryKeysKey] = "[]"
-	jsplugin.DefaultRegistry.SetDisabledFactoryKeys(nil)
 	common.OptionMap["DataExportEnabled"] = strconv.FormatBool(common.DataExportEnabled)
 	common.OptionMap["ChannelDisableThreshold"] = strconv.FormatFloat(common.ChannelDisableThreshold, 'f', -1, 64)
 	common.OptionMap["EmailDomainRestrictionEnabled"] = strconv.FormatBool(common.EmailDomainRestrictionEnabled)
@@ -80,8 +76,47 @@ func InitOptionMap() {
 	common.OptionMap["Footer"] = common.Footer
 	common.OptionMap["SystemName"] = common.SystemName
 	common.OptionMap["Logo"] = common.Logo
+	common.OptionMap["LogoDark"] = common.LogoDark
+	common.OptionMap["Favicon"] = common.Favicon
+	common.OptionMap["legal.user_agreement"] = ""
+	common.OptionMap["legal.privacy_policy"] = ""
+	common.OptionMap["TermsOfService"] = ""
+	common.OptionMap["PrivacyPolicy"] = ""
+	common.OptionMap["HideHeaderSiteName"] = strconv.FormatBool(common.HideHeaderSiteName)
+	common.OptionMap["HeaderLogoHeight"] = strconv.Itoa(common.HeaderLogoHeight)
+	common.OptionMap["GoogleAnalyticsId"] = ""
+	common.OptionMap["UmamiWebsiteId"] = ""
+	common.OptionMap["UmamiScriptUrl"] = "https://analytics.umami.is/script.js"
+	common.OptionMap["ClarityProjectId"] = ""
+	for _, l := range []string{"tr", "en", "zh_CN", "zh_TW", "fr", "ru", "ja", "vi"} {
+		common.OptionMap["SEOTitlePrefix_"+l] = ""
+		common.OptionMap["SEODescription_"+l] = ""
+		common.OptionMap["SEOKeywords_"+l] = ""
+		common.OptionMap["PrivacyPolicy_"+l] = ""
+		common.OptionMap["TermsOfService_"+l] = ""
+		common.OptionMap["SystemName_"+l] = ""
+		common.OptionMap["Footer_"+l] = ""
+		common.OptionMap["About_"+l] = ""
+		common.OptionMap["HomePageContent_"+l] = ""
+		common.OptionMap["legal.user_agreement_"+l] = ""
+		common.OptionMap["legal.privacy_policy_"+l] = ""
+		common.OptionMap["EmailSubject_verification_"+l] = ""
+		common.OptionMap["EmailBody_verification_"+l] = ""
+		common.OptionMap["EmailSubject_password_reset_"+l] = ""
+		common.OptionMap["EmailBody_password_reset_"+l] = ""
+		common.OptionMap["EmailSubject_system_error_"+l] = ""
+		common.OptionMap["EmailBody_system_error_"+l] = ""
+		common.OptionMap["EmailSubject_quota_warning_"+l] = ""
+		common.OptionMap["EmailBody_quota_warning_"+l] = ""
+		common.OptionMap["EmailSubject_ticket_created_"+l] = ""
+		common.OptionMap["EmailBody_ticket_created_"+l] = ""
+		common.OptionMap["EmailSubject_ticket_replied_"+l] = ""
+		common.OptionMap["EmailBody_ticket_replied_"+l] = ""
+		common.OptionMap["EmailSubject_channel_disabled_"+l] = ""
+		common.OptionMap["EmailBody_channel_disabled_"+l] = ""
+		common.OptionMap["DocsLink_"+l] = ""
+	}
 	common.OptionMap["ServerAddress"] = ""
-	common.OptionMap["TaskPublicAddress"] = system_setting.TaskPublicAddress
 	common.OptionMap["WorkerUrl"] = system_setting.WorkerUrl
 	common.OptionMap["WorkerValidKey"] = system_setting.WorkerValidKey
 	common.OptionMap["WorkerAllowHttpImageRequestEnabled"] = strconv.FormatBool(system_setting.WorkerAllowHttpImageRequestEnabled)
@@ -131,6 +166,22 @@ func InitOptionMap() {
 	common.OptionMap["DefaultUseAutoGroup"] = strconv.FormatBool(setting.DefaultUseAutoGroup)
 	common.OptionMap["MaxTokenAutoGroups"] = strconv.Itoa(setting.GetMaxTokenAutoGroups())
 	common.OptionMap["PayMethods"] = operation_setting.PayMethods2JsonString()
+	common.OptionMap["ShopierApiKey"] = setting.ShopierApiKey
+	common.OptionMap["ShopierApiSecret"] = setting.ShopierApiSecret
+	common.OptionMap["ShopierWebsiteIndex"] = setting.ShopierWebsiteIndex
+	common.OptionMap["PayTRMerchantId"] = setting.PayTRMerchantId
+	common.OptionMap["PayTRMerchantKey"] = setting.PayTRMerchantKey
+	common.OptionMap["PayTRMerchantSalt"] = setting.PayTRMerchantSalt
+	common.OptionMap["PayTRTestMode"] = strconv.FormatBool(setting.PayTRTestMode)
+	common.OptionMap["PayPalClientId"] = setting.PayPalClientId
+	common.OptionMap["PayPalClientSecret"] = setting.PayPalClientSecret
+	common.OptionMap["PayPalMode"] = setting.PayPalMode
+	common.OptionMap["IyzicoApiKey"] = setting.IyzicoApiKey
+	common.OptionMap["IyzicoSecretKey"] = setting.IyzicoSecretKey
+	common.OptionMap["IyzicoBaseUrl"] = setting.IyzicoBaseUrl
+	common.OptionMap["ShopifyStoreDomain"] = setting.ShopifyStoreDomain
+	common.OptionMap["ShopifyAccessToken"] = setting.ShopifyAccessToken
+	common.OptionMap["ShopifyWebhookSecret"] = setting.ShopifyWebhookSecret
 	common.OptionMap["GitHubClientId"] = ""
 	common.OptionMap["GitHubClientSecret"] = ""
 	common.OptionMap["TelegramBotToken"] = ""
@@ -138,8 +189,28 @@ func InitOptionMap() {
 	common.OptionMap["WeChatServerAddress"] = ""
 	common.OptionMap["WeChatServerToken"] = ""
 	common.OptionMap["WeChatAccountQRCodeImageURL"] = ""
-	common.OptionMap["TurnstileSiteKey"] = ""
-	common.OptionMap["TurnstileSecretKey"] = ""
+	common.OptionMap["TurnstileSiteKey"] = common.TurnstileSiteKey
+	common.OptionMap["TurnstileSecretKey"] = common.TurnstileSecretKey
+	common.OptionMap["CaptchaType"] = common.CaptchaType
+	common.OptionMap["RecaptchaSiteKey"] = common.RecaptchaSiteKey
+	common.OptionMap["RecaptchaSecretKey"] = common.RecaptchaSecretKey
+	common.OptionMap["HCaptchaSiteKey"] = common.HCaptchaSiteKey
+	common.OptionMap["HCaptchaSecretKey"] = common.HCaptchaSecretKey
+	common.OptionMap["SEOTitlePrefix"] = ""
+	common.OptionMap["SEODescription"] = ""
+	common.OptionMap["SEOKeywords"] = ""
+	common.OptionMap["SEOSocialImage"] = ""
+	common.OptionMap["RobotsPolicy"] = "allow_all"
+	common.OptionMap["RobotsCustomRules"] = ""
+	common.OptionMap["LLMSTxt"] = ""
+	common.OptionMap["LLMSFullTxt"] = ""
+	common.OptionMap["SitemapCustomUrls"] = ""
+	common.OptionMap["AdSenseClientId"] = ""
+	common.OptionMap["AdSenseSlotId"] = ""
+	common.OptionMap["BlogEnabled"] = "false"
+	common.OptionMap["CaptchaFallbackEnabled"] = "false"
+	common.OptionMap["AdsEnabled"] = "false"
+	common.OptionMap["AdsMode"] = "both"
 	common.OptionMap["QuotaForNewUser"] = strconv.Itoa(common.QuotaForNewUser)
 	common.OptionMap["QuotaForInviter"] = strconv.Itoa(common.QuotaForInviter)
 	common.OptionMap["QuotaForInvitee"] = strconv.Itoa(common.QuotaForInvitee)
@@ -185,63 +256,56 @@ func InitOptionMap() {
 	common.OptionMap["AutomaticDisableStatusCodes"] = operation_setting.AutomaticDisableStatusCodesToString()
 	common.OptionMap["AutomaticRetryStatusCodes"] = operation_setting.AutomaticRetryStatusCodesToString()
 	common.OptionMap["ExposeRatioEnabled"] = strconv.FormatBool(ratio_setting.IsExposeRatioEnabled())
+	common.OptionMap["EnableBillingRequests"] = "true"
+	common.OptionMap["EnableBillingTokens"] = "true"
+	common.OptionMap["EnableBillingSubscription"] = "true"
+	common.OptionMap["EnableBillingWallet"] = "true"
+	common.OptionMap["BillingPoolModelFilterModeRequests"] = "none"
+	common.OptionMap["BillingPoolModelsRequests"] = ""
+	common.OptionMap["BillingPoolModelFilterModeTokens"] = "none"
+	common.OptionMap["BillingPoolModelsTokens"] = ""
+	common.OptionMap["BillingPoolModelFilterModeSubscription"] = "none"
+	common.OptionMap["BillingPoolModelsSubscription"] = ""
+	common.OptionMap["BillingPoolModelFilterModeWallet"] = "none"
+	common.OptionMap["BillingPoolModelsWallet"] = ""
+	common.OptionMap["CaptchaProviderOrder"] = "turnstile,recaptcha,hcaptcha,image"
+	common.OptionMap["EpayProviders"] = "[]"
+	common.OptionMap["TicketEnabled"] = "true"
 
 	// 自动添加所有注册的模型配置
 	modelConfigs := config.GlobalConfig.ExportAllConfigs()
-	maps.Copy(common.OptionMap, modelConfigs)
+	for k, v := range modelConfigs {
+		common.OptionMap[k] = v
+	}
 
 	common.OptionMapRWMutex.Unlock()
 	loadOptionsFromDatabase()
 }
 
 func loadOptionsFromDatabase() {
-	requestPolicyOptionMutex.Lock()
-	defer requestPolicyOptionMutex.Unlock()
-	defer func() {
-		if err := refreshRequestPolicySnapshot(); err != nil {
-			common.SysError(common.LogText("invalid request policy: %s", err.Error()))
-		}
-	}()
-	passkeyOptionMutex.Lock()
-	defer passkeyOptionMutex.Unlock()
 	options, _ := AllOption()
-	passkeyOptions := make(map[string]string)
 	for _, option := range options {
-		if IsPasskeyDomainOption(option.Key) {
-			passkeyOptions[option.Key] = option.Value
-			continue
-		}
 		err := updateOptionMap(option.Key, option.Value)
 		if err != nil {
-			common.SysLog(common.LogText("failed to update option map: %s", err.Error()))
+			common.SysLog("failed to update option map: " + err.Error())
 		}
 	}
-	applyPasskeyDomainOptions(passkeyOptions)
 }
 
 func SyncOptions(frequency int) {
 	for {
 		time.Sleep(time.Duration(frequency) * time.Second)
-		common.SysLog(common.LogText("syncing options from database"))
+		common.SysLog("syncing options from database")
 		loadOptionsFromDatabase()
 	}
 }
 
 func validateOptionValue(key string, value string) error {
-	if key == legacyAccessTokenRetireAtKey {
-		return errLegacyRetireAtReadOnly
-	}
-	if err := operation_setting.ValidateQuotaOption(key, value); err != nil {
-		return err
-	}
 	if key == operation_setting.ToolPriceOptionKey {
 		return operation_setting.ValidateToolPricesJSON(value)
 	}
 	if key == operation_setting.ChannelTestConcurrencyOptionKey {
 		return operation_setting.ValidateChannelTestConcurrency(value)
-	}
-	if key == operation_setting.LogMaxRangeDaysOptionKey {
-		return operation_setting.ValidateLogMaxRangeDays(value)
 	}
 	if key == "MaxTokenAutoGroups" {
 		return setting.ValidateMaxTokenAutoGroups(value)
@@ -250,16 +314,6 @@ func validateOptionValue(key string, value string) error {
 }
 
 func UpdateOption(key string, value string) error {
-	if IsRequestPolicyOption(key) {
-		return UpdateRequestPolicyOptions(map[string]string{key: value})
-	}
-	if IsPasskeyDomainOption(key) {
-		_, err := UpdatePasskeyDomainOptions(map[string]string{key: value}, false, "")
-		return err
-	}
-	if IsModelPricingOption(key) {
-		return UpdateModelPricingOptions(map[string]string{key: value})
-	}
 	if err := validateOptionValue(key, value); err != nil {
 		return err
 	}
@@ -287,37 +341,11 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
 	}
-	for key := range values {
-		if IsPasskeyDomainOption(key) {
-			_, err := UpdatePasskeyDomainOptions(values, false, "")
-			return err
-		}
-	}
 	for key, value := range values {
 		if err := validateOptionValue(key, value); err != nil {
 			return err
 		}
 	}
-	var policySnapshot *RequestPolicySnapshot
-	for key := range values {
-		if IsRequestPolicyOption(key) {
-			requestPolicyOptionMutex.Lock()
-			defer requestPolicyOptionMutex.Unlock()
-			options := maps.Clone(CurrentRequestPolicy().Options)
-			for key, value := range values {
-				if IsRequestPolicyOption(key) {
-					options[key] = value
-				}
-			}
-			var err error
-			policySnapshot, err = BuildRequestPolicy(options)
-			if err != nil {
-				return err
-			}
-			break
-		}
-	}
-
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		for k, v := range values {
 			option := Option{Key: k}
@@ -339,18 +367,19 @@ func UpdateOptionsBulk(values map[string]string) error {
 			return err
 		}
 	}
-	if policySnapshot != nil {
-		requestPolicySnapshot.Store(policySnapshot)
-	}
 	return nil
 }
 
 func updateOptionMap(key string, value string) (err error) {
-	if key == retiredThemeOptionKey || key == legacyAccessTokenRetireAtKey {
+	if key == retiredThemeOptionKey {
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, key)
 		common.OptionMapRWMutex.Unlock()
 		return nil
+	}
+	// Whitelist enumerated values so typos cannot wedge the ads pipeline.
+	if key == "AdsMode" && value != "adsense" && value != "custom" && value != "both" {
+		value = "both"
 	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
@@ -375,7 +404,7 @@ func updateOptionMap(key string, value string) (err error) {
 			common.ImageDownloadPermission = intValue
 		}
 	}
-	if strings.HasSuffix(key, "Enabled") || key == "DefaultCollapseSidebar" || key == "DefaultUseAutoGroup" || key == "SMTPForceAuthLogin" || key == "SMTPInsecureSkipVerify" {
+	if strings.HasSuffix(key, "Enabled") || key == "DefaultCollapseSidebar" || key == "DefaultUseAutoGroup" || key == "SMTPForceAuthLogin" || key == "SMTPInsecureSkipVerify" || key == "HideHeaderSiteName" {
 		boolValue := value == "true"
 		switch key {
 		case "PasswordRegisterEnabled":
@@ -422,9 +451,6 @@ func updateOptionMap(key string, value string) (err error) {
 			common.DrawingEnabled = boolValue
 		case "TaskEnabled":
 			common.TaskEnabled = boolValue
-		case "TaskPluginEnabled":
-			constant.TaskPluginEnabled = boolValue
-			jsplugin.DefaultRegistry.SetEnabled(boolValue)
 		case "DataExportEnabled":
 			common.DataExportEnabled = boolValue
 		case "DefaultCollapseSidebar":
@@ -465,10 +491,9 @@ func updateOptionMap(key string, value string) (err error) {
 			setting.DefaultUseAutoGroup = boolValue
 		case "ExposeRatioEnabled":
 			ratio_setting.SetExposeRatioEnabled(boolValue)
+		case "HideHeaderSiteName":
+			common.HideHeaderSiteName = boolValue
 		}
-	}
-	if key == setting.TaskPluginDisabledFactoryKeysKey {
-		jsplugin.DefaultRegistry.SetDisabledFactoryKeys(setting.ParseTaskPluginDisabledFactoryKeys(value))
 	}
 	switch key {
 	case "EmailDomainWhitelist":
@@ -486,8 +511,6 @@ func updateOptionMap(key string, value string) (err error) {
 		common.SMTPToken = value
 	case "ServerAddress":
 		system_setting.ServerAddress = value
-	case "TaskPublicAddress":
-		system_setting.TaskPublicAddress = value
 	case "WorkerUrl":
 		system_setting.WorkerUrl = value
 	case "WorkerValidKey":
@@ -576,6 +599,38 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.WaffoPancakeUnitPrice, _ = strconv.ParseFloat(value, 64)
 	case "WaffoPancakeMinTopUp":
 		setting.WaffoPancakeMinTopUp, _ = strconv.Atoi(value)
+	case "ShopierApiKey":
+		setting.ShopierApiKey = value
+	case "ShopierApiSecret":
+		setting.ShopierApiSecret = value
+	case "ShopierWebsiteIndex":
+		setting.ShopierWebsiteIndex = value
+	case "PayTRMerchantId":
+		setting.PayTRMerchantId = value
+	case "PayTRMerchantKey":
+		setting.PayTRMerchantKey = value
+	case "PayTRMerchantSalt":
+		setting.PayTRMerchantSalt = value
+	case "PayTRTestMode":
+		setting.PayTRTestMode = value == "true"
+	case "PayPalClientId":
+		setting.PayPalClientId = value
+	case "PayPalClientSecret":
+		setting.PayPalClientSecret = value
+	case "PayPalMode":
+		setting.PayPalMode = value
+	case "IyzicoApiKey":
+		setting.IyzicoApiKey = value
+	case "IyzicoSecretKey":
+		setting.IyzicoSecretKey = value
+	case "IyzicoBaseUrl":
+		setting.IyzicoBaseUrl = value
+	case "ShopifyStoreDomain":
+		setting.ShopifyStoreDomain = value
+	case "ShopifyAccessToken":
+		setting.ShopifyAccessToken = value
+	case "ShopifyWebhookSecret":
+		setting.ShopifyWebhookSecret = value
 	case "TopupGroupRatio":
 		err = common.UpdateTopupGroupRatioByJSONString(value)
 	case "GitHubClientId":
@@ -594,6 +649,14 @@ func updateOptionMap(key string, value string) (err error) {
 		common.SystemName = value
 	case "Logo":
 		common.Logo = value
+	case "LogoDark":
+		common.LogoDark = value
+	case "Favicon":
+		common.Favicon = value
+	case "HeaderLogoHeight":
+		if intVal, err := strconv.Atoi(value); err == nil && intVal > 0 {
+			common.HeaderLogoHeight = intVal
+		}
 	case "WeChatServerAddress":
 		common.WeChatServerAddress = value
 	case "WeChatServerToken":
@@ -608,6 +671,21 @@ func updateOptionMap(key string, value string) (err error) {
 		common.TurnstileSiteKey = value
 	case "TurnstileSecretKey":
 		common.TurnstileSecretKey = value
+	case "CaptchaType":
+		switch value {
+		case common.CaptchaTypeOff, common.CaptchaTypeTurnstile, common.CaptchaTypeRecaptcha, common.CaptchaTypeHCaptcha, common.CaptchaTypeImage:
+			common.CaptchaType = value
+		default:
+			common.CaptchaType = ""
+		}
+	case "RecaptchaSiteKey":
+		common.RecaptchaSiteKey = value
+	case "RecaptchaSecretKey":
+		common.RecaptchaSecretKey = value
+	case "HCaptchaSiteKey":
+		common.HCaptchaSiteKey = value
+	case "HCaptchaSecretKey":
+		common.HCaptchaSecretKey = value
 	case "QuotaForNewUser":
 		common.QuotaForNewUser, _ = strconv.Atoi(value)
 	case "QuotaForInviter":
@@ -721,3 +799,76 @@ func handleConfigUpdate(key, value string) bool {
 
 	return true // 已处理
 }
+
+func IsBillingRequestsEnabled() bool {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	return common.OptionMap["EnableBillingRequests"] != "false"
+}
+
+func IsBillingTokensEnabled() bool {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	return common.OptionMap["EnableBillingTokens"] != "false"
+}
+
+func IsBillingSubscriptionEnabled() bool {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	return common.OptionMap["EnableBillingSubscription"] != "false"
+}
+
+func IsBillingWalletEnabled() bool {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	return common.OptionMap["EnableBillingWallet"] != "false"
+}
+
+func IsModelAllowedInPool(pool string, modelName string) bool {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+
+	var modeKey, modelsKey string
+	switch pool {
+	case "requests":
+		modeKey = "BillingPoolModelFilterModeRequests"
+		modelsKey = "BillingPoolModelsRequests"
+	case "tokens":
+		modeKey = "BillingPoolModelFilterModeTokens"
+		modelsKey = "BillingPoolModelsTokens"
+	case "subscription":
+		modeKey = "BillingPoolModelFilterModeSubscription"
+		modelsKey = "BillingPoolModelsSubscription"
+	case "wallet":
+		modeKey = "BillingPoolModelFilterModeWallet"
+		modelsKey = "BillingPoolModelsWallet"
+	default:
+		return true
+	}
+
+	mode := common.OptionMap[modeKey]
+	if mode == "" || mode == "none" {
+		return true
+	}
+
+	modelsStr := common.OptionMap[modelsKey]
+	models := strings.Split(modelsStr, ",")
+	trimmedModel := strings.TrimSpace(modelName)
+	found := false
+	for _, m := range models {
+		m = strings.TrimSpace(m)
+		if m != "" && (m == trimmedModel || strings.EqualFold(m, trimmedModel)) {
+			found = true
+			break
+		}
+	}
+
+	if mode == "whitelist" {
+		return found
+	}
+	if mode == "blacklist" {
+		return !found
+	}
+	return true
+}
+

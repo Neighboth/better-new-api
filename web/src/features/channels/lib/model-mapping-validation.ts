@@ -23,20 +23,25 @@ For commercial licensing, please contact support@quantumnous.com
 /**
  * Parse models string to array
  */
-export function parseModelsString(modelsStr: string): string[] {
+export function parseModelsString(modelsStr: unknown): string[] {
+  if (!modelsStr) return []
+  if (Array.isArray(modelsStr)) {
+    return modelsStr.map((m) => String(m).trim()).filter(Boolean)
+  }
+  if (typeof modelsStr !== 'string') return []
   return modelsStr
-    ? modelsStr
-        .split(',')
-        .map((m) => m.trim())
-        .filter(Boolean)
-    : []
+    .split(',')
+    .map((m) => m.trim())
+    .filter(Boolean)
 }
 
 /**
  * Format models array to string
  */
-export function formatModelsArray(models: string[]): string {
-  return Array.from(new Set(models)).join(',')
+export function formatModelsArray(models: unknown): string {
+  if (typeof models === 'string') return models
+  if (!Array.isArray(models)) return ''
+  return Array.from(new Set(models.map((m) => String(m).trim()).filter(Boolean))).join(',')
 }
 
 /**
