@@ -24,7 +24,7 @@ func TestBuildCreatePayload(t *testing.T) {
 		Protected:  true,
 	})
 	require.Equal(t, "my-llm", payload["name"])
-	require.Equal(t, "protected", payload["type"])
+	require.Equal(t, "private", payload["type"])
 	model, ok := payload["model"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "meta-llama/Llama-3-8B", model["repository"])
@@ -32,6 +32,9 @@ func TestBuildCreatePayload(t *testing.T) {
 	compute, ok := payload["compute"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "nvidia-t4", compute["instanceType"])
+	scaling, ok := compute["scaling"].(map[string]any)
+	require.True(t, ok, "scaling is required by the API")
+	assert.Equal(t, 0, scaling["minReplica"])
 	provider, ok := payload["provider"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "us-east-1", provider["region"])

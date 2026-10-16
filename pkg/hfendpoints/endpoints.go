@@ -134,11 +134,7 @@ type listResponse struct {
 
 // ListEndpoints returns the endpoints of a namespace (user or org).
 func (c *Client) ListEndpoints(namespace string) ([]Endpoint, error) {
-	path := "/endpoint"
-	if namespace != "" {
-		path += "?namespace=" + url.QueryEscape(namespace)
-	}
-	data, err := c.do(http.MethodGet, path, nil)
+	data, err := c.do(http.MethodGet, "/endpoint/"+url.PathEscape(namespace), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -179,11 +175,16 @@ func BuildCreatePayload(req CreateEndpointRequest) map[string]any {
 	}
 	endpointType := "public"
 	if req.Protected {
-		endpointType = "protected"
+		endpointType = "private"
 	}
 	compute := map[string]any{
 		"accelerator":  hw.Accelerator,
 		"instanceSize": hw.InstanceSize,
+		"scaling": map[string]any{
+			"minReplica":          0,
+			"maxReplica":          1,
+			"scaleToZeroTimeout": 15,
+		},
 	}
 	if hw.InstanceType != "" {
 		compute["instanceType"] = hw.InstanceType
@@ -218,7 +219,7 @@ func (c *Client) CreateEndpoint(req CreateEndpointRequest) (*Endpoint, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := c.do(http.MethodPost, "/endpoint", body)
+	data, err := c.do(http.MethodPost, "/endpoint/"+url.PathEscape(req.Namespace), body)
 	if err != nil {
 		return nil, err
 	}
