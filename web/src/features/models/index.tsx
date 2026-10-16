@@ -31,6 +31,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { listDeployments } from './api'
 import { DeploymentAccessGuard } from './components/deployment-access-guard'
 import { DeploymentsTable } from './components/deployments-table'
+import { HfEndpointsPanel } from './components/hf-endpoints-panel'
 import { CreateDeploymentDrawer } from './components/dialogs/create-deployment-drawer'
 import { ModelsDialogs } from './components/models-dialogs'
 import { ModelsPrimaryButtons } from './components/models-primary-buttons'
@@ -141,7 +142,6 @@ function DeploymentsSection() {
     loading: deploymentLoading,
     loadingPhase,
     isIoNetEnabled,
-    isModalEnabled,
     isHfEnabled,
     isAnyEnabled,
     connectionLoading,
@@ -149,6 +149,7 @@ function DeploymentsSection() {
     connectionError,
     testConnection,
   } = useModelDeploymentSettings()
+  const [hfTab, setHfTab] = useState('ionet')
 
   // Prefetch deployments list while connection check is in progress.
   useEffect(() => {
@@ -172,10 +173,7 @@ function DeploymentsSection() {
   // io.net disabled but Modal/Hugging Face enabled: those providers have no
   // container list API here; deployments live on the provider side and route
   // automatically.
-  if (!deploymentLoading && isAnyEnabled && !isIoNetEnabled) {
-    const active: string[] = []
-    if (isModalEnabled) active.push('Modal')
-    if (isHfEnabled) active.push('Hugging Face')
+  if (!deploymentLoading && isAnyEnabled && !isIoNetEnabled && !isHfEnabled) {
     return (
       <div className='mx-auto mt-8 max-w-md'>
         <div className='text-center'>
@@ -192,8 +190,7 @@ function DeploymentsSection() {
             <AlertTitle>{t('Active providers')}</AlertTitle>
             <AlertDescription>
               {t(
-                'Active providers: {{providers}}. Modal and Hugging Face deployments are managed on the provider side and route automatically by priority; no container list is shown here.',
-                { providers: active.join(', ') || '-' }
+                'Modal deployments are managed on the provider side and route automatically by priority; no container list is shown here.'
               )}
             </AlertDescription>
           </Alert>
@@ -203,6 +200,43 @@ function DeploymentsSection() {
           </Button>
         </div>
       </div>
+    )
+  }
+
+  // Hugging Face enabled without io.net: show the endpoint manager instead
+  // of the io.net container table.
+  if (!deploymentLoading && isHfEnabled && !isIoNetEnabled) {
+    return <HfEndpointsPanel />
+  }
+
+  // Both enabled: provider tabs above the io.net table.
+  if (!deploymentLoading && isHfEnabled && isIoNetEnabled) {
+    return (
+      <Tabs
+        value={hfTab}
+        onValueChange={setHfTab}
+        className='flex h-full min-h-0 flex-col'
+      >
+        <TabsList className='w-fit'>
+          <TabsTrigger value='ionet'>io.net</TabsTrigger>
+          <TabsTrigger value='huggingface'>Hugging Face</TabsTrigger>
+        </TabsList>
+        {hfTab === 'huggingface' ? (
+          <HfEndpointsPanel />
+        ) : (
+          <DeploymentAccessGuard
+            loading={deploymentLoading}
+            loadingPhase={loadingPhase}
+            isEnabled={isAnyEnabled}
+            connectionLoading={connectionLoading}
+            connectionOk={connectionOk}
+            connectionError={connectionError}
+            onRetry={testConnection}
+          >
+            <DeploymentsTable />
+          </DeploymentAccessGuard>
+        )}
+      </Tabs>
     )
   }
 

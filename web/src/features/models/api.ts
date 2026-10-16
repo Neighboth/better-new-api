@@ -343,6 +343,64 @@ export async function testDeploymentConnectionWithKey(
 }
 
 /**
+ * List Hugging Face Inference Endpoints
+ */
+export async function listHfEndpoints(params?: {
+  namespace?: string
+}): Promise<{
+  success: boolean
+  message?: string
+  data?: Array<{
+    name: string
+    namespace: string
+    status?: { state?: string }
+    model?: { repository?: string; task?: string }
+    compute?: { accelerator?: string; instanceType?: string }
+    endpointUrl?: string
+  }>
+}> {
+  const res = await api.get('/api/deployments/huggingface/endpoints', {
+    params,
+  })
+  return res.data
+}
+
+/**
+ * Create a Hugging Face Inference Endpoint
+ */
+export async function createHfEndpoint(payload: {
+  name: string
+  namespace?: string
+  repository: string
+  revision?: string
+  task?: string
+  framework?: string
+  hardware?: string
+  region?: string
+  protected?: boolean
+}): Promise<{ success: boolean; message?: string; data?: unknown }> {
+  const res = await api.post(
+    '/api/deployments/huggingface/endpoints',
+    payload
+  )
+  return res.data
+}
+
+/**
+ * Delete a Hugging Face Inference Endpoint
+ */
+export async function deleteHfEndpoint(
+  name: string,
+  namespace?: string
+): Promise<{ success: boolean; message?: string }> {
+  const res = await api.delete(
+    `/api/deployments/huggingface/endpoints/${encodeURIComponent(name)}`,
+    { params: namespace ? { namespace } : undefined }
+  )
+  return res.data
+}
+
+/**
  * List deployments
  */
 export async function listDeployments(params: {
