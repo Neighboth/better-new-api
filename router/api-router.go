@@ -569,9 +569,7 @@ func SetApiRouter(router *gin.Engine) {
 			workerRoute.GET("/tunnel", controller.ByogWorkerTunnel)
 			workerRoute.POST("/telemetry/crash", controller.ReportByogWorkerCrash)
 			workerRoute.GET("/version", controller.GetByogWorkerVersion)
+			workerRoute.GET("/download/:platform/:arch", controller.DownloadByogWorker)
 		}
 	}
-
-	// Also register root /api/v1/worker tunnel directly
-	router.GET("/api/v1/worker/tunnel", controller.ByogWorkerTunnel)
 }
