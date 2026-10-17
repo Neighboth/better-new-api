@@ -229,13 +229,17 @@ export function useSidebarData(): SidebarData {
           url: '/reseller',
           icon: Store,
         },
-        {
-          title: t('BYOG Management'),
-          url: '/byog-admin/nodes' as const,
-          activeUrls: ['/byog-admin'],
-          icon: Network,
-          requiredRole: ROLE.ADMIN,
-        },
+        ...(byogEnabled
+          ? [
+              {
+                title: t('BYOG Management'),
+                url: '/byog-admin/nodes' as const,
+                activeUrls: ['/byog-admin'],
+                icon: Network,
+                requiredRole: ROLE.ADMIN,
+              },
+            ]
+          : []),
         {
           title: t('System Info'),
           url: '/system-info',

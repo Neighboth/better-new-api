@@ -16,19 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  Check,
-  CheckCircle2,
-  Clock,
-  Download,
-  Edit,
-  Gift,
-  Package,
-  Plus,
-  RefreshCw,
-  Trash2,
-  XCircle,
-} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -205,15 +192,13 @@ export function ByogRewardsTab() {
     switch (status) {
       case 'approved':
         return (
-          <Badge className='flex items-center gap-1 border-emerald-500/20 bg-emerald-500/10 text-emerald-500'>
-            <Check className='h-3 w-3' />
+          <Badge className='border-emerald-500/20 bg-emerald-500/10 text-emerald-500'>
             {t('byog.admin.status_approved')}
           </Badge>
         )
       case 'rejected':
         return (
-          <Badge variant='destructive' className='flex items-center gap-1'>
-            <XCircle className='h-3 w-3' />
+          <Badge variant='destructive'>
             {t('byog.admin.status_rejected')}
           </Badge>
         )
@@ -221,9 +206,8 @@ export function ByogRewardsTab() {
         return (
           <Badge
             variant='outline'
-            className='flex items-center gap-1 border-amber-500 text-amber-500'
+            className='border-amber-500 text-amber-500'
           >
-            <Clock className='h-3 w-3' />
             {t('byog.admin.status_pending')}
           </Badge>
         )
@@ -235,22 +219,19 @@ export function ByogRewardsTab() {
       <Tabs value={subTab} onValueChange={(val: any) => setSubTab(val)}>
         <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
           <TabsList>
-            <TabsTrigger value='claims' className='gap-2'>
-              <Gift className='h-4 w-4' />
+            <TabsTrigger value='claims'>
               {t('byog.admin.reward_claims')} (
               {claims.filter((c) => c.status === 'pending').length}{' '}
               {t('byog.admin.pending_suffix')})
             </TabsTrigger>
-            <TabsTrigger value='catalog' className='gap-2'>
-              <Package className='h-4 w-4' />
+            <TabsTrigger value='catalog'>
               {t('byog.admin.reward_catalog')} ({rewards.length})
             </TabsTrigger>
           </TabsList>
 
           <div className='flex items-center gap-2'>
             {subTab === 'catalog' ? (
-              <Button onClick={handleOpenCreateItem} className='gap-2'>
-                <Plus className='h-4 w-4' />
+              <Button onClick={handleOpenCreateItem}>
                 {t('byog.admin.add_reward_item')}
               </Button>
             ) : (
@@ -258,14 +239,12 @@ export function ByogRewardsTab() {
                 variant='outline'
                 size='sm'
                 onClick={exportClaimsJson}
-                className='gap-2'
               >
-                <Download className='h-4 w-4' />
                 {t('byog.admin.export_json')}
               </Button>
             )}
-            <Button variant='outline' size='icon' onClick={loadData}>
-              <RefreshCw className='h-4 w-4' />
+            <Button variant='outline' size='sm' onClick={loadData}>
+              {t('byog.refresh')}
             </Button>
           </div>
         </div>
@@ -288,7 +267,6 @@ export function ByogRewardsTab() {
                 </div>
               ) : claims.length === 0 ? (
                 <div className='text-muted-foreground py-12 text-center'>
-                  <CheckCircle2 className='mx-auto mb-3 h-10 w-10 text-emerald-500' />
                   {t('byog.admin.no_claims_found')}
                 </div>
               ) : (
@@ -338,25 +316,23 @@ export function ByogRewardsTab() {
                           </TableCell>
                           <TableCell className='text-right'>
                             {claim.status === 'pending' ? (
-                              <div className='flex items-center justify-end gap-1'>
+                              <div className='flex items-center justify-end gap-1.5'>
                                 <Button
                                   variant='outline'
                                   size='sm'
-                                  className='gap-1 text-xs text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-600'
+                                  className='h-7 px-2 text-xs text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-600'
                                   disabled={actioningId === claim.id}
                                   onClick={() => handleApproveClaim(claim.id)}
                                 >
-                                  <Check className='h-3.5 w-3.5' />
                                   {t('byog.admin.approve')}
                                 </Button>
                                 <Button
                                   variant='outline'
                                   size='sm'
-                                  className='text-destructive hover:text-destructive hover:bg-destructive/10 gap-1 text-xs'
+                                  className='text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2 text-xs'
                                   disabled={actioningId === claim.id}
                                   onClick={() => handleRejectClaim(claim.id)}
                                 >
-                                  <XCircle className='h-3.5 w-3.5' />
                                   {t('byog.admin.reject')}
                                 </Button>
                               </div>
@@ -413,22 +389,22 @@ export function ByogRewardsTab() {
                             {item.category}
                           </Badge>
                         </div>
-                        <div className='flex items-center gap-1'>
+                        <div className='flex items-center gap-1.5'>
                           <Button
-                            variant='ghost'
-                            size='icon'
-                            className='h-8 w-8'
+                            variant='outline'
+                            size='sm'
+                            className='h-7 px-2 text-xs'
                             onClick={() => handleOpenEditItem(item)}
                           >
-                            <Edit className='h-3.5 w-3.5' />
+                            {t('common.edit')}
                           </Button>
                           <Button
-                            variant='ghost'
-                            size='icon'
-                            className='text-destructive hover:text-destructive h-8 w-8'
+                            variant='outline'
+                            size='sm'
+                            className='text-destructive hover:text-destructive h-7 px-2 text-xs'
                             onClick={() => handleDeleteItem(item.id)}
                           >
-                            <Trash2 className='h-3.5 w-3.5' />
+                            {t('common.delete')}
                           </Button>
                         </div>
                       </div>

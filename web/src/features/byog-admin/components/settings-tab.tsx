@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Cpu, DollarSign, Globe, Moon, Save, Sparkles, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -34,7 +33,22 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 
 import { getAdminSettings, updateAdminSettings } from '../../byog/api'
-import type { ByogSetting } from '../../byog/types'
+import type { ByogMultipliersConfig, ByogSetting } from '../../byog/types'
+
+const defaultMultipliers: ByogMultipliersConfig = {
+  high_tps_bonus: 15,
+  sub_second_ttft: 10,
+  high_uptime_bonus: 20,
+  super_uptime_bonus: 35,
+  residential_ip_bonus: 15,
+  gigabit_fiber_bonus: 10,
+  low_latency_bonus: 10,
+  clean_reputation_bonus: 10,
+  low_temp_bonus: 5,
+  battery_eco_bonus: 5,
+  night_owl_surge: 30,
+  weekend_crunch: 20,
+}
 
 export function ByogSettingsTab() {
   const { t } = useTranslation()
@@ -54,7 +68,11 @@ export function ByogSettingsTab() {
     weekend_crunch_enabled: true,
     hardware_backends:
       '{"cuda":true,"rocm":true,"intel":true,"metal":true,"qualcomm":true,"mali":true,"cpu":true}',
+    multipliers_config: JSON.stringify(defaultMultipliers),
   })
+
+  const [multipliers, setMultipliers] =
+    useState<ByogMultipliersConfig>(defaultMultipliers)
 
   useEffect(() => {
     loadSettings()
@@ -66,6 +84,14 @@ export function ByogSettingsTab() {
       const data = await getAdminSettings()
       if (data) {
         setSettings(data)
+        if (data.multipliers_config) {
+          try {
+            const parsed = JSON.parse(data.multipliers_config)
+            setMultipliers({ ...defaultMultipliers, ...parsed })
+          } catch {
+            setMultipliers(defaultMultipliers)
+          }
+        }
       }
     } catch (err: any) {
       toast.error(err.message || t('byog.admin.load_settings_failed'))
@@ -77,7 +103,11 @@ export function ByogSettingsTab() {
   async function handleSave() {
     try {
       setSaving(true)
-      const updated = await updateAdminSettings(settings)
+      const toSave: ByogSetting = {
+        ...settings,
+        multipliers_config: JSON.stringify(multipliers),
+      }
+      const updated = await updateAdminSettings(toSave)
       setSettings(updated)
       toast.success(t('byog.admin.settings_saved_success'))
     } catch (err: any) {
@@ -99,6 +129,10 @@ export function ByogSettingsTab() {
     setSettings({ ...settings, hardware_backends: JSON.stringify(updated) })
   }
 
+  function updateMultiplier(key: keyof ByogMultipliersConfig, val: number) {
+    setMultipliers((prev) => ({ ...prev, [key]: val }))
+  }
+
   if (loading) {
     return (
       <div className='flex h-64 items-center justify-center'>
@@ -109,40 +143,10 @@ export function ByogSettingsTab() {
 
   return (
     <div className='space-y-6'>
-      {/* Global Module Switch */}
-      <Card
-        className={
-          settings.enabled
-            ? 'border-primary/40'
-            : 'border-destructive/40 bg-destructive/5'
-        }
-      >
-        <CardHeader>
-          <div className='flex items-center justify-between'>
-            <div className='space-y-1'>
-              <CardTitle className='flex items-center gap-2 text-xl'>
-                <Globe className='text-primary h-5 w-5' />
-                {t('byog.admin.global_toggle_title')}
-              </CardTitle>
-              <CardDescription>
-                {t('byog.admin.global_toggle_desc')}
-              </CardDescription>
-            </div>
-            <Switch
-              checked={settings.enabled}
-              onCheckedChange={(checked) =>
-                setSettings({ ...settings, enabled: checked })
-              }
-            />
-          </div>
-        </CardHeader>
-      </Card>
-
       {/* Pricing Matrix */}
       <Card>
         <CardHeader>
-          <CardTitle className='flex items-center gap-2'>
-            <DollarSign className='h-5 w-5 text-emerald-500' />
+          <CardTitle className='text-lg font-semibold'>
             {t('byog.admin.pricing_matrix_title')}
           </CardTitle>
           <CardDescription>
@@ -150,151 +154,95 @@ export function ByogSettingsTab() {
           </CardDescription>
         </CardHeader>
         <CardContent className='space-y-6'>
-          <div className='grid grid-cols-1 gap-6 md:grid-cols-3'>
+          <div className='rounded-lg border bg-muted/30 p-3.5 text-xs text-muted-foreground'>
+            {t(
+              'byog.admin.pricing_models_note',
+              'Customer sales prices are automatically derived from the Models management section. If a model is not listed under Models, a 3x multiplier of the provider acquisition cost is applied.'
+            )}
+          </div>
+
+          <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
             {/* Tier 1 */}
-            <div className='bg-muted/20 space-y-4 rounded-xl border p-4'>
-              <div className='flex items-center justify-between'>
-                <div>
-                  <h4 className='text-primary flex items-center gap-1.5 text-sm font-semibold'>
-                    <Zap className='h-4 w-4' />
-                    {t('byog.admin.tier1_title')}
-                  </h4>
-                  <p className='text-muted-foreground text-xs'>
-                    {t('byog.admin.tier1_spec')}
-                  </p>
-                </div>
+            <div className='space-y-3 rounded-lg border p-4'>
+              <div>
+                <h4 className='text-sm font-semibold'>
+                  {t('byog.admin.tier1_title')}
+                </h4>
+                <p className='text-xs text-muted-foreground'>
+                  {t('byog.admin.tier1_spec')}
+                </p>
               </div>
-              <div className='space-y-3'>
-                <div>
-                  <Label className='text-xs'>
-                    {t('byog.admin.provider_pay_per_1m')}
-                  </Label>
-                  <Input
-                    type='number'
-                    step='0.01'
-                    value={settings.tier1_provider_price}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        tier1_provider_price: parseFloat(e.target.value) || 0,
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <Label className='text-xs'>
-                    {t('byog.admin.customer_charge_per_1m')}
-                  </Label>
-                  <Input
-                    type='number'
-                    step='0.01'
-                    value={settings.tier1_customer_price}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        tier1_customer_price: parseFloat(e.target.value) || 0,
-                      })
-                    }
-                  />
-                </div>
+              <div className='space-y-1.5'>
+                <Label className='text-xs'>
+                  {t('byog.admin.provider_pay_per_1m')} ($)
+                </Label>
+                <Input
+                  type='number'
+                  step='0.01'
+                  value={settings.tier1_provider_price}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      tier1_provider_price: parseFloat(e.target.value) || 0,
+                    })
+                  }
+                />
               </div>
             </div>
 
             {/* Tier 2 */}
-            <div className='bg-muted/20 space-y-4 rounded-xl border p-4'>
-              <div className='flex items-center justify-between'>
-                <div>
-                  <h4 className='flex items-center gap-1.5 text-sm font-semibold text-blue-500'>
-                    <Cpu className='h-4 w-4' />
-                    {t('byog.admin.tier2_title')}
-                  </h4>
-                  <p className='text-muted-foreground text-xs'>
-                    {t('byog.admin.tier2_spec')}
-                  </p>
-                </div>
+            <div className='space-y-3 rounded-lg border p-4'>
+              <div>
+                <h4 className='text-sm font-semibold'>
+                  {t('byog.admin.tier2_title')}
+                </h4>
+                <p className='text-xs text-muted-foreground'>
+                  {t('byog.admin.tier2_spec')}
+                </p>
               </div>
-              <div className='space-y-3'>
-                <div>
-                  <Label className='text-xs'>
-                    {t('byog.admin.provider_pay_per_1m')}
-                  </Label>
-                  <Input
-                    type='number'
-                    step='0.01'
-                    value={settings.tier2_provider_price}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        tier2_provider_price: parseFloat(e.target.value) || 0,
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <Label className='text-xs'>
-                    {t('byog.admin.customer_charge_per_1m')}
-                  </Label>
-                  <Input
-                    type='number'
-                    step='0.01'
-                    value={settings.tier2_customer_price}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        tier2_customer_price: parseFloat(e.target.value) || 0,
-                      })
-                    }
-                  />
-                </div>
+              <div className='space-y-1.5'>
+                <Label className='text-xs'>
+                  {t('byog.admin.provider_pay_per_1m')} ($)
+                </Label>
+                <Input
+                  type='number'
+                  step='0.01'
+                  value={settings.tier2_provider_price}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      tier2_provider_price: parseFloat(e.target.value) || 0,
+                    })
+                  }
+                />
               </div>
             </div>
 
             {/* Tier 3 */}
-            <div className='bg-muted/20 space-y-4 rounded-xl border p-4'>
-              <div className='flex items-center justify-between'>
-                <div>
-                  <h4 className='flex items-center gap-1.5 text-sm font-semibold text-amber-500'>
-                    <Sparkles className='h-4 w-4' />
-                    {t('byog.admin.tier3_title')}
-                  </h4>
-                  <p className='text-muted-foreground text-xs'>
-                    {t('byog.admin.tier3_spec')}
-                  </p>
-                </div>
+            <div className='space-y-3 rounded-lg border p-4'>
+              <div>
+                <h4 className='text-sm font-semibold'>
+                  {t('byog.admin.tier3_title')}
+                </h4>
+                <p className='text-xs text-muted-foreground'>
+                  {t('byog.admin.tier3_spec')}
+                </p>
               </div>
-              <div className='space-y-3'>
-                <div>
-                  <Label className='text-xs'>
-                    {t('byog.admin.provider_pay_per_1m')}
-                  </Label>
-                  <Input
-                    type='number'
-                    step='0.01'
-                    value={settings.tier3_provider_price}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        tier3_provider_price: parseFloat(e.target.value) || 0,
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <Label className='text-xs'>
-                    {t('byog.admin.customer_charge_per_1m')}
-                  </Label>
-                  <Input
-                    type='number'
-                    step='0.01'
-                    value={settings.tier3_customer_price}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        tier3_customer_price: parseFloat(e.target.value) || 0,
-                      })
-                    }
-                  />
-                </div>
+              <div className='space-y-1.5'>
+                <Label className='text-xs'>
+                  {t('byog.admin.provider_pay_per_1m')} ($)
+                </Label>
+                <Input
+                  type='number'
+                  step='0.01'
+                  value={settings.tier3_provider_price}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      tier3_provider_price: parseFloat(e.target.value) || 0,
+                    })
+                  }
+                />
               </div>
             </div>
           </div>
@@ -304,8 +252,7 @@ export function ByogSettingsTab() {
       {/* Network & Multiplier Parameters */}
       <Card>
         <CardHeader>
-          <CardTitle className='flex items-center gap-2'>
-            <Zap className='h-5 w-5 text-amber-500' />
+          <CardTitle className='text-lg font-semibold'>
             {t('byog.admin.network_parameters_title')}
           </CardTitle>
           <CardDescription>
@@ -313,10 +260,11 @@ export function ByogSettingsTab() {
           </CardDescription>
         </CardHeader>
         <CardContent className='space-y-6'>
-          <div className='grid grid-cols-1 gap-6 md:grid-cols-3'>
-            <div className='space-y-2'>
-              <Label className='text-sm font-medium'>
-                {t('byog.admin.max_cold_start_timeout')}
+          {/* General Scheduling */}
+          <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
+            <div className='space-y-2 rounded-lg border p-3.5'>
+              <Label className='text-xs font-medium'>
+                {t('byog.admin.max_cold_start_timeout')} (s)
               </Label>
               <Input
                 type='number'
@@ -328,18 +276,17 @@ export function ByogSettingsTab() {
                   })
                 }
               />
-              <p className='text-muted-foreground text-xs'>
+              <p className='text-xs text-muted-foreground'>
                 {t('byog.admin.max_cold_start_timeout_hint')}
               </p>
             </div>
 
-            <div className='flex items-center justify-between rounded-xl border p-4'>
-              <div className='space-y-0.5'>
-                <div className='flex items-center gap-1.5 text-sm font-medium'>
-                  <Moon className='h-4 w-4 text-indigo-400' />
+            <div className='flex items-center justify-between rounded-lg border p-3.5'>
+              <div className='space-y-0.5 pr-2'>
+                <div className='text-xs font-medium'>
                   {t('byog.admin.night_owl_surge')}
                 </div>
-                <div className='text-muted-foreground text-xs'>
+                <div className='text-xs text-muted-foreground'>
                   {t('byog.admin.night_owl_surge_desc')}
                 </div>
               </div>
@@ -351,13 +298,12 @@ export function ByogSettingsTab() {
               />
             </div>
 
-            <div className='flex items-center justify-between rounded-xl border p-4'>
-              <div className='space-y-0.5'>
-                <div className='flex items-center gap-1.5 text-sm font-medium'>
-                  <Sparkles className='h-4 w-4 text-emerald-400' />
+            <div className='flex items-center justify-between rounded-lg border p-3.5'>
+              <div className='space-y-0.5 pr-2'>
+                <div className='text-xs font-medium'>
                   {t('byog.admin.weekend_crunch')}
                 </div>
-                <div className='text-muted-foreground text-xs'>
+                <div className='text-xs text-muted-foreground'>
                   {t('byog.admin.weekend_crunch_desc')}
                 </div>
               </div>
@@ -369,14 +315,228 @@ export function ByogSettingsTab() {
               />
             </div>
           </div>
+
+          {/* All Multipliers Grid */}
+          <div className='space-y-3 pt-2'>
+            <div className='text-sm font-semibold'>
+              {t(
+                'byog.admin.multiplier_coefficients_title',
+                'Performance & Telemetry Multipliers'
+              )}
+            </div>
+            <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+              {/* High TPS */}
+              <div className='space-y-1.5 rounded-lg border p-3'>
+                <Label className='text-xs font-medium'>
+                  {t('byog.admin.multiplier_high_tps', 'High TPS Bonus (TPS > 40)')} (+%)
+                </Label>
+                <Input
+                  type='number'
+                  value={multipliers.high_tps_bonus}
+                  onChange={(e) =>
+                    updateMultiplier(
+                      'high_tps_bonus',
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                />
+              </div>
+
+              {/* Sub-Second TTFT */}
+              <div className='space-y-1.5 rounded-lg border p-3'>
+                <Label className='text-xs font-medium'>
+                  {t('byog.admin.multiplier_sub_second_ttft', 'Fast TTFT Bonus (TTFT < 1.0s)')} (+%)
+                </Label>
+                <Input
+                  type='number'
+                  value={multipliers.sub_second_ttft}
+                  onChange={(e) =>
+                    updateMultiplier(
+                      'sub_second_ttft',
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                />
+              </div>
+
+              {/* High Uptime (7d) */}
+              <div className='space-y-1.5 rounded-lg border p-3'>
+                <Label className='text-xs font-medium'>
+                  {t('byog.admin.multiplier_high_uptime', 'High Uptime (7+ Days)')} (+%)
+                </Label>
+                <Input
+                  type='number'
+                  value={multipliers.high_uptime_bonus}
+                  onChange={(e) =>
+                    updateMultiplier(
+                      'high_uptime_bonus',
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                />
+              </div>
+
+              {/* Super Uptime (30d) */}
+              <div className='space-y-1.5 rounded-lg border p-3'>
+                <Label className='text-xs font-medium'>
+                  {t('byog.admin.multiplier_super_uptime', 'Super Uptime (30+ Days)')} (+%)
+                </Label>
+                <Input
+                  type='number'
+                  value={multipliers.super_uptime_bonus}
+                  onChange={(e) =>
+                    updateMultiplier(
+                      'super_uptime_bonus',
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                />
+              </div>
+
+              {/* Residential IP */}
+              <div className='space-y-1.5 rounded-lg border p-3'>
+                <Label className='text-xs font-medium'>
+                  {t('byog.admin.multiplier_residential_ip', 'Residential IP Bonus')} (+%)
+                </Label>
+                <Input
+                  type='number'
+                  value={multipliers.residential_ip_bonus}
+                  onChange={(e) =>
+                    updateMultiplier(
+                      'residential_ip_bonus',
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                />
+              </div>
+
+              {/* Gigabit Fiber */}
+              <div className='space-y-1.5 rounded-lg border p-3'>
+                <Label className='text-xs font-medium'>
+                  {t('byog.admin.multiplier_gigabit_fiber', 'Gigabit Fiber (1000M Down / 500M Up)')} (+%)
+                </Label>
+                <Input
+                  type='number'
+                  value={multipliers.gigabit_fiber_bonus}
+                  onChange={(e) =>
+                    updateMultiplier(
+                      'gigabit_fiber_bonus',
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                />
+              </div>
+
+              {/* Low Latency */}
+              <div className='space-y-1.5 rounded-lg border p-3'>
+                <Label className='text-xs font-medium'>
+                  {t('byog.admin.multiplier_low_latency', 'Low Latency (Ping < 30ms)')} (+%)
+                </Label>
+                <Input
+                  type='number'
+                  value={multipliers.low_latency_bonus}
+                  onChange={(e) =>
+                    updateMultiplier(
+                      'low_latency_bonus',
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                />
+              </div>
+
+              {/* Clean Reputation */}
+              <div className='space-y-1.5 rounded-lg border p-3'>
+                <Label className='text-xs font-medium'>
+                  {t('byog.admin.multiplier_clean_reputation', 'Clean Reputation (Score 100)')} (+%)
+                </Label>
+                <Input
+                  type='number'
+                  value={multipliers.clean_reputation_bonus}
+                  onChange={(e) =>
+                    updateMultiplier(
+                      'clean_reputation_bonus',
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                />
+              </div>
+
+              {/* Low Temperature */}
+              <div className='space-y-1.5 rounded-lg border p-3'>
+                <Label className='text-xs font-medium'>
+                  {t('byog.admin.multiplier_low_temp', 'Low Temperature (GPU < 55°C / CPU < 50°C)')} (+%)
+                </Label>
+                <Input
+                  type='number'
+                  value={multipliers.low_temp_bonus}
+                  onChange={(e) =>
+                    updateMultiplier(
+                      'low_temp_bonus',
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                />
+              </div>
+
+              {/* Battery Eco */}
+              <div className='space-y-1.5 rounded-lg border p-3'>
+                <Label className='text-xs font-medium'>
+                  {t('byog.admin.multiplier_battery_eco', 'Battery Eco (Mobile Charging & < 38°C)')} (+%)
+                </Label>
+                <Input
+                  type='number'
+                  value={multipliers.battery_eco_bonus}
+                  onChange={(e) =>
+                    updateMultiplier(
+                      'battery_eco_bonus',
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                />
+              </div>
+
+              {/* Night Owl Surge % */}
+              <div className='space-y-1.5 rounded-lg border p-3'>
+                <Label className='text-xs font-medium'>
+                  {t('byog.admin.multiplier_night_owl', 'Night Owl Surge Rate')} (+%)
+                </Label>
+                <Input
+                  type='number'
+                  value={multipliers.night_owl_surge}
+                  onChange={(e) =>
+                    updateMultiplier(
+                      'night_owl_surge',
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                />
+              </div>
+
+              {/* Weekend Crunch % */}
+              <div className='space-y-1.5 rounded-lg border p-3'>
+                <Label className='text-xs font-medium'>
+                  {t('byog.admin.multiplier_weekend_crunch', 'Weekend Crunch Rate')} (+%)
+                </Label>
+                <Input
+                  type='number'
+                  value={multipliers.weekend_crunch}
+                  onChange={(e) =>
+                    updateMultiplier(
+                      'weekend_crunch',
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                />
+              </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
       {/* Universal Hardware Compatibility Matrix */}
       <Card>
         <CardHeader>
-          <CardTitle className='flex items-center gap-2'>
-            <Cpu className='h-5 w-5 text-blue-500' />
+          <CardTitle className='text-lg font-semibold'>
             {t('byog.admin.hardware_backends_title')}
           </CardTitle>
           <CardDescription>
@@ -384,7 +544,7 @@ export function ByogSettingsTab() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3'>
+          <div className='grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3'>
             {[
               { id: 'cuda', label: 'NVIDIA CUDA (Compute Capability 5.0+)' },
               { id: 'rocm', label: 'AMD ROCm / HIP & Vulkan / DirectML' },
@@ -409,11 +569,11 @@ export function ByogSettingsTab() {
             ].map((hw) => (
               <div
                 key={hw.id}
-                className='bg-muted/10 hover:bg-muted/20 flex items-center justify-between rounded-lg border p-3.5 transition-colors'
+                className='flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/30'
               >
                 <div className='space-y-0.5 pr-2'>
-                  <div className='text-sm font-medium'>{hw.label}</div>
-                  <div className='text-muted-foreground text-xs'>
+                  <div className='text-xs font-medium'>{hw.label}</div>
+                  <div className='text-xs text-muted-foreground'>
                     {backends[hw.id] !== false
                       ? t('byog.admin.backend_enabled')
                       : t('byog.admin.backend_disabled')}
@@ -430,9 +590,8 @@ export function ByogSettingsTab() {
       </Card>
 
       {/* Action Footer */}
-      <div className='flex justify-end pt-4'>
-        <Button onClick={handleSave} disabled={saving} className='gap-2 px-6'>
-          <Save className='h-4 w-4' />
+      <div className='flex justify-end pt-2'>
+        <Button onClick={handleSave} disabled={saving} className='px-6'>
           {saving ? t('byog.saving') : t('byog.admin.save_settings')}
         </Button>
       </div>

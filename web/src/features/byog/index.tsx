@@ -138,30 +138,30 @@ export function ByogUserDashboard() {
     nodes.reduce((acc, n) => acc + (n.total_tokens_processed || 0), 0)
 
   return (
-    <div className='h-full flex-1 overflow-y-auto space-y-6 p-4 md:p-6'>
+    <div className='h-full w-full max-w-full flex-1 overflow-x-hidden overflow-y-auto space-y-6 p-3 sm:p-4 md:p-6'>
       {/* Top Banner & Header */}
-      <div className='flex flex-wrap items-center justify-between gap-4'>
-        <div>
-          <h1 className='text-2xl font-bold tracking-tight flex items-center gap-2'>
-            <Cpu className='h-6 w-6 text-primary' />
-            {t('byog.title')}
-            <Badge className='bg-primary text-primary-foreground text-xs font-medium'>
+      <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4'>
+        <div className='min-w-0 flex-1'>
+          <h1 className='text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2 flex-wrap'>
+            <Cpu className='h-5 w-5 sm:h-6 sm:w-6 text-primary shrink-0' />
+            <span className='truncate'>{t('byog.title')}</span>
+            <Badge className='bg-primary text-primary-foreground text-xs font-medium shrink-0'>
               {t('byog.earn_badge')}
             </Badge>
           </h1>
-          <p className='text-sm text-muted-foreground'>
+          <p className='text-xs sm:text-sm text-muted-foreground mt-1 max-w-2xl line-clamp-2 sm:line-clamp-none'>
             {t('byog.subtitle')}
           </p>
         </div>
 
-        <div className='flex items-center gap-2.5'>
+        <div className='flex items-center gap-2 shrink-0 self-start sm:self-auto'>
           <Button
             variant='outline'
             size='sm'
             onClick={fetchData}
-            className='gap-2'
+            className='gap-1.5 text-xs'
           >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
             {t('Refresh')}
           </Button>
           <PairModal onPaired={fetchData} />

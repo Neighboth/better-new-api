@@ -3,7 +3,7 @@ package model
 import (
 	"encoding/json"
 	"errors"
-	"math"
+	"fmt"
 	"strings"
 	"time"
 
@@ -24,8 +24,49 @@ type ByogSetting struct {
 	NightOwlSurgeEnabled bool    `json:"night_owl_surge_enabled" gorm:"default:true"`
 	WeekendCrunchEnabled bool    `json:"weekend_crunch_enabled" gorm:"default:true"`
 	HardwareBackends     string  `json:"hardware_backends" gorm:"type:text"` // JSON object of toggled backends
+	MultipliersConfig    string  `json:"multipliers_config" gorm:"type:text"` // JSON object of custom multiplier percentages
 	CreatedAt            int64   `json:"created_at" gorm:"bigint"`
 	UpdatedAt            int64   `json:"updated_at" gorm:"bigint"`
+}
+
+type ByogMultipliersConfig struct {
+	HighTpsBonusPercent    float64 `json:"high_tps_bonus"`
+	SubSecondTtftPercent   float64 `json:"sub_second_ttft"`
+	HighUptimePercent      float64 `json:"high_uptime_bonus"`
+	SuperUptimePercent     float64 `json:"super_uptime_bonus"`
+	ResidentialIpPercent   float64 `json:"residential_ip_bonus"`
+	GigabitFiberPercent    float64 `json:"gigabit_fiber_bonus"`
+	LowLatencyPercent      float64 `json:"low_latency_bonus"`
+	CleanReputationPercent float64 `json:"clean_reputation_bonus"`
+	LowTempPercent         float64 `json:"low_temp_bonus"`
+	BatteryEcoPercent      float64 `json:"battery_eco_bonus"`
+	NightOwlSurgePercent   float64 `json:"night_owl_surge"`
+	WeekendCrunchPercent   float64 `json:"weekend_crunch"`
+}
+
+func DefaultByogMultipliersConfig() ByogMultipliersConfig {
+	return ByogMultipliersConfig{
+		HighTpsBonusPercent:    15,
+		SubSecondTtftPercent:   10,
+		HighUptimePercent:      20,
+		SuperUptimePercent:     35,
+		ResidentialIpPercent:   15,
+		GigabitFiberPercent:    10,
+		LowLatencyPercent:      10,
+		CleanReputationPercent: 10,
+		LowTempPercent:         5,
+		BatteryEcoPercent:      5,
+		NightOwlSurgePercent:   30,
+		WeekendCrunchPercent:   20,
+	}
+}
+
+func GetByogMultipliersConfig(s *ByogSetting) ByogMultipliersConfig {
+	cfg := DefaultByogMultipliersConfig()
+	if s != nil && s.MultipliersConfig != "" {
+		_ = json.Unmarshal([]byte(s.MultipliersConfig), &cfg)
+	}
+	return cfg
 }
 
 // Reward Store Item
@@ -784,111 +825,78 @@ func CalculateNodeMultipliers(node *ByogNode) (float64, []string) {
 	var totalBonusPercent float64 = 0.0
 	var activeBonuses []string
 
-	// Hardware & Performance based multipliers (Section 7.1)
-	// 1. VRAM Pinning: +25%
-	if node.AllocatedVramGB >= 4 && node.CurrentTtftMs > 0 && node.CurrentTtftMs < 500 {
-		totalBonusPercent += 0.25
-		activeBonuses = append(activeBonuses, "VRAM_PINNING_+25%")
+	setting, _ := GetByogSetting()
+	cfg := GetByogMultipliersConfig(setting)
+
+	// 1. High TPS Bonus (TPS > 40)
+	if node.CurrentTps > 40 && cfg.HighTpsBonusPercent > 0 {
+		totalBonusPercent += cfg.HighTpsBonusPercent / 100.0
+		activeBonuses = append(activeBonuses, fmt.Sprintf("HIGH_TPS_+%.0f%%", cfg.HighTpsBonusPercent))
 	}
 
-	// 2. Ultra Long Context (32K+ KV Cache): +30%
-	if node.AllocatedVramGB >= 12 || (node.AllocatedVramGB >= 8 && node.AllocatedRamGB >= 32) {
-		totalBonusPercent += 0.30
-		activeBonuses = append(activeBonuses, "ULTRA_LONG_CONTEXT_+30%")
+	// 2. Sub-Second TTFT Bonus (TTFT < 1.0s)
+	if node.CurrentTtftMs > 0 && node.CurrentTtftMs < 1000 && cfg.SubSecondTtftPercent > 0 {
+		totalBonusPercent += cfg.SubSecondTtftPercent / 100.0
+		activeBonuses = append(activeBonuses, fmt.Sprintf("SUB_SECOND_TTFT_+%.0f%%", cfg.SubSecondTtftPercent))
 	}
 
-	// 3. Continuous Batching: +20%
-	if node.AllocatedCores >= 8 && (node.DeviceType == "desktop" || node.DeviceType == "server") {
-		totalBonusPercent += 0.20
-		activeBonuses = append(activeBonuses, "CONTINUOUS_BATCHING_+20%")
+	// 3. Super Uptime (30+ days) & High Uptime (7+ days)
+	if node.UptimeSeconds >= 30*86400 && cfg.SuperUptimePercent > 0 {
+		totalBonusPercent += cfg.SuperUptimePercent / 100.0
+		activeBonuses = append(activeBonuses, fmt.Sprintf("SUPER_UPTIME_30D_+%.0f%%", cfg.SuperUptimePercent))
+	} else if node.UptimeSeconds >= 7*86400 && cfg.HighUptimePercent > 0 {
+		totalBonusPercent += cfg.HighUptimePercent / 100.0
+		activeBonuses = append(activeBonuses, fmt.Sprintf("HIGH_UPTIME_7D_+%.0f%%", cfg.HighUptimePercent))
 	}
 
-	// 4. High-Bandwidth & Low Ping (<30ms): +10%
-	if node.PingMs > 0 && node.PingMs < 30 && node.BandwidthDownMbps >= 50 && node.BandwidthUpMbps >= 50 {
-		totalBonusPercent += 0.10
-		activeBonuses = append(activeBonuses, "LOW_PING_BANDWIDTH_+10%")
+	// 4. Residential IP Bonus (Home internet vs datacenter)
+	if node.IpType == "residential" && cfg.ResidentialIpPercent > 0 {
+		totalBonusPercent += cfg.ResidentialIpPercent / 100.0
+		activeBonuses = append(activeBonuses, fmt.Sprintf("RESIDENTIAL_IP_+%.0f%%", cfg.ResidentialIpPercent))
 	}
 
-	// 5. Large Model Host (24GB+ VRAM): +40%
-	if node.AllocatedVramGB >= 24 {
-		totalBonusPercent += 0.40
-		activeBonuses = append(activeBonuses, "LARGE_MODEL_HOST_+40%")
+	// 5. Gigabit Fiber Bonus (1000 Mbps Down & 500+ Mbps Up)
+	if node.BandwidthDownMbps >= 1000 && node.BandwidthUpMbps >= 500 && cfg.GigabitFiberPercent > 0 {
+		totalBonusPercent += cfg.GigabitFiberPercent / 100.0
+		activeBonuses = append(activeBonuses, fmt.Sprintf("GIGABIT_FIBER_+%.0f%%", cfg.GigabitFiberPercent))
 	}
 
-	// 6. Confidential AI (TEE/SGX Hardware): +15%
-	if node.TeeSupported {
-		totalBonusPercent += 0.15
-		activeBonuses = append(activeBonuses, "CONFIDENTIAL_TEE_+15%")
+	// 6. Low Latency Bonus (Ping < 30ms)
+	if node.PingMs > 0 && node.PingMs < 30 && cfg.LowLatencyPercent > 0 {
+		totalBonusPercent += cfg.LowLatencyPercent / 100.0
+		activeBonuses = append(activeBonuses, fmt.Sprintf("LOW_LATENCY_+%.0f%%", cfg.LowLatencyPercent))
 	}
 
-	// 7. LoRA Hot-Swap Champion: +20%
-	var localModels []string
-	_ = json.Unmarshal([]byte(node.InstalledModels), &localModels)
-	if len(localModels) >= 5 {
-		totalBonusPercent += 0.20
-		activeBonuses = append(activeBonuses, "LORA_HOT_SWAP_+20%")
+	// 7. Clean Reputation Bonus (Reputation Score == 100)
+	if node.ReputationScore >= 100 && cfg.CleanReputationPercent > 0 {
+		totalBonusPercent += cfg.CleanReputationPercent / 100.0
+		activeBonuses = append(activeBonuses, fmt.Sprintf("CLEAN_REPUTATION_+%.0f%%", cfg.CleanReputationPercent))
 	}
 
-	// 8. Zero-Packet-Drop: +10%
-	if node.NetworkType == "ethernet" || (node.BandwidthDownMbps > 80 && node.PingMs < 50) {
-		totalBonusPercent += 0.10
-		activeBonuses = append(activeBonuses, "ZERO_PACKET_DROP_+10%")
+	// 8. Low Temperature Bonus (GPU < 55°C & CPU < 50°C under load)
+	if node.GpuTemp > 0 && node.GpuTemp < 55 && node.CpuTemp > 0 && node.CpuTemp < 50 && cfg.LowTempPercent > 0 {
+		totalBonusPercent += cfg.LowTempPercent / 100.0
+		activeBonuses = append(activeBonuses, fmt.Sprintf("LOW_TEMP_+%.0f%%", cfg.LowTempPercent))
 	}
 
-	// 9. Dedicated Tensor Float FP16: +25%
-	if strings.Contains(strings.ToLower(node.GpuModel), "rtx 40") ||
-		strings.Contains(strings.ToLower(node.GpuModel), "a100") ||
-		strings.Contains(strings.ToLower(node.GpuModel), "h100") ||
-		strings.Contains(strings.ToLower(node.GpuModel), "m3") ||
-		strings.Contains(strings.ToLower(node.GpuModel), "m4") {
-		totalBonusPercent += 0.25
-		activeBonuses = append(activeBonuses, "DEDICATED_TENSOR_FP16_+25%")
+	// 9. Battery Eco Bonus (Charging + Temp < 38°C on mobile/tablet)
+	if (node.DeviceType == "mobile" || node.DeviceType == "tablet") && node.IsCharging && node.BatteryTemp < 38 && cfg.BatteryEcoPercent > 0 {
+		totalBonusPercent += cfg.BatteryEcoPercent / 100.0
+		activeBonuses = append(activeBonuses, fmt.Sprintf("BATTERY_ECO_+%.0f%%", cfg.BatteryEcoPercent))
 	}
 
-	// 10. Multi-Modal Toolkit: +20%
-	if node.AllocatedVramGB >= 8 && node.AllocatedRamGB >= 16 {
-		totalBonusPercent += 0.20
-		activeBonuses = append(activeBonuses, "MULTI_MODAL_TOOLKIT_+20%")
-	}
-
-	// 11. Symmetric Fiber & P2P Seeder: +12%
-	if node.BandwidthUpMbps >= 100 && math.Abs(node.BandwidthDownMbps-node.BandwidthUpMbps) < 30 {
-		totalBonusPercent += 0.12
-		activeBonuses = append(activeBonuses, "SYMMETRIC_FIBER_P2P_+12%")
-	}
-
-	// Uptime & Consistency multipliers (Section 7.2)
-	// 24h: +10%, 72h: +20%, 7 days: +35%
-	if node.UptimeSeconds >= 7*86400 {
-		totalBonusPercent += 0.35
-		activeBonuses = append(activeBonuses, "UPTIME_7_DAYS_TITAN_+35%")
-	} else if node.UptimeSeconds >= 3*86400 {
-		totalBonusPercent += 0.20
-		activeBonuses = append(activeBonuses, "UPTIME_72_HOURS_+20%")
-	} else if node.UptimeSeconds >= 86400 {
-		totalBonusPercent += 0.10
-		activeBonuses = append(activeBonuses, "UPTIME_24_HOURS_+10%")
-	}
-
-	// Reputation Score > 95: +15%
-	if node.ReputationScore >= 95 {
-		totalBonusPercent += 0.15
-		activeBonuses = append(activeBonuses, "REPUTATION_ELITE_+15%")
-	}
-
-	// Time-Based Spot Surges (Section 7.3)
-	// 1. Night Owl Surge (01:00 - 08:00): +30%
+	// 10. Night Owl Surge (01:00 - 08:00)
 	nowHour := time.Now().Hour()
-	if nowHour >= 1 && nowHour < 8 {
-		totalBonusPercent += 0.30
-		activeBonuses = append(activeBonuses, "NIGHT_OWL_SURGE_+30%")
+	if setting != nil && setting.NightOwlSurgeEnabled && nowHour >= 1 && nowHour < 8 && cfg.NightOwlSurgePercent > 0 {
+		totalBonusPercent += cfg.NightOwlSurgePercent / 100.0
+		activeBonuses = append(activeBonuses, fmt.Sprintf("NIGHT_OWL_SURGE_+%.0f%%", cfg.NightOwlSurgePercent))
 	}
 
-	// 2. Weekend Crunch (Saturday & Sunday): +20%
+	// 11. Weekend Crunch (Saturday & Sunday)
 	weekday := time.Now().Weekday()
-	if weekday == time.Saturday || weekday == time.Sunday {
-		totalBonusPercent += 0.20
-		activeBonuses = append(activeBonuses, "WEEKEND_CRUNCH_+20%")
+	if setting != nil && setting.WeekendCrunchEnabled && (weekday == time.Saturday || weekday == time.Sunday) && cfg.WeekendCrunchPercent > 0 {
+		totalBonusPercent += cfg.WeekendCrunchPercent / 100.0
+		activeBonuses = append(activeBonuses, fmt.Sprintf("WEEKEND_CRUNCH_+%.0f%%", cfg.WeekendCrunchPercent))
 	}
 
 	multiplier := 1.0 + totalBonusPercent

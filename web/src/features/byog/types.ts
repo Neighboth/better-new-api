@@ -105,6 +105,22 @@ export interface ByogSetting {
   night_owl_surge_enabled: boolean
   weekend_crunch_enabled: boolean
   hardware_backends: string
+  multipliers_config?: string
+}
+
+export interface ByogMultipliersConfig {
+  high_tps_bonus: number
+  sub_second_ttft: number
+  high_uptime_bonus: number
+  super_uptime_bonus: number
+  residential_ip_bonus: number
+  gigabit_fiber_bonus: number
+  low_latency_bonus: number
+  clean_reputation_bonus: number
+  low_temp_bonus: number
+  battery_eco_bonus: number
+  night_owl_surge: number
+  weekend_crunch: number
 }
 
 export interface ByogRewardItem {

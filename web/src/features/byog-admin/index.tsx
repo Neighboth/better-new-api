@@ -22,7 +22,6 @@ import {
   Cpu,
   Gift,
   Layers,
-  Network,
   Settings,
   ShieldAlert,
 } from 'lucide-react'
@@ -79,12 +78,9 @@ export function ByogAdmin({ initialSection }: ByogAdminProps) {
     <div className='h-full flex-1 overflow-y-auto space-y-6 p-4 md:p-6'>
       <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
         <div className='space-y-1'>
-          <div className='flex items-center gap-2'>
-            <Network className='text-primary h-6 w-6' />
-            <h2 className='text-2xl font-bold tracking-tight'>
-              {t('byog.admin.page_title')}
-            </h2>
-          </div>
+          <h2 className='text-2xl font-bold tracking-tight'>
+            {t('byog.admin.page_title')}
+          </h2>
           <p className='text-muted-foreground text-sm'>
             {t('byog.admin.page_description')}
           </p>
