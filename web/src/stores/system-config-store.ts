@@ -49,6 +49,7 @@ export interface SystemConfig {
   demoSiteEnabled?: boolean
   displayTokenStatEnabled?: boolean
   ticketEnabled?: boolean
+  byogEnabled?: boolean
   captchaProviderOrder?: string
   currency: CurrencyConfig
 }

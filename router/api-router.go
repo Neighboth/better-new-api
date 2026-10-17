@@ -514,5 +514,64 @@ func SetApiRouter(router *gin.Engine) {
 			deploymentsRoute.POST("/:id/extend", controller.ExtendDeployment)
 			deploymentsRoute.DELETE("/:id", controller.DeleteDeployment)
 		}
+
+		// BYOG Public & User Routes
+		byogRoute := apiRouter.Group("/byog")
+		{
+			byogRoute.GET("/status", controller.GetByogStatus)
+			byogUserRoute := byogRoute.Group("/user")
+			byogUserRoute.Use(middleware.UserAuth())
+			{
+				byogUserRoute.GET("/nodes", controller.GetUserByogNodes)
+				byogUserRoute.POST("/nodes/pair", controller.PairByogNode)
+				byogUserRoute.PUT("/nodes/:id", controller.UpdateUserByogNode)
+				byogUserRoute.DELETE("/nodes/:id", controller.DeleteUserByogNode)
+				byogUserRoute.GET("/rewards", controller.GetUserRewardCatalog)
+				byogUserRoute.POST("/rewards/:id/claim", controller.ClaimUserReward)
+				byogUserRoute.POST("/appeal", controller.SubmitBanAppeal)
+			}
+
+			// BYOG Admin Routes
+			byogAdminRoute := byogRoute.Group("/admin")
+			byogAdminRoute.Use(middleware.AdminAuth())
+			{
+				byogAdminRoute.GET("/settings", controller.GetByogAdminSettings)
+				byogAdminRoute.POST("/settings", controller.UpdateByogAdminSettings)
+				byogAdminRoute.GET("/rewards", controller.GetByogAdminRewards)
+				byogAdminRoute.POST("/rewards", controller.CreateByogAdminReward)
+				byogAdminRoute.PUT("/rewards/:id", controller.UpdateByogAdminReward)
+				byogAdminRoute.DELETE("/rewards/:id", controller.DeleteByogAdminReward)
+				byogAdminRoute.GET("/claims", controller.GetByogAdminClaims)
+				byogAdminRoute.POST("/claims/:id/approve", controller.ApproveByogAdminClaim)
+				byogAdminRoute.POST("/claims/:id/reject", controller.RejectByogAdminClaim)
+				byogAdminRoute.GET("/claims/export", controller.ExportByogAdminClaims)
+				byogAdminRoute.GET("/rules", controller.GetByogAdminRules)
+				byogAdminRoute.POST("/rules", controller.CreateByogAdminRule)
+				byogAdminRoute.PUT("/rules/:id", controller.UpdateByogAdminRule)
+				byogAdminRoute.DELETE("/rules/:id", controller.DeleteByogAdminRule)
+				byogAdminRoute.GET("/models", controller.GetByogAdminModels)
+				byogAdminRoute.POST("/models", controller.CreateByogAdminModel)
+				byogAdminRoute.PUT("/models/:id", controller.UpdateByogAdminModel)
+				byogAdminRoute.DELETE("/models/:id", controller.DeleteByogAdminModel)
+				byogAdminRoute.POST("/models/:id/loras", controller.CreateByogAdminLora)
+				byogAdminRoute.DELETE("/loras/:id", controller.DeleteByogAdminLora)
+				byogAdminRoute.GET("/nodes", controller.GetByogAdminNodes)
+				byogAdminRoute.GET("/nodes/:id/inspect", controller.InspectByogAdminNode)
+				byogAdminRoute.GET("/banned", controller.GetByogAdminBannedNodes)
+				byogAdminRoute.POST("/banned/:id/unban", controller.UnbanByogAdminNode)
+			}
+		}
+
+		// BYOG Worker endpoints under /api/v1/worker
+		workerRoute := apiRouter.Group("/v1/worker")
+		{
+			workerRoute.POST("/register", controller.RegisterByogWorker)
+			workerRoute.GET("/tunnel", controller.ByogWorkerTunnel)
+			workerRoute.POST("/telemetry/crash", controller.ReportByogWorkerCrash)
+			workerRoute.GET("/version", controller.GetByogWorkerVersion)
+		}
 	}
+
+	// Also register root /api/v1/worker tunnel directly
+	router.GET("/api/v1/worker/tunnel", controller.ByogWorkerTunnel)
 }

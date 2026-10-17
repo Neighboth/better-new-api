@@ -302,10 +302,21 @@ func migrateDB() error {
 		&Ticket{},
 		&TicketMessage{},
 		&UserBalancePackage{},
+		&ByogSetting{},
+		&ByogRewardItem{},
+		&ByogRewardClaim{},
+		&ByogAssignmentRule{},
+		&ByogModel{},
+		&ByogModelLora{},
+		&ByogNode{},
+		&ByogNodeBan{},
+		&ByogCrashReport{},
+		&ByogP2PTracker{},
 	)
 	if err != nil {
 		return err
 	}
+	InitDefaultByogData()
 	if err := normalizeLegacyBlogTables(); err != nil {
 		return err
 	}

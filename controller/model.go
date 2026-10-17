@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	byogservice "github.com/QuantumNous/new-api/service/byog"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -260,6 +261,20 @@ func ListModels(c *gin.Context, modelType int) {
 	userOpenAiModels := make([]dto.OpenAIModels, 0, len(userModelNames))
 	for _, modelName := range userModelNames {
 		userOpenAiModels = append(userOpenAiModels, buildOpenAIModel(modelName, ownerByModel))
+	}
+
+	// Inject BYOG Virtual Catalog models if enabled (Section 2.4)
+	if model.IsByogGloballyEnabled() {
+		if virtualModels, err := byogservice.GlobalJit.GetVirtualCatalog(); err == nil {
+			for _, vm := range virtualModels {
+				userOpenAiModels = append(userOpenAiModels, dto.OpenAIModels{
+					Id:      vm.ModelId,
+					Object:  "model",
+					Created: int(vm.CreatedAt),
+					OwnedBy: vm.Vendor,
+				})
+			}
+		}
 	}
 
 	switch modelType {
