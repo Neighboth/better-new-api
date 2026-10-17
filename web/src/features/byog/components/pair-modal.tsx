@@ -47,17 +47,94 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import { pairNode } from '../api'
+import type { ByogStatusData } from '../types'
 
 interface PairModalProps {
   onPaired: () => void
+  statusData?: ByogStatusData | null
 }
 
-export function PairModal({ onPaired }: PairModalProps) {
+export function PairModal({ onPaired, statusData }: PairModalProps) {
   const { t } = useTranslation()
   const [open, setDialogOpen] = useState(false)
   const [pairingCode, setPairingCode] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [copiedLink, setCopiedLink] = useState(false)
+
+  const handleDownload = async (platform: string, arch: string) => {
+    const configuredUrl =
+      platform === 'windows'
+        ? statusData?.client_download_url_windows
+        : platform === 'linux'
+          ? statusData?.client_download_url_linux
+          : platform === 'darwin'
+            ? statusData?.client_download_url_darwin
+            : statusData?.client_download_url_android
+
+    if (configuredUrl && configuredUrl.trim()) {
+      window.open(configuredUrl.trim(), '_blank')
+      return
+    }
+
+    if (
+      statusData?.client_downloads &&
+      !statusData.client_downloads[platform]?.available
+    ) {
+      toast.error(
+        t(
+          'byog.client_download_not_available',
+          'Worker client package is not available for this platform. Please contact the administrator.'
+        )
+      )
+      return
+    }
+
+    try {
+      const res = await fetch(`/api/v1/worker/download/${platform}/${arch}`, {
+        method: 'GET',
+      })
+      if (!res.ok) {
+        toast.error(
+          t(
+            'byog.client_download_not_available',
+            'Worker client package is not available for this platform. Please contact the administrator.'
+          )
+        )
+        return
+      }
+
+      const contentType = res.headers.get('content-type') || ''
+      if (contentType.includes('application/json')) {
+        toast.error(
+          t(
+            'byog.client_download_not_available',
+            'Worker client package is not available for this platform. Please contact the administrator.'
+          )
+        )
+        return
+      }
+
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      let ext = ''
+      if (platform === 'windows') ext = '.exe'
+      else if (platform === 'android') ext = '.apk'
+      a.download = `byog-worker-${platform}-${arch}${ext}`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch {
+      toast.error(
+        t(
+          'byog.client_download_not_available',
+          'Worker client package is not available for this platform. Please contact the administrator.'
+        )
+      )
+    }
+  }
 
   const handlePair = async () => {
     if (!pairingCode.trim()) {
@@ -173,13 +250,13 @@ export function PairModal({ onPaired }: PairModalProps) {
                     </div>
                   </div>
                 </div>
-                <a
-                  href='/api/v1/worker/download/windows/amd64'
-                  download
-                  className={buttonVariants({ size: 'sm', variant: 'outline' })}
+                <Button
+                  size='sm'
+                  variant='outline'
+                  onClick={() => handleDownload('windows', 'amd64')}
                 >
                   <Download className='h-3.5 w-3.5' />
-                </a>
+                </Button>
               </div>
 
               {/* Linux */}
@@ -195,13 +272,13 @@ export function PairModal({ onPaired }: PairModalProps) {
                     </div>
                   </div>
                 </div>
-                <a
-                  href='/api/v1/worker/download/linux/amd64'
-                  download
-                  className={buttonVariants({ size: 'sm', variant: 'outline' })}
+                <Button
+                  size='sm'
+                  variant='outline'
+                  onClick={() => handleDownload('linux', 'amd64')}
                 >
                   <Download className='h-3.5 w-3.5' />
-                </a>
+                </Button>
               </div>
 
               {/* macOS */}
@@ -217,13 +294,13 @@ export function PairModal({ onPaired }: PairModalProps) {
                     </div>
                   </div>
                 </div>
-                <a
-                  href='/api/v1/worker/download/darwin/arm64'
-                  download
-                  className={buttonVariants({ size: 'sm', variant: 'outline' })}
+                <Button
+                  size='sm'
+                  variant='outline'
+                  onClick={() => handleDownload('darwin', 'arm64')}
                 >
                   <Download className='h-3.5 w-3.5' />
-                </a>
+                </Button>
               </div>
 
               {/* Mobile Android */}
@@ -239,13 +316,13 @@ export function PairModal({ onPaired }: PairModalProps) {
                     </div>
                   </div>
                 </div>
-                <a
-                  href='/api/v1/worker/download/android/apk'
-                  download
-                  className={buttonVariants({ size: 'sm', variant: 'outline' })}
+                <Button
+                  size='sm'
+                  variant='outline'
+                  onClick={() => handleDownload('android', 'apk')}
                 >
                   <Download className='h-3.5 w-3.5' />
-                </a>
+                </Button>
               </div>
             </div>
           </TabsContent>

@@ -1422,10 +1422,6 @@ async function main() {
   await injectLocale('tr.json', TR_TRANSLATIONS)
   await injectLocale('zh.json', ZH_TRANSLATIONS)
   await injectLocale('zh-TW.json', ZH_TRANSLATIONS)
-  await injectLocale('ja.json', EN_TRANSLATIONS)
-  await injectLocale('fr.json', EN_TRANSLATIONS)
-  await injectLocale('ru.json', EN_TRANSLATIONS)
-  await injectLocale('vi.json', EN_TRANSLATIONS)
 }
 
 main()

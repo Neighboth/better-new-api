@@ -214,6 +214,16 @@ export function ByogRulesTab() {
     }
   }
 
+  const selectedModelsList = editingRule ? parseTargetList(editingRule.target_models) : []
+  const selectableModels = availableModels.filter(
+    (m) => !selectedModelsList.includes(m.model_id)
+  )
+
+  const selectedLorasList = editingRule ? parseTargetList(editingRule.target_loras) : []
+  const selectableLoras = availableLoras.filter(
+    (l) => !selectedLorasList.includes(l.lora_id)
+  )
+
   return (
     <div className='space-y-6'>
       <Card>
@@ -327,7 +337,7 @@ export function ByogRulesTab() {
 
       {/* Create / Edit Dialog */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className='max-h-[90vh] max-w-2xl overflow-y-auto'>
+        <DialogContent className='max-h-[90vh] max-w-2xl overflow-y-auto overflow-x-hidden'>
           <DialogHeader>
             <DialogTitle>
               {editingRule?.id
@@ -493,14 +503,14 @@ export function ByogRulesTab() {
 
               <div className='space-y-2 md:col-span-2'>
                 <Label>{t('byog.admin.target_models_label')}</Label>
-                <div className='flex gap-2'>
+                <div className='flex flex-col sm:flex-row gap-2'>
                   <Select
                     value=''
                     onValueChange={(val) => {
                       if (val) addTargetModel(val)
                     }}
                   >
-                    <SelectTrigger className='flex-1'>
+                    <SelectTrigger className='flex-1 min-w-0'>
                       <SelectValue
                         placeholder={t(
                           'byog.admin.select_model_placeholder',
@@ -509,19 +519,25 @@ export function ByogRulesTab() {
                       />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableModels.map((m) => (
-                        <SelectItem key={m.model_id} value={m.model_id}>
-                          {m.model_id} ({m.vendor} • {m.param_size})
-                        </SelectItem>
-                      ))}
+                      {selectableModels.length === 0 ? (
+                        <div className='p-2 text-center text-xs text-muted-foreground'>
+                          {t('byog.admin.all_models_selected', 'All catalog models selected')}
+                        </div>
+                      ) : (
+                        selectableModels.map((m) => (
+                          <SelectItem key={m.model_id} value={m.model_id}>
+                            {m.model_id} ({m.vendor} • {m.param_size})
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
-                  <div className='flex items-center gap-1.5'>
+                  <div className='flex items-center gap-1.5 shrink-0'>
                     <Input
                       placeholder={t('byog.admin.custom_model_id', 'Custom ID')}
                       value={customModelInput}
                       onChange={(e) => setCustomModelInput(e.target.value)}
-                      className='w-32 text-xs'
+                      className='w-full sm:w-36 text-xs'
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault()
@@ -536,7 +552,7 @@ export function ByogRulesTab() {
                       type='button'
                       variant='outline'
                       size='sm'
-                      className='h-9 px-2'
+                      className='h-9 px-2.5 shrink-0'
                       onClick={() => {
                         if (customModelInput.trim()) {
                           addTargetModel(customModelInput.trim())
@@ -577,14 +593,14 @@ export function ByogRulesTab() {
 
               <div className='space-y-2 md:col-span-2'>
                 <Label>{t('byog.admin.target_loras_label')}</Label>
-                <div className='flex gap-2'>
+                <div className='flex flex-col sm:flex-row gap-2'>
                   <Select
                     value=''
                     onValueChange={(val) => {
                       if (val) addTargetLora(val)
                     }}
                   >
-                    <SelectTrigger className='flex-1'>
+                    <SelectTrigger className='flex-1 min-w-0'>
                       <SelectValue
                         placeholder={t(
                           'byog.admin.select_lora_placeholder',
@@ -593,19 +609,25 @@ export function ByogRulesTab() {
                       />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableLoras.map((l) => (
-                        <SelectItem key={l.lora_id} value={l.lora_id}>
-                          {l.lora_id} (Base: {l.base_model_id})
-                        </SelectItem>
-                      ))}
+                      {selectableLoras.length === 0 ? (
+                        <div className='p-2 text-center text-xs text-muted-foreground'>
+                          {t('byog.admin.all_loras_selected', 'All catalog LoRAs selected')}
+                        </div>
+                      ) : (
+                        selectableLoras.map((l) => (
+                          <SelectItem key={l.lora_id} value={l.lora_id}>
+                            {l.lora_id} (Base: {l.base_model_id})
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
-                  <div className='flex items-center gap-1.5'>
+                  <div className='flex items-center gap-1.5 shrink-0'>
                     <Input
                       placeholder={t('byog.admin.custom_lora_id', 'Custom LoRA')}
                       value={customLoraInput}
                       onChange={(e) => setCustomLoraInput(e.target.value)}
-                      className='w-32 text-xs'
+                      className='w-full sm:w-36 text-xs'
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault()
@@ -620,7 +642,7 @@ export function ByogRulesTab() {
                       type='button'
                       variant='outline'
                       size='sm'
-                      className='h-9 px-2'
+                      className='h-9 px-2.5 shrink-0'
                       onClick={() => {
                         if (customLoraInput.trim()) {
                           addTargetLora(customLoraInput.trim())

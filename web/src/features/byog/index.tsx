@@ -164,7 +164,7 @@ export function ByogUserDashboard() {
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
             {t('Refresh')}
           </Button>
-          <PairModal onPaired={fetchData} />
+          <PairModal onPaired={fetchData} statusData={statusData} />
         </div>
       </div>
 

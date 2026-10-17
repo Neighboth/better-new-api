@@ -53,13 +53,28 @@ func GetByogStatus(c *gin.Context) {
 		availableTokens = sum.Total
 	}
 
+	hasWin := hasLocalWorkerBinary("windows", "amd64") || (setting != nil && setting.ClientDownloadUrlWindows != "")
+	hasLin := hasLocalWorkerBinary("linux", "amd64") || (setting != nil && setting.ClientDownloadUrlLinux != "")
+	hasDar := hasLocalWorkerBinary("darwin", "arm64") || (setting != nil && setting.ClientDownloadUrlDarwin != "")
+	hasAnd := hasLocalWorkerBinary("android", "apk") || (setting != nil && setting.ClientDownloadUrlAndroid != "")
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"enabled":          setting.Enabled,
-			"is_banned":        isBanned,
-			"ban_info":         banInfo,
-			"available_tokens": availableTokens,
+			"enabled":                     setting.Enabled,
+			"is_banned":                   isBanned,
+			"ban_info":                    banInfo,
+			"available_tokens":            availableTokens,
+			"client_download_url_windows": setting.ClientDownloadUrlWindows,
+			"client_download_url_linux":   setting.ClientDownloadUrlLinux,
+			"client_download_url_darwin":  setting.ClientDownloadUrlDarwin,
+			"client_download_url_android": setting.ClientDownloadUrlAndroid,
+			"client_downloads": gin.H{
+				"windows": gin.H{"available": hasWin, "url": setting.ClientDownloadUrlWindows},
+				"linux":   gin.H{"available": hasLin, "url": setting.ClientDownloadUrlLinux},
+				"darwin":  gin.H{"available": hasDar, "url": setting.ClientDownloadUrlDarwin},
+				"android": gin.H{"available": hasAnd, "url": setting.ClientDownloadUrlAndroid},
+			},
 		},
 	})
 }
@@ -937,22 +952,65 @@ func ReportByogWorkerCrash(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Crash report recorded"})
 }
 
+func hasLocalWorkerBinary(platform, arch string) bool {
+	fileName := fmt.Sprintf("byog-worker-%s-%s", platform, arch)
+	if platform == "windows" {
+		fileName += ".exe"
+	} else if platform == "android" && arch == "apk" {
+		fileName = "byog-worker.apk"
+	}
+
+	searchPaths := []string{
+		filepath.Join("worker", "binaries", fileName),
+		filepath.Join("/worker", "binaries", fileName),
+		filepath.Join("/data", "worker", "binaries", fileName),
+	}
+
+	for _, p := range searchPaths {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Size() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // GetByogWorkerVersion returns latest version for the self-updater engine
 func GetByogWorkerVersion(c *gin.Context) {
+	setting, _ := model.GetByogSetting()
+	winUrl := "/api/v1/worker/download/windows/amd64"
+	linUrl := "/api/v1/worker/download/linux/amd64"
+	darUrl := "/api/v1/worker/download/darwin/arm64"
+	apkUrl := "/api/v1/worker/download/android/apk"
+
+	if setting != nil {
+		if setting.ClientDownloadUrlWindows != "" {
+			winUrl = setting.ClientDownloadUrlWindows
+		}
+		if setting.ClientDownloadUrlLinux != "" {
+			linUrl = setting.ClientDownloadUrlLinux
+		}
+		if setting.ClientDownloadUrlDarwin != "" {
+			darUrl = setting.ClientDownloadUrlDarwin
+		}
+		if setting.ClientDownloadUrlAndroid != "" {
+			apkUrl = setting.ClientDownloadUrlAndroid
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"version":      "1.3.0",
 		"min_version":  "1.0.0",
 		"release_date": time.Now().Format("2006-01-02"),
 		"downloads": gin.H{
-			"windows_amd64": "/api/v1/worker/download/windows/amd64",
-			"linux_amd64":   "/api/v1/worker/download/linux/amd64",
-			"darwin_arm64":  "/api/v1/worker/download/darwin/arm64",
-			"android_apk":   "/api/v1/worker/download/android/apk",
+			"windows_amd64": winUrl,
+			"linux_amd64":   linUrl,
+			"darwin_arm64":  darUrl,
+			"android_apk":   apkUrl,
 		},
 	})
 }
 
-// DownloadByogWorker serves worker release binary or APK if present
+// DownloadByogWorker serves worker release binary or APK if present, or redirects to configured external download URL
 func DownloadByogWorker(c *gin.Context) {
 	platform := c.Param("platform")
 	arch := c.Param("arch")
@@ -982,9 +1040,31 @@ func DownloadByogWorker(c *gin.Context) {
 		}
 	}
 
-	// Redirect to GitHub Releases asset for real downloadable release builds
-	releaseUrl := fmt.Sprintf("https://github.com/Neighboth/better-new-api/releases/latest/download/%s", fileName)
-	c.Redirect(http.StatusFound, releaseUrl)
+	// Check if configured in ByogSetting
+	setting, _ := model.GetByogSetting()
+	var redirectUrl string
+	if setting != nil {
+		switch platform {
+		case "windows":
+			redirectUrl = setting.ClientDownloadUrlWindows
+		case "linux":
+			redirectUrl = setting.ClientDownloadUrlLinux
+		case "darwin":
+			redirectUrl = setting.ClientDownloadUrlDarwin
+		case "android":
+			redirectUrl = setting.ClientDownloadUrlAndroid
+		}
+	}
+
+	if redirectUrl != "" {
+		c.Redirect(http.StatusFound, redirectUrl)
+		return
+	}
+
+	c.JSON(http.StatusNotFound, gin.H{
+		"success": false,
+		"message": "Worker client binary is not configured on this instance. Please contact the administrator or configure download links in BYOG Admin -> Settings.",
+	})
 }
 
 

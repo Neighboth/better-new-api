@@ -505,7 +505,7 @@ export function DiscordBotSettingsSection({
 
           {form.watch('rpgEnabled') && (
             <div className='border-border/60 rounded-lg border bg-muted/20 p-4 space-y-4'>
-              <div className='font-semibold text-sm'>{t('Discord RPC (Rich Presence) Detayları')}</div>
+              <div className='font-semibold text-sm'>{t('Discord RPC (Rich Presence) Details')}</div>
               <div className='grid gap-4 sm:grid-cols-2'>
                 <FormField
                   control={form.control}
@@ -526,11 +526,11 @@ export function DiscordBotSettingsSection({
                   name='rpcDetails'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Details (Üst Başlık)')}</FormLabel>
+                      <FormLabel>{t('Rich Presence Details (Title)')}</FormLabel>
                       <FormControl>
                         <Input placeholder='AI Router & Hub' {...field} value={field.value ?? ''} />
                       </FormControl>
-                      <FormDescription>{t('RPC üst metni (örn. AI Servisi)')}</FormDescription>
+                      <FormDescription>{t('RPC top headline text (e.g. AI Service)')}</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -540,11 +540,11 @@ export function DiscordBotSettingsSection({
                   name='rpcState'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('State (Alt Başlık)')}</FormLabel>
+                      <FormLabel>{t('Rich Presence State (Subtitle)')}</FormLabel>
                       <FormControl>
                         <Input placeholder='Online & Hazır' {...field} value={field.value ?? ''} />
                       </FormControl>
-                      <FormDescription>{t('RPC alt metni (örn. Yanıt Veriyor)')}</FormDescription>
+                      <FormDescription>{t('RPC bottom status line (e.g. Responding)')}</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -558,7 +558,7 @@ export function DiscordBotSettingsSection({
                       <FormControl>
                         <Input placeholder='logo_large' {...field} value={field.value ?? ''} />
                       </FormControl>
-                      <FormDescription>{t('Developer Portal Rich Presence Asset Adı')}</FormDescription>
+                      <FormDescription>{t('Rich Presence large asset key from Developer Portal')}</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -572,7 +572,7 @@ export function DiscordBotSettingsSection({
                       <FormControl>
                         <Input placeholder='New-API AI' {...field} value={field.value ?? ''} />
                       </FormControl>
-                      <FormDescription>{t('Büyük görselin üzerine gelince görünen metin')}</FormDescription>
+                      <FormDescription>{t('Tooltip text displayed when hovering over large image')}</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -586,7 +586,7 @@ export function DiscordBotSettingsSection({
                       <FormControl>
                         <Input placeholder='status_online' {...field} value={field.value ?? ''} />
                       </FormControl>
-                      <FormDescription>{t('Küçük rozet görseli asset anahtarı')}</FormDescription>
+                      <FormDescription>{t('Rich Presence small asset key from Developer Portal')}</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
