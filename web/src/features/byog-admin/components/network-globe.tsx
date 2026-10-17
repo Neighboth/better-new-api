@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { geoNaturalEarth1, geoPath } from 'd3-geo'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as topojson from 'topojson-client'
 import worldDataRaw from 'world-atlas/countries-110m.json'
@@ -90,12 +90,31 @@ const BASE_HEIGHT = 480
 export function NetworkGlobe({ nodes, className }: NetworkGlobeProps) {
   const { t } = useTranslation()
   const svgRef = useRef<SVGSVGElement | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
 
   // Zoom and pan state
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const dragStartRef = useRef({ x: 0, y: 0 })
+
+  // Non-passive wheel event listener to prevent whole page scrolling when zooming map
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const handleNativeWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85
+      setZoom((prev) => Math.min(8, Math.max(0.8, prev * zoomFactor)))
+    }
+
+    container.addEventListener('wheel', handleNativeWheel, { passive: false })
+    return () => {
+      container.removeEventListener('wheel', handleNativeWheel)
+    }
+  }, [])
 
   // Hover state
   const [hoveredCountry, setHoveredCountry] = useState<string | null>(null)
@@ -190,12 +209,6 @@ export function NetworkGlobe({ nodes, className }: NetworkGlobeProps) {
     } catch {
       // Ignore
     }
-  }
-
-  const handleWheel = (e: React.WheelEvent<SVGSVGElement>) => {
-    e.preventDefault()
-    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85
-    setZoom((prev) => Math.min(8, Math.max(0.8, prev * zoomFactor)))
   }
 
   const handleZoomIn = () => setZoom((prev) => Math.min(8, prev * 1.3))
@@ -293,6 +306,7 @@ export function NetworkGlobe({ nodes, className }: NetworkGlobeProps) {
 
       {/* SVG Map Container */}
       <div
+        ref={containerRef}
         className={`relative flex h-[500px] w-full items-center justify-center overflow-hidden select-none ${
           isDragging ? 'cursor-grabbing' : 'cursor-grab'
         }`}
@@ -305,7 +319,6 @@ export function NetworkGlobe({ nodes, className }: NetworkGlobeProps) {
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
-          onWheel={handleWheel}
         >
           {/* Subtle grid pattern */}
           <defs>
@@ -350,6 +363,13 @@ export function NetworkGlobe({ nodes, className }: NetworkGlobeProps) {
               const [cx, cy] = centroid
               const shortName =
                 COUNTRY_SHORT_NAMES[countryName] || countryName
+              const area = pathGenerator.area(feature as any)
+              const shouldShowLabel =
+                isHovered ||
+                hasNodes ||
+                (zoom >= 2.5 && area > 60) ||
+                (zoom >= 1.6 && area > 280) ||
+                area > 800
 
               return (
                 <g key={feature.id || countryName}>
@@ -360,15 +380,15 @@ export function NetworkGlobe({ nodes, className }: NetworkGlobeProps) {
                       isHovered
                         ? 'fill-primary/25 stroke-primary stroke-[1.5]'
                         : hasNodes
-                          ? 'fill-emerald-500/20 stroke-emerald-500/60 stroke-[1]'
-                          : 'fill-muted/20 hover:fill-muted/40 stroke-border/90 stroke-[0.75] dark:fill-card/40 dark:stroke-border/70 dark:hover:fill-muted/30'
+                          ? 'fill-emerald-500/20 stroke-emerald-500 stroke-[1.2]'
+                          : 'fill-muted/20 hover:fill-muted/40 stroke-muted-foreground/30 hover:stroke-foreground/50 stroke-[0.8] dark:fill-card/40 dark:stroke-border dark:hover:fill-muted/30'
                     }`}
                     onMouseEnter={() => setHoveredCountry(countryName)}
                     onMouseLeave={() => setHoveredCountry(null)}
                   />
 
                   {/* Tiny Country Label on the map */}
-                  {cx && cy && !isNaN(cx) && !isNaN(cy) && (
+                  {shouldShowLabel && cx && cy && !isNaN(cx) && !isNaN(cy) && (
                     <text
                       x={cx}
                       y={cy}

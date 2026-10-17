@@ -30,6 +30,13 @@ For commercial licensing, please contact support@quantumnous.com
 @import './theme.css';
 @import './theme-presets.css';
 
+html,
+body,
+#root {
+  max-width: 100vw;
+  overflow-x: clip;
+}
+
 /* Shiki dual themes: token colors follow dark theme (pre background stays `bg-background` on the block) */
 @layer components {
   .shiki span {

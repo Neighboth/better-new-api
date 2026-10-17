@@ -547,21 +547,21 @@ export function LiveSupportWidget() {
           ) : null}
         </Card>
       ) : (
-        <div className='relative inline-block mr-1'>
-          {/* Small 24-hour dismiss button at top right */}
+        <div className='relative inline-block'>
+          {/* Small 24-hour dismiss button at top left to prevent right-edge screen overflow */}
           <button
             type='button'
             aria-label='Dismiss live support'
             onClick={handleDismiss}
             title={t('Hide for 24 hours')}
-            className='absolute -top-1.5 right-0 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-muted-foreground/80 hover:bg-destructive text-white shadow-md transition-colors'
+            className='absolute -top-1.5 -left-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-muted-foreground/90 hover:bg-destructive text-white shadow-md transition-colors'
           >
             <X className='h-3 w-3 stroke-[2.5]' />
           </button>
 
           <Button
             onClick={() => setOpen(true)}
-            className='h-12 px-4 rounded-full shadow-lg gap-2 bg-primary text-primary-foreground hover:shadow-xl transition-all'
+            className='h-12 w-12 sm:w-auto p-0 sm:px-4 rounded-full shadow-lg gap-2 bg-primary text-primary-foreground hover:shadow-xl transition-all flex items-center justify-center'
           >
             <MessageCircle className='h-5 w-5' />
             <span className='font-medium text-sm hidden sm:inline'>{t('Support')}</span>

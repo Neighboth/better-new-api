@@ -967,24 +967,12 @@ func DownloadByogWorker(c *gin.Context) {
 		filepath.Join("worker", "binaries", fileName),
 		filepath.Join("/worker", "binaries", fileName),
 		filepath.Join("/data", "worker", "binaries", fileName),
-		filepath.Join(".", "worker", "binaries", fileName),
-	}
-
-	// For Android APK fallback to android-arm64 if apk not present
-	if platform == "android" && arch == "apk" {
-		searchPaths = append(searchPaths,
-			filepath.Join("worker", "binaries", "byog-worker-android-arm64"),
-			filepath.Join("/worker", "binaries", "byog-worker-android-arm64"),
-			filepath.Join("/data", "worker", "binaries", "byog-worker-android-arm64"),
-		)
 	}
 
 	for _, p := range searchPaths {
 		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Size() > 0 {
 			if strings.HasSuffix(fileName, ".apk") {
 				c.Header("Content-Type", "application/vnd.android.package-archive")
-			} else if strings.HasSuffix(fileName, ".exe") {
-				c.Header("Content-Type", "application/octet-stream")
 			} else {
 				c.Header("Content-Type", "application/octet-stream")
 			}
@@ -994,7 +982,9 @@ func DownloadByogWorker(c *gin.Context) {
 		}
 	}
 
-	c.String(http.StatusNotFound, "Worker binary for platform '%s' arch '%s' is not built yet on this server instance.", platform, arch)
+	// Redirect to GitHub Releases asset for real downloadable release builds
+	releaseUrl := fmt.Sprintf("https://github.com/Neighboth/better-new-api/releases/latest/download/%s", fileName)
+	c.Redirect(http.StatusFound, releaseUrl)
 }
 
 

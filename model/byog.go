@@ -701,8 +701,8 @@ func InitDefaultByogData() {
 				Description:            "Flagship 7B model for powerful desktop GPUs, Apple Silicon, and workstation hardware.",
 				ParamSize:              "7B",
 				PricingTier:            1,
-				DownloadUrl:            "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m.gguf",
-				FileSize:               4680000000,
+				DownloadUrl:            "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+				FileSize:               4683000000,
 				ChunkSize:              16777216,
 				ModalitiesInput:        `["text","image"]`,
 				ModalitiesOutput:       `["text"]`,
@@ -748,8 +748,8 @@ func InitDefaultByogData() {
 		DB.Create(&ByogModelLora{
 			BaseModelId:        "qwen-2.5-7b-instruct",
 			LoraId:             "qwen-2.5-7b-coder-pro",
-			DownloadUrl:        "https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/adapter.gguf",
-			FileSize:           280000000,
+			DownloadUrl:        "https://huggingface.co/bunnycore/Qwen2.5-7B-Exp2-lora_model-Q8_0-GGUF/resolve/main/Qwen2.5-7B-Exp2-lora_model-q8_0.gguf",
+			FileSize:           161000000,
 			ModalityTags:       `["text","code"]`,
 			AntiCheatPrompt:    "Write a python function to add two numbers.",
 			AntiCheatSeed:      42,
@@ -760,6 +760,19 @@ func InitDefaultByogData() {
 			CreatedAt:          time.Now().Unix(),
 			UpdatedAt:          time.Now().Unix(),
 		})
+	} else {
+		// Auto-heal broken legacy URLs in existing databases
+		DB.Model(&ByogModel{}).Where("model_id = ? AND download_url LIKE ?", "qwen-2.5-7b-instruct", "%Qwen/Qwen2.5-7B-Instruct-GGUF%").
+			Updates(map[string]interface{}{
+				"download_url": "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+				"file_size":    4683000000,
+			})
+
+		DB.Model(&ByogModelLora{}).Where("download_url LIKE ?", "%Qwen/Qwen2.5-Coder-7B-Instruct-GGUF%").
+			Updates(map[string]interface{}{
+				"download_url": "https://huggingface.co/bunnycore/Qwen2.5-7B-Exp2-lora_model-Q8_0-GGUF/resolve/main/Qwen2.5-7B-Exp2-lora_model-q8_0.gguf",
+				"file_size":    161000000,
+			})
 	}
 
 	// Seed default Assignment Rules if none exist

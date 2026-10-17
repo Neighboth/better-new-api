@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useEffect } from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -63,6 +64,12 @@ export function ByogSettingsSection({
       enabled: defaultValues.enabled,
     },
   })
+
+  useEffect(() => {
+    form.reset({
+      enabled: defaultValues.enabled,
+    })
+  }, [defaultValues.enabled, form])
 
   const onSubmit = async (values: Values) => {
     try {
