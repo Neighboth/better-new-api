@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   Activity,
   Box,
+  Cpu,
   CreditCard,
   FileText,
   FlaskConical,
@@ -28,6 +29,7 @@ import {
   LifeBuoy,
   ListTodo,
   MessageSquare,
+  Network,
   Newspaper,
   Radio,
   ServerCog,
@@ -42,7 +44,10 @@ import { useTranslation } from 'react-i18next'
 
 import { getCustomNavIcon } from '@/components/custom-nav-icon'
 import type { NavGroup, SidebarData } from '@/components/layout/types'
-import { buildCustomNavUrl, useCustomNavItems } from '@/hooks/use-custom-nav-items'
+import {
+  buildCustomNavUrl,
+  useCustomNavItems,
+} from '@/hooks/use-custom-nav-items'
 import { ADMIN_PERMISSION_RESOURCES } from '@/lib/admin-permissions'
 import { ROLE } from '@/lib/roles'
 import { useSystemConfigStore } from '@/stores/system-config-store'
@@ -58,6 +63,9 @@ export function useSidebarData(): SidebarData {
   const customNavItems = useCustomNavItems()
   const ticketEnabled = useSystemConfigStore(
     (state) => state.config.ticketEnabled ?? true
+  )
+  const byogEnabled = useSystemConfigStore(
+    (state) => state.config.byogEnabled ?? true
   )
 
   const navGroups: NavGroup[] = [
@@ -130,6 +138,16 @@ export function useSidebarData(): SidebarData {
                 title: t('Support Tickets'),
                 url: '/tickets' as const,
                 icon: LifeBuoy,
+              },
+            ]
+          : []),
+        ...(byogEnabled
+          ? [
+              {
+                title: t('BYOG'),
+                url: '/dashboard/byog' as const,
+                icon: Cpu,
+                badge: t('(Earn!)'),
               },
             ]
           : []),
@@ -226,6 +244,13 @@ export function useSidebarData(): SidebarData {
             resource: ADMIN_PERMISSION_RESOURCES.SYSTEM_SETTING,
             action: 'read',
           },
+        },
+        {
+          title: t('BYOG Admin'),
+          url: '/byog-admin/settings' as const,
+          activeUrls: ['/byog-admin'],
+          icon: Network,
+          requiredRole: ROLE.ADMIN,
         },
       ],
     },

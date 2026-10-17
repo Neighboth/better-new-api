@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/service/byog"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -130,6 +131,12 @@ func Distribute() func(c *gin.Context) {
 					if !affinityUsable && !service.ShouldKeepChannelAffinityOnChannelDisabled() {
 						service.ClearCurrentChannelAffinityCache(c)
 					}
+				}
+
+				// Check if BYOG DePIN network can serve this request directly
+				if byog.TryHandleByogRelay(c, modelRequest.Model) {
+					c.Abort()
+					return
 				}
 
 				if channel == nil {

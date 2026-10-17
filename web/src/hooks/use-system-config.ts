@@ -47,6 +47,7 @@ interface StatusApiResponse {
     demo_site_enabled?: boolean
     display_token_stat_enabled?: boolean
     ticket_enabled?: boolean
+    byog_enabled?: boolean
     captcha_provider_order?: string
     display_in_currency?: boolean
     quota_display_type?: CurrencyDisplayType
@@ -109,7 +110,10 @@ export function mapStatusDataToConfig(
     footerHtml: data.footer_html,
     demoSiteEnabled: data.demo_site_enabled,
     displayTokenStatEnabled: data.display_token_stat_enabled,
-    ticketEnabled: data.ticket_enabled !== undefined ? Boolean(data.ticket_enabled) : true,
+    ticketEnabled:
+      data.ticket_enabled !== undefined ? Boolean(data.ticket_enabled) : true,
+    byogEnabled:
+      data.byog_enabled !== undefined ? Boolean(data.byog_enabled) : true,
     captchaProviderOrder: data.captcha_provider_order || '',
     currency,
   }

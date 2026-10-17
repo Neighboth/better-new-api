@@ -1,4 +1,13 @@
 {
+  "Duration-based": "Duration-based",
+  "Character-based": "Character-based",
+  "Price per Second (USD/s)": "Price per Second (USD/s)",
+  "Price per 1M Characters (USD/1M chars)": "Price per 1M Characters (USD/1M chars)",
+  "Calculated ratio": "Calculated ratio",
+  "Billing Scope": "Billing Scope",
+  "Input & Output": "Input & Output",
+  "Input Only": "Input Only",
+  "Output Only": "Output Only",
   "All keys copied to clipboard": "All keys copied to clipboard",
   "Allow this reseller user to bind a custom domain, host a branded child portal, and accept independent payments.": "Allow this reseller user to bind a custom domain, host a branded child portal, and accept independent payments.",
   "Allows this reseller to host their own white-label portal on a custom domain with independent branding.": "Allows this reseller to host their own white-label portal on a custom domain with independent branding.",
@@ -113,5 +122,8 @@
   "Waffo Private Key": "Waffo Private Key",
   "Your Available Reseller Quota": "Your Available Reseller Quota",
   "Your child panel is ready! Point your CNAME record to this server, enter your custom domain below, and save your custom branding.": "Your child panel is ready! Point your CNAME record to this server, enter your custom domain below, and save your custom branding.",
-  "Your unique merchant identifier provided by your EPay service provider.": "Your unique merchant identifier provided by your EPay service provider."
+  "Your unique merchant identifier provided by your EPay service provider.": "Your unique merchant identifier provided by your EPay service provider.",
+  "byog.admin.tier1_spec": "40+ TPS & TTFT < 1.0s (RTX 4090, A100, H100)",
+  "byog.admin.tier2_spec": "15-39 TPS & TTFT < 2.5s (RTX 3060/4060, M1/M2/M3)",
+  "byog.admin.lora_id": "LoRA ID"
 }

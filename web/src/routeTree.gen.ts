@@ -26,6 +26,7 @@ import { Route as errors403RouteImport } from './routes/(errors)/403'
 import { Route as errors404RouteImport } from './routes/(errors)/404'
 import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
+import { Route as AuthenticatedByogAdminRouteRouteImport } from './routes/_authenticated/byog-admin/route'
 import { Route as AuthenticatedChat2linkRouteImport } from './routes/_authenticated/chat2link'
 import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
@@ -39,10 +40,13 @@ import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
 import { Route as AuthenticatedAdminTicketsIndexRouteImport } from './routes/_authenticated/admin-tickets/index'
 import { Route as AuthenticatedBlogManagementIndexRouteImport } from './routes/_authenticated/blog-management/index'
+import { Route as AuthenticatedByogAdminIndexRouteImport } from './routes/_authenticated/byog-admin/index'
+import { Route as AuthenticatedByogAdminSectionRouteImport } from './routes/_authenticated/byog-admin/$section'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
 import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
+import { Route as AuthenticatedDashboardByogRouteImport } from './routes/_authenticated/dashboard/byog'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
@@ -158,6 +162,12 @@ const errors503Route = errors503RouteImport.update({
   path: '/503',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedByogAdminRouteRoute =
+  AuthenticatedByogAdminRouteRouteImport.update({
+    id: '/byog-admin',
+    path: '/byog-admin',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedChat2linkRoute = AuthenticatedChat2linkRouteImport.update({
   id: '/chat2link',
   path: '/chat2link',
@@ -226,6 +236,18 @@ const AuthenticatedBlogManagementIndexRoute =
     path: '/blog-management/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedByogAdminIndexRoute =
+  AuthenticatedByogAdminIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedByogAdminRouteRoute,
+  } as any)
+const AuthenticatedByogAdminSectionRoute =
+  AuthenticatedByogAdminSectionRouteImport.update({
+    id: '/$section',
+    path: '/$section',
+    getParentRoute: () => AuthenticatedByogAdminRouteRoute,
+  } as any)
 const AuthenticatedChannelsIndexRoute =
   AuthenticatedChannelsIndexRouteImport.update({
     id: '/channels/',
@@ -247,6 +269,12 @@ const AuthenticatedDashboardSectionRoute =
   AuthenticatedDashboardSectionRouteImport.update({
     id: '/dashboard/$section',
     path: '/dashboard/$section',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedDashboardByogRoute =
+  AuthenticatedDashboardByogRouteImport.update({
+    id: '/dashboard/byog',
+    path: '/dashboard/byog',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedErrorsErrorRoute =
@@ -437,6 +465,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/user-agreement': typeof UserAgreementRoute
+  '/byog-admin': typeof AuthenticatedByogAdminRouteRouteWithChildren
   '/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/forgot-password': typeof authForgotPasswordRoute
   '/oauth': typeof authOauthRoute
@@ -460,13 +489,16 @@ export interface FileRoutesByFullPath {
   '/rankings/': typeof RankingsIndexRoute
   '/setup/': typeof SetupIndexRoute
   '/user/reset': typeof authUserResetRoute
+  '/byog-admin/$section': typeof AuthenticatedByogAdminSectionRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
+  '/dashboard/byog': typeof AuthenticatedDashboardByogRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/admin-tickets/': typeof AuthenticatedAdminTicketsIndexRoute
   '/blog-management/': typeof AuthenticatedBlogManagementIndexRoute
+  '/byog-admin/': typeof AuthenticatedByogAdminIndexRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/keys/': typeof AuthenticatedKeysIndexRoute
@@ -524,13 +556,16 @@ export interface FileRoutesByTo {
   '/rankings': typeof RankingsIndexRoute
   '/setup': typeof SetupIndexRoute
   '/user/reset': typeof authUserResetRoute
+  '/byog-admin/$section': typeof AuthenticatedByogAdminSectionRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
+  '/dashboard/byog': typeof AuthenticatedDashboardByogRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/admin-tickets': typeof AuthenticatedAdminTicketsIndexRoute
   '/blog-management': typeof AuthenticatedBlogManagementIndexRoute
+  '/byog-admin': typeof AuthenticatedByogAdminIndexRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
   '/keys': typeof AuthenticatedKeysIndexRoute
@@ -569,6 +604,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/user-agreement': typeof UserAgreementRoute
+  '/_authenticated/byog-admin': typeof AuthenticatedByogAdminRouteRouteWithChildren
   '/_authenticated/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/(auth)/forgot-password': typeof authForgotPasswordRoute
   '/(auth)/oauth': typeof authOauthRoute
@@ -592,13 +628,16 @@ export interface FileRoutesById {
   '/rankings/': typeof RankingsIndexRoute
   '/setup/': typeof SetupIndexRoute
   '/(auth)/user/reset': typeof authUserResetRoute
+  '/_authenticated/byog-admin/$section': typeof AuthenticatedByogAdminSectionRoute
   '/_authenticated/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
+  '/_authenticated/dashboard/byog': typeof AuthenticatedDashboardByogRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/_authenticated/admin-tickets/': typeof AuthenticatedAdminTicketsIndexRoute
   '/_authenticated/blog-management/': typeof AuthenticatedBlogManagementIndexRoute
+  '/_authenticated/byog-admin/': typeof AuthenticatedByogAdminIndexRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
@@ -636,6 +675,7 @@ export interface FileRouteTypes {
     | '/'
     | '/privacy-policy'
     | '/user-agreement'
+    | '/byog-admin'
     | '/system-settings'
     | '/forgot-password'
     | '/oauth'
@@ -659,13 +699,16 @@ export interface FileRouteTypes {
     | '/rankings/'
     | '/setup/'
     | '/user/reset'
+    | '/byog-admin/$section'
     | '/chat/$chatId'
     | '/dashboard/$section'
+    | '/dashboard/byog'
     | '/errors/$error'
     | '/models/$section'
     | '/usage-logs/$section'
     | '/admin-tickets/'
     | '/blog-management/'
+    | '/byog-admin/'
     | '/channels/'
     | '/dashboard/'
     | '/keys/'
@@ -723,13 +766,16 @@ export interface FileRouteTypes {
     | '/rankings'
     | '/setup'
     | '/user/reset'
+    | '/byog-admin/$section'
     | '/chat/$chatId'
     | '/dashboard/$section'
+    | '/dashboard/byog'
     | '/errors/$error'
     | '/models/$section'
     | '/usage-logs/$section'
     | '/admin-tickets'
     | '/blog-management'
+    | '/byog-admin'
     | '/channels'
     | '/dashboard'
     | '/keys'
@@ -767,6 +813,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/privacy-policy'
     | '/user-agreement'
+    | '/_authenticated/byog-admin'
     | '/_authenticated/system-settings'
     | '/(auth)/forgot-password'
     | '/(auth)/oauth'
@@ -790,13 +837,16 @@ export interface FileRouteTypes {
     | '/rankings/'
     | '/setup/'
     | '/(auth)/user/reset'
+    | '/_authenticated/byog-admin/$section'
     | '/_authenticated/chat/$chatId'
     | '/_authenticated/dashboard/$section'
+    | '/_authenticated/dashboard/byog'
     | '/_authenticated/errors/$error'
     | '/_authenticated/models/$section'
     | '/_authenticated/usage-logs/$section'
     | '/_authenticated/admin-tickets/'
     | '/_authenticated/blog-management/'
+    | '/_authenticated/byog-admin/'
     | '/_authenticated/channels/'
     | '/_authenticated/dashboard/'
     | '/_authenticated/keys/'
@@ -972,6 +1022,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof errors503RouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/byog-admin': {
+      id: '/_authenticated/byog-admin'
+      path: '/byog-admin'
+      fullPath: '/byog-admin'
+      preLoaderRoute: typeof AuthenticatedByogAdminRouteRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/chat2link': {
       id: '/_authenticated/chat2link'
       path: '/chat2link'
@@ -1063,6 +1120,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedBlogManagementIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/byog-admin/': {
+      id: '/_authenticated/byog-admin/'
+      path: '/'
+      fullPath: '/byog-admin/'
+      preLoaderRoute: typeof AuthenticatedByogAdminIndexRouteImport
+      parentRoute: typeof AuthenticatedByogAdminRouteRoute
+    }
+    '/_authenticated/byog-admin/$section': {
+      id: '/_authenticated/byog-admin/$section'
+      path: '/$section'
+      fullPath: '/byog-admin/$section'
+      preLoaderRoute: typeof AuthenticatedByogAdminSectionRouteImport
+      parentRoute: typeof AuthenticatedByogAdminRouteRoute
+    }
     '/_authenticated/channels/': {
       id: '/_authenticated/channels/'
       path: '/channels'
@@ -1089,6 +1160,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard/$section'
       fullPath: '/dashboard/$section'
       preLoaderRoute: typeof AuthenticatedDashboardSectionRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/dashboard/byog': {
+      id: '/_authenticated/dashboard/byog'
+      path: '/dashboard/byog'
+      fullPath: '/dashboard/byog'
+      preLoaderRoute: typeof AuthenticatedDashboardByogRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/errors/$error': {
@@ -1337,6 +1415,22 @@ const authRouteRouteWithChildren = authRouteRoute._addFileChildren(
   authRouteRouteChildren,
 )
 
+interface AuthenticatedByogAdminRouteRouteChildren {
+  AuthenticatedByogAdminSectionRoute: typeof AuthenticatedByogAdminSectionRoute
+  AuthenticatedByogAdminIndexRoute: typeof AuthenticatedByogAdminIndexRoute
+}
+
+const AuthenticatedByogAdminRouteRouteChildren: AuthenticatedByogAdminRouteRouteChildren =
+  {
+    AuthenticatedByogAdminSectionRoute: AuthenticatedByogAdminSectionRoute,
+    AuthenticatedByogAdminIndexRoute: AuthenticatedByogAdminIndexRoute,
+  }
+
+const AuthenticatedByogAdminRouteRouteWithChildren =
+  AuthenticatedByogAdminRouteRoute._addFileChildren(
+    AuthenticatedByogAdminRouteRouteChildren,
+  )
+
 interface AuthenticatedSystemSettingsRouteRouteChildren {
   AuthenticatedSystemSettingsIndexRoute: typeof AuthenticatedSystemSettingsIndexRoute
   AuthenticatedSystemSettingsAuthSectionRoute: typeof AuthenticatedSystemSettingsAuthSectionRoute
@@ -1395,10 +1489,12 @@ const AuthenticatedSystemSettingsRouteRouteWithChildren =
   )
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedByogAdminRouteRoute: typeof AuthenticatedByogAdminRouteRouteWithChildren
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
   AuthenticatedChatChatIdRoute: typeof AuthenticatedChatChatIdRoute
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
+  AuthenticatedDashboardByogRoute: typeof AuthenticatedDashboardByogRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
@@ -1421,11 +1517,14 @@ interface AuthenticatedRouteRouteChildren {
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedByogAdminRouteRoute:
+    AuthenticatedByogAdminRouteRouteWithChildren,
   AuthenticatedSystemSettingsRouteRoute:
     AuthenticatedSystemSettingsRouteRouteWithChildren,
   AuthenticatedChat2linkRoute: AuthenticatedChat2linkRoute,
   AuthenticatedChatChatIdRoute: AuthenticatedChatChatIdRoute,
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
+  AuthenticatedDashboardByogRoute: AuthenticatedDashboardByogRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
