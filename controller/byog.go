@@ -1017,14 +1017,23 @@ func DownloadByogWorker(c *gin.Context) {
 	fileName := fmt.Sprintf("byog-worker-%s-%s", platform, arch)
 	if platform == "windows" {
 		fileName += ".exe"
-	} else if platform == "android" && arch == "apk" {
-		fileName = "byog-worker.apk"
+	} else if platform == "android" {
+		if arch == "apk" {
+			fileName = "byog-worker.apk"
+		} else {
+			fileName = "byog-worker-android-arm64"
+		}
 	}
 
 	searchPaths := []string{
 		filepath.Join("worker", "binaries", fileName),
 		filepath.Join("/worker", "binaries", fileName),
 		filepath.Join("/data", "worker", "binaries", fileName),
+		filepath.Join(".", "worker", "binaries", fileName),
+	}
+	if execPath, err := os.Executable(); err == nil {
+		searchPaths = append(searchPaths, filepath.Join(filepath.Dir(execPath), "worker", "binaries", fileName))
+		searchPaths = append(searchPaths, filepath.Join(filepath.Dir(execPath), "..", "worker", "binaries", fileName))
 	}
 
 	for _, p := range searchPaths {

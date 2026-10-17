@@ -54,86 +54,21 @@ interface PairModalProps {
   statusData?: ByogStatusData | null
 }
 
-export function PairModal({ onPaired, statusData }: PairModalProps) {
+export function PairModal({ onPaired }: PairModalProps) {
   const { t } = useTranslation()
   const [open, setDialogOpen] = useState(false)
   const [pairingCode, setPairingCode] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [copiedLink, setCopiedLink] = useState(false)
 
-  const handleDownload = async (platform: string, arch: string) => {
-    const configuredUrl =
-      platform === 'windows'
-        ? statusData?.client_download_url_windows
-        : platform === 'linux'
-          ? statusData?.client_download_url_linux
-          : platform === 'darwin'
-            ? statusData?.client_download_url_darwin
-            : statusData?.client_download_url_android
-
-    if (configuredUrl && configuredUrl.trim()) {
-      window.open(configuredUrl.trim(), '_blank')
-      return
-    }
-
-    if (
-      statusData?.client_downloads &&
-      !statusData.client_downloads[platform]?.available
-    ) {
-      toast.error(
-        t(
-          'byog.client_download_not_available',
-          'Worker client package is not available for this platform. Please contact the administrator.'
-        )
-      )
-      return
-    }
-
-    try {
-      const res = await fetch(`/api/v1/worker/download/${platform}/${arch}`, {
-        method: 'GET',
-      })
-      if (!res.ok) {
-        toast.error(
-          t(
-            'byog.client_download_not_available',
-            'Worker client package is not available for this platform. Please contact the administrator.'
-          )
-        )
-        return
-      }
-
-      const contentType = res.headers.get('content-type') || ''
-      if (contentType.includes('application/json')) {
-        toast.error(
-          t(
-            'byog.client_download_not_available',
-            'Worker client package is not available for this platform. Please contact the administrator.'
-          )
-        )
-        return
-      }
-
-      const blob = await res.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      let ext = ''
-      if (platform === 'windows') ext = '.exe'
-      else if (platform === 'android') ext = '.apk'
-      a.download = `byog-worker-${platform}-${arch}${ext}`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch {
-      toast.error(
-        t(
-          'byog.client_download_not_available',
-          'Worker client package is not available for this platform. Please contact the administrator.'
-        )
-      )
-    }
+  const handleDownload = (platform: string, arch: string) => {
+    const downloadUrl = `/api/v1/worker/download/${platform}/${arch}`
+    const a = document.createElement('a')
+    a.href = downloadUrl
+    a.setAttribute('download', '')
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   }
 
   const handlePair = async () => {

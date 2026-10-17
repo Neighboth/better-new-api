@@ -180,10 +180,6 @@ export function ByogSettingsTab() {
     hardware_backends:
       '{"cuda":true,"rocm":true,"intel":true,"metal":true,"qualcomm":true,"mali":true,"cpu":true}',
     multipliers_config: JSON.stringify(defaultMultipliers),
-    client_download_url_windows: '',
-    client_download_url_linux: '',
-    client_download_url_darwin: '',
-    client_download_url_android: '',
   })
 
   const [multipliers, setMultipliers] =
@@ -538,88 +534,6 @@ export function ByogSettingsTab() {
                 />
               </div>
             ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Worker Client Download Links */}
-      <Card>
-        <CardHeader>
-          <CardTitle className='text-lg font-semibold'>
-            {t('byog.admin.worker_downloads_title', 'Worker Client Download Links')}
-          </CardTitle>
-          <CardDescription>
-            {t(
-              'byog.admin.worker_downloads_desc',
-              'Configure direct download URLs for your worker client packages (e.g. S3, Cloudflare R2, or self-hosted release server). If left empty, the server will check for files in the ./worker/binaries/ directory.'
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className='space-y-4'>
-          <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
-            <div className='space-y-1.5'>
-              <Label className='text-xs font-medium'>
-                {t('byog.admin.worker_download_windows', 'Windows Client URL (.exe)')}
-              </Label>
-              <Input
-                placeholder='https://downloads.example.com/byog-worker-windows-amd64.exe'
-                value={settings.client_download_url_windows || ''}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    client_download_url_windows: e.target.value,
-                  })
-                }
-              />
-            </div>
-
-            <div className='space-y-1.5'>
-              <Label className='text-xs font-medium'>
-                {t('byog.admin.worker_download_linux', 'Linux Client URL (Binary / Archive)')}
-              </Label>
-              <Input
-                placeholder='https://downloads.example.com/byog-worker-linux-amd64'
-                value={settings.client_download_url_linux || ''}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    client_download_url_linux: e.target.value,
-                  })
-                }
-              />
-            </div>
-
-            <div className='space-y-1.5'>
-              <Label className='text-xs font-medium'>
-                {t('byog.admin.worker_download_darwin', 'macOS Client URL (Metal Binary)')}
-              </Label>
-              <Input
-                placeholder='https://downloads.example.com/byog-worker-darwin-arm64'
-                value={settings.client_download_url_darwin || ''}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    client_download_url_darwin: e.target.value,
-                  })
-                }
-              />
-            </div>
-
-            <div className='space-y-1.5'>
-              <Label className='text-xs font-medium'>
-                {t('byog.admin.worker_download_android', 'Android Package URL (.apk)')}
-              </Label>
-              <Input
-                placeholder='https://downloads.example.com/byog-worker.apk'
-                value={settings.client_download_url_android || ''}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    client_download_url_android: e.target.value,
-                  })
-                }
-              />
-            </div>
           </div>
         </CardContent>
       </Card>

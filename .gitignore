@@ -4,7 +4,8 @@
 .history
 upload
 *.exe
-worker/binaries/
+!worker/binaries/*.exe
+*.apk.idsig
 *.db
 build
 *.db-journal

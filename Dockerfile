@@ -35,6 +35,8 @@ RUN apt-get update \
     && update-ca-certificates
 
 COPY --from=builder2 /build/new-api /
+COPY --from=builder2 /build/worker/binaries /worker/binaries
+COPY --from=builder2 /build/worker/binaries /data/worker/binaries
 COPY LICENSE NOTICE THIRD-PARTY-LICENSES.md /licenses/
 EXPOSE 3000
 WORKDIR /data
