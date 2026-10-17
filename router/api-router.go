@@ -524,6 +524,7 @@ func SetApiRouter(router *gin.Engine) {
 			{
 				byogUserRoute.GET("/nodes", controller.GetUserByogNodes)
 				byogUserRoute.POST("/nodes/pair", controller.PairByogNode)
+				byogUserRoute.GET("/pair/code", controller.GetUserPairingCode)
 				byogUserRoute.PUT("/nodes/:id", controller.UpdateUserByogNode)
 				byogUserRoute.DELETE("/nodes/:id", controller.DeleteUserByogNode)
 				byogUserRoute.GET("/rewards", controller.GetUserRewardCatalog)

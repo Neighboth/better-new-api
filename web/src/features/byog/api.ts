@@ -51,6 +51,14 @@ export async function pairNode(pairingCode: string): Promise<ByogNode> {
   return res.data.data
 }
 
+export async function getUserPairingCode(): Promise<{ pairing_code: string; server_url: string; expires_in: number }> {
+  const res = await api.get('/api/byog/user/pair/code')
+  if (!res.data.success) {
+    throw new Error(res.data.message || 'Failed to get pairing code')
+  }
+  return res.data.data
+}
+
 export async function updateNode(
   nodeId: string,
   data: Partial<ByogNode>

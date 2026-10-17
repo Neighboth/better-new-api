@@ -6,6 +6,7 @@ upload
 *.exe
 !worker/binaries/*.exe
 *.apk.idsig
+*.jar
 *.db
 build
 *.db-journal

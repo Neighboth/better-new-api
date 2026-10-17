@@ -28,7 +28,7 @@ import {
   Smartphone,
 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -46,7 +46,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-import { pairNode } from '../api'
+import { getUserPairingCode, pairNode } from '../api'
 import type { ByogStatusData } from '../types'
 
 interface PairModalProps {
@@ -58,8 +58,20 @@ export function PairModal({ onPaired }: PairModalProps) {
   const { t } = useTranslation()
   const [open, setDialogOpen] = useState(false)
   const [pairingCode, setPairingCode] = useState('')
+  const [sessionCode, setSessionCode] = useState('')
+  const [sessionServerUrl, setSessionServerUrl] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [copiedLink, setCopiedLink] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      getUserPairingCode()
+        .then((res) => {
+          setSessionCode(res.pairing_code)
+          setSessionServerUrl(res.server_url)
+        })
+        .catch(() => {})
+    }
+  }, [open])
 
   const handleDownload = (platform: string, arch: string) => {
     const downloadUrl = `/api/v1/worker/download/${platform}/${arch}`
@@ -91,12 +103,10 @@ export function PairModal({ onPaired }: PairModalProps) {
     }
   }
 
-  const copyUrl = () => {
-    navigator.clipboard.writeText(window.location.origin + '/dashboard/byog')
-    setCopiedLink(true)
-    setTimeout(() => setCopiedLink(false), 2000)
-    toast.success(t('common.copied'))
-  }
+  const qrPayload = JSON.stringify({
+    server_url: sessionServerUrl || window.location.origin,
+    pairing_code: sessionCode,
+  })
 
   return (
     <Dialog open={open} onOpenChange={setDialogOpen}>
@@ -137,25 +147,46 @@ export function PairModal({ onPaired }: PairModalProps) {
             <div className='bg-card flex flex-col items-center justify-center space-y-3 rounded-xl border p-4 text-center'>
               <div className='rounded-lg bg-white p-3 shadow-sm'>
                 <QRCodeSVG
-                  value={window.location.origin + '/dashboard/byog'}
-                  size={120}
+                  value={qrPayload}
+                  size={140}
                   level='M'
                 />
               </div>
-              <div className='text-muted-foreground text-xs'>
-                {t('byog.qr_pairing_hint')}
+              {sessionCode && (
+                <div className='flex items-center gap-2'>
+                  <span className='font-mono text-base font-bold tracking-widest text-primary'>
+                    {sessionCode}
+                  </span>
+                  <Button
+                    size='sm'
+                    variant='ghost'
+                    className='h-7 w-7 p-0'
+                    onClick={() => {
+                      navigator.clipboard.writeText(sessionCode)
+                      toast.success(t('common.copied'))
+                    }}
+                  >
+                    <Copy className='h-3.5 w-3.5' />
+                  </Button>
+                </div>
+              )}
+              <div className='text-muted-foreground text-xs max-w-sm'>
+                {t(
+                  'byog.qr_pairing_hint',
+                  'Scan this QR code with the mobile app or enter the code above to pair instantly.'
+                )}
               </div>
             </div>
 
-            <div className='space-y-2'>
-              <Label htmlFor='p-code' className='text-sm font-medium'>
-                {t('byog.enter_pairing_code_label')}
+            <div className='space-y-2 pt-2 border-t'>
+              <Label htmlFor='p-code' className='text-xs font-medium text-muted-foreground'>
+                {t('byog.enter_pairing_code_label', 'Or link an already-running desktop worker:')}
               </Label>
               <div className='flex gap-2'>
                 <Input
                   id='p-code'
                   placeholder='9K4L-28XM-73PQ-51ZR'
-                  className='text-center font-mono text-base font-bold tracking-widest uppercase'
+                  className='text-center font-mono text-sm font-bold tracking-widest uppercase'
                   value={pairingCode}
                   onChange={(e) => setPairingCode(e.target.value)}
                 />
@@ -164,7 +195,10 @@ export function PairModal({ onPaired }: PairModalProps) {
                 </Button>
               </div>
               <p className='text-muted-foreground text-xs'>
-                {t('byog.pairing_code_instructions')}
+                {t(
+                  'byog.pairing_code_instructions',
+                  'Enter the code printed by your desktop worker to link it to your account.'
+                )}
               </p>
             </div>
           </TabsContent>

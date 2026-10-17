@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -28,6 +29,55 @@ func generateRandomPairingCode() string {
 		b[i] = charset[int(b[i])%len(charset)]
 	}
 	return fmt.Sprintf("%s-%s-%s-%s", string(b[0:4]), string(b[4:8]), string(b[8:12]), string(b[12:16]))
+}
+
+type userPairingSession struct {
+	UserId    int
+	CreatedAt int64
+}
+
+var (
+	userPairingSessionsMu sync.RWMutex
+	userPairingSessions   = make(map[string]userPairingSession)
+)
+
+// GetUserPairingCode generates a temporary 15-minute pairing code for the authenticated user
+func GetUserPairingCode(c *gin.Context) {
+	userId := c.GetInt("id")
+	if userId == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Unauthorized"})
+		return
+	}
+
+	code := generateRandomPairingCode()
+	now := time.Now().Unix()
+
+	userPairingSessionsMu.Lock()
+	for k, v := range userPairingSessions {
+		if now-v.CreatedAt > 900 {
+			delete(userPairingSessions, k)
+		}
+	}
+	userPairingSessions[code] = userPairingSession{
+		UserId:    userId,
+		CreatedAt: now,
+	}
+	userPairingSessionsMu.Unlock()
+
+	scheme := "http"
+	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"pairing_code": code,
+			"server_url":   serverUrl,
+			"expires_in":   900,
+		},
+	})
 }
 
 // ----------------- USER CONTROLLERS -----------------
@@ -732,6 +782,7 @@ func UnbanByogAdminNode(c *gin.Context) {
 func RegisterByogWorker(c *gin.Context) {
 	var req struct {
 		HWID         string  `json:"hwid" binding:"required"`
+		PairingCode  string  `json:"pairing_code"`
 		OS           string  `json:"os"`
 		Arch         string  `json:"arch"`
 		DeviceName   string  `json:"device_name"`
@@ -776,6 +827,17 @@ func RegisterByogWorker(c *gin.Context) {
 
 	pairingCode := generateRandomPairingCode()
 
+	var matchedUserId int
+	if req.PairingCode != "" {
+		codeUpper := strings.ToUpper(strings.TrimSpace(req.PairingCode))
+		userPairingSessionsMu.Lock()
+		if sess, ok := userPairingSessions[codeUpper]; ok {
+			matchedUserId = sess.UserId
+			delete(userPairingSessions, codeUpper)
+		}
+		userPairingSessionsMu.Unlock()
+	}
+
 	node, err := model.GetByogNodeByHWID(req.HWID)
 	if err == nil && node != nil {
 		// Existing node: update hardware specs
@@ -793,15 +855,24 @@ func RegisterByogWorker(c *gin.Context) {
 		node.BandwidthUpMbps = req.UpMbps
 		node.PingMs = req.PingMs
 		node.NetworkType = req.NetworkType
-		if node.UserId == 0 {
+		if matchedUserId > 0 {
+			node.UserId = matchedUserId
+			node.PairingCode = ""
+		} else if node.UserId == 0 {
 			node.PairingCode = pairingCode
 		}
 		_ = model.SaveByogNode(node)
 	} else {
 		// New node
+		assignedUserId := matchedUserId
+		assignedPairingCode := pairingCode
+		if matchedUserId > 0 {
+			assignedPairingCode = ""
+		}
 		node = &model.ByogNode{
 			NodeId:               nodeId,
-			PairingCode:          pairingCode,
+			UserId:               assignedUserId,
+			PairingCode:          assignedPairingCode,
 			DeviceName:           req.DeviceName,
 			DeviceType:           req.DeviceType,
 			OS:                   req.OS,
