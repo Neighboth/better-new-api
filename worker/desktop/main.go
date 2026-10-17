@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -453,8 +454,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	serverFlag := flag.String("server", "", "Server URL (e.g. https://your-server.com or http://localhost:3000)")
+	codeFlag := flag.String("code", "", "Pairing code from web dashboard")
+	deviceFlag := flag.String("device", "", "Custom device name")
+	flag.Parse()
+
 	hwid := generateHWID()
-	serverUrl := os.Getenv("BYOG_SERVER_URL")
+	serverUrl := *serverFlag
+	if serverUrl == "" {
+		serverUrl = os.Getenv("BYOG_SERVER_URL")
+	}
 	if serverUrl == "" {
 		serverUrl = DefaultServerUrl
 	}
@@ -463,11 +472,44 @@ func main() {
 	if storageDir == "" {
 		storageDir = filepath.Join(os.TempDir(), "byog_models")
 	}
+	_ = os.MkdirAll(storageDir, 0755)
+
+	configPath := filepath.Join(storageDir, "byog-config.json")
+	var savedConfig Config
+	if data, err := os.ReadFile(configPath); err == nil {
+		_ = json.Unmarshal(data, &savedConfig)
+	}
+
+	pairingCode := *codeFlag
+	if pairingCode == "" && savedConfig.PairingCode != "" {
+		pairingCode = savedConfig.PairingCode
+	}
+
+	deviceName := *deviceFlag
+	if deviceName == "" {
+		if savedConfig.DeviceName != "" {
+			deviceName = savedConfig.DeviceName
+		} else {
+			deviceName = "Worker-Node-" + hwid[:6]
+		}
+	}
+
+	if pairingCode == "" {
+		fmt.Println("----------------------------------------------------------------")
+		fmt.Println("BYOG Compute Worker")
+		fmt.Println("Open your dashboard, click 'Link Device', and enter the code below.")
+		fmt.Println("----------------------------------------------------------------")
+		fmt.Print("Enter Pairing Code: ")
+		var inputCode string
+		_, _ = fmt.Scanln(&inputCode)
+		pairingCode = strings.TrimSpace(inputCode)
+	}
 
 	State.Config = Config{
 		ServerUrl:         serverUrl,
 		HWID:              hwid,
-		DeviceName:        "Worker-Node-" + hwid[:6],
+		DeviceName:        deviceName,
+		PairingCode:       pairingCode,
 		StorageDir:        storageDir,
 		MaxDiskGB:         40,
 		AutoPauseOnGame:   true,
@@ -478,6 +520,7 @@ func main() {
 	regUrl := fmt.Sprintf("%s/api/v1/worker/register", serverUrl)
 	regBody, _ := json.Marshal(map[string]interface{}{
 		"hwid":                hwid,
+		"pairing_code":        pairingCode,
 		"os":                  runtime.GOOS,
 		"arch":                runtime.GOARCH,
 		"device_name":         State.Config.DeviceName,
@@ -496,6 +539,7 @@ func main() {
 		"network_type":        "ethernet",
 	})
 
+	appName := "BYOG Worker"
 	resp, err := http.Post(regUrl, "application/json", bytes.NewReader(regBody))
 	if err == nil && resp.StatusCode == http.StatusOK {
 		var regResp struct {
@@ -503,12 +547,30 @@ func main() {
 			Data    struct {
 				NodeId      string `json:"node_id"`
 				PairingCode string `json:"pairing_code"`
+				UserId      int    `json:"user_id"`
+				IsPaired    bool   `json:"is_paired"`
+				SystemName  string `json:"system_name"`
+				AppName     string `json:"app_name"`
+				Favicon     string `json:"favicon"`
 			} `json:"data"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&regResp)
 		State.Config.NodeId = regResp.Data.NodeId
-		State.Config.PairingCode = regResp.Data.PairingCode
-		fmt.Printf("[BYOG WORKER] Initialized successfully. Node ID: %s | Pairing Code: %s\n", State.Config.NodeId, State.Config.PairingCode)
+		if regResp.Data.PairingCode != "" {
+			State.Config.PairingCode = regResp.Data.PairingCode
+		}
+		if regResp.Data.AppName != "" {
+			appName = regResp.Data.AppName
+		}
+
+		// Persist configuration
+		if cfgBytes, err := json.MarshalIndent(State.Config, "", "  "); err == nil {
+			_ = os.WriteFile(configPath, cfgBytes, 0644)
+		}
+
+		fmt.Printf("[%s] Initialized successfully. Node ID: %s | Paired: %v\n", appName, State.Config.NodeId, regResp.Data.IsPaired)
+	} else {
+		fmt.Printf("[BYOG WORKER] Registration pending or offline. Connecting to tunnel...\n")
 	}
 
 	// Start self updater cron
@@ -529,7 +591,7 @@ func main() {
 			State.WsConn = conn
 			State.IsConnected = true
 			State.Mu.Unlock()
-			fmt.Println("[BYOG WORKER] Reverse tunnel connected. Listening for inference tasks...")
+			fmt.Printf("[%s] Reverse tunnel connected. Listening for inference tasks...\n", appName)
 
 			go startHeartbeatLoop()
 			handleWebSocketMessages(conn)

@@ -70,11 +70,28 @@ func GetUserPairingCode(c *gin.Context) {
 	}
 	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
 
+	systemName := common.SystemName
+	if systemName == "" || systemName == "New API" {
+		systemName = "New-API"
+	}
+	appName := fmt.Sprintf("%s BYOG", systemName)
+
+	faviconUrl := common.Favicon
+	if faviconUrl == "" {
+		faviconUrl = common.Logo
+	}
+	if faviconUrl == "" {
+		faviconUrl = "/logo.png"
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
 			"pairing_code": code,
 			"server_url":   serverUrl,
+			"system_name":  systemName,
+			"app_name":     appName,
+			"favicon":      faviconUrl,
 			"expires_in":   900,
 		},
 	})
@@ -913,6 +930,20 @@ func RegisterByogWorker(c *gin.Context) {
 		_ = model.SaveByogNode(node)
 	}
 
+	systemName := common.SystemName
+	if systemName == "" || systemName == "New API" {
+		systemName = "New-API"
+	}
+	appName := fmt.Sprintf("%s BYOG", systemName)
+
+	faviconUrl := common.Favicon
+	if faviconUrl == "" {
+		faviconUrl = common.Logo
+	}
+	if faviconUrl == "" {
+		faviconUrl = "/favicon.ico"
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
@@ -920,6 +951,9 @@ func RegisterByogWorker(c *gin.Context) {
 			"pairing_code": node.PairingCode,
 			"user_id":      node.UserId,
 			"is_paired":    node.UserId > 0,
+			"system_name":  systemName,
+			"app_name":     appName,
+			"favicon":      faviconUrl,
 		},
 	})
 }

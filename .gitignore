@@ -6,7 +6,6 @@ upload
 *.exe
 !worker/binaries/*.exe
 *.apk.idsig
-*.jar
 *.db
 build
 *.db-journal
@@ -48,3 +47,4 @@ new-api-linux-arm64
 
 new-api
 new-api-linux-arm64.zip
+worker/mobile/build_tmp/

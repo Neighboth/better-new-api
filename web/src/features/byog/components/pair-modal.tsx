@@ -25,14 +25,16 @@ import {
   Laptop,
   Monitor,
   Plus,
+  QrCode,
+  RefreshCw,
   Smartphone,
 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { Button, buttonVariants } from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -42,11 +44,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-import { getUserPairingCode, pairNode } from '../api'
+import { getUserNodes, getUserPairingCode } from '../api'
 import type { ByogStatusData } from '../types'
 
 interface PairModalProps {
@@ -57,20 +57,62 @@ interface PairModalProps {
 export function PairModal({ onPaired }: PairModalProps) {
   const { t } = useTranslation()
   const [open, setDialogOpen] = useState(false)
-  const [pairingCode, setPairingCode] = useState('')
   const [sessionCode, setSessionCode] = useState('')
   const [sessionServerUrl, setSessionServerUrl] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [appName, setAppName] = useState('')
+  const [copiedCode, setCopiedCode] = useState(false)
+  const [isLoadingCode, setIsLoadingCode] = useState(false)
+  const initialNodeCountRef = useRef<number>(-1)
+
+  const fetchSessionCode = async () => {
+    setIsLoadingCode(true)
+    try {
+      const data = await getUserPairingCode()
+      setSessionCode(data.pairing_code)
+      setSessionServerUrl(data.server_url)
+      setAppName(data.app_name)
+    } catch {
+      toast.error(t('byog.failed_to_get_pairing_code', 'Failed to retrieve pairing code'))
+    } finally {
+      setIsLoadingCode(false)
+    }
+  }
 
   useEffect(() => {
-    if (open) {
-      getUserPairingCode()
-        .then((res) => {
-          setSessionCode(res.pairing_code)
-          setSessionServerUrl(res.server_url)
-        })
-        .catch(() => {})
+    if (!open) {
+      initialNodeCountRef.current = -1
+      return
     }
+
+    fetchSessionCode()
+
+    getUserNodes()
+      .then((nodes) => {
+        initialNodeCountRef.current = nodes.length
+      })
+      .catch(() => {
+        initialNodeCountRef.current = 0
+      })
+
+    const interval = setInterval(async () => {
+      try {
+        const nodes = await getUserNodes()
+        if (
+          initialNodeCountRef.current >= 0 &&
+          nodes.length > initialNodeCountRef.current
+        ) {
+          toast.success(
+            t('byog.pair_success_toast', 'Device paired successfully!')
+          )
+          setDialogOpen(false)
+          onPaired()
+        }
+      } catch {
+        // Ignore background polling errors
+      }
+    }, 2500)
+
+    return () => clearInterval(interval)
   }, [open])
 
   const handleDownload = (platform: string, arch: string) => {
@@ -83,24 +125,12 @@ export function PairModal({ onPaired }: PairModalProps) {
     document.body.removeChild(a)
   }
 
-  const handlePair = async () => {
-    if (!pairingCode.trim()) {
-      toast.error(t('byog.enter_pairing_code_error'))
-      return
-    }
-
-    try {
-      setIsSubmitting(true)
-      await pairNode(pairingCode.trim().toUpperCase())
-      toast.success(t('byog.pair_success_toast'))
-      setDialogOpen(false)
-      setPairingCode('')
-      onPaired()
-    } catch (err: any) {
-      toast.error(err.message || t('byog.pair_failed_toast'))
-    } finally {
-      setIsSubmitting(false)
-    }
+  const copyCode = () => {
+    if (!sessionCode) return
+    navigator.clipboard.writeText(sessionCode)
+    setCopiedCode(true)
+    setTimeout(() => setCopiedCode(false), 2000)
+    toast.success(t('common.copied', 'Copied to clipboard'))
   }
 
   const qrPayload = JSON.stringify({
@@ -114,7 +144,7 @@ export function PairModal({ onPaired }: PairModalProps) {
         render={
           <Button className='gap-2'>
             <Plus className='h-4 w-4' />
-            {t('byog.pair_new_device_button')}
+            {t('byog.pair_new_device_button', 'Link Device')}
           </Button>
         }
       />
@@ -123,83 +153,89 @@ export function PairModal({ onPaired }: PairModalProps) {
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
             <KeyRound className='text-primary h-5 w-5' />
-            {t('byog.connect_new_compute_node')}
+            {t('byog.connect_new_compute_node', 'Link Compute Node')}
           </DialogTitle>
           <DialogDescription>
-            {t('byog.connect_new_compute_node_desc')}
+            {t(
+              'byog.connect_new_compute_node_desc',
+              'Connect your smartphone, tablet, or PC to contribute hardware resources and earn rewards.'
+            )}
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue='code' className='w-full'>
+        <Tabs defaultValue='pair' className='w-full'>
           <TabsList className='grid w-full grid-cols-2'>
-            <TabsTrigger value='code' className='gap-2'>
-              <KeyRound className='h-4 w-4' />
-              {t('byog.pairing_code_tab')}
+            <TabsTrigger value='pair' className='gap-2'>
+              <QrCode className='h-4 w-4' />
+              {t('byog.pairing_tab', 'Pair Device')}
             </TabsTrigger>
             <TabsTrigger value='download' className='gap-2'>
               <Download className='h-4 w-4' />
-              {t('byog.download_client_tab')}
+              {t('byog.download_client_tab', 'Download Client')}
             </TabsTrigger>
           </TabsList>
 
-          {/* Pairing Code Tab */}
-          <TabsContent value='code' className='space-y-4 pt-4'>
-            <div className='bg-card flex flex-col items-center justify-center space-y-3 rounded-xl border p-4 text-center'>
-              <div className='rounded-lg bg-white p-3 shadow-sm'>
-                <QRCodeSVG
-                  value={qrPayload}
-                  size={140}
-                  level='M'
-                />
+          {/* Unified Pairing Tab */}
+          <TabsContent value='pair' className='space-y-4 pt-4'>
+            <div className='bg-card flex flex-col items-center justify-center space-y-4 rounded-xl border p-5 text-center'>
+              <div className='relative rounded-xl bg-white p-3 shadow-md'>
+                {isLoadingCode || !sessionCode ? (
+                  <div className='flex h-[150px] w-[150px] items-center justify-center'>
+                    <RefreshCw className='h-6 w-6 animate-spin text-slate-500' />
+                  </div>
+                ) : (
+                  <QRCodeSVG value={qrPayload} size={150} level='M' />
+                )}
               </div>
-              {sessionCode && (
-                <div className='flex items-center gap-2'>
-                  <span className='font-mono text-base font-bold tracking-widest text-primary'>
-                    {sessionCode}
-                  </span>
-                  <Button
-                    size='sm'
-                    variant='ghost'
-                    className='h-7 w-7 p-0'
-                    onClick={() => {
-                      navigator.clipboard.writeText(sessionCode)
-                      toast.success(t('common.copied'))
-                    }}
-                  >
-                    <Copy className='h-3.5 w-3.5' />
-                  </Button>
-                </div>
-              )}
+
               <div className='text-muted-foreground text-xs max-w-sm'>
                 {t(
                   'byog.qr_pairing_hint',
-                  'Scan this QR code with the mobile app or enter the code above to pair instantly.'
+                  'Scan this QR code with the mobile worker app to connect instantly.'
                 )}
               </div>
             </div>
 
-            <div className='space-y-2 pt-2 border-t'>
-              <Label htmlFor='p-code' className='text-xs font-medium text-muted-foreground'>
-                {t('byog.enter_pairing_code_label', 'Or link an already-running desktop worker:')}
-              </Label>
-              <div className='flex gap-2'>
-                <Input
-                  id='p-code'
-                  placeholder='9K4L-28XM-73PQ-51ZR'
-                  className='text-center font-mono text-sm font-bold tracking-widest uppercase'
-                  value={pairingCode}
-                  onChange={(e) => setPairingCode(e.target.value)}
-                />
-                <Button onClick={handlePair} disabled={isSubmitting}>
-                  {isSubmitting ? t('Loading') : t('Link Device')}
+            {/* Prominent Pairing Code Box */}
+            <div className='rounded-xl border bg-slate-900/40 p-4 text-center space-y-2'>
+              <div className='text-xs font-medium text-muted-foreground uppercase tracking-wider'>
+                {t('byog.enter_pairing_code_label', 'Pairing Code')}
+              </div>
+              <div className='flex items-center justify-center gap-3'>
+                <span className='font-mono text-xl sm:text-2xl font-bold tracking-widest text-primary selection:bg-primary/20'>
+                  {sessionCode || '---- ---- ---- ----'}
+                </span>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  className='h-8 w-8 p-0'
+                  onClick={copyCode}
+                  disabled={!sessionCode}
+                >
+                  {copiedCode ? (
+                    <Check className='h-4 w-4 text-emerald-500' />
+                  ) : (
+                    <Copy className='h-4 w-4' />
+                  )}
                 </Button>
               </div>
               <p className='text-muted-foreground text-xs'>
                 {t(
                   'byog.pairing_code_instructions',
-                  'Enter the code printed by your desktop worker to link it to your account.'
+                  'Enter this code into your desktop or mobile worker app to pair.'
                 )}
               </p>
+            </div>
+
+            {/* Live Polling Status */}
+            <div className='flex items-center justify-center gap-2 text-xs text-muted-foreground pt-1'>
+              <span className='relative flex h-2 w-2'>
+                <span className='animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75'></span>
+                <span className='relative inline-flex rounded-full h-2 w-2 bg-emerald-500'></span>
+              </span>
+              <span>
+                {t('byog.waiting_for_connection', 'Waiting for device connection...')}
+              </span>
             </div>
           </TabsContent>
 
@@ -212,7 +248,7 @@ export function PairModal({ onPaired }: PairModalProps) {
                   <Monitor className='h-5 w-5 text-blue-500' />
                   <div>
                     <div className='text-sm font-semibold'>
-                      Windows (x64 / ARM64)
+                      Windows (x64)
                     </div>
                     <div className='text-muted-foreground text-xs'>
                       .exe (System Tray Daemon)
@@ -234,10 +270,10 @@ export function PairModal({ onPaired }: PairModalProps) {
                   <Laptop className='h-5 w-5 text-amber-500' />
                   <div>
                     <div className='text-sm font-semibold'>
-                      Linux (x86_64 / ARM64)
+                      Linux (x86_64)
                     </div>
                     <div className='text-muted-foreground text-xs'>
-                      systemd / headless
+                      Headless / systemd
                     </div>
                   </div>
                 </div>
@@ -256,10 +292,10 @@ export function PairModal({ onPaired }: PairModalProps) {
                   <Apple className='h-5 w-5 text-slate-300' />
                   <div>
                     <div className='text-sm font-semibold'>
-                      macOS (Apple Silicon / Intel)
+                      macOS (Apple Silicon)
                     </div>
                     <div className='text-muted-foreground text-xs'>
-                      Metal Framework Bundle
+                      ARM64 Binary
                     </div>
                   </div>
                 </div>
@@ -281,7 +317,7 @@ export function PairModal({ onPaired }: PairModalProps) {
                       Android & Tablets
                     </div>
                     <div className='text-muted-foreground text-xs'>
-                      APK Package / Foreground Service
+                      APK Package
                     </div>
                   </div>
                 </div>
@@ -299,7 +335,7 @@ export function PairModal({ onPaired }: PairModalProps) {
 
         <DialogFooter>
           <Button variant='outline' onClick={() => setDialogOpen(false)}>
-            {t('Close')}
+            {t('common.close', 'Close')}
           </Button>
         </DialogFooter>
       </DialogContent>
