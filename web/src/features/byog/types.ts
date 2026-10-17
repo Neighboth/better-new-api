@@ -227,4 +227,5 @@ export interface ByogStatusData {
   enabled: boolean
   is_banned: boolean
   ban_info?: ByogNodeBan
+  available_tokens?: number
 }

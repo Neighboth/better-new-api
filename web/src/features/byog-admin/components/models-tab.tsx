@@ -122,17 +122,16 @@ export function ByogModelsTab() {
       modalities_input: 'text',
       modalities_output: 'text',
       vision_mmproj_url: '',
-      anti_cheat_logic_prompt:
-        'A pen and a notebook cost $1.10 in total. The notebook costs $1.00 more than the pen. How much does the pen cost in cents? Write only the number.',
+      anti_cheat_logic_prompt: '',
       anti_cheat_logic_temp: 0,
       anti_cheat_logic_seed: 42,
-      anti_cheat_logic_expected: '5',
+      anti_cheat_logic_expected: '',
       anti_cheat_logic_logprob: -0.008,
       anti_cheat_logic_tolerance: 0.004,
-      anti_cheat_sig_prompt: 'The capital city of France is',
+      anti_cheat_sig_prompt: '',
       anti_cheat_sig_temp: 0,
       anti_cheat_sig_seed: 8472910482910482,
-      anti_cheat_sig_expected: ' Paris',
+      anti_cheat_sig_expected: '',
       anti_cheat_sig_logprob: -0.0124,
       anti_cheat_sig_tolerance: 0.002,
       is_enabled: true,
@@ -605,15 +604,16 @@ export function ByogModelsTab() {
                 <div className='flex items-center gap-2'>
                   <ShieldCheck className='text-primary h-4 w-4' />
                   <span className='text-sm font-semibold'>
-                    {t('byog.admin.anti_cheat_logic_exam_title')}
+                    {t('byog.admin.anti_cheat_logic_exam_title')} ({t('Optional')})
                   </span>
                 </div>
                 <div className='grid grid-cols-1 gap-3 md:grid-cols-2'>
                   <div className='space-y-1 md:col-span-2'>
                     <Label className='text-xs'>
-                      {t('byog.admin.test_prompt')}
+                      {t('byog.admin.test_prompt')} ({t('Optional')})
                     </Label>
                     <Input
+                      placeholder={t('Optional - Leave empty to disable logic verification')}
                       value={editingModel.anti_cheat_logic_prompt || ''}
                       onChange={(e) =>
                         setEditingModel({
@@ -692,15 +692,16 @@ export function ByogModelsTab() {
                 <div className='flex items-center gap-2'>
                   <ShieldCheck className='h-4 w-4 text-emerald-500' />
                   <span className='text-sm font-semibold'>
-                    {t('byog.admin.anti_cheat_sig_exam_title')}
+                    {t('byog.admin.anti_cheat_sig_exam_title')} ({t('Optional')})
                   </span>
                 </div>
                 <div className='grid grid-cols-1 gap-3 md:grid-cols-2'>
                   <div className='space-y-1 md:col-span-2'>
                     <Label className='text-xs'>
-                      {t('byog.admin.test_prompt')}
+                      {t('byog.admin.test_prompt')} ({t('Optional')})
                     </Label>
                     <Input
+                      placeholder={t('Optional - Leave empty to disable canary verification')}
                       value={editingModel.anti_cheat_sig_prompt || ''}
                       onChange={(e) =>
                         setEditingModel({

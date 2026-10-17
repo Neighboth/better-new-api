@@ -43,16 +43,23 @@ func GetByogStatus(c *gin.Context) {
 	userId := c.GetInt("id")
 	isBanned := false
 	var banInfo *model.ByogNodeBan
+	var availableTokens int64 = 0
 	if userId > 0 {
 		isBanned, banInfo = model.IsUserBannedFromByog(userId)
+		var sum struct {
+			Total int64
+		}
+		_ = model.DB.Model(&model.ByogNode{}).Where("user_id = ?", userId).Select("COALESCE(SUM(total_tokens_processed), 0) as total").Scan(&sum)
+		availableTokens = sum.Total
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"enabled":   setting.Enabled,
-			"is_banned": isBanned,
-			"ban_info":  banInfo,
+			"enabled":          setting.Enabled,
+			"is_banned":        isBanned,
+			"ban_info":         banInfo,
+			"available_tokens": availableTokens,
 		},
 	})
 }

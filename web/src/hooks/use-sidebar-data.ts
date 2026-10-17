@@ -230,6 +230,13 @@ export function useSidebarData(): SidebarData {
           icon: Store,
         },
         {
+          title: t('BYOG Management'),
+          url: '/byog-admin/nodes' as const,
+          activeUrls: ['/byog-admin'],
+          icon: Network,
+          requiredRole: ROLE.ADMIN,
+        },
+        {
           title: t('System Info'),
           url: '/system-info',
           icon: ServerCog,
@@ -244,13 +251,6 @@ export function useSidebarData(): SidebarData {
             resource: ADMIN_PERMISSION_RESOURCES.SYSTEM_SETTING,
             action: 'read',
           },
-        },
-        {
-          title: t('BYOG Admin'),
-          url: '/byog-admin/settings' as const,
-          activeUrls: ['/byog-admin'],
-          icon: Network,
-          requiredRole: ROLE.ADMIN,
         },
       ],
     },

@@ -133,20 +133,23 @@ export function ByogUserDashboard() {
     }
   }
 
+  const userAvailableTokens =
+    statusData?.available_tokens ??
+    nodes.reduce((acc, n) => acc + (n.total_tokens_processed || 0), 0)
+
   return (
-    <div className='container mx-auto space-y-6 py-6'>
+    <div className='h-full flex-1 overflow-y-auto space-y-6 p-4 md:p-6'>
       {/* Top Banner & Header */}
-      <div className='flex flex-col gap-4 md:flex-row md:items-center md:justify-between'>
+      <div className='flex flex-wrap items-center justify-between gap-4'>
         <div>
-          <div className='flex items-center gap-2'>
-            <h1 className='text-foreground text-2xl font-black tracking-tight sm:text-3xl'>
-              {t('byog.title')}
-            </h1>
-            <Badge className='bg-primary text-primary-foreground animate-pulse px-2 py-0.5 text-xs font-bold tracking-wider'>
+          <h1 className='text-2xl font-bold tracking-tight flex items-center gap-2'>
+            <Cpu className='h-6 w-6 text-primary' />
+            {t('byog.title')}
+            <Badge className='bg-primary text-primary-foreground text-xs font-medium'>
               {t('byog.earn_badge')}
             </Badge>
-          </div>
-          <p className='text-muted-foreground mt-1 text-sm'>
+          </h1>
+          <p className='text-sm text-muted-foreground'>
             {t('byog.subtitle')}
           </p>
         </div>
@@ -159,7 +162,7 @@ export function ByogUserDashboard() {
             className='gap-2'
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            {t('common.refresh')}
+            {t('Refresh')}
           </Button>
           <PairModal onPaired={fetchData} />
         </div>
@@ -218,7 +221,7 @@ export function ByogUserDashboard() {
         <TabsContent value='rewards'>
           <RewardStoreTab
             rewards={rewards}
-            userQuota={50000000} // Dynamic quota passed from user store
+            userQuota={userAvailableTokens}
             onRewardClaimed={fetchData}
           />
         </TabsContent>

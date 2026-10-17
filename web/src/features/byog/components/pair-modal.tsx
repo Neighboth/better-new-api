@@ -148,9 +148,7 @@ export function PairModal({ onPaired }: PairModalProps) {
                   onChange={(e) => setPairingCode(e.target.value)}
                 />
                 <Button onClick={handlePair} disabled={isSubmitting}>
-                  {isSubmitting
-                    ? t('common.submitting')
-                    : t('byog.link_device_button')}
+                  {isSubmitting ? t('Loading') : t('Link Device')}
                 </Button>
               </div>
               <p className='text-muted-foreground text-xs'>
@@ -266,7 +264,7 @@ export function PairModal({ onPaired }: PairModalProps) {
                 ) : (
                   <Copy className='h-3.5 w-3.5' />
                 )}
-                {copiedLink ? t('common.copied') : t('common.copy')}
+                {copiedLink ? t('Copied') : t('Copy')}
               </Button>
             </div>
           </TabsContent>
@@ -274,7 +272,7 @@ export function PairModal({ onPaired }: PairModalProps) {
 
         <DialogFooter>
           <Button variant='outline' onClick={() => setDialogOpen(false)}>
-            {t('common.close')}
+            {t('Close')}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -16,8 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useRef } from 'react'
+import createGlobe from 'cobe'
+import { Activity, Globe as GlobeIcon, Move, Zap } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
+import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
 import type { ByogNode } from '@/features/byog/types'
 
 interface NetworkGlobeProps {
@@ -25,220 +30,234 @@ interface NetworkGlobeProps {
   className?: string
 }
 
+const GLOBAL_TECH_HUBS: [number, number, string][] = [
+  [41.0082, 28.9784, 'Istanbul'],
+  [37.7749, -122.4194, 'San Francisco'],
+  [50.1109, 8.6821, 'Frankfurt'],
+  [35.6762, 139.6503, 'Tokyo'],
+  [51.5074, -0.1278, 'London'],
+  [1.3521, 103.8198, 'Singapore'],
+  [-33.8688, 151.2093, 'Sydney'],
+  [37.5665, 126.978, 'Seoul'],
+  [43.6532, -79.3832, 'Toronto'],
+  [-23.5505, -46.6333, 'Sao Paulo'],
+]
+
 export function NetworkGlobe({ nodes, className }: NetworkGlobeProps) {
+  const { t } = useTranslation()
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+
+  const isDraggingRef = useRef(false)
+  const lastMousePos = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+  const phiRef = useRef(0)
+  const thetaRef = useRef(0.2)
+  const [isInteracting, setIsInteracting] = useState(false)
+
+  const onlineNodes = nodes.filter((n) => n.status === 'online')
+  const totalTps = nodes.reduce((acc, n) => acc + (n.current_tps || 0), 0)
 
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    const container = containerRef.current
+    if (!canvas || !container) return
 
-    let animationFrameId: number
-    let rotation = 0
+    let width = container.clientWidth || 600
+    const height = 460
 
-    // Resize canvas
-    const width = (canvas.width = canvas.parentElement?.clientWidth || 600)
-    const height = (canvas.height = 420)
-    const radius = Math.min(width, height) * 0.38
-    const centerX = width / 2
-    const centerY = height / 2
-
-    // Predefined city coordinates for demonstration when lat/lon not provided
-    const sampleCoords = [
-      { lat: 41.0082, lon: 28.9784, label: 'Istanbul' },
-      { lat: 37.7749, lon: -122.4194, label: 'San Francisco' },
-      { lat: 51.5074, lon: -0.1278, label: 'London' },
-      { lat: 35.6762, lon: 139.6503, label: 'Tokyo' },
-      { lat: 52.52, lon: 13.405, label: 'Berlin' },
-      { lat: 1.3521, lon: 103.8198, label: 'Singapore' },
-      { lat: -33.8688, lon: 151.2093, label: 'Sydney' },
-    ]
-
-    const render = () => {
-      ctx.clearRect(0, 0, width, height)
-
-      // 1. Draw Globe Base Atmosphere Glow
-      const glowGrad = ctx.createRadialGradient(
-        centerX,
-        centerY,
-        radius * 0.8,
-        centerX,
-        centerY,
-        radius * 1.25
-      )
-      glowGrad.addColorStop(0, 'rgba(14, 165, 233, 0.15)')
-      glowGrad.addColorStop(0.5, 'rgba(14, 165, 233, 0.05)')
-      glowGrad.addColorStop(1, 'rgba(0, 0, 0, 0)')
-
-      ctx.fillStyle = glowGrad
-      ctx.beginPath()
-      ctx.arc(centerX, centerY, radius * 1.25, 0, Math.PI * 2)
-      ctx.fill()
-
-      // 2. Draw Sphere Body
-      const sphereGrad = ctx.createRadialGradient(
-        centerX - radius * 0.3,
-        centerY - radius * 0.3,
-        radius * 0.1,
-        centerX,
-        centerY,
-        radius
-      )
-      sphereGrad.addColorStop(0, 'rgba(30, 41, 59, 0.85)')
-      sphereGrad.addColorStop(1, 'rgba(15, 23, 42, 0.95)')
-
-      ctx.fillStyle = sphereGrad
-      ctx.beginPath()
-      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.3)'
-      ctx.lineWidth = 1.5
-      ctx.stroke()
-
-      // 3. Draw Rotating Latitude & Longitude Wireframe Rings
-      ctx.lineWidth = 0.8
-      for (let lat = -60; lat <= 60; lat += 30) {
-        const phi = (lat * Math.PI) / 180
-        const rLat = radius * Math.cos(phi)
-        const yLat = centerY - radius * Math.sin(phi)
-
-        ctx.strokeStyle = 'rgba(56, 189, 248, 0.12)'
-        ctx.beginPath()
-        ctx.ellipse(centerX, yLat, rLat, rLat * 0.25, 0, 0, Math.PI * 2)
-        ctx.stroke()
-      }
-
-      // Longitude Meridians
-      for (let lon = 0; lon < 360; lon += 45) {
-        const theta = ((lon + rotation) * Math.PI) / 180
-        const xOffset = Math.sin(theta) * radius
-
-        if (Math.cos(theta) > 0) {
-          ctx.strokeStyle = 'rgba(56, 189, 248, 0.15)'
-          ctx.beginPath()
-          ctx.ellipse(
-            centerX,
-            centerY,
-            Math.abs(xOffset),
-            radius,
-            0,
-            0,
-            Math.PI * 2
-          )
-          ctx.stroke()
+    // Construct node markers
+    const markers = (nodes.length > 0 ? nodes : [{ status: 'online' } as any]).map(
+      (node, idx) => {
+        const hub = GLOBAL_TECH_HUBS[idx % GLOBAL_TECH_HUBS.length]
+        const location: [number, number] = [hub[0], hub[1]]
+        const isOnline = node.status === 'online'
+        const color: [number, number, number] = isOnline
+          ? [0.05, 0.85, 0.95] // Glowing Cyan
+          : [0.95, 0.65, 0.15] // Amber for idle/offline
+        return {
+          location,
+          size: isOnline ? 0.08 : 0.05,
+          color,
+          id: `node-${idx}`,
         }
       }
+    )
 
-      // 4. Project and Draw Active Nodes on the Globe
-      const projectedNodes: {
-        x: number
-        y: number
-        visible: boolean
-        label: string
-        status: string
-      }[] = []
-
-      const targetList = nodes.length > 0 ? nodes : sampleCoords
-
-      targetList.forEach((item, idx) => {
-        const lat =
-          'latitude' in item && item.latitude
-            ? item.latitude
-            : sampleCoords[idx % sampleCoords.length].lat
-        const lon =
-          'longitude' in item && item.longitude
-            ? item.longitude
-            : sampleCoords[idx % sampleCoords.length].lon
-        const label = 'device_name' in item ? item.device_name : item.label
-        const status = 'status' in item ? item.status : 'online'
-
-        const phi = (lat * Math.PI) / 180
-        const theta = ((lon + rotation) * Math.PI) / 180
-
-        // 3D coordinates on unit sphere
-        const x3d = Math.cos(phi) * Math.sin(theta)
-        const y3d = -Math.sin(phi)
-        const z3d = Math.cos(phi) * Math.cos(theta)
-
-        const visible = z3d > 0 // Front-facing check
-
-        const screenX = centerX + x3d * radius
-        const screenY = centerY + y3d * radius
-
-        projectedNodes.push({ x: screenX, y: screenY, visible, label, status })
-
-        if (visible) {
-          // Node glowing point
-          const pointGrad = ctx.createRadialGradient(
-            screenX,
-            screenY,
-            1,
-            screenX,
-            screenY,
-            8
-          )
-          pointGrad.addColorStop(0, '#38bdf8')
-          pointGrad.addColorStop(0.5, 'rgba(56, 189, 248, 0.4)')
-          pointGrad.addColorStop(1, 'rgba(56, 189, 248, 0)')
-
-          ctx.fillStyle = pointGrad
-          ctx.beginPath()
-          ctx.arc(screenX, screenY, 8, 0, Math.PI * 2)
-          ctx.fill()
-
-          ctx.fillStyle = status === 'gamer_mode' ? '#c084fc' : '#38bdf8'
-          ctx.beginPath()
-          ctx.arc(screenX, screenY, 3, 0, Math.PI * 2)
-          ctx.fill()
-
-          // Device Label
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'
-          ctx.font = '10px monospace'
-          ctx.fillText(label, screenX + 8, screenY + 3)
-        }
-      })
-
-      // 5. Draw P2P Data Arcs & Routing Transfer Beams between visible peers
-      for (let i = 0; i < projectedNodes.length; i++) {
-        for (let j = i + 1; j < projectedNodes.length; j++) {
-          const n1 = projectedNodes[i]
-          const n2 = projectedNodes[j]
-          if (n1.visible && n2.visible) {
-            ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)'
-            ctx.lineWidth = 1
-            ctx.beginPath()
-            ctx.moveTo(n1.x, n1.y)
-            const midX = (n1.x + n2.x) / 2
-            const midY = (n1.y + n2.y) / 2 - 25 // Arc upward
-            ctx.quadraticCurveTo(midX, midY, n2.x, n2.y)
-            ctx.stroke()
-          }
-        }
+    // Build arcs connecting primary hubs
+    const arcs = []
+    if (markers.length >= 2) {
+      for (let i = 0; i < Math.min(markers.length - 1, 5); i++) {
+        arcs.push({
+          from: markers[i].location,
+          to: markers[(i + 1) % markers.length].location,
+          color: [0.15, 0.5, 0.95] as [number, number, number],
+          id: `arc-${i}`,
+        })
       }
-
-      rotation += 0.35
-      animationFrameId = requestAnimationFrame(render)
     }
 
-    render()
+    let globeInstance: any = null
+    try {
+      globeInstance = createGlobe(canvas, {
+        devicePixelRatio: 2,
+        width: width * 2,
+        height: height * 2,
+        phi: phiRef.current,
+        theta: thetaRef.current,
+        dark: 1,
+        diffuse: 1.25,
+        mapSamples: 16000,
+        mapBrightness: 6,
+        baseColor: [0.22, 0.28, 0.38],
+        markerColor: [0.05, 0.85, 0.95],
+        glowColor: [0.12, 0.3, 0.75],
+        markers,
+        arcs,
+        scale: 1.05,
+      })
+    } catch {
+      // Fallback if WebGL context creation fails
+      return
+    }
+
+    let animId: number
+    const animate = () => {
+      if (!isDraggingRef.current) {
+        phiRef.current += 0.003
+      }
+      if (globeInstance) {
+        globeInstance.update({
+          phi: phiRef.current,
+          theta: thetaRef.current,
+        })
+      }
+      animId = requestAnimationFrame(animate)
+    }
+    animId = requestAnimationFrame(animate)
+
+    const handleResize = () => {
+      if (!container || !globeInstance) return
+      width = container.clientWidth
+      globeInstance.update({
+        width: width * 2,
+        height: height * 2,
+      })
+    }
+    window.addEventListener('resize', handleResize)
 
     return () => {
-      cancelAnimationFrame(animationFrameId)
+      cancelAnimationFrame(animId)
+      window.removeEventListener('resize', handleResize)
+      if (globeInstance) {
+        globeInstance.destroy()
+      }
     }
   }, [nodes])
 
+  // Pointer drag controls for smooth 3D globe rotation
+  const handlePointerDown = (e: React.PointerEvent) => {
+    isDraggingRef.current = true
+    setIsInteracting(true)
+    lastMousePos.current = { x: e.clientX, y: e.clientY }
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  }
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDraggingRef.current) return
+    const deltaX = e.clientX - lastMousePos.current.x
+    const deltaY = e.clientY - lastMousePos.current.y
+    lastMousePos.current = { x: e.clientX, y: e.clientY }
+
+    phiRef.current += deltaX * 0.007
+    thetaRef.current = Math.max(
+      -Math.PI / 3,
+      Math.min(Math.PI / 3, thetaRef.current + deltaY * 0.007)
+    )
+  }
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    isDraggingRef.current = false
+    setIsInteracting(false)
+    try {
+      ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+    } catch {
+      // Ignore if pointer capture already lost
+    }
+  }
+
   return (
-    <div
-      className={`border-primary/20 relative flex items-center justify-center overflow-hidden rounded-2xl border bg-slate-950/80 shadow-2xl ${className}`}
+    <Card
+      className={`border-border/80 bg-card/60 relative overflow-hidden backdrop-blur-md ${className || ''}`}
     >
-      <div className='absolute top-3 left-4 z-10 flex items-center gap-2'>
-        <span className='h-2.5 w-2.5 animate-ping rounded-full bg-emerald-500' />
-        <span className='text-muted-foreground font-mono text-xs font-semibold tracking-wider uppercase'>
-          DePIN Mesh Live Telemetry
-        </span>
+      {/* Top Header Overlay */}
+      <div className='pointer-events-none absolute top-4 right-4 left-4 z-10 flex flex-wrap items-center justify-between gap-3'>
+        <div className='flex items-center gap-2.5 rounded-lg border border-border/80 bg-background/80 px-3 py-1.5 backdrop-blur-md shadow-sm'>
+          <GlobeIcon className='text-primary h-4 w-4' />
+          <div>
+            <div className='text-xs font-bold tracking-tight'>
+              {t('byog.admin.network_topology_globe')}
+            </div>
+            <div className='text-[10px] text-muted-foreground'>
+              {t('byog.admin.interactive_depin_mesh')}
+            </div>
+          </div>
+        </div>
+
+        <div className='flex items-center gap-2'>
+          <Badge
+            variant='outline'
+            className='gap-1.5 border-border/80 bg-background/80 px-2.5 py-1 text-xs font-medium backdrop-blur-md shadow-sm'
+          >
+            <Move className='h-3 w-3 text-muted-foreground' />
+            {t('byog.admin.drag_to_rotate')}
+          </Badge>
+          <Badge
+            variant='outline'
+            className='gap-1.5 border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 backdrop-blur-md shadow-sm'
+          >
+            <Activity className='h-3 w-3' />
+            {onlineNodes.length} / {nodes.length} {t('byog.admin.nodes_online')}
+          </Badge>
+        </div>
       </div>
-      <canvas ref={canvasRef} className='max-w-full' />
-    </div>
+
+      {/* Interactive 3D WebGL Canvas Container */}
+      <div
+        ref={containerRef}
+        className={`relative flex h-[460px] w-full items-center justify-center overflow-hidden transition-all ${
+          isInteracting ? 'cursor-grabbing' : 'cursor-grab'
+        }`}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+      >
+        <canvas
+          ref={canvasRef}
+          style={{
+            width: '100%',
+            height: '460px',
+            maxWidth: '100%',
+            aspectRatio: 1,
+            touchAction: 'none',
+          }}
+        />
+      </div>
+
+      {/* Bottom Telemetry Bar */}
+      <div className='pointer-events-none absolute right-4 bottom-4 left-4 z-10 flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-2 text-[11px] text-muted-foreground'>
+        <div className='flex items-center gap-2'>
+          <span className='inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse' />
+          <span>{t('byog.admin.p2p_mesh_live')}</span>
+        </div>
+        <div className='flex items-center gap-3'>
+          <div className='flex items-center gap-1 font-mono'>
+            <Zap className='h-3 w-3 text-amber-500' />
+            <span>{totalTps.toFixed(1)} TPS</span>
+          </div>
+          <div>{t('byog.admin.bandwidth_optimized_tunneling')}</div>
+        </div>
+      </div>
+    </Card>
   )
 }

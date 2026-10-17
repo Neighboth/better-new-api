@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { SystemBehaviorSection } from '../general/system-behavior-section'
 import { RelayFallbackSection } from '../general/relay-fallback-section'
 import { TicketSettingsSection } from './ticket-settings-section'
+import { ByogSettingsSection } from './byog-settings-section'
 import { OnlineSearchSettingsSection } from './online-search-settings-section'
 import { DiscordBotSettingsSection } from './discord-bot-settings-section'
 import { EmailSettingsSection } from '../integrations/email-settings-section'
@@ -91,6 +92,17 @@ const OPERATIONS_SECTIONS = [
           aiAssistantSystemPrompt:
             settings['ticket_setting.ai_assistant_system_prompt'] ??
             'You are a helpful customer support agent for our API platform. Use markdown and BUTTON[Text](url) when directing users to external links.',
+        }}
+      />
+    ),
+  },
+  {
+    id: 'byog',
+    titleKey: 'BYOG Management',
+    build: (settings: OperationsSettings) => (
+      <ByogSettingsSection
+        defaultValues={{
+          enabled: settings['byog_setting.enabled'] ?? true,
         }}
       />
     ),
