@@ -84,6 +84,7 @@ const defaultOperationsSettings: OperationsSettings = {
   'ticket_setting.ai_assistant_model': 'gemini-1.5-flash',
   'ticket_setting.ai_assistant_system_prompt':
     'You are a helpful customer support agent for our API platform. Use markdown and BUTTON[Text](url) when directing users to external links.',
+  'byog_setting.enabled': true,
   'online_search_setting.searxng_url': '',
   'online_search_setting.price_per_search': 0,
   'online_search_setting.max_searches': 5,

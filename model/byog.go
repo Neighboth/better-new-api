@@ -777,58 +777,6 @@ func InitDefaultByogData() {
 			DB.Create(r)
 		}
 	}
-
-	// Seed default Reward Catalog items if none exist
-	var rewardCount int64
-	DB.Model(&ByogRewardItem{}).Count(&rewardCount)
-	if rewardCount == 0 {
-		defaultRewards := []*ByogRewardItem{
-			{
-				Title:          "Minecraft Premium Account",
-				Description:    "Full access official Minecraft Java & Bedrock Edition account.",
-				Category:       "gaming",
-				RequiredTokens: 50000000, // 50M tokens
-				Stock:          25,
-				IsActive:       true,
-				CreatedAt:      time.Now().Unix(),
-				UpdatedAt:      time.Now().Unix(),
-			},
-			{
-				Title:          "Windows 11 Pro OEM Key",
-				Description:    "Official Microsoft Windows 11 Professional lifetime license key.",
-				Category:       "software",
-				RequiredTokens: 40000000, // 40M tokens
-				Stock:          50,
-				IsActive:       true,
-				CreatedAt:      time.Now().Unix(),
-				UpdatedAt:      time.Now().Unix(),
-			},
-			{
-				Title:          "Steam $20 Gift Card",
-				Description:    "Digital wallet code redeemable on Steam Store worldwide.",
-				Category:       "giftcard",
-				RequiredTokens: 60000000, // 60M tokens
-				Stock:          30,
-				IsActive:       true,
-				CreatedAt:      time.Now().Unix(),
-				UpdatedAt:      time.Now().Unix(),
-			},
-			{
-				Title:          "Discord Nitro 3-Month Boost Pack",
-				Description:    "3 months of Discord Nitro subscription with 2 server boosts.",
-				Category:       "digital",
-				RequiredTokens: 35000000, // 35M tokens
-				Stock:          40,
-				IsActive:       true,
-				CreatedAt:      time.Now().Unix(),
-				UpdatedAt:      time.Now().Unix(),
-			},
-		}
-
-		for _, rew := range defaultRewards {
-			DB.Create(rew)
-		}
-	}
 }
 
 // Calculate Total Boost Multiplier for a Node

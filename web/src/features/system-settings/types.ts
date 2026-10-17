@@ -697,6 +697,7 @@ export type OperationsSettings = {
   'ticket_setting.ai_assistant_enabled'?: boolean
   'ticket_setting.ai_assistant_model'?: string
   'ticket_setting.ai_assistant_system_prompt'?: string
+  'byog_setting.enabled'?: boolean
   'online_search_setting.searxng_url'?: string
   'online_search_setting.price_per_search'?: number
   'online_search_setting.max_searches'?: number

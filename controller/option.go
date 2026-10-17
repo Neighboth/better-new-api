@@ -453,8 +453,16 @@ func UpdateOption(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if strings.HasPrefix(option.Key, "relay_fallback_setting.") || strings.HasPrefix(option.Key, "checkin_setting.") || strings.HasPrefix(option.Key, "ticket_setting.") {
+	if strings.HasPrefix(option.Key, "relay_fallback_setting.") || strings.HasPrefix(option.Key, "checkin_setting.") || strings.HasPrefix(option.Key, "ticket_setting.") || strings.HasPrefix(option.Key, "byog_setting.") {
 		_ = config.GlobalConfig.LoadFromDB(common.OptionMap)
+	}
+	if strings.HasPrefix(option.Key, "byog_setting.") {
+		val := option.Value.(string) == "true"
+		setting, err := model.GetByogSetting()
+		if err == nil && setting != nil {
+			setting.Enabled = val
+			_ = model.UpdateByogSetting(setting)
+		}
 	}
 	// Only the discord_bot.* namespace configures the bot; discord.* belongs to
 	// the Discord OAuth login and must not restart it.
