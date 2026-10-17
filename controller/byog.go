@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -942,3 +944,25 @@ func GetByogWorkerVersion(c *gin.Context) {
 		},
 	})
 }
+
+// DownloadByogWorker serves worker release binary or APK if present, or returns 404
+func DownloadByogWorker(c *gin.Context) {
+	platform := c.Param("platform")
+	arch := c.Param("arch")
+	fileName := fmt.Sprintf("byog-worker-%s-%s", platform, arch)
+	if platform == "windows" {
+		fileName += ".exe"
+	} else if platform == "android" && arch == "apk" {
+		fileName = "byog-worker.apk"
+	}
+	filePath := filepath.Join("worker", "binaries", fileName)
+	if _, err := os.Stat(filePath); err == nil {
+		c.FileAttachment(filePath, fileName)
+		return
+	}
+	c.JSON(http.StatusNotFound, gin.H{
+		"success": false,
+		"message": "Worker release package is not available for this platform yet",
+	})
+}
+
