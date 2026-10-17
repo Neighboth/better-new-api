@@ -106,8 +106,9 @@ export function ByogSettingsSection({
           />
 
           <SettingsPageFormActions
-            form={form}
-            loading={form.formState.isSubmitting}
+            onSave={form.handleSubmit(onSubmit)}
+            isSaving={updateOption.isPending}
+            isSaveDisabled={false}
           />
         </SettingsForm>
       </Form>

@@ -4,6 +4,7 @@
 .history
 upload
 *.exe
+!worker/binaries/**
 *.db
 build
 *.db-journal

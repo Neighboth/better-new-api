@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Cpu, Edit, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -158,16 +157,14 @@ export function ByogRulesTab() {
         <CardHeader>
           <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
             <div>
-              <CardTitle className='flex items-center gap-2'>
-                <Cpu className='text-primary h-5 w-5' />
+              <CardTitle>
                 {t('byog.admin.assignment_rules_title')}
               </CardTitle>
               <CardDescription>
                 {t('byog.admin.assignment_rules_desc')}
               </CardDescription>
             </div>
-            <Button onClick={handleOpenCreate} className='gap-2'>
-              <Plus className='h-4 w-4' />
+            <Button onClick={handleOpenCreate}>
               {t('byog.admin.add_rule')}
             </Button>
           </div>
@@ -232,21 +229,22 @@ export function ByogRulesTab() {
                         />
                       </TableCell>
                       <TableCell className='text-right'>
-                        <div className='flex items-center justify-end gap-1'>
+                        <div className='flex items-center justify-end gap-1.5'>
                           <Button
-                            variant='ghost'
-                            size='icon'
+                            variant='outline'
+                            size='sm'
+                            className='h-7 px-2 text-xs'
                             onClick={() => handleOpenEdit(rule)}
                           >
-                            <Edit className='h-4 w-4' />
+                            {t('common.edit')}
                           </Button>
                           <Button
-                            variant='ghost'
-                            size='icon'
-                            className='text-destructive hover:text-destructive'
+                            variant='outline'
+                            size='sm'
+                            className='h-7 px-2 text-xs text-destructive hover:text-destructive'
                             onClick={() => handleDelete(rule.id)}
                           >
-                            <Trash2 className='h-4 w-4' />
+                            {t('common.delete')}
                           </Button>
                         </div>
                       </TableCell>

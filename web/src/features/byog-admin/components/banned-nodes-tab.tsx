@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { CheckCircle2, Eye, RefreshCw, ShieldAlert, Unlock } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -100,8 +99,7 @@ export function ByogBannedNodesTab() {
         <CardHeader>
           <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
             <div>
-              <CardTitle className='flex items-center gap-2'>
-                <ShieldAlert className='text-destructive h-5 w-5' />
+              <CardTitle>
                 {t('byog.admin.banned_nodes_title')}
               </CardTitle>
               <CardDescription>
@@ -112,9 +110,7 @@ export function ByogBannedNodesTab() {
               variant='outline'
               size='sm'
               onClick={loadBannedNodes}
-              className='gap-2'
             >
-              <RefreshCw className='h-4 w-4' />
               {t('byog.refresh')}
             </Button>
           </div>
@@ -126,7 +122,6 @@ export function ByogBannedNodesTab() {
             </div>
           ) : bannedNodes.length === 0 ? (
             <div className='text-muted-foreground py-12 text-center'>
-              <CheckCircle2 className='mx-auto mb-3 h-10 w-10 text-emerald-500' />
               {t('byog.admin.no_banned_nodes')}
             </div>
           ) : (
@@ -169,24 +164,22 @@ export function ByogBannedNodesTab() {
                         {new Date(ban.banned_at * 1000).toLocaleString()}
                       </TableCell>
                       <TableCell className='text-right'>
-                        <div className='flex items-center justify-end gap-1'>
+                        <div className='flex items-center justify-end gap-1.5'>
                           <Button
-                            variant='ghost'
+                            variant='outline'
                             size='sm'
-                            className='gap-1 text-xs'
+                            className='h-7 px-2 text-xs'
                             onClick={() => handleOpenDetails(ban)}
                           >
-                            <Eye className='h-3.5 w-3.5' />
                             {t('byog.admin.evidence')}
                           </Button>
                           <Button
                             variant='outline'
                             size='sm'
-                            className='gap-1 text-xs text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-600'
+                            className='h-7 px-2 text-xs text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-600'
                             disabled={unbanningId === ban.id}
                             onClick={() => handleUnban(ban.id)}
                           >
-                            <Unlock className='h-3.5 w-3.5' />
                             {t('byog.admin.unban')}
                           </Button>
                         </div>
@@ -204,8 +197,7 @@ export function ByogBannedNodesTab() {
       <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
         <DialogContent className='max-h-[85vh] max-w-2xl overflow-y-auto'>
           <DialogHeader>
-            <DialogTitle className='flex items-center gap-2'>
-              <ShieldAlert className='text-destructive h-5 w-5' />
+            <DialogTitle>
               {t('byog.admin.forensic_evidence_title')}
             </DialogTitle>
             <DialogDescription className='font-mono text-xs'>
@@ -281,10 +273,8 @@ export function ByogBannedNodesTab() {
             {selectedBan && (
               <Button
                 variant='destructive'
-                className='gap-2'
                 onClick={() => handleUnban(selectedBan.id)}
               >
-                <Unlock className='h-4 w-4' />
                 {t('byog.admin.unban_node')}
               </Button>
             )}

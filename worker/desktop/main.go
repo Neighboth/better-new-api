@@ -17,9 +17,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
-	"unsafe"
 
 	"github.com/gorilla/websocket"
 )
@@ -62,17 +60,6 @@ var State = &WorkerState{
 	InstalledModels: make(map[string]bool),
 }
 
-// Anti-debugging (Section 5.4)
-func checkDebuggerPresent() bool {
-	if runtime.GOOS == "windows" {
-		kernel32 := syscall.NewLazyDLL("kernel32.dll")
-		isDebuggerPresent := kernel32.NewProc("IsDebuggerPresent")
-		res, _, _ := isDebuggerPresent.Call()
-		return res != 0
-	}
-	return false
-}
-
 // Generate Cryptographic HWID (Section 3.1 & 5.1)
 func generateHWID() string {
 	raw := fmt.Sprintf("%s-%s-%s-%s-%d",
@@ -84,24 +71,6 @@ func generateHWID() string {
 	)
 	h := sha256.Sum256([]byte(raw + "BYOG-DEPIN-SALT-2026"))
 	return hex.EncodeToString(h[:])
-}
-
-// Detect Fullscreen Game / Heavy 3D Application (Section 5.2)
-func isFullscreenGameRunning() bool {
-	if runtime.GOOS != "windows" {
-		return false
-	}
-	shell32 := syscall.NewLazyDLL("shell32.dll")
-	queryState := shell32.NewProc("SHQueryUserNotificationState")
-	var state uint32
-	ret, _, _ := queryState.Call(uintptr(unsafe.Pointer(&state)))
-	if ret == 0 {
-		// QUNS_BUSY = 2, QUNS_RUNNING_D3D_FULL_SCREEN = 3, QUNS_PRESENTATION_MODE = 4
-		if state == 2 || state == 3 || state == 4 {
-			return true
-		}
-	}
-	return false
 }
 
 // Telemetry Reporter & Heartbeat Loop (Section 3.4 & 5.6)

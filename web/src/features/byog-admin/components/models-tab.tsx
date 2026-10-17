@@ -16,16 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  ChevronDown,
-  ChevronRight,
-  Edit,
-  FileCode,
-  Layers,
-  Plus,
-  ShieldCheck,
-  Trash2,
-} from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -224,16 +215,14 @@ export function ByogModelsTab() {
         <CardHeader>
           <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
             <div>
-              <CardTitle className='flex items-center gap-2'>
-                <Layers className='text-primary h-5 w-5' />
+              <CardTitle>
                 {t('byog.admin.models_loras_title')}
               </CardTitle>
               <CardDescription>
                 {t('byog.admin.models_loras_desc')}
               </CardDescription>
             </div>
-            <Button onClick={handleOpenCreateModel} className='gap-2'>
-              <Plus className='h-4 w-4' />
+            <Button onClick={handleOpenCreateModel}>
               {t('byog.admin.add_base_model')}
             </Button>
           </div>
@@ -325,25 +314,25 @@ export function ByogModelsTab() {
                           variant='outline'
                           size='sm'
                           onClick={() => handleOpenCreateLora(model)}
-                          className='gap-1.5 text-xs'
+                          className='h-7 px-2 text-xs'
                         >
-                          <Plus className='h-3.5 w-3.5' />
                           {t('byog.admin.add_lora')}
                         </Button>
                         <Button
-                          variant='ghost'
-                          size='icon'
+                          variant='outline'
+                          size='sm'
+                          className='h-7 px-2 text-xs'
                           onClick={() => handleOpenEditModel(model)}
                         >
-                          <Edit className='h-4 w-4' />
+                          {t('common.edit')}
                         </Button>
                         <Button
-                          variant='ghost'
-                          size='icon'
-                          className='text-destructive hover:text-destructive'
+                          variant='outline'
+                          size='sm'
+                          className='h-7 px-2 text-xs text-destructive hover:text-destructive'
                           onClick={() => handleDeleteModel(model.id)}
                         >
-                          <Trash2 className='h-4 w-4' />
+                          {t('common.delete')}
                         </Button>
                       </div>
                     </div>
@@ -351,7 +340,6 @@ export function ByogModelsTab() {
                     {/* Anti-cheat audit summary */}
                     <div className='bg-muted/5 text-muted-foreground flex items-center gap-4 border-t px-4 py-2.5 text-xs'>
                       <div className='text-primary flex items-center gap-1.5'>
-                        <ShieldCheck className='h-4 w-4' />
                         <span>{t('byog.admin.anti_cheat_verified')}</span>
                       </div>
                       <div className='max-w-md truncate font-mono'>
@@ -365,7 +353,6 @@ export function ByogModelsTab() {
                     {isExpanded && (
                       <div className='bg-background space-y-3 border-t p-4'>
                         <div className='text-muted-foreground flex items-center gap-1.5 text-xs font-semibold tracking-wider uppercase'>
-                          <FileCode className='h-3.5 w-3.5' />
                           {t('byog.admin.attached_loras')} ({modelLoras.length})
                         </div>
                         {modelLoras.length === 0 ? (
@@ -397,12 +384,12 @@ export function ByogModelsTab() {
                                   </div>
                                 </div>
                                 <Button
-                                  variant='ghost'
-                                  size='icon'
-                                  className='text-destructive h-8 w-8'
+                                  variant='outline'
+                                  size='sm'
+                                  className='text-destructive hover:text-destructive h-6 px-2 text-xs'
                                   onClick={() => handleDeleteLora(lora.id)}
                                 >
-                                  <Trash2 className='h-3.5 w-3.5' />
+                                  {t('common.delete')}
                                 </Button>
                               </div>
                             ))}
@@ -602,7 +589,6 @@ export function ByogModelsTab() {
               {/* Anti-cheat Logic Exam */}
               <div className='bg-muted/20 space-y-4 rounded-xl border p-4 md:col-span-2'>
                 <div className='flex items-center gap-2'>
-                  <ShieldCheck className='text-primary h-4 w-4' />
                   <span className='text-sm font-semibold'>
                     {t('byog.admin.anti_cheat_logic_exam_title')} ({t('Optional')})
                   </span>
@@ -690,7 +676,6 @@ export function ByogModelsTab() {
               {/* Anti-cheat Signature Exam */}
               <div className='bg-muted/20 space-y-4 rounded-xl border p-4 md:col-span-2'>
                 <div className='flex items-center gap-2'>
-                  <ShieldCheck className='h-4 w-4 text-emerald-500' />
                   <span className='text-sm font-semibold'>
                     {t('byog.admin.anti_cheat_sig_exam_title')} ({t('Optional')})
                   </span>

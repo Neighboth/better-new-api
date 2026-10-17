@@ -296,9 +296,9 @@ export function LiveSupportWidget() {
   }
 
   return (
-    <div className='fixed bottom-5 right-5 z-50'>
+    <div className='fixed bottom-4 right-4 sm:bottom-5 sm:right-5 z-50 max-w-[calc(100vw-2rem)]'>
       {open ? (
-        <Card className='w-[350px] sm:w-[400px] shadow-2xl border-border animate-in fade-in zoom-in-95 duration-150 overflow-hidden flex flex-col'>
+        <Card className='w-[calc(100vw-2rem)] sm:w-[400px] max-w-[400px] shadow-2xl border-border animate-in fade-in zoom-in-95 duration-150 overflow-hidden flex flex-col'>
           {/* Widget Header */}
           <CardHeader className='bg-primary text-primary-foreground p-4 flex flex-row items-center justify-between space-y-0'>
             <div className='flex items-center gap-2.5'>
@@ -547,14 +547,14 @@ export function LiveSupportWidget() {
           ) : null}
         </Card>
       ) : (
-        <div className='relative inline-block'>
+        <div className='relative inline-block mr-1'>
           {/* Small 24-hour dismiss button at top right */}
           <button
             type='button'
             aria-label='Dismiss live support'
             onClick={handleDismiss}
             title={t('Hide for 24 hours')}
-            className='absolute -top-1.5 -right-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-muted-foreground/80 hover:bg-destructive text-white shadow-md transition-colors'
+            className='absolute -top-1.5 right-0 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-muted-foreground/80 hover:bg-destructive text-white shadow-md transition-colors'
           >
             <X className='h-3 w-3 stroke-[2.5]' />
           </button>

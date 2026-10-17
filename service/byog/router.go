@@ -11,7 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -240,12 +242,55 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 				multiplier, _ := model.CalculateNodeMultipliers(node)
 				tokensToCredit := int64(float64(totalTokensGenerated) * multiplier)
 
+				// Credit tokens to compute provider node
 				_ = model.DB.Model(&model.ByogNode{}).
 					Where("node_id = ?", session.NodeId).
 					Updates(map[string]interface{}{
 						"total_tokens_processed": gormExpr("total_tokens_processed + ?", totalTokensGenerated),
 						"total_earned_credits":  gormExpr("total_earned_credits + ?", float64(tokensToCredit)*0.000001),
 					})
+
+				// Charge customer:
+				// Use price from Models section if configured; if not configured, charge 3x provider cost price.
+				userId := c.GetInt("id")
+				if userId > 0 {
+					setting, _ := model.GetByogSetting()
+					providerPricePer1M := 0.20
+					if setting != nil {
+						switch modelDef.PricingTier {
+						case 1:
+							providerPricePer1M = setting.Tier1ProviderPrice
+						case 3:
+							providerPricePer1M = setting.Tier3ProviderPrice
+						default:
+							providerPricePer1M = setting.Tier2ProviderPrice
+						}
+					}
+
+					totalTokens := done.PromptTokens + totalTokensGenerated
+					if totalTokens <= 0 {
+						totalTokens = totalTokensGenerated
+					}
+
+					var quotaToDeduct int64 = 0
+					ratioOrPrice, usePrice, exist := ratio_setting.GetModelRatioOrPrice(modelDef.ModelId)
+					if exist {
+						if usePrice {
+							quotaToDeduct = int64(ratioOrPrice * float64(common.QuotaPerUnit))
+						} else {
+							quotaToDeduct = int64(float64(totalTokens) * ratioOrPrice * 2.0 / 1000.0 * float64(common.QuotaPerUnit) / 500.0)
+						}
+					} else {
+						// 3x provider cost price (providerPricePer1M is USD per 1M tokens)
+						salePricePer1M := 3.0 * providerPricePer1M
+						quotaPerToken := (salePricePer1M * float64(common.QuotaPerUnit)) / 1000000.0
+						quotaToDeduct = int64(float64(totalTokens) * quotaPerToken)
+					}
+
+					if quotaToDeduct > 0 {
+						_ = model.DecreaseUserQuota(userId, int(quotaToDeduct), true)
+					}
+				}
 
 				if payload.Stream {
 					_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")

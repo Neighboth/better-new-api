@@ -952,7 +952,7 @@ func GetByogWorkerVersion(c *gin.Context) {
 	})
 }
 
-// DownloadByogWorker serves worker release binary or APK if present, or returns 404
+// DownloadByogWorker serves worker release binary or APK if present
 func DownloadByogWorker(c *gin.Context) {
 	platform := c.Param("platform")
 	arch := c.Param("arch")
@@ -962,14 +962,39 @@ func DownloadByogWorker(c *gin.Context) {
 	} else if platform == "android" && arch == "apk" {
 		fileName = "byog-worker.apk"
 	}
-	filePath := filepath.Join("worker", "binaries", fileName)
-	if _, err := os.Stat(filePath); err == nil {
-		c.FileAttachment(filePath, fileName)
-		return
+
+	searchPaths := []string{
+		filepath.Join("worker", "binaries", fileName),
+		filepath.Join("/worker", "binaries", fileName),
+		filepath.Join("/data", "worker", "binaries", fileName),
+		filepath.Join(".", "worker", "binaries", fileName),
 	}
-	c.JSON(http.StatusNotFound, gin.H{
-		"success": false,
-		"message": "Worker release package is not available for this platform yet",
-	})
+
+	// For Android APK fallback to android-arm64 if apk not present
+	if platform == "android" && arch == "apk" {
+		searchPaths = append(searchPaths,
+			filepath.Join("worker", "binaries", "byog-worker-android-arm64"),
+			filepath.Join("/worker", "binaries", "byog-worker-android-arm64"),
+			filepath.Join("/data", "worker", "binaries", "byog-worker-android-arm64"),
+		)
+	}
+
+	for _, p := range searchPaths {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Size() > 0 {
+			if strings.HasSuffix(fileName, ".apk") {
+				c.Header("Content-Type", "application/vnd.android.package-archive")
+			} else if strings.HasSuffix(fileName, ".exe") {
+				c.Header("Content-Type", "application/octet-stream")
+			} else {
+				c.Header("Content-Type", "application/octet-stream")
+			}
+			c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+			c.File(p)
+			return
+		}
+	}
+
+	c.String(http.StatusNotFound, "Worker binary for platform '%s' arch '%s' is not built yet on this server instance.", platform, arch)
 }
+
 

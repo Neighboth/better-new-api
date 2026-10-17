@@ -16,27 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  Activity,
-  Battery,
-  BatteryCharging,
-  Database,
-  Eye,
-  Globe,
-  HardDrive,
-  Laptop,
-  Monitor,
-  RefreshCw,
-  Search,
-  Server,
-  ShieldAlert,
-  ShieldCheck,
-  Smartphone,
-  Tablet,
-  Thermometer,
-  Wifi,
-  Zap,
-} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -96,8 +75,8 @@ export function ByogNodesTab() {
     try {
       const data = await getAdminNodes()
       setNodes(data || [])
-    } catch (err: any) {
-      // silent or initial toast
+    } catch {
+      // Keep silent on background polling
     } finally {
       setLoading(false)
     }
@@ -130,19 +109,6 @@ export function ByogNodesTab() {
     return matchesSearch && matchesType
   })
 
-  function getDeviceIcon(type: string) {
-    switch (type) {
-      case 'mobile':
-        return <Smartphone className='h-4 w-4 text-emerald-500' />
-      case 'tablet':
-        return <Tablet className='h-4 w-4 text-emerald-400' />
-      case 'laptop':
-        return <Laptop className='h-4 w-4 text-blue-400' />
-      default:
-        return <Monitor className='h-4 w-4 text-indigo-400' />
-    }
-  }
-
   function getStatusBadge(status: string) {
     switch (status) {
       case 'online':
@@ -172,54 +138,42 @@ export function ByogNodesTab() {
 
   return (
     <div className='space-y-6'>
-      {/* 3D Network Globe */}
+      {/* Interactive World Map */}
       <NetworkGlobe nodes={nodes} />
 
-      {/* Aggregate Metrics Bar */}
+      {/* Aggregate Metrics Bar - Zero Icons */}
       <div className='grid grid-cols-2 gap-4 md:grid-cols-4'>
-        <Card className='flex items-center gap-3 p-4'>
-          <Activity className='h-8 w-8 text-emerald-500' />
-          <div>
-            <div className='text-2xl font-bold'>
-              {onlineNodes.length} / {nodes.length}
-            </div>
-            <div className='text-muted-foreground text-xs'>
-              {t('byog.admin.online_nodes_total')}
-            </div>
+        <Card className='space-y-1 p-4'>
+          <div className='text-2xl font-bold'>
+            {onlineNodes.length} / {nodes.length}
+          </div>
+          <div className='text-muted-foreground text-xs'>
+            {t('byog.admin.online_nodes_total')}
           </div>
         </Card>
 
-        <Card className='flex items-center gap-3 p-4'>
-          <Zap className='h-8 w-8 text-amber-500' />
-          <div>
-            <div className='text-2xl font-bold'>{aggregateTps.toFixed(1)}</div>
-            <div className='text-muted-foreground text-xs'>
-              {t('byog.admin.aggregate_tps')}
-            </div>
+        <Card className='space-y-1 p-4'>
+          <div className='text-2xl font-bold'>{aggregateTps.toFixed(1)}</div>
+          <div className='text-muted-foreground text-xs'>
+            {t('byog.admin.aggregate_tps')}
           </div>
         </Card>
 
-        <Card className='flex items-center gap-3 p-4'>
-          <HardDrive className='h-8 w-8 text-blue-500' />
-          <div>
-            <div className='text-2xl font-bold'>
-              {totalVramGb.toFixed(0)} GB
-            </div>
-            <div className='text-muted-foreground text-xs'>
-              {t('byog.admin.total_vram_capacity')}
-            </div>
+        <Card className='space-y-1 p-4'>
+          <div className='text-2xl font-bold'>
+            {totalVramGb.toFixed(0)} GB
+          </div>
+          <div className='text-muted-foreground text-xs'>
+            {t('byog.admin.total_vram_capacity')}
           </div>
         </Card>
 
-        <Card className='flex items-center gap-3 p-4'>
-          <Smartphone className='h-8 w-8 text-purple-500' />
-          <div>
-            <div className='text-2xl font-bold'>
-              {desktopCount}D / {mobileCount}M
-            </div>
-            <div className='text-muted-foreground text-xs'>
-              {t('byog.admin.desktop_vs_mobile')}
-            </div>
+        <Card className='space-y-1 p-4'>
+          <div className='text-2xl font-bold'>
+            {desktopCount}D / {mobileCount}M
+          </div>
+          <div className='text-muted-foreground text-xs'>
+            {t('byog.admin.desktop_vs_mobile')}
           </div>
         </Card>
       </div>
@@ -229,8 +183,7 @@ export function ByogNodesTab() {
         <CardHeader>
           <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
             <div>
-              <CardTitle className='flex items-center gap-2'>
-                <Server className='text-primary h-5 w-5' />
+              <CardTitle>
                 {t('byog.admin.connected_nodes_title')}
               </CardTitle>
               <CardDescription>
@@ -238,15 +191,12 @@ export function ByogNodesTab() {
               </CardDescription>
             </div>
             <div className='flex items-center gap-2'>
-              <div className='relative w-48 sm:w-64'>
-                <Search className='text-muted-foreground absolute top-2.5 left-2.5 h-4 w-4' />
-                <Input
-                  className='pl-8 text-xs'
-                  placeholder={t('byog.admin.search_nodes')}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
+              <Input
+                className='w-44 text-xs sm:w-60'
+                placeholder={t('byog.admin.search_nodes')}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
               <Select
                 value={typeFilter}
                 onValueChange={(val) => setTypeFilter(val || 'all')}
@@ -272,8 +222,8 @@ export function ByogNodesTab() {
                   </SelectItem>
                 </SelectContent>
               </Select>
-              <Button variant='outline' size='icon' onClick={loadNodes}>
-                <RefreshCw className='h-4 w-4' />
+              <Button variant='outline' size='sm' onClick={loadNodes}>
+                {t('byog.refresh')}
               </Button>
             </div>
           </div>
@@ -308,15 +258,20 @@ export function ByogNodesTab() {
                   {filteredNodes.map((node) => (
                     <TableRow key={node.id}>
                       <TableCell>
-                        <div className='flex items-center gap-2'>
-                          {getDeviceIcon(node.device_type)}
-                          <div>
-                            <div className='text-sm font-semibold'>
-                              {node.device_name}
-                            </div>
-                            <div className='text-muted-foreground font-mono text-[11px]'>
+                        <div>
+                          <div className='text-sm font-semibold'>
+                            {node.device_name}
+                          </div>
+                          <div className='flex items-center gap-1.5 pt-0.5'>
+                            <Badge
+                              variant='outline'
+                              className='px-1 py-0 font-mono text-[10px] uppercase'
+                            >
+                              {node.device_type}
+                            </Badge>
+                            <span className='text-muted-foreground font-mono text-[11px]'>
                               {node.node_id.slice(0, 12)}...
-                            </div>
+                            </span>
                           </div>
                         </div>
                       </TableCell>
@@ -339,12 +294,9 @@ export function ByogNodesTab() {
                         </div>
                         <div>VRAM: {(node.vram_mb / 1024).toFixed(1)} GB</div>
                       </TableCell>
-                      <TableCell className='text-xs'>
-                        <div className='flex items-center gap-1 font-mono'>
-                          <Wifi className='text-muted-foreground h-3 w-3' />
-                          {node.ping_ms} ms
-                        </div>
-                        <div className='text-muted-foreground text-[10px]'>
+                      <TableCell className='text-xs font-mono'>
+                        <div>{node.ping_ms} ms</div>
+                        <div className='text-muted-foreground font-sans text-[10px]'>
                           {node.country || 'Global'}
                         </div>
                       </TableCell>
@@ -366,12 +318,11 @@ export function ByogNodesTab() {
                       <TableCell>{getStatusBadge(node.status)}</TableCell>
                       <TableCell className='text-right'>
                         <Button
-                          variant='ghost'
+                          variant='outline'
                           size='sm'
                           onClick={() => handleInspect(node)}
-                          className='gap-1.5 text-xs'
+                          className='h-7 px-2.5 text-xs'
                         >
-                          <Eye className='h-3.5 w-3.5' />
                           {t('byog.admin.inspect')}
                         </Button>
                       </TableCell>
@@ -384,12 +335,11 @@ export function ByogNodesTab() {
         </CardContent>
       </Card>
 
-      {/* Deep Inspect Modal */}
+      {/* Deep Inspect Modal - Zero Decorative Icons */}
       <Dialog open={inspectOpen} onOpenChange={setInspectOpen}>
         <DialogContent className='max-h-[90vh] max-w-3xl overflow-y-auto'>
           <DialogHeader>
-            <DialogTitle className='flex items-center gap-2'>
-              <Server className='text-primary h-5 w-5' />
+            <DialogTitle>
               {t('byog.admin.deep_inspect_title', {
                 name: selectedNode?.device_name,
               })}
@@ -403,25 +353,18 @@ export function ByogNodesTab() {
             <div className='space-y-6 py-4'>
               {/* TEE Attestation & Security Status */}
               <div className='bg-muted/20 flex items-center justify-between rounded-xl border p-4'>
-                <div className='flex items-center gap-3'>
-                  {selectedNode.tee_supported ? (
-                    <ShieldCheck className='h-6 w-6 text-emerald-500' />
-                  ) : (
-                    <ShieldAlert className='h-6 w-6 text-amber-500' />
-                  )}
-                  <div>
-                    <div className='text-sm font-semibold'>
-                      {selectedNode.tee_supported
-                        ? t('byog.admin.tee_attested')
-                        : t('byog.admin.tee_unsupported')}
-                    </div>
-                    <div className='text-muted-foreground text-xs'>
-                      {selectedNode.tee_supported
-                        ? t('byog.admin.tee_type_label', {
-                            type: selectedNode.tee_type,
-                          })
-                        : t('byog.admin.standard_isolation')}
-                    </div>
+                <div>
+                  <div className='text-sm font-semibold'>
+                    {selectedNode.tee_supported
+                      ? t('byog.admin.tee_attested')
+                      : t('byog.admin.tee_unsupported')}
+                  </div>
+                  <div className='text-muted-foreground text-xs'>
+                    {selectedNode.tee_supported
+                      ? t('byog.admin.tee_type_label', {
+                          type: selectedNode.tee_type,
+                        })
+                      : t('byog.admin.standard_isolation')}
                   </div>
                 </div>
                 <Badge variant='outline' className='font-mono text-xs'>
@@ -464,7 +407,6 @@ export function ByogNodesTab() {
                   </div>
                   <div className='text-muted-foreground text-[10px]'>
                     Swap: {(selectedNode.swap_ram_mb / 1024).toFixed(1)} GB
-                    (Ignored)
                   </div>
                 </div>
 
@@ -487,8 +429,7 @@ export function ByogNodesTab() {
               {/* Telemetry & Thermals */}
               <div className='grid grid-cols-2 gap-4 md:grid-cols-4'>
                 <div className='bg-muted/10 space-y-1 rounded-lg border p-3'>
-                  <div className='text-muted-foreground flex items-center gap-1 text-xs'>
-                    <Thermometer className='h-3.5 w-3.5 text-red-500' />
+                  <div className='text-muted-foreground text-xs'>
                     {t('byog.admin.cpu_temp')}
                   </div>
                   <div className='text-base font-semibold'>
@@ -497,8 +438,7 @@ export function ByogNodesTab() {
                 </div>
 
                 <div className='bg-muted/10 space-y-1 rounded-lg border p-3'>
-                  <div className='text-muted-foreground flex items-center gap-1 text-xs'>
-                    <Thermometer className='h-3.5 w-3.5 text-amber-500' />
+                  <div className='text-muted-foreground text-xs'>
                     {t('byog.admin.gpu_temp')}
                   </div>
                   <div className='text-base font-semibold'>
@@ -508,8 +448,7 @@ export function ByogNodesTab() {
 
                 {selectedNode.battery_temp_supported && (
                   <div className='bg-muted/10 space-y-1 rounded-lg border p-3'>
-                    <div className='text-muted-foreground flex items-center gap-1 text-xs'>
-                      <Thermometer className='h-3.5 w-3.5 text-blue-500' />
+                    <div className='text-muted-foreground text-xs'>
                       {t('byog.admin.battery_temp')}
                     </div>
                     <div className='text-base font-semibold'>
@@ -522,12 +461,7 @@ export function ByogNodesTab() {
                   selectedNode.device_type === 'tablet' ||
                   selectedNode.battery_percent > 0) && (
                   <div className='bg-muted/10 space-y-1 rounded-lg border p-3'>
-                    <div className='text-muted-foreground flex items-center gap-1 text-xs'>
-                      {selectedNode.is_charging ? (
-                        <BatteryCharging className='h-3.5 w-3.5 text-emerald-500' />
-                      ) : (
-                        <Battery className='text-muted-foreground h-3.5 w-3.5' />
-                      )}
+                    <div className='text-muted-foreground text-xs'>
                       {t('byog.admin.battery_status')}
                     </div>
                     <div className='text-base font-semibold'>
@@ -540,8 +474,7 @@ export function ByogNodesTab() {
 
               {/* Network & Geographic Info */}
               <div className='bg-muted/10 space-y-2 rounded-xl border p-4'>
-                <div className='flex items-center gap-1.5 text-sm font-semibold'>
-                  <Globe className='text-primary h-4 w-4' />
+                <div className='text-sm font-semibold'>
                   {t('byog.admin.network_geo_title')}
                 </div>
                 <div className='grid grid-cols-2 gap-4 text-xs md:grid-cols-4'>
@@ -596,8 +529,7 @@ export function ByogNodesTab() {
               {/* Models Loaded & Cumulative Stats */}
               <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
                 <div className='bg-muted/10 space-y-2 rounded-xl border p-4'>
-                  <div className='flex items-center gap-1.5 text-sm font-semibold'>
-                    <Database className='h-4 w-4 text-blue-500' />
+                  <div className='text-sm font-semibold'>
                     {t('byog.admin.installed_models')}
                   </div>
                   <div className='bg-background max-h-32 overflow-y-auto rounded border p-2.5 font-mono text-xs'>
@@ -607,8 +539,7 @@ export function ByogNodesTab() {
                 </div>
 
                 <div className='bg-muted/10 space-y-2 rounded-xl border p-4'>
-                  <div className='flex items-center gap-1.5 text-sm font-semibold'>
-                    <Zap className='h-4 w-4 text-amber-500' />
+                  <div className='text-sm font-semibold'>
                     {t('byog.admin.cumulative_contributions')}
                   </div>
                   <div className='space-y-1.5 text-xs'>
