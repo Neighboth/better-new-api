@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Info } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -30,6 +31,11 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
 
 import { getAdminSettings, updateAdminSettings } from '../../byog/api'
@@ -49,6 +55,111 @@ const defaultMultipliers: ByogMultipliersConfig = {
   night_owl_surge: 30,
   weekend_crunch: 20,
 }
+
+const MULTIPLIER_ITEMS: Array<{
+  key: keyof ByogMultipliersConfig
+  labelKey: string
+  defaultLabel: string
+  descKey: string
+  defaultDesc: string
+}> = [
+  {
+    key: 'high_tps_bonus',
+    labelKey: 'byog.admin.multiplier_high_tps',
+    defaultLabel: 'High TPS Bonus (TPS > 40)',
+    descKey: 'byog.admin.multiplier_high_tps_desc',
+    defaultDesc:
+      'Bonus awarded to worker nodes delivering sustained throughput exceeding 40 Tokens Per Second.',
+  },
+  {
+    key: 'sub_second_ttft',
+    labelKey: 'byog.admin.multiplier_sub_second_ttft',
+    defaultLabel: 'Fast TTFT Bonus (TTFT < 1.0s)',
+    descKey: 'byog.admin.multiplier_sub_second_ttft_desc',
+    defaultDesc:
+      'Incentive granted when Time To First Token is under 1.0 second for ultra-responsive streaming.',
+  },
+  {
+    key: 'high_uptime_bonus',
+    labelKey: 'byog.admin.multiplier_high_uptime',
+    defaultLabel: 'High Uptime (7+ Days)',
+    descKey: 'byog.admin.multiplier_high_uptime_desc',
+    defaultDesc:
+      'Reward for nodes maintaining continuous network availability for 7 or more consecutive days.',
+  },
+  {
+    key: 'super_uptime_bonus',
+    labelKey: 'byog.admin.multiplier_super_uptime',
+    defaultLabel: 'Super Uptime (30+ Days)',
+    descKey: 'byog.admin.multiplier_super_uptime_desc',
+    defaultDesc:
+      'Top-tier reliability bonus for nodes connected without interruption for 30 or more days.',
+  },
+  {
+    key: 'residential_ip_bonus',
+    labelKey: 'byog.admin.multiplier_residential_ip',
+    defaultLabel: 'Residential IP Bonus',
+    descKey: 'byog.admin.multiplier_residential_ip_desc',
+    defaultDesc:
+      'Boost applied to residential broadband nodes to broaden geographical decentralization and anti-datacenter diversity.',
+  },
+  {
+    key: 'gigabit_fiber_bonus',
+    labelKey: 'byog.admin.multiplier_gigabit_fiber',
+    defaultLabel: 'Gigabit Fiber (1000M Down / 500M Up)',
+    descKey: 'byog.admin.multiplier_gigabit_fiber_desc',
+    defaultDesc:
+      'Bonus for high-bandwidth nodes with >= 1000 Mbps download and >= 500 Mbps upload speeds.',
+  },
+  {
+    key: 'low_latency_bonus',
+    labelKey: 'byog.admin.multiplier_low_latency',
+    defaultLabel: 'Low Latency (Ping < 30ms)',
+    descKey: 'byog.admin.multiplier_low_latency_desc',
+    defaultDesc:
+      'Reward for low latency edge nodes with ping times strictly below 30ms.',
+  },
+  {
+    key: 'clean_reputation_bonus',
+    labelKey: 'byog.admin.multiplier_clean_reputation',
+    defaultLabel: 'Clean Reputation (Score 100)',
+    descKey: 'byog.admin.multiplier_clean_reputation_desc',
+    defaultDesc:
+      'Bonus awarded to nodes maintaining a flawless 100/100 reputation score without failed audits.',
+  },
+  {
+    key: 'low_temp_bonus',
+    labelKey: 'byog.admin.multiplier_low_temp',
+    defaultLabel: 'Low Temperature (GPU < 55°C / CPU < 50°C)',
+    descKey: 'byog.admin.multiplier_low_temp_desc',
+    defaultDesc:
+      'Efficiency incentive for nodes operating at safe, cool thermal thresholds under compute load.',
+  },
+  {
+    key: 'battery_eco_bonus',
+    labelKey: 'byog.admin.multiplier_battery_eco',
+    defaultLabel: 'Battery Eco (Mobile Charging & < 38°C)',
+    descKey: 'byog.admin.multiplier_battery_eco_desc',
+    defaultDesc:
+      'Safety multiplier for mobile and tablet nodes running while plugged in with battery temps below 38°C.',
+  },
+  {
+    key: 'night_owl_surge',
+    labelKey: 'byog.admin.multiplier_night_owl',
+    defaultLabel: 'Night Owl Surge Rate',
+    descKey: 'byog.admin.multiplier_night_owl_desc',
+    defaultDesc:
+      'Dynamic surge multiplier active during off-peak night hours (01:00 - 08:00).',
+  },
+  {
+    key: 'weekend_crunch',
+    labelKey: 'byog.admin.multiplier_weekend_crunch',
+    defaultLabel: 'Weekend Crunch Rate',
+    descKey: 'byog.admin.multiplier_weekend_crunch_desc',
+    defaultDesc:
+      'Surge multiplier active throughout weekends to support peak compute loads.',
+  },
+]
 
 export function ByogSettingsTab() {
   const { t } = useTranslation()
@@ -325,209 +436,47 @@ export function ByogSettingsTab() {
               )}
             </div>
             <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3'>
-              {/* High TPS */}
-              <div className='space-y-1.5 rounded-lg border p-3'>
-                <Label className='text-xs font-medium'>
-                  {t('byog.admin.multiplier_high_tps', 'High TPS Bonus (TPS > 40)')} (+%)
-                </Label>
-                <Input
-                  type='number'
-                  value={multipliers.high_tps_bonus}
-                  onChange={(e) =>
-                    updateMultiplier(
-                      'high_tps_bonus',
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                />
-              </div>
-
-              {/* Sub-Second TTFT */}
-              <div className='space-y-1.5 rounded-lg border p-3'>
-                <Label className='text-xs font-medium'>
-                  {t('byog.admin.multiplier_sub_second_ttft', 'Fast TTFT Bonus (TTFT < 1.0s)')} (+%)
-                </Label>
-                <Input
-                  type='number'
-                  value={multipliers.sub_second_ttft}
-                  onChange={(e) =>
-                    updateMultiplier(
-                      'sub_second_ttft',
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                />
-              </div>
-
-              {/* High Uptime (7d) */}
-              <div className='space-y-1.5 rounded-lg border p-3'>
-                <Label className='text-xs font-medium'>
-                  {t('byog.admin.multiplier_high_uptime', 'High Uptime (7+ Days)')} (+%)
-                </Label>
-                <Input
-                  type='number'
-                  value={multipliers.high_uptime_bonus}
-                  onChange={(e) =>
-                    updateMultiplier(
-                      'high_uptime_bonus',
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                />
-              </div>
-
-              {/* Super Uptime (30d) */}
-              <div className='space-y-1.5 rounded-lg border p-3'>
-                <Label className='text-xs font-medium'>
-                  {t('byog.admin.multiplier_super_uptime', 'Super Uptime (30+ Days)')} (+%)
-                </Label>
-                <Input
-                  type='number'
-                  value={multipliers.super_uptime_bonus}
-                  onChange={(e) =>
-                    updateMultiplier(
-                      'super_uptime_bonus',
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                />
-              </div>
-
-              {/* Residential IP */}
-              <div className='space-y-1.5 rounded-lg border p-3'>
-                <Label className='text-xs font-medium'>
-                  {t('byog.admin.multiplier_residential_ip', 'Residential IP Bonus')} (+%)
-                </Label>
-                <Input
-                  type='number'
-                  value={multipliers.residential_ip_bonus}
-                  onChange={(e) =>
-                    updateMultiplier(
-                      'residential_ip_bonus',
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                />
-              </div>
-
-              {/* Gigabit Fiber */}
-              <div className='space-y-1.5 rounded-lg border p-3'>
-                <Label className='text-xs font-medium'>
-                  {t('byog.admin.multiplier_gigabit_fiber', 'Gigabit Fiber (1000M Down / 500M Up)')} (+%)
-                </Label>
-                <Input
-                  type='number'
-                  value={multipliers.gigabit_fiber_bonus}
-                  onChange={(e) =>
-                    updateMultiplier(
-                      'gigabit_fiber_bonus',
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                />
-              </div>
-
-              {/* Low Latency */}
-              <div className='space-y-1.5 rounded-lg border p-3'>
-                <Label className='text-xs font-medium'>
-                  {t('byog.admin.multiplier_low_latency', 'Low Latency (Ping < 30ms)')} (+%)
-                </Label>
-                <Input
-                  type='number'
-                  value={multipliers.low_latency_bonus}
-                  onChange={(e) =>
-                    updateMultiplier(
-                      'low_latency_bonus',
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                />
-              </div>
-
-              {/* Clean Reputation */}
-              <div className='space-y-1.5 rounded-lg border p-3'>
-                <Label className='text-xs font-medium'>
-                  {t('byog.admin.multiplier_clean_reputation', 'Clean Reputation (Score 100)')} (+%)
-                </Label>
-                <Input
-                  type='number'
-                  value={multipliers.clean_reputation_bonus}
-                  onChange={(e) =>
-                    updateMultiplier(
-                      'clean_reputation_bonus',
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                />
-              </div>
-
-              {/* Low Temperature */}
-              <div className='space-y-1.5 rounded-lg border p-3'>
-                <Label className='text-xs font-medium'>
-                  {t('byog.admin.multiplier_low_temp', 'Low Temperature (GPU < 55°C / CPU < 50°C)')} (+%)
-                </Label>
-                <Input
-                  type='number'
-                  value={multipliers.low_temp_bonus}
-                  onChange={(e) =>
-                    updateMultiplier(
-                      'low_temp_bonus',
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                />
-              </div>
-
-              {/* Battery Eco */}
-              <div className='space-y-1.5 rounded-lg border p-3'>
-                <Label className='text-xs font-medium'>
-                  {t('byog.admin.multiplier_battery_eco', 'Battery Eco (Mobile Charging & < 38°C)')} (+%)
-                </Label>
-                <Input
-                  type='number'
-                  value={multipliers.battery_eco_bonus}
-                  onChange={(e) =>
-                    updateMultiplier(
-                      'battery_eco_bonus',
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                />
-              </div>
-
-              {/* Night Owl Surge % */}
-              <div className='space-y-1.5 rounded-lg border p-3'>
-                <Label className='text-xs font-medium'>
-                  {t('byog.admin.multiplier_night_owl', 'Night Owl Surge Rate')} (+%)
-                </Label>
-                <Input
-                  type='number'
-                  value={multipliers.night_owl_surge}
-                  onChange={(e) =>
-                    updateMultiplier(
-                      'night_owl_surge',
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                />
-              </div>
-
-              {/* Weekend Crunch % */}
-              <div className='space-y-1.5 rounded-lg border p-3'>
-                <Label className='text-xs font-medium'>
-                  {t('byog.admin.multiplier_weekend_crunch', 'Weekend Crunch Rate')} (+%)
-                </Label>
-                <Input
-                  type='number'
-                  value={multipliers.weekend_crunch}
-                  onChange={(e) =>
-                    updateMultiplier(
-                      'weekend_crunch',
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                />
-              </div>
+              {MULTIPLIER_ITEMS.map((item) => (
+                <div
+                  key={item.key}
+                  className='space-y-1.5 rounded-lg border bg-card p-3'
+                >
+                  <div className='flex items-center justify-between gap-1'>
+                    <Label className='truncate text-xs font-medium'>
+                      {t(item.labelKey, item.defaultLabel)} (+%)
+                    </Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type='button'
+                          className='text-muted-foreground hover:text-foreground shrink-0 rounded p-1 transition-colors'
+                          aria-label={t('common.info', 'Info')}
+                        >
+                          <Info className='h-3.5 w-3.5' />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className='w-72 p-3 text-xs leading-relaxed shadow-lg'>
+                        <div className='mb-1 font-semibold text-foreground'>
+                          {t(item.labelKey, item.defaultLabel)}
+                        </div>
+                        <div className='text-muted-foreground'>
+                          {t(item.descKey, item.defaultDesc)}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <Input
+                    type='number'
+                    value={multipliers[item.key]}
+                    onChange={(e) =>
+                      updateMultiplier(
+                        item.key,
+                        parseFloat(e.target.value) || 0
+                      )
+                    }
+                  />
+                </div>
+              ))}
             </div>
           </div>
         </CardContent>

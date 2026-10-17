@@ -169,14 +169,14 @@ export function ByogUserDashboard() {
       </div>
 
       <Tabs defaultValue='nodes' className='space-y-6'>
-        <TabsList className='grid w-full max-w-md grid-cols-2'>
-          <TabsTrigger value='nodes' className='gap-2'>
-            <Server className='h-4 w-4' />
-            {t('byog.my_compute_nodes_tab')} ({nodes.length})
+        <TabsList className='grid w-full max-w-md grid-cols-2 h-auto p-1'>
+          <TabsTrigger value='nodes' className='gap-1.5 text-xs py-2 px-2 truncate'>
+            <Server className='h-4 w-4 shrink-0' />
+            <span className='truncate'>{t('byog.my_compute_nodes_tab')} ({nodes.length})</span>
           </TabsTrigger>
-          <TabsTrigger value='rewards' className='gap-2'>
-            <Gift className='h-4 w-4' />
-            {t('byog.reward_store_tab')}
+          <TabsTrigger value='rewards' className='gap-1.5 text-xs py-2 px-2 truncate'>
+            <Gift className='h-4 w-4 shrink-0' />
+            <span className='truncate'>{t('byog.reward_store_tab')}</span>
           </TabsTrigger>
         </TabsList>
 

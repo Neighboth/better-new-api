@@ -248,25 +248,6 @@ export function PairModal({ onPaired }: PairModalProps) {
                 </a>
               </div>
             </div>
-
-            <div className='bg-muted/40 flex items-center justify-between rounded-lg p-3 text-xs'>
-              <span className='text-muted-foreground'>
-                {t('byog.share_setup_link')}:
-              </span>
-              <Button
-                size='sm'
-                variant='ghost'
-                onClick={copyUrl}
-                className='h-7 gap-1.5'
-              >
-                {copiedLink ? (
-                  <Check className='h-3.5 w-3.5 text-emerald-500' />
-                ) : (
-                  <Copy className='h-3.5 w-3.5' />
-                )}
-                {copiedLink ? t('Copied') : t('Copy')}
-              </Button>
-            </div>
           </TabsContent>
         </Tabs>
 

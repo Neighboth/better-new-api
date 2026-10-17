@@ -105,7 +105,6 @@ export function ByogModelsTab() {
       vendor: 'Qwen',
       description: '',
       param_size: '7B',
-      pricing_tier: 1,
       download_url: '',
       file_size: 4600000000,
       chunk_size: 10485760,
@@ -280,20 +279,8 @@ export function ByogModelsTab() {
                             <Badge variant='secondary' className='text-xs'>
                               {model.param_size}
                             </Badge>
-                            <Badge
-                              variant='outline'
-                              className={
-                                model.pricing_tier === 1
-                                  ? 'border-emerald-500 text-emerald-500'
-                                  : model.pricing_tier === 2
-                                    ? 'border-blue-500 text-blue-500'
-                                    : 'border-amber-500 text-amber-500'
-                              }
-                            >
-                              Tier {model.pricing_tier}
-                            </Badge>
                             {modelLoras.length > 0 && (
-                              <Badge className='border border-indigo-500/20 bg-indigo-500/10 text-xs text-indigo-400'>
+                              <Badge variant='outline' className='text-xs font-mono'>
                                 {modelLoras.length} LoRA
                               </Badge>
                             )}
@@ -485,28 +472,6 @@ export function ByogModelsTab() {
                   }
                   placeholder='e.g. 0.5B, 1.5B, 7B, 14B'
                 />
-              </div>
-
-              <div className='space-y-2'>
-                <Label>{t('byog.admin.pricing_tier')}</Label>
-                <Select
-                  value={String(editingModel.pricing_tier || 1)}
-                  onValueChange={(val) =>
-                    setEditingModel({
-                      ...editingModel,
-                      pricing_tier: parseInt(val || '1') || 1,
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='1'>Tier 1 (Turbo GPU)</SelectItem>
-                    <SelectItem value='2'>Tier 2 (Standard)</SelectItem>
-                    <SelectItem value='3'>Tier 3 (Eco/Slow)</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
 
               <div className='space-y-2'>

@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Plus, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -59,33 +60,95 @@ import {
 import {
   createAdminRule,
   deleteAdminRule,
+  getAdminModels,
   getAdminRules,
   updateAdminRule,
 } from '../../byog/api'
-import type { ByogAssignmentRule } from '../../byog/types'
+import type {
+  ByogAssignmentRule,
+  ByogModel,
+  ByogModelLora,
+} from '../../byog/types'
+
+function parseTargetList(val?: string): string[] {
+  if (!val) return []
+  try {
+    const parsed = JSON.parse(val)
+    if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean)
+  } catch {
+    // ignore
+  }
+  return val
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
 
 export function ByogRulesTab() {
   const { t } = useTranslation()
   const [rules, setRules] = useState<ByogAssignmentRule[]>([])
+  const [availableModels, setAvailableModels] = useState<ByogModel[]>([])
+  const [availableLoras, setAvailableLoras] = useState<ByogModelLora[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRule, setEditingRule] =
     useState<Partial<ByogAssignmentRule> | null>(null)
+  const [customModelInput, setCustomModelInput] = useState('')
+  const [customLoraInput, setCustomLoraInput] = useState('')
 
   useEffect(() => {
-    loadRules()
+    loadData()
   }, [])
 
-  async function loadRules() {
+  async function loadData() {
     try {
       setLoading(true)
-      const data = await getAdminRules()
-      setRules(data || [])
+      const [rulesData, modelsData] = await Promise.all([
+        getAdminRules(),
+        getAdminModels().catch(() => ({ models: [], loras: [] })),
+      ])
+      setRules(rulesData || [])
+      if (modelsData) {
+        setAvailableModels(modelsData.models || [])
+        setAvailableLoras(modelsData.loras || [])
+      }
     } catch (err: any) {
       toast.error(err.message || t('byog.admin.load_rules_failed'))
     } finally {
       setLoading(false)
     }
+  }
+
+  function addTargetModel(modelId: string) {
+    if (!modelId || !editingRule) return
+    const current = parseTargetList(editingRule.target_models)
+    if (!current.includes(modelId)) {
+      const updated = [...current, modelId]
+      setEditingRule({ ...editingRule, target_models: JSON.stringify(updated) })
+    }
+  }
+
+  function removeTargetModel(modelId: string) {
+    if (!editingRule) return
+    const current = parseTargetList(editingRule.target_models)
+    const updated = current.filter((m) => m !== modelId)
+    setEditingRule({ ...editingRule, target_models: JSON.stringify(updated) })
+  }
+
+  function addTargetLora(loraId: string) {
+    if (!loraId || !editingRule) return
+    const current = parseTargetList(editingRule.target_loras)
+    if (!current.includes(loraId)) {
+      const updated = [...current, loraId]
+      setEditingRule({ ...editingRule, target_loras: JSON.stringify(updated) })
+    }
+  }
+
+  function removeTargetLora(loraId: string) {
+    if (!editingRule) return
+    const current = parseTargetList(editingRule.target_loras)
+    const updated = current.filter((l) => l !== loraId)
+    setEditingRule({ ...editingRule, target_loras: JSON.stringify(updated) })
   }
 
   function handleOpenCreate() {
@@ -121,7 +184,7 @@ export function ByogRulesTab() {
         toast.success(t('byog.admin.rule_created_success'))
       }
       setModalOpen(false)
-      loadRules()
+      loadData()
     } catch (err: any) {
       toast.error(err.message || t('byog.admin.save_rule_failed'))
     }
@@ -132,7 +195,7 @@ export function ByogRulesTab() {
     try {
       await deleteAdminRule(id)
       toast.success(t('byog.admin.rule_deleted_success'))
-      loadRules()
+      loadData()
     } catch (err: any) {
       toast.error(err.message || t('byog.admin.delete_rule_failed'))
     }
@@ -214,11 +277,16 @@ export function ByogRulesTab() {
                         VRAM: {(rule.min_vram_mb / 1024).toFixed(0)} GB
                       </TableCell>
                       <TableCell>
-                        <div
-                          className='max-w-[200px] truncate font-mono text-xs'
-                          title={rule.target_models}
-                        >
-                          {rule.target_models}
+                        <div className='flex max-w-[280px] flex-wrap gap-1'>
+                          {parseTargetList(rule.target_models).map((mId) => (
+                            <Badge
+                              key={mId}
+                              variant='secondary'
+                              className='font-mono text-[10px]'
+                            >
+                              {mId}
+                            </Badge>
+                          ))}
                         </div>
                       </TableCell>
                       <TableCell>{rule.priority}</TableCell>
@@ -425,33 +493,170 @@ export function ByogRulesTab() {
 
               <div className='space-y-2 md:col-span-2'>
                 <Label>{t('byog.admin.target_models_label')}</Label>
-                <Input
-                  value={editingRule.target_models || ''}
-                  onChange={(e) =>
-                    setEditingRule({
-                      ...editingRule,
-                      target_models: e.target.value,
-                    })
-                  }
-                  placeholder='e.g. qwen-2.5-7b-instruct, mistral-7b-instruct'
-                />
-                <p className='text-muted-foreground text-xs'>
-                  {t('byog.admin.target_models_hint')}
-                </p>
+                <div className='flex gap-2'>
+                  <Select
+                    value=''
+                    onValueChange={(val) => {
+                      if (val) addTargetModel(val)
+                    }}
+                  >
+                    <SelectTrigger className='flex-1'>
+                      <SelectValue
+                        placeholder={t(
+                          'byog.admin.select_model_placeholder',
+                          'Select model from BYOG catalog...'
+                        )}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableModels.map((m) => (
+                        <SelectItem key={m.model_id} value={m.model_id}>
+                          {m.model_id} ({m.vendor} • {m.param_size})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className='flex items-center gap-1.5'>
+                    <Input
+                      placeholder={t('byog.admin.custom_model_id', 'Custom ID')}
+                      value={customModelInput}
+                      onChange={(e) => setCustomModelInput(e.target.value)}
+                      className='w-32 text-xs'
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          if (customModelInput.trim()) {
+                            addTargetModel(customModelInput.trim())
+                            setCustomModelInput('')
+                          }
+                        }
+                      }}
+                    />
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      className='h-9 px-2'
+                      onClick={() => {
+                        if (customModelInput.trim()) {
+                          addTargetModel(customModelInput.trim())
+                          setCustomModelInput('')
+                        }
+                      }}
+                    >
+                      <Plus className='h-3.5 w-3.5' />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Selected Models Badges */}
+                <div className='flex min-h-[42px] flex-wrap items-center gap-1.5 rounded-lg border bg-muted/20 p-2'>
+                  {parseTargetList(editingRule.target_models).map((mId) => (
+                    <Badge
+                      key={mId}
+                      variant='secondary'
+                      className='flex items-center gap-1.5 px-2.5 py-1 font-mono text-xs'
+                    >
+                      <span>{mId}</span>
+                      <button
+                        type='button'
+                        onClick={() => removeTargetModel(mId)}
+                        className='text-muted-foreground hover:text-foreground'
+                      >
+                        <X className='h-3 w-3' />
+                      </button>
+                    </Badge>
+                  ))}
+                  {parseTargetList(editingRule.target_models).length === 0 && (
+                    <span className='text-xs text-muted-foreground'>
+                      {t('byog.admin.no_models_selected', 'No target models assigned')}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className='space-y-2 md:col-span-2'>
                 <Label>{t('byog.admin.target_loras_label')}</Label>
-                <Input
-                  value={editingRule.target_loras || ''}
-                  onChange={(e) =>
-                    setEditingRule({
-                      ...editingRule,
-                      target_loras: e.target.value,
-                    })
-                  }
-                  placeholder='e.g. qwen-coder-adapter, sql-generator-lora'
-                />
+                <div className='flex gap-2'>
+                  <Select
+                    value=''
+                    onValueChange={(val) => {
+                      if (val) addTargetLora(val)
+                    }}
+                  >
+                    <SelectTrigger className='flex-1'>
+                      <SelectValue
+                        placeholder={t(
+                          'byog.admin.select_lora_placeholder',
+                          'Select LoRA from BYOG catalog...'
+                        )}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableLoras.map((l) => (
+                        <SelectItem key={l.lora_id} value={l.lora_id}>
+                          {l.lora_id} (Base: {l.base_model_id})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className='flex items-center gap-1.5'>
+                    <Input
+                      placeholder={t('byog.admin.custom_lora_id', 'Custom LoRA')}
+                      value={customLoraInput}
+                      onChange={(e) => setCustomLoraInput(e.target.value)}
+                      className='w-32 text-xs'
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          if (customLoraInput.trim()) {
+                            addTargetLora(customLoraInput.trim())
+                            setCustomLoraInput('')
+                          }
+                        }
+                      }}
+                    />
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      className='h-9 px-2'
+                      onClick={() => {
+                        if (customLoraInput.trim()) {
+                          addTargetLora(customLoraInput.trim())
+                          setCustomLoraInput('')
+                        }
+                      }}
+                    >
+                      <Plus className='h-3.5 w-3.5' />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Selected LoRAs Badges */}
+                <div className='flex min-h-[42px] flex-wrap items-center gap-1.5 rounded-lg border bg-muted/20 p-2'>
+                  {parseTargetList(editingRule.target_loras).map((lId) => (
+                    <Badge
+                      key={lId}
+                      variant='secondary'
+                      className='flex items-center gap-1.5 px-2.5 py-1 font-mono text-xs'
+                    >
+                      <span>{lId}</span>
+                      <button
+                        type='button'
+                        onClick={() => removeTargetLora(lId)}
+                        className='text-muted-foreground hover:text-foreground'
+                      >
+                        <X className='h-3 w-3' />
+                      </button>
+                    </Badge>
+                  ))}
+                  {parseTargetList(editingRule.target_loras).length === 0 && (
+                    <span className='text-xs text-muted-foreground'>
+                      {t('byog.admin.no_loras_selected', 'No LoRAs assigned')}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className='space-y-2'>
