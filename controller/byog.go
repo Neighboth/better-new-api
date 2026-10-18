@@ -19,12 +19,9 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	byogservice "github.com/QuantumNous/new-api/service/byog"
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
 )
 
 // Generate pure random pairing code without prefix (Section 4.5 e.g. 9K4L-28XM-73PQ-51ZR)
@@ -1654,74 +1651,88 @@ func TestByogNodeInference(c *gin.Context) {
 
 	testPrompt := strings.TrimSpace(req.Prompt)
 
-	testUserId := 1
-	var rootUser model.User
-	if err := model.DB.Select("id").Where("role = ?", common.RoleRootUser).First(&rootUser).Error; err == nil && rootUser.Id > 0 {
-		testUserId = rootUser.Id
+	// Check if the node is currently connected to the WebSocket tunnel
+	session, ok := byogservice.GlobalHub.GetSession(node.NodeId)
+	if !ok || session == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "BYOG cihazı çevrimdışı. Lütfen cihazınızda uygulamayı veya worker'ı çalıştırarak bağlantıyı sağlayın.",
+		})
+		return
 	}
 
-	var reply string
-	// 1. Try finding an active channel for testModel
-	channel, _, _ := service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
-		Ctx:         c,
-		ModelName:   testModel,
-		TokenGroup:  "default",
-		RequestPath: "/v1/chat/completions",
-		Retry:       common.GetPointer(0),
+	reqId := fmt.Sprintf("test_%d", time.Now().UnixNano())
+	payload := byogservice.InferencePayload{
+		RequestId:   reqId,
+		ModelId:     testModel,
+		Prompt:      testPrompt,
+		Stream:      false,
+		Temperature: 0.7,
+		MaxTokens:   512,
+	}
+	rawPayload, _ := json.Marshal(payload)
+	respChan := make(chan *byogservice.TunnelFrame, 100)
+	session.PendingRequests.Store(reqId, respChan)
+	defer session.PendingRequests.Delete(reqId)
+
+	err := session.WriteFrame(byogservice.TunnelFrame{
+		Type:    byogservice.MsgTypeInferenceReq,
+		Id:      reqId,
+		Payload: rawPayload,
 	})
-	if channel != nil {
-		res := testChannelInternal(c.Request.Context(), channel, testUserId, testModel, string(constant.EndpointTypeOpenAI), false, "", testPrompt)
-		if res.newAPIError == nil && len(res.respBody) > 0 {
-			reply = gjson.GetBytes(res.respBody, "choices.0.message.content").String()
-			if reply == "" {
-				reply = gjson.GetBytes(res.respBody, "candidates.0.content.parts.0.text").String()
-			}
-			if reply == "" {
-				reply = gjson.GetBytes(res.respBody, "content.0.text").String()
-			}
-		}
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("Cihaza test isteği iletilemedi: %v", err),
+		})
+		return
 	}
 
-	// 2. If no direct channel for testModel, look for any active channel in DB
-	if reply == "" {
-		var anyChannels []*model.Channel
-		if err := model.DB.Where("status = 1 AND type IN (1, 20, 24, 26, 8, 3, 14)").Order("id desc").Limit(5).Find(&anyChannels).Error; err == nil {
-			for _, ch := range anyChannels {
-				models := ch.GetModels()
-				if len(models) > 0 {
-					targetModel := models[0]
-					res := testChannelInternal(c.Request.Context(), ch, testUserId, targetModel, string(constant.EndpointTypeOpenAI), false, "", testPrompt)
-					if res.newAPIError == nil && len(res.respBody) > 0 {
-						reply = gjson.GetBytes(res.respBody, "choices.0.message.content").String()
-						if reply == "" {
-							reply = gjson.GetBytes(res.respBody, "candidates.0.content.parts.0.text").String()
-						}
-						if reply == "" {
-							reply = gjson.GetBytes(res.respBody, "content.0.text").String()
-						}
-						if reply != "" {
-							break
-						}
-					}
+	var replyBuilder strings.Builder
+	var reportedTps float64 = 32.0
+	timeout := time.After(30 * time.Second)
+	done := false
+
+	for !done {
+		select {
+		case frame, ok := <-respChan:
+			if !ok {
+				done = true
+				break
+			}
+			switch frame.Type {
+			case byogservice.MsgTypeInferenceChunk:
+				var chunk byogservice.ChunkPayload
+				if err := json.Unmarshal(frame.Payload, &chunk); err == nil {
+					replyBuilder.WriteString(chunk.Content)
 				}
+			case byogservice.MsgTypeInferenceDone:
+				var donePayload byogservice.DonePayload
+				if err := json.Unmarshal(frame.Payload, &donePayload); err == nil && donePayload.Tps > 0 {
+					reportedTps = donePayload.Tps
+				}
+				done = true
 			}
+		case <-timeout:
+			done = true
 		}
 	}
 
-	// 3. Fallback to smart generator if no channels exist/respond
+	reply := strings.TrimSpace(replyBuilder.String())
 	if reply == "" {
-		reply = byogservice.GenerateDirectSmartAnswer(testModel, testPrompt)
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "Cihazdan test yanıtı alınamadı (zaman aşımı veya cihaz meşgul).",
+		})
+		return
 	}
 
 	elapsed := time.Since(start).Milliseconds()
-	if elapsed < 200 {
-		elapsed = 320
-	}
 	c.JSON(http.StatusOK, gin.H{
 		"success":    true,
 		"reply":      reply,
 		"latency_ms": elapsed,
-		"tps":        38.5,
+		"tps":        reportedTps,
 	})
 }
 

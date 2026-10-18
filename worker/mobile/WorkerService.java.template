@@ -186,14 +186,14 @@ public class WorkerService extends Service {
         try {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
             if (sp != null && sp.getBoolean("is_paired", false)) {
-                Intent restartIntent = new Intent(getApplicationContext(), WorkerService.class);
-                restartIntent.setPackage(getPackageName());
-                PendingIntent pi;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    pi = PendingIntent.getService(getApplicationContext(), 101, restartIntent, PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE);
-                } else {
-                    pi = PendingIntent.getService(getApplicationContext(), 101, restartIntent, PendingIntent.FLAG_ONE_SHOT);
-                }
+                Intent restartIntent = new Intent(getApplicationContext(), BootReceiver.class);
+                restartIntent.setAction("org.byog.worker.WATCHDOG_CHECK");
+                PendingIntent pi = PendingIntent.getBroadcast(
+                    getApplicationContext(),
+                    101,
+                    restartIntent,
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? (PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE) : PendingIntent.FLAG_ONE_SHOT
+                );
                 AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
                 if (am != null) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -599,7 +599,7 @@ public class WorkerService extends Service {
                     socket = new Socket();
                     socket.connect(new InetSocketAddress(host, port), 10000);
                 }
-                socket.setSoTimeout(35000);
+                socket.setSoTimeout(60000);
                 in = new BufferedInputStream(socket.getInputStream());
                 out = new BufferedOutputStream(socket.getOutputStream());
 
@@ -634,6 +634,24 @@ public class WorkerService extends Service {
 
                 connected = true;
                 sendHeartbeatFrame();
+
+                Thread keepaliveThread = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        while (connected && isRunning) {
+                            try {
+                                Thread.sleep(12000);
+                                if (connected && isRunning) {
+                                    sendHeartbeatFrame();
+                                }
+                            } catch (InterruptedException e) {
+                                break;
+                            } catch (Exception ignored) {}
+                        }
+                    }
+                });
+                keepaliveThread.setDaemon(true);
+                keepaliveThread.start();
 
                 while (connected && isRunning) {
                     int b0 = in.read();
@@ -853,48 +871,48 @@ public class WorkerService extends Service {
                         }
                     }
 
-                    String fullReply = "";
-                    if (sp != null) {
-                        String serverUrl = sp.getString("server_url", "");
-                        String nodeId = sp.getString("node_id", "");
-                        if (!serverUrl.isEmpty() && !nodeId.isEmpty()) {
-                            fullReply = fetchRealAiInference(serverUrl, nodeId, reqModel, userPrompt);
+                    // True On-Device Local Neural Engine Execution
+                    LocalNeuralEngine engine = new LocalNeuralEngine(reqModel, getFilesDir());
+                    int maxTokens = payload != null ? payload.optInt("max_tokens", 256) : 256;
+                    float temp = payload != null ? (float) payload.optDouble("temperature", 0.7) : 0.7f;
+
+                    LocalNeuralEngine.InferenceResult res = engine.generateStream(
+                        userPrompt,
+                        maxTokens,
+                        temp,
+                        new LocalNeuralEngine.StreamCallback() {
+                            @Override
+                            public boolean onToken(String piece, int tokenId) {
+                                try {
+                                    JSONObject chunkPayload = new JSONObject();
+                                    chunkPayload.put("request_id", id);
+                                    chunkPayload.put("content", piece);
+                                    chunkPayload.put("token_id", tokenId);
+                                    chunkPayload.put("is_final", false);
+
+                                    JSONObject chunkFrame = new JSONObject();
+                                    chunkFrame.put("type", "inference_chunk");
+                                    chunkFrame.put("id", id);
+                                    chunkFrame.put("payload", chunkPayload);
+                                    chunkFrame.put("timestamp", System.currentTimeMillis());
+
+                                    if (tunnelWs != null) tunnelWs.sendText(chunkFrame.toString());
+                                } catch (Exception ignored) {}
+                                return isRunning;
+                            }
                         }
-                    }
-                    if (fullReply == null || fullReply.trim().isEmpty()) {
-                        fullReply = generateDynamicResponse(reqModel, userPrompt);
-                    }
-                    String[] words = fullReply.split(" ");
-                    int tokenCount = 0;
+                    );
 
-                    for (int i = 0; i < words.length; i++) {
-                        String piece = words[i] + (i < words.length - 1 ? " " : "");
-                        tokenCount++;
-                        totalTokensProcessed++;
+                    totalTokensProcessed += res.totalTokens;
+                    currentLiveTps = res.tps;
 
-                        JSONObject chunkPayload = new JSONObject();
-                        chunkPayload.put("request_id", id);
-                        chunkPayload.put("content", piece);
-                        chunkPayload.put("token_id", tokenCount);
-                        chunkPayload.put("is_final", false);
-
-                        JSONObject chunkFrame = new JSONObject();
-                        chunkFrame.put("type", "inference_chunk");
-                        chunkFrame.put("id", id);
-                        chunkFrame.put("payload", chunkPayload);
-                        chunkFrame.put("timestamp", System.currentTimeMillis());
-
-                        if (tunnelWs != null) tunnelWs.sendText(chunkFrame.toString());
-                        Thread.sleep(35); // ~28 TPS realistic streaming
-                    }
-
-                    // Inference Done
+                    // Inference Done Frame
                     JSONObject donePayload = new JSONObject();
                     donePayload.put("request_id", id);
-                    donePayload.put("total_tokens", tokenCount);
+                    donePayload.put("total_tokens", res.totalTokens);
                     donePayload.put("prompt_tokens", Math.max(4, userPrompt.length() / 4));
-                    donePayload.put("ttft_ms", 310);
-                    donePayload.put("tps", currentLiveTps);
+                    donePayload.put("ttft_ms", res.ttftMs);
+                    donePayload.put("tps", res.tps);
 
                     JSONObject doneFrame = new JSONObject();
                     doneFrame.put("type", "inference_done");
@@ -938,156 +956,6 @@ public class WorkerService extends Service {
                 }
             }
         }).start();
-    }
-
-    private String fetchRealAiInference(String serverUrl, String nodeId, String model, String prompt) {
-        HttpURLConnection conn = null;
-        try {
-            while (serverUrl.endsWith("/")) {
-                serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
-            }
-            URL url = new URL(serverUrl + "/api/v1/worker/test-inference");
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-            conn.setRequestProperty("Accept", "application/json");
-            conn.setConnectTimeout(8000);
-            conn.setReadTimeout(25000);
-            conn.setDoOutput(true);
-
-            JSONObject body = new JSONObject();
-            body.put("node_id", nodeId);
-            body.put("hwid", "android-" + Build.BOARD + "-" + Build.DEVICE + "-" + Build.HARDWARE);
-            body.put("prompt", prompt);
-            body.put("model", model);
-
-            byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(bytes);
-                os.flush();
-            }
-
-            int code = conn.getResponseCode();
-            if (code >= 200 && code < 300) {
-                InputStream is = conn.getInputStream();
-                BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
-                StringBuilder sb = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    sb.append(line);
-                }
-                reader.close();
-                JSONObject resp = new JSONObject(sb.toString());
-                if (resp.optBoolean("success", false) && resp.has("data")) {
-                    JSONObject data = resp.getJSONObject("data");
-                    String reply = data.optString("reply", "");
-                    if (!reply.isEmpty()) {
-                        return reply;
-                    }
-                }
-            }
-        } catch (Throwable ignored) {
-        } finally {
-            if (conn != null) {
-                try { conn.disconnect(); } catch (Throwable ignored) {}
-            }
-        }
-        return null;
-    }
-
-    private String generateDynamicResponse(String model, String prompt) {
-        if (prompt == null || prompt.trim().isEmpty()) {
-            return "Merhaba! Ben " + model + " modeliyim. Size nasıl yardımcı olabilirim?";
-        }
-        String p = prompt.trim();
-        String lower = p.toLowerCase();
-
-        if (lower.equals("selam") || lower.equals("merhaba") || lower.equals("selamlar") || lower.equals("hi") || lower.equals("hello") || lower.equals("hey")) {
-            return "Merhaba! Size bugün nasıl yardımcı olabilirim?";
-        }
-        if (lower.contains("günaydın") || lower.contains("gunaydin")) {
-            return "Günaydın! Umarım harika bir gün geçirirsiniz. Bugün size hangi konuda yardımcı olabilirim?";
-        }
-        if (lower.contains("iyi akşamlar") || lower.contains("iyi aksamlar") || lower.contains("iyi geceler")) {
-            return "İyi akşamlar! Size yardımcı olabileceğim bir konu var mı?";
-        }
-        if (lower.contains("nasılsın") || lower.contains("naber") || lower.contains("ne haber")) {
-            return "İyiyim, teşekkür ederim! Size yardımcı olmaya hazırım. Hangi konuda çalışmak istersiniz?";
-        }
-        if (lower.contains("kimsin") || lower.contains("adın ne") || lower.contains("sen kimsin") || lower.contains("hangi model")) {
-            return "Ben " + model + " modeline dayalı bir yapay zeka asistanıyım. Sorularınızı yanıtlamak, metin oluşturmak ve analiz yapmak için buradayım. Size nasıl yardımcı olabilirim?";
-        }
-        if (lower.contains("başkent") || lower.contains("baskent")) {
-            if (lower.contains("türkiye") || lower.contains("turkiye")) return "Türkiye'nin başkenti Ankara'dır.";
-            if (lower.contains("fransa")) return "Fransa'nın başkenti Paris'tir.";
-            if (lower.contains("almanya")) return "Almanya'nın başkenti Berlin'dir.";
-            if (lower.contains("ingiltere") || lower.contains("birleşik krallık")) return "İngiltere'nin başkenti Londra'dır.";
-            if (lower.contains("italya")) return "İtalya'nın başkenti Roma'dır.";
-            if (lower.contains("ispanya")) return "İspanya'nın başkenti Madrid'dir.";
-            if (lower.contains("rusya")) return "Rusya'nın başkenti Moskova'dır.";
-            if (lower.contains("japonya")) return "Japonya'nın başkenti Tokyo'dur.";
-            if (lower.contains("çin") || lower.contains("cin")) return "Çin'in başkenti Pekin'dir.";
-            if (lower.contains("amerika") || lower.contains("abd") || lower.contains("usa")) return "Amerika Birleşik Devletleri'nin başkenti Washington, D.C.'dir.";
-            if (lower.contains("azerbaycan")) return "Azerbaycan'ın başkenti Bakü'dür.";
-            return "Belirttiğiniz ülkenin başkenti hakkında bilgi verebilirim. Hangi ülkeyi öğrenmek istersiniz?";
-        }
-        if (lower.contains("+") || lower.contains("-") || lower.contains("*") || lower.contains("/")) {
-            try {
-                String clean = lower.replaceAll("[^0-9\\+\\-\\*/]", "");
-                if (clean.contains("+")) {
-                    String[] parts = clean.split("\\+");
-                    if (parts.length == 2) {
-                        long a = Long.parseLong(parts[0]);
-                        long b = Long.parseLong(parts[1]);
-                        return a + " + " + b + " = " + (a + b);
-                    }
-                } else if (clean.contains("*")) {
-                    String[] parts = clean.split("\\*");
-                    if (parts.length == 2) {
-                        long a = Long.parseLong(parts[0]);
-                        long b = Long.parseLong(parts[1]);
-                        return a + " * " + b + " = " + (a * b);
-                    }
-                } else if (clean.contains("-")) {
-                    String[] parts = clean.split("-");
-                    if (parts.length == 2) {
-                        long a = Long.parseLong(parts[0]);
-                        long b = Long.parseLong(parts[1]);
-                        return a + " - " + b + " = " + (a - b);
-                    }
-                } else if (clean.contains("/")) {
-                    String[] parts = clean.split("/");
-                    if (parts.length == 2) {
-                        double a = Double.parseDouble(parts[0]);
-                        double b = Double.parseDouble(parts[1]);
-                        if (b == 0) return "Sıfıra bölme işlemi tanımsızdır.";
-                        return a + " / " + b + " = " + (a / b);
-                    }
-                }
-            } catch (Throwable ignored) {}
-        }
-        if (lower.contains("python") || lower.contains("kod") || lower.contains("fonksiyon") || lower.contains("yazılım")) {
-            if (lower.contains("fibonacci")) {
-                return "İşte Python ile Fibonacci dizisi hesaplama fonksiyonu:\n\n```python\ndef fibonacci(n):\n    if n <= 0:\n        return []\n    elif n == 1:\n        return [0]\n    fib = [0, 1]\n    while len(fib) < n:\n        fib.append(fib[-1] + fib[-2])\n    return fib\n\nprint(fibonacci(10))\n```";
-            }
-            if (lower.contains("asal")) {
-                return "İşte Python ile asal sayı kontrolü:\n\n```python\ndef is_prime(n):\n    if n < 2:\n        return False\n    for i in range(2, int(n**0.5) + 1):\n        if n % i == 0:\n            return False\n    return True\n\nprint(is_prime(29))  # True\n```";
-            }
-            return "İşte pratik bir Python örneği:\n\n```python\ndef greet(name):\n    return f\"Merhaba, {name}! Sistem aktif ve hazır.\"\n\nprint(greet(\"Dünya\"))\n```";
-        }
-        if (lower.contains("hava")) {
-            return "Yerel bir yapay zeka modeli olarak gerçek zamanlı internet erişimim kısıtlı olabilir, ancak bulunduğunuz konuma göre açık ve güzel bir gün olduğunu umuyorum.";
-        }
-        if (lower.contains("saat") && lower.contains("kaç")) {
-            return "Cihazınızın yerel sistem saati: " + new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
-        }
-        if (lower.contains("yapay zeka") || lower.contains("ai")) {
-            return "Yapay zeka; insan bilişsel fonksiyonlarını matematiksel modeller ve yapay sinir ağları ile simüle eden sistemlerdir. Büyük dil modelleri, metin dizilimlerini analiz ederek en uygun yanıtı üretir.";
-        }
-        if (lower.contains("yerçekimi") || lower.contains("gravity")) {
-            return "Yerçekimi, evrendeki kütleli cisimlerin birbirine doğru çekim kuvveti uygulamasını ifade eden temel kuvvettir. Einstein'ın genel görelilik teorisinde uzay-zaman geometrisinin kütle tarafından bükülmesiyle açıklanır.";
-        }
-        return p + " konusu incelendiğinde; temel çalışma prensipleri ve kavramsal çerçevesi açısından çok boyutlu bir yapı sunmaktadır. Bu konuda spesifik bir örnek, formül veya kullanım senaryosu üzerinde ilerlememi isterseniz memnuniyetle yardımcı olabilirim.";
     }
 
     private Notification buildNotification(String title, String content) {

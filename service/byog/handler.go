@@ -9,9 +9,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -91,7 +89,14 @@ func TryHandleByogRelay(c *gin.Context, requestedModel string) bool {
 				}
 			}
 			if targetSession == nil {
-				return dispatchDirectSmartInference(c, byogModel, promptPrefix, isStream)
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+					"error": gin.H{
+						"message": fmt.Sprintf("Model (%s) BYOG yerel hesaplama ağına aittir ancak şu anda bu modeli çalıştıran çevrim içi aktif bir cihaz bağlı değildir. Lütfen BYOG uygulamasını cihazınızda açarak bağlantıyı doğrulayın.", requestedModel),
+						"type":    "byog_offline",
+						"code":    "no_online_workers",
+					},
+				})
+				return true
 			}
 		}
 	}
@@ -117,7 +122,7 @@ func TryHandleByogRelay(c *gin.Context, requestedModel string) bool {
 		return true
 	}
 
-	// 5. Construct inference payload
+	// 6. Construct inference payload
 	maxTokens := 2048
 	if mt, ok := reqMap["max_tokens"].(float64); ok && mt > 0 {
 		maxTokens = int(mt)
@@ -144,159 +149,21 @@ func TryHandleByogRelay(c *gin.Context, requestedModel string) bool {
 		Seed:        seed,
 	}
 
-	// 5. Dispatch inference to worker
+	// 7. Dispatch inference to worker
 	dispatchErr := GlobalRouter.DispatchInference(c, targetSession, byogModel, inferencePayload)
 	if dispatchErr != nil {
-		common.SysError(fmt.Sprintf("[BYOG DISPATCH] Error: %v, attempting fallback", dispatchErr))
-		// If streaming has not started yet, return false to allow fallback
+		common.SysError(fmt.Sprintf("[BYOG DISPATCH] Error: %v", dispatchErr))
 		if !c.Writer.Written() {
-			return false
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"error": gin.H{
+					"message": fmt.Sprintf("BYOG cihazına istek iletilirken hata oluştu: %v", dispatchErr),
+					"type":    "byog_dispatch_error",
+					"code":    "worker_dispatch_failed",
+				},
+			})
 		}
 		return true
 	}
 
-	return true
-}
-
-func dispatchDirectSmartInference(c *gin.Context, byogModel *model.ByogModel, prompt string, isStream bool) bool {
-	reply := GenerateDirectSmartAnswer(byogModel.ModelId, prompt)
-	reqId := fmt.Sprintf("byog_%d", time.Now().UnixNano())
-
-	// Update node token statistics in DB for the most recent online node
-	var node model.ByogNode
-	if err := model.DB.Where("status = ? AND last_heartbeat_at >= ?", "online", time.Now().Unix()-120).Order("last_heartbeat_at desc").First(&node).Error; err == nil && node.Id > 0 {
-		tokens := int64(len(strings.Split(reply, " ")))
-		node.TotalTokensProcessed += tokens
-		_ = model.DB.Model(&model.ByogNode{}).Where("id = ?", node.Id).Update("total_tokens_processed", node.TotalTokensProcessed)
-	}
-
-	userId := c.GetInt("id")
-	if userId > 0 {
-		promptTokens := len(strings.Split(prompt, " "))
-		if promptTokens <= 0 {
-			promptTokens = 4
-		}
-		completionTokens := len(strings.Split(reply, " "))
-		totalTokens := promptTokens + completionTokens
-		var quotaToDeduct int64 = 0
-		ratioOrPrice, usePrice, exist := ratio_setting.GetModelRatioOrPrice(byogModel.ModelId)
-		if exist {
-			if usePrice {
-				quotaToDeduct = int64(ratioOrPrice * float64(common.QuotaPerUnit))
-			} else {
-				quotaToDeduct = int64(float64(totalTokens) * ratioOrPrice * 2.0 / 1000.0 * float64(common.QuotaPerUnit) / 500.0)
-			}
-		} else {
-			quotaToDeduct = int64(float64(totalTokens) * 0.0000006 * float64(common.QuotaPerUnit))
-		}
-		if quotaToDeduct > 0 {
-			_ = model.DecreaseUserQuota(userId, int(quotaToDeduct), true)
-		}
-		tokenId := c.GetInt("token_id")
-		tokenName := c.GetString("token_name")
-		usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
-		if usingGroup == "" {
-			usingGroup = "default"
-		}
-		deviceName := node.DeviceName
-		if deviceName == "" {
-			deviceName = "BYOG Düğümü"
-		}
-		model.RecordConsumeLog(c, userId, model.RecordConsumeLogParams{
-			ChannelId:        0,
-			PromptTokens:     promptTokens,
-			CompletionTokens: completionTokens,
-			ModelName:        byogModel.ModelId,
-			TokenName:        tokenName,
-			Quota:            int(quotaToDeduct),
-			Content:          fmt.Sprintf("BYOG Yerel Model: %s (%s)", byogModel.ModelId, deviceName),
-			TokenId:          tokenId,
-			UseTimeSeconds:   1,
-			IsStream:         isStream,
-			Group:            usingGroup,
-			Other: map[string]interface{}{
-				"node_id":     node.NodeId,
-				"device_name": deviceName,
-				"device_type": node.DeviceType,
-				"country":     node.Country,
-				"byog":        true,
-			},
-		})
-	}
-
-	if isStream {
-		c.Header("Content-Type", "text/event-stream")
-		c.Header("Cache-Control", "no-cache")
-		c.Header("Connection", "keep-alive")
-		c.Header("X-Accel-Buffering", "no")
-
-		words := strings.Split(reply, " ")
-		for i, w := range words {
-			piece := w
-			if i < len(words)-1 {
-				piece += " "
-			}
-			chunk := map[string]interface{}{
-				"id":      reqId,
-				"object":  "chat.completion.chunk",
-				"created": time.Now().Unix(),
-				"model":   byogModel.ModelId,
-				"choices": []map[string]interface{}{
-					{
-						"index": 0,
-						"delta": map[string]string{
-							"content": piece,
-						},
-						"finish_reason": nil,
-					},
-				},
-			}
-			chunkBytes, _ := json.Marshal(chunk)
-			_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(chunkBytes))
-			c.Writer.Flush()
-			time.Sleep(25 * time.Millisecond)
-		}
-
-		doneChunk := map[string]interface{}{
-			"id":      reqId,
-			"object":  "chat.completion.chunk",
-			"created": time.Now().Unix(),
-			"model":   byogModel.ModelId,
-			"choices": []map[string]interface{}{
-				{
-					"index":         0,
-					"delta":         map[string]string{},
-					"finish_reason": "stop",
-				},
-			},
-		}
-		doneBytes, _ := json.Marshal(doneChunk)
-		_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(doneBytes))
-		_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
-		c.Writer.Flush()
-		return true
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"id":      reqId,
-		"object":  "chat.completion",
-		"created": time.Now().Unix(),
-		"model":   byogModel.ModelId,
-		"choices": []gin.H{
-			{
-				"index": 0,
-				"message": gin.H{
-					"role":    "assistant",
-					"content": reply,
-				},
-				"finish_reason": "stop",
-			},
-		},
-		"usage": gin.H{
-			"prompt_tokens":     len(prompt) / 4,
-			"completion_tokens": len(reply) / 4,
-			"total_tokens":      (len(prompt) + len(reply)) / 4,
-		},
-	})
 	return true
 }

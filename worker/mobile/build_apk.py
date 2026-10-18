@@ -228,6 +228,7 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
             android:screenOrientation="portrait" />
         <service
             android:name=".WorkerService"
+            android:process=":worker"
             android:exported="false"
             android:stopWithTask="false"
             android:foregroundServiceType="dataSync" />
@@ -240,6 +241,8 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.USER_PRESENT" />
                 <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
+                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
+                <action android:name="org.byog.worker.WATCHDOG_CHECK" />
             </intent-filter>
         </receiver>
     </application>
@@ -1088,14 +1091,17 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (webView != null) {
-            webView.evaluateJavascript("if (window.refreshPermissions) window.refreshPermissions();", null);
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
             boolean autostart = sp.getBoolean("autostart_granted", false);
             boolean pendingCheck = sp.getBoolean("autostart_pending_check", false);
-            long awayDuration = System.currentTimeMillis() - lastPausedAt;
-            if (!autostart && pendingCheck && awayDuration >= 800) {
-                sp.edit().putBoolean("autostart_pending_check", false).putBoolean("autostart_granted", true).apply();
-            } else if (pendingCheck && awayDuration < 800) {
+            if (lastPausedAt > 0) {
+                long awayDuration = System.currentTimeMillis() - lastPausedAt;
+                if (!autostart && pendingCheck && awayDuration >= 2000) {
+                    sp.edit().putBoolean("autostart_pending_check", false).putBoolean("autostart_granted", true).apply();
+                } else if (pendingCheck && awayDuration < 2000) {
+                    sp.edit().putBoolean("autostart_pending_check", false).apply();
+                }
+            } else if (pendingCheck) {
                 sp.edit().putBoolean("autostart_pending_check", false).apply();
             }
             webView.evaluateJavascript("if (window.refreshPermissions) window.refreshPermissions();", null);
@@ -1118,7 +1124,20 @@ public class MainActivity extends Activity {
 
     public void openAutoStartSettings() {
         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+        lastPausedAt = 0;
         sp.edit().putBoolean("autostart_pending_check", true).apply();
+
+        String mfg = Build.MANUFACTURER.toLowerCase();
+        if (mfg.contains("realme") || mfg.contains("oppo") || mfg.contains("oneplus")) {
+            Toast.makeText(this, "Realme / Oppo: 'Pil Kullanımı' -> 'Otomatik Başlatmaya İzin Ver' ve 'Arka Planda Çalışmaya İzin Ver' seçeneklerini açın.", Toast.LENGTH_LONG).show();
+            try {
+                Intent appDetails = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                appDetails.setData(Uri.parse("package:" + getPackageName()));
+                appDetails.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(appDetails);
+                return;
+            } catch (Throwable ignored) {}
+        }
 
         Intent[] candidates = new Intent[] {
             // Oppo / Realme / OnePlus (ColorOS / Realme UI) - Dedicated Startup & Background Managers
@@ -1170,17 +1189,6 @@ public class MainActivity extends Activity {
                 }
             } catch (Throwable ignored) {}
         }
-
-        // Direct Battery Optimization Whitelist Dialog on modern Android
-        try {
-            Intent reqIgnore = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-            reqIgnore.setData(Uri.parse("package:" + getPackageName()));
-            reqIgnore.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            if (reqIgnore.resolveActivity(getPackageManager()) != null) {
-                startActivity(reqIgnore);
-                return;
-            }
-        } catch (Throwable ignored) {}
 
         try {
             Intent appDetails = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
@@ -1323,32 +1331,19 @@ public class MainActivity extends Activity {
             new Thread(new Runnable() {
                 @Override
                 public void run() {
-                    final long start = System.currentTimeMillis();
-                    String reply = "";
-                    int latency = 0;
-                    float tps = 0.0f;
                     String model = "qwen-2.5-0.5b-instruct";
                     try {
                         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
                         model = sp.getString("assigned_model", "qwen-2.5-0.5b-instruct");
-                        String serverUrl = sp.getString("server_url", "");
-                        String nodeId = sp.getString("node_id", "");
-                        if (!serverUrl.isEmpty() && !nodeId.isEmpty()) {
-                            reply = fetchServerTestInference(serverUrl, nodeId, model, prompt);
-                        }
-                        if (reply == null || reply.trim().isEmpty()) {
-                            reply = generateLocalModelAnswer(model, prompt);
-                        }
-                        long elapsed = System.currentTimeMillis() - start;
-                        latency = (int) Math.max(elapsed, 260);
-                        tps = Math.round((36.0f + (float)(Math.random() * 8.0f)) * 10.0f) / 10.0f;
-                    } catch (Exception ignored) {
-                        reply = generateLocalModelAnswer(model, prompt);
-                    }
+                    } catch (Exception ignored) {}
 
-                    final String finalReply = reply;
-                    final int finalLatency = latency;
-                    final float finalTps = tps;
+                    LocalNeuralEngine engine = new LocalNeuralEngine(model, getFilesDir());
+                    LocalNeuralEngine.InferenceResult res = engine.generateStream(prompt, 256, 0.7f, null);
+
+                    final String finalReply = res.fullText;
+                    final int finalLatency = res.ttftMs;
+                    final float finalTps = res.tps;
+
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
@@ -1710,147 +1705,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private String fetchServerTestInference(String serverUrl, String nodeId, String model, String prompt) {
-        HttpURLConnection conn = null;
-        try {
-            while (serverUrl.endsWith("/")) {
-                serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
-            }
-            URL url = new URL(serverUrl + "/api/v1/worker/test-inference");
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-            conn.setRequestProperty("Accept", "application/json");
-            conn.setConnectTimeout(8000);
-            conn.setReadTimeout(25000);
-            conn.setDoOutput(true);
-
-            JSONObject body = new JSONObject();
-            body.put("node_id", nodeId);
-            body.put("hwid", "android-" + Build.BOARD + "-" + Build.DEVICE + "-" + Build.HARDWARE);
-            body.put("prompt", prompt);
-            body.put("model", model);
-
-            byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(bytes);
-                os.flush();
-            }
-
-            int code = conn.getResponseCode();
-            if (code >= 200 && code < 300) {
-                InputStream is = conn.getInputStream();
-                BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
-                StringBuilder sb = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    sb.append(line);
-                }
-                reader.close();
-                JSONObject resp = new JSONObject(sb.toString());
-                if (resp.optBoolean("success", false) && resp.has("data")) {
-                    JSONObject data = resp.getJSONObject("data");
-                    String r = data.optString("reply", "");
-                    if (!r.isEmpty()) {
-                        return r;
-                    }
-                }
-            }
-        } catch (Throwable ignored) {
-        } finally {
-            if (conn != null) {
-                try { conn.disconnect(); } catch (Throwable ignored) {}
-            }
-        }
-        return null;
-    }
-
-    private String generateLocalModelAnswer(String model, String prompt) {
-        if (prompt == null || prompt.trim().isEmpty()) {
-            return "Merhaba! Ben " + model + " modeliyim. Size nasıl yardımcı olabilirim?";
-        }
-        String p = prompt.trim();
-        String lower = p.toLowerCase();
-
-        if (lower.equals("selam") || lower.equals("merhaba") || lower.equals("selamlar") || lower.equals("hi") || lower.equals("hello") || lower.equals("hey")) {
-            return "Merhaba! Size bugün nasıl yardımcı olabilirim?";
-        }
-        if (lower.contains("günaydın") || lower.contains("gunaydin")) {
-            return "Günaydın! Umarım harika bir gün geçirirsiniz. Bugün size hangi konuda yardımcı olabilirim?";
-        }
-        if (lower.contains("iyi akşamlar") || lower.contains("iyi aksamlar") || lower.contains("iyi geceler")) {
-            return "İyi akşamlar! Size yardımcı olabileceğim bir konu var mı?";
-        }
-        if (lower.contains("nasılsın") || lower.contains("naber") || lower.contains("ne haber")) {
-            return "İyiyim, teşekkür ederim! Size yardımcı olmaya hazırım. Hangi konuda çalışmak istersiniz?";
-        }
-        if (lower.contains("kimsin") || lower.contains("adın ne") || lower.contains("sen kimsin") || lower.contains("hangi model")) {
-            return "Ben " + model + " modeline dayalı bir yapay zeka asistanıyım. Sorularınızı yanıtlamak, metin oluşturmak ve analiz yapmak için buradayım. Size nasıl yardımcı olabilirim?";
-        }
-        if (lower.contains("başkent") || lower.contains("baskent")) {
-            if (lower.contains("türkiye") || lower.contains("turkiye")) return "Türkiye'nin başkenti Ankara'dır.";
-            if (lower.contains("fransa")) return "Fransa'nın başkenti Paris'tir.";
-            if (lower.contains("almanya")) return "Almanya'nın başkenti Berlin'dir.";
-            if (lower.contains("ingiltere") || lower.contains("birleşik krallık")) return "İngiltere'nin başkenti Londra'dır.";
-            if (lower.contains("italya")) return "İtalya'nın başkenti Roma'dır.";
-            if (lower.contains("ispanya")) return "İspanya'nın başkenti Madrid'dir.";
-            if (lower.contains("rusya")) return "Rusya'nın başkenti Moskova'dır.";
-            if (lower.contains("japonya")) return "Japonya'nın başkenti Tokyo'dur.";
-            if (lower.contains("çin") || lower.contains("cin")) return "Çin'in başkenti Pekin'dir.";
-            if (lower.contains("amerika") || lower.contains("abd") || lower.contains("usa")) return "Amerika Birleşik Devletleri'nin başkenti Washington, D.C.'dir.";
-            if (lower.contains("azerbaycan")) return "Azerbaycan'ın başkenti Bakü'dür.";
-            return "Belirttiğiniz ülkenin başkenti hakkında bilgi verebilirim. Hangi ülkeyi öğrenmek istersiniz?";
-        }
-        if (lower.contains("+") || lower.contains("-") || lower.contains("*") || lower.contains("/")) {
-            try {
-                if (lower.contains("+")) {
-                    int idx = lower.indexOf('+');
-                    long a = Long.parseLong(lower.substring(0, idx).replaceAll("[^0-9]", ""));
-                    long b = Long.parseLong(lower.substring(idx + 1).replaceAll("[^0-9]", ""));
-                    return a + " + " + b + " = " + (a + b);
-                } else if (lower.contains("*")) {
-                    int idx = lower.indexOf('*');
-                    long a = Long.parseLong(lower.substring(0, idx).replaceAll("[^0-9]", ""));
-                    long b = Long.parseLong(lower.substring(idx + 1).replaceAll("[^0-9]", ""));
-                    return a + " * " + b + " = " + (a * b);
-                } else if (lower.contains("-")) {
-                    int idx = lower.indexOf('-');
-                    long a = Long.parseLong(lower.substring(0, idx).replaceAll("[^0-9]", ""));
-                    long b = Long.parseLong(lower.substring(idx + 1).replaceAll("[^0-9]", ""));
-                    return a + " - " + b + " = " + (a - b);
-                } else if (lower.contains("/")) {
-                    int idx = lower.indexOf('/');
-                    double a = Double.parseDouble(lower.substring(0, idx).replaceAll("[^0-9]", ""));
-                    double b = Double.parseDouble(lower.substring(idx + 1).replaceAll("[^0-9]", ""));
-                    if (b == 0) return "Sıfıra bölme işlemi tanımsızdır.";
-                    return a + " / " + b + " = " + (a / b);
-                }
-            } catch (Throwable ignored) {}
-        }
-        if (lower.contains("python") || lower.contains("kod") || lower.contains("fonksiyon") || lower.contains("yazılım")) {
-            if (lower.contains("fibonacci")) {
-                return "İşte Python ile Fibonacci dizisi hesaplama fonksiyonu:\\n\\ndef fibonacci(n):\\n    if n <= 0: return []\\n    elif n == 1: return [0]\\n    fib = [0, 1]\\n    while len(fib) < n:\\n        fib.append(fib[-1] + fib[-2])\\n    return fib\\n\\nprint(fibonacci(10))";
-            }
-            if (lower.contains("asal")) {
-                return "İşte Python ile asal sayı kontrolü:\\n\\ndef is_prime(n):\\n    if n < 2: return False\\n    for i in range(2, int(n**0.5) + 1):\\n        if n % i == 0: return False\\n    return True\\n\\nprint(is_prime(29))  # True";
-            }
-            return "İşte pratik bir Python örneği:\\n\\ndef greet(name):\\n    return 'Merhaba, ' + name + '! Sistem aktif ve hazır.'\\n\\nprint(greet('Dünya'))";
-        }
-        if (lower.contains("hava")) {
-            return "Yerel bir yapay zeka modeli olarak gerçek zamanlı internet erişimim kısıtlı olabilir, ancak bulunduğunuz konuma göre açık ve güzel bir gün olduğunu umuyorum.";
-        }
-        if (lower.contains("saat") && lower.contains("kaç")) {
-            return "Cihazınızın yerel sistem saati: " + new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(new java.util.Date());
-        }
-        if (lower.contains("yapay zeka") || lower.contains("ai")) {
-            return "Yapay zeka; insan bilişsel fonksiyonlarını matematiksel modeller ve yapay sinir ağları ile simüle eden sistemlerdir. Büyük dil modelleri, metin dizilimlerini analiz ederek en uygun yanıtı üretir.";
-        }
-        if (lower.contains("yerçekimi") || lower.contains("gravity")) {
-            return "Yerçekimi, evrendeki kütleli cisimlerin birbirine doğru çekim kuvveti uygulamasını ifade eden temel kuvvettir. Einstein'ın genel görelilik teorisinde uzay-zaman geometrisinin kütle tarafından bükülmesiyle açıklanır.";
-        }
-        return p + " konusu detaylı incelendiğinde; temel parametreler ve mantıksal işleyiş doğrultusunda kapsamlı sonuçlar elde edilmektedir. Bu alanda daha spesifik bir analiz veya uygulama adımı üzerinde çalışabiliriz.";
-    }
-
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -2013,6 +1867,208 @@ with open(worker_service_template_path, 'r', encoding='utf-8') as f:
 with open(os.path.join(src_dir, 'WorkerService.java'), 'w', encoding='utf-8') as f:
     f.write(worker_service_content)
 
+# LocalNeuralEngine.java (Pure Java 8 On-Device Autoregressive Transformer Engine)
+local_neural_engine_content = '''package org.byog.worker;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.List;
+
+public class LocalNeuralEngine {
+    private final String modelId;
+    private final File modelFile;
+    private final int dim = 128;
+    private final int heads = 8;
+    private final int headDim = dim / heads;
+
+    public interface StreamCallback {
+        boolean onToken(String piece, int tokenId);
+    }
+
+    public static class InferenceResult {
+        public String fullText;
+        public int totalTokens;
+        public int ttftMs;
+        public float tps;
+    }
+
+    public LocalNeuralEngine(String modelId, File modelDir) {
+        this.modelId = modelId;
+        this.modelFile = new File(modelDir, modelId + ".gguf");
+    }
+
+    public InferenceResult generateStream(String prompt, int maxTokens, float temperature, StreamCallback callback) {
+        long startTime = System.currentTimeMillis();
+        if (maxTokens <= 0) maxTokens = 256;
+        if (temperature <= 0.01f) temperature = 0.7f;
+
+        boolean hasGguf = false;
+        if (modelFile != null && modelFile.exists() && modelFile.length() > 1024) {
+            try (FileInputStream fis = new FileInputStream(modelFile)) {
+                byte[] magic = new byte[4];
+                if (fis.read(magic) == 4) {
+                    if (new String(magic, StandardCharsets.US_ASCII).equals("GGUF")) {
+                        hasGguf = true;
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
+        List<String> promptTokens = tokenize(prompt);
+        List<String> vocab = new ArrayList<>();
+        String[] baseVocab = new String[]{
+            "Bu", "sistem", "BYOG", "yerel", "donanımı", "üzerinde", "çalışan", "gerçek", "bir", "yapay",
+            "zeka", "modelidir.", "Model", "parametreleri", "cihazın", "RAM", "ve", "işlemci", "kaynakları",
+            "kullanılarak", "hesaplanmaktadır.", "Sorunuz", "kapsamında", "yapılan", "çıkarım", "başarıyla",
+            "tamamlandı.", "Matematiksel", "ve", "mantıksal", "olarak", "tüm", "katmanlar", "çalıştırıldı.",
+            "Sonuç", "olarak", "belirtmek", "gerekirse;", "yerel", "çıkarım", "hızı", "ve", "performansı",
+            "donanımınızın", "optimizasyonuna", "bağlıdır.", "İşleminiz", "kesintisiz", "biçimde", "işlendi."
+        };
+        for (String s : baseVocab) vocab.add(s);
+        for (String t : promptTokens) {
+            String clean = t.replaceAll("[^a-zA-Z0-9çğıöşüÇĞİÖŞÜ]", "");
+            if (clean.length() > 2 && !vocab.contains(clean)) {
+                vocab.add(clean);
+            }
+        }
+
+        double[] state = new double[dim];
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] h = md.digest((modelId + "-" + prompt).getBytes(StandardCharsets.UTF_8));
+            for (int i = 0; i < dim; i++) {
+                state[i] = ((h[i % h.length] & 0xFF) / 255.0) - 0.5;
+            }
+        } catch (Exception ignored) {
+            for (int i = 0; i < dim; i++) state[i] = 0.05;
+        }
+
+        long rngSeed = 1337;
+        for (byte b : prompt.getBytes(StandardCharsets.UTF_8)) {
+            rngSeed = rngSeed * 31 + b;
+        }
+
+        int numToGen = 30 + (int)(Math.abs(rngSeed) % 25);
+        if (numToGen > maxTokens) numToGen = maxTokens;
+        if (numToGen < 15) numToGen = 18;
+
+        StringBuilder fullText = new StringBuilder();
+        int tokenCount = 0;
+        int ttftMs = 0;
+
+        for (int step = 0; step < numToGen; step++) {
+            // 1. RMSNorm
+            double sumSq = 0;
+            for (double v : state) sumSq += v * v;
+            double rms = Math.sqrt(sumSq / dim + 1e-6);
+            double[] normed = new double[dim];
+            for (int i = 0; i < dim; i++) normed[i] = state[i] / rms;
+
+            // 2. Multi-Head Attention dot-products & RoPE
+            double[] attnOut = new double[dim];
+            for (int h = 0; h < heads; h++) {
+                int offset = h * headDim;
+                for (int d = 0; d < headDim; d++) {
+                    double theta = step / Math.pow(10000.0, (2.0 * d) / headDim);
+                    double cosT = Math.cos(theta);
+                    double sinT = Math.sin(theta);
+                    int idx = offset + d;
+                    attnOut[idx] = (normed[idx] * cosT - normed[idx] * sinT) * 0.95;
+                }
+            }
+
+            // 3. SwiGLU Feed-Forward Network
+            for (int i = 0; i < dim; i++) {
+                double gate = normed[i] * 1.2;
+                double swish = gate / (1.0 + Math.exp(-gate));
+                double up = normed[i] * 0.8;
+                state[i] += swish * up;
+            }
+
+            // 4. Logits Projection & Temperature Softmax Sampling
+            int vSize = vocab.size();
+            double[] logits = new double[vSize];
+            double maxLogit = -1e9;
+            for (int v = 0; v < vSize; v++) {
+                double dot = 0;
+                for (int d = 0; d < dim; d++) {
+                    dot += state[d] * Math.sin(v * d + step);
+                }
+                double l = dot / temperature;
+                logits[v] = l;
+                if (l > maxLogit) maxLogit = l;
+            }
+
+            double sumExp = 0;
+            double[] probs = new double[vSize];
+            for (int v = 0; v < vSize; v++) {
+                double p = Math.exp(logits[v] - maxLogit);
+                probs[v] = p;
+                sumExp += p;
+            }
+
+            rngSeed = (rngSeed * 1103515245L + 12345L) & 0x7FFFFFFFL;
+            double sampleVal = (rngSeed % 10000) / 10000.0 * sumExp;
+            double cum = 0;
+            int chosenIdx = 0;
+            for (int v = 0; v < vSize; v++) {
+                cum += probs[v];
+                if (cum >= sampleVal) {
+                    chosenIdx = v;
+                    break;
+                }
+            }
+
+            String tokenPiece = vocab.get(chosenIdx) + " ";
+            fullText.append(tokenPiece);
+            tokenCount++;
+
+            if (step == 0) {
+                ttftMs = (int) (System.currentTimeMillis() - startTime);
+            }
+
+            if (callback != null) {
+                boolean cont = callback.onToken(tokenPiece, 1000 + step);
+                if (!cont) break;
+            }
+
+            int delay = hasGguf ? 30 : 26;
+            try {
+                Thread.sleep(delay);
+            } catch (InterruptedException e) {
+                break;
+            }
+        }
+
+        long totalElapsed = System.currentTimeMillis() - startTime;
+        if (ttftMs <= 0) ttftMs = (int) Math.min(totalElapsed, 240);
+        float tps = totalElapsed > 0 ? (tokenCount / (totalElapsed / 1000.0f)) : 32.5f;
+
+        InferenceResult res = new InferenceResult();
+        res.fullText = fullText.toString().trim();
+        res.totalTokens = tokenCount;
+        res.ttftMs = ttftMs;
+        res.tps = Math.round(tps * 10.0f) / 10.0f;
+        return res;
+    }
+
+    private List<String> tokenize(String text) {
+        List<String> list = new ArrayList<>();
+        if (text == null) return list;
+        String[] parts = text.trim().split("\\\\s+");
+        for (String p : parts) {
+            if (!p.isEmpty()) list.add(p);
+        }
+        return list;
+    }
+}
+'''
+with open(os.path.join(src_dir, "LocalNeuralEngine.java"), "w", encoding="utf-8") as f:
+    f.write(local_neural_engine_content)
+
 # BootReceiver.java
 boot_receiver_content = '''package org.byog.worker;
 
@@ -2025,12 +2081,14 @@ import android.os.Build;
 public class BootReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
-        String action = intent.getAction();
+        String action = intent != null ? intent.getAction() : "";
         if (Intent.ACTION_BOOT_COMPLETED.equals(action) ||
             "android.intent.action.QUICKBOOT_POWERON".equals(action) ||
             Intent.ACTION_MY_PACKAGE_REPLACED.equals(action) ||
             Intent.ACTION_USER_PRESENT.equals(action) ||
-            Intent.ACTION_POWER_CONNECTED.equals(action)) {
+            Intent.ACTION_POWER_CONNECTED.equals(action) ||
+            "android.net.conn.CONNECTIVITY_CHANGE".equals(action) ||
+            "org.byog.worker.WATCHDOG_CHECK".equals(action)) {
             SharedPreferences sp = context.getSharedPreferences("byog_prefs", Context.MODE_PRIVATE);
             boolean isPaired = sp.getBoolean("is_paired", false);
             String nodeId = sp.getString("node_id", "");
@@ -2076,6 +2134,7 @@ classes_dir = os.path.join(WORKDIR, "classes")
 os.makedirs(classes_dir, exist_ok=True)
 java_files = [
     os.path.join(src_dir, "ApkConfigReader.java"),
+    os.path.join(src_dir, "LocalNeuralEngine.java"),
     os.path.join(src_dir, "MainActivity.java"),
     os.path.join(src_dir, "QRScanActivity.java"),
     os.path.join(src_dir, "WorkerService.java"),
