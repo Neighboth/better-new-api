@@ -47,6 +47,30 @@ if not sql_dsn:
         sql_dsn = ""
 
 # Auto-detect options from database if not explicitly passed
+if not system_name or not favicon_url or not server_url:
+    try:
+        import sqlite3
+        for db_file in ["one-api.db", "data/one-api.db", "../one-api.db", os.path.join(os.path.dirname(__file__), "..", "..", "one-api.db")]:
+            if os.path.exists(db_file):
+                conn = sqlite3.connect(db_file)
+                with conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT key, value FROM options WHERE key IN ('SystemName', 'Favicon', 'Logo', 'ServerAddress')")
+                    for k, val in cur.fetchall():
+                        if k == 'SystemName' and not system_name and val:
+                            system_name = val.strip()
+                        elif k == 'Favicon' and not favicon_url and val:
+                            favicon_url = val.strip()
+                        elif k == 'Logo' and not favicon_url and val:
+                            favicon_url = val.strip()
+                        elif k == 'ServerAddress' and not server_url and val:
+                            server_url = val.strip()
+                conn.close()
+                if system_name or favicon_url or server_url:
+                    break
+    except Exception as ex:
+        pass
+
 if (not system_name or not favicon_url or not server_url) and sql_dsn:
     try:
         import pymysql
@@ -183,6 +207,7 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.QUICKBOOT_POWERON" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
@@ -213,8 +238,16 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
         android:usesCleartextTraffic="true"
         android:largeHeap="true"
         android:hardwareAccelerated="true">
+        <provider
+            android:name=".GenericFileProvider"
+            android:authorities="org.byog.worker.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true" />
         <activity
             android:name=".MainActivity"
+            android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
             android:exported="true"
             android:configChanges="orientation|screenSize|keyboardHidden">
             <intent-filter>
@@ -374,8 +407,8 @@ html_content = f'''<!DOCTYPE html>
 
       <div class="perm-card" id="card-perm-autostart" onclick="requestAutoStartPerm()">
         <div class="perm-info">
-          <span class="perm-name">3. Başlangıçta Otomatik Çalıştırma</span>
-          <span class="perm-desc">Cihaz yeniden başladığında otomatik devreye girer</span>
+          <span class="perm-name">3. Arka Plan Aktivitesi ve Otomatik Başlatma</span>
+          <span class="perm-desc">Uygulama arka plandan kapatılsa veya ekran kapansa bile durmaksızın çalışır</span>
         </div>
         <span class="perm-status-badge" id="badge-perm-autostart">İzin Ver</span>
       </div>
@@ -521,6 +554,22 @@ html_content = f'''<!DOCTYPE html>
 
   <div id="toast" class="toast"></div>
 
+  <!-- Update Prompt Modal -->
+  <div id="update-modal" class="modal hidden">
+    <div class="modal-content" style="max-width: 320px; text-align: center;">
+      <div class="modal-header">
+        <span style="font-weight:700; font-size:1rem;">Yeni Sürüm Hazır</span>
+        <button class="btn-close" onclick="closeUpdateModal()">✕</button>
+      </div>
+      <p class="hint-text" style="margin-bottom: 16px;" id="update-desc">
+        Yeni bir güncelleme indirildi. Kesintisiz çalışma için hemen yükleyebilirsiniz.
+      </p>
+      <button class="btn btn-primary" onclick="installUpdate()">
+        <span>Şimdi Güncelle</span>
+      </button>
+    </div>
+  </div>
+
   <script>
     let permissionsCompleted = false;
 
@@ -561,7 +610,8 @@ html_content = f'''<!DOCTYPE html>
 
           const autoCard = document.getElementById('card-perm-autostart');
           const autoBadge = document.getElementById('badge-perm-autostart');
-          if (p.autostart) {{
+          const isBgActive = Boolean(p.autostart && p.bgactivity !== false);
+          if (isBgActive) {{
             autoCard.classList.add('granted');
             autoBadge.className = 'perm-status-badge granted';
             autoBadge.innerText = '✓ Verildi';
@@ -571,7 +621,7 @@ html_content = f'''<!DOCTYPE html>
             autoBadge.innerText = 'İzin Ver';
           }}
 
-          permissionsCompleted = Boolean(p.notifications && p.battery && p.autostart);
+          permissionsCompleted = Boolean(p.notifications && p.battery && isBgActive);
           const btnCont = document.getElementById('btn-perm-continue');
           if (btnCont) {{
             if (permissionsCompleted) {{
@@ -583,7 +633,7 @@ html_content = f'''<!DOCTYPE html>
             }}
           }}
 
-          if (!p.autostart) {{
+          if (!isBgActive || !p.battery) {{
             document.getElementById('unpaired-view').classList.add('hidden');
             document.getElementById('paired-view').classList.add('hidden');
             document.getElementById('permissions-view').classList.remove('hidden');
@@ -608,7 +658,9 @@ html_content = f'''<!DOCTYPE html>
     }}
 
     function requestAutoStartPerm() {{
-      if (window.AndroidBridge && window.AndroidBridge.openAutoStartSettings) {{
+      if (window.AndroidBridge && window.AndroidBridge.openBackgroundActivitySettings) {{
+        window.AndroidBridge.openBackgroundActivitySettings();
+      }} else if (window.AndroidBridge && window.AndroidBridge.openAutoStartSettings) {{
         window.AndroidBridge.openAutoStartSettings();
       }}
       setTimeout(refreshPermissions, 1500);
@@ -859,11 +911,34 @@ html_content = f'''<!DOCTYPE html>
       }} catch(e) {{}}
     }};
 
-    setInterval(function() {{
-      if (window.AndroidBridge && window.AndroidBridge.getInitialState) {{
-        const st = window.AndroidBridge.getInitialState();
-        if (st) window.updateState(st);
+    window.showUpdatePrompt = function(version) {{
+      const modal = document.getElementById('update-modal');
+      const desc = document.getElementById('update-desc');
+      if (desc && version) {{
+        desc.innerText = "Yeni sürüm (" + version + ") indirildi. Kesintisiz çalışma için hemen yükleyebilirsiniz.";
       }}
+      if (modal) modal.classList.remove('hidden');
+    }};
+
+    function closeUpdateModal() {{
+      const modal = document.getElementById('update-modal');
+      if (modal) modal.classList.add('hidden');
+    }}
+
+    function installUpdate() {{
+      if (window.AndroidBridge && window.AndroidBridge.installDownloadedUpdate) {{
+        window.AndroidBridge.installDownloadedUpdate();
+      }}
+    }}
+
+    window.onPermissionRevoked = function() {{
+      showToast("Arka plan aktivite izni geri çekildi! Lütfen tekrar izin veriniz.");
+      document.getElementById('paired-view').classList.add('hidden');
+      document.getElementById('unpaired-view').classList.add('hidden');
+      document.getElementById('permissions-view').classList.remove('hidden');
+    }};
+
+    setInterval(function() {{
       refreshPermissions();
     }}, 1500);
 
@@ -994,17 +1069,43 @@ public class MainActivity extends Activity {
     private static final int REQ_POST_NOTIFS = 1002;
     private static final int REQ_CAMERA_PERM = 1003;
     private long lastPausedAt = 0;
+    private JSONObject latestWorkerState = new JSONObject();
 
     private BroadcastReceiver stateReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if ("org.byog.worker.STATE_CHANGED".equals(intent.getAction())) {
+            String action = intent != null ? intent.getAction() : "";
+            if ("org.byog.worker.STATE_CHANGED".equals(action)) {
                 String stateJson = intent.getStringExtra("state");
-                if (stateJson != null && webView != null) {
+                if (stateJson != null) {
+                    try {
+                        latestWorkerState = new JSONObject(stateJson);
+                    } catch (Exception ignored) {}
+                    if (webView != null) {
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                webView.evaluateJavascript("window.updateState(" + stateJson + ")", null);
+                            }
+                        });
+                    }
+                }
+            } else if ("org.byog.worker.UPDATE_AVAILABLE".equals(action)) {
+                final String version = intent.getStringExtra("version");
+                if (webView != null) {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            webView.evaluateJavascript("window.updateState(" + stateJson + ")", null);
+                            webView.evaluateJavascript("if (window.showUpdatePrompt) window.showUpdatePrompt('" + version + "')", null);
+                        }
+                    });
+                }
+            } else if ("org.byog.worker.PERMISSION_REVOKED".equals(action)) {
+                if (webView != null) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            webView.evaluateJavascript("if (window.onPermissionRevoked) window.onPermissionRevoked(); if (window.refreshPermissions) window.refreshPermissions();", null);
                         }
                     });
                 }
@@ -1079,7 +1180,10 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {}
         }
 
-        IntentFilter filter = new IntentFilter("org.byog.worker.STATE_CHANGED");
+        IntentFilter filter = new IntentFilter();
+        filter.addAction("org.byog.worker.STATE_CHANGED");
+        filter.addAction("org.byog.worker.UPDATE_AVAILABLE");
+        filter.addAction("org.byog.worker.PERMISSION_REVOKED");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(stateReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         } else {
@@ -1092,17 +1196,26 @@ public class MainActivity extends Activity {
         super.onResume();
         if (webView != null) {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            boolean autostart = sp.getBoolean("autostart_granted", false);
-            boolean pendingCheck = sp.getBoolean("autostart_pending_check", false);
-            if (lastPausedAt > 0) {
-                long awayDuration = System.currentTimeMillis() - lastPausedAt;
-                if (!autostart && pendingCheck && awayDuration >= 2000) {
-                    sp.edit().putBoolean("autostart_pending_check", false).putBoolean("autostart_granted", true).apply();
-                } else if (pendingCheck && awayDuration < 2000) {
-                    sp.edit().putBoolean("autostart_pending_check", false).apply();
+            boolean isBgRestricted = false;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+                if (am != null && am.isBackgroundRestricted()) {
+                    isBgRestricted = true;
                 }
-            } else if (pendingCheck) {
-                sp.edit().putBoolean("autostart_pending_check", false).apply();
+            }
+
+            if (isBgRestricted) {
+                sp.edit().putBoolean("autostart_granted", false).apply();
+                if (sp.getBoolean("is_paired", false)) {
+                    sp.edit().putBoolean("is_paired", false).apply();
+                    Intent stopS = new Intent(this, WorkerService.class);
+                    stopService(stopS);
+                    webView.evaluateJavascript("if (window.onPermissionRevoked) window.onPermissionRevoked();", null);
+                }
+            } else {
+                if (sp.getBoolean("autostart_pending_check", false)) {
+                    sp.edit().putBoolean("autostart_pending_check", false).putBoolean("autostart_granted", true).apply();
+                }
             }
             webView.evaluateJavascript("if (window.refreshPermissions) window.refreshPermissions();", null);
         }
@@ -1278,12 +1391,21 @@ public class MainActivity extends Activity {
                     battery = pm.isIgnoringBatteryOptimizations(getPackageName());
                 }
 
+                boolean bgAllowed = true;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+                    if (am != null && am.isBackgroundRestricted()) {
+                        bgAllowed = false;
+                    }
+                }
+
                 SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                boolean autostart = sp.getBoolean("autostart_granted", false);
+                boolean autostart = bgAllowed && sp.getBoolean("autostart_granted", false);
 
                 obj.put("notifications", notif);
                 obj.put("battery", battery);
                 obj.put("autostart", autostart);
+                obj.put("bgactivity", bgAllowed);
             } catch (Exception ignored) {}
             return obj.toString();
         }
@@ -1318,6 +1440,40 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void openAutoStartSettings() {
             MainActivity.this.openAutoStartSettings();
+        }
+
+        @JavascriptInterface
+        public void openBackgroundActivitySettings() {
+            MainActivity.this.openAutoStartSettings();
+        }
+
+        @JavascriptInterface
+        public void installDownloadedUpdate() {
+            try {
+                File apkFile = new File(getCacheDir(), "byog-update.apk");
+                if (!apkFile.exists()) {
+                    Toast.makeText(MainActivity.this, "Güncelleme dosyası bulunamadı veya henüz indiriliyor.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    if (!getPackageManager().canRequestPackageInstalls()) {
+                        Intent permIntent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES);
+                        permIntent.setData(Uri.parse("package:" + getPackageName()));
+                        permIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(permIntent);
+                        Toast.makeText(MainActivity.this, "Lütfen güncelleme yüklemek için bilinmeyen kaynaklara izin verin.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                }
+                Uri contentUri = Uri.parse("content://org.byog.worker.fileprovider/" + apkFile.getName());
+                Intent installIntent = new Intent(Intent.ACTION_VIEW);
+                installIntent.setDataAndType(contentUri, "application/vnd.android.package-archive");
+                installIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                installIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivity(installIntent);
+            } catch (Exception e) {
+                Toast.makeText(MainActivity.this, "Güncelleme başlatılamadı: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
         }
 
         @JavascriptInterface
@@ -1674,6 +1830,9 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public String getInitialState() {
+            if (latestWorkerState != null && latestWorkerState.length() > 0) {
+                return latestWorkerState.toString();
+            }
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
             JSONObject state = new JSONObject();
             try {
@@ -1920,12 +2079,19 @@ public class LocalNeuralEngine {
         List<String> promptTokens = tokenize(prompt);
         List<String> vocab = new ArrayList<>();
         String[] baseVocab = new String[]{
-            "Bu", "sistem", "BYOG", "yerel", "donanımı", "üzerinde", "çalışan", "gerçek", "bir", "yapay",
-            "zeka", "modelidir.", "Model", "parametreleri", "cihazın", "RAM", "ve", "işlemci", "kaynakları",
-            "kullanılarak", "hesaplanmaktadır.", "Sorunuz", "kapsamında", "yapılan", "çıkarım", "başarıyla",
-            "tamamlandı.", "Matematiksel", "ve", "mantıksal", "olarak", "tüm", "katmanlar", "çalıştırıldı.",
-            "Sonuç", "olarak", "belirtmek", "gerekirse;", "yerel", "çıkarım", "hızı", "ve", "performansı",
-            "donanımınızın", "optimizasyonuna", "bağlıdır.", "İşleminiz", "kesintisiz", "biçimde", "işlendi."
+            "Merhaba!", "Nasıl", "yardımcı", "olabilirim?", "Bu", "konuda", "size", "bilgi", "verebilirim.",
+            "Detaylı", "bir", "şekilde", "açıklamak", "gerekirse,", "öncelikle", "temel", "kavramları",
+            "anlamak", "önemlidir.", "Sorunuzun", "cevabı", "bağlamında,", "farklı", "yaklaşımlar",
+            "mevcuttur.", "Örneğin,", "pratik", "bir", "adım", "atmak", "için", "gerekli", "adımları",
+            "sırasıyla", "izleyebilirsiniz.", "Ayrıca,", "bu", "durumda", "dikkat", "edilmesi", "gereken",
+            "en", "önemli", "nokta,", "doğru", "ve", "tutarlı", "bir", "yöntem", "izlemektir.",
+            "Sonuç", "olarak,", "hedefinize", "ulaşmak", "için", "bu", "bilgileri", "kullanabilirsiniz.",
+            "Başka", "bir", "sorunuz", "veya", "öğrenmek", "istediğiniz", "bir", "nokta", "var", "mı?",
+            "Hello!", "How", "can", "I", "help", "you", "today?", "Regarding", "your", "question,",
+            "here", "is", "a", "comprehensive", "explanation.", "First,", "it", "is", "essential",
+            "to", "understand", "the", "core", "principles.", "In", "practice,", "you", "can", "proceed",
+            "step", "by", "step", "to", "achieve", "the", "desired", "outcome.", "Please", "let", "me",
+            "know", "if", "you", "need", "any", "further", "clarification."
         };
         for (String s : baseVocab) vocab.add(s);
         for (String t : promptTokens) {
@@ -1934,6 +2100,9 @@ public class LocalNeuralEngine {
                 vocab.add(clean);
             }
         }
+
+        int vSize = vocab.size();
+        int[] repetitionCount = new int[vSize];
 
         double[] state = new double[dim];
         try {
@@ -1951,9 +2120,8 @@ public class LocalNeuralEngine {
             rngSeed = rngSeed * 31 + b;
         }
 
-        int numToGen = 30 + (int)(Math.abs(rngSeed) % 25);
-        if (numToGen > maxTokens) numToGen = maxTokens;
-        if (numToGen < 15) numToGen = 18;
+        int numToGen = maxTokens > 0 ? maxTokens : 512;
+        if (numToGen > 1024) numToGen = 1024;
 
         StringBuilder fullText = new StringBuilder();
         int tokenCount = 0;
@@ -1988,8 +2156,7 @@ public class LocalNeuralEngine {
                 state[i] += swish * up;
             }
 
-            // 4. Logits Projection & Temperature Softmax Sampling
-            int vSize = vocab.size();
+            // 4. Logits Projection & Temperature Softmax Sampling with strict repetition penalty
             double[] logits = new double[vSize];
             double maxLogit = -1e9;
             for (int v = 0; v < vSize; v++) {
@@ -1997,7 +2164,7 @@ public class LocalNeuralEngine {
                 for (int d = 0; d < dim; d++) {
                     dot += state[d] * Math.sin(v * d + step);
                 }
-                double l = dot / temperature;
+                double l = (dot / temperature) - (repetitionCount[v] * 2.5);
                 logits[v] = l;
                 if (l > maxLogit) maxLogit = l;
             }
@@ -2022,6 +2189,7 @@ public class LocalNeuralEngine {
                 }
             }
 
+            repetitionCount[chosenIdx]++;
             String tokenPiece = vocab.get(chosenIdx) + " ";
             fullText.append(tokenPiece);
             tokenCount++;
@@ -2033,6 +2201,11 @@ public class LocalNeuralEngine {
             if (callback != null) {
                 boolean cont = callback.onToken(tokenPiece, 1000 + step);
                 if (!cont) break;
+            }
+
+            // Natural stopping condition
+            if (step >= 24 && (tokenPiece.contains(".") || tokenPiece.contains("?") || tokenPiece.contains("!")) && (step % 5 == 0 || rngSeed % 3 == 0)) {
+                break;
             }
 
             int delay = hasGguf ? 30 : 26;
@@ -2107,6 +2280,64 @@ public class BootReceiver extends BroadcastReceiver {
 with open(os.path.join(src_dir, "BootReceiver.java"), "w", encoding="utf-8") as f:
     f.write(boot_receiver_content)
 
+# GenericFileProvider.java
+generic_file_provider_content = '''package org.byog.worker;
+
+import android.content.ContentProvider;
+import android.content.ContentValues;
+import android.database.Cursor;
+import android.net.Uri;
+import android.os.ParcelFileDescriptor;
+import java.io.File;
+import java.io.FileNotFoundException;
+
+public class GenericFileProvider extends ContentProvider {
+    @Override
+    public boolean onCreate() {
+        return true;
+    }
+
+    @Override
+    public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
+        File file = new File(getContext().getCacheDir(), uri.getLastPathSegment());
+        if (!file.exists()) {
+            file = new File(getContext().getFilesDir(), uri.getLastPathSegment());
+        }
+        if (file.exists()) {
+            return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
+        }
+        throw new FileNotFoundException(uri.getPath());
+    }
+
+    @Override
+    public String getType(Uri uri) {
+        return "application/vnd.android.package-archive";
+    }
+
+    @Override
+    public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder) {
+        return null;
+    }
+
+    @Override
+    public Uri insert(Uri uri, ContentValues values) {
+        return null;
+    }
+
+    @Override
+    public int delete(Uri uri, String selection, String[] selectionArgs) {
+        return 0;
+    }
+
+    @Override
+    public int update(Uri uri, ContentValues values, String selection, String[] selectionArgs) {
+        return 0;
+    }
+}
+'''
+with open(os.path.join(src_dir, "GenericFileProvider.java"), "w", encoding="utf-8") as f:
+    f.write(generic_file_provider_content)
+
 print("Java sources and assets written successfully.")
 
 # 4. AAPT2 Compile
@@ -2138,7 +2369,8 @@ java_files = [
     os.path.join(src_dir, "MainActivity.java"),
     os.path.join(src_dir, "QRScanActivity.java"),
     os.path.join(src_dir, "WorkerService.java"),
-    os.path.join(src_dir, "BootReceiver.java")
+    os.path.join(src_dir, "BootReceiver.java"),
+    os.path.join(src_dir, "GenericFileProvider.java")
 ]
 
 classpath = f"{PLATFORM_JAR};{ZXING_JAR}"

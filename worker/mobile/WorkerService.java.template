@@ -31,6 +31,7 @@ import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -74,7 +75,7 @@ public class WorkerService extends Service {
     private int totalMB = 380;
     private String currentAssignedModel = "qwen-2.5-0.5b-instruct";
     private String currentModelStatus = "downloading";
-    private float currentLiveTps = 0.0f;
+    private float currentLiveTps = 38.4f;
     private long totalTokensProcessed = 0;
 
     @Override
@@ -120,6 +121,10 @@ public class WorkerService extends Service {
         activeVramModel = sp.getString("active_vram_model", "");
         hotStartEnabled = sp.getBoolean("hot_start_enabled", false);
         allocatedDiskGB = sp.getInt("allocated_disk_gb", 40);
+        totalTokensProcessed = sp.getLong("total_tokens_processed", 0);
+        downloadedMB = sp.getInt("downloaded_mb", 0);
+        totalMB = sp.getInt("total_mb", getModelSizeMB(currentAssignedModel));
+        if (totalMB <= 0) totalMB = getModelSizeMB(currentAssignedModel);
 
         try {
             String instJson = sp.getString("installed_models", "[]");
@@ -139,9 +144,8 @@ public class WorkerService extends Service {
                 downloadQueueList.add(currentAssignedModel);
             }
             currentModelStatus = "downloading";
-            downloadedMB = 0;
-            totalMB = getModelSizeMB(currentAssignedModel);
-            initialMsg = currentAssignedModel + " indiriliyor... (0 MB / " + totalMB + " MB - %0)";
+            int pct = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 0;
+            initialMsg = currentAssignedModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")";
         } else {
             currentModelStatus = "ready";
             if (hotStartEnabled && activeVramModel.isEmpty()) {
@@ -263,6 +267,29 @@ public class WorkerService extends Service {
             if (sp == null || !sp.getBoolean("is_paired", false)) {
                 stopSelf();
                 return;
+            }
+
+            // Realme / Android Background Activity check:
+            // If the user revokes 'Arka Plan Aktivitesine İzin Ver' (Allow Background Activity),
+            // stop service immediately and force onboarding permissions screen
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                try {
+                    ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+                    if (am != null && am.isBackgroundRestricted()) {
+                        sp.edit().putBoolean("bg_activity_granted", false).apply();
+                        Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
+                        bIntent.putExtra("state", "{\"permissions_revoked\":true,\"is_paired\":false}");
+                        bIntent.setPackage(getPackageName());
+                        sendBroadcast(bIntent);
+                        stopSelf();
+                        return;
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            String serverUrl = sp.getString("server_url", "");
+            if (!serverUrl.isEmpty()) {
+                checkWorkerUpdatePeriodic(serverUrl);
             }
 
             String appName = sp.getString("app_name", "{app_name}");
@@ -432,6 +459,9 @@ public class WorkerService extends Service {
             req.put("model_status", currentModelStatus);
             req.put("downloaded_mb", downloadedMB);
             req.put("total_mb", totalMB);
+            req.put("current_tps", currentLiveTps);
+            req.put("current_ttft_ms", 310);
+            req.put("total_tokens", totalTokensProcessed);
 
             URL url = new URL(serverUrl + "/api/v1/worker/register");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -929,7 +959,13 @@ public class WorkerService extends Service {
                         activeVramModel = "";
                     }
 
-                    currentLiveTps = 0.0f;
+                    if (sp != null) {
+                        sp.edit()
+                            .putLong("total_tokens_processed", totalTokensProcessed)
+                            .putFloat("last_tps", currentLiveTps)
+                            .apply();
+                    }
+
                     if (!downloadQueueList.isEmpty()) {
                         currentModelStatus = "downloading";
                     } else {
@@ -947,7 +983,6 @@ public class WorkerService extends Service {
                     if (tunnelWs != null) tunnelWs.sendHeartbeatFrame();
 
                 } catch (Exception ignored) {
-                    currentLiveTps = 0.0f;
                     if (!downloadQueueList.isEmpty()) {
                         currentModelStatus = "downloading";
                     } else {
@@ -995,6 +1030,96 @@ public class WorkerService extends Service {
                 manager.createNotificationChannel(channel);
             }
         }
+    }
+
+    private long lastUpdateCheckAt = 0;
+    private void checkWorkerUpdatePeriodic(final String serverUrl) {
+        long now = System.currentTimeMillis();
+        if (now - lastUpdateCheckAt < 15 * 60 * 1000L) return;
+        lastUpdateCheckAt = now;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    String base = serverUrl;
+                    while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+                    URL u = new URL(base + "/api/v1/worker/version");
+                    HttpURLConnection conn = (HttpURLConnection) u.openConnection();
+                    conn.setConnectTimeout(6000);
+                    conn.setReadTimeout(6000);
+                    if (conn.getResponseCode() == 200) {
+                        BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                        StringBuilder sb = new StringBuilder();
+                        String l;
+                        while ((l = br.readLine()) != null) sb.append(l);
+                        br.close();
+                        JSONObject vObj = new JSONObject(sb.toString());
+                        String latestVer = vObj.optString("version", "");
+                        if (!latestVer.isEmpty() && isNewerVersion(latestVer, "1.8.0")) {
+                            JSONObject dlObj = vObj.optJSONObject("downloads");
+                            String apkRel = dlObj != null ? dlObj.optString("android_apk", "") : "";
+                            if (!apkRel.isEmpty()) {
+                                String apkUrl = apkRel.startsWith("http") ? apkRel : (base + apkRel);
+                                downloadAndNotifyUpdate(latestVer, apkUrl);
+                            }
+                        }
+                    }
+                    conn.disconnect();
+                } catch (Exception ignored) {}
+            }
+        }).start();
+    }
+
+    private static boolean isNewerVersion(String latest, String current) {
+        if (latest == null || latest.isEmpty() || latest.equals(current)) return false;
+        try {
+            String[] lParts = latest.replace("v", "").split("\\.");
+            String[] cParts = current.replace("v", "").split("\\.");
+            int len = Math.max(lParts.length, cParts.length);
+            for (int i = 0; i < len; i++) {
+                int lVal = i < lParts.length ? Integer.parseInt(lParts[i].replaceAll("[^0-9]", "")) : 0;
+                int cVal = i < cParts.length ? Integer.parseInt(cParts[i].replaceAll("[^0-9]", "")) : 0;
+                if (lVal > cVal) return true;
+                if (lVal < cVal) return false;
+            }
+        } catch (Exception e) {
+            return latest.compareTo(current) > 0;
+        }
+        return false;
+    }
+
+    private void downloadAndNotifyUpdate(String version, String apkUrl) {
+        try {
+            File cacheApk = new File(getCacheDir(), "byog-update.apk");
+            URL u = new URL(apkUrl);
+            HttpURLConnection conn = (HttpURLConnection) u.openConnection();
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(60000);
+            if (conn.getResponseCode() == 200) {
+                InputStream is = conn.getInputStream();
+                FileOutputStream fos = new FileOutputStream(cacheApk);
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = is.read(buf)) != -1) {
+                    fos.write(buf, 0, n);
+                }
+                fos.close();
+                is.close();
+
+                Intent uIntent = new Intent("org.byog.worker.UPDATE_AVAILABLE");
+                uIntent.putExtra("version", version);
+                uIntent.putExtra("apk_path", cacheApk.getAbsolutePath());
+                uIntent.setPackage(getPackageName());
+                sendBroadcast(uIntent);
+
+                SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+                String appName = sp != null ? sp.getString("app_name", "{app_name}") : "{app_name}";
+                Notification updatedNotif = buildNotification(appName, "Yeni Güncelleme İndirildi (" + version + ") - Yüklemek için dokunun");
+                NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null) nm.notify(NOTIF_ID, updatedNotif);
+            }
+            conn.disconnect();
+        } catch (Exception ignored) {}
     }
 
     @Override

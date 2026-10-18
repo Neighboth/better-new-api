@@ -518,7 +518,7 @@ func SetApiRouter(router *gin.Engine) {
 		// BYOG Public & User Routes
 		byogRoute := apiRouter.Group("/byog")
 		{
-			byogRoute.GET("/status", controller.GetByogStatus)
+			byogRoute.GET("/status", middleware.TryUserAuth(), controller.GetByogStatus)
 			byogUserRoute := byogRoute.Group("/user")
 			byogUserRoute.Use(middleware.UserAuth())
 			{

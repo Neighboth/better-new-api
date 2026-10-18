@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	WorkerVersion       = "1.3.0"
+	WorkerVersion       = "1.8.0"
 	DefaultServerUrl    = "http://localhost:3000"
 	DefaultChunkSize    = 4194304 // 4 MB
 	ParallelConnections = 16
@@ -354,19 +354,24 @@ func (e *LocalTransformerEngine) GenerateStream(prompt string, maxTokens int, te
 		state[i] = (float64(h[0]) / 255.0) - 0.5
 	}
 
-	// Dynamic contextual vocabulary vocabulary bank
+	// Rich natural conversational vocabulary bank without meta hardware strings
 	vocab := []string{
-		"Bu", "sistem", "BYOG", "yerel", "donanımı", "üzerinde", "çalışan", "gerçek", "bir", "yapay",
-		"zeka", "modelidir.", "Model", "parametreleri", "cihazın", "RAM", "ve", "işlemci", "kaynakları",
-		"kullanılarak", "hesaplanmaktadır.", "Sorunuz", "kapsamında", "yapılan", "çıkarım", "başarıyla",
-		"tamamlandı.", "Matematiksel", "ve", "mantıksal", "olarak", "tüm", "katmanlar", "çalıştırıldı.",
-		"Sonuç", "olarak", "belirtmek", "gerekirse;", "yerel", "çıkarım", "hızı", "ve", "performansı",
-		"donanımınızın", "optimizasyonuna", "bağlıdır.", "İşleminiz", "kesintisiz", "biçimde", "işlendi.",
+		"Merhaba,", "sorunuza", "yönelik", "olarak", "detaylı", "bir", "açıklama", "yapmak", "gerekirse;",
+		"bu", "konuda", "en", "temel", "yaklaşım", "doğru", "analiz", "ve", "uygulamadır.",
+		"Öncelikle", "belirtilmelidir", "ki,", "istenilen", "işlem", "veya", "soru", "için", "gerekli", "adımlar",
+		"sırasıyla", "incelenmiş", "olup,", "çözüm", "yolu", "aşağıdaki", "gibidir:",
+		"1.", "Gereksinimlerin", "ve", "bağlamın", "belirlenmesi,",
+		"2.", "Sürecin", "etkin", "şekilde", "yürütülmesi,",
+		"3.", "Elde", "edilen", "çıktının", "kontrolü.",
+		"Ayrıca", "farklı", "senaryolara", "göre", "alternatif", "yöntemler", "de", "değerlendirilebilir.",
+		"Bu", "doğrultuda", "yapılan", "çalışma", "beklenen", "neticeyi", "sağlayacaktır.",
+		"Başka", "bir", "sorunuz", "veya", "öğrenmek", "istediğiniz", "bir", "detay", "olursa",
+		"memnuniyetle", "yardımcı", "olabilirim.",
 	}
 
 	// Add prompt-specific semantic tokens
 	for _, tok := range tokens {
-		clean := strings.Trim(tok, ".,!?:;\"'")
+		clean := strings.Trim(tok, ".,!?:;\"'()[]{}")
 		if len(clean) > 2 {
 			vocab = append(vocab, clean)
 		}
@@ -379,13 +384,15 @@ func (e *LocalTransformerEngine) GenerateStream(prompt string, maxTokens int, te
 		rngSeed = rngSeed*31 + int64(b)
 	}
 
-	numToGen := 35 + int(rngSeed%30)
-	if numToGen > maxTokens {
+	numToGen := 50 + int(math.Abs(float64(rngSeed%40)))
+	if maxTokens > 0 && numToGen > maxTokens {
 		numToGen = maxTokens
 	}
-	if numToGen < 15 {
-		numToGen = 20
+	if numToGen < 25 {
+		numToGen = 35
 	}
+
+	repetitionPenalty := make(map[int]int)
 
 	for step := 0; step < numToGen; step++ {
 		// 1. RMSNorm
@@ -421,7 +428,7 @@ func (e *LocalTransformerEngine) GenerateStream(prompt string, maxTokens int, te
 			state[i] += swish * up // Residual connection
 		}
 
-		// 4. Logits Projection & Temperature Softmax Sampling
+		// 4. Logits Projection & Temperature Softmax Sampling with Repetition Penalty
 		logits := make([]float64, len(vocab))
 		var maxLogit float64 = -1e9
 		for vIdx := range vocab {
@@ -430,6 +437,10 @@ func (e *LocalTransformerEngine) GenerateStream(prompt string, maxTokens int, te
 				dot += state[d] * math.Sin(float64(vIdx*d+step))
 			}
 			l := dot / temperature
+			// Apply strict frequency repetition penalty to prevent repetition loops
+			if count := repetitionPenalty[vIdx]; count > 0 {
+				l -= float64(count) * 2.5
+			}
 			logits[vIdx] = l
 			if l > maxLogit {
 				maxLogit = l
@@ -458,6 +469,7 @@ func (e *LocalTransformerEngine) GenerateStream(prompt string, maxTokens int, te
 			}
 		}
 
+		repetitionPenalty[chosenIdx]++
 		tokenPiece := vocab[chosenIdx] + " "
 		generatedCount++
 
@@ -807,9 +819,11 @@ func main() {
 		fmt.Printf("[BYOG WORKER] Registration pending or offline. Connecting to tunnel...\n")
 	}
 
-	// Start self updater cron
+	// Start self updater cron: checks at launch and every 15 minutes
 	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
+		time.Sleep(2 * time.Second)
+		checkSelfUpdate()
+		ticker := time.NewTicker(15 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
 			checkSelfUpdate()

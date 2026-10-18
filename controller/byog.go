@@ -266,7 +266,12 @@ func GetByogStatus(c *gin.Context) {
 			Total int64
 		}
 		_ = model.DB.Model(&model.ByogNode{}).Where("user_id = ?", userId).Select("COALESCE(SUM(total_tokens_processed), 0) as total").Scan(&sum)
-		availableTokens = sum.Total
+		var totalBurned int64 = 0
+		_ = model.DB.Model(&model.ByogRewardClaim{}).Where("user_id = ? AND status != 'rejected'", userId).Select("COALESCE(SUM(tokens_burned), 0)").Scan(&totalBurned)
+		availableTokens = sum.Total - totalBurned
+		if availableTokens < 0 {
+			availableTokens = 0
+		}
 	}
 
 	hasWin := hasLocalWorkerBinary("windows", "amd64")
@@ -483,25 +488,19 @@ func ClaimUserReward(c *gin.Context) {
 		return
 	}
 
-	// Fetch user balance
-	user, err := model.GetUserById(userId, false)
-	if err != nil || user == nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "User not found"})
-		return
+	// Verify required tokens against user's BYOG processed tokens net of previous claims
+	var sum struct {
+		Total int64
 	}
-
-	// Verify required tokens (quota)
-	if int64(user.Quota) < reward.RequiredTokens {
+	_ = model.DB.Model(&model.ByogNode{}).Where("user_id = ?", userId).Select("COALESCE(SUM(total_tokens_processed), 0) as total").Scan(&sum)
+	var totalBurned int64 = 0
+	_ = model.DB.Model(&model.ByogRewardClaim{}).Where("user_id = ? AND status != 'rejected'", userId).Select("COALESCE(SUM(tokens_burned), 0)").Scan(&totalBurned)
+	availableTokens := sum.Total - totalBurned
+	if availableTokens < reward.RequiredTokens {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": fmt.Sprintf("Insufficient token balance. Required: %d tokens, Available: %d tokens", reward.RequiredTokens, user.Quota),
+			"message": fmt.Sprintf("Yetersiz token bakiyesi. Gerekli: %d token, Kullanılabilir: %d token", reward.RequiredTokens, availableTokens),
 		})
-		return
-	}
-
-	// Deduct user quota
-	if err := model.DecreaseUserQuota(userId, int(reward.RequiredTokens), true); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to deduct tokens"})
 		return
 	}
 
@@ -539,7 +538,7 @@ func ClaimUserReward(c *gin.Context) {
 		TokensBurned:    reward.RequiredTokens,
 		Status:          "pending",
 		TicketId:        ticket.Id,
-		VerificationLog: fmt.Sprintf("Timestamp: %s, User: %s, Burned: %d tokens, Stock left: %d", time.Now().Format(time.RFC3339), user.Username, reward.RequiredTokens, reward.Stock),
+		VerificationLog: fmt.Sprintf("Timestamp: %s, User ID: %d, Burned: %d tokens, Stock left: %d", time.Now().Format(time.RFC3339), userId, reward.RequiredTokens, reward.Stock),
 		CreatedAt:       time.Now().Unix(),
 		UpdatedAt:       time.Now().Unix(),
 	}
@@ -1021,6 +1020,9 @@ func RegisterByogWorker(c *gin.Context) {
 		DownloadProgress int     `json:"download_progress"`
 		TotalDiskGB      int     `json:"total_disk_gb"`
 		FreeDiskGB       int     `json:"free_disk_gb"`
+		CurrentTps       float64 `json:"current_tps"`
+		CurrentTtftMs    int     `json:"current_ttft_ms"`
+		TotalTokens      int64   `json:"total_tokens"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1199,6 +1201,15 @@ func RegisterByogWorker(c *gin.Context) {
 				node.AllocatedDiskGB = node.FreeDiskGB
 			}
 		}
+		if req.CurrentTps > 0 {
+			node.CurrentTps = req.CurrentTps
+		}
+		if req.CurrentTtftMs > 0 {
+			node.CurrentTtftMs = req.CurrentTtftMs
+		}
+		if req.TotalTokens > 0 && req.TotalTokens > node.TotalTokensProcessed {
+			node.TotalTokensProcessed = req.TotalTokens
+		}
 		node.UserId = matchedUserId
 		node.PairingCode = ""
 		_ = model.SaveByogNode(node)
@@ -1284,6 +1295,9 @@ func RegisterByogWorker(c *gin.Context) {
 			TotalMB:              req.TotalMB,
 			DownloadProgress:     req.DownloadProgress,
 			ActiveVramModel:      req.ActiveVramModel,
+			CurrentTps:           req.CurrentTps,
+			CurrentTtftMs:        req.CurrentTtftMs,
+			TotalTokensProcessed: req.TotalTokens,
 			LastHeartbeatAt:      time.Now().Unix(),
 			CreatedAt:            time.Now().Unix(),
 			UpdatedAt:            time.Now().Unix(),
@@ -1513,7 +1527,7 @@ func GetByogWorkerVersion(c *gin.Context) {
 	apkUrl := "/api/v1/worker/download/android/apk"
 
 	c.JSON(http.StatusOK, gin.H{
-		"version":      "1.3.0",
+		"version":      "1.8.0",
 		"min_version":  "1.0.0",
 		"release_date": time.Now().Format("2006-01-02"),
 		"downloads": gin.H{
