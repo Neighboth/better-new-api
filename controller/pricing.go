@@ -1,7 +1,10 @@
 package controller
 
 import (
+	"fmt"
+
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -57,10 +60,47 @@ func GetPricing(c *gin.Context) {
 
 	usableGroup = service.GetUserUsableGroups(group)
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
-	// check groupRatio contains usableGroup
-	for group := range ratio_setting.GetGroupRatioCopy() {
-		if _, ok := usableGroup[group]; !ok {
-			delete(groupRatio, group)
+	// Append enabled BYOG Community Edge Compute models so they are visible on Model Square
+	byogModels, err := model.GetAllByogModels(true)
+	if err == nil && len(byogModels) > 0 {
+		byogSetting, _ := model.GetByogSetting()
+		for _, bm := range byogModels {
+			var pricePerMillion float64 = 0.40
+			if byogSetting != nil {
+				switch bm.PricingTier {
+				case 1:
+					pricePerMillion = byogSetting.Tier1CustomerPrice
+				case 2:
+					pricePerMillion = byogSetting.Tier2CustomerPrice
+				case 3:
+					pricePerMillion = byogSetting.Tier3CustomerPrice
+				default:
+					pricePerMillion = 0.20
+				}
+			}
+			ratio := pricePerMillion / 2.0
+			if ratio <= 0 {
+				ratio = 0.1
+			}
+
+			epTypes := []constant.EndpointType{constant.EndpointTypeOpenAI}
+			if bm.ModelType == "embedding" {
+				epTypes = []constant.EndpointType{constant.EndpointTypeEmbeddings}
+			}
+
+			pricing = append(pricing, model.Pricing{
+				ModelName:              bm.ModelId,
+				Description:            fmt.Sprintf("%s (%s BYOG Edge Compute)", bm.ModelId, bm.ParamSize),
+				Icon:                   "byog",
+				Tags:                   "byog,community,edge",
+				QuotaType:              0,
+				ModelRatio:             ratio,
+				ModelPrice:             pricePerMillion,
+				OwnerBy:                "BYOG Network",
+				CompletionRatio:        1.0,
+				EnableGroup:            []string{"default", "user"},
+				SupportedEndpointTypes: epTypes,
+			})
 		}
 	}
 

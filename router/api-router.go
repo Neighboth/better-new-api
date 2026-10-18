@@ -558,6 +558,7 @@ func SetApiRouter(router *gin.Engine) {
 				byogAdminRoute.DELETE("/loras/:id", controller.DeleteByogAdminLora)
 				byogAdminRoute.GET("/nodes", controller.GetByogAdminNodes)
 				byogAdminRoute.GET("/nodes/:id/inspect", controller.InspectByogAdminNode)
+				byogAdminRoute.DELETE("/nodes/:id", controller.DeleteAdminByogNode)
 				byogAdminRoute.GET("/banned", controller.GetByogAdminBannedNodes)
 				byogAdminRoute.POST("/banned/:id/unban", controller.UnbanByogAdminNode)
 			}

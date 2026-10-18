@@ -4,6 +4,9 @@ import subprocess
 import shutil
 import zipfile
 import json
+import argparse
+import urllib.request
+import io
 
 BUILD_TOOLS = r"C:\Users\simse\AppData\Local\Android\Sdk\build-tools\37.0.0"
 PLATFORM_JAR = r"C:\Users\simse\AppData\Local\Android\Sdk\platforms\android-34\android.jar"
@@ -16,6 +19,47 @@ APKSIGNER = os.path.join(BUILD_TOOLS, "apksigner.bat")
 ZXING_JAR = os.path.abspath(r"Z:\better-new-api\worker\mobile\zxing-core.jar")
 WORKDIR = os.path.abspath(r"Z:\better-new-api\worker\mobile\build_tmp")
 OUTPUT_APK = os.path.abspath(r"Z:\better-new-api\worker\binaries\byog-worker.apk")
+
+parser = argparse.ArgumentParser(description="BYOG Mobile APK Builder")
+parser.add_argument("--system-name", type=str, default="", help="Custom system branding name (e.g. New-API)")
+parser.add_argument("--favicon", type=str, default="", help="Favicon URL or local file path")
+parser.add_argument("--server-url", type=str, default="", help="Default embedded server address")
+parser.add_argument("--sql-dsn", type=str, default="", help="MySQL DSN to query options table")
+args, _ = parser.parse_known_args()
+
+system_name = args.system_name or os.environ.get("SYSTEM_NAME", "")
+favicon_url = args.favicon or os.environ.get("FAVICON_URL", "")
+server_url = args.server_url or os.environ.get("SERVER_URL", "")
+
+# Auto-detect options from database if not explicitly passed
+if not system_name or not favicon_url:
+    try:
+        import pymysql
+        dsn_host = "127.0.0.1"
+        dsn_port = 3308
+        dsn_user = "Salih"
+        dsn_pass = "example_pass"
+        dsn_db = "new_api"
+        conn = pymysql.connect(host=dsn_host, port=dsn_port, user=dsn_user, password=dsn_pass, database=dsn_db, connect_timeout=5)
+        with conn.cursor() as cur:
+            cur.execute("SELECT `key`, `value` FROM `options` WHERE `key` IN ('SystemName', 'Favicon', 'Logo', 'ServerAddress')")
+            for k, val in cur.fetchall():
+                if k == 'SystemName' and not system_name and val:
+                    system_name = val.strip()
+                elif k == 'Favicon' and not favicon_url and val:
+                    favicon_url = val.strip()
+                elif k == 'Logo' and not favicon_url and val:
+                    favicon_url = val.strip()
+                elif k == 'ServerAddress' and not server_url and val:
+                    server_url = val.strip()
+        conn.close()
+    except Exception as ex:
+        print("Note: Could not query DB options automatically:", ex)
+
+if not system_name or system_name == "New API":
+    system_name = "New-API"
+app_name = f"{system_name} BYOG"
+print(f"Building APK with Branding Name: '{app_name}'")
 
 if os.path.exists(WORKDIR):
     shutil.rmtree(WORKDIR, ignore_errors=True)
@@ -34,10 +78,7 @@ os.makedirs(res_mipmap, exist_ok=True)
 os.makedirs(assets_www, exist_ok=True)
 os.makedirs(src_dir, exist_ok=True)
 
-# Generic default App Name - dynamically overridden by server instance configuration
-app_name = "New-API BYOG"
-
-# strings.xml
+# strings.xml with dynamic system app name
 with open(os.path.join(res_values, "strings.xml"), "w", encoding="utf-8") as f:
     f.write(f'''<?xml version="1.0" encoding="utf-8"?>
 <resources>
@@ -55,25 +96,45 @@ with open(os.path.join(res_values, "styles.xml"), "w", encoding="utf-8") as f:
 </resources>
 ''')
 
-# Generate High-Resolution Launcher Icons and UI Logo from favicon.ico (or fallback to logo.png)
-icon_source = r"Z:\better-new-api\web\public\favicon.ico"
-if not os.path.exists(icon_source):
-    icon_source = r"Z:\better-new-api\web\public\logo.png"
+# Download or copy favicon for Android Launcher Icon
+icon_bytes = None
+if favicon_url:
+    if favicon_url.startswith("http://") or favicon_url.startswith("https://"):
+        try:
+            req = urllib.request.Request(favicon_url, headers={"User-Agent": "BYOG-Builder/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status == 200:
+                    icon_bytes = resp.read()
+                    print(f"Downloaded favicon from {favicon_url} ({len(icon_bytes)} bytes)")
+        except Exception as e:
+            print("Failed to download favicon from URL:", e)
+    elif os.path.exists(favicon_url):
+        with open(favicon_url, "rb") as f:
+            icon_bytes = f.read()
+
+from PIL import Image
 
 try:
-    from PIL import Image
-    with Image.open(icon_source) as im:
-        if getattr(im, "ico", None):
-            sizes = im.ico.sizes()
-            largest_size = max(sizes, key=lambda s: s[0] * s[1])
-            img = im.ico.getimage(largest_size).convert("RGBA")
-        else:
-            img = im.convert("RGBA")
-        img = img.resize((192, 192), Image.Resampling.LANCZOS)
-        img.save(os.path.join(res_mipmap, "ic_launcher.png"), "PNG")
-        img.save(os.path.join(res_mipmap, "ic_launcher_round.png"), "PNG")
-        img.save(os.path.join(assets_www, "logo.png"), "PNG")
-        print("Generated high-res 192x192 icons from:", icon_source)
+    if icon_bytes:
+        im = Image.open(io.BytesIO(icon_bytes))
+    else:
+        icon_source = r"Z:\better-new-api\web\public\favicon.ico"
+        if not os.path.exists(icon_source):
+            icon_source = r"Z:\better-new-api\web\public\logo.png"
+        im = Image.open(icon_source)
+
+    if getattr(im, "ico", None):
+        sizes = im.ico.sizes()
+        largest_size = max(sizes, key=lambda s: s[0] * s[1])
+        img = im.ico.getimage(largest_size).convert("RGBA")
+    else:
+        img = im.convert("RGBA")
+
+    img = img.resize((192, 192), Image.Resampling.LANCZOS)
+    img.save(os.path.join(res_mipmap, "ic_launcher.png"), "PNG")
+    img.save(os.path.join(res_mipmap, "ic_launcher_round.png"), "PNG")
+    img.save(os.path.join(assets_www, "logo.png"), "PNG")
+    print("Generated high-res 192x192 icons successfully.")
 except Exception as e:
     print("Fallback icon copy due to:", e)
     logo_src = r"Z:\better-new-api\web\public\logo.png"
@@ -86,8 +147,8 @@ except Exception as e:
 manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.byog.worker"
-    android:versionCode="5"
-    android:versionName="1.7.0">
+    android:versionCode="6"
+    android:versionName="1.8.0">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
 
@@ -101,6 +162,7 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.QUICKBOOT_POWERON" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -134,6 +196,7 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
     </application>
@@ -143,61 +206,70 @@ manifest_path = os.path.join(WORKDIR, "AndroidManifest.xml")
 with open(manifest_path, "w", encoding="utf-8") as f:
     f.write(manifest_content)
 
-# 2. Modern HTML5/CSS/JS UI in assets/www/index.html (Flawless Turkish, Zero Emojis)
-html_content = '''<!DOCTYPE html>
+# 2. Modern HTML5/CSS/JS UI in assets/www/index.html (Sequential 3-step permissions onboarding checklist)
+html_content = f'''<!DOCTYPE html>
 <html lang="tr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>New-API BYOG</title>
+  <title>{app_name}</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Plus Jakarta Sans", "Inter", "Segoe UI", Roboto, system-ui, sans-serif; user-select: none; -webkit-font-smoothing: antialiased; }
-    body { background-color: #020817; color: #f8fafc; padding: 18px; min-height: 100vh; display: flex; flex-direction: column; }
+    * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Plus Jakarta Sans", "Inter", "Segoe UI", Roboto, system-ui, sans-serif; user-select: none; -webkit-font-smoothing: antialiased; }}
+    body {{ background-color: #020817; color: #f8fafc; padding: 18px; min-height: 100vh; display: flex; flex-direction: column; }}
     
-    .header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid #1e293b; margin-bottom: 18px; }
-    .brand { display: flex; align-items: center; gap: 10px; }
-    .brand img { width: 34px; height: 34px; border-radius: 8px; object-fit: contain; }
-    .brand-title { font-size: 1.12rem; font-weight: 700; letter-spacing: -0.02em; color: #f8fafc; }
-    .badge { font-size: 0.76rem; font-weight: 600; padding: 4px 10px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 6px; }
-    .badge-amber { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
-    .badge-green { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
-    .dot { width: 6px; height: 6px; border-radius: 50%; }
-    .dot-amber { background-color: #fbbf24; }
-    .dot-green { background-color: #34d399; box-shadow: 0 0 8px #34d399; }
+    .header {{ display: flex; align-items: center; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid #1e293b; margin-bottom: 18px; }}
+    .brand {{ display: flex; align-items: center; gap: 10px; }}
+    .brand img {{ width: 34px; height: 34px; border-radius: 8px; object-fit: contain; }}
+    .brand-title {{ font-size: 1.12rem; font-weight: 700; letter-spacing: -0.02em; color: #f8fafc; }}
+    .badge {{ font-size: 0.76rem; font-weight: 600; padding: 4px 10px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 6px; }}
+    .badge-amber {{ background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }}
+    .badge-green {{ background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }}
+    .dot {{ width: 6px; height: 6px; border-radius: 50%; }}
+    .dot-amber {{ background-color: #fbbf24; }}
+    .dot-green {{ background-color: #34d399; box-shadow: 0 0 8px #34d399; }}
 
-    .card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 14px; padding: 18px; margin-bottom: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
-    .card-title { font-size: 0.85rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; display: flex; align-items: center; gap: 7px; }
+    .card {{ background-color: #0f172a; border: 1px solid #1e293b; border-radius: 14px; padding: 18px; margin-bottom: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }}
+    .card-title {{ font-size: 0.85rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; display: flex; align-items: center; gap: 7px; }}
 
-    .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 13px 18px; border-radius: 10px; font-size: 0.95rem; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s ease; }
-    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-    .btn-primary { background-color: #2563eb; color: #ffffff; }
-    .btn-primary:active:not(:disabled) { background-color: #1d4ed8; transform: scale(0.99); }
-    .btn-secondary { background-color: #1e293b; color: #e2e8f0; border: 1px solid #334155; }
-    .btn-secondary:active:not(:disabled) { background-color: #334155; transform: scale(0.99); }
-    .btn-danger { background-color: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
-    .btn-danger:active:not(:disabled) { background-color: rgba(239, 68, 68, 0.22); }
+    .btn {{ display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 13px 18px; border-radius: 10px; font-size: 0.95rem; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s ease; }}
+    .btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
+    .btn-primary {{ background-color: #2563eb; color: #ffffff; }}
+    .btn-primary:active:not(:disabled) {{ background-color: #1d4ed8; transform: scale(0.99); }}
+    .btn-secondary {{ background-color: #1e293b; color: #e2e8f0; border: 1px solid #334155; }}
+    .btn-secondary:active:not(:disabled) {{ background-color: #334155; transform: scale(0.99); }}
+    .btn-danger {{ background-color: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }}
+    .btn-danger:active:not(:disabled) {{ background-color: rgba(239, 68, 68, 0.22); }}
 
-    .input-group { display: flex; gap: 8px; margin-top: 10px; margin-bottom: 12px; }
-    .input-text { flex: 1; background-color: #020817; border: 1px solid #334155; border-radius: 8px; padding: 12px 14px; font-family: monospace; font-size: 0.95rem; font-weight: 700; color: #f8fafc; text-align: center; letter-spacing: 0.08em; text-transform: uppercase; }
-    .input-text:focus { outline: none; border-color: #3b82f6; }
-    .btn-icon { width: 46px; display: flex; align-items: center; justify-content: center; background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; color: #94a3b8; cursor: pointer; }
-    .btn-icon:active { background-color: #334155; }
+    .perm-card {{ display: flex; align-items: center; justify-content: space-between; background-color: #020817; border: 1px solid #1e293b; border-radius: 10px; padding: 13px 14px; margin-bottom: 10px; cursor: pointer; transition: all 0.2s ease; }}
+    .perm-card:active {{ background-color: #1e293b; }}
+    .perm-card.granted {{ border-color: rgba(16, 185, 129, 0.4); background-color: rgba(16, 185, 129, 0.05); }}
+    .perm-info {{ display: flex; flex-direction: column; gap: 3px; }}
+    .perm-name {{ font-size: 0.9rem; font-weight: 600; color: #f8fafc; }}
+    .perm-desc {{ font-size: 0.74rem; color: #94a3b8; }}
+    .perm-status-badge {{ font-size: 0.75rem; font-weight: 700; padding: 4px 10px; border-radius: 6px; background-color: #1e293b; color: #94a3b8; white-space: nowrap; }}
+    .perm-status-badge.granted {{ background-color: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }}
 
-    .hint-text { font-size: 0.8rem; color: #94a3b8; line-height: 1.45; }
+    .input-group {{ display: flex; gap: 8px; margin-top: 10px; margin-bottom: 12px; }}
+    .input-text {{ flex: 1; background-color: #020817; border: 1px solid #334155; border-radius: 8px; padding: 12px 14px; font-family: monospace; font-size: 0.95rem; font-weight: 700; color: #f8fafc; text-align: center; letter-spacing: 0.08em; text-transform: uppercase; }}
+    .input-text:focus {{ outline: none; border-color: #3b82f6; }}
+    .btn-icon {{ width: 46px; display: flex; align-items: center; justify-content: center; background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; color: #94a3b8; cursor: pointer; }}
+    .btn-icon:active {{ background-color: #334155; }}
 
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
-    .stat-card { background-color: #020817; border: 1px solid #1e293b; border-radius: 10px; padding: 12px; }
-    .stat-label { font-size: 0.72rem; color: #64748b; font-weight: 600; text-transform: uppercase; }
-    .stat-value { font-size: 1.05rem; font-weight: 700; color: #f8fafc; margin-top: 4px; }
-    .stat-sub { font-size: 0.72rem; color: #94a3b8; margin-top: 2px; }
+    .hint-text {{ font-size: 0.8rem; color: #94a3b8; line-height: 1.45; }}
 
-    .divider { height: 1px; background-color: #1e293b; margin: 16px 0; }
-    .hidden { display: none !important; }
+    .grid-2 {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }}
+    .stat-card {{ background-color: #020817; border: 1px solid #1e293b; border-radius: 10px; padding: 12px; }}
+    .stat-label {{ font-size: 0.72rem; color: #64748b; font-weight: 600; text-transform: uppercase; }}
+    .stat-value {{ font-size: 1.05rem; font-weight: 700; color: #f8fafc; margin-top: 4px; }}
+    .stat-sub {{ font-size: 0.72rem; color: #94a3b8; margin-top: 2px; }}
+
+    .divider {{ height: 1px; background-color: #1e293b; margin: 16px 0; }}
+    .hidden {{ display: none !important; }}
     
-    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background-color: #1e293b; border: 1px solid #334155; color: #f8fafc; padding: 10px 18px; border-radius: 8px; font-size: 0.85rem; font-weight: 500; z-index: 1000; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; white-space: nowrap; max-width: 90%; text-overflow: ellipsis; overflow: hidden; }
-    .toast.show { opacity: 1; }
+    .toast {{ position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background-color: #1e293b; border: 1px solid #334155; color: #f8fafc; padding: 10px 18px; border-radius: 8px; font-size: 0.85rem; font-weight: 500; z-index: 1000; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; white-space: nowrap; max-width: 90%; text-overflow: ellipsis; overflow: hidden; }}
+    .toast.show {{ opacity: 1; }}
 
-    svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    svg {{ width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }}
   </style>
 </head>
 <body>
@@ -206,16 +278,57 @@ html_content = '''<!DOCTYPE html>
   <div class="header">
     <div class="brand">
       <img id="app-logo" src="logo.png" onerror="this.onerror=null; this.src='logo.png';">
-      <div id="app-title" class="brand-title">New-API BYOG</div>
+      <div id="app-title" class="brand-title">{app_name}</div>
     </div>
     <div id="status-badge" class="badge badge-amber">
       <div class="dot dot-amber"></div>
-      <span id="status-text">Eşleştirme Bekleniyor</span>
+      <span id="status-text">Kurulum Bekleniyor</span>
+    </div>
+  </div>
+
+  <!-- View 0: Sequential Permissions Checklist -->
+  <div id="permissions-view">
+    <div class="card">
+      <div class="card-title">
+        <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span>Gerekli Sistem İzinleri</span>
+      </div>
+      <p class="hint-text" style="margin-bottom: 16px;">
+        Uygulamanın arka planda kesintisiz çalışabilmesi, yapay zeka çıkarım görevlerini yerine getirebilmesi ve sistem bildirimlerini iletebilmesi için aşağıdaki 3 iznin verilmesi gerekmektedir.
+      </p>
+
+      <div class="perm-card" id="card-perm-notif" onclick="requestNotifPerm()">
+        <div class="perm-info">
+          <span class="perm-name">1. Bildirim İzni</span>
+          <span class="perm-desc">Çıkarım ve model durumunu takip için</span>
+        </div>
+        <span class="perm-status-badge" id="badge-perm-notif">İzin Ver</span>
+      </div>
+
+      <div class="perm-card" id="card-perm-battery" onclick="requestBatteryPerm()">
+        <div class="perm-info">
+          <span class="perm-name">2. Pil Optimizasyonunu Kapat</span>
+          <span class="perm-desc">Arka planda sistem tarafından kapatılmaması için</span>
+        </div>
+        <span class="perm-status-badge" id="badge-perm-battery">Kapat</span>
+      </div>
+
+      <div class="perm-card" id="card-perm-autostart" onclick="requestAutoStartPerm()">
+        <div class="perm-info">
+          <span class="perm-name">3. Başlangıçta Otomatik Çalıştırma</span>
+          <span class="perm-desc">Cihaz yeniden başladığında otomatik devreye girer</span>
+        </div>
+        <span class="perm-status-badge" id="badge-perm-autostart">İzin Ver</span>
+      </div>
+
+      <button id="btn-perm-continue" class="btn btn-primary" onclick="proceedToPairing()" style="margin-top: 14px;">
+        <span>Eşleştirmeye Devam Et</span>
+      </button>
     </div>
   </div>
 
   <!-- View 1: Unpaired (Single Flow: Scan QR or Enter Code) -->
-  <div id="unpaired-view">
+  <div id="unpaired-view" class="hidden">
     <div class="card">
       <div class="card-title">
         <svg viewBox="0 0 24 24"><path d="M4 7V4h3M20 7V4h-3M4 17v3h3M20 17v3h-3M9 9h6v6H9z"/></svg>
@@ -248,11 +361,6 @@ html_content = '''<!DOCTYPE html>
       <button id="btn-connect" class="btn btn-secondary" onclick="connectManual()">
         <span>Cihazı Bağla</span>
       </button>
-
-      <button class="btn btn-secondary" onclick="requestAutoStart()" style="margin-top: 10px;">
-        <svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-        <span>Otomatik Başlatma İzni</span>
-      </button>
     </div>
   </div>
 
@@ -262,6 +370,16 @@ html_content = '''<!DOCTYPE html>
       <div class="card-title">
         <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
         <span>Hesaplama Düğümü Durumu</span>
+      </div>
+
+      <!-- Active Model Status Card -->
+      <div class="stat-card" style="margin-bottom: 12px; border-color: rgba(59, 130, 246, 0.3);">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div class="stat-label">Aktif Model</div>
+          <span id="stat-model-badge" class="badge badge-amber" style="font-size: 0.7rem; padding: 2px 8px;">Beklemede</span>
+        </div>
+        <div id="stat-model-name" class="stat-value" style="font-size: 0.95rem; font-family: monospace; margin-top: 4px;">qwen-2.5-0.5b-instruct</div>
+        <div id="stat-model-desc" class="stat-sub">Çıkarım motoru hazır</div>
       </div>
 
       <div class="grid-2">
@@ -293,11 +411,6 @@ html_content = '''<!DOCTYPE html>
         Worker arka planda güvenle çalışmaktadır. Cihaz uyku moduna geçse dahi hesaplama görevleri kesintisiz devam eder.
       </p>
 
-      <button class="btn btn-secondary" onclick="requestAutoStart()" style="margin-bottom: 10px;">
-        <svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-        <span>Otomatik Başlatma İzni</span>
-      </button>
-
       <button class="btn btn-danger" onclick="disconnectNode()">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
         <span>Bağlantıyı Kes</span>
@@ -308,122 +421,179 @@ html_content = '''<!DOCTYPE html>
   <div id="toast" class="toast"></div>
 
   <script>
-    function showToast(msg) {
+    let permissionsCompleted = false;
+
+    function showToast(msg) {{
       const t = document.getElementById('toast');
       t.innerText = msg;
       t.classList.add('show');
       setTimeout(() => t.classList.remove('show'), 3000);
-    }
+    }}
 
-    function setConnectingState(isConnecting) {
+    function refreshPermissions() {{
+      if (window.AndroidBridge && window.AndroidBridge.getPermissionStatus) {{
+        try {{
+          const p = JSON.parse(window.AndroidBridge.getPermissionStatus());
+          const notifCard = document.getElementById('card-perm-notif');
+          const notifBadge = document.getElementById('badge-perm-notif');
+          if (p.notifications) {{
+            notifCard.classList.add('granted');
+            notifBadge.className = 'perm-status-badge granted';
+            notifBadge.innerText = '✓ Verildi';
+          }}
+
+          const battCard = document.getElementById('card-perm-battery');
+          const battBadge = document.getElementById('badge-perm-battery');
+          if (p.battery) {{
+            battCard.classList.add('granted');
+            battBadge.className = 'perm-status-badge granted';
+            battBadge.innerText = '✓ Kaldırıldı';
+          }}
+
+          const autoCard = document.getElementById('card-perm-autostart');
+          const autoBadge = document.getElementById('badge-perm-autostart');
+          if (p.autostart) {{
+            autoCard.classList.add('granted');
+            autoBadge.className = 'perm-status-badge granted';
+            autoBadge.innerText = '✓ Verildi';
+          }}
+
+          if (p.notifications && p.battery && p.autostart) {{
+            permissionsCompleted = true;
+          }}
+        }} catch(e) {{}}
+      }}
+    }}
+    window.refreshPermissions = refreshPermissions;
+
+    function requestNotifPerm() {{
+      if (window.AndroidBridge && window.AndroidBridge.requestNotificationPermission) {{
+        window.AndroidBridge.requestNotificationPermission();
+      }}
+      setTimeout(refreshPermissions, 800);
+    }}
+
+    function requestBatteryPerm() {{
+      if (window.AndroidBridge && window.AndroidBridge.requestBatteryOptimization) {{
+        window.AndroidBridge.requestBatteryOptimization();
+      }}
+      setTimeout(refreshPermissions, 1000);
+    }}
+
+    function requestAutoStartPerm() {{
+      if (window.AndroidBridge && window.AndroidBridge.openAutoStartSettings) {{
+        window.AndroidBridge.openAutoStartSettings();
+      }}
+      setTimeout(refreshPermissions, 1200);
+    }}
+
+    function proceedToPairing() {{
+      document.getElementById('permissions-view').classList.add('hidden');
+      document.getElementById('unpaired-view').classList.remove('hidden');
+    }}
+
+    function setConnectingState(isConnecting) {{
       const btn = document.getElementById('btn-connect');
       const scanBtn = document.getElementById('btn-scan');
-      if (isConnecting) {
+      if (isConnecting) {{
         btn.disabled = true;
         btn.innerHTML = '<span>Bağlantı Kuruluyor...</span>';
         scanBtn.disabled = true;
-      } else {
+      }} else {{
         btn.disabled = false;
         btn.innerHTML = '<span>Cihazı Bağla</span>';
         scanBtn.disabled = false;
-      }
-    }
+      }}
+    }}
     window.setConnectingState = setConnectingState;
 
-    function startQrScan() {
-      if (window.AndroidBridge && window.AndroidBridge.scanQrCode) {
+    function startQrScan() {{
+      if (window.AndroidBridge && window.AndroidBridge.scanQrCode) {{
         window.AndroidBridge.scanQrCode();
-      } else {
+      }} else {{
         showToast("Kamera başlatılamadı");
-      }
-    }
+      }}
+    }}
 
-    function pasteCode() {
-      if (window.AndroidBridge && window.AndroidBridge.pasteFromClipboard) {
+    function pasteCode() {{
+      if (window.AndroidBridge && window.AndroidBridge.pasteFromClipboard) {{
         const txt = window.AndroidBridge.pasteFromClipboard();
-        if (txt) {
+        if (txt) {{
           document.getElementById('input-code').value = txt.trim().toUpperCase();
           showToast("Kod yapıştırıldı");
-        }
-      }
-    }
+        }}
+      }}
+    }}
 
-    function connectManual() {
+    function connectManual() {{
       const code = document.getElementById('input-code').value.trim().toUpperCase();
-      if (!code) {
+      if (!code) {{
         showToast("Lütfen eşleştirme kodunu girin");
         return;
-      }
-      if (window.AndroidBridge && window.AndroidBridge.connect) {
+      }}
+      if (window.AndroidBridge && window.AndroidBridge.connect) {{
         window.AndroidBridge.connect(code, "");
-      }
-    }
+      }}
+    }}
 
-    function disconnectNode() {
-      if (window.AndroidBridge && window.AndroidBridge.disconnect) {
+    function disconnectNode() {{
+      if (window.AndroidBridge && window.AndroidBridge.disconnect) {{
         window.AndroidBridge.disconnect();
-      }
-    }
+      }}
+    }}
 
-    function requestAutoStart() {
-      if (window.AndroidBridge && window.AndroidBridge.openAutoStartSettings) {
-        window.AndroidBridge.openAutoStartSettings();
-      }
-    }
-
-    window.updateLogo = function(base64Uri) {
+    window.updateLogo = function(base64Uri) {{
       if (!base64Uri) return;
       const img = document.getElementById('app-logo');
       if (img) img.src = base64Uri;
-    };
+    }};
 
-    // Called automatically by Android when QR code is scanned
-    window.handleScannedQr = function(rawText) {
+    window.handleScannedQr = function(rawText) {{
       if (!rawText) return;
-      try {
+      try {{
         const obj = JSON.parse(rawText);
         const serverUrl = obj.server_url || "";
         const c = obj.pairing_code || obj.code;
         const qrAppName = obj.app_name || "";
         const qrFavicon = obj.favicon || "";
-        if (c) {
+        if (c) {{
           document.getElementById('input-code').value = c;
-          if (window.AndroidBridge && window.AndroidBridge.connectWithMeta) {
+          if (window.AndroidBridge && window.AndroidBridge.connectWithMeta) {{
             window.AndroidBridge.connectWithMeta(c, serverUrl, qrAppName, qrFavicon);
-          } else if (window.AndroidBridge && window.AndroidBridge.connect) {
+          }} else if (window.AndroidBridge && window.AndroidBridge.connect) {{
             window.AndroidBridge.connect(c, serverUrl);
-          }
+          }}
           return;
-        }
-      } catch (e) {
+        }}
+      }} catch (e) {{
         document.getElementById('input-code').value = rawText.trim().toUpperCase();
         connectManual();
-      }
-    };
+      }}
+    }};
 
-    // Called by Android on state update
-    window.updateState = function(stateJson) {
-      try {
+    window.updateState = function(stateJson) {{
+      try {{
         const s = typeof stateJson === 'string' ? JSON.parse(stateJson) : stateJson;
-        if (s.app_name) {
+        if (s.app_name) {{
           document.getElementById('app-title').innerText = s.app_name;
           document.title = s.app_name;
-        }
-        if (s.favicon_base64 && s.favicon_base64.length > 0) {
+        }}
+        if (s.favicon_base64 && s.favicon_base64.length > 0) {{
           document.getElementById('app-logo').src = s.favicon_base64;
-        } else if (s.favicon && s.favicon.length > 0) {
+        }} else if (s.favicon && s.favicon.length > 0) {{
           let fav = s.favicon;
-          if (fav.startsWith('/') && s.server_url) {
+          if (fav.startsWith('/') && s.server_url) {{
             fav = s.server_url.replace(/\\/+$/, '') + fav;
-          }
+          }}
           const img = document.getElementById('app-logo');
-          img.onerror = function() {
+          img.onerror = function() {{
             this.onerror = null;
             this.src = 'logo.png';
-          };
+          }};
           img.src = fav;
-        }
-        if (s.is_paired) {
+        }}
+        if (s.is_paired) {{
+          document.getElementById('permissions-view').classList.add('hidden');
           document.getElementById('unpaired-view').classList.add('hidden');
           document.getElementById('paired-view').classList.remove('hidden');
           
@@ -431,50 +601,71 @@ html_content = '''<!DOCTYPE html>
           badge.className = 'badge badge-green';
           badge.innerHTML = '<div class="dot dot-green"></div><span>Aktif & Bağlı</span>';
 
-          if (s.server_url) {
-            try {
+          if (s.server_url) {{
+            try {{
               const u = new URL(s.server_url);
               document.getElementById('stat-server').innerText = u.host;
-            } catch(e) {
+            }} catch(e) {{
               document.getElementById('stat-server').innerText = s.server_url;
-            }
-          }
-          if (s.node_id) {
+            }}
+          }}
+          if (s.node_id) {{
             document.getElementById('stat-node').innerText = "Node: " + s.node_id.substring(0, 8);
-          }
-          if (s.battery_level !== undefined) {
+          }}
+          if (s.battery_level !== undefined) {{
             document.getElementById('stat-battery').innerHTML = s.battery_level + "% / " + (s.battery_temp || 31) + "&deg;C";
-          }
-        } else {
-          document.getElementById('unpaired-view').classList.remove('hidden');
+          }}
+          if (s.assigned_model) {{
+            document.getElementById('stat-model-name').innerText = s.assigned_model;
+          }}
+          if (s.model_status_desc) {{
+            document.getElementById('stat-model-desc').innerText = s.model_status_desc;
+          }}
+          if (s.model_status) {{
+            const mBadge = document.getElementById('stat-model-badge');
+            if (s.model_status === 'ready') {{
+              mBadge.className = 'badge badge-green';
+              mBadge.innerText = 'Hazır (Beklemede)';
+            }} else if (s.model_status === 'downloading') {{
+              mBadge.className = 'badge badge-amber';
+              mBadge.innerText = 'İndiriliyor';
+            }} else {{
+              mBadge.className = 'badge badge-amber';
+              mBadge.innerText = 'Beklemede';
+            }}
+          }}
+        }} else {{
           document.getElementById('paired-view').classList.add('hidden');
+          if (s.permissions_done || permissionsCompleted) {{
+            document.getElementById('permissions-view').classList.add('hidden');
+            document.getElementById('unpaired-view').classList.remove('hidden');
+          }} else {{
+            document.getElementById('permissions-view').classList.remove('hidden');
+            document.getElementById('unpaired-view').classList.add('hidden');
+          }}
 
           const badge = document.getElementById('status-badge');
           badge.className = 'badge badge-amber';
           badge.innerHTML = '<div class="dot dot-amber"></div><span>Eşleştirme Bekleniyor</span>';
-        }
-      } catch(e) {}
-    };
+        }}
+      }} catch(e) {{}}
+    }};
 
-    // Periodic state polling every 1.5s to ensure UI reflects real-time status
-    setInterval(function() {
-      if (window.AndroidBridge && window.AndroidBridge.getInitialState) {
+    setInterval(function() {{
+      if (window.AndroidBridge && window.AndroidBridge.getInitialState) {{
         const st = window.AndroidBridge.getInitialState();
-        if (st) {
-          window.updateState(st);
-        }
-      }
-    }, 1500);
+        if (st) window.updateState(st);
+      }}
+      refreshPermissions();
+    }}, 1500);
 
-    // Initial state on load
-    window.onload = function() {
-      if (window.AndroidBridge && window.AndroidBridge.getInitialState) {
+    window.onload = function() {{
+      refreshPermissions();
+      if (window.AndroidBridge && window.AndroidBridge.getInitialState) {{
         const initStr = window.AndroidBridge.getInitialState();
-        if (initStr) {
-          window.updateState(initStr);
-        }
-      }
-    };
+        if (initStr) window.updateState(initStr);
+      }}
+    }};
   </script>
 </body>
 </html>
@@ -546,10 +737,11 @@ public class ApkConfigReader {
 with open(os.path.join(src_dir, "ApkConfigReader.java"), "w", encoding="utf-8") as f:
     f.write(apk_config_reader_content)
 
-# MainActivity.java
+# MainActivity.java (Permission checklist methods, Honor Pad 10 autostart intent resolver, Real Hardware detection)
 main_activity_content = '''package org.byog.worker;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.content.BroadcastReceiver;
 import android.content.ClipboardManager;
 import android.content.ComponentName;
@@ -564,7 +756,9 @@ import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.PowerManager;
+import android.os.StatFs;
 import android.provider.Settings;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
@@ -612,7 +806,6 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Read dynamic configuration embedded inside APK Signing Block
         String appName = "New-API BYOG";
         try {
             String embedded = ApkConfigReader.readConfig(getApplicationInfo().sourceDir);
@@ -663,13 +856,19 @@ public class MainActivity extends Activity {
         webView.addJavascriptInterface(new WebAppInterface(), "AndroidBridge");
         webView.loadUrl("file:///android_asset/www/index.html");
 
-        requestInitialPermissions();
-
         IntentFilter filter = new IntentFilter("org.byog.worker.STATE_CHANGED");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(stateReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         } else {
             registerReceiver(stateReceiver, filter);
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (webView != null) {
+            webView.evaluateJavascript("if (window.refreshPermissions) window.refreshPermissions();", null);
         }
     }
 
@@ -681,67 +880,57 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
-    private void requestInitialPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, REQ_POST_NOTIFS);
-            }
-        }
-
-        try {
-            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                intent.setData(Uri.parse("package:" + getPackageName()));
-                startActivity(intent);
-            }
-        } catch (Exception ignored) {}
-
-        requestAutoStartPermission();
-    }
-
-    public void requestAutoStartPermission() {
-        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-        boolean prompted = sp.getBoolean("autostart_prompted", false);
-        if (prompted) return;
-        sp.edit().putBoolean("autostart_prompted", true).apply();
-        openAutoStartSettings();
-    }
-
     public void openAutoStartSettings() {
-        String manufacturer = Build.MANUFACTURER.toLowerCase();
-        Intent intent = new Intent();
-        boolean found = false;
+        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+        sp.edit().putBoolean("autostart_granted", true).apply();
 
-        try {
-            if (manufacturer.contains("xiaomi") || manufacturer.contains("redmi")) {
-                intent.setComponent(new ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"));
-                found = true;
-            } else if (manufacturer.contains("huawei") || manufacturer.contains("honor")) {
-                intent.setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"));
-                found = true;
-            } else if (manufacturer.contains("oppo") || manufacturer.contains("realme")) {
-                intent.setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"));
-                found = true;
-            } else if (manufacturer.contains("vivo")) {
-                intent.setComponent(new ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"));
-                found = true;
-            } else if (manufacturer.contains("samsung")) {
-                intent.setComponent(new ComponentName("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity"));
-                found = true;
-            }
-        } catch (Exception ignored) {}
+        Intent[] candidates = new Intent[] {
+            // Honor MagicOS / Magic UI (Honor Pad 10 and all Honor devices)
+            new Intent().setComponent(new ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.appcontrol.activity.StartupAppControlActivity")),
+            new Intent().setComponent(new ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity")),
+            new Intent().setComponent(new ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.optimize.process.ProtectActivity")),
 
-        if (found) {
+            // Huawei EMUI
+            new Intent().setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity")),
+            new Intent().setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")),
+            new Intent().setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity")),
+
+            // Xiaomi MIUI / HyperOS
+            new Intent().setComponent(new ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")),
+
+            // Oppo / Realme / OnePlus
+            new Intent().setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity")),
+            new Intent().setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity")),
+            new Intent().setComponent(new ComponentName("com.oplus.safecenter", "com.oplus.safecenter.startupapp.StartupAppListActivity")),
+            new Intent().setComponent(new ComponentName("com.realme.safecenter", "com.realme.safecenter.startupapp.StartupAppListActivity")),
+
+            // Vivo / iQOO
+            new Intent().setComponent(new ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity")),
+            new Intent().setComponent(new ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity")),
+
+            // Samsung OneUI
+            new Intent().setComponent(new ComponentName("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity")),
+            new Intent().setComponent(new ComponentName("com.samsung.android.sm", "com.samsung.android.sm.ui.battery.BatteryActivity")),
+
+            // Transsion (Infinix / Tecno)
+            new Intent().setComponent(new ComponentName("com.transsion.phonemaster", "com.transsion.phonemaster.StartupManagerActivity"))
+        };
+
+        PackageManager pm = getPackageManager();
+        for (Intent candidate : candidates) {
             try {
-                startActivity(intent);
-                return;
+                candidate.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (pm.queryIntentActivities(candidate, PackageManager.MATCH_DEFAULT_ONLY).size() > 0) {
+                    startActivity(candidate);
+                    return;
+                }
             } catch (Exception ignored) {}
         }
 
         try {
             Intent appDetails = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
             appDetails.setData(Uri.parse("package:" + getPackageName()));
+            appDetails.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(appDetails);
         } catch (Exception ignored) {}
     }
@@ -812,6 +1001,63 @@ public class MainActivity extends Activity {
 
     public class WebAppInterface {
         @JavascriptInterface
+        public String getPermissionStatus() {
+            JSONObject obj = new JSONObject();
+            try {
+                boolean notif = true;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    notif = checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+                }
+
+                boolean battery = true;
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                if (pm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    battery = pm.isIgnoringBatteryOptimizations(getPackageName());
+                }
+
+                SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+                boolean autostart = sp.getBoolean("autostart_granted", false);
+
+                obj.put("notifications", notif);
+                obj.put("battery", battery);
+                obj.put("autostart", autostart);
+            } catch (Exception ignored) {}
+            return obj.toString();
+        }
+
+        @JavascriptInterface
+        public void requestNotificationPermission() {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, REQ_POST_NOTIFS);
+                    return;
+                }
+            }
+            if (webView != null) webView.evaluateJavascript("if (window.refreshPermissions) window.refreshPermissions();", null);
+        }
+
+        @JavascriptInterface
+        public void requestBatteryOptimization() {
+            try {
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                if (pm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                        Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                        intent.setData(Uri.parse("package:" + getPackageName()));
+                        startActivity(intent);
+                        return;
+                    }
+                }
+            } catch (Exception ignored) {}
+            if (webView != null) webView.evaluateJavascript("if (window.refreshPermissions) window.refreshPermissions();", null);
+        }
+
+        @JavascriptInterface
+        public void openAutoStartSettings() {
+            MainActivity.this.openAutoStartSettings();
+        }
+
+        @JavascriptInterface
         public void scanQrCode() {
             if (checkSelfPermission(android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{android.Manifest.permission.CAMERA}, REQ_CAMERA_PERM);
@@ -831,11 +1077,6 @@ public class MainActivity extends Activity {
                 }
             } catch (Exception ignored) {}
             return "";
-        }
-
-        @JavascriptInterface
-        public void openAutoStartSettings() {
-            MainActivity.this.openAutoStartSettings();
         }
 
         @JavascriptInterface
@@ -898,6 +1139,16 @@ public class MainActivity extends Activity {
                             }
                         });
 
+                        // Real Hardware Telemetry Detection
+                        ActivityManager actMgr = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+                        ActivityManager.MemoryInfo memInfo = new ActivityManager.MemoryInfo();
+                        if (actMgr != null) actMgr.getMemoryInfo(memInfo);
+                        int realPhysicalRamMB = (int) (memInfo.totalMem / (1024L * 1024L));
+                        if (realPhysicalRamMB <= 0) realPhysicalRamMB = 4096;
+
+                        int cores = Runtime.getRuntime().availableProcessors();
+                        if (cores <= 0) cores = 4;
+
                         Intent batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
                         int level = -1;
                         int scale = 100;
@@ -916,10 +1167,11 @@ public class MainActivity extends Activity {
                         req.put("arch", Build.SUPPORTED_ABIS[0]);
                         req.put("device_name", Build.MANUFACTURER + " " + Build.MODEL);
                         req.put("device_type", "mobile");
-                        req.put("cpu_model", Build.HARDWARE);
-                        req.put("physical_ram_mb", 6144);
-                        req.put("swap_ram_mb", 2048);
-                        req.put("vram_mb", 2048);
+                        req.put("cpu_model", Build.HARDWARE + " (" + cores + " cores)");
+                        req.put("physical_ram_mb", realPhysicalRamMB);
+                        req.put("swap_ram_mb", 0);
+                        req.put("vram_mb", 0); // Mobile uses unified memory (no discrete VRAM)
+                        req.put("shared_vram_mb", realPhysicalRamMB);
                         req.put("battery_temp", temp);
                         req.put("battery_percent", percent);
 
@@ -975,6 +1227,14 @@ public class MainActivity extends Activity {
                             final String returnedFaviconB64 = data.optString("favicon_base64", "");
                             boolean isPaired = data.optBoolean("is_paired", false);
 
+                            String assignedModel = "qwen-2.5-0.5b-instruct";
+                            if (data.has("assigned_models")) {
+                                org.json.JSONArray mArr = data.optJSONArray("assigned_models");
+                                if (mArr != null && mArr.length() > 0) {
+                                    assignedModel = mArr.optString(0);
+                                }
+                            }
+
                             if (isPaired && !returnedNodeId.isEmpty()) {
                                 SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
                                 SharedPreferences.Editor ed = sp.edit()
@@ -983,6 +1243,7 @@ public class MainActivity extends Activity {
                                   .putString("node_id", returnedNodeId)
                                   .putString("app_name", returnedAppName)
                                   .putString("favicon", returnedFavicon)
+                                  .putString("assigned_model", assignedModel)
                                   .putBoolean("is_paired", true)
                                   .putInt("battery_percent", percent)
                                   .putFloat("battery_temp", temp);
@@ -999,6 +1260,7 @@ public class MainActivity extends Activity {
 
                                 final int finalPercent = percent;
                                 final float finalTemp = temp;
+                                final String finalAssignedModel = assignedModel;
 
                                 runOnUiThread(new Runnable() {
                                     @Override
@@ -1027,6 +1289,9 @@ public class MainActivity extends Activity {
                                             }
                                             state.put("battery_level", finalPercent);
                                             state.put("battery_temp", finalTemp);
+                                            state.put("assigned_model", finalAssignedModel);
+                                            state.put("model_status", "ready");
+                                            state.put("model_status_desc", finalAssignedModel + " hazır (Beklemede)");
                                         } catch (Exception ignored) {}
                                         if (webView != null) {
                                             webView.evaluateJavascript("window.updateState(" + state.toString() + ")", null);
@@ -1081,6 +1346,7 @@ public class MainActivity extends Activity {
                         state.put("app_name", sp.getString("app_name", "New-API BYOG"));
                         state.put("favicon", sp.getString("favicon", "logo.png"));
                         state.put("favicon_base64", sp.getString("favicon_base64", ""));
+                        state.put("permissions_done", true);
                     } catch (Exception ignored) {}
                     webView.evaluateJavascript("window.updateState(" + state.toString() + ")", null);
                 }
@@ -1107,6 +1373,9 @@ public class MainActivity extends Activity {
                 state.put("favicon_base64", faviconBase64);
                 state.put("battery_level", sp.getInt("battery_percent", 100));
                 state.put("battery_temp", (float) sp.getFloat("battery_temp", 31.0f));
+                state.put("assigned_model", sp.getString("assigned_model", "qwen-2.5-0.5b-instruct"));
+                state.put("model_status", sp.getString("model_status", "ready"));
+                state.put("model_status_desc", sp.getString("model_status_desc", "Model hazır (Beklemede)"));
             } catch (Exception ignored) {}
             return state.toString();
         }
@@ -1130,6 +1399,8 @@ public class MainActivity extends Activity {
         if (requestCode == REQ_CAMERA_PERM && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             Intent intent = new Intent(MainActivity.this, QRScanActivity.class);
             startActivityForResult(intent, REQ_QR_SCAN);
+        } else if (requestCode == REQ_POST_NOTIFS) {
+            if (webView != null) webView.evaluateJavascript("if (window.refreshPermissions) window.refreshPermissions();", null);
         }
     }
 }
@@ -1265,9 +1536,10 @@ public class QRScanActivity extends Activity implements SurfaceHolder.Callback, 
 with open(os.path.join(src_dir, "QRScanActivity.java"), "w", encoding="utf-8") as f:
     f.write(qr_scan_activity_content)
 
-# WorkerService.java (Dynamic app name, custom favicon notification icon, strict pairing guard)
+# WorkerService.java (Real hardware specs, assigned model downloading & running status simulation, foreground notification)
 worker_service_content = '''package org.byog.worker;
 
+import android.app.ActivityManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -1285,6 +1557,7 @@ import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -1301,6 +1574,9 @@ public class WorkerService extends Service {
     private WifiManager.WifiLock wifiLock;
     private boolean isRunning = false;
     private Thread workerThread;
+    private int downloadProgress = 0;
+    private String currentAssignedModel = "";
+    private String currentModelStatus = "ready";
 
     @Override
     public void onCreate() {
@@ -1320,8 +1596,9 @@ public class WorkerService extends Service {
         if (isRunning) return START_STICKY;
         isRunning = true;
 
+        currentAssignedModel = sp.getString("assigned_model", "qwen-2.5-0.5b-instruct");
         String appName = sp.getString("app_name", "New-API BYOG");
-        Notification notification = buildNotification(appName, "Hesaplama ağına bağlı ve aktif");
+        Notification notification = buildNotification(appName, currentAssignedModel + " hazır (Beklemede)");
 
         try {
             if (Build.VERSION.SDK_INT >= 29) {
@@ -1391,6 +1668,16 @@ public class WorkerService extends Service {
                 serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
             }
 
+            // Real Hardware Telemetry Detection
+            ActivityManager actMgr = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            ActivityManager.MemoryInfo memInfo = new ActivityManager.MemoryInfo();
+            if (actMgr != null) actMgr.getMemoryInfo(memInfo);
+            int realPhysicalRamMB = (int) (memInfo.totalMem / (1024L * 1024L));
+            if (realPhysicalRamMB <= 0) realPhysicalRamMB = 4096;
+
+            int cores = Runtime.getRuntime().availableProcessors();
+            if (cores <= 0) cores = 4;
+
             Intent batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
             int level = -1;
             int scale = 100;
@@ -1409,12 +1696,19 @@ public class WorkerService extends Service {
             req.put("arch", Build.SUPPORTED_ABIS[0]);
             req.put("device_name", Build.MANUFACTURER + " " + Build.MODEL);
             req.put("device_type", "mobile");
-            req.put("cpu_model", Build.HARDWARE);
-            req.put("physical_ram_mb", 6144);
-            req.put("swap_ram_mb", 2048);
-            req.put("vram_mb", 2048);
+            req.put("cpu_model", Build.HARDWARE + " (" + cores + " cores)");
+            req.put("physical_ram_mb", realPhysicalRamMB);
+            req.put("swap_ram_mb", 0);
+            req.put("vram_mb", 0); // Mobile uses unified memory
+            req.put("shared_vram_mb", realPhysicalRamMB);
             req.put("battery_temp", temp);
             req.put("battery_percent", percent);
+
+            if (!currentAssignedModel.isEmpty()) {
+                JSONArray inst = new JSONArray();
+                inst.put(currentAssignedModel);
+                req.put("installed_models", inst.toString());
+            }
 
             String[] endpoints = new String[]{
                 serverUrl + "/api/v1/worker/register",
@@ -1459,10 +1753,41 @@ public class WorkerService extends Service {
                                 return;
                             }
 
+                            // Process model assignment from scheduler
+                            if (data.has("assigned_models")) {
+                                JSONArray arr = data.optJSONArray("assigned_models");
+                                if (arr != null && arr.length() > 0) {
+                                    String model = arr.optString(0);
+                                    if (!model.isEmpty() && !model.equals(currentAssignedModel)) {
+                                        currentAssignedModel = model;
+                                        downloadProgress = 0;
+                                    }
+                                }
+                            }
+                            if (currentAssignedModel.isEmpty()) {
+                                currentAssignedModel = "qwen-2.5-0.5b-instruct";
+                            }
+
+                            String statusMsg;
+                            if (downloadProgress < 100) {
+                                downloadProgress += 35;
+                                if (downloadProgress > 100) downloadProgress = 100;
+                            }
+                            if (downloadProgress < 100) {
+                                currentModelStatus = "downloading";
+                                statusMsg = currentAssignedModel + " indiriliyor... %" + downloadProgress;
+                            } else {
+                                currentModelStatus = "ready";
+                                statusMsg = currentAssignedModel + " hazır (Beklemede)";
+                            }
+
                             SharedPreferences.Editor ed = sp.edit()
                               .putString("node_id", returnedNodeId)
                               .putString("app_name", appName)
                               .putString("favicon", favicon)
+                              .putString("assigned_model", currentAssignedModel)
+                              .putString("model_status", currentModelStatus)
+                              .putString("model_status_desc", statusMsg)
                               .putBoolean("is_paired", isPaired)
                               .putInt("battery_percent", percent)
                               .putFloat("battery_temp", temp);
@@ -1472,7 +1797,7 @@ public class WorkerService extends Service {
                             }
                             ed.apply();
 
-                            Notification updated = buildNotification(appName, "Hesaplama ağına bağlı (Aktif)");
+                            Notification updated = buildNotification(appName, statusMsg);
                             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
                             if (nm != null) nm.notify(NOTIF_ID, updated);
 
@@ -1487,6 +1812,9 @@ public class WorkerService extends Service {
                             }
                             state.put("battery_level", percent);
                             state.put("battery_temp", temp);
+                            state.put("assigned_model", currentAssignedModel);
+                            state.put("model_status", currentModelStatus);
+                            state.put("model_status_desc", statusMsg);
 
                             Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
                             bIntent.putExtra("state", state.toString());
@@ -1571,7 +1899,8 @@ import android.os.Build;
 public class BootReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+        String action = intent.getAction();
+        if (Intent.ACTION_BOOT_COMPLETED.equals(action) || "android.intent.action.QUICKBOOT_POWERON".equals(action)) {
             SharedPreferences sp = context.getSharedPreferences("byog_prefs", Context.MODE_PRIVATE);
             boolean isPaired = sp.getBoolean("is_paired", false);
             String nodeId = sp.getString("node_id", "");
@@ -1594,7 +1923,11 @@ print("Java sources and assets written successfully.")
 
 # 4. AAPT2 Compile
 compiled_res = os.path.join(WORKDIR, "compiled.flata")
-subprocess.check_call([AAPT2, "compile", "--dir", res_dir, "-o", compiled_res])
+subprocess.check_call([
+    AAPT2, "compile",
+    "--dir", res_dir,
+    "-o", compiled_res
+])
 
 # 5. AAPT2 Link
 unaligned_apk = os.path.join(WORKDIR, "unaligned.apk")

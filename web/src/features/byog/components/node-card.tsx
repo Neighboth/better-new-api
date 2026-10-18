@@ -130,6 +130,42 @@ export function NodeCard({
     }
   }
 
+  const getModelStatusInfo = () => {
+    let installed: string[] = []
+    let queue: string[] = []
+    try {
+      if (node.installed_models) installed = JSON.parse(node.installed_models)
+    } catch {}
+    try {
+      if (node.download_queue) queue = JSON.parse(node.download_queue)
+    } catch {}
+
+    if (installed && installed.length > 0) {
+      return {
+        model: installed[0],
+        status:
+          node.current_tps > 0
+            ? t('byog.model_working', 'Üretimde')
+            : t('byog.model_ready', 'Hazır (Beklemede)'),
+        badgeClass: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500',
+      }
+    }
+    if (queue && queue.length > 0) {
+      return {
+        model: queue[0],
+        status: t('byog.model_downloading', 'İndiriliyor...'),
+        badgeClass: 'border-amber-500/40 bg-amber-500/10 text-amber-500 animate-pulse',
+      }
+    }
+    return {
+      model: t('byog.no_model_assigned', 'Model Kuyruğu Bekleniyor'),
+      status: t('byog.model_idle', 'Boşta'),
+      badgeClass: 'border-slate-500/40 bg-slate-500/10 text-muted-foreground',
+    }
+  }
+
+  const modelInfo = getModelStatusInfo()
+
   return (
     <Card className='border-border/80 hover:border-primary/40 relative flex flex-col overflow-hidden transition-all hover:shadow-md'>
       <CardHeader className='pb-3'>
@@ -214,6 +250,24 @@ export function NodeCard({
               {t('byog.mode_a_short')}
             </Badge>
           )}
+        </div>
+
+        {/* Active Model Status */}
+        <div className='bg-muted/40 flex items-center justify-between rounded-lg border p-2 text-xs'>
+          <div className='flex flex-col'>
+            <span className='text-muted-foreground text-[10px] font-semibold uppercase'>
+              {t('byog.active_model', 'Aktif Model')}
+            </span>
+            <span
+              className='text-foreground max-w-[170px] truncate font-mono text-xs font-medium'
+              title={modelInfo.model}
+            >
+              {modelInfo.model}
+            </span>
+          </div>
+          <Badge variant='outline' className={`text-[10px] ${modelInfo.badgeClass}`}>
+            {modelInfo.status}
+          </Badge>
         </div>
 
         {/* Telemetry Metrics Grid */}

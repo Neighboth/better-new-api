@@ -28,8 +28,15 @@ func (s *Scheduler) EvaluateNodeModelAssignment(node *model.ByogNode) ([]string,
 		}
 
 		// 1. Device Class Check
-		if rule.DeviceClass != "all" && !strings.EqualFold(rule.DeviceClass, node.DeviceType) {
-			continue
+		if rule.DeviceClass != "all" {
+			rc := strings.ToLower(strings.TrimSpace(rule.DeviceClass))
+			dt := strings.ToLower(strings.TrimSpace(node.DeviceType))
+			matched := (rc == dt) ||
+				(rc == "mobile_tablet" && (dt == "mobile" || dt == "tablet")) ||
+				(rc == "desktop_server" && (dt == "desktop" || dt == "laptop" || dt == "server"))
+			if !matched {
+				continue
+			}
 		}
 
 		// 2. Physical RAM Check (Strictly Physical - Ignoring Swap/ZRAM!)

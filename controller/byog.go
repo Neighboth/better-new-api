@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -938,33 +939,53 @@ func UnbanByogAdminNode(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Ban lifted successfully"})
 }
 
+// DeleteAdminByogNode permanently deletes a node from the network and database
+func DeleteAdminByogNode(c *gin.Context) {
+	nodeId := c.Param("id")
+	if nodeId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Node ID required"})
+		return
+	}
+
+	byogservice.GlobalHub.Unregister(nodeId)
+	err := model.DeleteByogNode(nodeId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Node permanently deleted from network"})
+}
+
 // ----------------- WORKER / REVERSE TUNNEL CONTROLLERS -----------------
 
 // RegisterByogWorker is called when worker binary starts up
 func RegisterByogWorker(c *gin.Context) {
 	var req struct {
-		HWID           string  `json:"hwid" binding:"required"`
-		PairingCode    string  `json:"pairing_code"`
-		OS             string  `json:"os"`
-		Arch           string  `json:"arch"`
-		DeviceName     string  `json:"device_name"`
-		DeviceType     string  `json:"device_type"`
-		CpuModel       string  `json:"cpu_model"`
-		GpuModel       string  `json:"gpu_model"`
-		NpuModel       string  `json:"npu_model"`
-		PhysicalRam    int     `json:"physical_ram_mb"`
-		SwapRam        int     `json:"swap_ram_mb"`
-		VramMB         int     `json:"vram_mb"`
-		SharedVramMB   int     `json:"shared_vram_mb"`
-		TeeSupported   bool    `json:"tee_supported"`
-		TeeType        string  `json:"tee_type"`
-		DownMbps       float64 `json:"bandwidth_down_mbps"`
-		UpMbps         float64 `json:"bandwidth_up_mbps"`
-		PingMs         int     `json:"ping_ms"`
-		NetworkType    string  `json:"network_type"`
-		ClientIp       string  `json:"client_ip"`
-		BatteryPercent int     `json:"battery_percent"`
-		BatteryTemp    float64 `json:"battery_temp"`
+		HWID            string  `json:"hwid" binding:"required"`
+		PairingCode     string  `json:"pairing_code"`
+		OS              string  `json:"os"`
+		Arch            string  `json:"arch"`
+		DeviceName      string  `json:"device_name"`
+		DeviceType      string  `json:"device_type"`
+		CpuModel        string  `json:"cpu_model"`
+		GpuModel        string  `json:"gpu_model"`
+		NpuModel        string  `json:"npu_model"`
+		PhysicalRam     int     `json:"physical_ram_mb"`
+		SwapRam         int     `json:"swap_ram_mb"`
+		VramMB          int     `json:"vram_mb"`
+		SharedVramMB    int     `json:"shared_vram_mb"`
+		TeeSupported    bool    `json:"tee_supported"`
+		TeeType         string  `json:"tee_type"`
+		DownMbps        float64 `json:"bandwidth_down_mbps"`
+		UpMbps          float64 `json:"bandwidth_up_mbps"`
+		PingMs          int     `json:"ping_ms"`
+		NetworkType     string  `json:"network_type"`
+		ClientIp        string  `json:"client_ip"`
+		BatteryPercent  int     `json:"battery_percent"`
+		BatteryTemp     float64 `json:"battery_temp"`
+		InstalledModels string  `json:"installed_models"`
+		DownloadQueue   string  `json:"download_queue"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -988,8 +1009,6 @@ func RegisterByogWorker(c *gin.Context) {
 	// Generate salt and node ID
 	hash := sha256.Sum256([]byte(req.HWID + common.SessionSecret))
 	nodeId := hex.EncodeToString(hash[:16])
-
-	pairingCode := generateRandomPairingCode()
 
 	var matchedUserId int
 	if req.PairingCode != "" {
@@ -1024,9 +1043,24 @@ func RegisterByogWorker(c *gin.Context) {
 		}
 	}
 
+	node, err := model.GetByogNodeByHWID(req.HWID)
+	// If unpaired and not providing valid pairing code, reject to prevent ghost node creation
+	if matchedUserId == 0 {
+		if node == nil || node.UserId == 0 {
+			if node != nil && node.UserId == 0 {
+				_ = model.DeleteByogNode(node.NodeId)
+			}
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "Cihaz henüz bir kullanıcı hesabıyla eşleştirilmemiş. Lütfen eşleştirme kodunu girin.",
+			})
+			return
+		}
+		matchedUserId = node.UserId
+	}
+
 	country, city, lat, lon := resolveNodeGeoIP(c.ClientIP())
 
-	node, err := model.GetByogNodeByHWID(req.HWID)
 	if err == nil && node != nil {
 		// Existing node: update hardware specs & live telemetry
 		node.DeviceName = req.DeviceName
@@ -1049,26 +1083,24 @@ func RegisterByogWorker(c *gin.Context) {
 		node.Longitude = lon
 		node.Status = "online"
 		node.UpdatedAt = time.Now().Unix()
+		node.LastHeartbeatAt = time.Now().Unix()
 		if req.BatteryPercent > 0 {
 			node.BatteryPercent = req.BatteryPercent
 		}
 		if req.BatteryTemp > 0 {
 			node.BatteryTemp = req.BatteryTemp
 		}
-		if matchedUserId > 0 {
-			node.UserId = matchedUserId
-			node.PairingCode = ""
-		} else if node.UserId == 0 {
-			node.PairingCode = pairingCode
+		if req.InstalledModels != "" {
+			node.InstalledModels = req.InstalledModels
 		}
+		if req.DownloadQueue != "" {
+			node.DownloadQueue = req.DownloadQueue
+		}
+		node.UserId = matchedUserId
+		node.PairingCode = ""
 		_ = model.SaveByogNode(node)
 	} else {
 		// New node
-		assignedUserId := matchedUserId
-		assignedPairingCode := pairingCode
-		if matchedUserId > 0 {
-			assignedPairingCode = ""
-		}
 		initialBatteryPercent := 100
 		if req.BatteryPercent > 0 {
 			initialBatteryPercent = req.BatteryPercent
@@ -1077,10 +1109,20 @@ func RegisterByogWorker(c *gin.Context) {
 		if req.BatteryTemp > 0 {
 			initialBatteryTemp = req.BatteryTemp
 		}
+
+		allocRam := 8
+		if req.PhysicalRam > 0 {
+			allocRam = int(math.Max(2, float64(req.PhysicalRam)/2048))
+		}
+		allocVram := 0
+		if req.DeviceType != "mobile" && req.DeviceType != "tablet" && req.VramMB > 0 {
+			allocVram = req.VramMB / 1024
+		}
+
 		node = &model.ByogNode{
 			NodeId:               nodeId,
-			UserId:               assignedUserId,
-			PairingCode:          assignedPairingCode,
+			UserId:               matchedUserId,
+			PairingCode:          "",
 			DeviceName:           req.DeviceName,
 			DeviceType:           req.DeviceType,
 			OS:                   req.OS,
@@ -1105,22 +1147,25 @@ func RegisterByogWorker(c *gin.Context) {
 			Latitude:             lat,
 			Longitude:            lon,
 			Status:               "online",
-			OperatingMode:        "mode_b", // DEFAULT & RECOMMENDED (Section 4.3)
+			OperatingMode:        "mode_b",
 			PowerProfile:         "full_power",
 			AllocatedDiskGB:      40,
-			AllocatedVramGB:      6,
-			AllocatedRamGB:       8,
+			AllocatedVramGB:      allocVram,
+			AllocatedRamGB:       allocRam,
 			AllocatedCores:       4,
-			WifiOnlyDownload:     true, // DEFAULT TRUE (Section 6.3)
-			MonthlyDataLimitMB:   0,    // DEFAULT UNLIMITED (Section 6.3)
-			RunOnlyWhileCharging: false, // DEFAULT FALSE (Section 6.3)
-			BatteryCutoffEnabled: false, // DEFAULT FALSE (Section 6.3)
+			WifiOnlyDownload:     true,
+			MonthlyDataLimitMB:   0,
+			RunOnlyWhileCharging: false,
+			BatteryCutoffEnabled: false,
 			BatteryCutoffPercent: 20,
-			MaxBatteryTemp:       50.0, // DEFAULT 50°C (Section 6.3)
+			MaxBatteryTemp:       50.0,
 			BatteryTempSupported: true,
 			BatteryPercent:       initialBatteryPercent,
 			BatteryTemp:          initialBatteryTemp,
 			ReputationScore:      50,
+			InstalledModels:      req.InstalledModels,
+			DownloadQueue:        req.DownloadQueue,
+			LastHeartbeatAt:      time.Now().Unix(),
 			CreatedAt:            time.Now().Unix(),
 			UpdatedAt:            time.Now().Unix(),
 		}
@@ -1128,6 +1173,11 @@ func RegisterByogWorker(c *gin.Context) {
 	}
 
 	assignedModels, _ := byogservice.GlobalScheduler.EvaluateNodeModelAssignment(node)
+	if len(assignedModels) > 0 && (node.DownloadQueue == "" || node.DownloadQueue == "[]") && (node.InstalledModels == "" || node.InstalledModels == "[]") {
+		qBytes, _ := json.Marshal(assignedModels)
+		node.DownloadQueue = string(qBytes)
+		_ = model.SaveByogNode(node)
+	}
 
 	systemName := common.SystemName
 	if systemName == "" || systemName == "New API" {

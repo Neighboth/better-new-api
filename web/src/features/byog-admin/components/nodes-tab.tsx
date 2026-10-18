@@ -52,7 +52,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 
-import { getAdminNodes } from '../../byog/api'
+import { toast } from 'sonner'
+import { deleteAdminNode, getAdminNodes } from '../../byog/api'
 import type { ByogNode } from '../../byog/types'
 import { NetworkGlobe } from './network-globe'
 
@@ -85,6 +86,27 @@ export function ByogNodesTab() {
   function handleInspect(node: ByogNode) {
     setSelectedNode(node)
     setInspectOpen(true)
+  }
+
+  async function handleDeleteNode(nodeId: string) {
+    if (
+      !confirm(
+        t(
+          'byog.confirm_delete_device',
+          'Bu cihazı ağdan ve veritabanından kalıcı olarak silmek istediğinizden emin misiniz?'
+        )
+      )
+    )
+      return
+    try {
+      await deleteAdminNode(nodeId)
+      toast.success(
+        t('byog.device_deleted_success', 'Cihaz başarıyla silindi')
+      )
+      loadNodes()
+    } catch (err: any) {
+      toast.error(err.message || 'Silme işlemi başarısız')
+    }
   }
 
   // Stats calculation
@@ -317,14 +339,24 @@ export function ByogNodesTab() {
                       </TableCell>
                       <TableCell>{getStatusBadge(node.status)}</TableCell>
                       <TableCell className='text-right'>
-                        <Button
-                          variant='outline'
-                          size='sm'
-                          onClick={() => handleInspect(node)}
-                          className='h-7 px-2.5 text-xs'
-                        >
-                          {t('byog.admin.inspect')}
-                        </Button>
+                        <div className='flex items-center justify-end gap-1.5'>
+                          <Button
+                            variant='outline'
+                            size='sm'
+                            onClick={() => handleInspect(node)}
+                            className='h-7 px-2.5 text-xs'
+                          >
+                            {t('byog.admin.inspect')}
+                          </Button>
+                          <Button
+                            variant='ghost'
+                            size='sm'
+                            onClick={() => handleDeleteNode(node.node_id)}
+                            className='h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10'
+                          >
+                            {t('common.delete', 'Sil')}
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

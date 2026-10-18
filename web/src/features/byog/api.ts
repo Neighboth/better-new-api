@@ -240,3 +240,7 @@ export async function getAdminBannedNodes(): Promise<ByogNodeBan[]> {
 export async function unbanAdminNode(id: number): Promise<void> {
   await api.post(`/api/byog/admin/banned/${id}/unban`)
 }
+
+export async function deleteAdminNode(nodeId: string): Promise<void> {
+  await api.delete(`/api/byog/admin/nodes/${nodeId}`)
+}

@@ -439,6 +439,9 @@ func DeleteAssignmentRule(id int) error {
 
 // Models & LoRAs
 func GetAllByogModels(enabledOnly bool) ([]*ByogModel, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
 	var models []*ByogModel
 	tx := DB.Model(&ByogModel{})
 	if enabledOnly {
@@ -449,6 +452,9 @@ func GetAllByogModels(enabledOnly bool) ([]*ByogModel, error) {
 }
 
 func GetByogModelByModelId(modelId string) (*ByogModel, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
 	var m ByogModel
 	err := DB.Where("model_id = ?", modelId).First(&m).Error
 	return &m, err
@@ -500,8 +506,11 @@ func DeleteByogLora(id int) error {
 
 // Nodes CRUD & Queries
 func GetAllByogNodes() ([]*ByogNode, error) {
+	if DB != nil {
+		_ = DB.Unscoped().Where("user_id = 0").Delete(&ByogNode{}).Error
+	}
 	var nodes []*ByogNode
-	err := DB.Order("status asc, last_heartbeat_at desc").Find(&nodes).Error
+	err := DB.Where("user_id > 0").Order("status asc, last_heartbeat_at desc").Find(&nodes).Error
 	if err == nil {
 		for _, n := range nodes {
 			var u User
@@ -522,7 +531,7 @@ func GetUserByogNodes(userId int) ([]*ByogNode, error) {
 
 func GetRecentOnlineByogNodes(sinceUnix int64) ([]*ByogNode, error) {
 	var nodes []*ByogNode
-	err := DB.Where("status = ? AND updated_at >= ?", "online", sinceUnix).Find(&nodes).Error
+	err := DB.Where("status = ? AND updated_at >= ? AND user_id > 0", "online", sinceUnix).Find(&nodes).Error
 	return nodes, err
 }
 
@@ -554,7 +563,10 @@ func SaveByogNode(n *ByogNode) error {
 }
 
 func DeleteByogNode(nodeId string) error {
-	return DB.Where("node_id = ?", nodeId).Delete(&ByogNode{}).Error
+	if DB == nil {
+		return nil
+	}
+	return DB.Unscoped().Where("node_id = ? OR id = ?", nodeId, nodeId).Delete(&ByogNode{}).Error
 }
 
 // Banned Nodes

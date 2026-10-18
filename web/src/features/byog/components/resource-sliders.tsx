@@ -68,7 +68,10 @@ export function ResourceSliders({
   // Dynamic limits bounded by the device's actual hardware specs
   const maxVram = useMemo(() => {
     if (!node) return 32
-    if (isMobile) return 4
+    if (isMobile) {
+      const sharedGB = Math.round((node.shared_vram_mb || node.physical_ram_mb || 0) / 1024)
+      return sharedGB > 0 ? Math.min(8, sharedGB) : 4
+    }
     const totalVramMB = (node.vram_mb || 0) + (node.shared_vram_mb || 0)
     return totalVramMB > 0 ? Math.max(1, Math.round(totalVramMB / 1024)) : 8
   }, [node, isMobile])
@@ -85,8 +88,8 @@ export function ResourceSliders({
   }, [node])
 
   const maxDisk = useMemo(() => {
-    if (!node) return 250
-    return isMobile ? 64 : 500
+    if (!node) return 500
+    return isMobile ? 256 : 500
   }, [node, isMobile])
 
   // Calculate earning multiplier based on allocations
