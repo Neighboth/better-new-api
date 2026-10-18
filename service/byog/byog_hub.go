@@ -220,6 +220,8 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 			node.UptimeSeconds = uptimeSecs
 			node.Status = status
 			node.InstalledModels = string(installedJson)
+			node.LastHeartbeatAt = time.Now().Unix()
+			node.UpdatedAt = time.Now().Unix()
 
 			// Calculate dynamic boost multipliers
 			multiplier, bonusKeys := model.CalculateNodeMultipliers(node)

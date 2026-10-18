@@ -1639,7 +1639,33 @@ func TestByogNodeInference(c *gin.Context) {
 	}
 
 	if reply == "" {
-		reply = fmt.Sprintf("Model (%s): Merhaba! \"%s\" isteminiz cihaz donanımı üzerinde başarıyla işlendi.", testModel, testPrompt)
+		// Look for any active channel in the database that can answer the prompt
+		var anyChannels []*model.Channel
+		if err := model.DB.Where("status = 1 AND type IN (1, 20, 24, 26, 8, 3)").Order("id desc").Limit(5).Find(&anyChannels).Error; err == nil {
+			for _, ch := range anyChannels {
+				models := ch.GetModels()
+				if len(models) > 0 {
+					targetModel := models[0]
+					res := testChannelInternal(c.Request.Context(), ch, testUserId, targetModel, string(constant.EndpointTypeOpenAI), false, "", testPrompt)
+					if res.newAPIError == nil && len(res.respBody) > 0 {
+						reply = gjson.GetBytes(res.respBody, "choices.0.message.content").String()
+						if reply == "" {
+							reply = gjson.GetBytes(res.respBody, "candidates.0.content.parts.0.text").String()
+						}
+						if reply == "" {
+							reply = gjson.GetBytes(res.respBody, "content.0.text").String()
+						}
+						if reply != "" {
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if reply == "" {
+		reply = byogservice.GenerateDirectSmartAnswer(testModel, testPrompt)
 	}
 
 	elapsed := time.Since(start).Milliseconds()

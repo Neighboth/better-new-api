@@ -76,7 +76,23 @@ export function NodeCard({
     }
   }
 
+  const nowSec = Math.floor(Date.now() / 1000)
+  const heartbeatAge = nowSec - (node.last_heartbeat_at || 0)
+  const isStale = (node.last_heartbeat_at || 0) <= 0 || heartbeatAge > 90
+  const isOffline = node.status === 'offline' || isStale
+  const isStopped = isOffline || node.status === 'banned'
+
   const getStatusBadge = () => {
+    if (isOffline) {
+      return (
+        <Badge
+          variant='outline'
+          className='border-muted text-muted-foreground text-xs'
+        >
+          {t('byog.status_offline', 'Çevrimdışı')}
+        </Badge>
+      )
+    }
     switch (node.status) {
       case 'online':
         return (
@@ -85,7 +101,7 @@ export function NodeCard({
             className='gap-1 border-emerald-500/40 bg-emerald-500/10 text-xs font-semibold text-emerald-500'
           >
             <span className='h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500' />
-            {t('byog.status_online')}
+            {t('byog.status_online', 'Çevrimiçi')}
           </Badge>
         )
       case 'gamer_mode':
@@ -124,7 +140,7 @@ export function NodeCard({
             variant='outline'
             className='border-muted text-muted-foreground text-xs'
           >
-            {t('byog.status_offline')}
+            {t('byog.status_offline', 'Çevrimdışı')}
           </Badge>
         )
     }
@@ -140,23 +156,40 @@ export function NodeCard({
       if (node.download_queue) queue = JSON.parse(node.download_queue)
     } catch {}
 
-    if (installed && installed.length > 0) {
+    const primaryModel = (installed && installed.length > 0) ? installed[0] : (queue && queue.length > 0 ? queue[0] : t('byog.no_model_assigned', 'Model Kuyruğu Bekleniyor'))
+
+    if (isStopped) {
       return {
-        model: installed[0],
-        status:
-          node.current_tps > 0
-            ? t('byog.model_working', 'Üretimde')
-            : t('byog.model_ready', 'Hazır (Beklemede)'),
-        badgeClass: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500',
+        model: primaryModel,
+        status: node.status === 'banned' ? t('byog.status_banned', 'Yasaklandı') : (node.status === 'offline' || isStale ? t('byog.status_offline', 'Çevrimdışı') : t('byog.status_stopped', 'Durmuş')),
+        badgeClass: 'border-slate-500/40 bg-slate-500/10 text-muted-foreground',
       }
     }
-    if (queue && queue.length > 0) {
+
+    if (queue && queue.length > 0 && (!installed || installed.length === 0)) {
       return {
         model: queue[0],
         status: t('byog.model_downloading', 'İndiriliyor...'),
         badgeClass: 'border-amber-500/40 bg-amber-500/10 text-amber-500 animate-pulse',
       }
     }
+
+    if (installed && installed.length > 0) {
+      let statusText = t('byog.model_ready', 'Hazır (Beklemede)')
+      if (node.current_tps > 0) {
+        statusText = t('byog.model_working', 'Üretimde')
+      } else if (node.active_vram_model && installed.includes(node.active_vram_model)) {
+        statusText = t('byog.model_ready_vram', 'Hazır (VRAM)')
+      }
+      return {
+        model: installed[0],
+        status: statusText,
+        badgeClass: node.current_tps > 0
+          ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-500 animate-pulse'
+          : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500',
+      }
+    }
+
     return {
       model: t('byog.no_model_assigned', 'Model Kuyruğu Bekleniyor'),
       status: t('byog.model_idle', 'Boşta'),

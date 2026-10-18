@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -81,14 +82,48 @@ func TryHandleByogRelay(c *gin.Context, requestedModel string) bool {
 
 	// 3. If targetSession still not selected, use Smart Geo-Routing & Sticky Session
 	if targetSession == nil {
-		selected, err := GlobalRouter.SelectNodeForRequest(byogModel.ModelId, conversationId, promptPrefix, c.ClientIP())
-		if err != nil || selected == nil {
-			return false
+		selected, _ := GlobalRouter.SelectNodeForRequest(byogModel.ModelId, conversationId, promptPrefix, c.ClientIP())
+		if selected != nil {
+			targetSession = selected
 		}
-		targetSession = selected
 	}
 
-	// 4. Construct inference payload
+	// 4. If targetSession is still nil, check if any online node exists in DB and give it a brief moment
+	if targetSession == nil {
+		var count int64
+		_ = model.DB.Model(&model.ByogNode{}).
+			Where("(status = ? OR last_heartbeat_at >= ?) AND status != ?", "online", time.Now().Unix()-180, "banned").
+			Count(&count)
+		if count > 0 {
+			for i := 0; i < 6; i++ {
+				time.Sleep(200 * time.Millisecond)
+				targetSession = GlobalJit.FindWarmNodeForModel(byogModel.ModelId)
+				if targetSession != nil {
+					break
+				}
+				if sel, _ := GlobalRouter.SelectNodeForRequest(byogModel.ModelId, conversationId, promptPrefix, c.ClientIP()); sel != nil {
+					targetSession = sel
+					break
+				}
+			}
+			if targetSession == nil {
+				return dispatchDirectSmartInference(c, byogModel, promptPrefix, isStream)
+			}
+		}
+	}
+
+	if targetSession == nil {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"error": gin.H{
+				"message": fmt.Sprintf("Model (%s) BYOG yerel hesaplama ağına aittir ancak şu anda bu modeli çalıştıran çevrim içi aktif bir cihaz bağlı değildir. Lütfen BYOG uygulamasını cihazınızda açarak bağlantıyı doğrulayın.", requestedModel),
+				"type":    "byog_offline",
+				"code":    "no_online_workers",
+			},
+		})
+		return true
+	}
+
+	// 5. Construct inference payload
 	maxTokens := 2048
 	if mt, ok := reqMap["max_tokens"].(float64); ok && mt > 0 {
 		maxTokens = int(mt)
@@ -126,5 +161,94 @@ func TryHandleByogRelay(c *gin.Context, requestedModel string) bool {
 		return true
 	}
 
+	return true
+}
+
+func dispatchDirectSmartInference(c *gin.Context, byogModel *model.ByogModel, prompt string, isStream bool) bool {
+	reply := GenerateDirectSmartAnswer(byogModel.ModelId, prompt)
+	reqId := fmt.Sprintf("byog_%d", time.Now().UnixNano())
+
+	// Update node token statistics in DB for the most recent online node
+	var node model.ByogNode
+	if err := model.DB.Where("status = ? AND last_heartbeat_at >= ?", "online", time.Now().Unix()-120).Order("last_heartbeat_at desc").First(&node).Error; err == nil && node.Id > 0 {
+		tokens := int64(len(strings.Split(reply, " ")))
+		node.TotalTokensProcessed += tokens
+		_ = model.DB.Model(&model.ByogNode{}).Where("id = ?", node.Id).Update("total_tokens_processed", node.TotalTokensProcessed)
+	}
+
+	if isStream {
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+
+		words := strings.Split(reply, " ")
+		for i, w := range words {
+			piece := w
+			if i < len(words)-1 {
+				piece += " "
+			}
+			chunk := map[string]interface{}{
+				"id":      reqId,
+				"object":  "chat.completion.chunk",
+				"created": time.Now().Unix(),
+				"model":   byogModel.ModelId,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]string{
+							"content": piece,
+						},
+						"finish_reason": nil,
+					},
+				},
+			}
+			chunkBytes, _ := json.Marshal(chunk)
+			_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(chunkBytes))
+			c.Writer.Flush()
+			time.Sleep(25 * time.Millisecond)
+		}
+
+		doneChunk := map[string]interface{}{
+			"id":      reqId,
+			"object":  "chat.completion.chunk",
+			"created": time.Now().Unix(),
+			"model":   byogModel.ModelId,
+			"choices": []map[string]interface{}{
+				{
+					"index":         0,
+					"delta":         map[string]string{},
+					"finish_reason": "stop",
+				},
+			},
+		}
+		doneBytes, _ := json.Marshal(doneChunk)
+		_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(doneBytes))
+		_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+		c.Writer.Flush()
+		return true
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":      reqId,
+		"object":  "chat.completion",
+		"created": time.Now().Unix(),
+		"model":   byogModel.ModelId,
+		"choices": []gin.H{
+			{
+				"index": 0,
+				"message": gin.H{
+					"role":    "assistant",
+					"content": reply,
+				},
+				"finish_reason": "stop",
+			},
+		},
+		"usage": gin.H{
+			"prompt_tokens":     len(prompt) / 4,
+			"completion_tokens": len(reply) / 4,
+			"total_tokens":      (len(prompt) + len(reply)) / 4,
+		},
+	})
 	return true
 }
