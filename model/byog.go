@@ -25,10 +25,6 @@ type ByogSetting struct {
 	WeekendCrunchEnabled bool    `json:"weekend_crunch_enabled" gorm:"default:true"`
 	HardwareBackends     string  `json:"hardware_backends" gorm:"type:text"` // JSON object of toggled backends
 	MultipliersConfig        string  `json:"multipliers_config" gorm:"type:text"` // JSON object of custom multiplier percentages
-	ClientDownloadUrlWindows string  `json:"client_download_url_windows" gorm:"type:varchar(512)"`
-	ClientDownloadUrlLinux   string  `json:"client_download_url_linux" gorm:"type:varchar(512)"`
-	ClientDownloadUrlDarwin  string  `json:"client_download_url_darwin" gorm:"type:varchar(512)"`
-	ClientDownloadUrlAndroid string  `json:"client_download_url_android" gorm:"type:varchar(512)"`
 	CreatedAt                int64   `json:"created_at" gorm:"bigint"`
 	UpdatedAt            int64   `json:"updated_at" gorm:"bigint"`
 }

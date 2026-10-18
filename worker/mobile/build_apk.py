@@ -34,7 +34,7 @@ os.makedirs(res_mipmap, exist_ok=True)
 os.makedirs(assets_www, exist_ok=True)
 os.makedirs(src_dir, exist_ok=True)
 
-# Determine default App Name
+# Determine App Name - Default to New-API BYOG
 app_name = "New-API BYOG"
 
 # strings.xml
@@ -55,19 +55,39 @@ with open(os.path.join(res_values, "styles.xml"), "w", encoding="utf-8") as f:
 </resources>
 ''')
 
-# Copy App Icons
-logo_src = r"Z:\better-new-api\web\public\logo.png"
-if os.path.exists(logo_src):
-    shutil.copyfile(logo_src, os.path.join(res_mipmap, "ic_launcher.png"))
-    shutil.copyfile(logo_src, os.path.join(res_mipmap, "ic_launcher_round.png"))
-    shutil.copyfile(logo_src, os.path.join(assets_www, "logo.png"))
+# Generate High-Resolution Launcher Icons and UI Logo from favicon.ico (or fallback to logo.png)
+icon_source = r"Z:\better-new-api\web\public\favicon.ico"
+if not os.path.exists(icon_source):
+    icon_source = r"Z:\better-new-api\web\public\logo.png"
+
+try:
+    from PIL import Image
+    with Image.open(icon_source) as im:
+        if getattr(im, "ico", None):
+            sizes = im.ico.sizes()
+            largest_size = max(sizes, key=lambda s: s[0] * s[1])
+            img = im.ico.getimage(largest_size).convert("RGBA")
+        else:
+            img = im.convert("RGBA")
+        img = img.resize((192, 192), Image.Resampling.LANCZOS)
+        img.save(os.path.join(res_mipmap, "ic_launcher.png"), "PNG")
+        img.save(os.path.join(res_mipmap, "ic_launcher_round.png"), "PNG")
+        img.save(os.path.join(assets_www, "logo.png"), "PNG")
+        print("Generated high-res 192x192 icons from:", icon_source)
+except Exception as e:
+    print("Fallback icon copy due to:", e)
+    logo_src = r"Z:\better-new-api\web\public\logo.png"
+    if os.path.exists(logo_src):
+        shutil.copyfile(logo_src, os.path.join(res_mipmap, "ic_launcher.png"))
+        shutil.copyfile(logo_src, os.path.join(res_mipmap, "ic_launcher_round.png"))
+        shutil.copyfile(logo_src, os.path.join(assets_www, "logo.png"))
 
 # AndroidManifest.xml
 manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.byog.worker"
-    android:versionCode="3"
-    android:versionName="1.5.0">
+    android:versionCode="4"
+    android:versionName="1.6.0">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
 
@@ -129,7 +149,7 @@ html_content = '''<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>BYOG Worker</title>
+  <title>New-API BYOG</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Plus Jakarta Sans", "Inter", "Segoe UI", Roboto, system-ui, sans-serif; user-select: none; -webkit-font-smoothing: antialiased; }
     body { background-color: #020817; color: #f8fafc; padding: 18px; min-height: 100vh; display: flex; flex-direction: column; }
@@ -149,12 +169,13 @@ html_content = '''<!DOCTYPE html>
     .card-title { font-size: 0.85rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; display: flex; align-items: center; gap: 7px; }
 
     .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 13px 18px; border-radius: 10px; font-size: 0.95rem; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s ease; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
     .btn-primary { background-color: #2563eb; color: #ffffff; }
-    .btn-primary:active { background-color: #1d4ed8; transform: scale(0.99); }
+    .btn-primary:active:not(:disabled) { background-color: #1d4ed8; transform: scale(0.99); }
     .btn-secondary { background-color: #1e293b; color: #e2e8f0; border: 1px solid #334155; }
-    .btn-secondary:active { background-color: #334155; transform: scale(0.99); }
+    .btn-secondary:active:not(:disabled) { background-color: #334155; transform: scale(0.99); }
     .btn-danger { background-color: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
-    .btn-danger:active { background-color: rgba(239, 68, 68, 0.22); }
+    .btn-danger:active:not(:disabled) { background-color: rgba(239, 68, 68, 0.22); }
 
     .input-group { display: flex; gap: 8px; margin-top: 10px; margin-bottom: 12px; }
     .input-text { flex: 1; background-color: #020817; border: 1px solid #334155; border-radius: 8px; padding: 12px 14px; font-family: monospace; font-size: 0.95rem; font-weight: 700; color: #f8fafc; text-align: center; letter-spacing: 0.08em; text-transform: uppercase; }
@@ -173,7 +194,7 @@ html_content = '''<!DOCTYPE html>
     .divider { height: 1px; background-color: #1e293b; margin: 16px 0; }
     .hidden { display: none !important; }
     
-    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background-color: #1e293b; border: 1px solid #334155; color: #f8fafc; padding: 10px 18px; border-radius: 8px; font-size: 0.85rem; font-weight: 500; z-index: 1000; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; white-space: nowrap; }
+    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background-color: #1e293b; border: 1px solid #334155; color: #f8fafc; padding: 10px 18px; border-radius: 8px; font-size: 0.85rem; font-weight: 500; z-index: 1000; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; white-space: nowrap; max-width: 90%; text-overflow: ellipsis; overflow: hidden; }
     .toast.show { opacity: 1; }
 
     svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -184,7 +205,7 @@ html_content = '''<!DOCTYPE html>
   <!-- App Header -->
   <div class="header">
     <div class="brand">
-      <img id="app-logo" src="logo.png" onerror="this.style.display='none'">
+      <img id="app-logo" src="logo.png" onerror="this.onerror=null; this.src='logo.png';">
       <div id="app-title" class="brand-title">New-API BYOG</div>
     </div>
     <div id="status-badge" class="badge badge-amber">
@@ -218,7 +239,7 @@ html_content = '''<!DOCTYPE html>
       </div>
 
       <div class="input-group">
-        <input id="input-code" type="text" class="input-text" placeholder="9K4L-28XM-73PQ-51ZR" maxlength="24">
+        <input id="input-code" type="text" class="input-text" placeholder="UB55-SV5S-DZ79-MVHX" maxlength="24">
         <button class="btn-icon" onclick="pasteCode()" title="Yapıştır">
           <svg viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
         </button>
@@ -226,6 +247,11 @@ html_content = '''<!DOCTYPE html>
 
       <button id="btn-connect" class="btn btn-secondary" onclick="connectManual()">
         <span>Cihazı Bağla</span>
+      </button>
+
+      <button class="btn btn-secondary" onclick="requestAutoStart()" style="margin-top: 10px;">
+        <svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+        <span>Otomatik Başlatma İzni</span>
       </button>
     </div>
   </div>
@@ -252,7 +278,7 @@ html_content = '''<!DOCTYPE html>
         <div class="stat-card">
           <div class="stat-label">Pil & Sıcaklık</div>
           <div id="stat-battery" class="stat-value">100% / 31&deg;C</div>
-          <div class="stat-sub">Termal güvenlik devrede</div>
+          <div class="stat-sub">Termal koruma aktif</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Ağ Durumu</div>
@@ -266,6 +292,11 @@ html_content = '''<!DOCTYPE html>
       <p class="hint-text" style="margin-bottom: 14px;">
         Worker arka planda güvenle çalışmaktadır. Cihaz uyku moduna geçse dahi hesaplama görevleri kesintisiz devam eder.
       </p>
+
+      <button class="btn btn-secondary" onclick="requestAutoStart()" style="margin-bottom: 10px;">
+        <svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+        <span>Otomatik Başlatma İzni</span>
+      </button>
 
       <button class="btn btn-danger" onclick="disconnectNode()">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
@@ -281,8 +312,23 @@ html_content = '''<!DOCTYPE html>
       const t = document.getElementById('toast');
       t.innerText = msg;
       t.classList.add('show');
-      setTimeout(() => t.classList.remove('show'), 2500);
+      setTimeout(() => t.classList.remove('show'), 3000);
     }
+
+    function setConnectingState(isConnecting) {
+      const btn = document.getElementById('btn-connect');
+      const scanBtn = document.getElementById('btn-scan');
+      if (isConnecting) {
+        btn.disabled = true;
+        btn.innerHTML = '<span>Bağlantı Kuruluyor...</span>';
+        scanBtn.disabled = true;
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = '<span>Cihazı Bağla</span>';
+        scanBtn.disabled = false;
+      }
+    }
+    window.setConnectingState = setConnectingState;
 
     function startQrScan() {
       if (window.AndroidBridge && window.AndroidBridge.scanQrCode) {
@@ -319,6 +365,12 @@ html_content = '''<!DOCTYPE html>
       }
     }
 
+    function requestAutoStart() {
+      if (window.AndroidBridge && window.AndroidBridge.openAutoStartSettings) {
+        window.AndroidBridge.openAutoStartSettings();
+      }
+    }
+
     // Called automatically by Android when QR code is scanned
     window.handleScannedQr = function(rawText) {
       if (!rawText) return;
@@ -348,7 +400,16 @@ html_content = '''<!DOCTYPE html>
           document.getElementById('app-title').innerText = s.app_name;
         }
         if (s.favicon && s.favicon.length > 0) {
-          document.getElementById('app-logo').src = s.favicon;
+          let fav = s.favicon;
+          if (fav.startsWith('/') && s.server_url) {
+            fav = s.server_url.replace(/\\/+$/, '') + fav;
+          }
+          const img = document.getElementById('app-logo');
+          img.onerror = function() {
+            this.onerror = null;
+            this.src = 'logo.png';
+          };
+          img.src = fav;
         }
         if (s.is_paired) {
           document.getElementById('unpaired-view').classList.add('hidden');
@@ -370,7 +431,7 @@ html_content = '''<!DOCTYPE html>
             document.getElementById('stat-node').innerText = "Node: " + s.node_id.substring(0, 8);
           }
           if (s.battery_level !== undefined) {
-            document.getElementById('stat-battery').innerHTML = s.battery_level + "% / " + (s.battery_temp || 30) + "&deg;C";
+            document.getElementById('stat-battery').innerHTML = s.battery_level + "% / " + (s.battery_temp || 31) + "&deg;C";
           }
         } else {
           document.getElementById('unpaired-view').classList.remove('hidden');
@@ -479,22 +540,31 @@ main_activity_content = '''package org.byog.worker;
 import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.ClipboardManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.Toast;
 
 import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 public class MainActivity extends Activity {
     private WebView webView;
@@ -524,6 +594,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         // Read dynamic configuration embedded inside APK Signing Block
+        String appName = "New-API BYOG";
         try {
             String embedded = ApkConfigReader.readConfig(getApplicationInfo().sourceDir);
             if (embedded != null && !embedded.isEmpty()) {
@@ -531,11 +602,16 @@ public class MainActivity extends Activity {
                 SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
                 SharedPreferences.Editor ed = sp.edit();
                 if (obj.has("server_url")) ed.putString("server_url", obj.getString("server_url"));
-                if (obj.has("app_name")) ed.putString("app_name", obj.getString("app_name"));
+                if (obj.has("app_name")) {
+                    appName = obj.getString("app_name");
+                    ed.putString("app_name", appName);
+                }
                 if (obj.has("favicon")) ed.putString("favicon", obj.getString("favicon"));
                 ed.apply();
             }
         } catch (Exception ignored) {}
+
+        setTitle(appName);
 
         webView = new WebView(this);
         setContentView(webView);
@@ -545,6 +621,10 @@ public class MainActivity extends Activity {
         ws.setDomStorageEnabled(true);
         ws.setAllowFileAccess(true);
         ws.setAllowContentAccess(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        }
+        webView.setWebChromeClient(new WebChromeClient());
         webView.setBackgroundColor(0xFF020817);
 
         webView.addJavascriptInterface(new WebAppInterface(), "AndroidBridge");
@@ -583,6 +663,55 @@ public class MainActivity extends Activity {
                 startActivity(intent);
             }
         } catch (Exception ignored) {}
+
+        // Request startup / auto-start permissions on OEMs (MIUI, Huawei, Oppo, Vivo, Samsung)
+        requestAutoStartPermission();
+    }
+
+    public void requestAutoStartPermission() {
+        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+        boolean prompted = sp.getBoolean("autostart_prompted", false);
+        if (prompted) return;
+        sp.edit().putBoolean("autostart_prompted", true).apply();
+        openAutoStartSettings();
+    }
+
+    public void openAutoStartSettings() {
+        String manufacturer = Build.MANUFACTURER.toLowerCase();
+        Intent intent = new Intent();
+        boolean found = false;
+
+        try {
+            if (manufacturer.contains("xiaomi") || manufacturer.contains("redmi")) {
+                intent.setComponent(new ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"));
+                found = true;
+            } else if (manufacturer.contains("huawei") || manufacturer.contains("honor")) {
+                intent.setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"));
+                found = true;
+            } else if (manufacturer.contains("oppo") || manufacturer.contains("realme")) {
+                intent.setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"));
+                found = true;
+            } else if (manufacturer.contains("vivo")) {
+                intent.setComponent(new ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"));
+                found = true;
+            } else if (manufacturer.contains("samsung")) {
+                intent.setComponent(new ComponentName("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity"));
+                found = true;
+            }
+        } catch (Exception ignored) {}
+
+        if (found) {
+            try {
+                startActivity(intent);
+                return;
+            } catch (Exception ignored) {}
+        }
+
+        try {
+            Intent appDetails = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            appDetails.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(appDetails);
+        } catch (Exception ignored) {}
     }
 
     public class WebAppInterface {
@@ -609,32 +738,199 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void connect(final String pairingCode, String serverUrl) {
-            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            if (serverUrl == null || serverUrl.isEmpty()) {
-                serverUrl = sp.getString("server_url", "");
-            }
-            final String finalServer = serverUrl;
+        public void openAutoStartSettings() {
+            MainActivity.this.openAutoStartSettings();
+        }
 
-            runOnUiThread(new Runnable() {
+        @JavascriptInterface
+        public void connect(final String rawPairingCode, String rawServerUrl) {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            if (rawServerUrl == null || rawServerUrl.trim().isEmpty()) {
+                rawServerUrl = sp.getString("server_url", "");
+            }
+            if (rawServerUrl == null || rawServerUrl.trim().isEmpty()) {
+                rawServerUrl = "https://new-api.com";
+            }
+            while (rawServerUrl.endsWith("/")) {
+                rawServerUrl = rawServerUrl.substring(0, rawServerUrl.length() - 1);
+            }
+            final String finalServerUrl = rawServerUrl;
+            final String cleanCode = rawPairingCode != null ? rawPairingCode.trim().toUpperCase() : "";
+
+            if (cleanCode.isEmpty()) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(MainActivity.this, "Lütfen eşleştirme kodunu girin", Toast.LENGTH_SHORT).show();
+                    }
+                });
+                return;
+            }
+
+            // Perform registration handshake on background thread BEFORE starting WorkerService
+            new Thread(new Runnable() {
                 @Override
                 public void run() {
-                    sp.edit()
-                      .putString("pairing_code", pairingCode)
-                      .putString("server_url", finalServer)
-                      .apply();
+                    try {
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (webView != null) {
+                                    webView.evaluateJavascript("window.setConnectingState(true)", null);
+                                }
+                            }
+                        });
 
-                    Intent sIntent = new Intent(MainActivity.this, WorkerService.class);
-                    sIntent.putExtra("pairing_code", pairingCode);
-                    sIntent.putExtra("server_url", finalServer);
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(sIntent);
-                    } else {
-                        startService(sIntent);
+                        Intent batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+                        int level = -1;
+                        int scale = 100;
+                        float temp = 31.0f;
+                        if (batteryIntent != null) {
+                            level = batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                            scale = batteryIntent.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
+                            temp = batteryIntent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 310) / 10.0f;
+                        }
+                        int percent = (scale > 0 && level >= 0) ? (int) ((level / (float) scale) * 100) : 100;
+
+                        JSONObject req = new JSONObject();
+                        req.put("hwid", "android-" + Build.BOARD + "-" + Build.DEVICE + "-" + Build.HARDWARE);
+                        req.put("pairing_code", cleanCode);
+                        req.put("os", "android");
+                        req.put("arch", Build.SUPPORTED_ABIS[0]);
+                        req.put("device_name", Build.MANUFACTURER + " " + Build.MODEL);
+                        req.put("device_type", "mobile");
+                        req.put("cpu_model", Build.HARDWARE);
+                        req.put("physical_ram_mb", 6144);
+                        req.put("swap_ram_mb", 2048);
+                        req.put("vram_mb", 2048);
+                        req.put("battery_temp", temp);
+                        req.put("battery_percent", percent);
+
+                        String[] endpoints = new String[]{
+                            finalServerUrl + "/api/v1/worker/register",
+                            finalServerUrl + "/api/byog/worker/register"
+                        };
+
+                        JSONObject resultObj = null;
+                        String errorMsg = null;
+
+                        for (String ep : endpoints) {
+                            try {
+                                URL url = new URL(ep);
+                                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                                conn.setRequestMethod("POST");
+                                conn.setRequestProperty("Content-Type", "application/json");
+                                conn.setConnectTimeout(8000);
+                                conn.setReadTimeout(8000);
+                                conn.setDoOutput(true);
+
+                                OutputStream os = conn.getOutputStream();
+                                os.write(req.toString().getBytes("UTF-8"));
+                                os.close();
+
+                                int code = conn.getResponseCode();
+                                BufferedReader br = new BufferedReader(new InputStreamReader(
+                                    code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream()
+                                ));
+                                StringBuilder sb = new StringBuilder();
+                                String line;
+                                while ((line = br.readLine()) != null) sb.append(line);
+                                br.close();
+                                conn.disconnect();
+
+                                JSONObject resp = new JSONObject(sb.toString());
+                                if (code == 200 && resp.optBoolean("success")) {
+                                    resultObj = resp;
+                                    break;
+                                } else {
+                                    errorMsg = resp.optString("message", "Sunucu hatası (" + code + ")");
+                                }
+                            } catch (Exception ex) {
+                                errorMsg = ex.getMessage();
+                            }
+                        }
+
+                        if (resultObj != null && resultObj.optBoolean("success")) {
+                            JSONObject data = resultObj.getJSONObject("data");
+                            final String returnedNodeId = data.optString("node_id");
+                            final String returnedAppName = data.optString("app_name", "New-API BYOG");
+                            final String returnedFavicon = data.optString("favicon", "logo.png");
+                            boolean isPaired = data.optBoolean("is_paired", false);
+
+                            if (isPaired && !returnedNodeId.isEmpty()) {
+                                SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+                                sp.edit()
+                                  .putString("pairing_code", cleanCode)
+                                  .putString("server_url", finalServerUrl)
+                                  .putString("node_id", returnedNodeId)
+                                  .putString("app_name", returnedAppName)
+                                  .putString("favicon", returnedFavicon)
+                                  .putBoolean("is_paired", true)
+                                  .putInt("battery_percent", percent)
+                                  .putFloat("battery_temp", temp)
+                                  .apply();
+
+                                final int finalPercent = percent;
+                                final float finalTemp = temp;
+
+                                runOnUiThread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        Intent sIntent = new Intent(MainActivity.this, WorkerService.class);
+                                        sIntent.putExtra("pairing_code", cleanCode);
+                                        sIntent.putExtra("server_url", finalServerUrl);
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                            startForegroundService(sIntent);
+                                        } else {
+                                            startService(sIntent);
+                                        }
+
+                                        Toast.makeText(MainActivity.this, "Cihaz başarıyla bağlandı", Toast.LENGTH_SHORT).show();
+
+                                        JSONObject state = new JSONObject();
+                                        try {
+                                            state.put("is_paired", true);
+                                            state.put("node_id", returnedNodeId);
+                                            state.put("server_url", finalServerUrl);
+                                            state.put("app_name", returnedAppName);
+                                            state.put("favicon", returnedFavicon);
+                                            state.put("battery_level", finalPercent);
+                                            state.put("battery_temp", finalTemp);
+                                        } catch (Exception ignored) {}
+                                        if (webView != null) {
+                                            webView.evaluateJavascript("window.updateState(" + state.toString() + ")", null);
+                                        }
+                                    }
+                                });
+                                return;
+                            }
+                        }
+
+                        final String finalErr = errorMsg != null ? errorMsg : "Eşleştirme kodu geçersiz veya süresi dolmuş";
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (webView != null) {
+                                    webView.evaluateJavascript("window.setConnectingState(false)", null);
+                                }
+                                Toast.makeText(MainActivity.this, finalErr, Toast.LENGTH_LONG).show();
+                            }
+                        });
+
+                    } catch (Exception e) {
+                        final String exMsg = e.getMessage();
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (webView != null) {
+                                    webView.evaluateJavascript("window.setConnectingState(false)", null);
+                                }
+                                Toast.makeText(MainActivity.this, "Bağlantı hatası: " + exMsg, Toast.LENGTH_LONG).show();
+                            }
+                        });
                     }
-                    Toast.makeText(MainActivity.this, "Bağlantı başlatılıyor...", Toast.LENGTH_SHORT).show();
                 }
-            });
+            }).start();
         }
 
         @JavascriptInterface
@@ -835,7 +1131,7 @@ public class QRScanActivity extends Activity implements SurfaceHolder.Callback, 
 with open(os.path.join(src_dir, "QRScanActivity.java"), "w", encoding="utf-8") as f:
     f.write(qr_scan_activity_content)
 
-# WorkerService.java (With Real Battery Calculation, State Broadcasts, and Reverse Tunnel Heartbeat)
+# WorkerService.java (Strict guard on paired state, reliable loop, and clean notification)
 worker_service_content = '''package org.byog.worker;
 
 import android.app.Notification;
@@ -877,15 +1173,17 @@ public class WorkerService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+        boolean isPaired = sp != null && sp.getBoolean("is_paired", false) && !sp.getString("node_id", "").isEmpty();
+        if (!isPaired) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
         if (isRunning) return START_STICKY;
         isRunning = true;
 
-        String appName = "New-API BYOG";
-        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-        if (sp != null) {
-            appName = sp.getString("app_name", "New-API BYOG");
-        }
-
+        String appName = sp.getString("app_name", "New-API BYOG");
         Notification notification = buildNotification(appName, "Hesaplama ağına bağlı ve aktif");
 
         try {
@@ -939,11 +1237,16 @@ public class WorkerService extends Service {
     private void doHeartbeatAndSync() {
         try {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            String serverUrl = sp.getString("server_url", "");
+            if (sp == null || !sp.getBoolean("is_paired", false)) {
+                stopSelf();
+                return;
+            }
+
+            String serverUrl = sp.getString("server_url", "https://new-api.com");
             String pairingCode = sp.getString("pairing_code", "");
 
-            if (serverUrl == null || serverUrl.isEmpty()) {
-                serverUrl = "http://localhost:3000";
+            while (serverUrl.endsWith("/")) {
+                serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
             }
 
             Intent batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
@@ -971,63 +1274,82 @@ public class WorkerService extends Service {
             req.put("battery_temp", temp);
             req.put("battery_percent", percent);
 
-            URL url = new URL(serverUrl + "/api/v1/worker/register");
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json");
-            conn.setConnectTimeout(8000);
-            conn.setReadTimeout(8000);
-            conn.setDoOutput(true);
+            String[] endpoints = new String[]{
+                serverUrl + "/api/v1/worker/register",
+                serverUrl + "/api/byog/worker/register"
+            };
 
-            OutputStream os = conn.getOutputStream();
-            os.write(req.toString().getBytes("UTF-8"));
-            os.close();
+            for (String ep : endpoints) {
+                try {
+                    URL url = new URL(ep);
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("POST");
+                    conn.setRequestProperty("Content-Type", "application/json");
+                    conn.setConnectTimeout(8000);
+                    conn.setReadTimeout(8000);
+                    conn.setDoOutput(true);
 
-            if (conn.getResponseCode() == 200) {
-                BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                StringBuilder sb = new StringBuilder();
-                String line;
-                while ((line = br.readLine()) != null) sb.append(line);
-                br.close();
+                    OutputStream os = conn.getOutputStream();
+                    os.write(req.toString().getBytes("UTF-8"));
+                    os.close();
 
-                JSONObject resp = new JSONObject(sb.toString());
-                if (resp.optBoolean("success")) {
-                    JSONObject data = resp.getJSONObject("data");
-                    String returnedNodeId = data.optString("node_id");
-                    String appName = data.optString("app_name", "New-API BYOG");
-                    String favicon = data.optString("favicon", "logo.png");
-                    boolean isPaired = data.optBoolean("is_paired", false);
+                    int resCode = conn.getResponseCode();
+                    if (resCode == 200) {
+                        BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                        StringBuilder sb = new StringBuilder();
+                        String line;
+                        while ((line = br.readLine()) != null) sb.append(line);
+                        br.close();
 
-                    sp.edit()
-                      .putString("node_id", returnedNodeId)
-                      .putString("app_name", appName)
-                      .putString("favicon", favicon)
-                      .putBoolean("is_paired", isPaired)
-                      .putInt("battery_percent", percent)
-                      .putFloat("battery_temp", temp)
-                      .apply();
+                        JSONObject resp = new JSONObject(sb.toString());
+                        if (resp.optBoolean("success")) {
+                            JSONObject data = resp.getJSONObject("data");
+                            String returnedNodeId = data.optString("node_id");
+                            String appName = data.optString("app_name", "New-API BYOG");
+                            String favicon = data.optString("favicon", "logo.png");
+                            boolean isPaired = data.optBoolean("is_paired", false);
 
-                    Notification updated = buildNotification(appName, "Hesaplama ağına bağlı (Aktif)");
-                    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-                    if (nm != null) nm.notify(NOTIF_ID, updated);
+                            if (!isPaired) {
+                                // Server indicated node is no longer paired
+                                sp.edit().putBoolean("is_paired", false).apply();
+                                stopSelf();
+                                conn.disconnect();
+                                return;
+                            }
 
-                    // Broadcast state update to MainActivity WebView
-                    JSONObject state = new JSONObject();
-                    state.put("is_paired", isPaired);
-                    state.put("node_id", returnedNodeId);
-                    state.put("server_url", serverUrl);
-                    state.put("app_name", appName);
-                    state.put("favicon", favicon);
-                    state.put("battery_level", percent);
-                    state.put("battery_temp", temp);
+                            sp.edit()
+                              .putString("node_id", returnedNodeId)
+                              .putString("app_name", appName)
+                              .putString("favicon", favicon)
+                              .putBoolean("is_paired", isPaired)
+                              .putInt("battery_percent", percent)
+                              .putFloat("battery_temp", temp)
+                              .apply();
 
-                    Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
-                    bIntent.putExtra("state", state.toString());
-                    bIntent.setPackage(getPackageName());
-                    sendBroadcast(bIntent);
-                }
+                            Notification updated = buildNotification(appName, "Hesaplama ağına bağlı (Aktif)");
+                            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                            if (nm != null) nm.notify(NOTIF_ID, updated);
+
+                            JSONObject state = new JSONObject();
+                            state.put("is_paired", isPaired);
+                            state.put("node_id", returnedNodeId);
+                            state.put("server_url", serverUrl);
+                            state.put("app_name", appName);
+                            state.put("favicon", favicon);
+                            state.put("battery_level", percent);
+                            state.put("battery_temp", temp);
+
+                            Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
+                            bIntent.putExtra("state", state.toString());
+                            bIntent.setPackage(getPackageName());
+                            sendBroadcast(bIntent);
+                            conn.disconnect();
+                            break;
+                        }
+                    }
+                    conn.disconnect();
+                } catch (Exception ignored) {}
             }
-            conn.disconnect();
         } catch (Exception ignored) {}
     }
 
@@ -1090,8 +1412,9 @@ public class BootReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
             SharedPreferences sp = context.getSharedPreferences("byog_prefs", Context.MODE_PRIVATE);
+            boolean isPaired = sp.getBoolean("is_paired", false);
             String nodeId = sp.getString("node_id", "");
-            if (!nodeId.isEmpty()) {
+            if (isPaired && !nodeId.isEmpty()) {
                 Intent sIntent = new Intent(context, WorkerService.class);
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     context.startForegroundService(sIntent);

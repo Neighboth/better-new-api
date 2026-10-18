@@ -141,15 +141,20 @@ func GetUserPairingCode(c *gin.Context) {
 	}
 
 	code := generateRandomPairingCode()
+	cleanCode := strings.ReplaceAll(strings.ToUpper(code), "-", "")
 	now := time.Now().Unix()
 
 	userPairingSessionsMu.Lock()
 	for k, v := range userPairingSessions {
-		if now-v.CreatedAt > 900 {
+		if now-v.CreatedAt > 1800 {
 			delete(userPairingSessions, k)
 		}
 	}
 	userPairingSessions[code] = userPairingSession{
+		UserId:    userId,
+		CreatedAt: now,
+	}
+	userPairingSessions[cleanCode] = userPairingSession{
 		UserId:    userId,
 		CreatedAt: now,
 	}
@@ -172,7 +177,10 @@ func GetUserPairingCode(c *gin.Context) {
 		faviconUrl = common.Logo
 	}
 	if faviconUrl == "" {
-		faviconUrl = "/logo.png"
+		faviconUrl = "/favicon.ico"
+	}
+	if strings.HasPrefix(faviconUrl, "/") {
+		faviconUrl = fmt.Sprintf("%s%s", serverUrl, faviconUrl)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -211,27 +219,23 @@ func GetByogStatus(c *gin.Context) {
 		availableTokens = sum.Total
 	}
 
-	hasWin := hasLocalWorkerBinary("windows", "amd64") || (setting != nil && setting.ClientDownloadUrlWindows != "")
-	hasLin := hasLocalWorkerBinary("linux", "amd64") || (setting != nil && setting.ClientDownloadUrlLinux != "")
-	hasDar := hasLocalWorkerBinary("darwin", "arm64") || (setting != nil && setting.ClientDownloadUrlDarwin != "")
-	hasAnd := hasLocalWorkerBinary("android", "apk") || (setting != nil && setting.ClientDownloadUrlAndroid != "")
+	hasWin := hasLocalWorkerBinary("windows", "amd64")
+	hasLin := hasLocalWorkerBinary("linux", "amd64")
+	hasDar := hasLocalWorkerBinary("darwin", "arm64")
+	hasAnd := hasLocalWorkerBinary("android", "apk")
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"enabled":                     setting.Enabled,
-			"is_banned":                   isBanned,
-			"ban_info":                    banInfo,
-			"available_tokens":            availableTokens,
-			"client_download_url_windows": setting.ClientDownloadUrlWindows,
-			"client_download_url_linux":   setting.ClientDownloadUrlLinux,
-			"client_download_url_darwin":  setting.ClientDownloadUrlDarwin,
-			"client_download_url_android": setting.ClientDownloadUrlAndroid,
+			"enabled":          setting.Enabled,
+			"is_banned":        isBanned,
+			"ban_info":         banInfo,
+			"available_tokens": availableTokens,
 			"client_downloads": gin.H{
-				"windows": gin.H{"available": hasWin, "url": setting.ClientDownloadUrlWindows},
-				"linux":   gin.H{"available": hasLin, "url": setting.ClientDownloadUrlLinux},
-				"darwin":  gin.H{"available": hasDar, "url": setting.ClientDownloadUrlDarwin},
-				"android": gin.H{"available": hasAnd, "url": setting.ClientDownloadUrlAndroid},
+				"windows": gin.H{"available": hasWin},
+				"linux":   gin.H{"available": hasLin},
+				"darwin":  gin.H{"available": hasDar},
+				"android": gin.H{"available": hasAnd},
 			},
 		},
 	})
@@ -941,12 +945,34 @@ func RegisterByogWorker(c *gin.Context) {
 	var matchedUserId int
 	if req.PairingCode != "" {
 		codeUpper := strings.ToUpper(strings.TrimSpace(req.PairingCode))
+		codeClean := strings.ReplaceAll(strings.ReplaceAll(codeUpper, "-", ""), " ", "")
 		userPairingSessionsMu.Lock()
 		if sess, ok := userPairingSessions[codeUpper]; ok {
 			matchedUserId = sess.UserId
 			delete(userPairingSessions, codeUpper)
+			delete(userPairingSessions, codeClean)
+		} else if sess, ok := userPairingSessions[codeClean]; ok {
+			matchedUserId = sess.UserId
+			delete(userPairingSessions, codeUpper)
+			delete(userPairingSessions, codeClean)
 		}
 		userPairingSessionsMu.Unlock()
+
+		if matchedUserId == 0 {
+			if existingNode, _ := model.GetByogNodeByPairingCode(codeUpper); existingNode != nil && existingNode.UserId > 0 {
+				matchedUserId = existingNode.UserId
+			} else if existingNode, _ := model.GetByogNodeByPairingCode(codeClean); existingNode != nil && existingNode.UserId > 0 {
+				matchedUserId = existingNode.UserId
+			}
+		}
+
+		if matchedUserId == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "Geçersiz veya süresi dolmuş eşleştirme kodu. Lütfen siteden yeni kod alıp tekrar deneyiniz.",
+			})
+			return
+		}
 	}
 
 	country, city, lat, lon := resolveNodeGeoIP(c.ClientIP())
@@ -1066,6 +1092,14 @@ func RegisterByogWorker(c *gin.Context) {
 	}
 	if faviconUrl == "" {
 		faviconUrl = "/favicon.ico"
+	}
+	if strings.HasPrefix(faviconUrl, "/") {
+		scheme := "http"
+		if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+		faviconUrl = fmt.Sprintf("%s%s", serverUrl, faviconUrl)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1206,26 +1240,10 @@ func hasLocalWorkerBinary(platform, arch string) bool {
 
 // GetByogWorkerVersion returns latest version for the self-updater engine
 func GetByogWorkerVersion(c *gin.Context) {
-	setting, _ := model.GetByogSetting()
 	winUrl := "/api/v1/worker/download/windows/amd64"
 	linUrl := "/api/v1/worker/download/linux/amd64"
 	darUrl := "/api/v1/worker/download/darwin/arm64"
 	apkUrl := "/api/v1/worker/download/android/apk"
-
-	if setting != nil {
-		if setting.ClientDownloadUrlWindows != "" {
-			winUrl = setting.ClientDownloadUrlWindows
-		}
-		if setting.ClientDownloadUrlLinux != "" {
-			linUrl = setting.ClientDownloadUrlLinux
-		}
-		if setting.ClientDownloadUrlDarwin != "" {
-			darUrl = setting.ClientDownloadUrlDarwin
-		}
-		if setting.ClientDownloadUrlAndroid != "" {
-			apkUrl = setting.ClientDownloadUrlAndroid
-		}
-	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"version":      "1.3.0",
@@ -1292,6 +1310,9 @@ func DownloadByogWorker(c *gin.Context) {
 					if faviconUrl == "" {
 						faviconUrl = "/favicon.ico"
 					}
+					if strings.HasPrefix(faviconUrl, "/") {
+						faviconUrl = fmt.Sprintf("%s%s", serverUrl, faviconUrl)
+					}
 
 					cfgPayload, _ := json.Marshal(map[string]string{
 						"server_url":  serverUrl,
@@ -1316,30 +1337,9 @@ func DownloadByogWorker(c *gin.Context) {
 		}
 	}
 
-	// Check if configured in ByogSetting
-	setting, _ := model.GetByogSetting()
-	var redirectUrl string
-	if setting != nil {
-		switch platform {
-		case "windows":
-			redirectUrl = setting.ClientDownloadUrlWindows
-		case "linux":
-			redirectUrl = setting.ClientDownloadUrlLinux
-		case "darwin":
-			redirectUrl = setting.ClientDownloadUrlDarwin
-		case "android":
-			redirectUrl = setting.ClientDownloadUrlAndroid
-		}
-	}
-
-	if redirectUrl != "" {
-		c.Redirect(http.StatusFound, redirectUrl)
-		return
-	}
-
 	c.JSON(http.StatusNotFound, gin.H{
 		"success": false,
-		"message": "Worker client binary is not configured on this instance. Please contact the administrator or configure download links in BYOG Admin -> Settings.",
+		"message": "Worker client binary is not present on this server.",
 	})
 }
 

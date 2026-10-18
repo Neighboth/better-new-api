@@ -107,10 +107,6 @@ export interface ByogSetting {
   weekend_crunch_enabled: boolean
   hardware_backends: string
   multipliers_config?: string
-  client_download_url_windows?: string
-  client_download_url_linux?: string
-  client_download_url_darwin?: string
-  client_download_url_android?: string
 }
 
 export interface ByogMultipliersConfig {
@@ -249,9 +245,5 @@ export interface ByogStatusData {
   is_banned: boolean
   ban_info?: ByogNodeBan
   available_tokens?: number
-  client_download_url_windows?: string
-  client_download_url_linux?: string
-  client_download_url_darwin?: string
-  client_download_url_android?: string
-  client_downloads?: Record<string, { available: boolean; url?: string }>
+  client_downloads?: Record<string, { available: boolean }>
 }

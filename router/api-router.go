@@ -563,7 +563,7 @@ func SetApiRouter(router *gin.Engine) {
 			}
 		}
 
-		// BYOG Worker endpoints under /api/v1/worker
+		// BYOG Worker endpoints under /api/v1/worker and /api/byog/worker
 		workerRoute := apiRouter.Group("/v1/worker")
 		{
 			workerRoute.POST("/register", controller.RegisterByogWorker)
@@ -571,6 +571,12 @@ func SetApiRouter(router *gin.Engine) {
 			workerRoute.POST("/telemetry/crash", controller.ReportByogWorkerCrash)
 			workerRoute.GET("/version", controller.GetByogWorkerVersion)
 			workerRoute.GET("/download/:platform/:arch", controller.DownloadByogWorker)
+		}
+		byogWorkerAlias := apiRouter.Group("/byog/worker")
+		{
+			byogWorkerAlias.POST("/register", controller.RegisterByogWorker)
+			byogWorkerAlias.GET("/tunnel", controller.ByogWorkerTunnel)
+			byogWorkerAlias.GET("/download/:platform/:arch", controller.DownloadByogWorker)
 		}
 	}
 }
