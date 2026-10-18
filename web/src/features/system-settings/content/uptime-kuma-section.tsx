@@ -463,7 +463,7 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
                     <Input
                       placeholder={
                         selectedProvider === 'instatus'
-                          ? 'https://new-api.instatus.com/history.rss'
+                          ? 'https://example.instatus.com/history.rss'
                           : 'https://status.example.com'
                       }
                       {...field}

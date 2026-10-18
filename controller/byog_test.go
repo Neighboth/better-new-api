@@ -70,7 +70,7 @@ func TestResolveNodeGeoIP(t *testing.T) {
 
 func TestDownloadByogWorkerEndpoints(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	common.SystemName = "New-API"
+	common.SystemName = "TestPlatform"
 	common.Favicon = "/favicon.ico"
 
 	router := gin.New()

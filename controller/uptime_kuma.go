@@ -112,7 +112,7 @@ func fetchGroupData(ctx context.Context, client *http.Client, groupConfig map[st
 			return result
 		}
 
-		// Fallback to RSS parsing (e.g. https://new-api.instatus.com/history.rss)
+		// Fallback to RSS parsing (e.g. https://status.example.com/history.rss)
 		rssURL := url
 		if !strings.HasSuffix(rssURL, ".rss") {
 			rssURL = strings.TrimSuffix(rssURL, "/") + "/history.rss"
