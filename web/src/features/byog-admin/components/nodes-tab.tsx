@@ -52,6 +52,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 
+import { Info } from 'lucide-react'
 import { toast } from 'sonner'
 import { deleteAdminNode, getAdminNodes } from '../../byog/api'
 import type { ByogNode } from '../../byog/types'
@@ -132,31 +133,82 @@ export function ByogNodesTab() {
     return matchesSearch && matchesType
   })
 
-  function getStatusBadge(status: string) {
-    switch (status) {
-      case 'online':
-        return (
-          <Badge className='border-emerald-500/20 bg-emerald-500/10 text-emerald-500'>
-            {t('byog.status_online')}
+  function renderNodeStatus(node: ByogNode) {
+    const nowSec = Math.floor(Date.now() / 1000)
+    const heartbeatAge = nowSec - (node.last_heartbeat_at || 0)
+    const isStale = (node.last_heartbeat_at || 0) <= 0 || heartbeatAge > 45
+    const isStopped = node.status === 'offline' || node.status === 'banned' || isStale
+
+    // 1. "Durmuş" (bir süredir yanıt vermeyen, durmuş, hatalı, çökmüş, silinmiş vs cihazlar, yanında i tuşuna basıp detaylı bilgi alabilelim)
+    if (isStopped) {
+      return (
+        <div className='flex items-center gap-1.5'>
+          <Badge
+            variant='outline'
+            className='border-rose-500/30 bg-rose-500/10 text-rose-400 font-medium'
+          >
+            {t('byog.status_stopped', 'Durmuş')}
           </Badge>
-        )
-      case 'gamer_mode':
-        return (
-          <Badge className='border-purple-500/20 bg-purple-500/10 text-purple-400'>
-            {t('byog.status_gamer_mode')}
-          </Badge>
-        )
-      case 'throttled':
-        return (
-          <Badge className='border-amber-500/20 bg-amber-500/10 text-amber-500'>
-            {t('byog.status_throttled')}
-          </Badge>
-        )
-      case 'banned':
-        return <Badge variant='destructive'>{t('byog.status_banned')}</Badge>
-      default:
-        return <Badge variant='outline'>{t('byog.status_offline')}</Badge>
+          <Button
+            variant='ghost'
+            size='icon'
+            onClick={() => handleInspect(node)}
+            className='h-5 w-5 p-0 text-muted-foreground hover:text-foreground hover:bg-muted'
+            title={t('byog.inspect_stopped_hint', 'Cihaz durma nedenini ve ayrıntılarını incele')}
+          >
+            <Info className='h-3.5 w-3.5' />
+          </Button>
+        </div>
+      )
     }
+
+    // 2. "İndiriliyor..."
+    let isDownloading = false
+    try {
+      const queue = JSON.parse(node.download_queue || '[]')
+      if (Array.isArray(queue) && queue.length > 0) {
+        isDownloading = true
+      }
+    } catch (e) {}
+
+    if (isDownloading) {
+      return (
+        <Badge className='border-amber-500/20 bg-amber-500/10 text-amber-500 font-medium animate-pulse'>
+          {t('byog.status_downloading', 'İndiriliyor...')}
+        </Badge>
+      )
+    }
+
+    // 3. "Çalışıyor..." (Üretimde)
+    const isProducing = (node.current_tps || 0) > 0.05 || node.status === 'gamer_mode'
+    if (isProducing) {
+      return (
+        <div className='flex flex-col'>
+          <Badge className='border-emerald-500/20 bg-emerald-500/10 text-emerald-400 font-medium'>
+            {t('byog.status_running', 'Çalışıyor...')}
+          </Badge>
+          <span className='text-[10px] text-muted-foreground mt-0.5'>
+            {t('byog.in_production', '(Üretimde)')}
+          </span>
+        </div>
+      )
+    }
+
+    // 4. "Boşta. (VRAM)" (Model indirili, vramde duruyor -hot start- ama görev verilmemiş token üretilmiyor)
+    if (node.hot_start_enabled) {
+      return (
+        <Badge className='border-indigo-500/20 bg-indigo-500/10 text-indigo-400 font-medium'>
+          {t('byog.status_idle_vram', 'Boşta. (VRAM)')}
+        </Badge>
+      )
+    }
+
+    // 5. "Boşta." (Model indirili ama görev verilmemiş token üretilmiyor)
+    return (
+      <Badge className='border-slate-500/20 bg-slate-500/10 text-slate-300 font-medium'>
+        {t('byog.status_idle', 'Boşta.')}
+      </Badge>
+    )
   }
 
   return (
@@ -342,7 +394,7 @@ export function ByogNodesTab() {
                           {node.current_ttft_ms} ms TTFT
                         </div>
                       </TableCell>
-                      <TableCell>{getStatusBadge(node.status)}</TableCell>
+                      <TableCell>{renderNodeStatus(node)}</TableCell>
                       <TableCell className='text-right'>
                         <div className='flex items-center justify-end gap-1.5'>
                           <Button
@@ -388,6 +440,37 @@ export function ByogNodesTab() {
 
           {selectedNode && (
             <div className='space-y-6 py-4'>
+              {/* Device Health & Stoppage Diagnostic Alert */}
+              {(() => {
+                const nowSec = Math.floor(Date.now() / 1000)
+                const age = nowSec - (selectedNode.last_heartbeat_at || 0)
+                const isStale = (selectedNode.last_heartbeat_at || 0) <= 0 || age > 45
+                const isStopped = selectedNode.status === 'offline' || selectedNode.status === 'banned' || isStale
+                if (!isStopped) return null
+
+                let reason = 'Cihazdan bir süredir kalp atışı (sinyal) alınamadı.'
+                if (selectedNode.status === 'banned') {
+                  reason = 'Cihaz güvenlik kuralları veya doğrulama ihlali nedeniyle sistem tarafından yasaklandı.'
+                } else if (age > 45) {
+                  reason = `Cihaz ile bağlantı kesildi. Son yanıt ${age} saniye önce alındı (Uygulama kapatılmış, cihaz uykuya geçmiş, ağ bağlantısı kopmuş veya uygulama silinmiş olabilir).`
+                } else if (selectedNode.battery_cutoff_enabled && selectedNode.battery_percent <= selectedNode.battery_cutoff_percent) {
+                  reason = `Cihaz pil seviyesi (%${selectedNode.battery_percent}) belirlenen kesme eşiğinin (%${selectedNode.battery_cutoff_percent}) altına düştüğü için durduruldu.`
+                } else if (selectedNode.run_only_while_charging && !selectedNode.is_charging) {
+                  reason = 'Cihaz şarja takılı olmadığı için güç tasarrufu politikası gereği durduruldu.'
+                }
+
+                return (
+                  <div className='bg-rose-500/10 border-rose-500/20 rounded-xl border p-4 space-y-1'>
+                    <div className='text-sm font-semibold text-rose-400'>
+                      Cihaz Durumu: Durmuş
+                    </div>
+                    <div className='text-xs text-muted-foreground'>
+                      {reason}
+                    </div>
+                  </div>
+                )
+              })()}
+
               {/* TEE Attestation & Security Status */}
               <div className='bg-muted/20 flex items-center justify-between rounded-xl border p-4'>
                 <div>

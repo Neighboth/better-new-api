@@ -21,7 +21,7 @@ WORKDIR = os.path.abspath(r"Z:\better-new-api\worker\mobile\build_tmp")
 OUTPUT_APK = os.path.abspath(r"Z:\better-new-api\worker\binaries\byog-worker.apk")
 
 parser = argparse.ArgumentParser(description="BYOG Mobile APK Builder")
-parser.add_argument("--system-name", type=str, default="", help="Custom system branding name (e.g. New-API)")
+parser.add_argument("--system-name", type=str, default="", help="Custom system branding name (e.g. MyBrand)")
 parser.add_argument("--favicon", type=str, default="", help="Favicon URL or local file path")
 parser.add_argument("--server-url", type=str, default="", help="Default embedded server address")
 parser.add_argument("--sql-dsn", type=str, default="", help="MySQL DSN to query options table")
@@ -30,29 +30,45 @@ args, _ = parser.parse_known_args()
 system_name = args.system_name or os.environ.get("SYSTEM_NAME", "")
 favicon_url = args.favicon or os.environ.get("FAVICON_URL", "")
 server_url = args.server_url or os.environ.get("SERVER_URL", "")
+sql_dsn = args.sql_dsn or os.environ.get("SQL_DSN", "")
+
+if not sql_dsn and os.path.exists(".env"):
+    try:
+        with open(".env", "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("SQL_DSN="):
+                    sql_dsn = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    break
+    except Exception:
+        pass
 
 # Auto-detect options from database if not explicitly passed
-if not system_name or not favicon_url:
+if (not system_name or not favicon_url) and sql_dsn:
     try:
         import pymysql
-        dsn_host = "127.0.0.1"
-        dsn_port = 3308
-        dsn_user = "Salih"
-        dsn_pass = "example_pass"
-        dsn_db = "new_api"
-        conn = pymysql.connect(host=dsn_host, port=dsn_port, user=dsn_user, password=dsn_pass, database=dsn_db, connect_timeout=5)
-        with conn.cursor() as cur:
-            cur.execute("SELECT options.key, options.value FROM options WHERE options.key IN ('SystemName', 'Favicon', 'Logo', 'ServerAddress')")
-            for k, val in cur.fetchall():
-                if k == 'SystemName' and not system_name and val:
-                    system_name = val.strip()
-                elif k == 'Favicon' and not favicon_url and val:
-                    favicon_url = val.strip()
-                elif k == 'Logo' and not favicon_url and val:
-                    favicon_url = val.strip()
-                elif k == 'ServerAddress' and not server_url and val:
-                    server_url = val.strip()
-        conn.close()
+        import re
+        m = re.search(r"^(?:mysql://)?(?P<user>[^:]+):(?P<pass>[^@]+)@(?:tcp\((?P<host>[^:]+):(?P<port>\d+)\)|(?P<host2>[^:/]+)(?::(?P<port2>\d+))?)/(?P<db>[^?]+)", sql_dsn)
+        if m:
+            d = m.groupdict()
+            host = d.get("host") or d.get("host2") or "localhost"
+            port = int(d.get("port") or d.get("port2") or 3306)
+            user = d.get("user")
+            passwd = d.get("pass")
+            dbname = d.get("db")
+            conn = pymysql.connect(host=host, port=port, user=user, password=passwd, database=dbname, connect_timeout=5)
+            with conn.cursor() as cur:
+                cur.execute("SELECT options.key, options.value FROM options WHERE options.key IN ('SystemName', 'Favicon', 'Logo', 'ServerAddress')")
+                for k, val in cur.fetchall():
+                    if k == 'SystemName' and not system_name and val:
+                        system_name = val.strip()
+                    elif k == 'Favicon' and not favicon_url and val:
+                        favicon_url = val.strip()
+                    elif k == 'Logo' and not favicon_url and val:
+                        favicon_url = val.strip()
+                    elif k == 'ServerAddress' and not server_url and val:
+                        server_url = val.strip()
+            conn.close()
     except Exception as ex:
         print("Note: Could not query DB options automatically:", ex)
 

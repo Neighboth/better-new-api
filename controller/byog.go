@@ -443,9 +443,20 @@ func DeleteUserByogNode(c *gin.Context) {
 	targetId := node.Id
 	hwid := node.HWID
 	byogservice.GlobalHub.Unregister(targetNodeId)
-	_ = model.DeleteByogNode(targetNodeId)
+
 	if model.DB != nil {
-		_ = model.DB.Unscoped().Where("node_id = ? OR id = ? OR hw_id = ? OR hwid = ?", targetNodeId, targetId, hwid, hwid).Delete(&model.ByogNode{}).Error
+		if targetId > 0 {
+			if err := model.DB.Unscoped().Where("id = ?", targetId).Delete(&model.ByogNode{}).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+				return
+			}
+		}
+		if targetNodeId != "" {
+			_ = model.DB.Unscoped().Where("node_id = ?", targetNodeId).Delete(&model.ByogNode{}).Error
+		}
+		if hwid != "" {
+			_ = model.DB.Unscoped().Where("hw_id = ?", hwid).Delete(&model.ByogNode{}).Error
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Device deleted"})
@@ -964,9 +975,6 @@ func DeleteAdminByogNode(c *gin.Context) {
 
 	byogservice.GlobalHub.Unregister(nodeId)
 	err := model.DeleteByogNode(nodeId)
-	if model.DB != nil {
-		_ = model.DB.Unscoped().Where("node_id = ? OR id = ? OR hw_id = ? OR hwid = ?", nodeId, nodeId, nodeId, nodeId).Delete(&model.ByogNode{}).Error
-	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return

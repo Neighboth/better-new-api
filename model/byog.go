@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -563,10 +564,13 @@ func SaveByogNode(n *ByogNode) error {
 }
 
 func DeleteByogNode(nodeId string) error {
-	if DB == nil {
+	if DB == nil || nodeId == "" {
 		return nil
 	}
-	return DB.Unscoped().Where("node_id = ? OR id = ?", nodeId, nodeId).Delete(&ByogNode{}).Error
+	if numId, err := strconv.Atoi(nodeId); err == nil && numId > 0 {
+		return DB.Unscoped().Where("id = ? OR node_id = ?", numId, nodeId).Delete(&ByogNode{}).Error
+	}
+	return DB.Unscoped().Where("node_id = ? OR hw_id = ?", nodeId, nodeId).Delete(&ByogNode{}).Error
 }
 
 // Banned Nodes
