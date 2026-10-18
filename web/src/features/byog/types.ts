@@ -57,6 +57,8 @@ export interface ByogNode {
   power_profile: 'full_power' | 'half_power' | 'active_hours' | 'dual_schedule'
   schedule_config: string
   allocated_disk_gb: number
+  total_disk_gb?: number
+  free_disk_gb?: number
   allocated_vram_gb: number
   allocated_ram_gb: number
   allocated_cores: number

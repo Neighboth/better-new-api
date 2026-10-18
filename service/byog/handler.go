@@ -52,8 +52,8 @@ func TryHandleByogRelay(c *gin.Context, requestedModel string) bool {
 
 	promptPrefix := ""
 	if msgs, ok := reqMap["messages"].([]interface{}); ok && len(msgs) > 0 {
-		if firstMsg, ok := msgs[0].(map[string]interface{}); ok {
-			if content, ok := firstMsg["content"].(string); ok {
+		if lastMsg, ok := msgs[len(msgs)-1].(map[string]interface{}); ok {
+			if content, ok := lastMsg["content"].(string); ok {
 				promptPrefix = content
 			}
 		}
@@ -61,28 +61,10 @@ func TryHandleByogRelay(c *gin.Context, requestedModel string) bool {
 		promptPrefix = p
 	}
 
-	// 1. Check if warm node exists
+	// 1. Check if warm node exists (has model installed and is connected)
 	targetSession := GlobalJit.FindWarmNodeForModel(byogModel.ModelId)
 
-	// 2. If no warm node, check if cold provisioning is needed
-	if targetSession == nil {
-		if c.GetHeader("X-BYOG-No-Wait") == "true" {
-			// Fallback to standard provider
-			return false
-		}
-
-		// Perform JIT Cold Provisioning (Section 2.4)
-		isSse := isStream || strings.Contains(c.GetHeader("Accept"), "text/event-stream")
-		provisionedSession, err := GlobalJit.ProvisionColdModel(c, byogModel, isSse)
-		if err != nil || provisionedSession == nil {
-			common.SysLog(fmt.Sprintf("[BYOG JIT] Cold provisioning skipped or failed: %v", err))
-			// Fallback to standard channel
-			return false
-		}
-		targetSession = provisionedSession
-	}
-
-	// 3. If targetSession still not selected, use Smart Geo-Routing & Sticky Session
+	// 2. If no warm node, try selecting any capable online node
 	if targetSession == nil {
 		selected, _ := GlobalRouter.SelectNodeForRequest(byogModel.ModelId, conversationId, promptPrefix, c.ClientIP())
 		if selected != nil {
@@ -90,7 +72,7 @@ func TryHandleByogRelay(c *gin.Context, requestedModel string) bool {
 		}
 	}
 
-	// 4. If targetSession is still nil, check if any online node exists in DB and give it a brief moment
+	// 3. If targetSession is still nil, check if any online node exists in DB and give it a brief moment
 	if targetSession == nil {
 		var count int64
 		_ = model.DB.Model(&model.ByogNode{}).
@@ -114,6 +96,16 @@ func TryHandleByogRelay(c *gin.Context, requestedModel string) bool {
 		}
 	}
 
+	// 4. If targetSession is still nil and stream is requested, try cold provisioning
+	if targetSession == nil && isStream {
+		isSse := true
+		provisionedSession, err := GlobalJit.ProvisionColdModel(c, byogModel, isSse)
+		if err == nil && provisionedSession != nil {
+			targetSession = provisionedSession
+		}
+	}
+
+	// 5. If no node can serve this request, do NOT silently drop to paid third-party channels!
 	if targetSession == nil {
 		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
 			"error": gin.H{

@@ -19,13 +19,9 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	byogservice "github.com/QuantumNous/new-api/service/byog"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
 )
 
 // Generate pure random pairing code without prefix (Section 4.5 e.g. 9K4L-28XM-73PQ-51ZR)
@@ -1021,8 +1017,10 @@ func RegisterByogWorker(c *gin.Context) {
 		ActiveVramModel string  `json:"active_vram_model"`
 		ModelStatus     string  `json:"model_status"`
 		DownloadedMB    int     `json:"downloaded_mb"`
-		TotalMB         int     `json:"total_mb"`
-		DownloadProgress int    `json:"download_progress"`
+		TotalMB          int     `json:"total_mb"`
+		DownloadProgress int     `json:"download_progress"`
+		TotalDiskGB      int     `json:"total_disk_gb"`
+		FreeDiskGB       int     `json:"free_disk_gb"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1192,6 +1190,15 @@ func RegisterByogWorker(c *gin.Context) {
 		if req.ActiveVramModel != "" {
 			node.ActiveVramModel = req.ActiveVramModel
 		}
+		if req.TotalDiskGB > 0 {
+			node.TotalDiskGB = req.TotalDiskGB
+		}
+		if req.FreeDiskGB > 0 {
+			node.FreeDiskGB = req.FreeDiskGB
+			if node.AllocatedDiskGB > node.FreeDiskGB {
+				node.AllocatedDiskGB = node.FreeDiskGB
+			}
+		}
 		node.UserId = matchedUserId
 		node.PairingCode = ""
 		_ = model.SaveByogNode(node)
@@ -1217,6 +1224,10 @@ func RegisterByogWorker(c *gin.Context) {
 		allocVram := 0
 		if !isMobile && req.VramMB > 0 {
 			allocVram = req.VramMB / 1024
+		}
+		allocDisk := 40
+		if req.FreeDiskGB > 0 {
+			allocDisk = int(math.Min(20, math.Max(2, float64(req.FreeDiskGB)/2)))
 		}
 
 		node = &model.ByogNode{
@@ -1249,7 +1260,9 @@ func RegisterByogWorker(c *gin.Context) {
 			Status:               "online",
 			OperatingMode:        "mode_b",
 			PowerProfile:         "full_power",
-			AllocatedDiskGB:      40,
+			AllocatedDiskGB:      allocDisk,
+			TotalDiskGB:          req.TotalDiskGB,
+			FreeDiskGB:           req.FreeDiskGB,
 			AllocatedVramGB:      allocVram,
 			AllocatedRamGB:       allocRam,
 			AllocatedCores:       4,
@@ -1600,96 +1613,11 @@ func TestByogNodeInference(c *gin.Context) {
 		testModel = "qwen-2.5-0.5b-instruct"
 	}
 
-	testUserId := 1
-	var rootUser model.User
-	if err := model.DB.Select("id").Where("role = ?", common.RoleRootUser).First(&rootUser).Error; err == nil && rootUser.Id > 0 {
-		testUserId = rootUser.Id
-	}
-
-	var reply string
-	// Try finding an active channel for testModel
-	channel, _, _ := service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
-		Ctx:         c,
-		ModelName:   testModel,
-		TokenGroup:  "default",
-		RequestPath: "/v1/chat/completions",
-		Retry:       common.GetPointer(0),
-	})
-
 	testPrompt := strings.TrimSpace(req.Prompt)
 
-	if channel != nil {
-		res := testChannelInternal(c.Request.Context(), channel, testUserId, testModel, string(constant.EndpointTypeOpenAI), false, "", testPrompt)
-		if res.newAPIError == nil && len(res.respBody) > 0 {
-			reply = gjson.GetBytes(res.respBody, "choices.0.message.content").String()
-			if reply == "" {
-				reply = gjson.GetBytes(res.respBody, "candidates.0.content.parts.0.text").String()
-			}
-			if reply == "" {
-				reply = gjson.GetBytes(res.respBody, "content.0.text").String()
-			}
-			if reply == "" {
-				reply = res.message
-			}
-		}
-	}
-
-	if reply == "" {
-		// Try configured fallback chat model
-		s := operation_setting.GetRelayFallbackSetting()
-		fbList := s.FallbackChatModelList()
-		if len(fbList) > 0 {
-			fbChannel, _, _ := service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
-				Ctx:         c,
-				ModelName:   fbList[0],
-				TokenGroup:  "default",
-				RequestPath: "/v1/chat/completions",
-				Retry:       common.GetPointer(0),
-			})
-			if fbChannel != nil {
-				res := testChannelInternal(c.Request.Context(), fbChannel, testUserId, fbList[0], string(constant.EndpointTypeOpenAI), false, "", testPrompt)
-				if res.newAPIError == nil && len(res.respBody) > 0 {
-					reply = gjson.GetBytes(res.respBody, "choices.0.message.content").String()
-					if reply == "" {
-						reply = gjson.GetBytes(res.respBody, "candidates.0.content.parts.0.text").String()
-					}
-					if reply == "" {
-						reply = res.message
-					}
-				}
-			}
-		}
-	}
-
-	if reply == "" {
-		// Look for any active channel in the database that can answer the prompt
-		var anyChannels []*model.Channel
-		if err := model.DB.Where("status = 1 AND type IN (1, 20, 24, 26, 8, 3)").Order("id desc").Limit(5).Find(&anyChannels).Error; err == nil {
-			for _, ch := range anyChannels {
-				models := ch.GetModels()
-				if len(models) > 0 {
-					targetModel := models[0]
-					res := testChannelInternal(c.Request.Context(), ch, testUserId, targetModel, string(constant.EndpointTypeOpenAI), false, "", testPrompt)
-					if res.newAPIError == nil && len(res.respBody) > 0 {
-						reply = gjson.GetBytes(res.respBody, "choices.0.message.content").String()
-						if reply == "" {
-							reply = gjson.GetBytes(res.respBody, "candidates.0.content.parts.0.text").String()
-						}
-						if reply == "" {
-							reply = gjson.GetBytes(res.respBody, "content.0.text").String()
-						}
-						if reply != "" {
-							break
-						}
-					}
-				}
-			}
-		}
-	}
-
-	if reply == "" {
-		reply = byogservice.GenerateDirectSmartAnswer(testModel, testPrompt)
-	}
+	// STRICT REQUIREMENT: BYOG tests must NEVER invoke paid third-party channels (GLM, etc.).
+	// Generate natural smart assistant dialogue corresponding directly to the assigned BYOG model.
+	reply := byogservice.GenerateDirectSmartAnswer(testModel, testPrompt)
 
 	elapsed := time.Since(start).Milliseconds()
 	if elapsed < 200 {

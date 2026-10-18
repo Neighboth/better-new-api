@@ -58,6 +58,8 @@ type TelemetryPayload struct {
 	TotalMB          int      `json:"total_mb,omitempty"`
 	DownloadProgress int      `json:"download_progress,omitempty"`
 	ActiveVramModel  string   `json:"active_vram_model,omitempty"`
+	TotalDiskGB      int      `json:"total_disk_gb,omitempty"`
+	FreeDiskGB       int      `json:"free_disk_gb,omitempty"`
 	DownloadStatus   string   `json:"download_status,omitempty"`
 	IsGamerMode      bool     `json:"is_gamer_mode"`
 	IsThrottled      bool     `json:"is_throttled"`
@@ -235,6 +237,15 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 			}
 			if telemetry.ActiveVramModel != "" {
 				node.ActiveVramModel = telemetry.ActiveVramModel
+			}
+			if telemetry.TotalDiskGB > 0 {
+				node.TotalDiskGB = telemetry.TotalDiskGB
+			}
+			if telemetry.FreeDiskGB > 0 {
+				node.FreeDiskGB = telemetry.FreeDiskGB
+				if node.AllocatedDiskGB > node.FreeDiskGB {
+					node.AllocatedDiskGB = node.FreeDiskGB
+				}
 			}
 			node.LastHeartbeatAt = time.Now().Unix()
 			node.UpdatedAt = time.Now().Unix()

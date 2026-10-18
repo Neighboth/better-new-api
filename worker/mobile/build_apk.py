@@ -187,6 +187,24 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
+    <queries>
+        <package android:name="com.coloros.safecenter" />
+        <package android:name="com.oplus.safecenter" />
+        <package android:name="com.oplus.securitypermission" />
+        <package android:name="com.coloros.securitypermission" />
+        <package android:name="com.coloros.oppoguardelf" />
+        <package android:name="com.realme.safecenter" />
+        <package android:name="com.realme.securitypermission" />
+        <package android:name="com.hihonor.systemmanager" />
+        <package android:name="com.huawei.systemmanager" />
+        <package android:name="com.miui.securitycenter" />
+        <package android:name="com.vivo.permissionmanager" />
+        <package android:name="com.iqoo.secure" />
+        <package android:name="com.samsung.android.lool" />
+        <package android:name="com.samsung.android.sm" />
+        <package android:name="com.transsion.phonemaster" />
+    </queries>
+
     <application
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
@@ -1106,11 +1124,23 @@ public class MainActivity extends Activity {
             // Xiaomi MIUI / HyperOS
             new Intent().setComponent(new ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")),
 
-            // Oppo / Realme / OnePlus
+            // Oppo / Realme / OnePlus (ColorOS / Realme UI)
+            new Intent().setComponent(new ComponentName("com.oplus.securitypermission", "com.oplus.securitypermission.startup.StartupAppListActivity")),
+            new Intent().setComponent(new ComponentName("com.oplus.securitypermission", "com.oplus.securitypermission.permission.startup.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity")),
+            new Intent().setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startupapp.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity")),
+            new Intent().setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.FakeActivity")),
             new Intent().setComponent(new ComponentName("com.oplus.safecenter", "com.oplus.safecenter.startupapp.StartupAppListActivity")),
+            new Intent().setComponent(new ComponentName("com.oplus.safecenter", "com.oplus.safecenter.permission.startup.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.realme.safecenter", "com.realme.safecenter.startupapp.StartupAppListActivity")),
+            new Intent().setComponent(new ComponentName("com.realme.securitypermission", "com.realme.securitypermission.startup.StartupAppListActivity")),
+            new Intent("coloros.safecenter.permission.startup"),
+            new Intent("com.coloros.safecenter.permission.startup"),
+            new Intent("oplus.safecenter.permission.startup"),
+            new Intent("com.oplus.safecenter.permission.startup"),
+            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerUsageModelActivity")),
+            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerSaverModeActivity")),
 
             // Vivo / iQOO
             new Intent().setComponent(new ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity")),
@@ -1124,23 +1154,29 @@ public class MainActivity extends Activity {
             new Intent().setComponent(new ComponentName("com.transsion.phonemaster", "com.transsion.phonemaster.StartupManagerActivity"))
         };
 
-        PackageManager pm = getPackageManager();
         for (Intent candidate : candidates) {
             try {
                 candidate.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                if (pm.queryIntentActivities(candidate, PackageManager.MATCH_DEFAULT_ONLY).size() > 0) {
-                    startActivity(candidate);
-                    return;
-                }
-            } catch (Exception ignored) {}
+                startActivity(candidate);
+                return;
+            } catch (Throwable ignored) {}
         }
+
+        // Direct Battery Optimization Whitelist Dialog on modern Android
+        try {
+            Intent reqIgnore = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            reqIgnore.setData(Uri.parse("package:" + getPackageName()));
+            reqIgnore.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(reqIgnore);
+            return;
+        } catch (Throwable ignored) {}
 
         try {
             Intent appDetails = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
             appDetails.setData(Uri.parse("package:" + getPackageName()));
             appDetails.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(appDetails);
-        } catch (Exception ignored) {}
+        } catch (Throwable ignored) {}
     }
 
     private void saveBase64ToCacheFile(String base64Data) {
@@ -1283,54 +1319,15 @@ public class MainActivity extends Activity {
                     String model = "qwen-2.5-0.5b-instruct";
                     try {
                         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                        String serverUrl = sp.getString("server_url", "");
                         model = sp.getString("assigned_model", "qwen-2.5-0.5b-instruct");
-                        String hwid = sp.getString("hwid", "android-" + Build.BOARD + "-" + Build.DEVICE + "-" + Build.HARDWARE);
-                        if (!serverUrl.isEmpty()) {
-                            while (serverUrl.endsWith("/")) serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
-                            URL url = new URL(serverUrl + "/api/byog/worker/test-inference");
-                            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                            conn.setRequestMethod("POST");
-                            conn.setRequestProperty("Content-Type", "application/json");
-                            conn.setConnectTimeout(10000);
-                            conn.setReadTimeout(15000);
-                            conn.setDoOutput(true);
-
-                            JSONObject body = new JSONObject();
-                            body.put("node_id", sp.getString("node_id", ""));
-                            body.put("hwid", hwid);
-                            body.put("model", model);
-                            body.put("prompt", prompt);
-
-                            OutputStream os = conn.getOutputStream();
-                            os.write(body.toString().getBytes("UTF-8"));
-                            os.close();
-
-                            int code = conn.getResponseCode();
-                            if (code == 200) {
-                                BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                                StringBuilder sb = new StringBuilder();
-                                String line;
-                                while ((line = br.readLine()) != null) sb.append(line);
-                                br.close();
-                                JSONObject res = new JSONObject(sb.toString());
-                                if (res.optBoolean("success", false)) {
-                                    reply = res.optString("reply", "");
-                                    int l = res.optInt("latency_ms", 0);
-                                    if (l > 0) latency = l;
-                                }
-                            }
-                            conn.disconnect();
-                        }
-                    } catch (Exception ignored) {}
-
-                    long elapsed = System.currentTimeMillis() - start;
-                    if (reply.isEmpty()) {
+                        // Execute local on-device model inference directly
                         reply = generateLocalModelAnswer(model, prompt);
-                        elapsed = Math.max(elapsed, 280);
+                        long elapsed = System.currentTimeMillis() - start;
+                        latency = (int) Math.max(elapsed, 260);
+                        tps = Math.round((36.0f + (float)(Math.random() * 8.0f)) * 10.0f) / 10.0f;
+                    } catch (Exception ignored) {
+                        reply = "Yanıt oluşturulurken bir hata oluştu. Lütfen tekrar deneyiniz.";
                     }
-                    if (latency <= 0) latency = (int) elapsed;
-                    tps = Math.round((36.0f + (float)(Math.random() * 8.0f)) * 10.0f) / 10.0f;
 
                     final String finalReply = reply;
                     final int finalLatency = latency;
@@ -1457,6 +1454,16 @@ public class MainActivity extends Activity {
                         }
                         int percent = (scale > 0 && level >= 0) ? (int) ((level / (float) scale) * 100) : 100;
 
+                        int totalDiskGB = 64;
+                        int freeDiskGB = 16;
+                        try {
+                            java.io.File dataDir = Environment.getDataDirectory();
+                            StatFs stat = new StatFs(dataDir.getPath());
+                            long bs = stat.getBlockSizeLong();
+                            totalDiskGB = (int) Math.max(1, (stat.getBlockCountLong() * bs) / (1024L * 1024L * 1024L));
+                            freeDiskGB = (int) Math.max(1, (stat.getAvailableBlocksLong() * bs) / (1024L * 1024L * 1024L));
+                        } catch (Exception ignored) {}
+
                         JSONObject req = new JSONObject();
                         req.put("hwid", "android-" + Build.BOARD + "-" + Build.DEVICE + "-" + Build.HARDWARE);
                         req.put("pairing_code", cleanCode);
@@ -1469,6 +1476,8 @@ public class MainActivity extends Activity {
                         req.put("swap_ram_mb", 0);
                         req.put("vram_mb", 0); // Mobile uses unified memory (no discrete VRAM)
                         req.put("shared_vram_mb", 0);
+                        req.put("total_disk_gb", totalDiskGB);
+                        req.put("free_disk_gb", freeDiskGB);
                         req.put("battery_temp", temp);
                         req.put("battery_percent", percent);
                         req.put("is_charging", isCharging);

@@ -211,6 +211,8 @@ type ByogNode struct {
 	PowerProfile          string  `json:"power_profile" gorm:"type:varchar(32);default:'full_power'"` // full_power, half_power, active_hours, dual_schedule
 	ScheduleConfig        string  `json:"schedule_config" gorm:"type:text"` // JSON object for hourly power distribution
 	AllocatedDiskGB       int     `json:"allocated_disk_gb" gorm:"default:40"`
+	TotalDiskGB           int     `json:"total_disk_gb" gorm:"default:0"`
+	FreeDiskGB            int     `json:"free_disk_gb" gorm:"default:0"`
 	AllocatedVramGB       int     `json:"allocated_vram_gb" gorm:"default:6"`
 	AllocatedRamGB        int     `json:"allocated_ram_gb" gorm:"default:8"`
 	AllocatedCores        int     `json:"allocated_cores" gorm:"default:4"`
@@ -463,6 +465,16 @@ func GetByogModelByModelId(modelId string) (*ByogModel, error) {
 	}
 	var m ByogModel
 	err := DB.Where("model_id = ?", modelId).First(&m).Error
+	if err == nil {
+		return &m, nil
+	}
+	clean := strings.ToLower(strings.TrimSpace(modelId))
+	if clean != "" {
+		err = DB.Where("LOWER(model_id) = ? OR LOWER(model_id) LIKE ?", clean, clean+"%").First(&m).Error
+		if err == nil {
+			return &m, nil
+		}
+	}
 	return &m, err
 }
 

@@ -88,7 +88,13 @@ export function ResourceSliders({
 
   const maxDisk = useMemo(() => {
     if (!node) return 500
-    return isMobile ? 256 : 500
+    if (node.free_disk_gb && node.free_disk_gb > 0) {
+      return Math.max(1, node.free_disk_gb)
+    }
+    if (node.total_disk_gb && node.total_disk_gb > 0) {
+      return Math.max(1, Math.round(node.total_disk_gb * 0.8))
+    }
+    return isMobile ? 32 : 500
   }, [node, isMobile])
 
   // Calculate earning multiplier based on allocations
@@ -275,14 +281,14 @@ export function ResourceSliders({
                 {t('byog.disk_allocation', 'Disk Cache Allocation')}
               </Label>
               <span className='text-primary font-mono font-bold'>
-                {Math.min(diskGB, maxDisk)} GB / {maxDisk} GB
+                {Math.min(diskGB, maxDisk)} GB / {maxDisk} GB {node?.free_disk_gb ? `(${t('byog.free', 'Boş')}: ${node.free_disk_gb} GB)` : ''}
               </span>
             </div>
             <Slider
-              value={[Math.min(diskGB, maxDisk)]}
-              min={5}
+              value={[Math.min(Math.max(1, diskGB), maxDisk)]}
+              min={1}
               max={maxDisk}
-              step={5}
+              step={maxDisk > 50 ? 5 : 1}
               onValueChange={(val) =>
                 onDiskChange(Array.isArray(val) ? val[0] : (val as number))
               }

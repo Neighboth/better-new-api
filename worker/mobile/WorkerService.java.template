@@ -15,8 +15,10 @@ import android.graphics.BitmapFactory;
 import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
 import android.os.Build;
+import android.os.Environment;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.os.StatFs;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -373,6 +375,15 @@ public class WorkerService extends Service {
             req.put("swap_ram_mb", 0);
             req.put("vram_mb", 0);
             req.put("shared_vram_mb", 0);
+            try {
+                File dataDir = Environment.getDataDirectory();
+                StatFs stat = new StatFs(dataDir.getPath());
+                long bs = stat.getBlockSizeLong();
+                int tGB = (int) Math.max(1, (stat.getBlockCountLong() * bs) / (1024L * 1024L * 1024L));
+                int fGB = (int) Math.max(1, (stat.getAvailableBlocksLong() * bs) / (1024L * 1024L * 1024L));
+                req.put("total_disk_gb", tGB);
+                req.put("free_disk_gb", fGB);
+            } catch (Exception ignored) {}
             req.put("battery_temp", batteryTemp);
             req.put("battery_percent", batteryPercent);
             req.put("is_charging", isCharging);
@@ -716,6 +727,16 @@ public class WorkerService extends Service {
                 payload.put("active_vram_model", activeVramModel);
                 payload.put("is_gamer_mode", false);
                 payload.put("is_throttled", false);
+
+                try {
+                    java.io.File dataDir = Environment.getDataDirectory();
+                    StatFs stat = new StatFs(dataDir.getPath());
+                    long bs = stat.getBlockSizeLong();
+                    int tGB = (int) Math.max(1, (stat.getBlockCountLong() * bs) / (1024L * 1024L * 1024L));
+                    int fGB = (int) Math.max(1, (stat.getAvailableBlocksLong() * bs) / (1024L * 1024L * 1024L));
+                    payload.put("total_disk_gb", tGB);
+                    payload.put("free_disk_gb", fGB);
+                } catch (Exception ignored) {}
 
                 JSONObject frame = new JSONObject();
                 frame.put("type", "heartbeat");
