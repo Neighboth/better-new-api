@@ -242,6 +242,11 @@ type ByogNode struct {
 	ActiveMultipliers     string  `json:"active_multipliers" gorm:"type:text"` // JSON array of active multiplier keys
 	InstalledModels       string  `json:"installed_models" gorm:"type:text"` // JSON array of local models/chunks
 	DownloadQueue         string  `json:"download_queue" gorm:"type:text"` // JSON array of models to download
+	ModelStatus           string  `json:"model_status" gorm:"type:varchar(32);default:'idle'"`
+	DownloadedMB          int     `json:"downloaded_mb" gorm:"default:0"`
+	TotalMB               int     `json:"total_mb" gorm:"default:0"`
+	DownloadProgress      int     `json:"download_progress" gorm:"default:0"`
+	ActiveVramModel       string  `json:"active_vram_model" gorm:"type:varchar(128);default:''"`
 	LastHeartbeatAt       int64   `json:"last_heartbeat_at" gorm:"bigint"`
 	CreatedAt             int64   `json:"created_at" gorm:"bigint"`
 	UpdatedAt             int64   `json:"updated_at" gorm:"bigint"`

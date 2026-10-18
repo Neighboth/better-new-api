@@ -44,7 +44,7 @@ if not sql_dsn:
         except Exception:
             pass
     if not sql_dsn:
-        sql_dsn = "root:123456@tcp(localhost:3306)/new-api?charset=utf8mb4"
+        sql_dsn = ""
 
 # Auto-detect options from database if not explicitly passed
 if (not system_name or not favicon_url or not server_url) and sql_dsn:
@@ -177,15 +177,12 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.QUICKBOOT_POWERON" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
@@ -1063,72 +1060,9 @@ public class MainActivity extends Activity {
         }
     }
 
-    private android.os.Handler fgHeartbeatHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    private Runnable fgHeartbeatRunnable = new Runnable() {
-        @Override
-        public void run() {
-            triggerForegroundSync();
-            fgHeartbeatHandler.postDelayed(this, 12000);
-        }
-    };
-
-    private void triggerForegroundSync() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                    if (sp == null || !sp.getBoolean("is_paired", false)) return;
-                    String serverUrl = sp.getString("server_url", "");
-                    String nodeId = sp.getString("node_id", "");
-                    String pairingCode = sp.getString("pairing_code", "");
-                    if (serverUrl.isEmpty()) return;
-                    while (serverUrl.endsWith("/")) serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
-
-                    URL url = new URL(serverUrl + "/api/v1/worker/register");
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("POST");
-                    conn.setRequestProperty("Content-Type", "application/json");
-                    conn.setConnectTimeout(6000);
-                    conn.setReadTimeout(6000);
-                    conn.setDoOutput(true);
-
-                    ActivityManager actMgr = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
-                    ActivityManager.MemoryInfo memInfo = new ActivityManager.MemoryInfo();
-                    if (actMgr != null) actMgr.getMemoryInfo(memInfo);
-                    int ramMB = (int) (memInfo.totalMem / (1024L * 1024L));
-                    int cores = Runtime.getRuntime().availableProcessors();
-
-                    JSONObject req = new JSONObject();
-                    req.put("node_id", nodeId);
-                    req.put("hwid", "android-" + Build.BOARD + "-" + Build.DEVICE + "-" + Build.HARDWARE);
-                    req.put("pairing_code", pairingCode);
-                    req.put("os", "android");
-                    req.put("arch", Build.SUPPORTED_ABIS[0]);
-                    req.put("device_name", Build.MANUFACTURER + " " + Build.MODEL);
-                    req.put("device_type", "mobile");
-                    req.put("cpu_model", Build.HARDWARE + " (" + cores + " cores)");
-                    req.put("physical_ram_mb", ramMB);
-                    req.put("swap_ram_mb", 0);
-                    req.put("vram_mb", 0);
-                    req.put("shared_vram_mb", 0);
-
-                    OutputStream os = conn.getOutputStream();
-                    os.write(req.toString().getBytes("UTF-8"));
-                    os.close();
-
-                    int resCode = conn.getResponseCode();
-                    conn.disconnect();
-                } catch (Exception ignored) {}
-            }
-        }).start();
-    }
-
     @Override
     protected void onResume() {
         super.onResume();
-        fgHeartbeatHandler.removeCallbacks(fgHeartbeatRunnable);
-        fgHeartbeatHandler.post(fgHeartbeatRunnable);
         if (webView != null) {
             webView.evaluateJavascript("if (window.refreshPermissions) window.refreshPermissions();", null);
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
@@ -1144,7 +1078,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
-        fgHeartbeatHandler.removeCallbacks(fgHeartbeatRunnable);
     }
 
     @Override
@@ -1406,8 +1339,8 @@ public class MainActivity extends Activity {
                         @Override
                         public void run() {
                             if (webView != null) {
-                                String js = String.format("if (window.onModelTestResult) window.onModelTestResult(%s, %d, %s);",
-                                    JSONObject.quote(finalReply), finalLatency, String.valueOf(finalTps));
+                                String js = String.format(java.util.Locale.US, "if (window.onModelTestResult) window.onModelTestResult(%s, %d, %.1f);",
+                                    JSONObject.quote(finalReply), finalLatency, finalTps);
                                 webView.evaluateJavascript(js, null);
                             }
                         }
@@ -1741,6 +1674,11 @@ public class MainActivity extends Activity {
                 state.put("assigned_model", sp.getString("assigned_model", "qwen-2.5-0.5b-instruct"));
                 state.put("model_status", sp.getString("model_status", "ready"));
                 state.put("model_status_desc", sp.getString("model_status_desc", "Model hazır (Beklemede)"));
+                state.put("downloaded_mb", sp.getInt("downloaded_mb", 0));
+                state.put("total_mb", sp.getInt("total_mb", 380));
+                state.put("download_progress", sp.getInt("download_progress", 0));
+                state.put("active_vram_model", sp.getString("active_vram_model", ""));
+                state.put("is_charging", sp.getBoolean("is_charging", false));
             } catch (Exception ignored) {}
             return state.toString();
         }
@@ -1748,13 +1686,13 @@ public class MainActivity extends Activity {
 
     private String generateLocalModelAnswer(String model, String prompt) {
         if (prompt == null || prompt.trim().isEmpty()) {
-            return "Merhaba! Ben " + model + " yerel dil modeliyim. Size nasıl yardımcı olabilirim?";
+            return "Merhaba! Ben " + model + " modeliyim. Size nasıl yardımcı olabilirim?";
         }
         String p = prompt.trim();
         String lower = p.toLowerCase();
 
         if (lower.equals("selam") || lower.equals("merhaba") || lower.equals("selamlar") || lower.equals("hi") || lower.equals("hello") || lower.equals("hey")) {
-            return "Merhaba! Ben " + model + " dil modeliyim. Cihazınızın donanım hızlandırıcısı üzerinden yerel olarak hizmete hazırım. Size bugün nasıl yardımcı olabilirim?";
+            return "Merhaba! Size bugün nasıl yardımcı olabilirim?";
         }
         if (lower.contains("günaydın") || lower.contains("gunaydin")) {
             return "Günaydın! Umarım harika bir gün geçirirsiniz. Bugün size hangi konuda yardımcı olabilirim?";
@@ -1763,10 +1701,10 @@ public class MainActivity extends Activity {
             return "İyi akşamlar! Size yardımcı olabileceğim bir konu var mı?";
         }
         if (lower.contains("nasılsın") || lower.contains("naber") || lower.contains("ne haber")) {
-            return "Harikayım, teşekkür ederim! Cihazınızın yerel donanımı üzerinde tam verimle çalışıyorum. Sıcaklık ve bellek durumu stabil. Size nasıl yardımcı olabilirim?";
+            return "İyiyim, teşekkür ederim! Size yardımcı olmaya hazırım. Hangi konuda çalışmak istersiniz?";
         }
         if (lower.contains("kimsin") || lower.contains("adın ne") || lower.contains("sen kimsin") || lower.contains("hangi model")) {
-            return "Ben " + model + " yerel dil modeliyim. BYOG ağı üzerinden bu cihazın donanım gücüyle çalışmaktayım.";
+            return "Ben " + model + " modeline dayalı bir yapay zeka asistanıyım. Sorularınızı yanıtlamak, metin oluşturmak ve analiz yapmak için buradayım. Size nasıl yardımcı olabilirim?";
         }
         if (lower.contains("başkent") || lower.contains("baskent")) {
             if (lower.contains("türkiye") || lower.contains("turkiye")) return "Türkiye'nin başkenti Ankara'dır.";
@@ -1829,7 +1767,7 @@ public class MainActivity extends Activity {
         if (lower.contains("yerçekimi") || lower.contains("gravity")) {
             return "Yerçekimi, evrendeki kütleli cisimlerin birbirine doğru çekim kuvveti uygulamasını ifade eden temel kuvvettir. Einstein'ın genel görelilik teorisinde uzay-zaman geometrisinin kütle tarafından bükülmesiyle açıklanır.";
         }
-        return model + " modeli olarak yanıtlıyorum: " + p + " sorunuz hakkında detaylı analiz yapabilir veya ek sorularınızı memnuniyetle yanıtlayabilirim.";
+        return "\\\"" + p + "\\\" sorunuz başarıyla alındı. Bu konu hakkında detaylı açıklama yapabilir veya ek sorularınızı memnuniyetle yanıtlayabilirim.";
     }
 
     @Override

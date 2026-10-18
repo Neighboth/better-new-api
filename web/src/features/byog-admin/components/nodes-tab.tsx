@@ -163,19 +163,32 @@ export function ByogNodesTab() {
     }
 
     // 2. "İndiriliyor..."
-    let isDownloading = false
-    try {
-      const queue = JSON.parse(node.download_queue || '[]')
-      if (Array.isArray(queue) && queue.length > 0) {
-        isDownloading = true
-      }
-    } catch (e) {}
+    let isDownloading = node.model_status === 'downloading'
+    if (!isDownloading) {
+      try {
+        const queue = JSON.parse(node.download_queue || '[]')
+        const installed = JSON.parse(node.installed_models || '[]')
+        if (Array.isArray(queue) && queue.length > 0 && (!Array.isArray(installed) || installed.length === 0)) {
+          isDownloading = true
+        }
+      } catch (e) {}
+    }
 
     if (isDownloading) {
+      const dMb = node.downloaded_mb || 0
+      const tMb = node.total_mb || 0
+      const pct = node.download_progress ? Math.round(node.download_progress) : (tMb > 0 ? Math.round((dMb / tMb) * 100) : 0)
       return (
-        <Badge className='border-amber-500/20 bg-amber-500/10 text-amber-500 font-medium animate-pulse'>
-          {t('byog.status_downloading', 'İndiriliyor...')}
-        </Badge>
+        <div className='flex flex-col'>
+          <Badge className='border-amber-500/20 bg-amber-500/10 text-amber-500 font-medium animate-pulse'>
+            {t('byog.status_downloading', 'İndiriliyor...')}
+          </Badge>
+          {tMb > 0 && (
+            <span className='text-[10px] text-muted-foreground mt-0.5 font-mono'>
+              {dMb} MB / {tMb} MB (%{pct})
+            </span>
+          )}
+        </div>
       )
     }
 

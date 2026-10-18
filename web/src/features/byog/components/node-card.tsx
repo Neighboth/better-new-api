@@ -166,10 +166,18 @@ export function NodeCard({
       }
     }
 
-    if (queue && queue.length > 0 && (!installed || installed.length === 0)) {
+    const isDownloading = node.model_status === 'downloading' || (queue && queue.length > 0 && (!installed || installed.length === 0))
+    if (isDownloading) {
+      const dMb = node.downloaded_mb || 0
+      const tMb = node.total_mb || 0
+      const pct = node.download_progress ? Math.round(node.download_progress) : (tMb > 0 ? Math.round((dMb / tMb) * 100) : 0)
+      const dlText = tMb > 0 
+        ? `${t('byog.model_downloading', 'İndiriliyor...')} (${dMb} MB / ${tMb} MB - %${pct})`
+        : t('byog.model_downloading', 'İndiriliyor...')
+
       return {
-        model: queue[0],
-        status: t('byog.model_downloading', 'İndiriliyor...'),
+        model: (queue && queue.length > 0) ? queue[0] : primaryModel,
+        status: dlText,
         badgeClass: 'border-amber-500/40 bg-amber-500/10 text-amber-500 animate-pulse',
       }
     }

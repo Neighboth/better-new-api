@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -157,6 +158,7 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 	}()
 
 	// Setup response channels
+	startTime := time.Now()
 	reqId := payload.RequestId
 	if reqId == "" {
 		reqId = fmt.Sprintf("req_%d", time.Now().UnixNano())
@@ -290,6 +292,34 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 					if quotaToDeduct > 0 {
 						_ = model.DecreaseUserQuota(userId, int(quotaToDeduct), true)
 					}
+
+					tokenId := c.GetInt("token_id")
+					tokenName := c.GetString("token_name")
+					usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+					if usingGroup == "" {
+						usingGroup = "default"
+					}
+					useTime := time.Since(startTime).Seconds()
+					model.RecordConsumeLog(c, userId, model.RecordConsumeLogParams{
+						ChannelId:        0,
+						PromptTokens:     done.PromptTokens,
+						CompletionTokens: totalTokensGenerated,
+						ModelName:        modelDef.ModelId,
+						TokenName:        tokenName,
+						Quota:            int(quotaToDeduct),
+						Content:          fmt.Sprintf("BYOG Yerel Model: %s (%s)", modelDef.ModelId, node.DeviceName),
+						TokenId:          tokenId,
+						UseTimeSeconds:   int(useTime),
+						IsStream:         payload.Stream,
+						Group:            usingGroup,
+						Other: map[string]interface{}{
+							"node_id":     node.NodeId,
+							"device_name": node.DeviceName,
+							"device_type": node.DeviceType,
+							"country":     node.Country,
+							"byog":        true,
+						},
+					})
 				}
 
 				if payload.Stream {

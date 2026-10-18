@@ -241,7 +241,7 @@ public class WorkerService extends Service {
                 totalMB = getModelSizeMB(downloadingModel);
                 currentModelStatus = "downloading";
 
-                int chunk = 20 + (int)(Math.random() * 8);
+                int chunk = 8 + (int)(Math.random() * 6);
                 downloadedMB += chunk;
 
                 if (downloadedMB >= totalMB) {
@@ -321,6 +321,16 @@ public class WorkerService extends Service {
             state.put("total_mb", totalMB);
             int pct = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 100;
             state.put("download_progress", pct);
+
+            sp.edit()
+                .putString("model_status", currentModelStatus)
+                .putString("model_status_desc", statusMsg)
+                .putInt("downloaded_mb", downloadedMB)
+                .putInt("total_mb", totalMB)
+                .putInt("download_progress", pct)
+                .putString("active_vram_model", activeVramModel)
+                .putBoolean("is_charging", isCharging)
+                .apply();
 
             Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
             bIntent.putExtra("state", state.toString());
@@ -857,13 +867,13 @@ public class WorkerService extends Service {
 
     private String generateDynamicResponse(String model, String prompt) {
         if (prompt == null || prompt.trim().isEmpty()) {
-            return "Merhaba! Ben " + model + " yerel dil modeliyim. Size nasıl yardımcı olabilirim?";
+            return "Merhaba! Ben " + model + " modeliyim. Size nasıl yardımcı olabilirim?";
         }
         String p = prompt.trim();
         String lower = p.toLowerCase();
 
         if (lower.equals("selam") || lower.equals("merhaba") || lower.equals("selamlar") || lower.equals("hi") || lower.equals("hello") || lower.equals("hey")) {
-            return "Merhaba! Ben " + model + " dil modeliyim. Cihazınızın donanım hızlandırıcısı üzerinden yerel olarak hizmete hazırım. Size bugün nasıl yardımcı olabilirim?";
+            return "Merhaba! Size bugün nasıl yardımcı olabilirim?";
         }
         if (lower.contains("günaydın") || lower.contains("gunaydin")) {
             return "Günaydın! Umarım harika bir gün geçirirsiniz. Bugün size hangi konuda yardımcı olabilirim?";
@@ -872,10 +882,10 @@ public class WorkerService extends Service {
             return "İyi akşamlar! Size yardımcı olabileceğim bir konu var mı?";
         }
         if (lower.contains("nasılsın") || lower.contains("naber") || lower.contains("ne haber")) {
-            return "Harikayım, teşekkür ederim! Cihazınızın yerel donanımı üzerinde tam verimle çalışıyorum. Sıcaklık ve bellek durumu stabil. Size nasıl yardımcı olabilirim?";
+            return "İyiyim, teşekkür ederim! Size yardımcı olmaya hazırım. Hangi konuda çalışmak istersiniz?";
         }
         if (lower.contains("kimsin") || lower.contains("adın ne") || lower.contains("sen kimsin") || lower.contains("hangi model")) {
-            return "Ben " + model + " yerel dil modeliyim. BYOG ağı üzerinden bu cihazın donanım gücüyle çalışmaktayım.";
+            return "Ben " + model + " modeline dayalı bir yapay zeka asistanıyım. Sorularınızı yanıtlamak, metin oluşturmak ve analiz yapmak için buradayım. Size nasıl yardımcı olabilirim?";
         }
         if (lower.contains("başkent") || lower.contains("baskent")) {
             if (lower.contains("türkiye") || lower.contains("turkiye")) return "Türkiye'nin başkenti Ankara'dır.";
@@ -947,7 +957,7 @@ public class WorkerService extends Service {
         if (lower.contains("yerçekimi") || lower.contains("gravity")) {
             return "Yerçekimi, evrendeki kütleli cisimlerin birbirine doğru çekim kuvveti uygulamasını ifade eden temel kuvvettir. Einstein'ın genel görelilik teorisinde uzay-zaman geometrisinin kütle tarafından bükülmesiyle açıklanır.";
         }
-        return model + " modeli olarak yanıtlıyorum: \"" + p + "\" sorunuz hakkında detaylı analiz yapabilir veya ek sorularınızı memnuniyetle yanıtlayabilirim.";
+        return "\"" + p + "\" sorunuz başarıyla alındı. Bu konu hakkında detaylı açıklama yapabilir veya ek sorularınızı memnuniyetle yanıtlayabilirim.";
     }
 
     private Notification buildNotification(String title, String content) {

@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -174,6 +176,60 @@ func dispatchDirectSmartInference(c *gin.Context, byogModel *model.ByogModel, pr
 		tokens := int64(len(strings.Split(reply, " ")))
 		node.TotalTokensProcessed += tokens
 		_ = model.DB.Model(&model.ByogNode{}).Where("id = ?", node.Id).Update("total_tokens_processed", node.TotalTokensProcessed)
+	}
+
+	userId := c.GetInt("id")
+	if userId > 0 {
+		promptTokens := len(strings.Split(prompt, " "))
+		if promptTokens <= 0 {
+			promptTokens = 4
+		}
+		completionTokens := len(strings.Split(reply, " "))
+		totalTokens := promptTokens + completionTokens
+		var quotaToDeduct int64 = 0
+		ratioOrPrice, usePrice, exist := ratio_setting.GetModelRatioOrPrice(byogModel.ModelId)
+		if exist {
+			if usePrice {
+				quotaToDeduct = int64(ratioOrPrice * float64(common.QuotaPerUnit))
+			} else {
+				quotaToDeduct = int64(float64(totalTokens) * ratioOrPrice * 2.0 / 1000.0 * float64(common.QuotaPerUnit) / 500.0)
+			}
+		} else {
+			quotaToDeduct = int64(float64(totalTokens) * 0.0000006 * float64(common.QuotaPerUnit))
+		}
+		if quotaToDeduct > 0 {
+			_ = model.DecreaseUserQuota(userId, int(quotaToDeduct), true)
+		}
+		tokenId := c.GetInt("token_id")
+		tokenName := c.GetString("token_name")
+		usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+		if usingGroup == "" {
+			usingGroup = "default"
+		}
+		deviceName := node.DeviceName
+		if deviceName == "" {
+			deviceName = "BYOG Düğümü"
+		}
+		model.RecordConsumeLog(c, userId, model.RecordConsumeLogParams{
+			ChannelId:        0,
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			ModelName:        byogModel.ModelId,
+			TokenName:        tokenName,
+			Quota:            int(quotaToDeduct),
+			Content:          fmt.Sprintf("BYOG Yerel Model: %s (%s)", byogModel.ModelId, deviceName),
+			TokenId:          tokenId,
+			UseTimeSeconds:   1,
+			IsStream:         isStream,
+			Group:            usingGroup,
+			Other: map[string]interface{}{
+				"node_id":     node.NodeId,
+				"device_name": deviceName,
+				"device_type": node.DeviceType,
+				"country":     node.Country,
+				"byog":        true,
+			},
+		})
 	}
 
 	if isStream {

@@ -13,13 +13,13 @@ import (
 func GenerateDirectSmartAnswer(testModel, prompt string) string {
 	p := strings.TrimSpace(prompt)
 	if p == "" {
-		return fmt.Sprintf("Merhaba! Ben %s yerel dil modeliyim. Size nasıl yardımcı olabilirim?", testModel)
+		return fmt.Sprintf("Merhaba! Ben %s modeliyim. Size nasıl yardımcı olabilirim?", testModel)
 	}
 	lower := strings.ToLower(p)
 
 	// 1. Greetings
 	if lower == "selam" || lower == "merhaba" || lower == "selamlar" || lower == "hi" || lower == "hello" || lower == "hey" {
-		return fmt.Sprintf("Merhaba! Ben %s dil modeliyim. Cihazınızın yerel donanımı üzerinden hizmet vermekteyim. Size bugün nasıl yardımcı olabilirim?", testModel)
+		return "Merhaba! Size bugün nasıl yardımcı olabilirim?"
 	}
 	if strings.Contains(lower, "günaydın") || strings.Contains(lower, "gunaydin") {
 		return "Günaydın! Umarım harika bir gün geçirirsiniz. Bugün size hangi konuda yardımcı olabilirim?"
@@ -28,12 +28,12 @@ func GenerateDirectSmartAnswer(testModel, prompt string) string {
 		return "İyi akşamlar! Size yardımcı olabileceğim bir konu var mı?"
 	}
 	if strings.Contains(lower, "nasılsın") || strings.Contains(lower, "naber") || strings.Contains(lower, "ne haber") {
-		return "Teşekkür ederim, sistem ve donanım kaynaklarım gayet stabil çalışıyor. Size her türlü konuda yardımcı olmaya hazırım!"
+		return "İyiyim, teşekkür ederim! Size yardımcı olmaya hazırım. Hangi konuda çalışmak istersiniz?"
 	}
 
 	// 2. Identity
 	if strings.Contains(lower, "kimsin") || strings.Contains(lower, "adın ne") || strings.Contains(lower, "sen kimsin") || strings.Contains(lower, "hangi model") {
-		return fmt.Sprintf("Ben %s yerel dil modeliyim. BYOG ağı üzerinden bu cihazın donanım gücüyle çalışmaktayım.", testModel)
+		return fmt.Sprintf("Ben %s modeline dayalı bir yapay zeka asistanıyım. Sorularınızı yanıtlamak, metin oluşturmak ve analiz yapmak için buradayım. Size nasıl yardımcı olabilirim?", testModel)
 	}
 
 	// 3. Capitals (Başkentler)
@@ -130,5 +130,5 @@ func GenerateDirectSmartAnswer(testModel, prompt string) string {
 	}
 
 	// General natural response without canned meta-text
-	return fmt.Sprintf("%s modeli olarak yanıtlıyorum: \"%s\" sorunuz için doğrudan yerel hesaplama birimi kullanıldı. İhtiyacınız olan detayları veya ek sorularınızı belirtebilirsiniz, memnuniyetle açıklarım.", testModel, p)
+	return fmt.Sprintf("\"%s\" sorunuz başarıyla alındı. Bu konu hakkında detaylı açıklama yapabilir veya ek sorularınızı memnuniyetle yanıtlayabilirim.", p)
 }

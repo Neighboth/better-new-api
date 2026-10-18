@@ -88,6 +88,11 @@ export interface ByogNode {
   active_multipliers: string
   installed_models: string
   download_queue: string
+  model_status?: string
+  downloaded_mb?: number
+  total_mb?: number
+  download_progress?: number
+  active_vram_model?: string
   last_heartbeat_at: number
   created_at: number
   updated_at: number

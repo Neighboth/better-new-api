@@ -1019,6 +1019,10 @@ func RegisterByogWorker(c *gin.Context) {
 		InstalledModels string  `json:"installed_models"`
 		DownloadQueue   string  `json:"download_queue"`
 		ActiveVramModel string  `json:"active_vram_model"`
+		ModelStatus     string  `json:"model_status"`
+		DownloadedMB    int     `json:"downloaded_mb"`
+		TotalMB         int     `json:"total_mb"`
+		DownloadProgress int    `json:"download_progress"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1174,6 +1178,20 @@ func RegisterByogWorker(c *gin.Context) {
 		if req.DownloadQueue != "" {
 			node.DownloadQueue = req.DownloadQueue
 		}
+		if req.ModelStatus != "" {
+			node.ModelStatus = req.ModelStatus
+		}
+		if req.TotalMB > 0 {
+			node.TotalMB = req.TotalMB
+			node.DownloadedMB = req.DownloadedMB
+			node.DownloadProgress = req.DownloadProgress
+			if node.DownloadProgress <= 0 && req.TotalMB > 0 {
+				node.DownloadProgress = int((float64(req.DownloadedMB) / float64(req.TotalMB)) * 100)
+			}
+		}
+		if req.ActiveVramModel != "" {
+			node.ActiveVramModel = req.ActiveVramModel
+		}
 		node.UserId = matchedUserId
 		node.PairingCode = ""
 		_ = model.SaveByogNode(node)
@@ -1248,6 +1266,11 @@ func RegisterByogWorker(c *gin.Context) {
 			ReputationScore:      50,
 			InstalledModels:      req.InstalledModels,
 			DownloadQueue:        req.DownloadQueue,
+			ModelStatus:          req.ModelStatus,
+			DownloadedMB:         req.DownloadedMB,
+			TotalMB:              req.TotalMB,
+			DownloadProgress:     req.DownloadProgress,
+			ActiveVramModel:      req.ActiveVramModel,
 			LastHeartbeatAt:      time.Now().Unix(),
 			CreatedAt:            time.Now().Unix(),
 			UpdatedAt:            time.Now().Unix(),

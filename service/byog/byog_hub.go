@@ -51,11 +51,16 @@ type TelemetryPayload struct {
 	IsCharging      bool     `json:"is_charging"`
 	CurrentTps      float64  `json:"current_tps"`
 	CurrentTtftMs   int      `json:"current_ttft_ms"`
-	TotalTokens     int64    `json:"total_tokens"`
-	InstalledModels []string `json:"installed_models"`
-	DownloadStatus  string   `json:"download_status,omitempty"`
-	IsGamerMode     bool     `json:"is_gamer_mode"`
-	IsThrottled     bool     `json:"is_throttled"`
+	TotalTokens      int64    `json:"total_tokens"`
+	InstalledModels  []string `json:"installed_models"`
+	ModelStatus      string   `json:"model_status,omitempty"`
+	DownloadedMB     int      `json:"downloaded_mb,omitempty"`
+	TotalMB          int      `json:"total_mb,omitempty"`
+	DownloadProgress int      `json:"download_progress,omitempty"`
+	ActiveVramModel  string   `json:"active_vram_model,omitempty"`
+	DownloadStatus   string   `json:"download_status,omitempty"`
+	IsGamerMode      bool     `json:"is_gamer_mode"`
+	IsThrottled      bool     `json:"is_throttled"`
 }
 
 // Inference Request Payload
@@ -220,6 +225,17 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 			node.UptimeSeconds = uptimeSecs
 			node.Status = status
 			node.InstalledModels = string(installedJson)
+			if telemetry.ModelStatus != "" {
+				node.ModelStatus = telemetry.ModelStatus
+			}
+			if telemetry.TotalMB > 0 {
+				node.TotalMB = telemetry.TotalMB
+				node.DownloadedMB = telemetry.DownloadedMB
+				node.DownloadProgress = telemetry.DownloadProgress
+			}
+			if telemetry.ActiveVramModel != "" {
+				node.ActiveVramModel = telemetry.ActiveVramModel
+			}
 			node.LastHeartbeatAt = time.Now().Unix()
 			node.UpdatedAt = time.Now().Unix()
 
