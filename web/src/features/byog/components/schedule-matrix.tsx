@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { BatteryCharging, Clock, Gauge, Shield, Users, Zap } from 'lucide-react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
@@ -27,25 +28,51 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 
 interface ScheduleMatrixProps {
   operatingMode: 'mode_b' | 'mode_a'
   powerProfile: 'full_power' | 'half_power' | 'active_hours' | 'dual_schedule'
+  scheduleConfig?: string
   onOperatingModeChange: (mode: 'mode_b' | 'mode_a') => void
   onPowerProfileChange: (
     profile: 'full_power' | 'half_power' | 'active_hours' | 'dual_schedule'
   ) => void
+  onScheduleConfigChange?: (config: string) => void
 }
 
 export function ScheduleMatrix({
   operatingMode,
   powerProfile,
+  scheduleConfig,
   onOperatingModeChange,
   onPowerProfileChange,
+  onScheduleConfigChange,
 }: ScheduleMatrixProps) {
   const { t } = useTranslation()
+
+  const config = useMemo(() => {
+    try {
+      if (scheduleConfig) {
+        return JSON.parse(scheduleConfig)
+      }
+    } catch {
+      // fallback
+    }
+    return {
+      start_time: '09:00',
+      end_time: '18:00',
+      peak_start: '08:00',
+      peak_end: '22:00',
+    }
+  }, [scheduleConfig])
+
+  const updateSchedule = (key: string, value: string) => {
+    const updated = { ...config, [key]: value }
+    onScheduleConfigChange?.(JSON.stringify(updated))
+  }
 
   return (
     <div className='space-y-6'>
@@ -239,6 +266,86 @@ export function ScheduleMatrix({
               </div>
             </Label>
           </RadioGroup>
+
+          {/* Time Picker Panel for Active Hours */}
+          {powerProfile === 'active_hours' && (
+            <div className='mt-4 rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 space-y-3'>
+              <div className='flex items-center gap-2 text-sm font-semibold text-blue-600 dark:text-blue-400'>
+                <Clock className='h-4 w-4' />
+                <span>{t('byog.active_hours_settings', 'Aktif Çalışma Saatleri')}</span>
+              </div>
+              <p className='text-xs text-muted-foreground'>
+                {t(
+                  'byog.active_hours_desc_hint',
+                  'Cihazınız yalnızca bu zaman aralığında ağa hizmet verir ve token işler.'
+                )}
+              </p>
+              <div className='grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1'>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='active-start' className='text-xs font-medium'>
+                    {t('byog.active_hours_start', 'Başlangıç Saati')}
+                  </Label>
+                  <Input
+                    id='active-start'
+                    type='time'
+                    value={config.start_time || '09:00'}
+                    onChange={(e) => updateSchedule('start_time', e.target.value)}
+                  />
+                </div>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='active-end' className='text-xs font-medium'>
+                    {t('byog.active_hours_end', 'Bitiş Saati')}
+                  </Label>
+                  <Input
+                    id='active-end'
+                    type='time'
+                    value={config.end_time || '18:00'}
+                    onChange={(e) => updateSchedule('end_time', e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Time Picker Panel for Dual Schedule */}
+          {powerProfile === 'dual_schedule' && (
+            <div className='mt-4 rounded-xl border border-purple-500/20 bg-purple-500/5 p-4 space-y-3'>
+              <div className='flex items-center gap-2 text-sm font-semibold text-purple-600 dark:text-purple-400'>
+                <BatteryCharging className='h-4 w-4' />
+                <span>{t('byog.dual_schedule_settings', 'İkili Zaman Programı Ayarları')}</span>
+              </div>
+              <p className='text-xs text-muted-foreground'>
+                {t(
+                  'byog.dual_schedule_desc_hint',
+                  'Belirlenen gündüz saatlerinde Tam Güç, geri kalan saatlerde ise Eko Güç modunda çalışır.'
+                )}
+              </p>
+              <div className='grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1'>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='dual-start' className='text-xs font-medium'>
+                    {t('byog.dual_peak_start', 'Gündüz / Tam Güç Başlangıç')}
+                  </Label>
+                  <Input
+                    id='dual-start'
+                    type='time'
+                    value={config.peak_start || '08:00'}
+                    onChange={(e) => updateSchedule('peak_start', e.target.value)}
+                  />
+                </div>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='dual-end' className='text-xs font-medium'>
+                    {t('byog.dual_peak_end', 'Gündüz / Tam Güç Bitiş')}
+                  </Label>
+                  <Input
+                    id='dual-end'
+                    type='time'
+                    value={config.peak_end || '22:00'}
+                    onChange={(e) => updateSchedule('peak_end', e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

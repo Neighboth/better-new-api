@@ -217,6 +217,7 @@ type ByogNode struct {
 	AllocatedVramGB       int     `json:"allocated_vram_gb" gorm:"default:6"`
 	AllocatedRamGB        int     `json:"allocated_ram_gb" gorm:"default:8"`
 	AllocatedCores        int     `json:"allocated_cores" gorm:"default:4"`
+	HotStartEnabled       bool    `json:"hot_start_enabled" gorm:"default:false"`
 
 	// Mobile specific settings & defaults
 	WifiOnlyDownload      bool    `json:"wifi_only_download" gorm:"default:true"` // DEFAULT TRUE
@@ -500,6 +501,12 @@ func GetAllByogNodes() ([]*ByogNode, error) {
 func GetUserByogNodes(userId int) ([]*ByogNode, error) {
 	var nodes []*ByogNode
 	err := DB.Where("user_id = ?", userId).Order("created_at desc").Find(&nodes).Error
+	return nodes, err
+}
+
+func GetRecentOnlineByogNodes(sinceUnix int64) ([]*ByogNode, error) {
+	var nodes []*ByogNode
+	err := DB.Where("status = ? AND updated_at >= ?", "online", sinceUnix).Find(&nodes).Error
 	return nodes, err
 }
 

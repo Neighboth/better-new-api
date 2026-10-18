@@ -48,20 +48,31 @@ func (j *JitProvisioner) GetVirtualCatalog() ([]*model.ByogModel, error) {
 	}
 
 	onlineSessions := GlobalHub.GetAllOnlineNodes()
-	if len(onlineSessions) == 0 {
+	activeNodes := make(map[string]*model.ByogNode)
+
+	for _, s := range onlineSessions {
+		if node, err := model.GetByogNodeByNodeId(s.NodeId); err == nil && node != nil {
+			activeNodes[node.NodeId] = node
+		}
+	}
+
+	// Also query database for recently active nodes (within last 3 minutes)
+	recentCutoff := time.Now().Unix() - 180
+	if dbNodes, err := model.GetRecentOnlineByogNodes(recentCutoff); err == nil {
+		for _, n := range dbNodes {
+			activeNodes[n.NodeId] = n
+		}
+	}
+
+	if len(activeNodes) == 0 {
 		return []*model.ByogModel{}, nil
 	}
 
-	// Fetch node specs from DB
+	// Fetch node specs
 	var virtualModels []*model.ByogModel
 	for _, m := range allModels {
 		canHost := false
-		for _, s := range onlineSessions {
-			node, err := model.GetByogNodeByNodeId(s.NodeId)
-			if err != nil || node == nil {
-				continue
-			}
-
+		for _, node := range activeNodes {
 			// Check if node has sufficient capacity
 			if node.DeviceType == "mobile" || node.DeviceType == "tablet" {
 				if GlobalScheduler.IsModelSafeForMobile(node, m.ModelId) {

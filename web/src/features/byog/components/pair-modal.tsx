@@ -196,21 +196,22 @@ export function PairModal({ onPaired }: PairModalProps) {
               </div>
             </div>
 
-            {/* Prominent Pairing Code Box */}
-            <div className='rounded-xl border bg-slate-900/40 p-4 text-center space-y-2'>
-              <div className='text-xs font-medium text-muted-foreground uppercase tracking-wider'>
+            {/* Elegant Pairing Code Box */}
+            <div className='rounded-xl border border-border/80 bg-muted/40 p-3 sm:p-4 text-center space-y-2'>
+              <div className='text-[11px] font-semibold text-muted-foreground uppercase tracking-wider'>
                 {t('byog.enter_pairing_code_label', 'Pairing Code')}
               </div>
-              <div className='flex items-center justify-center gap-3'>
-                <span className='font-mono text-xl sm:text-2xl font-bold tracking-widest text-primary selection:bg-primary/20'>
-                  {sessionCode || '---- ---- ---- ----'}
+              <div className='inline-flex items-center justify-center gap-2 rounded-lg border bg-background px-3 py-1.5 shadow-sm max-w-full'>
+                <span className='font-mono text-base sm:text-lg font-bold tracking-wider text-primary select-all truncate'>
+                  {sessionCode || '----------------'}
                 </span>
                 <Button
                   size='sm'
-                  variant='outline'
-                  className='h-8 w-8 p-0'
+                  variant='ghost'
+                  className='h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-foreground'
                   onClick={copyCode}
                   disabled={!sessionCode}
+                  title={t('common.copy', 'Copy')}
                 >
                   {copiedCode ? (
                     <Check className='h-4 w-4 text-emerald-500' />
@@ -219,7 +220,7 @@ export function PairModal({ onPaired }: PairModalProps) {
                   )}
                 </Button>
               </div>
-              <p className='text-muted-foreground text-xs'>
+              <p className='text-muted-foreground text-xs leading-normal'>
                 {t(
                   'byog.pairing_code_instructions',
                   'Enter this code into your desktop or mobile worker app to pair.'

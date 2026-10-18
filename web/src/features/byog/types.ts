@@ -60,6 +60,7 @@ export interface ByogNode {
   allocated_vram_gb: number
   allocated_ram_gb: number
   allocated_cores: number
+  hot_start_enabled?: boolean
 
   // Mobile specific settings
   wifi_only_download: boolean

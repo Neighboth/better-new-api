@@ -246,10 +246,12 @@ export function ByogUserDashboard() {
             <div className='space-y-6 py-2'>
               {/* Gamified Resource Sliders */}
               <ResourceSliders
+                node={selectedNode}
                 vramGB={selectedNode.allocated_vram_gb}
                 ramGB={selectedNode.allocated_ram_gb}
                 cores={selectedNode.allocated_cores}
                 diskGB={selectedNode.allocated_disk_gb}
+                hotStartEnabled={selectedNode.hot_start_enabled}
                 onVramChange={(v) =>
                   setSelectedNode({ ...selectedNode, allocated_vram_gb: v })
                 }
@@ -262,17 +264,24 @@ export function ByogUserDashboard() {
                 onDiskChange={(d) =>
                   setSelectedNode({ ...selectedNode, allocated_disk_gb: d })
                 }
+                onHotStartChange={(h) =>
+                  setSelectedNode({ ...selectedNode, hot_start_enabled: h })
+                }
               />
 
               {/* Mode Selection & Power Matrix */}
               <ScheduleMatrix
                 operatingMode={selectedNode.operating_mode}
                 powerProfile={selectedNode.power_profile}
+                scheduleConfig={selectedNode.schedule_config}
                 onOperatingModeChange={(m) =>
                   setSelectedNode({ ...selectedNode, operating_mode: m })
                 }
                 onPowerProfileChange={(p) =>
                   setSelectedNode({ ...selectedNode, power_profile: p })
+                }
+                onScheduleConfigChange={(sc) =>
+                  setSelectedNode({ ...selectedNode, schedule_config: sc })
                 }
               />
 
