@@ -304,6 +304,23 @@ type ByogP2PTracker struct {
 // Helpers & CRUD operations for BYOG
 
 func GetByogSetting() (*ByogSetting, error) {
+	if DB == nil {
+		return &ByogSetting{
+			Enabled:              true,
+			Tier1ProviderPrice:   0.40,
+			Tier1CustomerPrice:   0.80,
+			Tier2ProviderPrice:   0.20,
+			Tier2CustomerPrice:   0.40,
+			Tier3ProviderPrice:   0.05,
+			Tier3CustomerPrice:   0.10,
+			MaxColdStartTimeout:  120,
+			NightOwlSurgeEnabled: true,
+			WeekendCrunchEnabled: true,
+			HardwareBackends:     `{"cuda":true,"rocm":true,"intel_arc":true,"metal":true,"adreno_hexagon":true,"mali":true,"cpu_avx":true}`,
+			CreatedAt:            time.Now().Unix(),
+			UpdatedAt:            time.Now().Unix(),
+		}, nil
+	}
 	var setting ByogSetting
 	err := DB.First(&setting).Error
 	if err != nil {
@@ -333,6 +350,9 @@ func GetByogSetting() (*ByogSetting, error) {
 }
 
 func UpdateByogSetting(s *ByogSetting) error {
+	if DB == nil {
+		return errors.New("database not initialized")
+	}
 	s.UpdatedAt = time.Now().Unix()
 	return DB.Save(s).Error
 }

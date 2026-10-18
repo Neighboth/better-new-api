@@ -1138,6 +1138,7 @@ java_files = [
 classpath = f"{PLATFORM_JAR};{ZXING_JAR}"
 subprocess.check_call([
     "javac",
+    "-encoding", "UTF-8",
     "-cp", classpath,
     "-d", classes_dir,
     "-g:none",

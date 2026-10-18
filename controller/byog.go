@@ -1257,6 +1257,7 @@ func DownloadByogWorker(c *gin.Context) {
 
 	searchPaths := []string{
 		filepath.Join("worker", "binaries", fileName),
+		filepath.Join("..", "worker", "binaries", fileName),
 		filepath.Join("/worker", "binaries", fileName),
 		filepath.Join("/data", "worker", "binaries", fileName),
 		filepath.Join(".", "worker", "binaries", fileName),
