@@ -126,6 +126,7 @@ export function ByogUserDashboard() {
     if (!confirm(t('byog.confirm_delete_device'))) return
     try {
       await deleteNode(nodeId)
+      setNodes((prev) => prev.filter((n) => n.node_id !== nodeId && String(n.id) !== nodeId))
       toast.success(t('byog.device_deleted_success'))
       fetchData()
     } catch (err: any) {

@@ -69,8 +69,7 @@ export function ResourceSliders({
   const maxVram = useMemo(() => {
     if (!node) return 32
     if (isMobile) {
-      const sharedGB = Math.round((node.shared_vram_mb || node.physical_ram_mb || 0) / 1024)
-      return sharedGB > 0 ? Math.min(8, sharedGB) : 4
+      return 0
     }
     const totalVramMB = (node.vram_mb || 0) + (node.shared_vram_mb || 0)
     return totalVramMB > 0 ? Math.max(1, Math.round(totalVramMB / 1024)) : 8
@@ -96,7 +95,11 @@ export function ResourceSliders({
   const { multiplier, prestigeTier, tierColor, estimatedEarningsDaily } =
     useMemo(() => {
       let baseMult = 1.0
-      baseMult += (vramGB / 24) * 0.8
+      if (!isMobile) {
+        baseMult += (vramGB / 24) * 0.8
+      } else {
+        baseMult += (ramGB / 16) * 0.8
+      }
       baseMult += (ramGB / 64) * 0.3
       baseMult += (cores / 32) * 0.4
       baseMult += (diskGB / 100) * 0.2
@@ -104,15 +107,16 @@ export function ResourceSliders({
       let tier = t('byog.prestige_bronze', 'Bronze')
       let color = 'border-amber-600/40 text-amber-500 bg-amber-500/10'
 
-      if (vramGB >= 24) {
+      const effectiveScore = isMobile ? (ramGB * 1.5) : vramGB
+      if (effectiveScore >= 24) {
         tier = t('byog.prestige_diamond', 'Diamond')
         color =
           'border-cyan-500/50 text-cyan-400 bg-cyan-500/20 shadow-[0_0_15px_rgba(6,182,212,0.4)]'
-      } else if (vramGB >= 16) {
+      } else if (effectiveScore >= 16) {
         tier = t('byog.prestige_gold', 'Gold')
         color =
           'border-yellow-500/50 text-yellow-400 bg-yellow-500/15 shadow-[0_0_10px_rgba(234,179,8,0.3)]'
-      } else if (vramGB >= 8) {
+      } else if (effectiveScore >= 8) {
         tier = t('byog.prestige_silver', 'Silver')
         color = 'border-slate-400/50 text-slate-300 bg-slate-400/15'
       }
@@ -125,7 +129,7 @@ export function ResourceSliders({
         tierColor: color,
         estimatedEarningsDaily: dailyTokens,
       }
-    }, [vramGB, ramGB, cores, diskGB, t])
+    }, [vramGB, ramGB, cores, diskGB, isMobile, t])
 
   return (
     <Card className='border-border/80 bg-card/60 relative overflow-hidden backdrop-blur-sm'>
@@ -186,29 +190,38 @@ export function ResourceSliders({
         {/* Sliders */}
         <div className='space-y-5'>
           {/* VRAM Slider */}
-          <div className='space-y-2'>
-            <div className='flex justify-between text-sm font-medium'>
-              <Label className='flex items-center gap-1.5'>
-                <Cpu className='text-primary h-4 w-4' />
-                {t('byog.vram_allocation', 'VRAM Allocation')}
-                {isMobile && (
-                  <span className='text-[10px] text-muted-foreground'>({t('byog.unified_memory', 'Unified Memory')})</span>
-                )}
-              </Label>
-              <span className='text-primary font-mono font-bold'>
-                {Math.min(vramGB, maxVram)} GB / {maxVram} GB
+          {!isMobile ? (
+            <div className='space-y-2'>
+              <div className='flex justify-between text-sm font-medium'>
+                <Label className='flex items-center gap-1.5'>
+                  <Cpu className='text-primary h-4 w-4' />
+                  {t('byog.vram_allocation', 'VRAM Allocation')}
+                </Label>
+                <span className='text-primary font-mono font-bold'>
+                  {Math.min(vramGB, maxVram)} GB / {maxVram} GB
+                </span>
+              </div>
+              <Slider
+                value={[Math.min(vramGB, maxVram)]}
+                min={0}
+                max={maxVram}
+                step={1}
+                onValueChange={(val) =>
+                  onVramChange(Array.isArray(val) ? val[0] : (val as number))
+                }
+              />
+            </div>
+          ) : (
+            <div className='rounded-lg border bg-muted/20 p-2.5 flex items-center justify-between text-xs'>
+              <span className='text-muted-foreground font-medium flex items-center gap-1.5'>
+                <Cpu className='h-3.5 w-3.5 text-primary' />
+                {t('byog.vram_allocation', 'VRAM Tahsisi')}:
+              </span>
+              <span className='font-mono font-semibold text-foreground'>
+                0 GB ({t('byog.uma_shared', 'Ayrık VRAM Yok / Paylaşımlı Sistem Belleği UMA')})
               </span>
             </div>
-            <Slider
-              value={[Math.min(vramGB, maxVram)]}
-              min={0}
-              max={maxVram}
-              step={1}
-              onValueChange={(val) =>
-                onVramChange(Array.isArray(val) ? val[0] : (val as number))
-              }
-            />
-          </div>
+          )}
 
           {/* RAM Slider */}
           <div className='space-y-2'>

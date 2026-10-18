@@ -100,6 +100,7 @@ export function ByogNodesTab() {
       return
     try {
       await deleteAdminNode(nodeId)
+      setNodes((prev) => prev.filter((n) => n.node_id !== nodeId && String(n.id) !== nodeId))
       toast.success(
         t('byog.device_deleted_success', 'Cihaz başarıyla silindi')
       )
@@ -314,7 +315,11 @@ export function ByogNodesTab() {
                         <div>
                           RAM: {(node.physical_ram_mb / 1024).toFixed(1)} GB
                         </div>
-                        <div>VRAM: {(node.vram_mb / 1024).toFixed(1)} GB</div>
+                        <div>
+                          {node.device_type === 'mobile' || node.device_type === 'tablet'
+                            ? 'VRAM: 0 GB (UMA)'
+                            : `VRAM: ${(node.vram_mb / 1024).toFixed(1)} GB`}
+                        </div>
                       </TableCell>
                       <TableCell className='text-xs font-mono'>
                         <div>{node.ping_ms} ms</div>
@@ -447,16 +452,97 @@ export function ByogNodesTab() {
                     {t('byog.admin.vram_memory')}
                   </div>
                   <div className='text-sm font-semibold'>
-                    {(selectedNode.vram_mb / 1024).toFixed(1)} GB
+                    {selectedNode.device_type === 'mobile' || selectedNode.device_type === 'tablet'
+                      ? '0 GB (UMA)'
+                      : `${(selectedNode.vram_mb / 1024).toFixed(1)} GB`}
                   </div>
-                  {selectedNode.shared_vram_mb > 0 && (
+                  {selectedNode.shared_vram_mb > 0 && selectedNode.device_type !== 'mobile' && selectedNode.device_type !== 'tablet' && (
                     <div className='text-muted-foreground text-[10px]'>
-                      Shared: {(selectedNode.shared_vram_mb / 1024).toFixed(1)}{' '}
-                      GB
+                      Shared: {(selectedNode.shared_vram_mb / 1024).toFixed(1)} GB
                     </div>
                   )}
                 </div>
               </div>
+
+              {/* Operating Profile & Resource Allocations */}
+              <div className='bg-muted/10 space-y-3 rounded-xl border p-4'>
+                <div className='text-sm font-semibold'>
+                  {t('byog.admin.operating_and_allocation', 'Çalışma Modu ve Kaynak Dağılımı')}
+                </div>
+                <div className='grid grid-cols-2 gap-4 text-xs md:grid-cols-4'>
+                  <div>
+                    <span className='text-muted-foreground'>{t('byog.mode_label', 'Mod')}: </span>
+                    <span className='font-medium capitalize'>
+                      {selectedNode.operating_mode === 'mode_b' ? t('byog.mode_b_short', 'Havuz (Mode B)') : t('byog.mode_a_short', 'Özel (Mode A)')}
+                    </span>
+                  </div>
+                  <div>
+                    <span className='text-muted-foreground'>{t('byog.power_profile', 'Güç Profili')}: </span>
+                    <span className='font-medium capitalize'>{selectedNode.power_profile.replace('_', ' ')}</span>
+                  </div>
+                  <div>
+                    <span className='text-muted-foreground'>{t('byog.allocated_ram', 'Ayrılan RAM')}: </span>
+                    <span className='font-mono font-medium'>{selectedNode.allocated_ram_gb} GB</span>
+                  </div>
+                  <div>
+                    <span className='text-muted-foreground'>{t('byog.allocated_vram', 'Ayrılan VRAM')}: </span>
+                    <span className='font-mono font-medium'>
+                      {selectedNode.device_type === 'mobile' || selectedNode.device_type === 'tablet' ? '0 GB (UMA)' : `${selectedNode.allocated_vram_gb} GB`}
+                    </span>
+                  </div>
+                  <div>
+                    <span className='text-muted-foreground'>{t('byog.allocated_cores', 'Ayrılan Çekirdek')}: </span>
+                    <span className='font-mono font-medium'>{selectedNode.allocated_cores}</span>
+                  </div>
+                  <div>
+                    <span className='text-muted-foreground'>{t('byog.allocated_disk', 'Ayrılan Disk')}: </span>
+                    <span className='font-mono font-medium'>{selectedNode.allocated_disk_gb} GB</span>
+                  </div>
+                  <div>
+                    <span className='text-muted-foreground'>{t('byog.hot_start_label', 'Sıcak Başlatma')}: </span>
+                    <span className='font-medium'>{selectedNode.hot_start_enabled ? t('common.enabled', 'Aktif') : t('common.disabled', 'Pasif')}</span>
+                  </div>
+                  <div>
+                    <span className='text-muted-foreground'>{t('byog.last_heartbeat', 'Son Sinyal')}: </span>
+                    <span className='font-mono'>{Math.max(0, Math.floor(Date.now() / 1000 - selectedNode.last_heartbeat_at))}s önce</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mobile Governance (if mobile/tablet) */}
+              {(selectedNode.device_type === 'mobile' || selectedNode.device_type === 'tablet') && (
+                <div className='bg-muted/10 space-y-3 rounded-xl border p-4'>
+                  <div className='text-sm font-semibold'>
+                    {t('byog.admin.mobile_governance', 'Mobil Cihaz ve Batarya Yönetimi')}
+                  </div>
+                  <div className='grid grid-cols-2 gap-4 text-xs md:grid-cols-4'>
+                    <div>
+                      <span className='text-muted-foreground'>{t('byog.wifi_only', 'Sadece Wi-Fi')}: </span>
+                      <span>{selectedNode.wifi_only_download ? t('common.yes', 'Evet') : t('common.no', 'Hayır')}</span>
+                    </div>
+                    <div>
+                      <span className='text-muted-foreground'>{t('byog.data_limit', 'Mobil Veri Sınırı')}: </span>
+                      <span>{selectedNode.monthly_data_limit_mb > 0 ? `${selectedNode.monthly_data_limit_mb} MB` : t('common.unlimited', 'Sınırsız')}</span>
+                    </div>
+                    <div>
+                      <span className='text-muted-foreground'>{t('byog.charging_only', 'Sadece Şarjdayken')}: </span>
+                      <span>{selectedNode.run_only_while_charging ? t('common.yes', 'Evet') : t('common.no', 'Hayır')}</span>
+                    </div>
+                    <div>
+                      <span className='text-muted-foreground'>{t('byog.battery_cutoff', 'Pil Kesme Eşiği')}: </span>
+                      <span>{selectedNode.battery_cutoff_enabled ? `%${selectedNode.battery_cutoff_percent}` : t('common.disabled', 'Devre Dışı')}</span>
+                    </div>
+                    <div>
+                      <span className='text-muted-foreground'>{t('byog.max_temp_limit', 'Sıcaklık Sınırı')}: </span>
+                      <span>{selectedNode.max_battery_temp}°C</span>
+                    </div>
+                    <div>
+                      <span className='text-muted-foreground'>{t('byog.data_used', 'Kullanılan Veri')}: </span>
+                      <span>{selectedNode.monthly_data_used_mb} MB</span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Telemetry & Thermals */}
               <div className='grid grid-cols-2 gap-4 md:grid-cols-4'>
@@ -496,9 +582,13 @@ export function ByogNodesTab() {
                     <div className='text-muted-foreground text-xs'>
                       {t('byog.admin.battery_status')}
                     </div>
-                    <div className='text-base font-semibold'>
-                      {selectedNode.battery_percent}%{' '}
-                      {selectedNode.is_charging && `(${t('byog.charging')})`}
+                    <div className='text-base font-semibold flex items-center gap-1.5'>
+                      <span>{selectedNode.battery_percent}%</span>
+                      {selectedNode.is_charging ? (
+                        <span className='text-emerald-500 font-normal text-xs'>({t('byog.charging', 'Şarjda')})</span>
+                      ) : (
+                        <span className='text-muted-foreground font-normal text-xs'>({t('byog.not_charging', 'Pilde')})</span>
+                      )}
                     </div>
                   </div>
                 )}
@@ -558,8 +648,8 @@ export function ByogNodesTab() {
                 </div>
               </div>
 
-              {/* Models Loaded & Cumulative Stats */}
-              <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+              {/* Models Loaded, Download Queue & Cumulative Stats */}
+              <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
                 <div className='bg-muted/10 space-y-2 rounded-xl border p-4'>
                   <div className='text-sm font-semibold'>
                     {t('byog.admin.installed_models')}
@@ -567,6 +657,17 @@ export function ByogNodesTab() {
                   <div className='bg-background max-h-32 overflow-y-auto rounded border p-2.5 font-mono text-xs'>
                     {selectedNode.installed_models ||
                       t('byog.admin.no_models_installed')}
+                  </div>
+                </div>
+
+                <div className='bg-muted/10 space-y-2 rounded-xl border p-4'>
+                  <div className='text-sm font-semibold'>
+                    {t('byog.admin.download_queue', 'İndirme Kuyruğu')}
+                  </div>
+                  <div className='bg-background max-h-32 overflow-y-auto rounded border p-2.5 font-mono text-xs'>
+                    {selectedNode.download_queue && selectedNode.download_queue !== '[]'
+                      ? selectedNode.download_queue
+                      : t('byog.admin.queue_empty', 'Kuyruk Boş')}
                   </div>
                 </div>
 

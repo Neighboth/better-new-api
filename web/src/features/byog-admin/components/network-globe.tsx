@@ -529,7 +529,11 @@ export function NetworkGlobe({ nodes, className }: NetworkGlobeProps) {
                   </div>
                   <div>
                     <span className='text-muted-foreground'>VRAM: </span>
-                    <span>{(hoveredNode.vram_mb / 1024).toFixed(1)} GB</span>
+                    <span>
+                      {hoveredNode.device_type === 'mobile' || hoveredNode.device_type === 'tablet'
+                        ? '0 GB (UMA)'
+                        : `${(hoveredNode.vram_mb / 1024).toFixed(1)} GB`}
+                    </span>
                   </div>
                 </div>
                 <div className='text-[10px] text-muted-foreground pt-0.5'>

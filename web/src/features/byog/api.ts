@@ -75,7 +75,10 @@ export async function updateNode(
 }
 
 export async function deleteNode(nodeId: string): Promise<void> {
-  await api.delete(`/api/byog/user/nodes/${nodeId}`)
+  const res = await api.delete(`/api/byog/user/nodes/${nodeId}`)
+  if (res.data && res.data.success === false) {
+    throw new Error(res.data.message || 'Cihaz silinemedi')
+  }
 }
 
 export async function getUserRewards(): Promise<ByogRewardItem[]> {

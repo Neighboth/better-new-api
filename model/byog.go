@@ -185,7 +185,7 @@ type ByogNode struct {
 	DeviceType            string  `json:"device_type" gorm:"type:varchar(32);default:'desktop';index"` // desktop, laptop, mobile, tablet
 	OS                    string  `json:"os" gorm:"type:varchar(32)"` // windows, linux, darwin, android, ios
 	Arch                  string  `json:"arch" gorm:"type:varchar(32)"` // amd64, arm64
-	HWID                  string  `json:"hwid" gorm:"type:varchar(255);index;not null"` // Salted cryptographic HWID
+	HWID                  string  `json:"hwid" gorm:"column:hw_id;type:varchar(255);index;not null"` // Salted cryptographic HWID
 	CpuModel              string  `json:"cpu_model" gorm:"type:varchar(255)"`
 	GpuModel              string  `json:"gpu_model" gorm:"type:varchar(255)"`
 	NpuModel              string  `json:"npu_model" gorm:"type:varchar(255)"`
@@ -255,7 +255,7 @@ type ByogNodeBan struct {
 	Id               int     `json:"id" gorm:"primaryKey"`
 	NodeId           string  `json:"node_id" gorm:"type:varchar(128);index;not null"`
 	UserId           int     `json:"user_id" gorm:"index;not null"`
-	HWID             string  `json:"hwid" gorm:"type:varchar(255);index;not null"`
+	HWID             string  `json:"hwid" gorm:"column:hw_id;type:varchar(255);index;not null"`
 	BanReason        string  `json:"ban_reason" gorm:"type:varchar(255);not null"`
 	ViolationCode    string  `json:"violation_code" gorm:"type:varchar(64);not null"` // e.g. #SEC-LOGPROB-492
 	TestId           string  `json:"test_id" gorm:"type:varchar(64)"`
@@ -543,7 +543,7 @@ func GetByogNodeByNodeId(nodeId string) (*ByogNode, error) {
 
 func GetByogNodeByHWID(hwid string) (*ByogNode, error) {
 	var n ByogNode
-	err := DB.Where("hwid = ?", hwid).First(&n).Error
+	err := DB.Where("hw_id = ? OR hwid = ?", hwid, hwid).First(&n).Error
 	return &n, err
 }
 
@@ -590,7 +590,7 @@ func GetAllBannedNodes() ([]*ByogNodeBan, error) {
 
 func IsHWIDBanned(hwid string) (bool, *ByogNodeBan) {
 	var ban ByogNodeBan
-	err := DB.Where("hwid = ? AND is_active = ?", hwid, true).First(&ban).Error
+	err := DB.Where("(hw_id = ? OR hwid = ?) AND is_active = ?", hwid, hwid, true).First(&ban).Error
 	if err == nil {
 		return true, &ban
 	}
@@ -616,7 +616,7 @@ func UnbanNode(banId int) error {
 		return err
 	}
 	// Restore node status
-	DB.Model(&ByogNode{}).Where("hwid = ?", ban.HWID).Update("status", "online")
+	DB.Model(&ByogNode{}).Where("hw_id = ? OR hwid = ?", ban.HWID, ban.HWID).Update("status", "online")
 	return nil
 }
 

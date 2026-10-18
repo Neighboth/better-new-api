@@ -661,10 +661,25 @@ func GetUserModels(c *gin.Context) {
 			groupsToQuery = []string{group}
 		}
 	}
+	enabledModels := service.GetGroupsEnabledModels(groupsToQuery)
+	if model.IsByogGloballyEnabled() {
+		if byogModels, err := model.GetAllByogModels(true); err == nil {
+			modelMap := make(map[string]bool)
+			for _, m := range enabledModels {
+				modelMap[m] = true
+			}
+			for _, bm := range byogModels {
+				if !modelMap[bm.ModelId] {
+					enabledModels = append(enabledModels, bm.ModelId)
+					modelMap[bm.ModelId] = true
+				}
+			}
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    service.GetGroupsEnabledModels(groupsToQuery),
+		"data":    enabledModels,
 	})
 }
 

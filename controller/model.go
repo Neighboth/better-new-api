@@ -19,7 +19,6 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	byogservice "github.com/QuantumNous/new-api/service/byog"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -263,16 +262,23 @@ func ListModels(c *gin.Context, modelType int) {
 		userOpenAiModels = append(userOpenAiModels, buildOpenAIModel(modelName, ownerByModel))
 	}
 
-	// Inject BYOG Virtual Catalog models if enabled (Section 2.4)
+	// Inject BYOG Catalog models if enabled (Section 2.4)
 	if model.IsByogGloballyEnabled() {
-		if virtualModels, err := byogservice.GlobalJit.GetVirtualCatalog(); err == nil {
-			for _, vm := range virtualModels {
-				userOpenAiModels = append(userOpenAiModels, dto.OpenAIModels{
-					Id:      vm.ModelId,
-					Object:  "model",
-					Created: int(vm.CreatedAt),
-					OwnedBy: vm.Vendor,
-				})
+		existingIds := make(map[string]bool)
+		for _, m := range userOpenAiModels {
+			existingIds[m.Id] = true
+		}
+		if byogModels, err := model.GetAllByogModels(true); err == nil {
+			for _, bm := range byogModels {
+				if !existingIds[bm.ModelId] {
+					userOpenAiModels = append(userOpenAiModels, dto.OpenAIModels{
+						Id:      bm.ModelId,
+						Object:  "model",
+						Created: int(bm.CreatedAt),
+						OwnedBy: bm.Vendor,
+					})
+					existingIds[bm.ModelId] = true
+				}
 			}
 		}
 	}
@@ -356,15 +362,38 @@ func RetrieveModel(c *gin.Context, modelType int) {
 		default:
 			c.JSON(200, aiModel)
 		}
-	} else {
-		openAIError := types.OpenAIError{
-			Message: fmt.Sprintf("The model '%s' does not exist", modelId),
-			Type:    "invalid_request_error",
-			Param:   "model",
-			Code:    "model_not_found",
-		}
-		c.JSON(200, gin.H{
-			"error": openAIError,
-		})
+		return
 	}
+
+	if model.IsByogGloballyEnabled() {
+		if bm, err := model.GetByogModelByModelId(modelId); err == nil && bm != nil && bm.IsEnabled {
+			switch modelType {
+			case constant.ChannelTypeAnthropic:
+				c.JSON(200, dto.AnthropicModel{
+					ID:          bm.ModelId,
+					CreatedAt:   time.Unix(bm.CreatedAt, 0).UTC().Format(time.RFC3339),
+					DisplayName: bm.ModelId,
+					Type:        "model",
+				})
+			default:
+				c.JSON(200, dto.OpenAIModels{
+					Id:      bm.ModelId,
+					Object:  "model",
+					Created: int(bm.CreatedAt),
+					OwnedBy: bm.Vendor,
+				})
+			}
+			return
+		}
+	}
+
+	openAIError := types.OpenAIError{
+		Message: fmt.Sprintf("The model '%s' does not exist", modelId),
+		Type:    "invalid_request_error",
+		Param:   "model",
+		Code:    "model_not_found",
+	}
+	c.JSON(200, gin.H{
+		"error": openAIError,
+	})
 }
