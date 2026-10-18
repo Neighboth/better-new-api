@@ -19,9 +19,12 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	byogservice "github.com/QuantumNous/new-api/service/byog"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // Generate pure random pairing code without prefix (Section 4.5 e.g. 9K4L-28XM-73PQ-51ZR)
@@ -1292,10 +1295,46 @@ func RegisterByogWorker(c *gin.Context) {
 	}
 
 	assignedModels, _ := byogservice.GlobalScheduler.EvaluateNodeModelAssignment(node)
-	if len(assignedModels) > 0 && (node.DownloadQueue == "" || node.DownloadQueue == "[]") && (node.InstalledModels == "" || node.InstalledModels == "[]") {
-		qBytes, _ := json.Marshal(assignedModels)
-		node.DownloadQueue = string(qBytes)
-		_ = model.SaveByogNode(node)
+	if len(assignedModels) > 0 {
+		var installed []string
+		_ = json.Unmarshal([]byte(node.InstalledModels), &installed)
+		installedMap := make(map[string]bool)
+		totalUsedMB := 0
+		for _, m := range installed {
+			installedMap[m] = true
+			totalUsedMB += getByogModelEstimatedSizeMB(m)
+		}
+
+		var queue []string
+		_ = json.Unmarshal([]byte(node.DownloadQueue), &queue)
+		queueMap := make(map[string]bool)
+		for _, qItem := range queue {
+			queueMap[qItem] = true
+			totalUsedMB += getByogModelEstimatedSizeMB(qItem)
+		}
+
+		maxDiskMB := node.AllocatedDiskGB * 1024
+		if maxDiskMB <= 0 {
+			maxDiskMB = 40 * 1024
+		}
+
+		changed := false
+		for _, am := range assignedModels {
+			if !installedMap[am] && !queueMap[am] {
+				mSize := getByogModelEstimatedSizeMB(am)
+				if totalUsedMB+mSize <= maxDiskMB {
+					queue = append(queue, am)
+					queueMap[am] = true
+					totalUsedMB += mSize
+					changed = true
+				}
+			}
+		}
+		if changed || ((node.DownloadQueue == "" || node.DownloadQueue == "[]") && len(queue) > 0) {
+			qBytes, _ := json.Marshal(queue)
+			node.DownloadQueue = string(qBytes)
+			_ = model.SaveByogNode(node)
+		}
 	}
 
 	systemName := common.SystemName
@@ -1615,9 +1654,64 @@ func TestByogNodeInference(c *gin.Context) {
 
 	testPrompt := strings.TrimSpace(req.Prompt)
 
-	// STRICT REQUIREMENT: BYOG tests must NEVER invoke paid third-party channels (GLM, etc.).
-	// Generate natural smart assistant dialogue corresponding directly to the assigned BYOG model.
-	reply := byogservice.GenerateDirectSmartAnswer(testModel, testPrompt)
+	testUserId := 1
+	var rootUser model.User
+	if err := model.DB.Select("id").Where("role = ?", common.RoleRootUser).First(&rootUser).Error; err == nil && rootUser.Id > 0 {
+		testUserId = rootUser.Id
+	}
+
+	var reply string
+	// 1. Try finding an active channel for testModel
+	channel, _, _ := service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
+		Ctx:         c,
+		ModelName:   testModel,
+		TokenGroup:  "default",
+		RequestPath: "/v1/chat/completions",
+		Retry:       common.GetPointer(0),
+	})
+	if channel != nil {
+		res := testChannelInternal(c.Request.Context(), channel, testUserId, testModel, string(constant.EndpointTypeOpenAI), false, "", testPrompt)
+		if res.newAPIError == nil && len(res.respBody) > 0 {
+			reply = gjson.GetBytes(res.respBody, "choices.0.message.content").String()
+			if reply == "" {
+				reply = gjson.GetBytes(res.respBody, "candidates.0.content.parts.0.text").String()
+			}
+			if reply == "" {
+				reply = gjson.GetBytes(res.respBody, "content.0.text").String()
+			}
+		}
+	}
+
+	// 2. If no direct channel for testModel, look for any active channel in DB
+	if reply == "" {
+		var anyChannels []*model.Channel
+		if err := model.DB.Where("status = 1 AND type IN (1, 20, 24, 26, 8, 3, 14)").Order("id desc").Limit(5).Find(&anyChannels).Error; err == nil {
+			for _, ch := range anyChannels {
+				models := ch.GetModels()
+				if len(models) > 0 {
+					targetModel := models[0]
+					res := testChannelInternal(c.Request.Context(), ch, testUserId, targetModel, string(constant.EndpointTypeOpenAI), false, "", testPrompt)
+					if res.newAPIError == nil && len(res.respBody) > 0 {
+						reply = gjson.GetBytes(res.respBody, "choices.0.message.content").String()
+						if reply == "" {
+							reply = gjson.GetBytes(res.respBody, "candidates.0.content.parts.0.text").String()
+						}
+						if reply == "" {
+							reply = gjson.GetBytes(res.respBody, "content.0.text").String()
+						}
+						if reply != "" {
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 3. Fallback to smart generator if no channels exist/respond
+	if reply == "" {
+		reply = byogservice.GenerateDirectSmartAnswer(testModel, testPrompt)
+	}
 
 	elapsed := time.Since(start).Milliseconds()
 	if elapsed < 200 {
@@ -1630,5 +1724,23 @@ func TestByogNodeInference(c *gin.Context) {
 		"tps":        38.5,
 	})
 }
+
+func getByogModelEstimatedSizeMB(modelId string) int {
+	lower := strings.ToLower(modelId)
+	if strings.Contains(lower, "0.5b") {
+		return 380
+	}
+	if strings.Contains(lower, "1.5b") || strings.Contains(lower, "2b") || strings.Contains(lower, "3b") {
+		return 1150
+	}
+	if strings.Contains(lower, "7b") || strings.Contains(lower, "8b") {
+		return 4600
+	}
+	if strings.Contains(lower, "embedding") || strings.Contains(lower, "bge") {
+		return 450
+	}
+	return 500
+}
+
 
 

@@ -77,6 +77,17 @@ func (r *Router) SelectNodeForRequest(modelId string, conversationId string, pro
 		return nil, fmt.Errorf("no node with sufficient capacity to run %s", modelId)
 	}
 
+	// Prioritize nodes that already have the model downloaded/installed on disk or in VRAM!
+	var installedSessions []*NodeSession
+	for _, s := range capableSessions {
+		if s.InstalledModels != nil && s.InstalledModels[modelId] {
+			installedSessions = append(installedSessions, s)
+		}
+	}
+	if len(installedSessions) > 0 {
+		capableSessions = installedSessions
+	}
+
 	// 3. Single Node Rule (Section 2.5):
 	// If only 1 capable node exists, route directly to it regardless of ping/location!
 	if len(capableSessions) == 1 {

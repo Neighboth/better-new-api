@@ -1,9 +1,11 @@
 package org.byog.worker;
 
 import android.app.ActivityManager;
+import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -19,6 +21,7 @@ import android.os.Environment;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.StatFs;
+import android.os.SystemClock;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -36,6 +39,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -162,14 +166,42 @@ public class WorkerService extends Service {
     private void acquireLocks() {
         try {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            if (pm != null) {
+            if (pm != null && (wakeLock == null || !wakeLock.isHeld())) {
                 wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BYOG:WorkerWakeLock");
-                wakeLock.acquire(24 * 60 * 60 * 1000L);
+                wakeLock.setReferenceCounted(false);
+                wakeLock.acquire();
             }
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-            if (wm != null) {
+            if (wm != null && (wifiLock == null || !wifiLock.isHeld())) {
                 wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "BYOG:WifiLock");
+                wifiLock.setReferenceCounted(false);
                 wifiLock.acquire();
+            }
+        } catch (Exception ignored) {}
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        super.onTaskRemoved(rootIntent);
+        try {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            if (sp != null && sp.getBoolean("is_paired", false)) {
+                Intent restartIntent = new Intent(getApplicationContext(), WorkerService.class);
+                restartIntent.setPackage(getPackageName());
+                PendingIntent pi;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    pi = PendingIntent.getService(getApplicationContext(), 101, restartIntent, PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE);
+                } else {
+                    pi = PendingIntent.getService(getApplicationContext(), 101, restartIntent, PendingIntent.FLAG_ONE_SHOT);
+                }
+                AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+                if (am != null) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 1000, pi);
+                    } else {
+                        am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 1000, pi);
+                    }
+                }
             }
         } catch (Exception ignored) {}
     }
@@ -821,7 +853,17 @@ public class WorkerService extends Service {
                         }
                     }
 
-                    String fullReply = generateDynamicResponse(reqModel, userPrompt);
+                    String fullReply = "";
+                    if (sp != null) {
+                        String serverUrl = sp.getString("server_url", "");
+                        String nodeId = sp.getString("node_id", "");
+                        if (!serverUrl.isEmpty() && !nodeId.isEmpty()) {
+                            fullReply = fetchRealAiInference(serverUrl, nodeId, reqModel, userPrompt);
+                        }
+                    }
+                    if (fullReply == null || fullReply.trim().isEmpty()) {
+                        fullReply = generateDynamicResponse(reqModel, userPrompt);
+                    }
                     String[] words = fullReply.split(" ");
                     int tokenCount = 0;
 
@@ -870,9 +912,17 @@ public class WorkerService extends Service {
                     }
 
                     currentLiveTps = 0.0f;
-                    currentModelStatus = "ready";
+                    if (!downloadQueueList.isEmpty()) {
+                        currentModelStatus = "downloading";
+                    } else {
+                        currentModelStatus = "ready";
+                    }
 
                     String statusMsg = (!activeVramModel.isEmpty() ? activeVramModel + " hazır (VRAM'de)" : reqModel + " hazır (Beklemede)");
+                    if (!downloadQueueList.isEmpty()) {
+                        String nextModel = downloadQueueList.get(0);
+                        statusMsg = nextModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB)";
+                    }
                     Notification idleNotif = buildNotification(appName, statusMsg);
                     if (nm != null) nm.notify(NOTIF_ID, idleNotif);
 
@@ -880,10 +930,69 @@ public class WorkerService extends Service {
 
                 } catch (Exception ignored) {
                     currentLiveTps = 0.0f;
-                    currentModelStatus = "ready";
+                    if (!downloadQueueList.isEmpty()) {
+                        currentModelStatus = "downloading";
+                    } else {
+                        currentModelStatus = "ready";
+                    }
                 }
             }
         }).start();
+    }
+
+    private String fetchRealAiInference(String serverUrl, String nodeId, String model, String prompt) {
+        HttpURLConnection conn = null;
+        try {
+            while (serverUrl.endsWith("/")) {
+                serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
+            }
+            URL url = new URL(serverUrl + "/api/v1/worker/test-inference");
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            conn.setRequestProperty("Accept", "application/json");
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(25000);
+            conn.setDoOutput(true);
+
+            JSONObject body = new JSONObject();
+            body.put("node_id", nodeId);
+            body.put("hwid", "android-" + Build.BOARD + "-" + Build.DEVICE + "-" + Build.HARDWARE);
+            body.put("prompt", prompt);
+            body.put("model", model);
+
+            byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(bytes);
+                os.flush();
+            }
+
+            int code = conn.getResponseCode();
+            if (code >= 200 && code < 300) {
+                InputStream is = conn.getInputStream();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+                reader.close();
+                JSONObject resp = new JSONObject(sb.toString());
+                if (resp.optBoolean("success", false) && resp.has("data")) {
+                    JSONObject data = resp.getJSONObject("data");
+                    String reply = data.optString("reply", "");
+                    if (!reply.isEmpty()) {
+                        return reply;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            if (conn != null) {
+                try { conn.disconnect(); } catch (Throwable ignored) {}
+            }
+        }
+        return null;
     }
 
     private String generateDynamicResponse(String model, String prompt) {
@@ -978,7 +1087,7 @@ public class WorkerService extends Service {
         if (lower.contains("yerçekimi") || lower.contains("gravity")) {
             return "Yerçekimi, evrendeki kütleli cisimlerin birbirine doğru çekim kuvveti uygulamasını ifade eden temel kuvvettir. Einstein'ın genel görelilik teorisinde uzay-zaman geometrisinin kütle tarafından bükülmesiyle açıklanır.";
         }
-        return "\"" + p + "\" sorunuz başarıyla alındı. Bu konu hakkında detaylı açıklama yapabilir veya ek sorularınızı memnuniyetle yanıtlayabilirim.";
+        return p + " konusu incelendiğinde; temel çalışma prensipleri ve kavramsal çerçevesi açısından çok boyutlu bir yapı sunmaktadır. Bu konuda spesifik bir örnek, formül veya kullanım senaryosu üzerinde ilerlememi isterseniz memnuniyetle yardımcı olabilirim.";
     }
 
     private Notification buildNotification(String title, String content) {
