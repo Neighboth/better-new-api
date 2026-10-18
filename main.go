@@ -207,8 +207,9 @@ func main() {
 		port = strconv.Itoa(*common.Port)
 	}
 
+	listenHost := os.Getenv("HOST")
 	srv := &http.Server{
-		Addr:    ":" + port,
+		Addr:    listenHost + ":" + port,
 		Handler: server,
 	}
 
