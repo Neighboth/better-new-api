@@ -136,7 +136,7 @@ export function ByogNodesTab() {
   function renderNodeStatus(node: ByogNode) {
     const nowSec = Math.floor(Date.now() / 1000)
     const heartbeatAge = nowSec - (node.last_heartbeat_at || 0)
-    const isStale = (node.last_heartbeat_at || 0) <= 0 || heartbeatAge > 45
+    const isStale = (node.last_heartbeat_at || 0) <= 0 || heartbeatAge > 90
     const isStopped = node.status === 'offline' || node.status === 'banned' || isStale
 
     // 1. "Durmuş" (bir süredir yanıt vermeyen, durmuş, hatalı, çökmüş, silinmiş vs cihazlar, yanında i tuşuna basıp detaylı bilgi alabilelim)
@@ -444,14 +444,14 @@ export function ByogNodesTab() {
               {(() => {
                 const nowSec = Math.floor(Date.now() / 1000)
                 const age = nowSec - (selectedNode.last_heartbeat_at || 0)
-                const isStale = (selectedNode.last_heartbeat_at || 0) <= 0 || age > 45
+                const isStale = (selectedNode.last_heartbeat_at || 0) <= 0 || age > 90
                 const isStopped = selectedNode.status === 'offline' || selectedNode.status === 'banned' || isStale
                 if (!isStopped) return null
 
                 let reason = 'Cihazdan bir süredir kalp atışı (sinyal) alınamadı.'
                 if (selectedNode.status === 'banned') {
                   reason = 'Cihaz güvenlik kuralları veya doğrulama ihlali nedeniyle sistem tarafından yasaklandı.'
-                } else if (age > 45) {
+                } else if (age > 90) {
                   reason = `Cihaz ile bağlantı kesildi. Son yanıt ${age} saniye önce alındı (Uygulama kapatılmış, cihaz uykuya geçmiş, ağ bağlantısı kopmuş veya uygulama silinmiş olabilir).`
                 } else if (selectedNode.battery_cutoff_enabled && selectedNode.battery_percent <= selectedNode.battery_cutoff_percent) {
                   reason = `Cihaz pil seviyesi (%${selectedNode.battery_percent}) belirlenen kesme eşiğinin (%${selectedNode.battery_cutoff_percent}) altına düştüğü için durduruldu.`

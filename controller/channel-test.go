@@ -119,7 +119,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	return res
 }
 
-func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool, overrideVoice string) testResult {
+func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool, overrideVoice string, customPrompt ...string) testResult {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -322,7 +322,7 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 		}
 	}
 
-	request := buildTestRequest(testModel, endpointType, channel, isStream, overrideVoice)
+	request := buildTestRequest(testModel, endpointType, channel, isStream, overrideVoice, customPrompt...)
 
 	info, err := relaycommon.GenRelayInfo(c, relayFormat, request, nil)
 
@@ -904,8 +904,14 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
 	return message
 }
 
-func buildTestRequest(model string, endpointType string, channel *model.Channel, isStream bool, overrideVoice string) dto.Request {
-	testResponsesInput := json.RawMessage(`[{"role":"user","content":"hi"}]`)
+func buildTestRequest(model string, endpointType string, channel *model.Channel, isStream bool, overrideVoice string, customPrompt ...string) dto.Request {
+	userMsg := "hi"
+	maxTokensVal := uint(16)
+	if len(customPrompt) > 0 && strings.TrimSpace(customPrompt[0]) != "" {
+		userMsg = strings.TrimSpace(customPrompt[0])
+		maxTokensVal = uint(512)
+	}
+	testResponsesInput := json.RawMessage(fmt.Sprintf(`[{"role":"user","content":%s}]`, strconv.Quote(userMsg)))
 
 	// 根据端点类型构建不同的测试请求
 	if endpointType != "" {
@@ -982,24 +988,28 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 			return &dto.ClaudeRequest{
 				Model:     model,
 				Stream:    lo.ToPtr(isStream),
-				MaxTokens: lo.ToPtr(uint(16)),
+				MaxTokens: lo.ToPtr(maxTokensVal),
 				Messages: []dto.ClaudeMessage{
 					{
 						Role:    "user",
-						Content: "hi",
+						Content: userMsg,
 					},
 				},
 			}
 		case constant.EndpointTypeGemini:
+			geminiMaxTokens := uint(3000)
+			if maxTokensVal > 16 {
+				geminiMaxTokens = maxTokensVal
+			}
 			return &dto.GeminiChatRequest{
 				Contents: []dto.GeminiChatContent{
 					{
 						Role:  "user",
-						Parts: []dto.GeminiPart{{Text: "hi"}},
+						Parts: []dto.GeminiPart{{Text: userMsg}},
 					},
 				},
 				GenerationConfig: dto.GeminiChatGenerationConfig{
-					MaxOutputTokens: lo.ToPtr(uint(3000)),
+					MaxOutputTokens: lo.ToPtr(geminiMaxTokens),
 				},
 			}
 		case constant.EndpointTypeOpenAI:
@@ -1009,10 +1019,10 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				Messages: []dto.Message{
 					{
 						Role:    "user",
-						Content: "hi",
+						Content: userMsg,
 					},
 				},
-				MaxTokens: lo.ToPtr(uint(16)),
+				MaxTokens: lo.ToPtr(maxTokensVal),
 			}
 			if isStream {
 				req.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
@@ -1094,7 +1104,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 	if strings.Contains(strings.ToLower(model), "codex") {
 		return &dto.OpenAIResponsesRequest{
 			Model:  model,
-			Input:  json.RawMessage(`[{"role":"user","content":"hi"}]`),
+			Input:  testResponsesInput,
 			Stream: lo.ToPtr(isStream),
 		}
 	}
@@ -1106,7 +1116,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 		Messages: []dto.Message{
 			{
 				Role:    "user",
-				Content: "hi",
+				Content: userMsg,
 			},
 		},
 	}
@@ -1115,15 +1125,19 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 	}
 
 	if dto.IsOpenAIReasoningOModel(model) {
-		testRequest.MaxCompletionTokens = lo.ToPtr(uint(16))
+		testRequest.MaxCompletionTokens = lo.ToPtr(maxTokensVal)
 	} else if strings.Contains(model, "thinking") {
 		if !strings.Contains(model, "claude") {
-			testRequest.MaxTokens = lo.ToPtr(uint(50))
+			thinkingTokens := uint(50)
+			if maxTokensVal > 50 {
+				thinkingTokens = maxTokensVal
+			}
+			testRequest.MaxTokens = lo.ToPtr(thinkingTokens)
 		}
 	} else if strings.Contains(model, "gemini") {
 		testRequest.MaxTokens = lo.ToPtr(uint(3000))
 	} else {
-		testRequest.MaxTokens = lo.ToPtr(uint(16))
+		testRequest.MaxTokens = lo.ToPtr(maxTokensVal)
 	}
 
 	return testRequest

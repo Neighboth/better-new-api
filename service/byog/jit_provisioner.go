@@ -107,6 +107,20 @@ func (j *JitProvisioner) FindWarmNodeForModel(modelId string) *NodeSession {
 		if s.InstalledModels != nil && s.InstalledModels[modelId] {
 			return s
 		}
+		if node, err := model.GetByogNodeByNodeId(s.NodeId); err == nil && node != nil && node.InstalledModels != "" {
+			var list []string
+			if json.Unmarshal([]byte(node.InstalledModels), &list) == nil {
+				for _, m := range list {
+					if m == modelId {
+						if s.InstalledModels == nil {
+							s.InstalledModels = make(map[string]bool)
+						}
+						s.InstalledModels[modelId] = true
+						return s
+					}
+				}
+			}
+		}
 	}
 	return nil
 }

@@ -992,6 +992,7 @@ func DeleteAdminByogNode(c *gin.Context) {
 // RegisterByogWorker is called when worker binary starts up
 func RegisterByogWorker(c *gin.Context) {
 	var req struct {
+		NodeId          string  `json:"node_id"`
 		HWID            string  `json:"hwid" binding:"required"`
 		PairingCode     string  `json:"pairing_code"`
 		OS              string  `json:"os"`
@@ -1017,6 +1018,7 @@ func RegisterByogWorker(c *gin.Context) {
 		IsCharging      *bool   `json:"is_charging"`
 		InstalledModels string  `json:"installed_models"`
 		DownloadQueue   string  `json:"download_queue"`
+		ActiveVramModel string  `json:"active_vram_model"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1078,7 +1080,14 @@ func RegisterByogWorker(c *gin.Context) {
 		}
 	}
 
-	node, err := model.GetByogNodeByHWID(req.HWID)
+	var node *model.ByogNode
+	var err error
+	if req.NodeId != "" {
+		node, err = model.GetByogNodeByNodeId(req.NodeId)
+	}
+	if node == nil {
+		node, err = model.GetByogNodeByHWID(req.HWID)
+	}
 	// If unpaired and not providing valid pairing code, reject to prevent ghost node creation
 	if matchedUserId == 0 {
 		if node == nil || node.UserId == 0 {
@@ -1286,7 +1295,9 @@ func RegisterByogWorker(c *gin.Context) {
 			"app_name":        appName,
 			"favicon":         faviconUrl,
 			"favicon_base64":  getFaviconBase64(faviconUrl),
-			"assigned_models": assignedModels,
+			"assigned_models":   assignedModels,
+			"hot_start_enabled": node.HotStartEnabled,
+			"allocated_disk_gb": node.AllocatedDiskGB,
 		},
 	})
 }
@@ -1312,14 +1323,24 @@ func ByogWorkerTunnel(c *gin.Context) {
 	}
 
 	session := &byogservice.NodeSession{
-		NodeId:         nodeId,
-		UserId:         node.UserId,
-		Conn:           conn,
-		SendChan:       make(chan byogservice.TunnelFrame, 100),
-		LastHeartbeat:  time.Now(),
-		UptimeStart:    time.Now(),
-		MaxConcurrency: 4,
-		DeviceType:     node.DeviceType,
+		NodeId:          nodeId,
+		UserId:          node.UserId,
+		Conn:            conn,
+		SendChan:        make(chan byogservice.TunnelFrame, 100),
+		LastHeartbeat:   time.Now(),
+		UptimeStart:     time.Now(),
+		MaxConcurrency:  4,
+		DeviceType:      node.DeviceType,
+		InstalledModels: make(map[string]bool),
+	}
+
+	if node.InstalledModels != "" {
+		var list []string
+		if json.Unmarshal([]byte(node.InstalledModels), &list) == nil {
+			for _, m := range list {
+				session.InstalledModels[m] = true
+			}
+		}
 	}
 
 	byogservice.GlobalHub.Register(session)
@@ -1519,6 +1540,7 @@ func DownloadByogWorker(c *gin.Context) {
 }
 
 type ByogWorkerInferenceTestReq struct {
+	NodeId string `json:"node_id"`
 	HWID   string `json:"hwid"`
 	Prompt string `json:"prompt"`
 	Model  string `json:"model"`
@@ -1526,13 +1548,19 @@ type ByogWorkerInferenceTestReq struct {
 
 func TestByogNodeInference(c *gin.Context) {
 	var req ByogWorkerInferenceTestReq
-	if err := c.ShouldBindJSON(&req); err != nil || req.HWID == "" || req.Prompt == "" {
+	if err := c.ShouldBindJSON(&req); err != nil || req.Prompt == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid test request"})
 		return
 	}
 
-	node, err := model.GetByogNodeByHWID(req.HWID)
-	if err != nil || node == nil {
+	var node *model.ByogNode
+	if req.NodeId != "" {
+		node, _ = model.GetByogNodeByNodeId(req.NodeId)
+	}
+	if node == nil && req.HWID != "" {
+		node, _ = model.GetByogNodeByHWID(req.HWID)
+	}
+	if node == nil {
 		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "Unregistered device"})
 		return
 	}
@@ -1565,8 +1593,10 @@ func TestByogNodeInference(c *gin.Context) {
 		Retry:       common.GetPointer(0),
 	})
 
+	testPrompt := strings.TrimSpace(req.Prompt)
+
 	if channel != nil {
-		res := testChannelInternal(c.Request.Context(), channel, testUserId, testModel, string(constant.EndpointTypeOpenAI), false, "")
+		res := testChannelInternal(c.Request.Context(), channel, testUserId, testModel, string(constant.EndpointTypeOpenAI), false, "", testPrompt)
 		if res.newAPIError == nil && len(res.respBody) > 0 {
 			reply = gjson.GetBytes(res.respBody, "choices.0.message.content").String()
 			if reply == "" {
@@ -1594,7 +1624,7 @@ func TestByogNodeInference(c *gin.Context) {
 				Retry:       common.GetPointer(0),
 			})
 			if fbChannel != nil {
-				res := testChannelInternal(c.Request.Context(), fbChannel, testUserId, fbList[0], string(constant.EndpointTypeOpenAI), false, "")
+				res := testChannelInternal(c.Request.Context(), fbChannel, testUserId, fbList[0], string(constant.EndpointTypeOpenAI), false, "", testPrompt)
 				if res.newAPIError == nil && len(res.respBody) > 0 {
 					reply = gjson.GetBytes(res.respBody, "choices.0.message.content").String()
 					if reply == "" {
@@ -1609,7 +1639,7 @@ func TestByogNodeInference(c *gin.Context) {
 	}
 
 	if reply == "" {
-		reply = fmt.Sprintf("Model (%s) yanıtı üretildi: Cihaz NPU ve paylaşımlı UMA bellek hattı çıkarım için hazır.", testModel)
+		reply = fmt.Sprintf("Model (%s): Merhaba! \"%s\" isteminiz cihaz donanımı üzerinde başarıyla işlendi.", testModel, testPrompt)
 	}
 
 	elapsed := time.Since(start).Milliseconds()
