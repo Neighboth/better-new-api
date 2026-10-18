@@ -43,6 +43,7 @@ type testResult struct {
 	localErr    error
 	newAPIError *types.NewAPIError
 	message     string
+	respBody    []byte
 }
 
 func normalizeChannelTestEndpoint(channel *model.Channel, endpointType string) string {
@@ -725,6 +726,7 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 		localErr:    nil,
 		newAPIError: nil,
 		message:     testMessage,
+		respBody:    respBody,
 	}
 }
 

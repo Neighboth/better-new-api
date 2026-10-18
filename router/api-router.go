@@ -572,12 +572,14 @@ func SetApiRouter(router *gin.Engine) {
 			workerRoute.POST("/telemetry/crash", controller.ReportByogWorkerCrash)
 			workerRoute.GET("/version", controller.GetByogWorkerVersion)
 			workerRoute.GET("/download/:platform/:arch", controller.DownloadByogWorker)
+			workerRoute.POST("/test-inference", controller.TestByogNodeInference)
 		}
 		byogWorkerAlias := apiRouter.Group("/byog/worker")
 		{
 			byogWorkerAlias.POST("/register", controller.RegisterByogWorker)
 			byogWorkerAlias.GET("/tunnel", controller.ByogWorkerTunnel)
 			byogWorkerAlias.GET("/download/:platform/:arch", controller.DownloadByogWorker)
+			byogWorkerAlias.POST("/test-inference", controller.TestByogNodeInference)
 		}
 	}
 }

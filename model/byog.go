@@ -544,7 +544,7 @@ func GetByogNodeByNodeId(nodeId string) (*ByogNode, error) {
 
 func GetByogNodeByHWID(hwid string) (*ByogNode, error) {
 	var n ByogNode
-	err := DB.Where("hw_id = ? OR hwid = ?", hwid, hwid).First(&n).Error
+	err := DB.Where("hw_id = ?", hwid).First(&n).Error
 	return &n, err
 }
 
@@ -594,7 +594,7 @@ func GetAllBannedNodes() ([]*ByogNodeBan, error) {
 
 func IsHWIDBanned(hwid string) (bool, *ByogNodeBan) {
 	var ban ByogNodeBan
-	err := DB.Where("(hw_id = ? OR hwid = ?) AND is_active = ?", hwid, hwid, true).First(&ban).Error
+	err := DB.Where("hw_id = ? AND is_active = ?", hwid, true).First(&ban).Error
 	if err == nil {
 		return true, &ban
 	}
@@ -620,7 +620,7 @@ func UnbanNode(banId int) error {
 		return err
 	}
 	// Restore node status
-	DB.Model(&ByogNode{}).Where("hw_id = ? OR hwid = ?", ban.HWID, ban.HWID).Update("status", "online")
+	DB.Model(&ByogNode{}).Where("hw_id = ?", ban.HWID).Update("status", "online")
 	return nil
 }
 

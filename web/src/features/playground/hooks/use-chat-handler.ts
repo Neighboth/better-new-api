@@ -311,14 +311,6 @@ export function useChatHandler({
       return currentModel
     }
 
-    for (const model of modelsRef.current) {
-      if (state.tried.has(model.value)) {
-        continue
-      }
-      state.tried.add(model.value)
-      return model.value
-    }
-
     return null
   }, [config.model])
 
