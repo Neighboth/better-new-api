@@ -570,7 +570,7 @@ export function DiscordBotSettingsSection({
                     <FormItem>
                       <FormLabel>{t('Large Image Text')}</FormLabel>
                       <FormControl>
-                        <Input placeholder='New-API AI' {...field} value={field.value ?? ''} />
+                        <Input placeholder='AI Service' {...field} value={field.value ?? ''} />
                       </FormControl>
                       <FormDescription>{t('Tooltip text displayed when hovering over large image')}</FormDescription>
                       <FormMessage />

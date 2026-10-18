@@ -1,11 +1,14 @@
 package controller
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -112,3 +115,66 @@ func TestDownloadByogWorkerEndpoints(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
+
+func TestDynamicApkBrandingAndFavicon(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/v1/worker/download/:platform/:arch", DownloadByogWorker)
+
+	// Test with custom company name
+	common.SystemName = "Acme AI"
+	common.Favicon = "/favicon.ico"
+
+	req, _ := http.NewRequest(http.MethodGet, "/api/v1/worker/download/android/apk", nil)
+	req.Host = "acme-ai.example.com"
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	apkBytes := w.Body.Bytes()
+	assert.Greater(t, len(apkBytes), 100000)
+
+	// Verify that the injected APK has the custom config
+	eocdSig := []byte{0x50, 0x4b, 0x05, 0x06}
+	eocdPos := bytes.LastIndex(apkBytes, eocdSig)
+	assert.NotEqual(t, -1, eocdPos)
+
+	cdOffset := binary.LittleEndian.Uint32(apkBytes[eocdPos+16 : eocdPos+20])
+	magic := apkBytes[cdOffset-16 : cdOffset]
+	assert.Equal(t, "APK Sig Block 42", string(magic))
+
+	blockSize := binary.LittleEndian.Uint64(apkBytes[cdOffset-24 : cdOffset-16])
+	blockStart := int64(cdOffset) - 8 - int64(blockSize)
+	offset := blockStart + 8
+
+	var foundPayload string
+	for offset < int64(cdOffset)-24 {
+		pairLen := binary.LittleEndian.Uint64(apkBytes[offset : offset+8])
+		pairId := binary.LittleEndian.Uint32(apkBytes[offset+8 : offset+12])
+		valBytes := apkBytes[offset+12 : offset+8+int64(pairLen)]
+		if pairId == 0x71777777 {
+			foundPayload = string(valBytes)
+			break
+		}
+		offset += 8 + int64(pairLen)
+	}
+
+	assert.NotEmpty(t, foundPayload)
+	var parsed map[string]string
+	err := json.Unmarshal([]byte(foundPayload), &parsed)
+	assert.NoError(t, err)
+
+	assert.Equal(t, "http://acme-ai.example.com", parsed["server_url"])
+	assert.Equal(t, "Acme AI", parsed["system_name"])
+	assert.Equal(t, "Acme AI BYOG", parsed["app_name"])
+	assert.Equal(t, "http://acme-ai.example.com/favicon.ico", parsed["favicon"])
+	assert.NotEmpty(t, parsed["favicon_base64"])
+	assert.True(t, strings.HasPrefix(parsed["favicon_base64"], "data:image/"))
+
+	// Test default system name when empty
+	common.SystemName = ""
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, req)
+	assert.Equal(t, http.StatusOK, w2.Code)
+}
+

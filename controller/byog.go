@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -121,6 +122,53 @@ func injectApkConfig(apkData []byte, configJson []byte) ([]byte, error) {
 	return result.Bytes(), nil
 }
 
+func getFaviconBase64(faviconUrl string) string {
+	if strings.HasPrefix(faviconUrl, "data:") {
+		return faviconUrl
+	}
+	var searchPaths []string
+	u := faviconUrl
+	if idx := strings.Index(u, "://"); idx != -1 {
+		if pathIdx := strings.Index(u[idx+3:], "/"); pathIdx != -1 {
+			u = u[idx+3+pathIdx:]
+		}
+	}
+	cleanPath := strings.TrimPrefix(u, "/")
+	if cleanPath != "" {
+		searchPaths = append(searchPaths,
+			cleanPath,
+			filepath.Join("web", "public", cleanPath),
+			filepath.Join("..", "web", "public", cleanPath),
+			filepath.Join("data", cleanPath),
+			filepath.Join("..", "data", cleanPath),
+		)
+	}
+	searchPaths = append(searchPaths,
+		filepath.Join("web", "public", "favicon.ico"),
+		filepath.Join("..", "web", "public", "favicon.ico"),
+		filepath.Join("web", "public", "logo.png"),
+		filepath.Join("..", "web", "public", "logo.png"),
+	)
+	for _, p := range searchPaths {
+		if b, err := os.ReadFile(p); err == nil && len(b) > 0 && len(b) <= 256*1024 {
+			mime := "image/png"
+			lower := strings.ToLower(p)
+			if strings.HasSuffix(lower, ".ico") {
+				mime = "image/x-icon"
+			} else if strings.HasSuffix(lower, ".svg") {
+				mime = "image/svg+xml"
+			} else if strings.HasSuffix(lower, ".jpg") || strings.HasSuffix(lower, ".jpeg") {
+				mime = "image/jpeg"
+			} else if strings.HasSuffix(lower, ".webp") {
+				mime = "image/webp"
+			}
+			return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(b))
+		}
+	}
+	return ""
+}
+
+
 
 type userPairingSession struct {
 	UserId    int
@@ -186,12 +234,13 @@ func GetUserPairingCode(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"pairing_code": code,
-			"server_url":   serverUrl,
-			"system_name":  systemName,
-			"app_name":     appName,
-			"favicon":      faviconUrl,
-			"expires_in":   900,
+			"pairing_code":   code,
+			"server_url":     serverUrl,
+			"system_name":    systemName,
+			"app_name":       appName,
+			"favicon":        faviconUrl,
+			"favicon_base64": getFaviconBase64(faviconUrl),
+			"expires_in":     900,
 		},
 	})
 }
@@ -1112,6 +1161,7 @@ func RegisterByogWorker(c *gin.Context) {
 			"system_name":     systemName,
 			"app_name":        appName,
 			"favicon":         faviconUrl,
+			"favicon_base64":  getFaviconBase64(faviconUrl),
 			"assigned_models": assignedModels,
 		},
 	})
@@ -1315,10 +1365,11 @@ func DownloadByogWorker(c *gin.Context) {
 					}
 
 					cfgPayload, _ := json.Marshal(map[string]string{
-						"server_url":  serverUrl,
-						"system_name": systemName,
-						"app_name":    appName,
-						"favicon":     faviconUrl,
+						"server_url":     serverUrl,
+						"system_name":    systemName,
+						"app_name":       appName,
+						"favicon":        faviconUrl,
+						"favicon_base64": getFaviconBase64(faviconUrl),
 					})
 
 					if customizedApk, err := injectApkConfig(raw, cfgPayload); err == nil {

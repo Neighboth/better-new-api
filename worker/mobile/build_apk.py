@@ -34,7 +34,7 @@ os.makedirs(res_mipmap, exist_ok=True)
 os.makedirs(assets_www, exist_ok=True)
 os.makedirs(src_dir, exist_ok=True)
 
-# Determine App Name - Default to New-API BYOG
+# Generic default App Name - dynamically overridden by server instance configuration
 app_name = "New-API BYOG"
 
 # strings.xml
@@ -86,8 +86,8 @@ except Exception as e:
 manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.byog.worker"
-    android:versionCode="4"
-    android:versionName="1.6.0">
+    android:versionCode="5"
+    android:versionName="1.7.0">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
 
@@ -371,6 +371,12 @@ html_content = '''<!DOCTYPE html>
       }
     }
 
+    window.updateLogo = function(base64Uri) {
+      if (!base64Uri) return;
+      const img = document.getElementById('app-logo');
+      if (img) img.src = base64Uri;
+    };
+
     // Called automatically by Android when QR code is scanned
     window.handleScannedQr = function(rawText) {
       if (!rawText) return;
@@ -378,15 +384,18 @@ html_content = '''<!DOCTYPE html>
         const obj = JSON.parse(rawText);
         const serverUrl = obj.server_url || "";
         const c = obj.pairing_code || obj.code;
+        const qrAppName = obj.app_name || "";
+        const qrFavicon = obj.favicon || "";
         if (c) {
           document.getElementById('input-code').value = c;
-          if (window.AndroidBridge && window.AndroidBridge.connect) {
+          if (window.AndroidBridge && window.AndroidBridge.connectWithMeta) {
+            window.AndroidBridge.connectWithMeta(c, serverUrl, qrAppName, qrFavicon);
+          } else if (window.AndroidBridge && window.AndroidBridge.connect) {
             window.AndroidBridge.connect(c, serverUrl);
           }
           return;
         }
       } catch (e) {
-        // Plain text fallback
         document.getElementById('input-code').value = rawText.trim().toUpperCase();
         connectManual();
       }
@@ -398,8 +407,11 @@ html_content = '''<!DOCTYPE html>
         const s = typeof stateJson === 'string' ? JSON.parse(stateJson) : stateJson;
         if (s.app_name) {
           document.getElementById('app-title').innerText = s.app_name;
+          document.title = s.app_name;
         }
-        if (s.favicon && s.favicon.length > 0) {
+        if (s.favicon_base64 && s.favicon_base64.length > 0) {
+          document.getElementById('app-logo').src = s.favicon_base64;
+        } else if (s.favicon && s.favicon.length > 0) {
           let fav = s.favicon;
           if (fav.startsWith('/') && s.server_url) {
             fav = s.server_url.replace(/\\/+$/, '') + fav;
@@ -546,12 +558,15 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.util.Base64;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -561,6 +576,10 @@ import android.widget.Toast;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -606,8 +625,20 @@ public class MainActivity extends Activity {
                     appName = obj.getString("app_name");
                     ed.putString("app_name", appName);
                 }
-                if (obj.has("favicon")) ed.putString("favicon", obj.getString("favicon"));
+                if (obj.has("favicon")) {
+                    String favUrl = obj.getString("favicon");
+                    ed.putString("favicon", favUrl);
+                    fetchAndCacheFavicon(favUrl);
+                }
+                if (obj.has("favicon_base64")) {
+                    String b64 = obj.getString("favicon_base64");
+                    ed.putString("favicon_base64", b64);
+                    saveBase64ToCacheFile(b64);
+                }
                 ed.apply();
+            } else {
+                SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+                appName = sp.getString("app_name", "New-API BYOG");
             }
         } catch (Exception ignored) {}
 
@@ -621,6 +652,8 @@ public class MainActivity extends Activity {
         ws.setDomStorageEnabled(true);
         ws.setAllowFileAccess(true);
         ws.setAllowContentAccess(true);
+        ws.setAllowFileAccessFromFileURLs(true);
+        ws.setAllowUniversalAccessFromFileURLs(true);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
@@ -664,7 +697,6 @@ public class MainActivity extends Activity {
             }
         } catch (Exception ignored) {}
 
-        // Request startup / auto-start permissions on OEMs (MIUI, Huawei, Oppo, Vivo, Samsung)
         requestAutoStartPermission();
     }
 
@@ -714,6 +746,70 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {}
     }
 
+    private void saveBase64ToCacheFile(String base64Data) {
+        try {
+            if (base64Data == null || !base64Data.contains(",")) return;
+            String rawB64 = base64Data.substring(base64Data.indexOf(",") + 1);
+            byte[] bytes = Base64.decode(rawB64, Base64.DEFAULT);
+            File f = new File(getFilesDir(), "custom_favicon.png");
+            FileOutputStream fos = new FileOutputStream(f);
+            fos.write(bytes);
+            fos.close();
+        } catch (Exception ignored) {}
+    }
+
+    private void fetchAndCacheFavicon(final String faviconUrl) {
+        if (faviconUrl == null || faviconUrl.trim().isEmpty() || faviconUrl.startsWith("data:")) return;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    URL url = new URL(faviconUrl);
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(8000);
+                    conn.setReadTimeout(8000);
+                    conn.setInstanceFollowRedirects(true);
+                    if (conn.getResponseCode() == 200) {
+                        InputStream is = conn.getInputStream();
+                        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+                        int nRead;
+                        byte[] data = new byte[8192];
+                        while ((nRead = is.read(data, 0, data.length)) != -1) {
+                            buffer.write(data, 0, nRead);
+                        }
+                        buffer.flush();
+                        byte[] bytes = buffer.toByteArray();
+                        is.close();
+                        conn.disconnect();
+
+                        if (bytes.length > 0) {
+                            File f = new File(getFilesDir(), "custom_favicon.png");
+                            FileOutputStream fos = new FileOutputStream(f);
+                            fos.write(bytes);
+                            fos.close();
+
+                            String b64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
+                            String mime = faviconUrl.endsWith(".ico") ? "image/x-icon" : "image/png";
+                            final String dataUri = "data:" + mime + ";base64," + b64;
+
+                            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+                            sp.edit().putString("favicon_base64", dataUri).apply();
+
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    if (webView != null) {
+                                        webView.evaluateJavascript("if (window.updateLogo) window.updateLogo('" + dataUri + "')", null);
+                                    }
+                                }
+                            });
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+        }).start();
+    }
+
     public class WebAppInterface {
         @JavascriptInterface
         public void scanQrCode() {
@@ -743,19 +839,41 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void connectWithMeta(final String code, final String serverUrl, final String metaAppName, final String metaFavicon) {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            SharedPreferences.Editor ed = sp.edit();
+            if (metaAppName != null && !metaAppName.isEmpty()) {
+                ed.putString("app_name", metaAppName);
+            }
+            if (metaFavicon != null && !metaFavicon.isEmpty()) {
+                ed.putString("favicon", metaFavicon);
+                fetchAndCacheFavicon(metaFavicon);
+            }
+            ed.apply();
+            connect(code, serverUrl);
+        }
+
+        @JavascriptInterface
         public void connect(final String rawPairingCode, String rawServerUrl) {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
             if (rawServerUrl == null || rawServerUrl.trim().isEmpty()) {
                 rawServerUrl = sp.getString("server_url", "");
-            }
-            if (rawServerUrl == null || rawServerUrl.trim().isEmpty()) {
-                rawServerUrl = "https://new-api.com";
             }
             while (rawServerUrl.endsWith("/")) {
                 rawServerUrl = rawServerUrl.substring(0, rawServerUrl.length() - 1);
             }
             final String finalServerUrl = rawServerUrl;
             final String cleanCode = rawPairingCode != null ? rawPairingCode.trim().toUpperCase() : "";
+
+            if (finalServerUrl.isEmpty()) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(MainActivity.this, "Lütfen sunucu adresini içeren QR kodu tarayın veya sunucudan indirilmiş APK kullanın", Toast.LENGTH_LONG).show();
+                    }
+                });
+                return;
+            }
 
             if (cleanCode.isEmpty()) {
                 runOnUiThread(new Runnable() {
@@ -767,7 +885,6 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            // Perform registration handshake on background thread BEFORE starting WorkerService
             new Thread(new Runnable() {
                 @Override
                 public void run() {
@@ -855,11 +972,12 @@ public class MainActivity extends Activity {
                             final String returnedNodeId = data.optString("node_id");
                             final String returnedAppName = data.optString("app_name", "New-API BYOG");
                             final String returnedFavicon = data.optString("favicon", "logo.png");
+                            final String returnedFaviconB64 = data.optString("favicon_base64", "");
                             boolean isPaired = data.optBoolean("is_paired", false);
 
                             if (isPaired && !returnedNodeId.isEmpty()) {
                                 SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                                sp.edit()
+                                SharedPreferences.Editor ed = sp.edit()
                                   .putString("pairing_code", cleanCode)
                                   .putString("server_url", finalServerUrl)
                                   .putString("node_id", returnedNodeId)
@@ -867,8 +985,17 @@ public class MainActivity extends Activity {
                                   .putString("favicon", returnedFavicon)
                                   .putBoolean("is_paired", true)
                                   .putInt("battery_percent", percent)
-                                  .putFloat("battery_temp", temp)
-                                  .apply();
+                                  .putFloat("battery_temp", temp);
+
+                                if (!returnedFaviconB64.isEmpty()) {
+                                    ed.putString("favicon_base64", returnedFaviconB64);
+                                    saveBase64ToCacheFile(returnedFaviconB64);
+                                }
+                                ed.apply();
+
+                                if (returnedFaviconB64.isEmpty() && returnedFavicon.startsWith("http")) {
+                                    fetchAndCacheFavicon(returnedFavicon);
+                                }
 
                                 final int finalPercent = percent;
                                 final float finalTemp = temp;
@@ -876,6 +1003,7 @@ public class MainActivity extends Activity {
                                 runOnUiThread(new Runnable() {
                                     @Override
                                     public void run() {
+                                        setTitle(returnedAppName);
                                         Intent sIntent = new Intent(MainActivity.this, WorkerService.class);
                                         sIntent.putExtra("pairing_code", cleanCode);
                                         sIntent.putExtra("server_url", finalServerUrl);
@@ -894,6 +1022,9 @@ public class MainActivity extends Activity {
                                             state.put("server_url", finalServerUrl);
                                             state.put("app_name", returnedAppName);
                                             state.put("favicon", returnedFavicon);
+                                            if (!returnedFaviconB64.isEmpty()) {
+                                                state.put("favicon_base64", returnedFaviconB64);
+                                            }
                                             state.put("battery_level", finalPercent);
                                             state.put("battery_temp", finalTemp);
                                         } catch (Exception ignored) {}
@@ -949,6 +1080,7 @@ public class MainActivity extends Activity {
                         state.put("is_paired", false);
                         state.put("app_name", sp.getString("app_name", "New-API BYOG"));
                         state.put("favicon", sp.getString("favicon", "logo.png"));
+                        state.put("favicon_base64", sp.getString("favicon_base64", ""));
                     } catch (Exception ignored) {}
                     webView.evaluateJavascript("window.updateState(" + state.toString() + ")", null);
                 }
@@ -964,6 +1096,7 @@ public class MainActivity extends Activity {
                 String serverUrl = sp.getString("server_url", "");
                 String appName = sp.getString("app_name", "New-API BYOG");
                 String favicon = sp.getString("favicon", "logo.png");
+                String faviconBase64 = sp.getString("favicon_base64", "");
                 boolean isPaired = sp.getBoolean("is_paired", false) && !nodeId.isEmpty();
 
                 state.put("is_paired", isPaired);
@@ -971,6 +1104,7 @@ public class MainActivity extends Activity {
                 state.put("server_url", serverUrl);
                 state.put("app_name", appName);
                 state.put("favicon", favicon);
+                state.put("favicon_base64", faviconBase64);
                 state.put("battery_level", sp.getInt("battery_percent", 100));
                 state.put("battery_temp", (float) sp.getFloat("battery_temp", 31.0f));
             } catch (Exception ignored) {}
@@ -1131,7 +1265,7 @@ public class QRScanActivity extends Activity implements SurfaceHolder.Callback, 
 with open(os.path.join(src_dir, "QRScanActivity.java"), "w", encoding="utf-8") as f:
     f.write(qr_scan_activity_content)
 
-# WorkerService.java (Strict guard on paired state, reliable loop, and clean notification)
+# WorkerService.java (Dynamic app name, custom favicon notification icon, strict pairing guard)
 worker_service_content = '''package org.byog.worker;
 
 import android.app.Notification;
@@ -1143,6 +1277,8 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
 import android.os.Build;
@@ -1152,6 +1288,7 @@ import android.os.PowerManager;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -1242,8 +1379,13 @@ public class WorkerService extends Service {
                 return;
             }
 
-            String serverUrl = sp.getString("server_url", "https://new-api.com");
+            String serverUrl = sp.getString("server_url", "");
             String pairingCode = sp.getString("pairing_code", "");
+
+            if (serverUrl.isEmpty()) {
+                stopSelf();
+                return;
+            }
 
             while (serverUrl.endsWith("/")) {
                 serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
@@ -1307,24 +1449,28 @@ public class WorkerService extends Service {
                             String returnedNodeId = data.optString("node_id");
                             String appName = data.optString("app_name", "New-API BYOG");
                             String favicon = data.optString("favicon", "logo.png");
+                            String faviconB64 = data.optString("favicon_base64", "");
                             boolean isPaired = data.optBoolean("is_paired", false);
 
                             if (!isPaired) {
-                                // Server indicated node is no longer paired
                                 sp.edit().putBoolean("is_paired", false).apply();
                                 stopSelf();
                                 conn.disconnect();
                                 return;
                             }
 
-                            sp.edit()
+                            SharedPreferences.Editor ed = sp.edit()
                               .putString("node_id", returnedNodeId)
                               .putString("app_name", appName)
                               .putString("favicon", favicon)
                               .putBoolean("is_paired", isPaired)
                               .putInt("battery_percent", percent)
-                              .putFloat("battery_temp", temp)
-                              .apply();
+                              .putFloat("battery_temp", temp);
+
+                            if (!faviconB64.isEmpty()) {
+                                ed.putString("favicon_base64", faviconB64);
+                            }
+                            ed.apply();
 
                             Notification updated = buildNotification(appName, "Hesaplama ağına bağlı (Aktif)");
                             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
@@ -1336,6 +1482,9 @@ public class WorkerService extends Service {
                             state.put("server_url", serverUrl);
                             state.put("app_name", appName);
                             state.put("favicon", favicon);
+                            if (!faviconB64.isEmpty()) {
+                                state.put("favicon_base64", faviconB64);
+                            }
                             state.put("battery_level", percent);
                             state.put("battery_temp", temp);
 
@@ -1354,16 +1503,28 @@ public class WorkerService extends Service {
     }
 
     private Notification buildNotification(String title, String content) {
+        Notification.Builder builder;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            return new Notification.Builder(this, CHANNEL_ID)
-                    .setContentTitle(title)
-                    .setContentText(content)
-                    .setSmallIcon(android.R.drawable.stat_notify_sync)
-                    .setOngoing(true)
-                    .build();
+            builder = new Notification.Builder(this, CHANNEL_ID);
         } else {
-            return new Notification();
+            builder = new Notification.Builder(this);
         }
+        builder.setContentTitle(title)
+               .setContentText(content)
+               .setSmallIcon(android.R.drawable.stat_notify_sync)
+               .setOngoing(true);
+
+        try {
+            File customIcon = new File(getFilesDir(), "custom_favicon.png");
+            if (customIcon.exists()) {
+                Bitmap bm = BitmapFactory.decodeFile(customIcon.getAbsolutePath());
+                if (bm != null) {
+                    builder.setLargeIcon(bm);
+                }
+            }
+        } catch (Exception ignored) {}
+
+        return builder.build();
     }
 
     private void createNotificationChannel() {
