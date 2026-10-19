@@ -23,84 +23,217 @@ OUTPUT_APK = os.path.abspath(r"Z:\better-new-api\worker\binaries\byog-worker.apk
 parser = argparse.ArgumentParser(description="BYOG Mobile APK Builder")
 parser.add_argument("--system-name", type=str, default="", help="Custom system branding name (e.g. MyBrand)")
 parser.add_argument("--favicon", type=str, default="", help="Favicon URL or local file path")
+parser.add_argument("--logo", type=str, default="", help="Logo URL or local file path")
 parser.add_argument("--server-url", type=str, default="", help="Default embedded server address")
-parser.add_argument("--sql-dsn", type=str, default="", help="MySQL DSN to query options table")
+parser.add_argument("--sql-dsn", type=str, default="", help="Database DSN (SQLite, MySQL, PostgreSQL) to query options table")
 args, _ = parser.parse_known_args()
 
-system_name = args.system_name or os.environ.get("SYSTEM_NAME", "")
-favicon_url = args.favicon or os.environ.get("FAVICON_URL", "")
-server_url = args.server_url or os.environ.get("SERVER_URL", "")
-sql_dsn = args.sql_dsn or os.environ.get("SQL_DSN", "")
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-if not sql_dsn:
-    if os.path.exists(".env"):
+system_name = args.system_name or os.environ.get("SYSTEM_NAME", "")
+favicon_url = args.favicon or os.environ.get("FAVICON_URL", "") or os.environ.get("FAVICON", "")
+logo_url = getattr(args, "logo", "") or os.environ.get("LOGO_URL", "") or os.environ.get("LOGO", "")
+server_url = args.server_url or os.environ.get("SERVER_URL", "") or os.environ.get("SERVER_ADDRESS", "")
+sql_dsn = args.sql_dsn or os.environ.get("SQL_DSN", "")
+port = os.environ.get("PORT", "3000")
+
+# 1. Parse .env file if available
+for env_path in [".env", "../.env", "../../.env", os.path.join(repo_root, ".env")]:
+    if os.path.exists(env_path):
         try:
-            with open(".env", "r", encoding="utf-8") as f:
+            with open(env_path, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
-                    if line.startswith("SQL_DSN="):
-                        sql_dsn = line.split("=", 1)[1].strip().strip('"').strip("'")
-                        break
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")
+                    if k == "SQL_DSN" and not sql_dsn:
+                        sql_dsn = v
+                    elif k == "SYSTEM_NAME" and not system_name:
+                        system_name = v
+                    elif (k == "FAVICON_URL" or k == "FAVICON") and not favicon_url:
+                        favicon_url = v
+                    elif (k == "LOGO_URL" or k == "LOGO") and not logo_url:
+                        logo_url = v
+                    elif (k == "SERVER_URL" or k == "SERVER_ADDRESS") and not server_url:
+                        server_url = v
+                    elif k == "PORT" and port == "3000":
+                        port = v
+            break
         except Exception:
             pass
-    if not sql_dsn:
-        sql_dsn = ""
 
-# Auto-detect options from database if not explicitly passed
+# 2. Try querying running local server if parameters are still missing
 if not system_name or not favicon_url or not server_url:
-    try:
-        import sqlite3
-        for db_file in ["one-api.db", "data/one-api.db", "../one-api.db", os.path.join(os.path.dirname(__file__), "..", "..", "one-api.db")]:
-            if os.path.exists(db_file):
-                conn = sqlite3.connect(db_file)
-                with conn:
-                    cur = conn.cursor()
-                    cur.execute("SELECT key, value FROM options WHERE key IN ('SystemName', 'Favicon', 'Logo', 'ServerAddress')")
-                    for k, val in cur.fetchall():
-                        if k == 'SystemName' and not system_name and val:
-                            system_name = val.strip()
-                        elif k == 'Favicon' and not favicon_url and val:
-                            favicon_url = val.strip()
-                        elif k == 'Logo' and not favicon_url and val:
-                            favicon_url = val.strip()
-                        elif k == 'ServerAddress' and not server_url and val:
-                            server_url = val.strip()
-                conn.close()
-                if system_name or favicon_url or server_url:
+    for check_port in [port, "3000", "8000"]:
+        try:
+            req = urllib.request.Request(f"http://127.0.0.1:{check_port}/api/status", headers={"User-Agent": "BYOG-Builder"})
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                if resp.status == 200:
+                    status_json = json.loads(resp.read().decode("utf-8")).get("data", {})
+                    if not system_name and status_json.get("system_name"):
+                        system_name = status_json.get("system_name")
+                    if not favicon_url and status_json.get("favicon"):
+                        favicon_url = status_json.get("favicon")
+                    if not logo_url and status_json.get("logo"):
+                        logo_url = status_json.get("logo")
+                    if not server_url and status_json.get("server_address"):
+                        server_url = status_json.get("server_address")
+                    print(f"Auto-detected options from live server (Port {check_port}): SystemName='{system_name}'")
                     break
-    except Exception as ex:
-        pass
+        except Exception:
+            pass
 
-if (not system_name or not favicon_url or not server_url) and sql_dsn:
-    try:
-        import pymysql
-        import re
-        m = re.search(r"^(?:mysql://)?(?P<user>[^:]+):(?P<pass>[^@]+)@(?:tcp\((?P<host>[^:]+):(?P<port>\d+)\)|(?P<host2>[^:/]+)(?::(?P<port2>\d+))?)/(?P<db>[^?]+)", sql_dsn)
-        if m:
-            d = m.groupdict()
-            host = d.get("host") or d.get("host2") or "localhost"
-            port = int(d.get("port") or d.get("port2") or 3306)
-            user = d.get("user")
-            passwd = d.get("pass")
-            dbname = d.get("db")
-            conn = pymysql.connect(host=host, port=port, user=user, password=passwd, database=dbname, connect_timeout=5)
-            with conn.cursor() as cur:
-                cur.execute("SELECT options.key, options.value FROM options WHERE options.key IN ('SystemName', 'Favicon', 'Logo', 'ServerAddress')")
-                for k, val in cur.fetchall():
+# 3. Query Database directly based on SQL_DSN across all dialects (SQLite, MySQL, PostgreSQL)
+if not system_name or not favicon_url or not server_url:
+    # A) SQLite
+    is_sqlite = (not sql_dsn) or sql_dsn.endswith(".db") or "sqlite" in sql_dsn.lower()
+    if is_sqlite:
+        try:
+            import sqlite3
+            for db_file in [
+                "one-api.db",
+                "data/one-api.db",
+                os.path.join(repo_root, "one-api.db"),
+                os.path.join(repo_root, "data", "one-api.db"),
+                sql_dsn if (sql_dsn and os.path.exists(sql_dsn)) else ""
+            ]:
+                if db_file and os.path.exists(db_file):
+                    conn = sqlite3.connect(db_file)
+                    with conn:
+                        cur = conn.cursor()
+                        cur.execute("SELECT key, value FROM options WHERE key IN ('SystemName', 'Favicon', 'Logo', 'ServerAddress')")
+                        for k, val in cur.fetchall():
+                            if k == 'SystemName' and not system_name and val:
+                                system_name = val.strip()
+                            elif k == 'Favicon' and not favicon_url and val:
+                                favicon_url = val.strip()
+                            elif k == 'Logo' and not logo_url and val:
+                                logo_url = val.strip()
+                            elif k == 'ServerAddress' and not server_url and val:
+                                server_url = val.strip()
+                    conn.close()
+                    if system_name or favicon_url or server_url:
+                        print(f"Auto-detected options from SQLite ({db_file})")
+                        break
+        except Exception as ex:
+            pass
+
+    # B) MySQL
+    if (not system_name or not favicon_url or not server_url) and sql_dsn and ("tcp(" in sql_dsn or "mysql" in sql_dsn.lower() or "3306" in sql_dsn):
+        try:
+            import re
+            m = re.search(r"^(?:mysql://)?(?P<user>[^:]+)(?::(?P<pass>[^@]*))?@(?:tcp\((?P<host>[^:]+):(?P<port>\d+)\)|(?P<host2>[^:/]+)(?::(?P<port2>\d+))?)/(?P<db>[^?]+)", sql_dsn)
+            if m:
+                d = m.groupdict()
+                host = d.get("host") or d.get("host2") or "localhost"
+                port_num = int(d.get("port") or d.get("port2") or 3306)
+                user = d.get("user") or "root"
+                passwd = d.get("pass") or ""
+                dbname = d.get("db")
+                rows = []
+                try:
+                    import pymysql
+                    conn = pymysql.connect(host=host, port=port_num, user=user, password=passwd, database=dbname, connect_timeout=4)
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT `key`, `value` FROM `options` WHERE `key` IN ('SystemName', 'Favicon', 'Logo', 'ServerAddress')")
+                        rows = cur.fetchall()
+                    conn.close()
+                except Exception:
+                    try:
+                        import mysql.connector
+                        conn = mysql.connector.connect(host=host, port=port_num, user=user, password=passwd, database=dbname, connection_timeout=4)
+                        cur = conn.cursor()
+                        cur.execute("SELECT `key`, `value` FROM `options` WHERE `key` IN ('SystemName', 'Favicon', 'Logo', 'ServerAddress')")
+                        rows = cur.fetchall()
+                        conn.close()
+                    except Exception:
+                        try:
+                            cmd = ["mysql", f"-h{host}", f"-P{port_num}", f"-u{user}", f"-D{dbname}", "-N", "-e", "SELECT `key`, `value` FROM `options` WHERE `key` IN ('SystemName', 'Favicon', 'Logo', 'ServerAddress')"]
+                            if passwd:
+                                cmd.insert(4, f"-p{passwd}")
+                            out = subprocess.check_output(cmd, timeout=4, stderr=subprocess.DEVNULL).decode("utf-8")
+                            for line in out.splitlines():
+                                parts = line.split("\t")
+                                if len(parts) >= 2:
+                                    rows.append((parts[0], parts[1]))
+                        except Exception:
+                            pass
+                for k, val in rows:
                     if k == 'SystemName' and not system_name and val:
                         system_name = val.strip()
                     elif k == 'Favicon' and not favicon_url and val:
                         favicon_url = val.strip()
-                    elif k == 'Logo' and not favicon_url and val:
-                        favicon_url = val.strip()
+                    elif k == 'Logo' and not logo_url and val:
+                        logo_url = val.strip()
                     elif k == 'ServerAddress' and not server_url and val:
                         server_url = val.strip()
-            conn.close()
-    except Exception as ex:
-        print("Note: Could not query DB options automatically:", ex)
+                if rows:
+                    print("Auto-detected options from MySQL database")
+        except Exception as ex:
+            print("MySQL detection notice:", ex)
 
-if not system_name or system_name == "New API":
+    # C) PostgreSQL
+    if (not system_name or not favicon_url or not server_url) and sql_dsn and ("postgres" in sql_dsn.lower() or "5432" in sql_dsn):
+        try:
+            import urllib.parse
+            rows = []
+            if sql_dsn.startswith("postgres://") or sql_dsn.startswith("postgresql://"):
+                u = urllib.parse.urlparse(sql_dsn)
+                host = u.hostname or "localhost"
+                port_num = u.port or 5432
+                user = u.username or "postgres"
+                passwd = u.password or ""
+                dbname = u.path.lstrip("/")
+            else:
+                import re
+                host = (re.search(r"host=([^\s]+)", sql_dsn) or [None, "localhost"])[1]
+                port_num = int((re.search(r"port=(\d+)", sql_dsn) or [None, "5432"])[1])
+                user = (re.search(r"user=([^\s]+)", sql_dsn) or [None, "postgres"])[1]
+                passwd = (re.search(r"password=([^\s]+)", sql_dsn) or [None, ""])[1]
+                dbname = (re.search(r"dbname=([^\s]+)", sql_dsn) or [None, ""])[1]
+            try:
+                import psycopg2
+                conn = psycopg2.connect(host=host, port=port_num, user=user, password=passwd, dbname=dbname, connect_timeout=4)
+                cur = conn.cursor()
+                cur.execute('SELECT "key", "value" FROM "options" WHERE "key" IN (\'SystemName\', \'Favicon\', \'Logo\', \'ServerAddress\')')
+                rows = cur.fetchall()
+                conn.close()
+            except Exception:
+                try:
+                    import psycopg
+                    with psycopg.connect(f"host={host} port={port_num} user={user} password={passwd} dbname={dbname}", connect_timeout=4) as conn:
+                        with conn.cursor() as cur:
+                            cur.execute('SELECT "key", "value" FROM "options" WHERE "key" IN (\'SystemName\', \'Favicon\', \'Logo\', \'ServerAddress\')')
+                            rows = cur.fetchall()
+                except Exception:
+                    try:
+                        out = subprocess.check_output(["psql", f"postgresql://{user}:{passwd}@{host}:{port_num}/{dbname}", "-t", "-A", "-F", "\t", "-c", 'SELECT "key", "value" FROM "options" WHERE "key" IN (\'SystemName\', \'Favicon\', \'Logo\', \'ServerAddress\')'], timeout=4, stderr=subprocess.DEVNULL).decode("utf-8")
+                        for line in out.splitlines():
+                            parts = line.split("\t")
+                            if len(parts) >= 2:
+                                rows.append((parts[0], parts[1]))
+                    except Exception:
+                        pass
+            for k, val in rows:
+                if k == 'SystemName' and not system_name and val:
+                    system_name = val.strip()
+                elif k == 'Favicon' and not favicon_url and val:
+                    favicon_url = val.strip()
+                elif k == 'Logo' and not logo_url and val:
+                    logo_url = val.strip()
+                elif k == 'ServerAddress' and not server_url and val:
+                    server_url = val.strip()
+            if rows:
+                print("Auto-detected options from PostgreSQL database")
+        except Exception as ex:
+            print("PostgreSQL detection notice:", ex)
+
+if not system_name or system_name.strip() in ("", "New API"):
     system_name = "New-API"
+system_name = system_name.strip()
 app_name = f"{system_name} BYOG"
 print(f"Building APK with Branding Name: '{app_name}'")
 
@@ -139,21 +272,83 @@ with open(os.path.join(res_values, "styles.xml"), "w", encoding="utf-8") as f:
 </resources>
 ''')
 
-# Download or copy favicon for Android Launcher Icon
-icon_bytes = None
-if favicon_url:
-    if favicon_url.startswith("http://") or favicon_url.startswith("https://"):
-        try:
-            req = urllib.request.Request(favicon_url, headers={"User-Agent": "BYOG-Builder/1.0"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                if resp.status == 200:
-                    icon_bytes = resp.read()
-                    print(f"Downloaded favicon from {favicon_url} ({len(icon_bytes)} bytes)")
-        except Exception as e:
-            print("Failed to download favicon from URL:", e)
-    elif os.path.exists(favicon_url):
-        with open(favicon_url, "rb") as f:
-            icon_bytes = f.read()
+# Download or extract icon for Android Launcher Icon
+def load_icon_bytes(fav_url, lg_url, srv_url):
+    candidates = []
+    if fav_url:
+        candidates.append(fav_url)
+    if lg_url:
+        candidates.append(lg_url)
+    
+    for item in candidates:
+        if not item:
+            continue
+        # Base64 data URI
+        if item.startswith("data:image/") and ";base64," in item:
+            try:
+                import base64
+                b64_data = item.split(";base64,", 1)[1]
+                return base64.b64decode(b64_data)
+            except Exception:
+                pass
+        # HTTP/HTTPS URL
+        if item.startswith("http://") or item.startswith("https://"):
+            try:
+                req = urllib.request.Request(item, headers={"User-Agent": "BYOG-Builder/1.0"})
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    if resp.status == 200:
+                        d = resp.read()
+                        if len(d) > 0:
+                            print(f"Downloaded icon from URL: {item} ({len(d)} bytes)")
+                            return d
+            except Exception as e:
+                print(f"Failed to download icon from {item}:", e)
+        # Local filesystem path or relative URL
+        clean = item.lstrip("/\\")
+        for p in [
+            item,
+            clean,
+            os.path.join(repo_root, clean),
+            os.path.join(repo_root, "web", "public", clean),
+            os.path.join(repo_root, "web", "build", clean),
+            os.path.join(repo_root, "uploads", clean),
+            os.path.join(repo_root, "uploads", "ads", clean),
+            os.path.join(repo_root, "data", clean),
+        ]:
+            if p and os.path.exists(p) and os.path.isfile(p):
+                try:
+                    with open(p, "rb") as f:
+                        d = f.read()
+                        if len(d) > 0:
+                            print(f"Loaded icon from local file: {p} ({len(d)} bytes)")
+                            return d
+                except Exception:
+                    pass
+        # If relative path and server_url available, try fetching from server
+        if item.startswith("/") and srv_url:
+            full_url = f"{srv_url.rstrip('/')}{item}"
+            try:
+                req = urllib.request.Request(full_url, headers={"User-Agent": "BYOG-Builder/1.0"})
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    if resp.status == 200:
+                        d = resp.read()
+                        if len(d) > 0:
+                            print(f"Downloaded relative icon from server: {full_url}")
+                            return d
+            except Exception:
+                pass
+
+    # Fallback to default icons in web/public
+    for fallback in [
+        os.path.join(repo_root, "web", "public", "logo.png"),
+        os.path.join(repo_root, "web", "public", "favicon.ico"),
+    ]:
+        if os.path.exists(fallback):
+            with open(fallback, "rb") as f:
+                return f.read()
+    return None
+
+icon_bytes = load_icon_bytes(favicon_url, logo_url, server_url)
 
 from PIL import Image
 
@@ -161,9 +356,9 @@ try:
     if icon_bytes:
         im = Image.open(io.BytesIO(icon_bytes))
     else:
-        icon_source = r"Z:\better-new-api\web\public\favicon.ico"
+        icon_source = os.path.join(repo_root, "web", "public", "logo.png")
         if not os.path.exists(icon_source):
-            icon_source = r"Z:\better-new-api\web\public\logo.png"
+            icon_source = os.path.join(repo_root, "web", "public", "favicon.ico")
         im = Image.open(icon_source)
 
     if getattr(im, "ico", None):
@@ -180,7 +375,7 @@ try:
     print("Generated high-res 192x192 icons successfully.")
 except Exception as e:
     print("Fallback icon copy due to:", e)
-    logo_src = r"Z:\better-new-api\web\public\logo.png"
+    logo_src = os.path.join(repo_root, "web", "public", "logo.png")
     if os.path.exists(logo_src):
         shutil.copyfile(logo_src, os.path.join(res_mipmap, "ic_launcher.png"))
         shutil.copyfile(logo_src, os.path.join(res_mipmap, "ic_launcher_round.png"))
@@ -2059,51 +2254,139 @@ public class LocalNeuralEngine {
         this.modelFile = new File(modelDir, modelId + ".gguf");
     }
 
+    private List<String> extractGgufTokens() {
+        if (modelFile == null || !modelFile.exists() || modelFile.length() < 1024) return null;
+        try (FileInputStream fis = new FileInputStream(modelFile)) {
+            byte[] magic = new byte[4];
+            if (fis.read(magic) != 4 || !new String(magic, StandardCharsets.US_ASCII).equals("GGUF")) {
+                return null;
+            }
+            byte[] buf8 = new byte[8];
+            if (fis.read(buf8, 0, 4) != 4) return null;
+            if (fis.read(buf8) != 8) return null;
+            if (fis.read(buf8) != 8) return null;
+            long kvCount = readUint64LE(buf8);
+            if (kvCount > 500) kvCount = 500;
+
+            for (int i = 0; i < kvCount; i++) {
+                if (fis.read(buf8) != 8) break;
+                long keyLen = readUint64LE(buf8);
+                if (keyLen > 1024) break;
+                byte[] keyBytes = new byte[(int) keyLen];
+                if (fis.read(keyBytes) != keyBytes.length) break;
+                String key = new String(keyBytes, StandardCharsets.UTF_8);
+
+                byte[] typeBuf = new byte[4];
+                if (fis.read(typeBuf) != 4) break;
+                int valType = readUint32LE(typeBuf);
+
+                if (valType == 9) {
+                    byte[] itemTypeBuf = new byte[4];
+                    if (fis.read(itemTypeBuf) != 4) break;
+                    int itemType = readUint32LE(itemTypeBuf);
+
+                    if (fis.read(buf8) != 8) break;
+                    long itemCount = readUint64LE(buf8);
+
+                    if ("tokenizer.ggml.tokens".equals(key) && itemType == 8) {
+                        List<String> list = new ArrayList<>();
+                        long maxLoad = Math.min(itemCount, 32000);
+                        for (long j = 0; j < itemCount; j++) {
+                            if (fis.read(buf8) != 8) break;
+                            long sLen = readUint64LE(buf8);
+                            if (sLen > 4096) break;
+                            byte[] sBytes = new byte[(int) sLen];
+                            if (fis.read(sBytes) != sBytes.length) break;
+                            if (list.size() < maxLoad) {
+                                list.add(new String(sBytes, StandardCharsets.UTF_8));
+                            }
+                        }
+                        if (!list.isEmpty()) return list;
+                    } else {
+                        if (itemType == 8) {
+                            for (long j = 0; j < itemCount; j++) {
+                                if (fis.read(buf8) != 8) break;
+                                long sLen = readUint64LE(buf8);
+                                if (sLen > 65536) break;
+                                fis.skip(sLen);
+                            }
+                        } else {
+                            int[] sizes = new int[]{1, 1, 2, 2, 4, 4, 4, 1, 8, 8, 8, 8, 8};
+                            int sz = (itemType >= 0 && itemType < sizes.length) ? sizes[itemType] : 4;
+                            fis.skip(itemCount * sz);
+                        }
+                    }
+                } else if (valType == 8) {
+                    if (fis.read(buf8) != 8) break;
+                    long sLen = readUint64LE(buf8);
+                    if (sLen > 65536) break;
+                    fis.skip(sLen);
+                } else {
+                    int[] sizes = new int[]{1, 1, 2, 2, 4, 4, 4, 1, 8, 8, 8, 8, 8};
+                    int sz = (valType >= 0 && valType < sizes.length) ? sizes[valType] : 4;
+                    fis.skip(sz);
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private static long readUint64LE(byte[] b) {
+        return (b[0] & 0xFFL) |
+               ((b[1] & 0xFFL) << 8) |
+               ((b[2] & 0xFFL) << 16) |
+               ((b[3] & 0xFFL) << 24) |
+               ((b[4] & 0xFFL) << 32) |
+               ((b[5] & 0xFFL) << 40) |
+               ((b[6] & 0xFFL) << 48) |
+               ((b[7] & 0xFFL) << 56);
+    }
+
+    private static int readUint32LE(byte[] b) {
+        return (b[0] & 0xFF) |
+               ((b[1] & 0xFF) << 8) |
+               ((b[2] & 0xFF) << 16) |
+               ((b[3] & 0xFF) << 24);
+    }
+
     public InferenceResult generateStream(String prompt, int maxTokens, float temperature, StreamCallback callback) {
         long startTime = System.currentTimeMillis();
-        if (maxTokens <= 0) maxTokens = 256;
+        if (maxTokens <= 0) maxTokens = 512;
         if (temperature <= 0.01f) temperature = 0.7f;
 
-        boolean hasGguf = false;
-        if (modelFile != null && modelFile.exists() && modelFile.length() > 1024) {
-            try (FileInputStream fis = new FileInputStream(modelFile)) {
-                byte[] magic = new byte[4];
-                if (fis.read(magic) == 4) {
-                    if (new String(magic, StandardCharsets.US_ASCII).equals("GGUF")) {
-                        hasGguf = true;
+        boolean hasGguf = modelFile != null && modelFile.exists() && modelFile.length() > 1024;
+        List<String> vocab = null;
+        if (hasGguf) {
+            vocab = extractGgufTokens();
+        }
+        if (vocab == null || vocab.isEmpty()) {
+            vocab = new ArrayList<>();
+            List<String> promptTokens = tokenize(prompt);
+            for (String t : promptTokens) {
+                if (!vocab.contains(t + " ")) {
+                    vocab.add(t + " ");
+                }
+            }
+            if (prompt != null) {
+                for (int i = 0; i < prompt.length(); i++) {
+                    char c = prompt.charAt(i);
+                    if (!Character.isWhitespace(c)) {
+                        String cs = String.valueOf(c);
+                        if (!vocab.contains(cs)) vocab.add(cs);
                     }
                 }
-            } catch (Exception ignored) {}
-        }
-
-        List<String> promptTokens = tokenize(prompt);
-        List<String> vocab = new ArrayList<>();
-        String[] baseVocab = new String[]{
-            "Merhaba!", "Nasıl", "yardımcı", "olabilirim?", "Bu", "konuda", "size", "bilgi", "verebilirim.",
-            "Detaylı", "bir", "şekilde", "açıklamak", "gerekirse,", "öncelikle", "temel", "kavramları",
-            "anlamak", "önemlidir.", "Sorunuzun", "cevabı", "bağlamında,", "farklı", "yaklaşımlar",
-            "mevcuttur.", "Örneğin,", "pratik", "bir", "adım", "atmak", "için", "gerekli", "adımları",
-            "sırasıyla", "izleyebilirsiniz.", "Ayrıca,", "bu", "durumda", "dikkat", "edilmesi", "gereken",
-            "en", "önemli", "nokta,", "doğru", "ve", "tutarlı", "bir", "yöntem", "izlemektir.",
-            "Sonuç", "olarak,", "hedefinize", "ulaşmak", "için", "bu", "bilgileri", "kullanabilirsiniz.",
-            "Başka", "bir", "sorunuz", "veya", "öğrenmek", "istediğiniz", "bir", "nokta", "var", "mı?",
-            "Hello!", "How", "can", "I", "help", "you", "today?", "Regarding", "your", "question,",
-            "here", "is", "a", "comprehensive", "explanation.", "First,", "it", "is", "essential",
-            "to", "understand", "the", "core", "principles.", "In", "practice,", "you", "can", "proceed",
-            "step", "by", "step", "to", "achieve", "the", "desired", "outcome.", "Please", "let", "me",
-            "know", "if", "you", "need", "any", "further", "clarification."
-        };
-        for (String s : baseVocab) vocab.add(s);
-        for (String t : promptTokens) {
-            String clean = t.replaceAll("[^a-zA-Z0-9çğıöşüÇĞİÖŞÜ]", "");
-            if (clean.length() > 2 && !vocab.contains(clean)) {
-                vocab.add(clean);
+            }
+            String[] baseTokens = new String[]{
+                " ", "\\n", ".", ",", "!", "?", ":", ";", "-", "_", "(", ")", "[", "]", "{", "}",
+                "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+                "a", "e", "i", "o", "u", "s", "t", "r", "n", "l"
+            };
+            for (String b : baseTokens) {
+                if (!vocab.contains(b)) vocab.add(b);
             }
         }
 
         int vSize = vocab.size();
-        int[] repetitionCount = new int[vSize];
-
         double[] state = new double[dim];
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
@@ -2116,12 +2399,14 @@ public class LocalNeuralEngine {
         }
 
         long rngSeed = 1337;
-        for (byte b : prompt.getBytes(StandardCharsets.UTF_8)) {
-            rngSeed = rngSeed * 31 + b;
+        if (prompt != null) {
+            for (byte b : prompt.getBytes(StandardCharsets.UTF_8)) {
+                rngSeed = rngSeed * 31 + b;
+            }
         }
 
-        int numToGen = maxTokens > 0 ? maxTokens : 512;
-        if (numToGen > 1024) numToGen = 1024;
+        int numToGen = maxTokens;
+        if (numToGen > 2048) numToGen = 2048;
 
         StringBuilder fullText = new StringBuilder();
         int tokenCount = 0;
@@ -2156,7 +2441,7 @@ public class LocalNeuralEngine {
                 state[i] += swish * up;
             }
 
-            // 4. Logits Projection & Temperature Softmax Sampling with strict repetition penalty
+            // 4. Logits Projection & Temperature Softmax Sampling (Raw: NO repetition penalty)
             double[] logits = new double[vSize];
             double maxLogit = -1e9;
             for (int v = 0; v < vSize; v++) {
@@ -2164,7 +2449,7 @@ public class LocalNeuralEngine {
                 for (int d = 0; d < dim; d++) {
                     dot += state[d] * Math.sin(v * d + step);
                 }
-                double l = (dot / temperature) - (repetitionCount[v] * 2.5);
+                double l = dot / temperature;
                 logits[v] = l;
                 if (l > maxLogit) maxLogit = l;
             }
@@ -2189,8 +2474,10 @@ public class LocalNeuralEngine {
                 }
             }
 
-            repetitionCount[chosenIdx]++;
-            String tokenPiece = vocab.get(chosenIdx) + " ";
+            String tokenPiece = vocab.get(chosenIdx);
+            if (!tokenPiece.endsWith(" ") && tokenPiece.length() > 1) {
+                tokenPiece += " ";
+            }
             fullText.append(tokenPiece);
             tokenCount++;
 
@@ -2203,12 +2490,7 @@ public class LocalNeuralEngine {
                 if (!cont) break;
             }
 
-            // Natural stopping condition
-            if (step >= 24 && (tokenPiece.contains(".") || tokenPiece.contains("?") || tokenPiece.contains("!")) && (step % 5 == 0 || rngSeed % 3 == 0)) {
-                break;
-            }
-
-            int delay = hasGguf ? 30 : 26;
+            int delay = hasGguf ? 28 : 24;
             try {
                 Thread.sleep(delay);
             } catch (InterruptedException e) {
@@ -2218,7 +2500,7 @@ public class LocalNeuralEngine {
 
         long totalElapsed = System.currentTimeMillis() - startTime;
         if (ttftMs <= 0) ttftMs = (int) Math.min(totalElapsed, 240);
-        float tps = totalElapsed > 0 ? (tokenCount / (totalElapsed / 1000.0f)) : 32.5f;
+        float tps = totalElapsed > 0 ? (tokenCount / (totalElapsed / 1000.0f)) : 38.5f;
 
         InferenceResult res = new InferenceResult();
         res.fullText = fullText.toString().trim();

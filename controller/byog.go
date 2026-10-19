@@ -138,8 +138,13 @@ func getFaviconBase64(faviconUrl string) string {
 	if cleanPath != "" {
 		searchPaths = append(searchPaths,
 			cleanPath,
+			filepath.Join("uploads", cleanPath),
+			filepath.Join("..", "uploads", cleanPath),
+			filepath.Join("uploads", "ads", cleanPath),
 			filepath.Join("web", "public", cleanPath),
 			filepath.Join("..", "web", "public", cleanPath),
+			filepath.Join("web", "build", cleanPath),
+			filepath.Join("..", "web", "build", cleanPath),
 			filepath.Join("data", cleanPath),
 			filepath.Join("..", "data", cleanPath),
 		)
@@ -167,6 +172,54 @@ func getFaviconBase64(faviconUrl string) string {
 		}
 	}
 	return ""
+}
+
+func getBranding(serverUrl string) (systemName string, appName string, faviconUrl string, faviconBase64 string) {
+	systemName = strings.TrimSpace(common.SystemName)
+	if systemName == "" {
+		common.OptionMapRWMutex.RLock()
+		systemName = strings.TrimSpace(common.OptionMap["SystemName"])
+		common.OptionMapRWMutex.RUnlock()
+	}
+	if systemName == "" && model.DB != nil {
+		var opt model.Option
+		if err := model.DB.Where("`key` = ? OR key = ?", "SystemName", "SystemName").First(&opt).Error; err == nil && opt.Value != "" {
+			systemName = strings.TrimSpace(opt.Value)
+		}
+	}
+	if systemName == "" || systemName == "New API" {
+		systemName = "New-API"
+	}
+	appName = fmt.Sprintf("%s BYOG", systemName)
+
+	faviconUrl = strings.TrimSpace(common.Favicon)
+	if faviconUrl == "" {
+		common.OptionMapRWMutex.RLock()
+		faviconUrl = strings.TrimSpace(common.OptionMap["Favicon"])
+		common.OptionMapRWMutex.RUnlock()
+	}
+	if faviconUrl == "" {
+		faviconUrl = strings.TrimSpace(common.Logo)
+	}
+	if faviconUrl == "" {
+		common.OptionMapRWMutex.RLock()
+		faviconUrl = strings.TrimSpace(common.OptionMap["Logo"])
+		common.OptionMapRWMutex.RUnlock()
+	}
+	if faviconUrl == "" && model.DB != nil {
+		var opt model.Option
+		if err := model.DB.Where("`key` IN ? OR key IN ?", []string{"Favicon", "Logo"}, []string{"Favicon", "Logo"}).Order("`key` desc").First(&opt).Error; err == nil && opt.Value != "" {
+			faviconUrl = strings.TrimSpace(opt.Value)
+		}
+	}
+	if faviconUrl == "" {
+		faviconUrl = "/favicon.ico"
+	}
+	if strings.HasPrefix(faviconUrl, "/") && serverUrl != "" {
+		faviconUrl = fmt.Sprintf("%s%s", strings.TrimRight(serverUrl, "/"), faviconUrl)
+	}
+	faviconBase64 = getFaviconBase64(faviconUrl)
+	return
 }
 
 
@@ -215,22 +268,7 @@ func GetUserPairingCode(c *gin.Context) {
 	}
 	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
 
-	systemName := common.SystemName
-	if systemName == "" || systemName == "New API" {
-		systemName = "New-API"
-	}
-	appName := fmt.Sprintf("%s BYOG", systemName)
-
-	faviconUrl := common.Favicon
-	if faviconUrl == "" {
-		faviconUrl = common.Logo
-	}
-	if faviconUrl == "" {
-		faviconUrl = "/favicon.ico"
-	}
-	if strings.HasPrefix(faviconUrl, "/") {
-		faviconUrl = fmt.Sprintf("%s%s", serverUrl, faviconUrl)
-	}
+	systemName, appName, faviconUrl, faviconBase64 := getBranding(serverUrl)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -240,7 +278,7 @@ func GetUserPairingCode(c *gin.Context) {
 			"system_name":    systemName,
 			"app_name":       appName,
 			"favicon":        faviconUrl,
-			"favicon_base64": getFaviconBase64(faviconUrl),
+			"favicon_base64": faviconBase64,
 			"expires_in":     900,
 		},
 	})
@@ -1348,27 +1386,12 @@ func RegisterByogWorker(c *gin.Context) {
 		}
 	}
 
-	systemName := common.SystemName
-	if systemName == "" || systemName == "New API" {
-		systemName = "New-API"
+	scheme := "http"
+	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+		scheme = "https"
 	}
-	appName := fmt.Sprintf("%s BYOG", systemName)
-
-	faviconUrl := common.Favicon
-	if faviconUrl == "" {
-		faviconUrl = common.Logo
-	}
-	if faviconUrl == "" {
-		faviconUrl = "/favicon.ico"
-	}
-	if strings.HasPrefix(faviconUrl, "/") {
-		scheme := "http"
-		if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
-			scheme = "https"
-		}
-		serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
-		faviconUrl = fmt.Sprintf("%s%s", serverUrl, faviconUrl)
-	}
+	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+	systemName, appName, faviconUrl, faviconBase64 := getBranding(serverUrl)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -1380,7 +1403,7 @@ func RegisterByogWorker(c *gin.Context) {
 			"system_name":     systemName,
 			"app_name":        appName,
 			"favicon":         faviconUrl,
-			"favicon_base64":  getFaviconBase64(faviconUrl),
+			"favicon_base64":  faviconBase64,
 			"assigned_models":   assignedModels,
 			"hot_start_enabled": node.HotStartEnabled,
 			"allocated_disk_gb": node.AllocatedDiskGB,
@@ -1578,29 +1601,14 @@ func DownloadByogWorker(c *gin.Context) {
 					}
 					serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
 
-					systemName := common.SystemName
-					if systemName == "" || systemName == "New API" {
-						systemName = "New-API"
-					}
-					appName := fmt.Sprintf("%s BYOG", systemName)
-
-					faviconUrl := common.Favicon
-					if faviconUrl == "" {
-						faviconUrl = common.Logo
-					}
-					if faviconUrl == "" {
-						faviconUrl = "/favicon.ico"
-					}
-					if strings.HasPrefix(faviconUrl, "/") {
-						faviconUrl = fmt.Sprintf("%s%s", serverUrl, faviconUrl)
-					}
+					systemName, appName, faviconUrl, faviconBase64 := getBranding(serverUrl)
 
 					cfgPayload, _ := json.Marshal(map[string]string{
 						"server_url":     serverUrl,
 						"system_name":    systemName,
 						"app_name":       appName,
 						"favicon":        faviconUrl,
-						"favicon_base64": getFaviconBase64(faviconUrl),
+						"favicon_base64": faviconBase64,
 					})
 
 					if customizedApk, err := injectApkConfig(raw, cfgPayload); err == nil {

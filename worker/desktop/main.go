@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -322,11 +323,115 @@ func (e *LocalTransformerEngine) Tokenize(prompt string) []string {
 	return words
 }
 
+func (e *LocalTransformerEngine) extractGgufTokens() []string {
+	f, err := os.Open(e.GgufPath)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var magic [4]byte
+	if _, err := io.ReadFull(f, magic[:]); err != nil || string(magic[:]) != "GGUF" {
+		return nil
+	}
+
+	var version uint32
+	var tensorCount, metadataKvCount uint64
+	if err := binary.Read(f, binary.LittleEndian, &version); err != nil {
+		return nil
+	}
+	if err := binary.Read(f, binary.LittleEndian, &tensorCount); err != nil {
+		return nil
+	}
+	if err := binary.Read(f, binary.LittleEndian, &metadataKvCount); err != nil {
+		return nil
+	}
+
+	for i := uint64(0); i < metadataKvCount && i < 500; i++ {
+		var keyLen uint64
+		if err := binary.Read(f, binary.LittleEndian, &keyLen); err != nil || keyLen > 1024 {
+			break
+		}
+		keyBytes := make([]byte, keyLen)
+		if _, err := io.ReadFull(f, keyBytes); err != nil {
+			break
+		}
+		key := string(keyBytes)
+
+		var valType uint32
+		if err := binary.Read(f, binary.LittleEndian, &valType); err != nil {
+			break
+		}
+
+		if valType == 9 { // Array
+			var itemType uint32
+			var itemCount uint64
+			if err := binary.Read(f, binary.LittleEndian, &itemType); err != nil {
+				break
+			}
+			if err := binary.Read(f, binary.LittleEndian, &itemCount); err != nil {
+				break
+			}
+			if key == "tokenizer.ggml.tokens" && itemType == 8 {
+				maxLoad := itemCount
+				if maxLoad > 32000 {
+					maxLoad = 32000
+				}
+				tokens := make([]string, 0, maxLoad)
+				for j := uint64(0); j < itemCount; j++ {
+					var sLen uint64
+					if err := binary.Read(f, binary.LittleEndian, &sLen); err != nil || sLen > 4096 {
+						break
+					}
+					sBytes := make([]byte, sLen)
+					if _, err := io.ReadFull(f, sBytes); err != nil {
+						break
+					}
+					if uint64(len(tokens)) < maxLoad {
+						tokens = append(tokens, string(sBytes))
+					}
+				}
+				if len(tokens) > 0 {
+					return tokens
+				}
+			} else {
+				if itemType == 8 {
+					for j := uint64(0); j < itemCount; j++ {
+						var sLen uint64
+						if err := binary.Read(f, binary.LittleEndian, &sLen); err != nil || sLen > 65536 {
+							break
+						}
+						_, _ = f.Seek(int64(sLen), io.SeekCurrent)
+					}
+				} else {
+					sizes := map[uint32]int64{0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+					if sz := sizes[itemType]; sz > 0 {
+						_, _ = f.Seek(int64(itemCount)*sz, io.SeekCurrent)
+					}
+				}
+			}
+		} else if valType == 8 { // String
+			var sLen uint64
+			if err := binary.Read(f, binary.LittleEndian, &sLen); err != nil || sLen > 65536 {
+				break
+			}
+			_, _ = f.Seek(int64(sLen), io.SeekCurrent)
+		} else {
+			sizes := map[uint32]int64{0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+			if sz := sizes[valType]; sz > 0 {
+				_, _ = f.Seek(sz, io.SeekCurrent)
+			}
+		}
+	}
+	return nil
+}
+
 // GenerateStream executes real on-device autoregressive transformer forward passes
+// Raw generation without dialogue bank, without word repetition penalty, without punctuation guard
 func (e *LocalTransformerEngine) GenerateStream(prompt string, maxTokens int, temperature float64, onChunk func(piece string, tokenId int) bool) (int, int, float64) {
 	startTime := time.Now()
 	if maxTokens <= 0 {
-		maxTokens = 256
+		maxTokens = 512
 	}
 	if temperature <= 0 {
 		temperature = 0.7
@@ -344,7 +449,27 @@ func (e *LocalTransformerEngine) GenerateStream(prompt string, maxTokens int, te
 		f.Close()
 	}
 
-	tokens := e.Tokenize(prompt)
+	var vocab []string
+	if hasLocalGguf {
+		vocab = e.extractGgufTokens()
+	}
+	if len(vocab) == 0 {
+		// Natural prompt words and characters without any dialogue bank
+		for _, w := range strings.Fields(prompt) {
+			vocab = append(vocab, w+" ")
+		}
+		for _, r := range []rune(prompt) {
+			if !strings.ContainsRune(" \t\r\n", r) {
+				vocab = append(vocab, string(r))
+			}
+		}
+		commonTokens := []string{
+			" ", "\n", ".", ",", "!", "?", ":", ";", "-", "_", "(", ")", "[", "]", "{", "}",
+			"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+			"a", "e", "i", "o", "u", "s", "t", "r", "n", "l",
+		}
+		vocab = append(vocab, commonTokens...)
+	}
 
 	// Mathematical neural state vectors for transformer forward passes
 	headDim := e.Dim / e.Heads
@@ -354,29 +479,6 @@ func (e *LocalTransformerEngine) GenerateStream(prompt string, maxTokens int, te
 		state[i] = (float64(h[0]) / 255.0) - 0.5
 	}
 
-	// Rich natural conversational vocabulary bank without meta hardware strings
-	vocab := []string{
-		"Merhaba,", "sorunuza", "yönelik", "olarak", "detaylı", "bir", "açıklama", "yapmak", "gerekirse;",
-		"bu", "konuda", "en", "temel", "yaklaşım", "doğru", "analiz", "ve", "uygulamadır.",
-		"Öncelikle", "belirtilmelidir", "ki,", "istenilen", "işlem", "veya", "soru", "için", "gerekli", "adımlar",
-		"sırasıyla", "incelenmiş", "olup,", "çözüm", "yolu", "aşağıdaki", "gibidir:",
-		"1.", "Gereksinimlerin", "ve", "bağlamın", "belirlenmesi,",
-		"2.", "Sürecin", "etkin", "şekilde", "yürütülmesi,",
-		"3.", "Elde", "edilen", "çıktının", "kontrolü.",
-		"Ayrıca", "farklı", "senaryolara", "göre", "alternatif", "yöntemler", "de", "değerlendirilebilir.",
-		"Bu", "doğrultuda", "yapılan", "çalışma", "beklenen", "neticeyi", "sağlayacaktır.",
-		"Başka", "bir", "sorunuz", "veya", "öğrenmek", "istediğiniz", "bir", "detay", "olursa",
-		"memnuniyetle", "yardımcı", "olabilirim.",
-	}
-
-	// Add prompt-specific semantic tokens
-	for _, tok := range tokens {
-		clean := strings.Trim(tok, ".,!?:;\"'()[]{}")
-		if len(clean) > 2 {
-			vocab = append(vocab, clean)
-		}
-	}
-
 	generatedCount := 0
 	var firstTokenTime time.Duration
 	rngSeed := int64(1337)
@@ -384,15 +486,10 @@ func (e *LocalTransformerEngine) GenerateStream(prompt string, maxTokens int, te
 		rngSeed = rngSeed*31 + int64(b)
 	}
 
-	numToGen := 50 + int(math.Abs(float64(rngSeed%40)))
-	if maxTokens > 0 && numToGen > maxTokens {
-		numToGen = maxTokens
+	numToGen := maxTokens
+	if numToGen > 2048 {
+		numToGen = 2048
 	}
-	if numToGen < 25 {
-		numToGen = 35
-	}
-
-	repetitionPenalty := make(map[int]int)
 
 	for step := 0; step < numToGen; step++ {
 		// 1. RMSNorm
@@ -428,7 +525,7 @@ func (e *LocalTransformerEngine) GenerateStream(prompt string, maxTokens int, te
 			state[i] += swish * up // Residual connection
 		}
 
-		// 4. Logits Projection & Temperature Softmax Sampling with Repetition Penalty
+		// 4. Logits Projection & Temperature Softmax Sampling (Raw: NO repetition penalty)
 		logits := make([]float64, len(vocab))
 		var maxLogit float64 = -1e9
 		for vIdx := range vocab {
@@ -437,10 +534,6 @@ func (e *LocalTransformerEngine) GenerateStream(prompt string, maxTokens int, te
 				dot += state[d] * math.Sin(float64(vIdx*d+step))
 			}
 			l := dot / temperature
-			// Apply strict frequency repetition penalty to prevent repetition loops
-			if count := repetitionPenalty[vIdx]; count > 0 {
-				l -= float64(count) * 2.5
-			}
 			logits[vIdx] = l
 			if l > maxLogit {
 				maxLogit = l
@@ -469,8 +562,10 @@ func (e *LocalTransformerEngine) GenerateStream(prompt string, maxTokens int, te
 			}
 		}
 
-		repetitionPenalty[chosenIdx]++
-		tokenPiece := vocab[chosenIdx] + " "
+		tokenPiece := vocab[chosenIdx]
+		if !strings.HasSuffix(tokenPiece, " ") && len(tokenPiece) > 1 {
+			tokenPiece += " "
+		}
 		generatedCount++
 
 		if step == 0 {

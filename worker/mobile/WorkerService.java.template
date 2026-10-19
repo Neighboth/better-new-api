@@ -903,7 +903,7 @@ public class WorkerService extends Service {
 
                     // True On-Device Local Neural Engine Execution
                     LocalNeuralEngine engine = new LocalNeuralEngine(reqModel, getFilesDir());
-                    int maxTokens = payload != null ? payload.optInt("max_tokens", 256) : 256;
+                    int maxTokens = payload != null ? payload.optInt("max_tokens", 512) : 512;
                     float temp = payload != null ? (float) payload.optDouble("temperature", 0.7) : 0.7f;
 
                     LocalNeuralEngine.InferenceResult res = engine.generateStream(
