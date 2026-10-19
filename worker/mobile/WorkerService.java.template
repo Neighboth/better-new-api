@@ -44,8 +44,10 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Random;
 
 import javax.net.ssl.SNIHostName;
@@ -75,8 +77,13 @@ public class WorkerService extends Service {
     private int totalMB = 380;
     private String currentAssignedModel = "qwen-2.5-0.5b-instruct";
     private String currentModelStatus = "downloading";
-    private float currentLiveTps = 38.4f;
+    private float currentLiveTps = 0.0f;
     private long totalTokensProcessed = 0;
+
+    private Map<String, String> modelDownloadUrls = new HashMap<>();
+    private Map<String, Long> modelFileSizes = new HashMap<>();
+    private volatile boolean isModelDownloading = false;
+    private Thread modelDownloadThread;
 
     @Override
     public void onCreate() {
@@ -136,23 +143,55 @@ public class WorkerService extends Service {
             }
         } catch (Exception ignored) {}
 
+        File actualFile = new File(getFilesDir(), currentAssignedModel + ".gguf");
+        boolean modelFileOnDisk = actualFile.exists() && actualFile.length() > 50 * 1024 * 1024;
+        if (!modelFileOnDisk) {
+            installedModelsList.remove(currentAssignedModel);
+        }
+
         String appName = sp.getString("app_name", "{app_name}");
         String initialMsg;
 
-        if (installedModelsList.isEmpty()) {
+        if (!modelFileOnDisk || installedModelsList.isEmpty()) {
             if (!downloadQueueList.contains(currentAssignedModel)) {
                 downloadQueueList.add(currentAssignedModel);
             }
             currentModelStatus = "downloading";
+            currentLiveTps = 0.0f;
             int pct = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 0;
             initialMsg = currentAssignedModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")";
         } else {
             currentModelStatus = "ready";
+            currentLiveTps = 0.0f;
             if (hotStartEnabled && activeVramModel.isEmpty()) {
                 activeVramModel = installedModelsList.get(0);
             }
             initialMsg = (!activeVramModel.isEmpty() ? activeVramModel + " hazır (VRAM'de)" : installedModelsList.get(0) + " hazır (Beklemede)");
         }
+
+        sp.edit()
+            .putString("model_status", currentModelStatus)
+            .putString("model_status_desc", initialMsg)
+            .putInt("downloaded_mb", downloadedMB)
+            .putInt("total_mb", totalMB)
+            .apply();
+
+        try {
+            JSONObject s = new JSONObject();
+            s.put("is_paired", true);
+            s.put("model_status", currentModelStatus);
+            s.put("model_status_desc", initialMsg);
+            s.put("downloaded_mb", downloadedMB);
+            s.put("total_mb", totalMB);
+            int pct = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 0;
+            s.put("download_progress", pct);
+            s.put("current_tps", 0.0);
+            s.put("active_vram_model", activeVramModel);
+            Intent b = new Intent("org.byog.worker.STATE_CHANGED");
+            b.putExtra("state", s.toString());
+            b.setPackage(getPackageName());
+            sendBroadcast(b);
+        } catch (Exception ignored) {}
 
         Notification notification = buildNotification(appName, initialMsg);
         try {
@@ -272,19 +311,24 @@ public class WorkerService extends Service {
             // Realme / Android Background Activity check:
             // If the user revokes 'Arka Plan Aktivitesine İzin Ver' (Allow Background Activity),
             // stop service immediately and force onboarding permissions screen
+            boolean bgRestricted = false;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                try {
-                    ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
-                    if (am != null && am.isBackgroundRestricted()) {
-                        sp.edit().putBoolean("bg_activity_granted", false).apply();
-                        Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
-                        bIntent.putExtra("state", "{\"permissions_revoked\":true,\"is_paired\":false}");
-                        bIntent.setPackage(getPackageName());
-                        sendBroadcast(bIntent);
-                        stopSelf();
-                        return;
-                    }
-                } catch (Exception ignored) {}
+                ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+                if (am != null && am.isBackgroundRestricted()) bgRestricted = true;
+            }
+            boolean ignoringBattery = true;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) ignoringBattery = false;
+            }
+
+            if (bgRestricted || !ignoringBattery) {
+                sp.edit().putBoolean("autostart_granted", false).putBoolean("is_paired", false).apply();
+                Intent revIntent = new Intent("org.byog.worker.PERMISSION_REVOKED");
+                revIntent.setPackage(getPackageName());
+                sendBroadcast(revIntent);
+                stopSelf();
+                return;
             }
 
             String serverUrl = sp.getString("server_url", "");
@@ -295,53 +339,34 @@ public class WorkerService extends Service {
             String appName = sp.getString("app_name", "{app_name}");
             String statusMsg;
 
-            // 1. Process Multi-Model Sequential Download Queue
+            // 1. Process Multi-Model Sequential Download Queue with Real HTTP Streamer
             if (!downloadQueueList.isEmpty()) {
-                String downloadingModel = downloadQueueList.get(0);
-                currentAssignedModel = downloadingModel;
-                totalMB = getModelSizeMB(downloadingModel);
+                currentAssignedModel = downloadQueueList.get(0);
+                totalMB = getModelSizeMB(currentAssignedModel);
                 currentModelStatus = "downloading";
-
-                int chunk = 8 + (int)(Math.random() * 6);
-                downloadedMB += chunk;
-
-                if (downloadedMB >= totalMB) {
-                    downloadedMB = totalMB;
-                    downloadQueueList.remove(0);
-                    if (!installedModelsList.contains(downloadingModel)) {
-                        installedModelsList.add(downloadingModel);
-                    }
-                    JSONArray instArr = new JSONArray();
-                    for (String m : installedModelsList) instArr.put(m);
-                    sp.edit().putString("installed_models", instArr.toString()).apply();
-
-                    if (hotStartEnabled && activeVramModel.isEmpty()) {
-                        activeVramModel = downloadingModel;
-                        sp.edit().putString("active_vram_model", activeVramModel).apply();
-                    }
-                    downloadedMB = 0;
-
-                    if (downloadQueueList.isEmpty()) {
-                        currentModelStatus = "ready";
-                        statusMsg = (!activeVramModel.isEmpty() ? activeVramModel + " hazır (VRAM'de)" : downloadingModel + " hazır (Beklemede)");
-                    } else {
-                        String nextModel = downloadQueueList.get(0);
-                        currentAssignedModel = nextModel;
-                        totalMB = getModelSizeMB(nextModel);
-                        statusMsg = nextModel + " indiriliyor... (0 MB / " + totalMB + " MB - %0)";
-                    }
-                } else {
-                    int pct = (int)((downloadedMB / (float)totalMB) * 100);
-                    statusMsg = downloadingModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")";
-                }
+                int pct = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 0;
+                statusMsg = currentAssignedModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")";
+                checkAndTriggerModelDownloads();
             } else {
-                currentModelStatus = "ready";
-                if (!activeVramModel.isEmpty()) {
-                    statusMsg = activeVramModel + " hazır (VRAM'de)";
-                } else if (!installedModelsList.isEmpty()) {
-                    statusMsg = installedModelsList.get(0) + " hazır (Beklemede)";
+                File mf = new File(getFilesDir(), currentAssignedModel + ".gguf");
+                if (mf.exists() && mf.length() > 50 * 1024 * 1024) {
+                    currentModelStatus = "ready";
+                    if (!activeVramModel.isEmpty()) {
+                        statusMsg = activeVramModel + " hazır (VRAM'de)";
+                    } else if (!installedModelsList.isEmpty()) {
+                        statusMsg = installedModelsList.get(0) + " hazır (Beklemede)";
+                    } else {
+                        statusMsg = currentAssignedModel + " hazır (Beklemede)";
+                    }
                 } else {
-                    statusMsg = currentAssignedModel + " hazır (Beklemede)";
+                    if (!downloadQueueList.contains(currentAssignedModel)) {
+                        downloadQueueList.add(currentAssignedModel);
+                    }
+                    totalMB = getModelSizeMB(currentAssignedModel);
+                    currentModelStatus = "downloading";
+                    int pct = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 0;
+                    statusMsg = currentAssignedModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")";
+                    checkAndTriggerModelDownloads();
                 }
             }
 
@@ -382,6 +407,7 @@ public class WorkerService extends Service {
             state.put("total_mb", totalMB);
             int pct = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 100;
             state.put("download_progress", pct);
+            state.put("current_tps", currentLiveTps);
 
             sp.edit()
                 .putString("model_status", currentModelStatus)
@@ -398,6 +424,250 @@ public class WorkerService extends Service {
             bIntent.setPackage(getPackageName());
             sendBroadcast(bIntent);
 
+        } catch (Exception ignored) {}
+    }
+
+    private void checkAndTriggerModelDownloads() {
+        if (isModelDownloading || downloadQueueList.isEmpty()) return;
+
+        final String targetModel = downloadQueueList.get(0);
+        final File destFile = new File(getFilesDir(), targetModel + ".gguf");
+        if (destFile.exists() && destFile.length() > 1024 * 1024) {
+            // Already completely downloaded on disk
+            finalizeModelDownloaded(targetModel);
+            return;
+        }
+
+        isModelDownloading = true;
+        currentModelStatus = "downloading";
+        currentAssignedModel = targetModel;
+        totalMB = getModelSizeMB(targetModel);
+
+        modelDownloadThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    String dlUrl = modelDownloadUrls.get(targetModel);
+                    if (dlUrl == null || dlUrl.isEmpty()) {
+                        dlUrl = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf";
+                    }
+
+                    File destFile = new File(getFilesDir(), targetModel + ".gguf");
+                    if (destFile.exists() && destFile.length() > 1024 * 1024) {
+                        finalizeModelDownloaded(targetModel);
+                        isModelDownloading = false;
+                        return;
+                    }
+
+                    File partFile = new File(getFilesDir(), targetModel + ".gguf.part");
+                    long existingLen = partFile.exists() ? partFile.length() : 0;
+
+                    String currentUrl = dlUrl;
+                    HttpURLConnection conn = null;
+                    int redirects = 0;
+                    int code = 0;
+
+                    while (redirects < 6) {
+                        URL u = new URL(currentUrl);
+                        conn = (HttpURLConnection) u.openConnection();
+                        conn.setInstanceFollowRedirects(false);
+                        conn.setConnectTimeout(15000);
+                        conn.setReadTimeout(30000);
+                        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) BYOG-Worker/1.0");
+
+                        if (existingLen > 0) {
+                            conn.setRequestProperty("Range", "bytes=" + existingLen + "-");
+                        }
+
+                        code = conn.getResponseCode();
+                        if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+                            String loc = conn.getHeaderField("Location");
+                            conn.disconnect();
+                            if (loc != null && !loc.isEmpty()) {
+                                if (!loc.startsWith("http://") && !loc.startsWith("https://")) {
+                                    URL base = new URL(currentUrl);
+                                    loc = new URL(base, loc).toString();
+                                }
+                                currentUrl = loc;
+                                redirects++;
+                                continue;
+                            }
+                        }
+                        break;
+                    }
+
+                    if (conn == null) {
+                        isModelDownloading = false;
+                        return;
+                    }
+
+                    boolean append = false;
+                    long totalBytes = conn.getContentLengthLong();
+
+                    if (code == 206) {
+                        append = true;
+                        totalBytes += existingLen;
+                    } else if (code == 200) {
+                        append = false;
+                        existingLen = 0;
+                    } else if (code == 416) {
+                        if (partFile.renameTo(destFile) || destFile.exists()) {
+                            finalizeModelDownloaded(targetModel);
+                        }
+                        conn.disconnect();
+                        isModelDownloading = false;
+                        return;
+                    } else {
+                        conn.disconnect();
+                        isModelDownloading = false;
+                        return;
+                    }
+
+                    if (totalBytes > 0) {
+                        totalMB = (int)(totalBytes / (1024 * 1024));
+                    }
+                    if (totalMB <= 0) totalMB = getModelSizeMB(targetModel);
+
+                    InputStream is = conn.getInputStream();
+                    FileOutputStream fos = new FileOutputStream(partFile, append);
+                    byte[] buffer = new byte[65536];
+                    int nRead;
+                    long currentBytes = existingLen;
+                    long lastBroadcastTime = 0;
+
+                    while ((nRead = is.read(buffer)) != -1) {
+                        fos.write(buffer, 0, nRead);
+                        currentBytes += nRead;
+                        downloadedMB = (int)(currentBytes / (1024 * 1024));
+
+                        long now = System.currentTimeMillis();
+                        if (now - lastBroadcastTime > 800) {
+                            lastBroadcastTime = now;
+                            int pct = totalBytes > 0 ? (int)((currentBytes * 100) / totalBytes) : (int)((downloadedMB * 100.0f) / totalMB);
+                            if (pct > 99) pct = 99;
+                            String dlMsg = targetModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")";
+                            broadcastDownloadProgress(targetModel, dlMsg, downloadedMB, totalMB, pct);
+                        }
+                    }
+
+                    fos.flush();
+                    fos.close();
+                    is.close();
+                    conn.disconnect();
+
+                    if (partFile.renameTo(destFile) || destFile.exists()) {
+                        finalizeModelDownloaded(targetModel);
+                    }
+                } catch (Exception ignored) {
+                } finally {
+                    isModelDownloading = false;
+                }
+            }
+        });
+        modelDownloadThread.start();
+    }
+
+    private void finalizeModelDownloaded(String targetModel) {
+        if (!downloadQueueList.isEmpty() && downloadQueueList.get(0).equals(targetModel)) {
+            downloadQueueList.remove(0);
+        } else {
+            downloadQueueList.remove(targetModel);
+        }
+        if (!installedModelsList.contains(targetModel)) {
+            installedModelsList.add(targetModel);
+        }
+        downloadedMB = 0;
+        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+        JSONArray instArr = new JSONArray();
+        for (String m : installedModelsList) instArr.put(m);
+        sp.edit().putString("installed_models", instArr.toString()).apply();
+
+        if (hotStartEnabled && activeVramModel.isEmpty()) {
+            activeVramModel = targetModel;
+            sp.edit().putString("active_vram_model", activeVramModel).apply();
+        }
+
+        if (downloadQueueList.isEmpty()) {
+            currentModelStatus = "ready";
+        }
+        String appName = sp.getString("app_name", "{app_name}");
+        String readyMsg = (!activeVramModel.isEmpty() ? activeVramModel + " hazır (VRAM'de)" : targetModel + " hazır (Beklemede)");
+        Notification notif = buildNotification(appName, readyMsg);
+        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) nm.notify(NOTIF_ID, notif);
+
+        try {
+            JSONObject s = new JSONObject();
+            s.put("is_paired", true);
+            s.put("model_status", currentModelStatus);
+            s.put("model_status_desc", readyMsg);
+            s.put("downloaded_mb", 0);
+            s.put("total_mb", totalMB);
+            s.put("download_progress", 100);
+            s.put("active_vram_model", activeVramModel);
+            s.put("current_tps", 0.0);
+            Intent b = new Intent("org.byog.worker.STATE_CHANGED");
+            b.putExtra("state", s.toString());
+            b.setPackage(getPackageName());
+            sendBroadcast(b);
+        } catch (Exception ignored) {}
+
+        doHttpHeartbeatAndSync(readyMsg);
+    }
+
+    private void broadcastDownloadProgress(String modelName, String dlMsg, int dMB, int tMB, int pct) {
+        try {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            String appName = sp.getString("app_name", "{app_name}");
+            Notification updated = buildNotification(appName, dlMsg);
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify(NOTIF_ID, updated);
+
+            JSONObject state = new JSONObject();
+            state.put("is_paired", true);
+            state.put("node_id", sp.getString("node_id", ""));
+            state.put("server_url", sp.getString("server_url", ""));
+            state.put("app_name", appName);
+            state.put("favicon", sp.getString("favicon", "logo.png"));
+            String b64 = sp.getString("favicon_base64", "");
+            if (!b64.isEmpty()) state.put("favicon_base64", b64);
+            state.put("assigned_model", modelName);
+            state.put("model_status", "downloading");
+            state.put("model_status_desc", dlMsg);
+            state.put("downloaded_mb", dMB);
+            state.put("total_mb", tMB);
+            state.put("download_progress", pct);
+            state.put("current_tps", 0.0);
+            state.put("active_vram_model", activeVramModel);
+
+            sp.edit()
+                .putString("model_status", "downloading")
+                .putString("model_status_desc", dlMsg)
+                .putInt("downloaded_mb", dMB)
+                .putInt("total_mb", tMB)
+                .putInt("download_progress", pct)
+                .apply();
+
+            Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
+            bIntent.putExtra("state", state.toString());
+            bIntent.setPackage(getPackageName());
+            sendBroadcast(bIntent);
+        } catch (Exception ignored) {}
+    }
+
+    private void broadcastBrandUpdated() {
+        try {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            JSONObject state = new JSONObject();
+            state.put("is_paired", true);
+            state.put("app_name", sp.getString("app_name", "{app_name}"));
+            state.put("favicon", sp.getString("favicon", "logo.png"));
+            String b64 = sp.getString("favicon_base64", "");
+            if (!b64.isEmpty()) state.put("favicon_base64", b64);
+            Intent b = new Intent("org.byog.worker.STATE_CHANGED");
+            b.putExtra("state", state.toString());
+            b.setPackage(getPackageName());
+            sendBroadcast(b);
         } catch (Exception ignored) {}
     }
 
@@ -459,6 +729,8 @@ public class WorkerService extends Service {
             req.put("model_status", currentModelStatus);
             req.put("downloaded_mb", downloadedMB);
             req.put("total_mb", totalMB);
+            int pctProg = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 0;
+            req.put("download_progress", pctProg);
             req.put("current_tps", currentLiveTps);
             req.put("current_ttft_ms", 310);
             req.put("total_tokens", totalTokensProcessed);
@@ -494,6 +766,50 @@ public class WorkerService extends Service {
                         return;
                     }
 
+                    boolean brandUpdated = false;
+                    if (data.has("app_name") && !data.optString("app_name").isEmpty()) {
+                        String netAppName = data.optString("app_name");
+                        if (!netAppName.equals(sp.getString("app_name", ""))) {
+                            sp.edit().putString("app_name", netAppName).apply();
+                            brandUpdated = true;
+                        }
+                    }
+                    if (data.has("favicon") && !data.optString("favicon").isEmpty()) {
+                        String netFav = data.optString("favicon");
+                        if (!netFav.equals(sp.getString("favicon", ""))) {
+                            sp.edit().putString("favicon", netFav).apply();
+                            brandUpdated = true;
+                        }
+                    }
+                    if (data.has("favicon_base64") && !data.optString("favicon_base64").isEmpty()) {
+                        String netB64 = data.optString("favicon_base64");
+                        if (!netB64.equals(sp.getString("favicon_base64", ""))) {
+                            sp.edit().putString("favicon_base64", netB64).apply();
+                            brandUpdated = true;
+                        }
+                    }
+                    if (brandUpdated) {
+                        broadcastBrandUpdated();
+                    }
+
+                    if (data.has("assigned_model_details")) {
+                        JSONArray dArr = data.optJSONArray("assigned_model_details");
+                        if (dArr != null) {
+                            for (int i = 0; i < dArr.length(); i++) {
+                                JSONObject d = dArr.optJSONObject(i);
+                                if (d != null) {
+                                    String mId = d.optString("model_id");
+                                    String dUrl = d.optString("download_url");
+                                    long fSz = d.optLong("file_size", 0);
+                                    if (!mId.isEmpty() && !dUrl.isEmpty()) {
+                                        modelDownloadUrls.put(mId, dUrl);
+                                        if (fSz > 0) modelFileSizes.put(mId, fSz);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     hotStartEnabled = data.optBoolean("hot_start_enabled", hotStartEnabled);
                     allocatedDiskGB = data.optInt("allocated_disk_gb", allocatedDiskGB);
 
@@ -524,11 +840,27 @@ public class WorkerService extends Service {
                         }
                     }
 
+                    // Verify installed models against disk
+                    List<String> validInstalled = new ArrayList<>();
+                    for (String m : installedModelsList) {
+                        File mf = new File(getFilesDir(), m + ".gguf");
+                        if (mf.exists() && mf.length() > 1024 * 1024) {
+                            validInstalled.add(m);
+                        }
+                    }
+                    if (validInstalled.size() != installedModelsList.size()) {
+                        installedModelsList.clear();
+                        installedModelsList.addAll(validInstalled);
+                    }
+
+                    JSONArray instArrUpdated = new JSONArray();
+                    for (String m : installedModelsList) instArrUpdated.put(m);
+
                     SharedPreferences.Editor ed = sp.edit()
                         .putBoolean("hot_start_enabled", hotStartEnabled)
                         .putInt("allocated_disk_gb", allocatedDiskGB)
                         .putString("active_vram_model", activeVramModel)
-                        .putString("installed_models", instArr.toString())
+                        .putString("installed_models", instArrUpdated.toString())
                         .putInt("battery_percent", batteryPercent)
                         .putFloat("battery_temp", batteryTemp);
                     ed.apply();
@@ -1035,10 +1367,27 @@ public class WorkerService extends Service {
         } else {
             builder = new Notification.Builder(this);
         }
+
+        int appIcon = getApplicationInfo().icon;
+        if (appIcon == 0) {
+            appIcon = android.R.drawable.stat_notify_sync;
+        }
+
         builder.setContentTitle(title)
                .setContentText(content)
-               .setSmallIcon(android.R.drawable.stat_notify_sync)
+               .setSmallIcon(appIcon)
                .setOngoing(true);
+
+        try {
+            Intent mainIntent = new Intent(this, MainActivity.class);
+            mainIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                flags |= PendingIntent.FLAG_IMMUTABLE;
+            }
+            PendingIntent pi = PendingIntent.getActivity(this, 0, mainIntent, flags);
+            builder.setContentIntent(pi);
+        } catch (Exception ignored) {}
 
         try {
             File customIcon = new File(getFilesDir(), "custom_favicon.png");
@@ -1058,8 +1407,9 @@ public class WorkerService extends Service {
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
                     "BYOG Worker Service",
-                    NotificationManager.IMPORTANCE_LOW
+                    NotificationManager.IMPORTANCE_DEFAULT
             );
+            channel.setShowBadge(true);
             NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (manager != null) {
                 manager.createNotificationChannel(channel);

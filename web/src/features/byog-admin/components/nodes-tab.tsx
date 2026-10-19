@@ -139,7 +139,36 @@ export function ByogNodesTab() {
     const isStale = (node.last_heartbeat_at || 0) <= 0 || heartbeatAge > 90
     const isStopped = node.status === 'offline' || node.status === 'banned' || isStale
 
-    // 1. "Durmuş" (bir süredir yanıt vermeyen, durmuş, hatalı, çökmüş, silinmiş vs cihazlar, yanında i tuşuna basıp detaylı bilgi alabilelim)
+    // 1. "İndiriliyor..." has top priority when model is actively downloading
+    let isDownloading = node.model_status === 'downloading' ||
+      ((node.download_progress || 0) > 0 && (node.download_progress || 0) < 100)
+    if (!isDownloading) {
+      try {
+        const queue = JSON.parse(node.download_queue || '[]')
+        const installed = JSON.parse(node.installed_models || '[]')
+        if (Array.isArray(queue) && queue.length > 0 && (!Array.isArray(installed) || installed.length === 0)) {
+          isDownloading = true
+        }
+      } catch (e) {}
+    }
+
+    if (isDownloading) {
+      const dMb = node.downloaded_mb || 0
+      const tMb = node.total_mb > 0 ? node.total_mb : 380
+      const pct = node.download_progress ? Math.round(node.download_progress) : (tMb > 0 ? Math.round((dMb / tMb) * 100) : 0)
+      return (
+        <div className='flex flex-col'>
+          <Badge className='border-amber-500/20 bg-amber-500/10 text-amber-500 font-medium animate-pulse'>
+            {t('byog.status_downloading', 'İndiriliyor...')}
+          </Badge>
+          <span className='text-[10px] text-muted-foreground mt-0.5 font-mono'>
+            {dMb} MB / {tMb} MB (%{pct})
+          </span>
+        </div>
+      )
+    }
+
+    // 2. "Durmuş" (bir süredir yanıt vermeyen, durmuş, hatalı, çökmüş, silinmiş vs cihazlar, yanında i tuşuna basıp detaylı bilgi alabilelim)
     if (isStopped) {
       return (
         <div className='flex items-center gap-1.5'>
@@ -158,36 +187,6 @@ export function ByogNodesTab() {
           >
             <Info className='h-3.5 w-3.5' />
           </Button>
-        </div>
-      )
-    }
-
-    // 2. "İndiriliyor..."
-    let isDownloading = node.model_status === 'downloading'
-    if (!isDownloading) {
-      try {
-        const queue = JSON.parse(node.download_queue || '[]')
-        const installed = JSON.parse(node.installed_models || '[]')
-        if (Array.isArray(queue) && queue.length > 0 && (!Array.isArray(installed) || installed.length === 0)) {
-          isDownloading = true
-        }
-      } catch (e) {}
-    }
-
-    if (isDownloading) {
-      const dMb = node.downloaded_mb || 0
-      const tMb = node.total_mb || 0
-      const pct = node.download_progress ? Math.round(node.download_progress) : (tMb > 0 ? Math.round((dMb / tMb) * 100) : 0)
-      return (
-        <div className='flex flex-col'>
-          <Badge className='border-amber-500/20 bg-amber-500/10 text-amber-500 font-medium animate-pulse'>
-            {t('byog.status_downloading', 'İndiriliyor...')}
-          </Badge>
-          {tMb > 0 && (
-            <span className='text-[10px] text-muted-foreground mt-0.5 font-mono'>
-              {dMb} MB / {tMb} MB (%{pct})
-            </span>
-          )}
         </div>
       )
     }

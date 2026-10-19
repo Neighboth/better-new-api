@@ -456,6 +456,7 @@ export function ByogModelsTab() {
                     <SelectItem value='vision'>Vision (Multimodal)</SelectItem>
                     <SelectItem value='image_gen'>Image Generation</SelectItem>
                     <SelectItem value='video_gen'>Video Generation</SelectItem>
+                    <SelectItem value='video'>Video (Text-to-Video)</SelectItem>
                     <SelectItem value='audio'>Audio / Speech</SelectItem>
                   </SelectContent>
                 </Select>

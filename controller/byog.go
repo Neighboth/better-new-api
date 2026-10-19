@@ -173,6 +173,22 @@ func getFaviconBase64(faviconUrl string) string {
 		}
 	}
 
+	// Also check uploaded files stored directly in managed_files database table
+	if model.DB != nil && cleanPath != "" {
+		var mf model.ManagedFile
+		if err := model.DB.Where("path = ? OR name = ?", cleanPath, filepath.Base(cleanPath)).First(&mf).Error; err == nil && len(mf.Content) > 0 {
+			mime := http.DetectContentType(mf.Content)
+			return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(mf.Content))
+		}
+	}
+	if model.DB != nil {
+		var mf model.ManagedFile
+		if err := model.DB.Where("is_dir = 0 AND (path LIKE '%favicon%' OR path LIKE '%logo%' OR name LIKE '%favicon%' OR name LIKE '%logo%')").Order("id DESC").First(&mf).Error; err == nil && len(mf.Content) > 0 {
+			mime := http.DetectContentType(mf.Content)
+			return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(mf.Content))
+		}
+	}
+
 	if strings.HasPrefix(faviconUrl, "http://") || strings.HasPrefix(faviconUrl, "https://") {
 		client := http.Client{Timeout: 2 * time.Second}
 		if resp, err := client.Get(faviconUrl); err == nil && resp.StatusCode == http.StatusOK {
@@ -198,15 +214,21 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 	}
 	common.OptionMapRWMutex.RUnlock()
 
-	// 2. Try Database directly if not found in OptionMap
+	// 2. Try Database directly using AllOption() to avoid MySQL reserved word errors on 'key'
 	if systemName == "" && model.DB != nil {
-		var opts []model.Option
-		if err := model.DB.Find(&opts, "key IN (?)", []string{"SystemName", "SystemName_tr", "SystemName_en"}).Error; err == nil {
+		if opts, err := model.AllOption(); err == nil {
 			for _, o := range opts {
-				v := strings.TrimSpace(o.Value)
-				if v != "" && v != "New API" {
-					systemName = v
+				if o.Key == "SystemName_tr" && strings.TrimSpace(o.Value) != "" && strings.TrimSpace(o.Value) != "New API" {
+					systemName = strings.TrimSpace(o.Value)
 					break
+				}
+			}
+			if systemName == "" {
+				for _, o := range opts {
+					if (o.Key == "SystemName" || o.Key == "SystemName_en") && strings.TrimSpace(o.Value) != "" && strings.TrimSpace(o.Value) != "New API" {
+						systemName = strings.TrimSpace(o.Value)
+						break
+					}
 				}
 			}
 		}
@@ -242,12 +264,10 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 	}
 
 	if faviconUrl == "" && model.DB != nil {
-		var opts []model.Option
-		if err := model.DB.Find(&opts, "key IN (?)", []string{"Favicon", "Logo", "LogoDark"}).Error; err == nil {
+		if opts, err := model.AllOption(); err == nil {
 			for _, o := range opts {
-				v := strings.TrimSpace(o.Value)
-				if v != "" {
-					faviconUrl = v
+				if (o.Key == "Favicon" || o.Key == "Logo" || o.Key == "LogoDark") && strings.TrimSpace(o.Value) != "" {
+					faviconUrl = strings.TrimSpace(o.Value)
 					break
 				}
 			}
@@ -342,16 +362,7 @@ func GetByogStatus(c *gin.Context) {
 	var availableTokens int64 = 0
 	if userId > 0 {
 		isBanned, banInfo = model.IsUserBannedFromByog(userId)
-		var sum struct {
-			Total int64
-		}
-		_ = model.DB.Model(&model.ByogNode{}).Where("user_id = ?", userId).Select("COALESCE(SUM(total_tokens_processed), 0) as total").Scan(&sum)
-		var totalBurned int64 = 0
-		_ = model.DB.Model(&model.ByogRewardClaim{}).Where("user_id = ? AND status != 'rejected'", userId).Select("COALESCE(SUM(tokens_burned), 0)").Scan(&totalBurned)
-		availableTokens = sum.Total - totalBurned
-		if availableTokens < 0 {
-			availableTokens = 0
-		}
+		availableTokens = model.GetUserAvailableTokens(userId)
 	}
 
 	hasWin := hasLocalWorkerBinary("windows", "amd64")
@@ -1217,7 +1228,9 @@ func RegisterByogWorker(c *gin.Context) {
 		node.City = city
 		node.Latitude = lat
 		node.Longitude = lon
-		node.Status = "online"
+		if node.Status != "banned" && node.Status != "gamer_mode" && node.Status != "paused" {
+			node.Status = "online"
+		}
 		node.UpdatedAt = time.Now().Unix()
 		node.LastHeartbeatAt = time.Now().Unix()
 		if req.BatteryPercent >= 0 {
@@ -1261,12 +1274,14 @@ func RegisterByogWorker(c *gin.Context) {
 		if req.ModelStatus != "" {
 			node.ModelStatus = req.ModelStatus
 		}
-		if req.TotalMB > 0 {
-			node.TotalMB = req.TotalMB
+		if req.TotalMB > 0 || req.DownloadedMB > 0 || req.ModelStatus == "downloading" {
+			if req.TotalMB > 0 {
+				node.TotalMB = req.TotalMB
+			}
 			node.DownloadedMB = req.DownloadedMB
 			node.DownloadProgress = req.DownloadProgress
-			if node.DownloadProgress <= 0 && req.TotalMB > 0 {
-				node.DownloadProgress = int((float64(req.DownloadedMB) / float64(req.TotalMB)) * 100)
+			if node.DownloadProgress <= 0 && node.TotalMB > 0 {
+				node.DownloadProgress = int((float64(node.DownloadedMB) / float64(node.TotalMB)) * 100)
 			}
 		}
 		if req.ActiveVramModel != "" {
@@ -1282,7 +1297,7 @@ func RegisterByogWorker(c *gin.Context) {
 			}
 		}
 		node.CurrentTps = req.CurrentTps
-		if node.ModelStatus == "ready" || node.ModelStatus == "idle" {
+		if node.ModelStatus == "ready" || node.ModelStatus == "idle" || node.ModelStatus == "downloading" {
 			node.CurrentTps = 0.0
 		}
 		if req.CurrentTtftMs > 0 {
@@ -1376,7 +1391,7 @@ func RegisterByogWorker(c *gin.Context) {
 			TotalMB:              req.TotalMB,
 			DownloadProgress:     req.DownloadProgress,
 			ActiveVramModel:      req.ActiveVramModel,
-			CurrentTps:           req.CurrentTps,
+			CurrentTps:           0.0,
 			CurrentTtftMs:        req.CurrentTtftMs,
 			TotalTokensProcessed: req.TotalTokens,
 			LastHeartbeatAt:      time.Now().Unix(),
@@ -1429,6 +1444,51 @@ func RegisterByogWorker(c *gin.Context) {
 		}
 	}
 
+	if node.TotalMB <= 0 {
+		var q []string
+		_ = json.Unmarshal([]byte(node.DownloadQueue), &q)
+		if len(q) > 0 {
+			node.TotalMB = getByogModelEstimatedSizeMB(q[0])
+		} else if len(assignedModels) > 0 {
+			node.TotalMB = getByogModelEstimatedSizeMB(assignedModels[0])
+		} else {
+			node.TotalMB = 380
+		}
+		if node.DownloadedMB > 0 && node.TotalMB > 0 {
+			node.DownloadProgress = int((float64(node.DownloadedMB) / float64(node.TotalMB)) * 100)
+		}
+		_ = model.SaveByogNode(node)
+	}
+
+	type AssignedModelDetail struct {
+		ModelId     string `json:"model_id"`
+		DownloadUrl string `json:"download_url"`
+		FileSize    int64  `json:"file_size"`
+		TotalMB     int    `json:"total_mb"`
+	}
+	var assignedModelDetails []AssignedModelDetail
+	for _, am := range assignedModels {
+		dUrl := ""
+		var fSize int64 = 0
+		if mObj, _ := model.GetByogModelByModelId(am); mObj != nil {
+			dUrl = mObj.DownloadUrl
+			fSize = mObj.FileSize
+		}
+		if dUrl == "" {
+			dUrl = fmt.Sprintf("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/%s.gguf", am)
+		}
+		mSize := getByogModelEstimatedSizeMB(am)
+		if fSize <= 0 {
+			fSize = int64(mSize) * 1024 * 1024
+		}
+		assignedModelDetails = append(assignedModelDetails, AssignedModelDetail{
+			ModelId:     am,
+			DownloadUrl: dUrl,
+			FileSize:    fSize,
+			TotalMB:     mSize,
+		})
+	}
+
 	scheme := "http"
 	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
 		scheme = "https"
@@ -1439,17 +1499,18 @@ func RegisterByogWorker(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"node_id":         node.NodeId,
-			"pairing_code":    node.PairingCode,
-			"user_id":         node.UserId,
-			"is_paired":       node.UserId > 0,
-			"system_name":     systemName,
-			"app_name":        appName,
-			"favicon":         faviconUrl,
-			"favicon_base64":  faviconBase64,
-			"assigned_models":   assignedModels,
-			"hot_start_enabled": node.HotStartEnabled,
-			"allocated_disk_gb": node.AllocatedDiskGB,
+			"node_id":                node.NodeId,
+			"pairing_code":           node.PairingCode,
+			"user_id":                node.UserId,
+			"is_paired":              node.UserId > 0,
+			"system_name":            systemName,
+			"app_name":               appName,
+			"favicon":                faviconUrl,
+			"favicon_base64":         faviconBase64,
+			"assigned_models":        assignedModels,
+			"assigned_model_details": assignedModelDetails,
+			"hot_start_enabled":      node.HotStartEnabled,
+			"allocated_disk_gb":      node.AllocatedDiskGB,
 		},
 	})
 }

@@ -221,8 +221,9 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 			node.FanSpeed = telemetry.FanSpeed
 			node.BatteryPercent = telemetry.BatteryPercent
 			node.IsCharging = telemetry.IsCharging
-			if telemetry.CurrentTps > 0 {
-				node.CurrentTps = telemetry.CurrentTps
+			node.CurrentTps = telemetry.CurrentTps
+			if telemetry.ModelStatus == "ready" || telemetry.ModelStatus == "idle" || telemetry.ModelStatus == "downloading" {
+				node.CurrentTps = 0.0
 			}
 			if telemetry.CurrentTtftMs > 0 {
 				node.CurrentTtftMs = telemetry.CurrentTtftMs

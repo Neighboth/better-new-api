@@ -158,27 +158,30 @@ export function NodeCard({
 
     const primaryModel = (installed && installed.length > 0) ? installed[0] : (queue && queue.length > 0 ? queue[0] : t('byog.no_model_assigned', 'Model Kuyruğu Bekleniyor'))
 
-    if (isStopped) {
-      return {
-        model: primaryModel,
-        status: node.status === 'banned' ? t('byog.status_banned', 'Yasaklandı') : (node.status === 'offline' || isStale ? t('byog.status_offline', 'Çevrimdışı') : t('byog.status_stopped', 'Durmuş')),
-        badgeClass: 'border-slate-500/40 bg-slate-500/10 text-muted-foreground',
-      }
-    }
+    // 1. Downloading check ALWAYS takes priority
+    const isDownloading = node.model_status === 'downloading' ||
+      ((node.download_progress || 0) > 0 && (node.download_progress || 0) < 100) ||
+      (queue && queue.length > 0 && (!installed || installed.length === 0))
 
-    const isDownloading = node.model_status === 'downloading' || (queue && queue.length > 0 && (!installed || installed.length === 0))
     if (isDownloading) {
       const dMb = node.downloaded_mb || 0
-      const tMb = node.total_mb || 0
+      const tMb = node.total_mb > 0 ? node.total_mb : 380
       const pct = node.download_progress ? Math.round(node.download_progress) : (tMb > 0 ? Math.round((dMb / tMb) * 100) : 0)
-      const dlText = tMb > 0 
-        ? `${t('byog.model_downloading', 'İndiriliyor...')} (${dMb} MB / ${tMb} MB - %${pct})`
-        : t('byog.model_downloading', 'İndiriliyor...')
+      const dlText = `${t('byog.model_downloading', 'İndiriliyor...')} (${dMb} MB / ${tMb} MB - %${pct})`
 
       return {
         model: (queue && queue.length > 0) ? queue[0] : primaryModel,
         status: dlText,
         badgeClass: 'border-amber-500/40 bg-amber-500/10 text-amber-500 animate-pulse',
+      }
+    }
+
+    // 2. Stopped check
+    if (isStopped) {
+      return {
+        model: primaryModel,
+        status: node.status === 'banned' ? t('byog.status_banned', 'Yasaklandı') : (node.status === 'offline' || isStale ? t('byog.status_offline', 'Çevrimdışı') : t('byog.status_stopped', 'Durmuş')),
+        badgeClass: 'border-slate-500/40 bg-slate-500/10 text-muted-foreground',
       }
     }
 

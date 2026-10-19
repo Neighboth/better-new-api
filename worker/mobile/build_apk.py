@@ -66,8 +66,35 @@ for env_path in [".env", "../.env", "../../.env", os.path.join(repo_root, ".env"
             pass
 
 # 2. Try querying running local server if parameters are still missing
+detected_live_port = None
 if not system_name or not favicon_url or not server_url:
-    for check_port in [port, "3000", "8000"]:
+    candidate_ports = [port, "35792", "3000", "8000"]
+    for log_p in ["stdout.log", "S:/test/stdout.log", "S:\\test\\stdout.log", os.path.join(repo_root, "stdout.log")]:
+        if os.path.exists(log_p):
+            try:
+                with open(log_p, "r", encoding="utf-8", errors="ignore") as lf:
+                    for l in lf:
+                        if "http://localhost:" in l:
+                            import re
+                            m = re.search(r"http://localhost:(\d+)", l)
+                            if m and m.group(1) not in candidate_ports:
+                                candidate_ports.insert(0, m.group(1))
+            except Exception:
+                pass
+    try:
+        ns = subprocess.check_output("netstat -ano", shell=True, stderr=subprocess.DEVNULL).decode("utf-8")
+        for line in ns.splitlines():
+            if "LISTENING" in line and ("127.0.0.1:" in line or "[::]:" in line or "0.0.0.0:" in line):
+                import re
+                m = re.search(r":(\d+)\s+.*LISTENING", line)
+                if m:
+                    p_num = m.group(1)
+                    if int(p_num) > 1024 and p_num not in candidate_ports:
+                        candidate_ports.append(p_num)
+    except Exception:
+        pass
+
+    for check_port in candidate_ports:
         try:
             req = urllib.request.Request(f"http://127.0.0.1:{check_port}/api/status", headers={"User-Agent": "BYOG-Builder"})
             with urllib.request.urlopen(req, timeout=1.5) as resp:
@@ -81,6 +108,7 @@ if not system_name or not favicon_url or not server_url:
                         logo_url = status_json.get("logo")
                     if not server_url and status_json.get("server_address"):
                         server_url = status_json.get("server_address")
+                    detected_live_port = check_port
                     print(f"Auto-detected options from live server (Port {check_port}): SystemName='{system_name}'")
                     break
         except Exception:
@@ -326,12 +354,38 @@ def load_icon_bytes(fav_url, lg_url, srv_url):
                             return d
                 except Exception:
                     pass
-        # If relative path and server_url available, try fetching from server
+        # Check database managed_files table for uploaded custom icon
+        for db_f in ["one-api.db", "S:/test/one-api.db", "S:\\test\\one-api.db", os.path.join(repo_root, "one-api.db"), os.path.join(repo_root, "data", "one-api.db")]:
+            if os.path.exists(db_f):
+                try:
+                    import sqlite3
+                    conn = sqlite3.connect(db_f)
+                    with conn:
+                        cur = conn.cursor()
+                        clean_search = f"%{clean}%"
+                        cur.execute("SELECT content FROM managed_files WHERE is_dir = 0 AND (path LIKE ? OR name LIKE ?) ORDER BY id DESC LIMIT 1", (clean_search, clean_search))
+                        r = cur.fetchone()
+                        if not r or not r[0]:
+                            cur.execute("SELECT content FROM managed_files WHERE is_dir = 0 AND (path LIKE '%favicon%' OR path LIKE '%logo%' OR name LIKE '%favicon%' OR name LIKE '%logo%') ORDER BY id DESC LIMIT 1")
+                            r = cur.fetchone()
+                        if r and r[0] and len(r[0]) > 0:
+                            print(f"Loaded icon from database managed_files ({db_f}): {len(r[0])} bytes")
+                            return r[0]
+                    conn.close()
+                except Exception:
+                    pass
+
+        # If relative path and server_url or detected_live_port available, try fetching from server
+        candidate_urls = []
         if item.startswith("/") and srv_url:
-            full_url = f"{srv_url.rstrip('/')}{item}"
+            candidate_urls.append(f"{srv_url.rstrip('/')}{item}")
+        if item.startswith("/") and detected_live_port:
+            candidate_urls.append(f"http://127.0.0.1:{detected_live_port}{item}")
+
+        for full_url in candidate_urls:
             try:
                 req = urllib.request.Request(full_url, headers={"User-Agent": "BYOG-Builder/1.0"})
-                with urllib.request.urlopen(req, timeout=8) as resp:
+                with urllib.request.urlopen(req, timeout=5) as resp:
                     if resp.status == 200:
                         d = resp.read()
                         if len(d) > 0:
@@ -604,8 +658,8 @@ html_content = f'''<!DOCTYPE html>
 
       <div class="perm-card" id="card-perm-autostart" onclick="requestAutoStartPerm()">
         <div class="perm-info">
-          <span class="perm-name">3. Arka Plan Aktivitesi ve Otomatik Başlatma</span>
-          <span class="perm-desc">Uygulama arka plandan kapatılsa veya ekran kapansa bile durmaksızın çalışır</span>
+          <span class="perm-name">3. Arka Plan Aktivitesi İzni (ZORUNLU)</span>
+          <span class="perm-desc">Realme/Android: Pil Kullanımı -> 'Arka plan aktivitesine izin ver' açılmalıdır</span>
         </div>
         <span class="perm-status-badge" id="badge-perm-autostart">İzin Ver</span>
       </div>
@@ -694,7 +748,7 @@ html_content = f'''<!DOCTYPE html>
         </div>
         <div class="stat-card">
           <div class="stat-label">TPS Hızı</div>
-          <div id="stat-tps" class="stat-value">38.4</div>
+          <div id="stat-tps" class="stat-value">0.0</div>
           <div class="stat-sub">Aktif çıkarım</div>
         </div>
         <div class="stat-card">
@@ -1050,6 +1104,14 @@ html_content = f'''<!DOCTYPE html>
           if (s.battery_level !== undefined) {{
             const chg = s.is_charging ? " (Şarjda)" : "";
             document.getElementById('stat-battery').innerHTML = s.battery_level + "%" + chg + " / " + (s.battery_temp || 31) + "&deg;C";
+          }}
+          if (s.current_tps !== undefined && s.current_tps !== null) {{
+            const val = typeof s.current_tps === 'number' ? s.current_tps.toFixed(1) : s.current_tps;
+            document.getElementById('stat-tps').innerText = val;
+          }} else if (s.tps !== undefined && s.tps !== null) {{
+            document.getElementById('stat-tps').innerText = s.tps;
+          }} else {{
+            document.getElementById('stat-tps').innerText = '0.0';
           }}
           if (s.assigned_model) {{
             document.getElementById('stat-model-name').innerText = s.assigned_model;
@@ -1440,16 +1502,50 @@ public class MainActivity extends Activity {
         Toast.makeText(this, "Realme / Oppo / Android: 'Pil Kullanımı' -> 'Arka plan aktivitesine izin ver' seçeneğini açın.", Toast.LENGTH_LONG).show();
 
         Intent[] candidates = new Intent[] {
-            // 1. Direct App Battery Usage Settings (Opens "Pil Kullanımı" directly)
-            new Intent("android.settings.APP_BATTERY_SETTINGS").setData(Uri.parse("package:" + getPackageName())),
-            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.Settings$AppBatteryUsageActivity")).setData(Uri.parse("package:" + getPackageName())),
-            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.fuelgauge.AdvancedPowerUsageDetailActivity")).setData(Uri.parse("package:" + getPackageName())),
+            // 1. Realme / ColorOS Dedicated Battery Usage & Power Control Activities
+            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.powermanager.fuelgaue.PowerControlActivity"))
+                .putExtra("pkgName", getPackageName())
+                .putExtra("package_name", getPackageName())
+                .putExtra("packageName", getPackageName())
+                .putExtra("title", "{app_name}")
+                .putExtra("drainType", "APP"),
 
-            // 2. Realme / Oppo / ColorOS Dedicated Battery Usage & Power Management Activities
-            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.powermanager.fuelgaue.PowerControlActivity")).putExtra("package_name", getPackageName()),
-            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.battery.fuelgauge.PowerConsumptionActivity")).putExtra("package_name", getPackageName()),
-            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerConsumptionActivity")).putExtra("package_name", getPackageName()),
-            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerControlActivity")).putExtra("package_name", getPackageName()),
+            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerControlActivity"))
+                .putExtra("pkgName", getPackageName())
+                .putExtra("package_name", getPackageName())
+                .putExtra("packageName", getPackageName())
+                .putExtra("title", "{app_name}")
+                .putExtra("drainType", "APP"),
+
+            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.battery.fuelgauge.PowerConsumptionActivity"))
+                .putExtra("pkgName", getPackageName())
+                .putExtra("package_name", getPackageName()),
+
+            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerConsumptionActivity"))
+                .putExtra("pkgName", getPackageName())
+                .putExtra("package_name", getPackageName()),
+
+            // 2. SubSettings Fragment for AdvancedPowerUsageDetail (Direct "Pil Kullanımı")
+            new Intent("android.intent.action.VIEW").setComponent(new ComponentName("com.android.settings", "com.android.settings.SubSettings"))
+                .putExtra(":settings:show_fragment", "com.android.settings.fuelgauge.AdvancedPowerUsageDetail")
+                .putExtra(":settings:fragment_args_key", getPackageName())
+                .putExtra("package", getPackageName()),
+
+            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.fuelgauge.AdvancedPowerUsageDetailActivity"))
+                .setData(Uri.parse("package:" + getPackageName()))
+                .putExtra("package", getPackageName()),
+
+            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.Settings$AppBatteryUsageActivity"))
+                .setData(Uri.parse("package:" + getPackageName()))
+                .putExtra("package", getPackageName()),
+
+            // 3. Direct App Battery Settings (Android 13+)
+            new Intent("android.settings.APP_BATTERY_SETTINGS")
+                .setData(Uri.parse("package:" + getPackageName()))
+                .putExtra("package", getPackageName())
+                .putExtra("package_name", getPackageName()),
+
+            // 4. ColorOS / Realme Startup and AutoStart managers
             new Intent().setComponent(new ComponentName("com.oplus.securitypermission", "com.oplus.securitypermission.startup.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.oplus.securitypermission", "com.oplus.securitypermission.permission.startup.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity")),
@@ -1460,12 +1556,7 @@ public class MainActivity extends Activity {
             new Intent().setComponent(new ComponentName("com.realme.safecenter", "com.realme.safecenter.startupapp.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.realme.securitypermission", "com.realme.securitypermission.startup.StartupAppListActivity")),
 
-            // 3. SubSettings Fragment for AdvancedPowerUsageDetail
-            new Intent("android.intent.action.VIEW").setComponent(new ComponentName("com.android.settings", "com.android.settings.SubSettings"))
-                .putExtra(":settings:show_fragment", "com.android.settings.fuelgauge.AdvancedPowerUsageDetail")
-                .putExtra(":settings:fragment_args_key", getPackageName()),
-
-            // 4. Other OEMs (Honor, Huawei, Xiaomi, Vivo, Samsung, Transsion)
+            // 5. Other OEMs (Honor, Huawei, Xiaomi, Vivo, Samsung, Transsion)
             new Intent().setComponent(new ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.appcontrol.activity.StartupAppControlActivity")),
             new Intent().setComponent(new ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity")),
             new Intent().setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity")),
@@ -1479,11 +1570,9 @@ public class MainActivity extends Activity {
 
         for (Intent candidate : candidates) {
             try {
-                if (candidate.resolveActivity(getPackageManager()) != null) {
-                    candidate.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    startActivity(candidate);
-                    return;
-                }
+                candidate.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(candidate);
+                return;
             } catch (Throwable ignored) {}
         }
 
@@ -1676,6 +1765,22 @@ public class MainActivity extends Activity {
                         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
                         model = sp.getString("assigned_model", "qwen-2.5-0.5b-instruct");
                     } catch (Exception ignored) {}
+
+                    File mf = new File(getFilesDir(), model + ".gguf");
+                    if (!mf.exists() || mf.length() < 10 * 1024 * 1024) {
+                        final String errMsg = "Model dosyası (" + model + ".gguf) henüz indirilmedi veya eksik! Lütfen model indirmesi tamamlandıktan sonra test edin.";
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (webView != null) {
+                                    String js = String.format(java.util.Locale.US, "if (window.onModelTestResult) window.onModelTestResult(%s, %d, %.1f);",
+                                        JSONObject.quote(errMsg), 0, 0.0f);
+                                    webView.evaluateJavascript(js, null);
+                                }
+                            }
+                        });
+                        return;
+                    }
 
                     LocalNeuralEngine engine = new LocalNeuralEngine(model, getFilesDir());
                     LocalNeuralEngine.InferenceResult res = engine.generateStream(prompt, 256, 0.7f, null);
@@ -2035,12 +2140,21 @@ public class MainActivity extends Activity {
                 state.put("favicon_base64", faviconBase64);
                 state.put("battery_level", sp.getInt("battery_percent", 100));
                 state.put("battery_temp", (float) sp.getFloat("battery_temp", 31.0f));
-                state.put("assigned_model", sp.getString("assigned_model", "qwen-2.5-0.5b-instruct"));
-                state.put("model_status", sp.getString("model_status", "ready"));
-                state.put("model_status_desc", sp.getString("model_status_desc", "Model hazır (Beklemede)"));
-                state.put("downloaded_mb", sp.getInt("downloaded_mb", 0));
-                state.put("total_mb", sp.getInt("total_mb", 380));
+                String assignedModel = sp.getString("assigned_model", "qwen-2.5-0.5b-instruct");
+                File mf = new File(getFilesDir(), assignedModel + ".gguf");
+                boolean modelOnDisk = mf.exists() && mf.length() > 50 * 1024 * 1024;
+                String defaultStatus = modelOnDisk ? "ready" : "downloading";
+                int dMB = sp.getInt("downloaded_mb", 0);
+                int tMB = sp.getInt("total_mb", 380);
+                String defaultDesc = modelOnDisk ? (assignedModel + " hazır (Beklemede)") : (assignedModel + " indiriliyor... (" + dMB + " MB / " + tMB + " MB)");
+
+                state.put("assigned_model", assignedModel);
+                state.put("model_status", modelOnDisk ? sp.getString("model_status", defaultStatus) : "downloading");
+                state.put("model_status_desc", modelOnDisk ? sp.getString("model_status_desc", defaultDesc) : defaultDesc);
+                state.put("downloaded_mb", dMB);
+                state.put("total_mb", tMB);
                 state.put("download_progress", sp.getInt("download_progress", 0));
+                state.put("current_tps", 0.0);
                 state.put("active_vram_model", sp.getString("active_vram_model", ""));
                 state.put("is_charging", sp.getBoolean("is_charging", false));
             } catch (Exception ignored) {}

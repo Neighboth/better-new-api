@@ -547,6 +547,32 @@ func GetUserByogNodes(userId int) ([]*ByogNode, error) {
 	return nodes, err
 }
 
+func GetUserAvailableTokens(userId int) int64 {
+	if userId <= 0 || DB == nil {
+		return 0
+	}
+	var nodes []*ByogNode
+	if err := DB.Where("user_id = ?", userId).Find(&nodes).Error; err != nil {
+		return 0
+	}
+	var totalTokens int64 = 0
+	for _, n := range nodes {
+		totalTokens += n.TotalTokensProcessed
+	}
+	var claims []*ByogRewardClaim
+	var burned int64 = 0
+	if err := DB.Where("user_id = ? AND status != ?", userId, "rejected").Find(&claims).Error; err == nil {
+		for _, c := range claims {
+			burned += c.TokensBurned
+		}
+	}
+	avail := totalTokens - burned
+	if avail < 0 {
+		avail = 0
+	}
+	return avail
+}
+
 func GetRecentOnlineByogNodes(sinceUnix int64) ([]*ByogNode, error) {
 	var nodes []*ByogNode
 	err := DB.Where("status = ? AND updated_at >= ? AND user_id > 0", "online", sinceUnix).Find(&nodes).Error

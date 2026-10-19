@@ -134,10 +134,11 @@ export function ByogUserDashboard() {
     }
   }
 
+  const nodeTokensSum = nodes.reduce((acc, n) => acc + (Number(n.total_tokens_processed) || 0), 0)
   const userAvailableTokens =
-    statusData?.available_tokens && statusData.available_tokens > 0
+    statusData?.available_tokens !== undefined && statusData.available_tokens !== null && statusData.available_tokens > 0
       ? statusData.available_tokens
-      : nodes.reduce((acc, n) => acc + (n.total_tokens_processed || 0), 0)
+      : nodeTokensSum
 
   return (
     <div className='h-full w-full max-w-full flex-1 overflow-x-hidden overflow-y-auto space-y-6 p-3 sm:p-4 md:p-6'>
