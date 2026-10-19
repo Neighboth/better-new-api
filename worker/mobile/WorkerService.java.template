@@ -874,9 +874,27 @@ public class WorkerService extends Service {
 
                     SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
                     String appName = sp != null ? sp.getString("app_name", "{app_name}") : "{app_name}";
-                    Notification runningNotif = buildNotification(appName, reqModel + " token üretiyor... (Çalışıyor)");
+                    String runningDesc = reqModel + " token üretiyor... (Üretimde)";
+                    Notification runningNotif = buildNotification(appName, runningDesc);
                     NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
                     if (nm != null) nm.notify(NOTIF_ID, runningNotif);
+
+                    // Broadcast state to local app UI immediately
+                    try {
+                        JSONObject rState = new JSONObject();
+                        rState.put("is_paired", true);
+                        rState.put("model_status", "running");
+                        rState.put("model_status_desc", runningDesc);
+                        rState.put("current_tps", currentLiveTps);
+                        rState.put("active_vram_model", activeVramModel);
+                        Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
+                        bIntent.putExtra("state", rState.toString());
+                        bIntent.setPackage(getPackageName());
+                        sendBroadcast(bIntent);
+                    } catch (Exception ignored) {}
+
+                    // Immediately trigger HTTP sync to server coordinator
+                    doHttpHeartbeatAndSync(runningDesc);
 
                     String userPrompt = "";
                     if (payload != null) {
@@ -966,6 +984,7 @@ public class WorkerService extends Service {
                             .apply();
                     }
 
+                    currentLiveTps = 0.0f; // Reset to 0 when idle!
                     if (!downloadQueueList.isEmpty()) {
                         currentModelStatus = "downloading";
                     } else {
@@ -980,6 +999,22 @@ public class WorkerService extends Service {
                     Notification idleNotif = buildNotification(appName, statusMsg);
                     if (nm != null) nm.notify(NOTIF_ID, idleNotif);
 
+                    // Broadcast state to local app UI immediately
+                    try {
+                        JSONObject iState = new JSONObject();
+                        iState.put("is_paired", true);
+                        iState.put("model_status", currentModelStatus);
+                        iState.put("model_status_desc", statusMsg);
+                        iState.put("current_tps", 0.0);
+                        iState.put("active_vram_model", activeVramModel);
+                        Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
+                        bIntent.putExtra("state", iState.toString());
+                        bIntent.setPackage(getPackageName());
+                        sendBroadcast(bIntent);
+                    } catch (Exception ignored) {}
+
+                    // Immediately sync idle status to server
+                    doHttpHeartbeatAndSync(statusMsg);
                     if (tunnelWs != null) tunnelWs.sendHeartbeatFrame();
 
                 } catch (Exception ignored) {

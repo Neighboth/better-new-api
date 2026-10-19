@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"os"
@@ -156,7 +157,7 @@ func getFaviconBase64(faviconUrl string) string {
 		filepath.Join("..", "web", "public", "logo.png"),
 	)
 	for _, p := range searchPaths {
-		if b, err := os.ReadFile(p); err == nil && len(b) > 0 && len(b) <= 256*1024 {
+		if b, err := os.ReadFile(p); err == nil && len(b) > 0 && len(b) <= 512*1024 {
 			mime := "image/png"
 			lower := strings.ToLower(p)
 			if strings.HasSuffix(lower, ".ico") {
@@ -171,47 +172,88 @@ func getFaviconBase64(faviconUrl string) string {
 			return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(b))
 		}
 	}
+
+	if strings.HasPrefix(faviconUrl, "http://") || strings.HasPrefix(faviconUrl, "https://") {
+		client := http.Client{Timeout: 2 * time.Second}
+		if resp, err := client.Get(faviconUrl); err == nil && resp.StatusCode == http.StatusOK {
+			defer resp.Body.Close()
+			if data, err := io.ReadAll(resp.Body); err == nil && len(data) > 0 && len(data) <= 512*1024 {
+				mime := http.DetectContentType(data)
+				return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(data))
+			}
+		}
+	}
+
 	return ""
 }
 
 func getBranding(serverUrl string) (systemName string, appName string, faviconUrl string, faviconBase64 string) {
-	systemName = strings.TrimSpace(common.SystemName)
-	if systemName == "" {
-		common.OptionMapRWMutex.RLock()
-		systemName = strings.TrimSpace(common.OptionMap["SystemName"])
-		common.OptionMapRWMutex.RUnlock()
-	}
-	if systemName == "" && model.DB != nil {
-		var opt model.Option
-		if err := model.DB.Where("`key` = ? OR key = ?", "SystemName", "SystemName").First(&opt).Error; err == nil && opt.Value != "" {
-			systemName = strings.TrimSpace(opt.Value)
+	// 1. Try localized SystemName (tr, en, default)
+	common.OptionMapRWMutex.RLock()
+	for _, k := range []string{"SystemName_tr", "SystemName", "SystemName_en"} {
+		if v := strings.TrimSpace(common.OptionMap[k]); v != "" && v != "New API" {
+			systemName = v
+			break
 		}
 	}
+	common.OptionMapRWMutex.RUnlock()
+
+	// 2. Try Database directly if not found in OptionMap
+	if systemName == "" && model.DB != nil {
+		var opts []model.Option
+		if err := model.DB.Find(&opts, "key IN (?)", []string{"SystemName", "SystemName_tr", "SystemName_en"}).Error; err == nil {
+			for _, o := range opts {
+				v := strings.TrimSpace(o.Value)
+				if v != "" && v != "New API" {
+					systemName = v
+					break
+				}
+			}
+		}
+	}
+
+	// 3. Try common.SystemName if explicitly modified
+	if systemName == "" && common.SystemName != "" && common.SystemName != "New API" {
+		systemName = strings.TrimSpace(common.SystemName)
+	}
+
+	// 4. Fallback if untouched
 	if systemName == "" || systemName == "New API" {
 		systemName = "New-API"
 	}
 	appName = fmt.Sprintf("%s BYOG", systemName)
 
-	faviconUrl = strings.TrimSpace(common.Favicon)
-	if faviconUrl == "" {
-		common.OptionMapRWMutex.RLock()
-		faviconUrl = strings.TrimSpace(common.OptionMap["Favicon"])
-		common.OptionMapRWMutex.RUnlock()
-	}
-	if faviconUrl == "" {
-		faviconUrl = strings.TrimSpace(common.Logo)
-	}
-	if faviconUrl == "" {
-		common.OptionMapRWMutex.RLock()
-		faviconUrl = strings.TrimSpace(common.OptionMap["Logo"])
-		common.OptionMapRWMutex.RUnlock()
-	}
-	if faviconUrl == "" && model.DB != nil {
-		var opt model.Option
-		if err := model.DB.Where("`key` IN ? OR key IN ?", []string{"Favicon", "Logo"}, []string{"Favicon", "Logo"}).Order("`key` desc").First(&opt).Error; err == nil && opt.Value != "" {
-			faviconUrl = strings.TrimSpace(opt.Value)
+	// Favicon resolution:
+	common.OptionMapRWMutex.RLock()
+	for _, k := range []string{"Favicon", "Logo", "LogoDark"} {
+		if v := strings.TrimSpace(common.OptionMap[k]); v != "" {
+			faviconUrl = v
+			break
 		}
 	}
+	common.OptionMapRWMutex.RUnlock()
+
+	if faviconUrl == "" {
+		if v := strings.TrimSpace(common.Favicon); v != "" {
+			faviconUrl = v
+		} else if v := strings.TrimSpace(common.Logo); v != "" {
+			faviconUrl = v
+		}
+	}
+
+	if faviconUrl == "" && model.DB != nil {
+		var opts []model.Option
+		if err := model.DB.Find(&opts, "key IN (?)", []string{"Favicon", "Logo", "LogoDark"}).Error; err == nil {
+			for _, o := range opts {
+				v := strings.TrimSpace(o.Value)
+				if v != "" {
+					faviconUrl = v
+					break
+				}
+			}
+		}
+	}
+
 	if faviconUrl == "" {
 		faviconUrl = "/favicon.ico"
 	}
@@ -1239,8 +1281,9 @@ func RegisterByogWorker(c *gin.Context) {
 				node.AllocatedDiskGB = node.FreeDiskGB
 			}
 		}
-		if req.CurrentTps > 0 {
-			node.CurrentTps = req.CurrentTps
+		node.CurrentTps = req.CurrentTps
+		if node.ModelStatus == "ready" || node.ModelStatus == "idle" {
+			node.CurrentTps = 0.0
 		}
 		if req.CurrentTtftMs > 0 {
 			node.CurrentTtftMs = req.CurrentTtftMs

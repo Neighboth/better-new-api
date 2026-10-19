@@ -178,3 +178,22 @@ func TestDynamicApkBrandingAndFavicon(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w2.Code)
 }
 
+func TestGetBrandingResolution(t *testing.T) {
+	// Case 1: SystemName_tr in OptionMap takes precedence over empty or default
+	common.OptionMapRWMutex.Lock()
+	if common.OptionMap == nil {
+		common.OptionMap = make(map[string]string)
+	}
+	common.OptionMap["SystemName_tr"] = "Türkçe Yapay Zeka"
+	common.OptionMapRWMutex.Unlock()
+	common.SystemName = "New API"
+
+	sysName, appName, _, _ := getBranding("http://127.0.0.1:3000")
+	assert.Equal(t, "Türkçe Yapay Zeka", sysName)
+	assert.Equal(t, "Türkçe Yapay Zeka BYOG", appName)
+
+	// Clean up
+	common.OptionMapRWMutex.Lock()
+	delete(common.OptionMap, "SystemName_tr")
+	common.OptionMapRWMutex.Unlock()
+}

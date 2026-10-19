@@ -96,6 +96,8 @@ if not system_name or not favicon_url or not server_url:
             for db_file in [
                 "one-api.db",
                 "data/one-api.db",
+                "S:/test/one-api.db",
+                "S:\\test\\one-api.db",
                 os.path.join(repo_root, "one-api.db"),
                 os.path.join(repo_root, "data", "one-api.db"),
                 sql_dsn if (sql_dsn and os.path.exists(sql_dsn)) else ""
@@ -104,13 +106,13 @@ if not system_name or not favicon_url or not server_url:
                     conn = sqlite3.connect(db_file)
                     with conn:
                         cur = conn.cursor()
-                        cur.execute("SELECT key, value FROM options WHERE key IN ('SystemName', 'Favicon', 'Logo', 'ServerAddress')")
+                        cur.execute("SELECT key, value FROM options WHERE key IN ('SystemName', 'SystemName_tr', 'SystemName_en', 'Favicon', 'Logo', 'LogoDark', 'ServerAddress')")
                         for k, val in cur.fetchall():
-                            if k == 'SystemName' and not system_name and val:
+                            if k in ('SystemName', 'SystemName_tr', 'SystemName_en') and not system_name and val and val.strip() != 'New API':
                                 system_name = val.strip()
                             elif k == 'Favicon' and not favicon_url and val:
                                 favicon_url = val.strip()
-                            elif k == 'Logo' and not logo_url and val:
+                            elif k in ('Logo', 'LogoDark') and not logo_url and val:
                                 logo_url = val.strip()
                             elif k == 'ServerAddress' and not server_url and val:
                                 server_url = val.strip()
@@ -138,7 +140,7 @@ if not system_name or not favicon_url or not server_url:
                     import pymysql
                     conn = pymysql.connect(host=host, port=port_num, user=user, password=passwd, database=dbname, connect_timeout=4)
                     with conn.cursor() as cur:
-                        cur.execute("SELECT `key`, `value` FROM `options` WHERE `key` IN ('SystemName', 'Favicon', 'Logo', 'ServerAddress')")
+                        cur.execute("SELECT `key`, `value` FROM `options` WHERE `key` IN ('SystemName', 'SystemName_tr', 'SystemName_en', 'Favicon', 'Logo', 'LogoDark', 'ServerAddress')")
                         rows = cur.fetchall()
                     conn.close()
                 except Exception:
@@ -146,12 +148,12 @@ if not system_name or not favicon_url or not server_url:
                         import mysql.connector
                         conn = mysql.connector.connect(host=host, port=port_num, user=user, password=passwd, database=dbname, connection_timeout=4)
                         cur = conn.cursor()
-                        cur.execute("SELECT `key`, `value` FROM `options` WHERE `key` IN ('SystemName', 'Favicon', 'Logo', 'ServerAddress')")
+                        cur.execute("SELECT `key`, `value` FROM `options` WHERE `key` IN ('SystemName', 'SystemName_tr', 'SystemName_en', 'Favicon', 'Logo', 'LogoDark', 'ServerAddress')")
                         rows = cur.fetchall()
                         conn.close()
                     except Exception:
                         try:
-                            cmd = ["mysql", f"-h{host}", f"-P{port_num}", f"-u{user}", f"-D{dbname}", "-N", "-e", "SELECT `key`, `value` FROM `options` WHERE `key` IN ('SystemName', 'Favicon', 'Logo', 'ServerAddress')"]
+                            cmd = ["mysql", f"-h{host}", f"-P{port_num}", f"-u{user}", f"-D{dbname}", "-N", "-e", "SELECT `key`, `value` FROM `options` WHERE `key` IN ('SystemName', 'SystemName_tr', 'SystemName_en', 'Favicon', 'Logo', 'LogoDark', 'ServerAddress')"]
                             if passwd:
                                 cmd.insert(4, f"-p{passwd}")
                             out = subprocess.check_output(cmd, timeout=4, stderr=subprocess.DEVNULL).decode("utf-8")
@@ -162,11 +164,11 @@ if not system_name or not favicon_url or not server_url:
                         except Exception:
                             pass
                 for k, val in rows:
-                    if k == 'SystemName' and not system_name and val:
+                    if k in ('SystemName', 'SystemName_tr', 'SystemName_en') and not system_name and val and val.strip() != 'New API':
                         system_name = val.strip()
                     elif k == 'Favicon' and not favicon_url and val:
                         favicon_url = val.strip()
-                    elif k == 'Logo' and not logo_url and val:
+                    elif k in ('Logo', 'LogoDark') and not logo_url and val:
                         logo_url = val.strip()
                     elif k == 'ServerAddress' and not server_url and val:
                         server_url = val.strip()
@@ -198,7 +200,7 @@ if not system_name or not favicon_url or not server_url:
                 import psycopg2
                 conn = psycopg2.connect(host=host, port=port_num, user=user, password=passwd, dbname=dbname, connect_timeout=4)
                 cur = conn.cursor()
-                cur.execute('SELECT "key", "value" FROM "options" WHERE "key" IN (\'SystemName\', \'Favicon\', \'Logo\', \'ServerAddress\')')
+                cur.execute('SELECT "key", "value" FROM "options" WHERE "key" IN (\'SystemName\', \'SystemName_tr\', \'SystemName_en\', \'Favicon\', \'Logo\', \'LogoDark\', \'ServerAddress\')')
                 rows = cur.fetchall()
                 conn.close()
             except Exception:
@@ -206,11 +208,11 @@ if not system_name or not favicon_url or not server_url:
                     import psycopg
                     with psycopg.connect(f"host={host} port={port_num} user={user} password={passwd} dbname={dbname}", connect_timeout=4) as conn:
                         with conn.cursor() as cur:
-                            cur.execute('SELECT "key", "value" FROM "options" WHERE "key" IN (\'SystemName\', \'Favicon\', \'Logo\', \'ServerAddress\')')
+                            cur.execute('SELECT "key", "value" FROM "options" WHERE "key" IN (\'SystemName\', \'SystemName_tr\', \'SystemName_en\', \'Favicon\', \'Logo\', \'LogoDark\', \'ServerAddress\')')
                             rows = cur.fetchall()
                 except Exception:
                     try:
-                        out = subprocess.check_output(["psql", f"postgresql://{user}:{passwd}@{host}:{port_num}/{dbname}", "-t", "-A", "-F", "\t", "-c", 'SELECT "key", "value" FROM "options" WHERE "key" IN (\'SystemName\', \'Favicon\', \'Logo\', \'ServerAddress\')'], timeout=4, stderr=subprocess.DEVNULL).decode("utf-8")
+                        out = subprocess.check_output(["psql", f"postgresql://{user}:{passwd}@{host}:{port_num}/{dbname}", "-t", "-A", "-F", "\t", "-c", 'SELECT "key", "value" FROM "options" WHERE "key" IN (\'SystemName\', \'SystemName_tr\', \'SystemName_en\', \'Favicon\', \'Logo\', \'LogoDark\', \'ServerAddress\')'], timeout=4, stderr=subprocess.DEVNULL).decode("utf-8")
                         for line in out.splitlines():
                             parts = line.split("\t")
                             if len(parts) >= 2:
@@ -218,11 +220,11 @@ if not system_name or not favicon_url or not server_url:
                     except Exception:
                         pass
             for k, val in rows:
-                if k == 'SystemName' and not system_name and val:
+                if k in ('SystemName', 'SystemName_tr', 'SystemName_en') and not system_name and val and val.strip() != 'New API':
                     system_name = val.strip()
                 elif k == 'Favicon' and not favicon_url and val:
                     favicon_url = val.strip()
-                elif k == 'Logo' and not logo_url and val:
+                elif k in ('Logo', 'LogoDark') and not logo_url and val:
                     logo_url = val.strip()
                 elif k == 'ServerAddress' and not server_url and val:
                     server_url = val.strip()
@@ -1435,20 +1437,19 @@ public class MainActivity extends Activity {
         lastPausedAt = 0;
         sp.edit().putBoolean("autostart_pending_check", true).apply();
 
-        String mfg = Build.MANUFACTURER.toLowerCase();
-        if (mfg.contains("realme") || mfg.contains("oppo") || mfg.contains("oneplus")) {
-            Toast.makeText(this, "Realme / Oppo: 'Pil Kullanımı' -> 'Otomatik Başlatmaya İzin Ver' ve 'Arka Planda Çalışmaya İzin Ver' seçeneklerini açın.", Toast.LENGTH_LONG).show();
-            try {
-                Intent appDetails = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-                appDetails.setData(Uri.parse("package:" + getPackageName()));
-                appDetails.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(appDetails);
-                return;
-            } catch (Throwable ignored) {}
-        }
+        Toast.makeText(this, "Realme / Oppo / Android: 'Pil Kullanımı' -> 'Arka plan aktivitesine izin ver' seçeneğini açın.", Toast.LENGTH_LONG).show();
 
         Intent[] candidates = new Intent[] {
-            // Oppo / Realme / OnePlus (ColorOS / Realme UI) - Dedicated Startup & Background Managers
+            // 1. Direct App Battery Usage Settings (Opens "Pil Kullanımı" directly)
+            new Intent("android.settings.APP_BATTERY_SETTINGS").setData(Uri.parse("package:" + getPackageName())),
+            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.Settings$AppBatteryUsageActivity")).setData(Uri.parse("package:" + getPackageName())),
+            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.fuelgauge.AdvancedPowerUsageDetailActivity")).setData(Uri.parse("package:" + getPackageName())),
+
+            // 2. Realme / Oppo / ColorOS Dedicated Battery Usage & Power Management Activities
+            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.powermanager.fuelgaue.PowerControlActivity")).putExtra("package_name", getPackageName()),
+            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.battery.fuelgauge.PowerConsumptionActivity")).putExtra("package_name", getPackageName()),
+            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerConsumptionActivity")).putExtra("package_name", getPackageName()),
+            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerControlActivity")).putExtra("package_name", getPackageName()),
             new Intent().setComponent(new ComponentName("com.oplus.securitypermission", "com.oplus.securitypermission.startup.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.oplus.securitypermission", "com.oplus.securitypermission.permission.startup.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity")),
@@ -1458,33 +1459,21 @@ public class MainActivity extends Activity {
             new Intent().setComponent(new ComponentName("com.oplus.safecenter", "com.oplus.safecenter.permission.startup.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.realme.safecenter", "com.realme.safecenter.startupapp.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.realme.securitypermission", "com.realme.securitypermission.startup.StartupAppListActivity")),
-            new Intent("coloros.safecenter.permission.startup"),
-            new Intent("com.coloros.safecenter.permission.startup"),
-            new Intent("oplus.safecenter.permission.startup"),
-            new Intent("com.oplus.safecenter.permission.startup"),
 
-            // Honor MagicOS / Magic UI
+            // 3. SubSettings Fragment for AdvancedPowerUsageDetail
+            new Intent("android.intent.action.VIEW").setComponent(new ComponentName("com.android.settings", "com.android.settings.SubSettings"))
+                .putExtra(":settings:show_fragment", "com.android.settings.fuelgauge.AdvancedPowerUsageDetail")
+                .putExtra(":settings:fragment_args_key", getPackageName()),
+
+            // 4. Other OEMs (Honor, Huawei, Xiaomi, Vivo, Samsung, Transsion)
             new Intent().setComponent(new ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.appcontrol.activity.StartupAppControlActivity")),
             new Intent().setComponent(new ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity")),
-            new Intent().setComponent(new ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.optimize.process.ProtectActivity")),
-
-            // Huawei EMUI
             new Intent().setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity")),
             new Intent().setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")),
-            new Intent().setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity")),
-
-            // Xiaomi MIUI / HyperOS
             new Intent().setComponent(new ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")),
-
-            // Vivo / iQOO
             new Intent().setComponent(new ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity")),
-            new Intent().setComponent(new ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity")),
-
-            // Samsung OneUI
             new Intent().setComponent(new ComponentName("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity")),
             new Intent().setComponent(new ComponentName("com.samsung.android.sm", "com.samsung.android.sm.ui.battery.BatteryActivity")),
-
-            // Transsion (Infinix / Tecno)
             new Intent().setComponent(new ComponentName("com.transsion.phonemaster", "com.transsion.phonemaster.StartupManagerActivity"))
         };
 
@@ -2222,306 +2211,10 @@ with open(os.path.join(src_dir, 'WorkerService.java'), 'w', encoding='utf-8') as
     f.write(worker_service_content)
 
 # LocalNeuralEngine.java (Pure Java 8 On-Device Autoregressive Transformer Engine)
-local_neural_engine_content = '''package org.byog.worker;
-
-import java.io.File;
-import java.io.FileInputStream;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.ArrayList;
-import java.util.List;
-
-public class LocalNeuralEngine {
-    private final String modelId;
-    private final File modelFile;
-    private final int dim = 128;
-    private final int heads = 8;
-    private final int headDim = dim / heads;
-
-    public interface StreamCallback {
-        boolean onToken(String piece, int tokenId);
-    }
-
-    public static class InferenceResult {
-        public String fullText;
-        public int totalTokens;
-        public int ttftMs;
-        public float tps;
-    }
-
-    public LocalNeuralEngine(String modelId, File modelDir) {
-        this.modelId = modelId;
-        this.modelFile = new File(modelDir, modelId + ".gguf");
-    }
-
-    private List<String> extractGgufTokens() {
-        if (modelFile == null || !modelFile.exists() || modelFile.length() < 1024) return null;
-        try (FileInputStream fis = new FileInputStream(modelFile)) {
-            byte[] magic = new byte[4];
-            if (fis.read(magic) != 4 || !new String(magic, StandardCharsets.US_ASCII).equals("GGUF")) {
-                return null;
-            }
-            byte[] buf8 = new byte[8];
-            if (fis.read(buf8, 0, 4) != 4) return null;
-            if (fis.read(buf8) != 8) return null;
-            if (fis.read(buf8) != 8) return null;
-            long kvCount = readUint64LE(buf8);
-            if (kvCount > 500) kvCount = 500;
-
-            for (int i = 0; i < kvCount; i++) {
-                if (fis.read(buf8) != 8) break;
-                long keyLen = readUint64LE(buf8);
-                if (keyLen > 1024) break;
-                byte[] keyBytes = new byte[(int) keyLen];
-                if (fis.read(keyBytes) != keyBytes.length) break;
-                String key = new String(keyBytes, StandardCharsets.UTF_8);
-
-                byte[] typeBuf = new byte[4];
-                if (fis.read(typeBuf) != 4) break;
-                int valType = readUint32LE(typeBuf);
-
-                if (valType == 9) {
-                    byte[] itemTypeBuf = new byte[4];
-                    if (fis.read(itemTypeBuf) != 4) break;
-                    int itemType = readUint32LE(itemTypeBuf);
-
-                    if (fis.read(buf8) != 8) break;
-                    long itemCount = readUint64LE(buf8);
-
-                    if ("tokenizer.ggml.tokens".equals(key) && itemType == 8) {
-                        List<String> list = new ArrayList<>();
-                        long maxLoad = Math.min(itemCount, 32000);
-                        for (long j = 0; j < itemCount; j++) {
-                            if (fis.read(buf8) != 8) break;
-                            long sLen = readUint64LE(buf8);
-                            if (sLen > 4096) break;
-                            byte[] sBytes = new byte[(int) sLen];
-                            if (fis.read(sBytes) != sBytes.length) break;
-                            if (list.size() < maxLoad) {
-                                list.add(new String(sBytes, StandardCharsets.UTF_8));
-                            }
-                        }
-                        if (!list.isEmpty()) return list;
-                    } else {
-                        if (itemType == 8) {
-                            for (long j = 0; j < itemCount; j++) {
-                                if (fis.read(buf8) != 8) break;
-                                long sLen = readUint64LE(buf8);
-                                if (sLen > 65536) break;
-                                fis.skip(sLen);
-                            }
-                        } else {
-                            int[] sizes = new int[]{1, 1, 2, 2, 4, 4, 4, 1, 8, 8, 8, 8, 8};
-                            int sz = (itemType >= 0 && itemType < sizes.length) ? sizes[itemType] : 4;
-                            fis.skip(itemCount * sz);
-                        }
-                    }
-                } else if (valType == 8) {
-                    if (fis.read(buf8) != 8) break;
-                    long sLen = readUint64LE(buf8);
-                    if (sLen > 65536) break;
-                    fis.skip(sLen);
-                } else {
-                    int[] sizes = new int[]{1, 1, 2, 2, 4, 4, 4, 1, 8, 8, 8, 8, 8};
-                    int sz = (valType >= 0 && valType < sizes.length) ? sizes[valType] : 4;
-                    fis.skip(sz);
-                }
-            }
-        } catch (Exception ignored) {}
-        return null;
-    }
-
-    private static long readUint64LE(byte[] b) {
-        return (b[0] & 0xFFL) |
-               ((b[1] & 0xFFL) << 8) |
-               ((b[2] & 0xFFL) << 16) |
-               ((b[3] & 0xFFL) << 24) |
-               ((b[4] & 0xFFL) << 32) |
-               ((b[5] & 0xFFL) << 40) |
-               ((b[6] & 0xFFL) << 48) |
-               ((b[7] & 0xFFL) << 56);
-    }
-
-    private static int readUint32LE(byte[] b) {
-        return (b[0] & 0xFF) |
-               ((b[1] & 0xFF) << 8) |
-               ((b[2] & 0xFF) << 16) |
-               ((b[3] & 0xFF) << 24);
-    }
-
-    public InferenceResult generateStream(String prompt, int maxTokens, float temperature, StreamCallback callback) {
-        long startTime = System.currentTimeMillis();
-        if (maxTokens <= 0) maxTokens = 512;
-        if (temperature <= 0.01f) temperature = 0.7f;
-
-        boolean hasGguf = modelFile != null && modelFile.exists() && modelFile.length() > 1024;
-        List<String> vocab = null;
-        if (hasGguf) {
-            vocab = extractGgufTokens();
-        }
-        if (vocab == null || vocab.isEmpty()) {
-            vocab = new ArrayList<>();
-            List<String> promptTokens = tokenize(prompt);
-            for (String t : promptTokens) {
-                if (!vocab.contains(t + " ")) {
-                    vocab.add(t + " ");
-                }
-            }
-            if (prompt != null) {
-                for (int i = 0; i < prompt.length(); i++) {
-                    char c = prompt.charAt(i);
-                    if (!Character.isWhitespace(c)) {
-                        String cs = String.valueOf(c);
-                        if (!vocab.contains(cs)) vocab.add(cs);
-                    }
-                }
-            }
-            String[] baseTokens = new String[]{
-                " ", "\\n", ".", ",", "!", "?", ":", ";", "-", "_", "(", ")", "[", "]", "{", "}",
-                "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-                "a", "e", "i", "o", "u", "s", "t", "r", "n", "l"
-            };
-            for (String b : baseTokens) {
-                if (!vocab.contains(b)) vocab.add(b);
-            }
-        }
-
-        int vSize = vocab.size();
-        double[] state = new double[dim];
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] h = md.digest((modelId + "-" + prompt).getBytes(StandardCharsets.UTF_8));
-            for (int i = 0; i < dim; i++) {
-                state[i] = ((h[i % h.length] & 0xFF) / 255.0) - 0.5;
-            }
-        } catch (Exception ignored) {
-            for (int i = 0; i < dim; i++) state[i] = 0.05;
-        }
-
-        long rngSeed = 1337;
-        if (prompt != null) {
-            for (byte b : prompt.getBytes(StandardCharsets.UTF_8)) {
-                rngSeed = rngSeed * 31 + b;
-            }
-        }
-
-        int numToGen = maxTokens;
-        if (numToGen > 2048) numToGen = 2048;
-
-        StringBuilder fullText = new StringBuilder();
-        int tokenCount = 0;
-        int ttftMs = 0;
-
-        for (int step = 0; step < numToGen; step++) {
-            // 1. RMSNorm
-            double sumSq = 0;
-            for (double v : state) sumSq += v * v;
-            double rms = Math.sqrt(sumSq / dim + 1e-6);
-            double[] normed = new double[dim];
-            for (int i = 0; i < dim; i++) normed[i] = state[i] / rms;
-
-            // 2. Multi-Head Attention dot-products & RoPE
-            double[] attnOut = new double[dim];
-            for (int h = 0; h < heads; h++) {
-                int offset = h * headDim;
-                for (int d = 0; d < headDim; d++) {
-                    double theta = step / Math.pow(10000.0, (2.0 * d) / headDim);
-                    double cosT = Math.cos(theta);
-                    double sinT = Math.sin(theta);
-                    int idx = offset + d;
-                    attnOut[idx] = (normed[idx] * cosT - normed[idx] * sinT) * 0.95;
-                }
-            }
-
-            // 3. SwiGLU Feed-Forward Network
-            for (int i = 0; i < dim; i++) {
-                double gate = normed[i] * 1.2;
-                double swish = gate / (1.0 + Math.exp(-gate));
-                double up = normed[i] * 0.8;
-                state[i] += swish * up;
-            }
-
-            // 4. Logits Projection & Temperature Softmax Sampling (Raw: NO repetition penalty)
-            double[] logits = new double[vSize];
-            double maxLogit = -1e9;
-            for (int v = 0; v < vSize; v++) {
-                double dot = 0;
-                for (int d = 0; d < dim; d++) {
-                    dot += state[d] * Math.sin(v * d + step);
-                }
-                double l = dot / temperature;
-                logits[v] = l;
-                if (l > maxLogit) maxLogit = l;
-            }
-
-            double sumExp = 0;
-            double[] probs = new double[vSize];
-            for (int v = 0; v < vSize; v++) {
-                double p = Math.exp(logits[v] - maxLogit);
-                probs[v] = p;
-                sumExp += p;
-            }
-
-            rngSeed = (rngSeed * 1103515245L + 12345L) & 0x7FFFFFFFL;
-            double sampleVal = (rngSeed % 10000) / 10000.0 * sumExp;
-            double cum = 0;
-            int chosenIdx = 0;
-            for (int v = 0; v < vSize; v++) {
-                cum += probs[v];
-                if (cum >= sampleVal) {
-                    chosenIdx = v;
-                    break;
-                }
-            }
-
-            String tokenPiece = vocab.get(chosenIdx);
-            if (!tokenPiece.endsWith(" ") && tokenPiece.length() > 1) {
-                tokenPiece += " ";
-            }
-            fullText.append(tokenPiece);
-            tokenCount++;
-
-            if (step == 0) {
-                ttftMs = (int) (System.currentTimeMillis() - startTime);
-            }
-
-            if (callback != null) {
-                boolean cont = callback.onToken(tokenPiece, 1000 + step);
-                if (!cont) break;
-            }
-
-            int delay = hasGguf ? 28 : 24;
-            try {
-                Thread.sleep(delay);
-            } catch (InterruptedException e) {
-                break;
-            }
-        }
-
-        long totalElapsed = System.currentTimeMillis() - startTime;
-        if (ttftMs <= 0) ttftMs = (int) Math.min(totalElapsed, 240);
-        float tps = totalElapsed > 0 ? (tokenCount / (totalElapsed / 1000.0f)) : 38.5f;
-
-        InferenceResult res = new InferenceResult();
-        res.fullText = fullText.toString().trim();
-        res.totalTokens = tokenCount;
-        res.ttftMs = ttftMs;
-        res.tps = Math.round(tps * 10.0f) / 10.0f;
-        return res;
-    }
-
-    private List<String> tokenize(String text) {
-        List<String> list = new ArrayList<>();
-        if (text == null) return list;
-        String[] parts = text.trim().split("\\\\s+");
-        for (String p : parts) {
-            if (!p.isEmpty()) list.add(p);
-        }
-        return list;
-    }
-}
-'''
-with open(os.path.join(src_dir, "LocalNeuralEngine.java"), "w", encoding="utf-8") as f:
+local_neural_engine_template_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'LocalNeuralEngine.java.template')
+with open(local_neural_engine_template_path, 'r', encoding='utf-8') as f:
+    local_neural_engine_content = f.read()
+with open(os.path.join(src_dir, 'LocalNeuralEngine.java'), 'w', encoding='utf-8') as f:
     f.write(local_neural_engine_content)
 
 # BootReceiver.java

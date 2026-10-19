@@ -184,7 +184,8 @@ export function NodeCard({
 
     if (installed && installed.length > 0) {
       let statusText = t('byog.model_ready', 'Hazır (Beklemede)')
-      if (node.current_tps > 0) {
+      const isActivelyGenerating = node.model_status === 'running' || ((node.current_tps || 0) > 0.05 && node.model_status !== 'ready' && node.model_status !== 'idle')
+      if (isActivelyGenerating) {
         statusText = t('byog.model_working', 'Üretimde')
       } else if (node.active_vram_model && installed.includes(node.active_vram_model)) {
         statusText = t('byog.model_ready_vram', 'Hazır (VRAM)')
@@ -192,7 +193,7 @@ export function NodeCard({
       return {
         model: installed[0],
         status: statusText,
-        badgeClass: node.current_tps > 0
+        badgeClass: isActivelyGenerating
           ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-500 animate-pulse'
           : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500',
       }

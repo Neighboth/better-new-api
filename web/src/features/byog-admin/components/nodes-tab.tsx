@@ -193,7 +193,7 @@ export function ByogNodesTab() {
     }
 
     // 3. "Çalışıyor..." (Üretimde)
-    const isProducing = (node.current_tps || 0) > 0.05 || node.status === 'gamer_mode'
+    const isProducing = node.model_status === 'running' || ((node.current_tps || 0) > 0.05 && node.model_status !== 'ready' && node.model_status !== 'idle') || node.status === 'gamer_mode'
     if (isProducing) {
       return (
         <div className='flex flex-col'>
@@ -208,7 +208,7 @@ export function ByogNodesTab() {
     }
 
     // 4. "Boşta. (VRAM)" (Model indirili, vramde duruyor -hot start- ama görev verilmemiş token üretilmiyor)
-    if (node.hot_start_enabled) {
+    if (node.active_vram_model || node.hot_start_enabled) {
       return (
         <Badge className='border-indigo-500/20 bg-indigo-500/10 text-indigo-400 font-medium'>
           {t('byog.status_idle_vram', 'Boşta. (VRAM)')}
