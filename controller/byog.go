@@ -125,10 +125,26 @@ func injectApkConfig(apkData []byte, configJson []byte) ([]byte, error) {
 }
 
 func getFaviconBase64(faviconUrl string) string {
+	if faviconUrl == "" {
+		return ""
+	}
 	if strings.HasPrefix(faviconUrl, "data:") {
 		return faviconUrl
 	}
-	var searchPaths []string
+
+	// 1. If it's a remote URL, fetch the image bytes directly
+	if strings.HasPrefix(faviconUrl, "http://") || strings.HasPrefix(faviconUrl, "https://") {
+		client := http.Client{Timeout: 4 * time.Second}
+		if resp, err := client.Get(faviconUrl); err == nil && resp.StatusCode == http.StatusOK {
+			defer resp.Body.Close()
+			if data, err := io.ReadAll(resp.Body); err == nil && len(data) > 0 && len(data) <= 1024*1024 {
+				mime := http.DetectContentType(data)
+				return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(data))
+			}
+		}
+	}
+
+	// 2. If it's a local path or uploaded file
 	u := faviconUrl
 	if idx := strings.Index(u, "://"); idx != -1 {
 		if pathIdx := strings.Index(u[idx+3:], "/"); pathIdx != -1 {
@@ -136,7 +152,8 @@ func getFaviconBase64(faviconUrl string) string {
 		}
 	}
 	cleanPath := strings.TrimPrefix(u, "/")
-	if cleanPath != "" {
+	if cleanPath != "" && cleanPath != "favicon.ico" && cleanPath != "logo.png" {
+		var searchPaths []string
 		searchPaths = append(searchPaths,
 			cleanPath,
 			filepath.Join("uploads", cleanPath),
@@ -144,58 +161,51 @@ func getFaviconBase64(faviconUrl string) string {
 			filepath.Join("uploads", "ads", cleanPath),
 			filepath.Join("web", "public", cleanPath),
 			filepath.Join("..", "web", "public", cleanPath),
-			filepath.Join("web", "build", cleanPath),
-			filepath.Join("..", "web", "build", cleanPath),
 			filepath.Join("data", cleanPath),
 			filepath.Join("..", "data", cleanPath),
 		)
-	}
-	searchPaths = append(searchPaths,
-		filepath.Join("web", "public", "favicon.ico"),
-		filepath.Join("..", "web", "public", "favicon.ico"),
-		filepath.Join("web", "public", "logo.png"),
-		filepath.Join("..", "web", "public", "logo.png"),
-	)
-	for _, p := range searchPaths {
-		if b, err := os.ReadFile(p); err == nil && len(b) > 0 && len(b) <= 512*1024 {
-			mime := "image/png"
-			lower := strings.ToLower(p)
-			if strings.HasSuffix(lower, ".ico") {
-				mime = "image/x-icon"
-			} else if strings.HasSuffix(lower, ".svg") {
-				mime = "image/svg+xml"
-			} else if strings.HasSuffix(lower, ".jpg") || strings.HasSuffix(lower, ".jpeg") {
-				mime = "image/jpeg"
-			} else if strings.HasSuffix(lower, ".webp") {
-				mime = "image/webp"
+		for _, p := range searchPaths {
+			if b, err := os.ReadFile(p); err == nil && len(b) > 0 && len(b) <= 1024*1024 {
+				mime := "image/png"
+				lower := strings.ToLower(p)
+				if strings.HasSuffix(lower, ".ico") {
+					mime = "image/x-icon"
+				} else if strings.HasSuffix(lower, ".svg") {
+					mime = "image/svg+xml"
+				} else if strings.HasSuffix(lower, ".jpg") || strings.HasSuffix(lower, ".jpeg") {
+					mime = "image/jpeg"
+				} else if strings.HasSuffix(lower, ".webp") {
+					mime = "image/webp"
+				}
+				return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(b))
 			}
-			return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(b))
+		}
+
+		// Also check uploaded files stored directly in managed_files database table
+		if model.DB != nil {
+			var mf model.ManagedFile
+			if err := model.DB.Where("path = ? OR name = ?", cleanPath, filepath.Base(cleanPath)).First(&mf).Error; err == nil && len(mf.Content) > 0 {
+				mime := http.DetectContentType(mf.Content)
+				return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(mf.Content))
+			}
 		}
 	}
 
-	// Also check uploaded files stored directly in managed_files database table
-	if model.DB != nil && cleanPath != "" {
-		var mf model.ManagedFile
-		if err := model.DB.Where("path = ? OR name = ?", cleanPath, filepath.Base(cleanPath)).First(&mf).Error; err == nil && len(mf.Content) > 0 {
-			mime := http.DetectContentType(mf.Content)
-			return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(mf.Content))
+	// 3. Only if it's default favicon or no custom image was found, fall back to web/public assets
+	if cleanPath == "favicon.ico" || cleanPath == "logo.png" || cleanPath == "" {
+		fallbackPaths := []string{
+			filepath.Join("web", "public", "favicon.ico"),
+			filepath.Join("..", "web", "public", "favicon.ico"),
+			filepath.Join("web", "public", "logo.png"),
+			filepath.Join("..", "web", "public", "logo.png"),
 		}
-	}
-	if model.DB != nil {
-		var mf model.ManagedFile
-		if err := model.DB.Where("is_dir = 0 AND (path LIKE '%favicon%' OR path LIKE '%logo%' OR name LIKE '%favicon%' OR name LIKE '%logo%')").Order("id DESC").First(&mf).Error; err == nil && len(mf.Content) > 0 {
-			mime := http.DetectContentType(mf.Content)
-			return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(mf.Content))
-		}
-	}
-
-	if strings.HasPrefix(faviconUrl, "http://") || strings.HasPrefix(faviconUrl, "https://") {
-		client := http.Client{Timeout: 2 * time.Second}
-		if resp, err := client.Get(faviconUrl); err == nil && resp.StatusCode == http.StatusOK {
-			defer resp.Body.Close()
-			if data, err := io.ReadAll(resp.Body); err == nil && len(data) > 0 && len(data) <= 512*1024 {
-				mime := http.DetectContentType(data)
-				return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(data))
+		for _, p := range fallbackPaths {
+			if b, err := os.ReadFile(p); err == nil && len(b) > 0 {
+				mime := "image/png"
+				if strings.HasSuffix(strings.ToLower(p), ".ico") {
+					mime = "image/x-icon"
+				}
+				return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(b))
 			}
 		}
 	}
@@ -204,17 +214,25 @@ func getFaviconBase64(faviconUrl string) string {
 }
 
 func getBranding(serverUrl string) (systemName string, appName string, faviconUrl string, faviconBase64 string) {
-	// 1. Try localized SystemName (tr, en, default)
+	// 1. Try in-memory OptionMap
 	common.OptionMapRWMutex.RLock()
-	for _, k := range []string{"SystemName_tr", "SystemName", "SystemName_en"} {
+	for _, k := range []string{"SystemName_tr", "SystemName", "SystemName_en", "general_setting.system_name"} {
 		if v := strings.TrimSpace(common.OptionMap[k]); v != "" && v != "New API" {
 			systemName = v
 			break
 		}
 	}
+	if systemName == "" {
+		for k, v := range common.OptionMap {
+			if strings.HasPrefix(k, "SystemName_") && strings.TrimSpace(v) != "" && strings.TrimSpace(v) != "New API" {
+				systemName = strings.TrimSpace(v)
+				break
+			}
+		}
+	}
 	common.OptionMapRWMutex.RUnlock()
 
-	// 2. Try Database directly using AllOption() to avoid MySQL reserved word errors on 'key'
+	// 2. Try Database directly using AllOption() across all database engines
 	if systemName == "" && model.DB != nil {
 		if opts, err := model.AllOption(); err == nil {
 			for _, o := range opts {
@@ -225,7 +243,15 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 			}
 			if systemName == "" {
 				for _, o := range opts {
-					if (o.Key == "SystemName" || o.Key == "SystemName_en") && strings.TrimSpace(o.Value) != "" && strings.TrimSpace(o.Value) != "New API" {
+					if (o.Key == "SystemName" || o.Key == "SystemName_en" || o.Key == "general_setting.system_name") && strings.TrimSpace(o.Value) != "" && strings.TrimSpace(o.Value) != "New API" {
+						systemName = strings.TrimSpace(o.Value)
+						break
+					}
+				}
+			}
+			if systemName == "" {
+				for _, o := range opts {
+					if strings.HasPrefix(o.Key, "SystemName_") && strings.TrimSpace(o.Value) != "" && strings.TrimSpace(o.Value) != "New API" {
 						systemName = strings.TrimSpace(o.Value)
 						break
 					}
@@ -245,9 +271,9 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 	}
 	appName = fmt.Sprintf("%s BYOG", systemName)
 
-	// Favicon resolution:
+	// Favicon and Logo resolution:
 	common.OptionMapRWMutex.RLock()
-	for _, k := range []string{"Favicon", "Logo", "LogoDark"} {
+	for _, k := range []string{"Favicon", "Logo", "LogoDark", "general_setting.favicon", "general_setting.logo"} {
 		if v := strings.TrimSpace(common.OptionMap[k]); v != "" {
 			faviconUrl = v
 			break
@@ -266,7 +292,7 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 	if faviconUrl == "" && model.DB != nil {
 		if opts, err := model.AllOption(); err == nil {
 			for _, o := range opts {
-				if (o.Key == "Favicon" || o.Key == "Logo" || o.Key == "LogoDark") && strings.TrimSpace(o.Value) != "" {
+				if (o.Key == "Favicon" || o.Key == "Logo" || o.Key == "LogoDark" || o.Key == "general_setting.favicon" || o.Key == "general_setting.logo") && strings.TrimSpace(o.Value) != "" {
 					faviconUrl = strings.TrimSpace(o.Value)
 					break
 				}
@@ -440,6 +466,10 @@ func PairByogNode(c *gin.Context) {
 	// Bind to user
 	node.UserId = userId
 	node.PairingCode = "" // Consume pairing code
+	if node.Status != "banned" && node.Status != "gamer_mode" && node.Status != "paused" {
+		node.Status = "online"
+	}
+	node.LastHeartbeatAt = time.Now().Unix()
 	node.UpdatedAt = time.Now().Unix()
 	if err := model.SaveByogNode(node); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
@@ -1475,7 +1505,14 @@ func RegisterByogWorker(c *gin.Context) {
 			fSize = mObj.FileSize
 		}
 		if dUrl == "" {
-			dUrl = fmt.Sprintf("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/%s.gguf", am)
+			amLower := strings.ToLower(am)
+			if strings.Contains(amLower, "0.5b") {
+				dUrl = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+			} else if strings.Contains(amLower, "1.5b") {
+				dUrl = "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+			} else {
+				dUrl = fmt.Sprintf("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/%s.gguf", am)
+			}
 		}
 		mSize := getByogModelEstimatedSizeMB(am)
 		if fSize <= 0 {

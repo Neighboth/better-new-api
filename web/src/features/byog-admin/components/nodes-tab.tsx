@@ -112,7 +112,7 @@ export function ByogNodesTab() {
   }
 
   // Stats calculation
-  const onlineNodes = nodes.filter((n) => n.status === 'online')
+  const onlineNodes = nodes.filter((n) => n.status === 'online' || n.model_status === 'downloading' || n.model_status === 'running')
   const aggregateTps = onlineNodes.reduce(
     (acc, n) => acc + (n.current_tps || 0),
     0
@@ -136,7 +136,9 @@ export function ByogNodesTab() {
   function renderNodeStatus(node: ByogNode) {
     const nowSec = Math.floor(Date.now() / 1000)
     const heartbeatAge = nowSec - (node.last_heartbeat_at || 0)
-    const isStale = (node.last_heartbeat_at || 0) <= 0 || heartbeatAge > 90
+    const isRecentHeartbeat = (node.last_heartbeat_at || 0) > 0 && heartbeatAge <= 120
+    const isRecentCreation = (node.created_at || 0) > 0 && (nowSec - node.created_at) <= 120
+    const isStale = !isRecentHeartbeat && !isRecentCreation && heartbeatAge > 120
     const isStopped = node.status === 'offline' || node.status === 'banned' || isStale
 
     // 1. "İndiriliyor..." has top priority when model is actively downloading

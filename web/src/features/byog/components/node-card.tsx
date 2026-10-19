@@ -78,11 +78,25 @@ export function NodeCard({
 
   const nowSec = Math.floor(Date.now() / 1000)
   const heartbeatAge = nowSec - (node.last_heartbeat_at || 0)
-  const isStale = (node.last_heartbeat_at || 0) <= 0 || heartbeatAge > 90
-  const isOffline = node.status === 'offline' || isStale
+  const isRecentHeartbeat = (node.last_heartbeat_at || 0) > 0 && heartbeatAge <= 120
+  const isRecentCreation = (node.created_at || 0) > 0 && (nowSec - node.created_at) <= 120
+  const isDownloading = node.model_status === 'downloading'
+  const isStale = !isDownloading && !isRecentHeartbeat && !isRecentCreation && heartbeatAge > 120
+  const isOffline = (node.status === 'offline' && !isDownloading) || isStale
   const isStopped = isOffline || node.status === 'banned'
 
   const getStatusBadge = () => {
+    if (isDownloading) {
+      return (
+        <Badge
+          variant='outline'
+          className='gap-1 border-amber-500/40 bg-amber-500/10 text-xs font-semibold text-amber-500'
+        >
+          <span className='h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500' />
+          {t('byog.status_downloading', 'İndiriliyor...')}
+        </Badge>
+      )
+    }
     if (isOffline) {
       return (
         <Badge

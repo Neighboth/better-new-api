@@ -17,6 +17,7 @@ ZIPALIGN = os.path.join(BUILD_TOOLS, "zipalign.exe")
 APKSIGNER = os.path.join(BUILD_TOOLS, "apksigner.bat")
 
 ZXING_JAR = os.path.abspath(r"Z:\better-new-api\worker\mobile\zxing-core.jar")
+LLAMA_JAR = os.path.abspath(r"Z:\better-new-api\worker\mobile\llama.jar")
 WORKDIR = os.path.abspath(r"Z:\better-new-api\worker\mobile\build_tmp")
 OUTPUT_APK = os.path.abspath(r"Z:\better-new-api\worker\binaries\byog-worker.apk")
 
@@ -512,7 +513,6 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
             android:screenOrientation="portrait" />
         <service
             android:name=".WorkerService"
-            android:process=":worker"
             android:exported="false"
             android:stopWithTask="false"
             android:foregroundServiceType="dataSync" />
@@ -1448,6 +1448,18 @@ public class MainActivity extends Activity {
         } else {
             registerReceiver(stateReceiver, filter);
         }
+
+        SharedPreferences spInit = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+        if (spInit.getBoolean("is_paired", false) && !spInit.getString("node_id", "").isEmpty()) {
+            try {
+                Intent sIntent = new Intent(this, WorkerService.class);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(sIntent);
+                } else {
+                    startService(sIntent);
+                }
+            } catch (Exception ignored) {}
+        }
     }
 
     @Override
@@ -1465,17 +1477,23 @@ public class MainActivity extends Activity {
 
             if (isBgRestricted) {
                 sp.edit().putBoolean("autostart_granted", false).apply();
-                if (sp.getBoolean("is_paired", false)) {
-                    sp.edit().putBoolean("is_paired", false).apply();
-                    Intent stopS = new Intent(this, WorkerService.class);
-                    stopService(stopS);
-                    webView.evaluateJavascript("if (window.onPermissionRevoked) window.onPermissionRevoked();", null);
-                }
             } else {
                 if (sp.getBoolean("autostart_pending_check", false)) {
                     sp.edit().putBoolean("autostart_pending_check", false).putBoolean("autostart_granted", true).apply();
                 }
             }
+
+            if (sp.getBoolean("is_paired", false) && !sp.getString("node_id", "").isEmpty()) {
+                try {
+                    Intent sIntent = new Intent(this, WorkerService.class);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(sIntent);
+                    } else {
+                        startService(sIntent);
+                    }
+                } catch (Exception ignored) {}
+            }
+
             webView.evaluateJavascript("if (window.refreshPermissions) window.refreshPermissions();", null);
         }
     }
@@ -1502,15 +1520,29 @@ public class MainActivity extends Activity {
         Toast.makeText(this, "Realme / Oppo / Android: 'Pil Kullanımı' -> 'Arka plan aktivitesine izin ver' seçeneğini açın.", Toast.LENGTH_LONG).show();
 
         Intent[] candidates = new Intent[] {
-            // 1. Realme / ColorOS Dedicated Battery Usage & Power Control Activities
-            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.powermanager.fuelgaue.PowerControlActivity"))
+            // 1. Realme C55 / ColorOS Dedicated App Battery Use Detail (Arka Plan Aktivitesine İzin Ver)
+            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.battery.AppBatteryUseDetailActivity"))
+                .setData(Uri.parse("package:" + getPackageName()))
+                .putExtra("package_name", getPackageName())
+                .putExtra("pkgName", getPackageName())
+                .putExtra("packageName", getPackageName())
+                .putExtra("title", "{app_name}"),
+
+            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.powermanager.fuelgauge.PowerControlActivity"))
+                .setData(Uri.parse("package:" + getPackageName()))
                 .putExtra("pkgName", getPackageName())
                 .putExtra("package_name", getPackageName())
                 .putExtra("packageName", getPackageName())
                 .putExtra("title", "{app_name}")
                 .putExtra("drainType", "APP"),
 
-            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerControlActivity"))
+            // 2. Direct Android 13+ App Battery Settings
+            new Intent("android.settings.APP_BATTERY_SETTINGS")
+                .setData(Uri.parse("package:" + getPackageName()))
+                .putExtra("package", getPackageName())
+                .putExtra("package_name", getPackageName()),
+
+            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgauge.PowerControlActivity"))
                 .putExtra("pkgName", getPackageName())
                 .putExtra("package_name", getPackageName())
                 .putExtra("packageName", getPackageName())
@@ -1521,11 +1553,11 @@ public class MainActivity extends Activity {
                 .putExtra("pkgName", getPackageName())
                 .putExtra("package_name", getPackageName()),
 
-            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerConsumptionActivity"))
+            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgauge.PowerConsumptionActivity"))
                 .putExtra("pkgName", getPackageName())
                 .putExtra("package_name", getPackageName()),
 
-            // 2. SubSettings Fragment for AdvancedPowerUsageDetail (Direct "Pil Kullanımı")
+            // 3. SubSettings Fragment for AdvancedPowerUsageDetail (Direct "Pil Kullanımı")
             new Intent("android.intent.action.VIEW").setComponent(new ComponentName("com.android.settings", "com.android.settings.SubSettings"))
                 .putExtra(":settings:show_fragment", "com.android.settings.fuelgauge.AdvancedPowerUsageDetail")
                 .putExtra(":settings:fragment_args_key", getPackageName())
@@ -1538,12 +1570,6 @@ public class MainActivity extends Activity {
             new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.Settings$AppBatteryUsageActivity"))
                 .setData(Uri.parse("package:" + getPackageName()))
                 .putExtra("package", getPackageName()),
-
-            // 3. Direct App Battery Settings (Android 13+)
-            new Intent("android.settings.APP_BATTERY_SETTINGS")
-                .setData(Uri.parse("package:" + getPackageName()))
-                .putExtra("package", getPackageName())
-                .putExtra("package_name", getPackageName()),
 
             // 4. ColorOS / Realme Startup and AutoStart managers
             new Intent().setComponent(new ComponentName("com.oplus.securitypermission", "com.oplus.securitypermission.startup.StartupAppListActivity")),
@@ -2016,7 +2042,7 @@ public class MainActivity extends Activity {
                                     ed.putString("favicon_base64", returnedFaviconB64);
                                     saveBase64ToCacheFile(returnedFaviconB64);
                                 }
-                                ed.apply();
+                                ed.commit();
 
                                 if (returnedFaviconB64.isEmpty() && returnedFavicon.startsWith("http")) {
                                     fetchAndCacheFavicon(returnedFavicon);
@@ -2054,8 +2080,20 @@ public class MainActivity extends Activity {
                                             state.put("battery_level", finalPercent);
                                             state.put("battery_temp", finalTemp);
                                             state.put("assigned_model", finalAssignedModel);
-                                            state.put("model_status", "ready");
-                                            state.put("model_status_desc", finalAssignedModel + " hazır (Beklemede)");
+
+                                            File mf = new File(getFilesDir(), finalAssignedModel + ".gguf");
+                                            boolean modelExists = mf.exists() && mf.length() > 50 * 1024 * 1024;
+                                            if (modelExists) {
+                                                state.put("model_status", "ready");
+                                                state.put("model_status_desc", finalAssignedModel + " hazır (Beklemede)");
+                                                sp.edit().putString("model_status", "ready").commit();
+                                            } else {
+                                                state.put("model_status", "downloading");
+                                                state.put("model_status_desc", finalAssignedModel + " indiriliyor (%0)...");
+                                                state.put("download_progress", 0);
+                                                state.put("downloaded_mb", 0);
+                                                sp.edit().putString("model_status", "downloading").putInt("download_progress", 0).putInt("downloaded_mb", 0).commit();
+                                            }
                                         } catch (Exception ignored) {}
                                         if (webView != null) {
                                             webView.evaluateJavascript("window.updateState(" + state.toString() + ")", null);
@@ -2462,7 +2500,7 @@ java_files = [
     os.path.join(src_dir, "GenericFileProvider.java")
 ]
 
-classpath = f"{PLATFORM_JAR};{ZXING_JAR}"
+classpath = f"{PLATFORM_JAR};{ZXING_JAR};{LLAMA_JAR}" if os.path.exists(LLAMA_JAR) else f"{PLATFORM_JAR};{ZXING_JAR}"
 subprocess.check_call([
     "javac",
     "-encoding", "UTF-8",
@@ -2472,26 +2510,39 @@ subprocess.check_call([
     "--release", "8"
 ] + java_files)
 
-# 7. D8: Convert classes and zxing-core.jar to classes.dex
+# 7. D8: Convert classes and jar dependencies to classes.dex
 class_files = []
 for root, _, files in os.walk(classes_dir):
     for f in files:
         if f.endswith(".class"):
             class_files.append(os.path.join(root, f))
 
-subprocess.check_call([
+d8_cmd = [
     D8,
     "--output", WORKDIR,
     "--min-api", "24",
     "--lib", PLATFORM_JAR,
     ZXING_JAR
-] + class_files)
+]
+if os.path.exists(LLAMA_JAR):
+    d8_cmd.append(LLAMA_JAR)
+d8_cmd += class_files
+
+subprocess.check_call(d8_cmd, shell=True)
 
 dex_file = os.path.join(WORKDIR, "classes.dex")
 
-# 8. Add classes.dex to unaligned APK
+# 8. Add classes.dex and native libraries to unaligned APK
 with zipfile.ZipFile(unaligned_apk, "a", compression=zipfile.ZIP_DEFLATED) as zf:
     zf.write(dex_file, "classes.dex")
+    if os.path.exists(LLAMA_JAR):
+        with zipfile.ZipFile(LLAMA_JAR, "r") as lzf:
+            so_name = "de/kherud/llama/Linux-Android/aarch64/libjllama.so"
+            if so_name in lzf.namelist():
+                so_data = lzf.read(so_name)
+                zinfo = zipfile.ZipInfo("lib/arm64-v8a/libjllama.so")
+                zinfo.compress_type = zipfile.ZIP_STORED
+                zf.writestr(zinfo, so_data)
 
 # 9. Zipalign
 aligned_apk = os.path.join(WORKDIR, "aligned.apk")

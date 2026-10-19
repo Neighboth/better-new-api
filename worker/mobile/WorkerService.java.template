@@ -203,6 +203,10 @@ public class WorkerService extends Service {
         startTunnelLoop();
         startWorkerLoop();
 
+        if (!modelFileOnDisk || !downloadQueueList.isEmpty()) {
+            checkAndTriggerModelDownloads();
+        }
+
         return START_STICKY;
     }
 
@@ -322,13 +326,11 @@ public class WorkerService extends Service {
                 if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) ignoringBattery = false;
             }
 
-            if (bgRestricted || !ignoringBattery) {
-                sp.edit().putBoolean("autostart_granted", false).putBoolean("is_paired", false).apply();
+            if (bgRestricted) {
+                sp.edit().putBoolean("autostart_granted", false).apply();
                 Intent revIntent = new Intent("org.byog.worker.PERMISSION_REVOKED");
                 revIntent.setPackage(getPackageName());
                 sendBroadcast(revIntent);
-                stopSelf();
-                return;
             }
 
             String serverUrl = sp.getString("server_url", "");
@@ -432,7 +434,7 @@ public class WorkerService extends Service {
 
         final String targetModel = downloadQueueList.get(0);
         final File destFile = new File(getFilesDir(), targetModel + ".gguf");
-        if (destFile.exists() && destFile.length() > 1024 * 1024) {
+        if (destFile.exists() && destFile.length() > 10 * 1024 * 1024) {
             // Already completely downloaded on disk
             finalizeModelDownloaded(targetModel);
             return;
@@ -442,123 +444,155 @@ public class WorkerService extends Service {
         currentModelStatus = "downloading";
         currentAssignedModel = targetModel;
         totalMB = getModelSizeMB(targetModel);
+        if (totalMB <= 0) totalMB = 380;
+
+        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+        String appName = sp.getString("app_name", "{app_name}");
+        String initDlMsg = targetModel + " indiriliyor... (0 MB / " + totalMB + " MB - %0)";
+        broadcastDownloadProgress(targetModel, initDlMsg, 0, totalMB, 0);
+
+        Notification notif = buildNotification(appName, initDlMsg);
+        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) nm.notify(NOTIF_ID, notif);
 
         modelDownloadThread = new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    String dlUrl = modelDownloadUrls.get(targetModel);
-                    if (dlUrl == null || dlUrl.isEmpty()) {
-                        dlUrl = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf";
+                    List<String> candidateUrls = new ArrayList<>();
+                    String targetLower = targetModel.toLowerCase();
+                    if (targetLower.contains("0.5b")) {
+                        candidateUrls.add("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf");
+                        candidateUrls.add("https://hf-mirror.com/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf");
+                    } else if (targetLower.contains("1.5b")) {
+                        candidateUrls.add("https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf");
+                        candidateUrls.add("https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf");
+                    }
+                    String serverGivenUrl = modelDownloadUrls.get(targetModel);
+                    if (serverGivenUrl != null && !serverGivenUrl.isEmpty() && !candidateUrls.contains(serverGivenUrl)) {
+                        candidateUrls.add(serverGivenUrl);
                     }
 
                     File destFile = new File(getFilesDir(), targetModel + ".gguf");
-                    if (destFile.exists() && destFile.length() > 1024 * 1024) {
+                    if (destFile.exists() && destFile.length() > 10 * 1024 * 1024) {
                         finalizeModelDownloaded(targetModel);
                         isModelDownloading = false;
                         return;
                     }
 
                     File partFile = new File(getFilesDir(), targetModel + ".gguf.part");
-                    long existingLen = partFile.exists() ? partFile.length() : 0;
+                    boolean downloadSucceeded = false;
 
-                    String currentUrl = dlUrl;
-                    HttpURLConnection conn = null;
-                    int redirects = 0;
-                    int code = 0;
+                    for (String dlUrl : candidateUrls) {
+                        if (downloadSucceeded) break;
+                        long existingLen = partFile.exists() ? partFile.length() : 0;
+                        String currentUrl = dlUrl;
+                        HttpURLConnection conn = null;
+                        int redirects = 0;
+                        int code = 0;
 
-                    while (redirects < 6) {
-                        URL u = new URL(currentUrl);
-                        conn = (HttpURLConnection) u.openConnection();
-                        conn.setInstanceFollowRedirects(false);
-                        conn.setConnectTimeout(15000);
-                        conn.setReadTimeout(30000);
-                        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) BYOG-Worker/1.0");
+                        try {
+                            while (redirects < 8) {
+                                URL u = new URL(currentUrl);
+                                conn = (HttpURLConnection) u.openConnection();
+                                conn.setInstanceFollowRedirects(false);
+                                conn.setConnectTimeout(20000);
+                                conn.setReadTimeout(45000);
+                                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
 
-                        if (existingLen > 0) {
-                            conn.setRequestProperty("Range", "bytes=" + existingLen + "-");
-                        }
-
-                        code = conn.getResponseCode();
-                        if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
-                            String loc = conn.getHeaderField("Location");
-                            conn.disconnect();
-                            if (loc != null && !loc.isEmpty()) {
-                                if (!loc.startsWith("http://") && !loc.startsWith("https://")) {
-                                    URL base = new URL(currentUrl);
-                                    loc = new URL(base, loc).toString();
+                                if (existingLen > 0) {
+                                    conn.setRequestProperty("Range", "bytes=" + existingLen + "-");
                                 }
-                                currentUrl = loc;
-                                redirects++;
+
+                                code = conn.getResponseCode();
+                                if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+                                    String loc = conn.getHeaderField("Location");
+                                    conn.disconnect();
+                                    if (loc != null && !loc.isEmpty()) {
+                                        if (!loc.startsWith("http://") && !loc.startsWith("https://")) {
+                                            URL base = new URL(currentUrl);
+                                            loc = new URL(base, loc).toString();
+                                        }
+                                        currentUrl = loc;
+                                        redirects++;
+                                        continue;
+                                    }
+                                }
+                                break;
+                            }
+
+                            if (conn == null) continue;
+
+                            boolean append = false;
+                            long totalBytes = conn.getContentLengthLong();
+
+                            if (code == 206) {
+                                append = true;
+                                totalBytes += existingLen;
+                            } else if (code == 200) {
+                                append = false;
+                                existingLen = 0;
+                            } else if (code == 416) {
+                                // Range Not Satisfiable: file might already be complete or corrupted part
+                                if (partFile.exists() && partFile.length() > 50 * 1024 * 1024) {
+                                    if (partFile.renameTo(destFile) || destFile.exists()) {
+                                        finalizeModelDownloaded(targetModel);
+                                        downloadSucceeded = true;
+                                        break;
+                                    }
+                                }
+                                partFile.delete();
+                                existingLen = 0;
+                                conn.disconnect();
+                                continue;
+                            } else {
+                                conn.disconnect();
                                 continue;
                             }
-                        }
-                        break;
-                    }
 
-                    if (conn == null) {
-                        isModelDownloading = false;
-                        return;
-                    }
+                            if (totalBytes > 0) {
+                                totalMB = (int)(totalBytes / (1024 * 1024));
+                            }
+                            if (totalMB <= 0) totalMB = getModelSizeMB(targetModel);
 
-                    boolean append = false;
-                    long totalBytes = conn.getContentLengthLong();
+                            InputStream is = conn.getInputStream();
+                            FileOutputStream fos = new FileOutputStream(partFile, append);
+                            byte[] buffer = new byte[65536];
+                            int nRead;
+                            long currentBytes = existingLen;
+                            long lastBroadcastTime = 0;
 
-                    if (code == 206) {
-                        append = true;
-                        totalBytes += existingLen;
-                    } else if (code == 200) {
-                        append = false;
-                        existingLen = 0;
-                    } else if (code == 416) {
-                        if (partFile.renameTo(destFile) || destFile.exists()) {
-                            finalizeModelDownloaded(targetModel);
-                        }
-                        conn.disconnect();
-                        isModelDownloading = false;
-                        return;
-                    } else {
-                        conn.disconnect();
-                        isModelDownloading = false;
-                        return;
-                    }
+                            while ((nRead = is.read(buffer)) != -1) {
+                                fos.write(buffer, 0, nRead);
+                                currentBytes += nRead;
+                                downloadedMB = (int)(currentBytes / (1024 * 1024));
 
-                    if (totalBytes > 0) {
-                        totalMB = (int)(totalBytes / (1024 * 1024));
-                    }
-                    if (totalMB <= 0) totalMB = getModelSizeMB(targetModel);
+                                long now = System.currentTimeMillis();
+                                if (now - lastBroadcastTime > 600) {
+                                    lastBroadcastTime = now;
+                                    int pct = totalBytes > 0 ? (int)((currentBytes * 100) / totalBytes) : (int)((downloadedMB * 100.0f) / totalMB);
+                                    if (pct > 99) pct = 99;
+                                    String dlMsg = targetModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")";
+                                    broadcastDownloadProgress(targetModel, dlMsg, downloadedMB, totalMB, pct);
+                                }
+                            }
 
-                    InputStream is = conn.getInputStream();
-                    FileOutputStream fos = new FileOutputStream(partFile, append);
-                    byte[] buffer = new byte[65536];
-                    int nRead;
-                    long currentBytes = existingLen;
-                    long lastBroadcastTime = 0;
+                            fos.flush();
+                            fos.close();
+                            is.close();
+                            conn.disconnect();
 
-                    while ((nRead = is.read(buffer)) != -1) {
-                        fos.write(buffer, 0, nRead);
-                        currentBytes += nRead;
-                        downloadedMB = (int)(currentBytes / (1024 * 1024));
-
-                        long now = System.currentTimeMillis();
-                        if (now - lastBroadcastTime > 800) {
-                            lastBroadcastTime = now;
-                            int pct = totalBytes > 0 ? (int)((currentBytes * 100) / totalBytes) : (int)((downloadedMB * 100.0f) / totalMB);
-                            if (pct > 99) pct = 99;
-                            String dlMsg = targetModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")";
-                            broadcastDownloadProgress(targetModel, dlMsg, downloadedMB, totalMB, pct);
+                            if (partFile.renameTo(destFile) || destFile.exists()) {
+                                finalizeModelDownloaded(targetModel);
+                                downloadSucceeded = true;
+                                break;
+                            }
+                        } catch (Exception connEx) {
+                            android.util.Log.e("BYOG_DOWNLOAD", "Download attempt failed for url " + dlUrl + ": " + connEx.getMessage());
                         }
                     }
-
-                    fos.flush();
-                    fos.close();
-                    is.close();
-                    conn.disconnect();
-
-                    if (partFile.renameTo(destFile) || destFile.exists()) {
-                        finalizeModelDownloaded(targetModel);
-                    }
-                } catch (Exception ignored) {
+                } catch (Exception e) {
+                    android.util.Log.e("BYOG_DOWNLOAD", "Download task failed: " + e.getMessage(), e);
                 } finally {
                     isModelDownloading = false;
                 }
@@ -1368,10 +1402,7 @@ public class WorkerService extends Service {
             builder = new Notification.Builder(this);
         }
 
-        int appIcon = getApplicationInfo().icon;
-        if (appIcon == 0) {
-            appIcon = android.R.drawable.stat_notify_sync;
-        }
+        int appIcon = android.R.drawable.stat_notify_sync;
 
         builder.setContentTitle(title)
                .setContentText(content)
@@ -1407,8 +1438,11 @@ public class WorkerService extends Service {
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
                     "BYOG Worker Service",
-                    NotificationManager.IMPORTANCE_DEFAULT
+                    NotificationManager.IMPORTANCE_LOW
             );
+            channel.setDescription("BYOG arka plan işlem ve durum bildirimleri");
+            channel.setSound(null, null);
+            channel.enableVibration(false);
             channel.setShowBadge(true);
             NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (manager != null) {
