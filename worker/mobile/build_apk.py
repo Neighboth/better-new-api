@@ -263,9 +263,11 @@ if not system_name or not favicon_url or not server_url:
             print("PostgreSQL detection notice:", ex)
 
 if not system_name or system_name.strip() in ("", "New API"):
-    system_name = "New-API"
-system_name = system_name.strip()
-app_name = f"{system_name} BYOG"
+    system_name = "BYOG"
+    app_name = "BYOG Worker"
+else:
+    system_name = system_name.strip()
+    app_name = f"{system_name} BYOG"
 print(f"Building APK with Branding Name: '{app_name}'")
 
 if os.path.exists(WORKDIR):
@@ -1449,6 +1451,8 @@ public class MainActivity extends Activity {
             registerReceiver(stateReceiver, filter);
         }
 
+        fetchInitialServerBranding();
+
         SharedPreferences spInit = getSharedPreferences("byog_prefs", MODE_PRIVATE);
         if (spInit.getBoolean("is_paired", false) && !spInit.getString("node_id", "").isEmpty()) {
             try {
@@ -1520,7 +1524,34 @@ public class MainActivity extends Activity {
         Toast.makeText(this, "Realme / Oppo / Android: 'Pil Kullanımı' -> 'Arka plan aktivitesine izin ver' seçeneğini açın.", Toast.LENGTH_LONG).show();
 
         Intent[] candidates = new Intent[] {
-            // 1. Realme C55 / ColorOS Dedicated App Battery Use Detail (Arka Plan Aktivitesine İzin Ver)
+            // 1. Android 13+ / Realme C55 Exported App Battery Settings Screen (Direct "Pil Kullanımı")
+            new Intent("android.settings.APP_BATTERY_SETTINGS")
+                .setData(Uri.parse("package:" + getPackageName()))
+                .putExtra("package", getPackageName())
+                .putExtra("package_name", getPackageName())
+                .putExtra("extra_package_name", getPackageName())
+                .putExtra(Intent.EXTRA_PACKAGE_NAME, getPackageName()),
+
+            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.fuelgauge.AdvancedPowerUsageDetailActivity"))
+                .setData(Uri.parse("package:" + getPackageName()))
+                .putExtra("package", getPackageName())
+                .putExtra("package_name", getPackageName())
+                .putExtra("extra_package_name", getPackageName())
+                .putExtra(Intent.EXTRA_PACKAGE_NAME, getPackageName()),
+
+            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.Settings$AppBatteryUsageActivity"))
+                .setData(Uri.parse("package:" + getPackageName()))
+                .putExtra("package", getPackageName())
+                .putExtra("extra_package_name", getPackageName()),
+
+            // 2. SubSettings Fragment for AdvancedPowerUsageDetail
+            new Intent("android.intent.action.VIEW").setComponent(new ComponentName("com.android.settings", "com.android.settings.SubSettings"))
+                .putExtra(":settings:show_fragment", "com.android.settings.fuelgauge.AdvancedPowerUsageDetail")
+                .putExtra(":settings:fragment_args_key", getPackageName())
+                .putExtra("package", getPackageName())
+                .putExtra("extra_package_name", getPackageName()),
+
+            // 3. Realme C55 / ColorOS Dedicated App Battery Use Detail
             new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.battery.AppBatteryUseDetailActivity"))
                 .setData(Uri.parse("package:" + getPackageName()))
                 .putExtra("package_name", getPackageName())
@@ -1535,12 +1566,6 @@ public class MainActivity extends Activity {
                 .putExtra("packageName", getPackageName())
                 .putExtra("title", "{app_name}")
                 .putExtra("drainType", "APP"),
-
-            // 2. Direct Android 13+ App Battery Settings
-            new Intent("android.settings.APP_BATTERY_SETTINGS")
-                .setData(Uri.parse("package:" + getPackageName()))
-                .putExtra("package", getPackageName())
-                .putExtra("package_name", getPackageName()),
 
             new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgauge.PowerControlActivity"))
                 .putExtra("pkgName", getPackageName())
@@ -1620,6 +1645,61 @@ public class MainActivity extends Activity {
             fos.write(bytes);
             fos.close();
         } catch (Exception ignored) {}
+    }
+
+    private void fetchInitialServerBranding() {
+        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+        String serverUrl = sp.getString("server_url", "");
+        if (serverUrl == null || serverUrl.trim().isEmpty()) return;
+        while (serverUrl.endsWith("/")) serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
+        final String targetUrl = serverUrl + "/api/status";
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    URL u = new URL(targetUrl);
+                    HttpURLConnection conn = (HttpURLConnection) u.openConnection();
+                    conn.setConnectTimeout(4000);
+                    conn.setReadTimeout(4000);
+                    conn.setRequestProperty("User-Agent", "BYOG-Worker/1.0");
+                    if (conn.getResponseCode() == 200) {
+                        InputStream is = conn.getInputStream();
+                        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                        byte[] buf = new byte[4096];
+                        int r;
+                        while ((r = is.read(buf)) != -1) bos.write(buf, 0, r);
+                        is.close();
+                        conn.disconnect();
+
+                        JSONObject resp = new JSONObject(bos.toString("UTF-8"));
+                        if (resp.optBoolean("success", true) && resp.has("data")) {
+                            JSONObject d = resp.getJSONObject("data");
+                            String sysName = d.optString("system_name", "");
+                            String fav = d.optString("favicon", "");
+                            if (sysName.isEmpty()) sysName = d.optString("app_name", "");
+                            if (!sysName.isEmpty() && !sysName.equalsIgnoreCase("New API") && !sysName.equalsIgnoreCase("New-API")) {
+                                final String newAppName = sysName.endsWith("BYOG") ? sysName : (sysName + " BYOG");
+                                SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+                                sp.edit().putString("app_name", newAppName).apply();
+                                runOnUiThread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        setTitle(newAppName);
+                                        if (webView != null) {
+                                            webView.evaluateJavascript("if (document.getElementById('app-title')) document.getElementById('app-title').innerText = '" + newAppName + "';", null);
+                                        }
+                                    }
+                                });
+                            }
+                            if (!fav.isEmpty()) {
+                                fetchAndCacheFavicon(fav);
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+        }).start();
     }
 
     private void fetchAndCacheFavicon(final String faviconUrl) {

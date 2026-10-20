@@ -267,9 +267,11 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 
 	// 4. Fallback if untouched
 	if systemName == "" || systemName == "New API" {
-		systemName = "New-API"
+		systemName = "BYOG Worker"
+		appName = "BYOG Worker"
+	} else {
+		appName = fmt.Sprintf("%s BYOG", systemName)
 	}
-	appName = fmt.Sprintf("%s BYOG", systemName)
 
 	// Favicon and Logo resolution:
 	common.OptionMapRWMutex.RLock()

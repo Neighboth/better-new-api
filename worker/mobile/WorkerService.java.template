@@ -561,6 +561,7 @@ public class WorkerService extends Service {
                             int nRead;
                             long currentBytes = existingLen;
                             long lastBroadcastTime = 0;
+                            long lastHttpSyncTime = 0;
 
                             while ((nRead = is.read(buffer)) != -1) {
                                 fos.write(buffer, 0, nRead);
@@ -574,6 +575,11 @@ public class WorkerService extends Service {
                                     if (pct > 99) pct = 99;
                                     String dlMsg = targetModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")";
                                     broadcastDownloadProgress(targetModel, dlMsg, downloadedMB, totalMB, pct);
+                                    if (tunnelWs != null) tunnelWs.sendHeartbeatFrame();
+                                    if (now - lastHttpSyncTime > 4000) {
+                                        lastHttpSyncTime = now;
+                                        doHttpHeartbeatAndSync(dlMsg);
+                                    }
                                 }
                             }
 
@@ -1170,6 +1176,11 @@ public class WorkerService extends Service {
                 JSONArray inst = new JSONArray();
                 for (String m : installedModelsList) inst.put(m);
                 payload.put("installed_models", inst);
+                payload.put("model_status", currentModelStatus);
+                payload.put("downloaded_mb", downloadedMB);
+                payload.put("total_mb", totalMB);
+                int hbPct = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 0;
+                payload.put("download_progress", hbPct);
                 payload.put("active_vram_model", activeVramModel);
                 payload.put("is_gamer_mode", false);
                 payload.put("is_throttled", false);
@@ -1235,7 +1246,7 @@ public class WorkerService extends Service {
                         installedModelsList.add(reqModel);
                     }
 
-                    currentLiveTps = Math.round((28.0f + (float)(Math.random() * 8.0f)) * 10.0f) / 10.0f;
+                    currentLiveTps = 0.0f;
                     currentModelStatus = "running";
 
                     SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
