@@ -1754,6 +1754,15 @@ func DownloadByogWorker(c *gin.Context) {
 						"favicon_base64": faviconBase64,
 					})
 
+					// The launcher label and icon of the app are part of the package, so
+					// the branding of this installation is written into the APK itself.
+					branded, err := brandByogApk(raw, appName, faviconBase64)
+					if err != nil {
+						common.SysError(fmt.Sprintf("[BYOG] APK branding failed: %v", err))
+					} else {
+						raw = branded
+					}
+
 					if customizedApk, err := injectApkConfig(raw, cfgPayload); err == nil {
 						c.Data(http.StatusOK, "application/vnd.android.package-archive", customizedApk)
 						return

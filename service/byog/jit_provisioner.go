@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -165,6 +166,12 @@ func (j *JitProvisioner) SelectBestNodeForColdDownload(modelDef *model.ByogModel
 
 // ProvisionColdModel initiates background download on the best node and streams progress to client
 func (j *JitProvisioner) ProvisionColdModel(c *gin.Context, modelDef *model.ByogModel, isSseClient bool) (*NodeSession, error) {
+	setting, _ := model.GetByogSetting()
+	timeoutSecs := 120
+	if setting != nil && setting.MaxColdStartTimeout > 0 {
+		timeoutSecs = setting.MaxColdStartTimeout
+	}
+
 	stateVal, loaded := j.provisioningLocks.LoadOrStore(modelDef.ModelId, &ProvisioningState{
 		ModelId:       modelDef.ModelId,
 		PercentComplete: 0,
@@ -206,31 +213,63 @@ func (j *JitProvisioner) ProvisionColdModel(c *gin.Context, modelDef *model.Byog
 			Payload: downloadPayload,
 		})
 
-		// Simulated high-speed progress updater for demonstration & robust testing
+		// The progress is taken from the telemetry the worker reports, there is no
+		// simulated download speed.
 		go func() {
-			for p := 10; p <= 100; p += 15 {
-				time.Sleep(500 * time.Millisecond)
+			ticker := time.NewTicker(700 * time.Millisecond)
+			defer ticker.Stop()
+			deadline := time.Now().Add(time.Duration(timeoutSecs) * time.Second)
+			lastSampleAt := time.Now()
+			lastDownloadedMB := 0
+
+			for range ticker.C {
+				currentNode, err := model.GetByogNodeByNodeId(session.NodeId)
+				if err != nil || currentNode == nil {
+					if time.Now().After(deadline) {
+						j.provisioningLocks.Delete(modelDef.ModelId)
+						return
+					}
+					continue
+				}
+
+				percent := currentNode.DownloadProgress
+				if percent < 0 {
+					percent = 0
+				}
+				if percent > 100 {
+					percent = 100
+				}
+
+				speed := 0.0
+				now := time.Now()
+				if elapsed := now.Sub(lastSampleAt).Seconds(); elapsed >= 1 && currentNode.DownloadedMB > lastDownloadedMB {
+					speed = float64(currentNode.DownloadedMB-lastDownloadedMB) / elapsed
+					lastDownloadedMB = currentNode.DownloadedMB
+					lastSampleAt = now
+				}
+
+				eta := 0
+				if speed > 0.1 && currentNode.TotalMB > currentNode.DownloadedMB {
+					eta = int(float64(currentNode.TotalMB-currentNode.DownloadedMB) / speed)
+				}
+
+				ready := strings.Contains(currentNode.InstalledModels, modelDef.ModelId)
+
 				state.Mu.Lock()
-				state.PercentComplete = p
-				state.SpeedMBs = node.BandwidthDownMbps / 8.0
-				if state.SpeedMBs <= 0 {
-					state.SpeedMBs = 45.0
-				}
-				state.EtaSeconds = (100 - p) / 10
-				if p >= 90 {
-					state.StatusMessage = "Model diske yazıldı, belleğe yükleniyor..."
-				} else {
-					state.StatusMessage = fmt.Sprintf("İstediğiniz model şu anda aktif düğüme indiriliyor, lütfen bekleyin. [Yüzde %d İndirildi | Hız: %.1f MB/sn | Tahmini Süre: %d sn]", p, state.SpeedMBs, state.EtaSeconds)
-				}
-				if p >= 100 {
+				state.PercentComplete = percent
+				state.SpeedMBs = speed
+				state.EtaSeconds = eta
+				if ready {
 					state.IsReady = true
+					state.PercentComplete = 100
 					state.StatusMessage = "Model hazır, yanıt üretiliyor..."
 					if session.InstalledModels == nil {
 						session.InstalledModels = make(map[string]bool)
 					}
 					session.InstalledModels[modelDef.ModelId] = true
+				} else {
+					state.StatusMessage = fmt.Sprintf("İstediğiniz model şu anda aktif düğüme indiriliyor, lütfen bekleyin. [Yüzde %d İndirildi | Hız: %.1f MB/sn | Tahmini Süre: %d sn]", percent, speed, eta)
 				}
-				// Notify all subscribers
 				for _, ch := range state.Subscribers {
 					select {
 					case ch <- ProvisioningUpdate{
@@ -244,12 +283,16 @@ func (j *JitProvisioner) ProvisionColdModel(c *gin.Context, modelDef *model.Byog
 					}
 				}
 				state.Mu.Unlock()
-				if p >= 100 {
-					break
+
+				if ready {
+					j.provisioningLocks.Delete(modelDef.ModelId)
+					return
+				}
+				if time.Now().After(deadline) {
+					j.provisioningLocks.Delete(modelDef.ModelId)
+					return
 				}
 			}
-			time.Sleep(1 * time.Second)
-			j.provisioningLocks.Delete(modelDef.ModelId)
 		}()
 	}
 
@@ -268,11 +311,6 @@ func (j *JitProvisioner) ProvisionColdModel(c *gin.Context, modelDef *model.Byog
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
-	setting, _ := model.GetByogSetting()
-	timeoutSecs := 120
-	if setting != nil && setting.MaxColdStartTimeout > 0 {
-		timeoutSecs = setting.MaxColdStartTimeout
-	}
 	timeoutChan := time.After(time.Duration(timeoutSecs) * time.Second)
 
 	for {

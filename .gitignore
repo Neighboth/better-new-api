@@ -48,3 +48,7 @@ new-api-linux-arm64
 new-api
 new-api-linux-arm64.zip
 worker/mobile/build_tmp/
+
+# Local APK signing key of the BYOG worker (generated on first use).
+byog_apk_signing_key.pem
+worker/binaries/byog-worker.apk.idsig

@@ -446,7 +446,7 @@ export function ByogSettingsTab() {
                       {t(item.labelKey, item.defaultLabel)} (+%)
                     </Label>
                     <Popover>
-                      <PopoverTrigger asChild>
+                      <PopoverTrigger>
                         <button
                           type='button'
                           className='text-muted-foreground hover:text-foreground shrink-0 rounded p-1 transition-colors'

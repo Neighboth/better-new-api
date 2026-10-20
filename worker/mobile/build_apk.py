@@ -639,7 +639,7 @@ html_content = f'''<!DOCTYPE html>
         <span>Gerekli Sistem İzinleri</span>
       </div>
       <p class="hint-text" style="margin-bottom: 16px;">
-        Uygulamanın arka planda kesintisiz çalışabilmesi, yapay zeka çıkarım görevlerini yerine getirebilmesi ve sistem bildirimlerini iletebilmesi için aşağıdaki 3 iznin verilmesi gerekmektedir.
+        Uygulamanın arka planda kesintisiz çalışabilmesi, yapay zeka çıkarım görevlerini yerine getirebilmesi ve sistem bildirimlerini iletebilmesi için aşağıdaki izinlerin verilmesi gerekmektedir.
       </p>
 
       <div class="perm-card" id="card-perm-notif" onclick="requestNotifPerm()">
@@ -658,10 +658,18 @@ html_content = f'''<!DOCTYPE html>
         <span class="perm-status-badge" id="badge-perm-battery">Kapat</span>
       </div>
 
+      <div class="perm-card" id="card-perm-bgactivity" onclick="requestBackgroundActivityPerm()">
+        <div class="perm-info">
+          <span class="perm-name">3. Arka Planda Çalışma İzni (ZORUNLU)</span>
+          <span class="perm-desc">Pil Kullanımı -> 'Arka plan aktivitesine izin ver' açılmalıdır</span>
+        </div>
+        <span class="perm-status-badge" id="badge-perm-bgactivity">İzin Ver</span>
+      </div>
+
       <div class="perm-card" id="card-perm-autostart" onclick="requestAutoStartPerm()">
         <div class="perm-info">
-          <span class="perm-name">3. Arka Plan Aktivitesi İzni (ZORUNLU)</span>
-          <span class="perm-desc">Realme/Android: Pil Kullanımı -> 'Arka plan aktivitesine izin ver' açılmalıdır</span>
+          <span class="perm-name">4. Otomatik Başlatma İzni (ZORUNLU)</span>
+          <span class="perm-desc">Cihazın 'Otomatik Başlatma' ekranında uygulama etkinleştirilmelidir</span>
         </div>
         <span class="perm-status-badge" id="badge-perm-autostart">İzin Ver</span>
       </div>
@@ -734,7 +742,9 @@ html_content = f'''<!DOCTYPE html>
           <div style="background: rgba(255,255,255,0.1); border-radius: 6px; height: 8px; overflow: hidden;">
             <div id="download-progress-bar" style="background: #3b82f6; height: 100%; width: 0%; transition: width 0.3s ease;"></div>
           </div>
+          <div id="download-error-text" class="hidden" style="margin-top: 6px; font-size: 0.7rem; color: #f87171;"></div>
         </div>
+        <div id="crash-text" class="hidden" style="margin-top: 8px; font-size: 0.7rem; color: #fb923c;"></div>
 
         <button id="btn-test-model" class="btn btn-secondary" onclick="openModelChatModal()" style="margin-top: 10px; font-size: 0.85rem; padding: 9px 12px;">
           <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -861,10 +871,23 @@ html_content = f'''<!DOCTYPE html>
             battBadge.innerText = 'Kapat';
           }}
 
+          const bgCard = document.getElementById('card-perm-bgactivity');
+          const bgBadge = document.getElementById('badge-perm-bgactivity');
+          const isBgActive = Boolean(p.bgactivity !== false);
+          if (isBgActive) {{
+            bgCard.classList.add('granted');
+            bgBadge.className = 'perm-status-badge granted';
+            bgBadge.innerText = '✓ Verildi';
+          }} else {{
+            bgCard.classList.remove('granted');
+            bgBadge.className = 'perm-status-badge';
+            bgBadge.innerText = 'İzin Ver';
+          }}
+
           const autoCard = document.getElementById('card-perm-autostart');
           const autoBadge = document.getElementById('badge-perm-autostart');
-          const isBgActive = Boolean(p.autostart && p.bgactivity !== false);
-          if (isBgActive) {{
+          const isAutoStart = Boolean(p.autostart);
+          if (isAutoStart) {{
             autoCard.classList.add('granted');
             autoBadge.className = 'perm-status-badge granted';
             autoBadge.innerText = '✓ Verildi';
@@ -874,7 +897,7 @@ html_content = f'''<!DOCTYPE html>
             autoBadge.innerText = 'İzin Ver';
           }}
 
-          permissionsCompleted = Boolean(p.notifications && p.battery && isBgActive);
+          permissionsCompleted = Boolean(p.notifications && p.battery && isBgActive && isAutoStart);
           const btnCont = document.getElementById('btn-perm-continue');
           if (btnCont) {{
             if (permissionsCompleted) {{
@@ -886,7 +909,7 @@ html_content = f'''<!DOCTYPE html>
             }}
           }}
 
-          if (!isBgActive || !p.battery) {{
+          if (!isBgActive || !isAutoStart || !p.battery) {{
             document.getElementById('unpaired-view').classList.add('hidden');
             document.getElementById('paired-view').classList.add('hidden');
             document.getElementById('permissions-view').classList.remove('hidden');
@@ -910,10 +933,15 @@ html_content = f'''<!DOCTYPE html>
       setTimeout(refreshPermissions, 1000);
     }}
 
-    function requestAutoStartPerm() {{
+    function requestBackgroundActivityPerm() {{
       if (window.AndroidBridge && window.AndroidBridge.openBackgroundActivitySettings) {{
         window.AndroidBridge.openBackgroundActivitySettings();
-      }} else if (window.AndroidBridge && window.AndroidBridge.openAutoStartSettings) {{
+      }}
+      setTimeout(refreshPermissions, 1500);
+    }}
+
+    function requestAutoStartPerm() {{
+      if (window.AndroidBridge && window.AndroidBridge.openAutoStartSettings) {{
         window.AndroidBridge.openAutoStartSettings();
       }}
       setTimeout(refreshPermissions, 1500);
@@ -1121,18 +1149,40 @@ html_content = f'''<!DOCTYPE html>
           if (s.model_status_desc) {{
             document.getElementById('stat-model-desc').innerText = s.model_status_desc;
           }}
-          if (s.model_status === 'downloading') {{
+          const progressPct = s.download_progress !== undefined && s.download_progress !== null ? s.download_progress : 0;
+          const isDownloading = s.model_status === 'downloading' || (progressPct > 0 && progressPct < 100);
+          if (isDownloading) {{
             document.getElementById('download-progress-container').classList.remove('hidden');
             document.getElementById('btn-test-model').classList.add('hidden');
             const dMB = s.downloaded_mb || 0;
             const tMB = s.total_mb || 380;
-            const pct = s.download_progress || (tMB > 0 ? Math.floor((dMB / tMB) * 100) : 0);
+            const pct = progressPct || (tMB > 0 ? Math.floor((dMB / tMB) * 100) : 0);
             document.getElementById('download-progress-text').innerText = dMB + ' MB / ' + tMB + ' MB';
             document.getElementById('download-progress-pct').innerText = '%' + pct;
-            document.getElementById('download-progress-bar').style.width = pct + '%';
+            document.getElementById('download-progress-bar').style.width = Math.max(0, Math.min(100, pct)) + '%';
           }} else {{
             document.getElementById('download-progress-container').classList.add('hidden');
             document.getElementById('btn-test-model').classList.remove('hidden');
+          }}
+          if (s.download_error && s.download_error.length > 0) {{
+            const errEl = document.getElementById('download-error-text');
+            if (errEl) {{
+              errEl.innerText = 'Indirme hatasi: ' + s.download_error;
+              errEl.classList.remove('hidden');
+            }}
+          }} else {{
+            const errEl = document.getElementById('download-error-text');
+            if (errEl) errEl.classList.add('hidden');
+          }}
+          if (s.last_crash && s.last_crash.length > 0) {{
+            const crashEl = document.getElementById('crash-text');
+            if (crashEl) {{
+              crashEl.innerText = 'Son hata: ' + s.last_crash.split('\\n')[0];
+              crashEl.classList.remove('hidden');
+            }}
+          }} else {{
+            const crashEl = document.getElementById('crash-text');
+            if (crashEl) crashEl.classList.add('hidden');
           }}
           if (s.model_status) {{
             const mBadge = document.getElementById('stat-model-badge');
@@ -1378,12 +1428,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        try {
-            Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
-                @Override
-                public void uncaughtException(Thread t, Throwable e) {}
-            });
-        } catch (Throwable ignored) {}
+        installCrashHandler();
 
         String appName = "{app_name}";
         try {
@@ -1480,16 +1525,20 @@ public class MainActivity extends Activity {
             }
 
             if (isBgRestricted) {
-                sp.edit().putBoolean("autostart_granted", false).apply();
+                sp.edit().putBoolean("bgactivity_granted", false).apply();
             } else {
-                if (sp.getBoolean("autostart_pending_check", false)) {
-                    sp.edit().putBoolean("autostart_pending_check", false).putBoolean("autostart_granted", true).apply();
+                if (sp.getBoolean("bgactivity_pending_check", false)) {
+                    sp.edit().putBoolean("bgactivity_pending_check", false).putBoolean("bgactivity_granted", true).apply();
                 }
+            }
+            if (sp.getBoolean("autostart_pending_check", false)) {
+                sp.edit().putBoolean("autostart_pending_check", false).putBoolean("autostart_granted", true).apply();
             }
 
             if (sp.getBoolean("is_paired", false) && !sp.getString("node_id", "").isEmpty()) {
                 try {
                     Intent sIntent = new Intent(this, WorkerService.class);
+                    sIntent.putExtra("action", "refresh_state");
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         startForegroundService(sIntent);
                     } else {
@@ -1516,102 +1565,60 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
+    /**
+     * Launches the first candidate that is actually available on this device.
+     * The PackageManager is consulted before every launch so the user never ends up
+     * on a foreign vendor screen.
+     */
+    private boolean launchFirstAvailable(Intent[] candidates) {
+        if (candidates == null) return false;
+        for (Intent candidate : candidates) {
+            try {
+                if (candidate == null) continue;
+                candidate.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (candidate.getComponent() != null) {
+                    PackageManager pm = getPackageManager();
+                    if (pm == null || pm.resolveActivity(candidate, PackageManager.MATCH_DEFAULT_ONLY) == null) {
+                        continue;
+                    }
+                }
+                startActivity(candidate);
+                return true;
+            } catch (Throwable ignored) {}
+        }
+        return false;
+    }
+
+    /**
+     * Opens the OEM "Auto start / Startup" manager of the device.
+     */
     public void openAutoStartSettings() {
         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
         lastPausedAt = 0;
         sp.edit().putBoolean("autostart_pending_check", true).apply();
 
-        Toast.makeText(this, "Realme / Oppo / Android: 'Pil Kullanımı' -> 'Arka plan aktivitesine izin ver' seçeneğini açın.", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, "Otomatik baslatma ekraninda uygulamayi etkinlestirin.", Toast.LENGTH_LONG).show();
 
         Intent[] candidates = new Intent[] {
-            // 1. Android 13+ / Realme C55 Exported App Battery Settings Screen (Direct "Pil Kullanımı")
-            new Intent("android.settings.APP_BATTERY_SETTINGS")
-                .setData(Uri.parse("package:" + getPackageName()))
-                .putExtra("package", getPackageName())
-                .putExtra("package_name", getPackageName())
-                .putExtra("extra_package_name", getPackageName())
-                .putExtra(Intent.EXTRA_PACKAGE_NAME, getPackageName()),
-
-            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.fuelgauge.AdvancedPowerUsageDetailActivity"))
-                .setData(Uri.parse("package:" + getPackageName()))
-                .putExtra("package", getPackageName())
-                .putExtra("package_name", getPackageName())
-                .putExtra("extra_package_name", getPackageName())
-                .putExtra(Intent.EXTRA_PACKAGE_NAME, getPackageName()),
-
-            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.Settings$AppBatteryUsageActivity"))
-                .setData(Uri.parse("package:" + getPackageName()))
-                .putExtra("package", getPackageName())
-                .putExtra("extra_package_name", getPackageName()),
-
-            // 2. SubSettings Fragment for AdvancedPowerUsageDetail
-            new Intent("android.intent.action.VIEW").setComponent(new ComponentName("com.android.settings", "com.android.settings.SubSettings"))
-                .putExtra(":settings:show_fragment", "com.android.settings.fuelgauge.AdvancedPowerUsageDetail")
-                .putExtra(":settings:fragment_args_key", getPackageName())
-                .putExtra("package", getPackageName())
-                .putExtra("extra_package_name", getPackageName()),
-
-            // 3. Realme C55 / ColorOS Dedicated App Battery Use Detail
-            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.battery.AppBatteryUseDetailActivity"))
-                .setData(Uri.parse("package:" + getPackageName()))
-                .putExtra("package_name", getPackageName())
-                .putExtra("pkgName", getPackageName())
-                .putExtra("packageName", getPackageName())
-                .putExtra("title", "{app_name}"),
-
-            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.powermanager.fuelgauge.PowerControlActivity"))
-                .setData(Uri.parse("package:" + getPackageName()))
-                .putExtra("pkgName", getPackageName())
-                .putExtra("package_name", getPackageName())
-                .putExtra("packageName", getPackageName())
-                .putExtra("title", "{app_name}")
-                .putExtra("drainType", "APP"),
-
-            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgauge.PowerControlActivity"))
-                .putExtra("pkgName", getPackageName())
-                .putExtra("package_name", getPackageName())
-                .putExtra("packageName", getPackageName())
-                .putExtra("title", "{app_name}")
-                .putExtra("drainType", "APP"),
-
-            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.battery.fuelgauge.PowerConsumptionActivity"))
-                .putExtra("pkgName", getPackageName())
-                .putExtra("package_name", getPackageName()),
-
-            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgauge.PowerConsumptionActivity"))
-                .putExtra("pkgName", getPackageName())
-                .putExtra("package_name", getPackageName()),
-
-            // 3. SubSettings Fragment for AdvancedPowerUsageDetail (Direct "Pil Kullanımı")
-            new Intent("android.intent.action.VIEW").setComponent(new ComponentName("com.android.settings", "com.android.settings.SubSettings"))
-                .putExtra(":settings:show_fragment", "com.android.settings.fuelgauge.AdvancedPowerUsageDetail")
-                .putExtra(":settings:fragment_args_key", getPackageName())
-                .putExtra("package", getPackageName()),
-
-            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.fuelgauge.AdvancedPowerUsageDetailActivity"))
-                .setData(Uri.parse("package:" + getPackageName()))
-                .putExtra("package", getPackageName()),
-
-            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.Settings$AppBatteryUsageActivity"))
-                .setData(Uri.parse("package:" + getPackageName()))
-                .putExtra("package", getPackageName()),
-
-            // 4. ColorOS / Realme Startup and AutoStart managers
+            // ColorOS / OPPO / Realme (Realme C55) auto start managers
             new Intent().setComponent(new ComponentName("com.oplus.securitypermission", "com.oplus.securitypermission.startup.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.oplus.securitypermission", "com.oplus.securitypermission.permission.startup.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startupapp.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity")),
-            new Intent().setComponent(new ComponentName("com.oplus.safecenter", "com.oplus.safecenter.startupapp.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.oplus.safecenter", "com.oplus.safecenter.permission.startup.StartupAppListActivity")),
+            new Intent().setComponent(new ComponentName("com.oplus.safecenter", "com.oplus.safecenter.startupapp.StartupAppListActivity")),
+            new Intent().setComponent(new ComponentName("com.realme.safecenter", "com.realme.safecenter.permission.startup.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.realme.safecenter", "com.realme.safecenter.startupapp.StartupAppListActivity")),
             new Intent().setComponent(new ComponentName("com.realme.securitypermission", "com.realme.securitypermission.startup.StartupAppListActivity")),
 
-            // 5. Other OEMs (Honor, Huawei, Xiaomi, Vivo, Samsung, Transsion)
+            // Honor / Huawei (Honor Pad 10) app control / startup managers
             new Intent().setComponent(new ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.appcontrol.activity.StartupAppControlActivity")),
             new Intent().setComponent(new ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity")),
             new Intent().setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity")),
             new Intent().setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")),
+
+            // Xiaomi / Vivo / Samsung / Transsion
             new Intent().setComponent(new ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")),
             new Intent().setComponent(new ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity")),
             new Intent().setComponent(new ComponentName("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity")),
@@ -1619,13 +1626,87 @@ public class MainActivity extends Activity {
             new Intent().setComponent(new ComponentName("com.transsion.phonemaster", "com.transsion.phonemaster.StartupManagerActivity"))
         };
 
-        for (Intent candidate : candidates) {
-            try {
-                candidate.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(candidate);
-                return;
-            } catch (Throwable ignored) {}
-        }
+        if (launchFirstAvailable(candidates)) return;
+
+        try {
+            Intent appDetails = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            appDetails.setData(Uri.parse("package:" + getPackageName()));
+            appDetails.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(appDetails);
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * Opens the "Battery usage -> allow background activity" screen of the device.
+     * On Realme C55 / ColorOS this is the "Pil Kullanimi" page of the app where the
+     * "Arka plan aktivitesine izin ver" switch lives.
+     */
+    public void openBackgroundActivitySettings() {
+        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+        lastPausedAt = 0;
+        sp.edit().putBoolean("bgactivity_pending_check", true).apply();
+
+        Toast.makeText(this, "Pil Kullanimi ekraninda 'Arka plan aktivitesine izin ver' secenegini acin.", Toast.LENGTH_LONG).show();
+
+        Intent[] candidates = new Intent[] {
+            // Realme C55 / ColorOS / OPPO: per app battery usage page
+            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.battery.AppBatteryUseDetailActivity"))
+                .setData(Uri.parse("package:" + getPackageName()))
+                .putExtra("package_name", getPackageName())
+                .putExtra("pkgName", getPackageName())
+                .putExtra("packageName", getPackageName())
+                .putExtra("title", "{app_name}"),
+
+            // ColorOS / OPPO: background activity (power control) manager
+            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgauge.PowerControlActivity"))
+                .putExtra("pkgName", getPackageName())
+                .putExtra("package_name", getPackageName())
+                .putExtra("packageName", getPackageName())
+                .putExtra("title", "{app_name}")
+                .putExtra("drainType", "APP"),
+            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.powermanager.fuelgauge.PowerControlActivity"))
+                .setData(Uri.parse("package:" + getPackageName()))
+                .putExtra("pkgName", getPackageName())
+                .putExtra("package_name", getPackageName())
+                .putExtra("packageName", getPackageName())
+                .putExtra("title", "{app_name}")
+                .putExtra("drainType", "APP"),
+            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgauge.PowerConsumptionActivity"))
+                .putExtra("pkgName", getPackageName())
+                .putExtra("package_name", getPackageName()),
+            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.battery.fuelgauge.PowerConsumptionActivity"))
+                .putExtra("pkgName", getPackageName())
+                .putExtra("package_name", getPackageName()),
+
+            // Honor / Huawei battery managers
+            new Intent().setComponent(new ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.battery.ui.BatteryManagerActivity"))
+                .putExtra("package_name", getPackageName()),
+            new Intent().setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.battery.ui.BatteryManagerActivity"))
+                .putExtra("package_name", getPackageName()),
+
+            // Generic AOSP battery usage screens
+            new Intent("android.settings.APP_BATTERY_SETTINGS")
+                .setData(Uri.parse("package:" + getPackageName()))
+                .putExtra("package", getPackageName())
+                .putExtra("package_name", getPackageName())
+                .putExtra("extra_package_name", getPackageName())
+                .putExtra(Intent.EXTRA_PACKAGE_NAME, getPackageName()),
+            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.fuelgauge.AdvancedPowerUsageDetailActivity"))
+                .setData(Uri.parse("package:" + getPackageName()))
+                .putExtra("package", getPackageName())
+                .putExtra("package_name", getPackageName())
+                .putExtra(Intent.EXTRA_PACKAGE_NAME, getPackageName()),
+            new Intent("android.intent.action.VIEW").setComponent(new ComponentName("com.android.settings", "com.android.settings.SubSettings"))
+                .putExtra(":settings:show_fragment", "com.android.settings.fuelgauge.AdvancedPowerUsageDetail")
+                .putExtra(":settings:fragment_args_key", getPackageName())
+                .putExtra("package", getPackageName())
+                .putExtra("extra_package_name", getPackageName()),
+            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.Settings$AppBatteryUsageActivity"))
+                .setData(Uri.parse("package:" + getPackageName()))
+                .putExtra("package", getPackageName())
+        };
+
+        if (launchFirstAvailable(candidates)) return;
 
         try {
             Intent appDetails = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
@@ -1645,6 +1726,77 @@ public class MainActivity extends Activity {
             fos.write(bytes);
             fos.close();
         } catch (Exception ignored) {}
+    }
+
+    /**
+     * Installs a crash handler that keeps the worker alive, records the failure and
+     * reports it to the coordinator instead of silently dying.
+     */
+    private void installCrashHandler() {
+        try {
+            final SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+                @Override
+                public void uncaughtException(Thread t, Throwable e) {
+                    try {
+                        java.io.StringWriter sw = new java.io.StringWriter();
+                        e.printStackTrace(new java.io.PrintWriter(sw));
+                        String stack = sw.toString();
+                        String msg = e.getMessage() != null ? e.getMessage() : e.toString();
+                        sp.edit().putString("last_crash", msg + "\\n" + stack).apply();
+                        android.util.Log.e("BYOG_CRASH", "Uncaught exception on " + t.getName() + ": " + msg, e);
+                        reportCrashToServer("ERR_UNCAUGHT", msg, stack);
+                        if (t == android.os.Looper.getMainLooper().getThread()) {
+                            try {
+                                Intent restart = new Intent(MainActivity.this, MainActivity.class);
+                                restart.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                                restart.putExtra("crash_message", msg);
+                                MainActivity.this.startActivity(restart);
+                                MainActivity.this.finish();
+                            } catch (Throwable ignored) {}
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            });
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * Sends a crash report to the coordinator.
+     */
+    private void reportCrashToServer(final String errorCode, final String errorMessage, final String stackTrace) {
+        try {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            final String serverUrl = sp.getString("server_url", "");
+            final String nodeId = sp.getString("node_id", "");
+            if (serverUrl.isEmpty()) return;
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        JSONObject body = new JSONObject();
+                        body.put("node_id", nodeId);
+                        body.put("error_code", errorCode);
+                        body.put("error_message", errorMessage);
+                        body.put("stack_trace", stackTrace);
+                        body.put("created_at", System.currentTimeMillis() / 1000);
+
+                        URL url = new URL(serverUrl + "/api/v1/worker/telemetry/crash");
+                        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                        conn.setRequestMethod("POST");
+                        conn.setRequestProperty("Content-Type", "application/json");
+                        conn.setConnectTimeout(6000);
+                        conn.setReadTimeout(6000);
+                        conn.setDoOutput(true);
+                        OutputStream os = conn.getOutputStream();
+                        os.write(body.toString().getBytes("UTF-8"));
+                        os.close();
+                        conn.getResponseCode();
+                        conn.disconnect();
+                    } catch (Throwable ignored) {}
+                }
+            }).start();
+        } catch (Throwable ignored) {}
     }
 
     private void fetchInitialServerBranding() {
@@ -1779,7 +1931,7 @@ public class MainActivity extends Activity {
                 }
 
                 SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                boolean autostart = bgAllowed && sp.getBoolean("autostart_granted", false);
+                boolean autostart = sp.getBoolean("autostart_granted", false);
 
                 obj.put("notifications", notif);
                 obj.put("battery", battery);
@@ -1823,7 +1975,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void openBackgroundActivitySettings() {
-            MainActivity.this.openAutoStartSettings();
+            MainActivity.this.openBackgroundActivitySettings();
         }
 
         @JavascriptInterface
@@ -2260,7 +2412,7 @@ public class MainActivity extends Activity {
                 state.put("battery_temp", (float) sp.getFloat("battery_temp", 31.0f));
                 String assignedModel = sp.getString("assigned_model", "qwen-2.5-0.5b-instruct");
                 File mf = new File(getFilesDir(), assignedModel + ".gguf");
-                boolean modelOnDisk = mf.exists() && mf.length() > 50 * 1024 * 1024;
+                boolean modelOnDisk = mf.exists() && mf.length() > 10 * 1024 * 1024;
                 String defaultStatus = modelOnDisk ? "ready" : "downloading";
                 int dMB = sp.getInt("downloaded_mb", 0);
                 int tMB = sp.getInt("total_mb", 380);
@@ -2275,6 +2427,15 @@ public class MainActivity extends Activity {
                 state.put("current_tps", 0.0);
                 state.put("active_vram_model", sp.getString("active_vram_model", ""));
                 state.put("is_charging", sp.getBoolean("is_charging", false));
+                state.put("downloading_model", sp.getString("downloading_model", ""));
+                String downloadError = sp.getString("download_error", "");
+                if (!downloadError.isEmpty()) {
+                    state.put("download_error", downloadError);
+                }
+                String lastCrash = sp.getString("last_crash", "");
+                if (!lastCrash.isEmpty()) {
+                    state.put("last_crash", lastCrash);
+                }
             } catch (Exception ignored) {}
             return state.toString();
         }
@@ -2473,11 +2634,18 @@ public class BootReceiver extends BroadcastReceiver {
             boolean isPaired = sp.getBoolean("is_paired", false);
             String nodeId = sp.getString("node_id", "");
             if (isPaired && !nodeId.isEmpty()) {
-                Intent sIntent = new Intent(context, WorkerService.class);
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(sIntent);
-                } else {
-                    context.startService(sIntent);
+                try {
+                    Intent sIntent = new Intent(context, WorkerService.class);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        context.startForegroundService(sIntent);
+                    } else {
+                        context.startService(sIntent);
+                    }
+                } catch (Throwable ignored) {
+                    // Android 12+ blocks foreground service starts from the background for
+                    // some broadcasts. The worker is restarted by the next watchdog tick,
+                    // so the failure must never take the application down.
+                    android.util.Log.w("BYOG_BOOT", "Worker could not be started: " + ignored.getMessage());
                 }
             }
         }

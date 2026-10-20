@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Cpu, Gift, RefreshCw, Server, Settings2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -68,7 +68,7 @@ export function ByogUserDashboard() {
   const [newName, setNewName] = useState('')
   const [renameOpen, setRenameOpen] = useState(false)
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true)
       const [status, userNodes, rewardItems] = await Promise.all([
@@ -84,10 +84,24 @@ export function ByogUserDashboard() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [t])
 
   useEffect(() => {
     fetchData()
+  }, [fetchData])
+
+  // The nodes report their download progress through the telemetry, therefore the
+  // panel refreshes itself so that the progress stays visible.
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      try {
+        const userNodes = await getUserNodes()
+        setNodes(userNodes)
+      } catch {
+        // A failing background refresh must not interrupt the user.
+      }
+    }, 5000)
+    return () => clearInterval(timer)
   }, [])
 
   // If user is banned from BYOG, show Section 3.8 Banned Screen

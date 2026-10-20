@@ -80,20 +80,26 @@ export function NodeCard({
   const heartbeatAge = nowSec - (node.last_heartbeat_at || 0)
   const isRecentHeartbeat = (node.last_heartbeat_at || 0) > 0 && heartbeatAge <= 120
   const isRecentCreation = (node.created_at || 0) > 0 && (nowSec - node.created_at) <= 120
-  const isDownloading = node.model_status === 'downloading'
+  const isDownloading = node.model_status === 'downloading' ||
+    ((node.download_progress || 0) > 0 && (node.download_progress || 0) < 100)
   const isStale = !isDownloading && !isRecentHeartbeat && !isRecentCreation && heartbeatAge > 120
   const isOffline = (node.status === 'offline' && !isDownloading) || isStale
   const isStopped = isOffline || node.status === 'banned'
 
   const getStatusBadge = () => {
     if (isDownloading) {
+      // The device keeps working while the model is downloaded, therefore the node
+      // stays online and the download state is shown next to the online state.
+      const label = isRecentHeartbeat || node.status === 'online'
+        ? t('byog.status_online_downloading', 'Çevrimiçi (İndiriliyor)')
+        : t('byog.status_downloading', 'İndiriliyor...')
       return (
         <Badge
           variant='outline'
           className='gap-1 border-amber-500/40 bg-amber-500/10 text-xs font-semibold text-amber-500'
         >
           <span className='h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500' />
-          {t('byog.status_downloading', 'İndiriliyor...')}
+          {label}
         </Badge>
       )
     }
@@ -170,7 +176,12 @@ export function NodeCard({
       if (node.download_queue) queue = JSON.parse(node.download_queue)
     } catch {}
 
-    const primaryModel = (installed && installed.length > 0) ? installed[0] : (queue && queue.length > 0 ? queue[0] : t('byog.no_model_assigned', 'Model Kuyruğu Bekleniyor'))
+    let primaryModel = t('byog.no_model_assigned', 'Model Kuyruğu Bekleniyor')
+    if (installed && installed.length > 0) {
+      primaryModel = installed[0]
+    } else if (queue && queue.length > 0) {
+      primaryModel = queue[0]
+    }
 
     // 1. Downloading check ALWAYS takes priority
     const isDownloading = node.model_status === 'downloading' ||
@@ -179,8 +190,13 @@ export function NodeCard({
 
     if (isDownloading) {
       const dMb = node.downloaded_mb || 0
-      const tMb = node.total_mb > 0 ? node.total_mb : 380
-      const pct = node.download_progress ? Math.round(node.download_progress) : (tMb > 0 ? Math.round((dMb / tMb) * 100) : 0)
+      const tMb = (node.total_mb ?? 0) > 0 ? (node.total_mb ?? 0) : 380
+      let pct = 0
+      if (node.download_progress) {
+        pct = Math.round(node.download_progress)
+      } else if (tMb > 0) {
+        pct = Math.round((dMb / tMb) * 100)
+      }
       const dlText = `${t('byog.model_downloading', 'İndiriliyor...')} (${dMb} MB / ${tMb} MB - %${pct})`
 
       return {
@@ -192,9 +208,15 @@ export function NodeCard({
 
     // 2. Stopped check
     if (isStopped) {
+      let stoppedStatus = t('byog.status_stopped', 'Durmuş')
+      if (node.status === 'banned') {
+        stoppedStatus = t('byog.status_banned', 'Yasaklandı')
+      } else if (node.status === 'offline' || isStale) {
+        stoppedStatus = t('byog.status_offline', 'Çevrimdışı')
+      }
       return {
         model: primaryModel,
-        status: node.status === 'banned' ? t('byog.status_banned', 'Yasaklandı') : (node.status === 'offline' || isStale ? t('byog.status_offline', 'Çevrimdışı') : t('byog.status_stopped', 'Durmuş')),
+        status: stoppedStatus,
         badgeClass: 'border-slate-500/40 bg-slate-500/10 text-muted-foreground',
       }
     }

@@ -97,8 +97,9 @@ export function ByogNodesTab() {
           'Bu cihazı ağdan ve veritabanından kalıcı olarak silmek istediğinizden emin misiniz?'
         )
       )
-    )
+    ) {
       return
+    }
     try {
       await deleteAdminNode(nodeId)
       setNodes((prev) => prev.filter((n) => n.node_id !== nodeId && String(n.id) !== nodeId))
@@ -151,17 +152,25 @@ export function ByogNodesTab() {
         if (Array.isArray(queue) && queue.length > 0 && (!Array.isArray(installed) || installed.length === 0)) {
           isDownloading = true
         }
-      } catch (e) {}
+      } catch {}
     }
 
     if (isDownloading) {
       const dMb = node.downloaded_mb || 0
-      const tMb = node.total_mb > 0 ? node.total_mb : 380
-      const pct = node.download_progress ? Math.round(node.download_progress) : (tMb > 0 ? Math.round((dMb / tMb) * 100) : 0)
+      const tMb = (node.total_mb ?? 0) > 0 ? (node.total_mb ?? 0) : 380
+      let pct = 0
+      if (node.download_progress) {
+        pct = Math.round(node.download_progress)
+      } else if (tMb > 0) {
+        pct = Math.round((dMb / tMb) * 100)
+      }
+      const online = node.status === 'online' || isRecentHeartbeat
       return (
         <div className='flex flex-col'>
           <Badge className='border-amber-500/20 bg-amber-500/10 text-amber-500 font-medium animate-pulse'>
-            {t('byog.status_downloading', 'İndiriliyor...')}
+            {online
+              ? t('byog.status_online_downloading', 'Çevrimiçi (İndiriliyor)')
+              : t('byog.status_downloading', 'İndiriliyor...')}
           </Badge>
           <span className='text-[10px] text-muted-foreground mt-0.5 font-mono'>
             {dMb} MB / {tMb} MB (%{pct})

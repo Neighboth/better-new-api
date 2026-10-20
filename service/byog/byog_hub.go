@@ -237,10 +237,26 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 			if telemetry.ModelStatus != "" {
 				node.ModelStatus = telemetry.ModelStatus
 			}
-			if telemetry.TotalMB > 0 {
-				node.TotalMB = telemetry.TotalMB
+			// The download progress is only meaningful while a model is transferred, but
+			// the total size is reported from the moment the worker starts the download.
+			if telemetry.TotalMB > 0 || telemetry.ModelStatus == "downloading" {
+				if telemetry.TotalMB > 0 {
+					node.TotalMB = telemetry.TotalMB
+				}
 				node.DownloadedMB = telemetry.DownloadedMB
 				node.DownloadProgress = telemetry.DownloadProgress
+				if node.DownloadProgress <= 0 && node.TotalMB > 0 {
+					node.DownloadProgress = int((float64(node.DownloadedMB) / float64(node.TotalMB)) * 100)
+				}
+				if node.DownloadProgress < 0 {
+					node.DownloadProgress = 0
+				}
+				if node.DownloadProgress > 100 {
+					node.DownloadProgress = 100
+				}
+			}
+			if telemetry.DownloadStatus != "" {
+				node.DownloadStatus = telemetry.DownloadStatus
 			}
 			if telemetry.ActiveVramModel != "" {
 				node.ActiveVramModel = telemetry.ActiveVramModel

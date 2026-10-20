@@ -1,28 +1,73 @@
 package org.byog.worker;
 
+import android.util.Log;
+
 import java.io.File;
-import java.io.FileInputStream;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 
+import de.kherud.llama.InferenceParameters;
+import de.kherud.llama.LlamaModel;
+import de.kherud.llama.LlamaOutput;
+import de.kherud.llama.ModelParameters;
+import de.kherud.llama.Pair;
+
+/**
+ * On-device GGUF inference engine backed by llama.cpp (de.kherud.llama Android bindings).
+ *
+ * The engine loads the real model weights from the device filesystem and streams
+ * genuine tokens produced by the llama.cpp sampler. No canned/template answers are
+ * ever produced: when the runtime or the weights are unavailable the caller receives
+ * an explicit error instead of fabricated content.
+ */
 public class LocalNeuralEngine {
+    private static final String TAG = "BYOG_ENGINE";
+    private static final long MIN_MODEL_BYTES = 10L * 1024 * 1024;
+
+    private static final Object MODEL_LOCK = new Object();
+    private static LlamaModel cachedModel = null;
+    private static String cachedModelKey = null;
+
     private final String modelId;
     private final File modelFile;
-    private final int dim = 128;
-    private final int heads = 8;
-    private final int headDim = dim / heads;
 
     public interface StreamCallback {
+        /** @return false to stop generation */
         boolean onToken(String piece, int tokenId);
     }
 
     public static class InferenceResult {
-        public String fullText;
-        public int totalTokens;
-        public int ttftMs;
-        public float tps;
+        public String fullText = "";
+        public int totalTokens = 0;
+        public int promptTokens = 0;
+        public int ttftMs = 0;
+        public float tps = 0.0f;
+        public String error = null;
+        public boolean success = false;
+        /** Log probability of every produced token (used by the anti-cheat canary). */
+        public final List<Float> logprobs = new ArrayList<Float>();
+    }
+
+    /** Mutable generation counters shared between the retry paths. */
+    private static final class GenerationState {
+        int tokenCount = 0;
+        long firstTokenAt = 0;
+        final StringBuilder text = new StringBuilder();
+        final List<Float> logprobs = new ArrayList<Float>();
+    }
+
+    /**
+     * Tokenizes a text with the loaded model vocabulary.
+     */
+    public int[] encode(String text) {
+        try {
+            if (modelFile == null || !modelFile.exists()) {
+                return new int[0];
+            }
+            return acquireModel(modelFile).encode(text);
+        } catch (Throwable ignored) {
+            return new int[0];
+        }
     }
 
     public LocalNeuralEngine(String modelId, File modelDir) {
@@ -30,290 +75,210 @@ public class LocalNeuralEngine {
         this.modelFile = new File(modelDir, modelId + ".gguf");
     }
 
-    private List<String> extractGgufTokens() {
-        if (modelFile == null || !modelFile.exists() || modelFile.length() < 1024) return null;
-        try (FileInputStream fis = new FileInputStream(modelFile)) {
-            byte[] magic = new byte[4];
-            if (fis.read(magic) != 4 || !new String(magic, StandardCharsets.US_ASCII).equals("GGUF")) {
-                return null;
+    private static String modelKey(File file) {
+        return file.getAbsolutePath() + "|" + file.length() + "|" + file.lastModified();
+    }
+
+    /**
+     * Loads (and caches) the llama.cpp model. The caller must surface any failure to
+     * the server instead of substituting generated content.
+     */
+    private static LlamaModel acquireModel(File file) throws Exception {
+        String key = modelKey(file);
+        synchronized (MODEL_LOCK) {
+            if (cachedModel != null && key.equals(cachedModelKey)) {
+                return cachedModel;
             }
-            byte[] buf8 = new byte[8];
-            if (fis.read(buf8, 0, 4) != 4) return null;
-            if (fis.read(buf8) != 8) return null;
-            if (fis.read(buf8) != 8) return null;
-            long kvCount = readUint64LE(buf8);
-            if (kvCount > 500) kvCount = 500;
+            if (cachedModel != null) {
+                try {
+                    cachedModel.close();
+                } catch (Throwable ignored) {
+                }
+                cachedModel = null;
+                cachedModelKey = null;
+            }
 
-            for (int i = 0; i < kvCount; i++) {
-                if (fis.read(buf8) != 8) break;
-                long keyLen = readUint64LE(buf8);
-                if (keyLen > 1024) break;
-                byte[] keyBytes = new byte[(int) keyLen];
-                if (fis.read(keyBytes) != keyBytes.length) break;
-                String key = new String(keyBytes, StandardCharsets.UTF_8);
+            int cores = Runtime.getRuntime().availableProcessors();
+            int threads = Math.max(2, Math.min(6, cores - 1));
 
-                byte[] typeBuf = new byte[4];
-                if (fis.read(typeBuf) != 4) break;
-                int valType = readUint32LE(typeBuf);
+            ModelParameters params = new ModelParameters()
+                    .setModel(file.getAbsolutePath())
+                    .setThreads(threads)
+                    .setThreadsBatch(threads)
+                    .setCtxSize(2048)
+                    .setBatchSize(256)
+                    .setGpuLayers(0)
+                    .skipWarmup()
+                    .disablePerf();
 
-                if (valType == 9) {
-                    byte[] itemTypeBuf = new byte[4];
-                    if (fis.read(itemTypeBuf) != 4) break;
-                    int itemType = readUint32LE(itemTypeBuf);
+            LlamaModel model = new LlamaModel(params);
+            cachedModel = model;
+            cachedModelKey = key;
+            return model;
+        }
+    }
 
-                    if (fis.read(buf8) != 8) break;
-                    long itemCount = readUint64LE(buf8);
+    /** Releases the cached model (used when the worker purges or swaps models). */
+    public static void releaseModel() {
+        synchronized (MODEL_LOCK) {
+            if (cachedModel != null) {
+                try {
+                    cachedModel.close();
+                } catch (Throwable ignored) {
+                }
+            }
+            cachedModel = null;
+            cachedModelKey = null;
+        }
+    }
 
-                    if ("tokenizer.ggml.tokens".equals(key) && itemType == 8) {
-                        List<String> list = new ArrayList<>();
-                        long maxLoad = Math.min(itemCount, 32000);
-                        for (long j = 0; j < itemCount; j++) {
-                            if (fis.read(buf8) != 8) break;
-                            long sLen = readUint64LE(buf8);
-                            if (sLen > 4096) break;
-                            byte[] sBytes = new byte[(int) sLen];
-                            if (fis.read(sBytes) != sBytes.length) break;
-                            if (list.size() < maxLoad) {
-                                list.add(new String(sBytes, StandardCharsets.UTF_8));
-                            }
-                        }
-                        if (!list.isEmpty()) return list;
-                    } else {
-                        if (itemType == 8) {
-                            for (long j = 0; j < itemCount; j++) {
-                                if (fis.read(buf8) != 8) break;
-                                long sLen = readUint64LE(buf8);
-                                if (sLen > 65536) break;
-                                fis.skip(sLen);
-                            }
-                        } else {
-                            int[] sizes = new int[]{1, 1, 2, 2, 4, 4, 4, 1, 8, 8, 8, 8, 8};
-                            int sz = (itemType >= 0 && itemType < sizes.length) ? sizes[itemType] : 4;
-                            fis.skip(itemCount * sz);
+    /**
+     * Builds the inference parameters. The GGUF chat template is applied by llama.cpp
+     * itself (use_jinja), so prompts are formatted correctly for the concrete model
+     * family instead of relying on a hard coded template.
+     */
+    private InferenceParameters buildParameters(String prompt, int maxTokens, float temperature) {
+        InferenceParameters params = new InferenceParameters("");
+        List<Pair<String, String>> messages = new ArrayList<>();
+        messages.add(new Pair<>("user", prompt));
+        params.setMessages(null, messages);
+        params.setUseChatTemplate(true);
+        params.setNPredict(maxTokens);
+        params.setTemperature(temperature);
+        params.setTopP(0.92f);
+        params.setRepeatPenalty(1.08f);
+        return params;
+    }
+
+    /** Fallback parameters for GGUF files that do not ship a usable chat template. */
+    private InferenceParameters buildRawParameters(String prompt, int maxTokens, float temperature) {
+        InferenceParameters params = new InferenceParameters(prompt);
+        params.setNPredict(maxTokens);
+        params.setTemperature(temperature);
+        params.setTopP(0.92f);
+        params.setRepeatPenalty(1.08f);
+        return params;
+    }
+
+    /**
+     * Streams the tokens produced by llama.cpp into the callback.
+     *
+     * @return true when the caller asked to stop the generation
+     */
+    private boolean streamTokens(LlamaModel model, InferenceParameters params, StreamCallback callback, GenerationState state) {
+        for (LlamaOutput out : model.generate(params)) {
+            String piece = out.text;
+            if (piece == null || piece.isEmpty()) {
+                continue;
+            }
+            if (state.firstTokenAt == 0) {
+                state.firstTokenAt = System.currentTimeMillis();
+            }
+            state.text.append(piece);
+            state.tokenCount++;
+
+            if (out.probabilities != null) {
+                try {
+                    for (java.util.Map.Entry<String, Float> entry : out.probabilities.entrySet()) {
+                        Float p = entry.getValue();
+                        if (p != null && p > 0f) {
+                            state.logprobs.add((float) Math.log(p.doubleValue()));
                         }
                     }
-                } else if (valType == 8) {
-                    if (fis.read(buf8) != 8) break;
-                    long sLen = readUint64LE(buf8);
-                    if (sLen > 65536) break;
-                    fis.skip(sLen);
-                } else {
-                    int[] sizes = new int[]{1, 1, 2, 2, 4, 4, 4, 1, 8, 8, 8, 8, 8};
-                    int sz = (valType >= 0 && valType < sizes.length) ? sizes[valType] : 4;
-                    fis.skip(sz);
+                } catch (Throwable ignored) {
                 }
-            }
-        } catch (Exception ignored) {}
-        return null;
-    }
-
-    private static long readUint64LE(byte[] b) {
-        return (b[0] & 0xFFL) |
-               ((b[1] & 0xFFL) << 8) |
-               ((b[2] & 0xFFL) << 16) |
-               ((b[3] & 0xFFL) << 24) |
-               ((b[4] & 0xFFL) << 32) |
-               ((b[5] & 0xFFL) << 40) |
-               ((b[6] & 0xFFL) << 48) |
-               ((b[7] & 0xFFL) << 56);
-    }
-
-    private static int readUint32LE(byte[] b) {
-        return (b[0] & 0xFF) |
-               ((b[1] & 0xFF) << 8) |
-               ((b[2] & 0xFF) << 16) |
-               ((b[3] & 0xFF) << 24);
-    }
-
-    private String synthesizeResponse(String prompt) {
-        if (modelFile == null || !modelFile.exists() || modelFile.length() < 10 * 1024 * 1024) {
-            return "Model henüz indirilmedi. Lütfen indirme tamamlandıktan sonra tekrar deneyiniz.";
-        }
-
-        String p = prompt != null ? prompt.trim() : "";
-        if (p.isEmpty()) return "Hello! How can I help you today?";
-
-        String pLower = p.toLowerCase();
-        boolean isTr = false;
-        String[] trMarkers = new String[]{
-            "ç", "ğ", "ı", "ö", "ş", "ü", "merhaba", "selam", "nasıl", "nedir", "bana", "yaz", "kod", "yap", "ve", "ile", "ne", "kim", "nerede", "hangi", "hakkında", "açıkla", "günaydın", "iyi günler", "lütfen", "teşekkür", "makale"
-        };
-        for (String m : trMarkers) {
-            if (pLower.contains(m)) {
-                isTr = true;
-                break;
-            }
-        }
-
-        boolean noPunct = pLower.contains("noktalama kullanma") || pLower.contains("no punctuation") || pLower.contains("without punctuation");
-
-        // 1. Direct repeat directive
-        if (pLower.contains("tekrar et:") || pLower.contains("şunları tekrar et") || pLower.contains("repeat after me") || pLower.contains("repeat:")) {
-            String toRepeat = p.replaceAll("(?i).*?(tekrar et:|şunları tekrar et:|şunları tekrar et|repeat after me:|repeat after me|repeat:)", "").trim();
-            String res = !toRepeat.isEmpty() ? toRepeat : p;
-            return applyConstraints(res, noPunct);
-        }
-
-        // 2. Greetings
-        boolean isGreeting = false;
-        String[] greetings = new String[]{"hi", "hello", "hey", "merhaba", "selam", "günaydın", "iyi günler", "howdy", "greetings"};
-        String cleaned = pLower.replace("!", "").replace("?", "").replace(".", "").replace(",", "").trim();
-        String[] words = cleaned.split("\\s+");
-        if (words.length <= 3) {
-            for (String w : words) {
-                for (String g : greetings) {
-                    if (w.equals(g)) {
-                        isGreeting = true;
-                        break;
-                    }
-                }
-                if (isGreeting) break;
-            }
-        }
-        if (isGreeting) {
-            String res = isTr ? "Merhaba! Size nasıl yardımcı olabilirim?" : "Hello! How can I help you today?";
-            return applyConstraints(res, noPunct);
-        }
-
-        // 3. Gratitude
-        if (pLower.contains("teşekkür") || pLower.contains("thank")) {
-            String res = isTr ? "Rica ederim! Başka bir sorunuz veya göreviniz olursa memnuniyetle yardımcı olurum." : "You're welcome! Let me know if there's anything else you need.";
-            return applyConstraints(res, noPunct);
-        }
-
-        // 4. Code & Programming Generation
-        if (pLower.contains("kod") || pLower.contains("code") || pLower.contains("python") || pLower.contains("javascript") || pLower.contains("golang") || pLower.contains("fonksiyon") || pLower.contains("script") || pLower.contains("sql")) {
-            String res;
-            if (pLower.contains("fibonacci")) {
-                res = isTr 
-                    ? "Python ile Fibonacci dizisi hesaplama:\n\n```python\ndef fibonacci(n: int) -> list[int]:\n    if n <= 0:\n        return []\n    if n == 1:\n        return [0]\n    seq = [0, 1]\n    while len(seq) < n:\n        seq.append(seq[-1] + seq[-2])\n    return seq\n\nif __name__ == '__main__':\n    print(fibonacci(10))\n```\n\nBu algoritma O(n) zaman karmaşıklığı ile ardışık terimleri toplar."
-                    : "Fibonacci series in Python:\n\n```python\ndef fibonacci(n: int) -> list[int]:\n    if n <= 0:\n        return []\n    if n == 1:\n        return [0]\n    seq = [0, 1]\n    while len(seq) < n:\n        seq.append(seq[-1] + seq[-2])\n    return seq\n\nif __name__ == '__main__':\n    print(fibonacci(10))\n```\n\nThis algorithm computes the sequence with O(n) time complexity.";
-            } else if (pLower.contains("asal") || pLower.contains("prime")) {
-                res = isTr
-                    ? "Asal sayı kontrol fonksiyonu:\n\n```python\ndef is_prime(n: int) -> bool:\n    if n <= 1:\n        return False\n    if n <= 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True\n```"
-                    : "Prime number check function:\n\n```python\ndef is_prime(n: int) -> bool:\n    if n <= 1:\n        return False\n    if n <= 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True\n```";
-            } else {
-                res = isTr
-                    ? "İstediğiniz görev için modüler ve temiz bir çözüm:\n\n```python\ndef execute_task(data: list) -> dict:\n    valid_items = [x for x in data if x is not None]\n    return {\n        'status': 'success',\n        'count': len(valid_items),\n        'result': valid_items\n    }\n\nif __name__ == '__main__':\n    print(execute_task([1, 2, None, 4]))\n```"
-                    : "Clean, modular implementation for the requested task:\n\n```python\ndef execute_task(data: list) -> dict:\n    valid_items = [x for x in data if x is not None]\n    return {\n        'status': 'success',\n        'count': len(valid_items),\n        'result': valid_items\n    }\n\nif __name__ == '__main__':\n    print(execute_task([1, 2, None, 4]))\n```";
-            }
-            return applyConstraints(res, noPunct);
-        }
-
-        // 5. In-Depth Natural Content & Question Answering
-        String topic = p;
-        String[] prefixes = new String[]{
-            "bana bir makale yaz", "bir makale yaz", "makale yaz", "hakkında makale yaz", "ile ilgili makale yaz",
-            "hakkında bir makale yaz", "hakkında bilgi ver", "hakkında", "ile ilgili", "yazısı yaz", "açıkla", "nedir",
-            "write an essay about", "write an essay on", "write an essay", "write an article about", "explain", "what is"
-        };
-        for (String pref : prefixes) {
-            if (topic.toLowerCase().contains(pref)) {
-                topic = topic.replaceAll("(?i)" + java.util.regex.Pattern.quote(pref), "").trim();
-            }
-        }
-        topic = topic.replaceAll("^[\\:\\,\\-\\s]+|[\\?\\!\\.\\s]+$", "").trim();
-        if (topic.isEmpty()) topic = p;
-
-        String res;
-        if (isTr) {
-            res = topic + " konusu incelendiğinde, bu kavramın ortaya çıkışı ve günümüzdeki etkileri oldukça geniş bir perspektif sunar.\n\n" +
-                  "Temel yapısı ele alındığında, " + topic + " ile ilgili süreçler belirli metodolojik adımlara ve analitik temellere dayanır. Bu temellerin doğru kavranması, karşılaşılan problemlerin çözülmesinde ve sistemli bir anlayış geliştirilmesinde kritik rol oynar.\n\n" +
-                  "Uygulama alanlarına bakıldığında, " + topic + " hem bireysel hem de sektörel düzeyde verimliliği artıran ve yeni olanaklar sağlayan bir yapıya sahiptir. Sürekli evrilen dinamikleri, bu alanın gelecekte de önemini koruyacağını ve yeni gelişmelerle zenginleşeceğini gösterir.";
-        } else {
-            res = "Analyzing " + topic + " presents a multifaceted perspective encompassing foundational principles and practical significance.\n\n" +
-                  "At its core, " + topic + " relies on structured methodologies and rigorous mechanisms. Mastering these underlying principles allows for effective problem solving and provides a robust framework for further exploration.\n\n" +
-                  "In practice, " + topic + " drives efficiency and opens new possibilities across diverse disciplines. Its ongoing evolution highlights its sustained relevance and positive long-term impact.";
-        }
-
-        return applyConstraints(res, noPunct);
-    }
-
-    private String applyConstraints(String text, boolean noPunct) {
-        if (!noPunct || text == null) return text;
-        StringBuilder sb = new StringBuilder();
-        String puncts = ".,!?;:\"'()[]{}-`#*";
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (puncts.indexOf(c) == -1) sb.append(c);
-        }
-        return sb.toString();
-    }
-
-    private List<String> tokenizeToPieces(String text) {
-        List<String> pieces = new ArrayList<>();
-        if (text == null) return pieces;
-        StringBuilder currentWord = new StringBuilder();
-        String puncts = ".,!?;:()[]{}\"#*";
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (c == ' ' || c == '\n' || c == '\t') {
-                if (currentWord.length() > 0) {
-                    pieces.add(currentWord.toString());
-                    currentWord.setLength(0);
-                }
-                pieces.add(String.valueOf(c));
-            } else if (puncts.indexOf(c) != -1) {
-                if (currentWord.length() > 0) {
-                    pieces.add(currentWord.toString());
-                    currentWord.setLength(0);
-                }
-                pieces.add(String.valueOf(c));
-            } else {
-                currentWord.append(c);
-            }
-        }
-        if (currentWord.length() > 0) {
-            pieces.add(currentWord.toString());
-        }
-        return pieces;
-    }
-
-    public InferenceResult generateStream(String prompt, int maxTokens, float temperature, StreamCallback callback) {
-        long startTime = System.currentTimeMillis();
-        if (maxTokens <= 0) maxTokens = 512;
-        if (temperature <= 0.01f) temperature = 0.7f;
-
-        String fullResponse = synthesizeResponse(prompt);
-        List<String> pieces = tokenizeToPieces(fullResponse);
-
-        StringBuilder fullText = new StringBuilder();
-        int tokenCount = 0;
-        int ttftMs = 0;
-
-        for (int step = 0; step < pieces.size(); step++) {
-            if (step >= maxTokens) break;
-
-            String tokenPiece = pieces.get(step);
-            fullText.append(tokenPiece);
-            tokenCount++;
-
-            if (step == 0) {
-                ttftMs = (int) (System.currentTimeMillis() - startTime);
             }
 
             if (callback != null) {
-                boolean cont = callback.onToken(tokenPiece, 1000 + step);
-                if (!cont) break;
+                boolean cont;
+                try {
+                    cont = callback.onToken(piece, 1000 + state.tokenCount);
+                } catch (Throwable ignored) {
+                    cont = false;
+                }
+                if (!cont) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Runs a real llama.cpp generation pass and streams the produced tokens.
+     */
+    public InferenceResult generateStream(String prompt, int maxTokens, float temperature, StreamCallback callback) {
+        InferenceResult res = new InferenceResult();
+        long startTime = System.currentTimeMillis();
+
+        if (maxTokens <= 0) {
+            maxTokens = 512;
+        }
+        if (temperature <= 0.01f) {
+            temperature = 0.7f;
+        }
+
+        if (modelFile == null || !modelFile.exists() || modelFile.length() < MIN_MODEL_BYTES) {
+            res.error = "Model dosyasi bulunamadi veya eksik: " + (modelFile != null ? modelFile.getName() : "model.gguf");
+            res.success = false;
+            res.ttftMs = 0;
+            res.tps = 0.0f;
+            return res;
+        }
+
+        GenerationState state = new GenerationState();
+
+        try {
+            LlamaModel model = acquireModel(modelFile);
+
+            try {
+                res.promptTokens = model.encode(prompt).length;
+            } catch (Throwable ignored) {
+                res.promptTokens = Math.max(1, prompt.length() / 4);
             }
 
             try {
-                long sleepMs = 22 + (step % 4) * 3;
-                Thread.sleep(sleepMs);
-            } catch (InterruptedException e) {
-                break;
+                streamTokens(model, buildParameters(prompt, maxTokens, temperature), callback, state);
+            } catch (Throwable templateFailure) {
+                // GGUF without a usable chat template: retry once with the raw prompt.
+                Log.w(TAG, "chat template generation failed, retrying with raw prompt: " + templateFailure.getMessage());
+                state.tokenCount = 0;
+                state.firstTokenAt = 0;
+                state.text.setLength(0);
+                state.logprobs.clear();
+                streamTokens(model, buildRawParameters(prompt, maxTokens, temperature), callback, state);
+            }
+
+            res.success = true;
+        } catch (Throwable t) {
+            String msg = t.getMessage() != null ? t.getMessage() : t.toString();
+            Log.e(TAG, "llama.cpp inference failed: " + msg, t);
+            res.error = "Cihazda yerel model calistirilamadi: " + msg;
+            res.success = false;
+            if (state.tokenCount == 0) {
+                state.text.setLength(0);
             }
         }
 
-        long totalElapsed = System.currentTimeMillis() - startTime;
-        if (ttftMs <= 0) ttftMs = (int) Math.min(totalElapsed, 190);
-        float tps = totalElapsed > 0 ? (tokenCount / (totalElapsed / 1000.0f)) : 31.5f;
+        long endTime = System.currentTimeMillis();
+        res.ttftMs = (int) (state.firstTokenAt > 0 ? (state.firstTokenAt - startTime) : (endTime - startTime));
+        if (res.ttftMs < 0) {
+            res.ttftMs = 0;
+        }
 
-        InferenceResult res = new InferenceResult();
-        res.fullText = fullText.toString().trim();
-        res.totalTokens = tokenCount;
-        res.ttftMs = ttftMs;
-        res.tps = Math.round(tps * 10.0f) / 10.0f;
+        long generationMs = state.firstTokenAt > 0 ? (endTime - state.firstTokenAt) : 0;
+        if (generationMs <= 0) {
+            generationMs = Math.max(1, endTime - startTime);
+        }
+        if (state.tokenCount > 0) {
+            res.tps = (float) ((state.tokenCount * 1000.0) / generationMs);
+        } else {
+            res.tps = 0.0f;
+        }
+        res.tps = Math.round(res.tps * 10.0f) / 10.0f;
+        res.totalTokens = state.tokenCount;
+        res.fullText = state.text.toString().trim();
+        res.logprobs.addAll(state.logprobs);
         return res;
     }
 }

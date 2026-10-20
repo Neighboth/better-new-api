@@ -59,6 +59,8 @@ import javax.net.ssl.SSLSocketFactory;
 public class WorkerService extends Service {
     private static final String CHANNEL_ID = "byog_worker_channel";
     private static final int NOTIF_ID = 1001;
+    /** Minimum size (bytes) a GGUF file must reach before it is treated as a usable model. */
+    private static final long MIN_MODEL_BYTES = 10L * 1024 * 1024;
     private PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
     private volatile boolean isRunning = false;
@@ -78,12 +80,22 @@ public class WorkerService extends Service {
     private String currentAssignedModel = "qwen-2.5-0.5b-instruct";
     private String currentModelStatus = "downloading";
     private float currentLiveTps = 0.0f;
+    private int lastTtftMs = 0;
     private long totalTokensProcessed = 0;
 
     private Map<String, String> modelDownloadUrls = new HashMap<>();
     private Map<String, Long> modelFileSizes = new HashMap<>();
     private volatile boolean isModelDownloading = false;
+    private volatile boolean workerPaused = false;
     private Thread modelDownloadThread;
+
+    // Authoritative download progress (bytes) for the model that is currently being fetched.
+    private volatile String downloadingModel = "";
+    private volatile long downloadTotalBytes = 0;
+    private volatile long downloadCurrentBytes = 0;
+    private volatile String downloadErrorText = "";
+    private volatile long lastDownloadAttemptAt = 0;
+    private static final long DOWNLOAD_RETRY_BACKOFF_MS = 15000L;
 
     @Override
     public void onCreate() {
@@ -121,7 +133,13 @@ public class WorkerService extends Service {
             return START_NOT_STICKY;
         }
 
-        if (isRunning) return START_STICKY;
+        if (isRunning) {
+            // The activity asks for the current state as soon as it becomes visible.
+            if (intent != null && "refresh_state".equals(intent.getStringExtra("action"))) {
+                broadcastCurrentState();
+            }
+            return START_STICKY;
+        }
         isRunning = true;
 
         currentAssignedModel = sp.getString("assigned_model", "qwen-2.5-0.5b-instruct");
@@ -132,6 +150,14 @@ public class WorkerService extends Service {
         downloadedMB = sp.getInt("downloaded_mb", 0);
         totalMB = sp.getInt("total_mb", getModelSizeMB(currentAssignedModel));
         if (totalMB <= 0) totalMB = getModelSizeMB(currentAssignedModel);
+        downloadingModel = sp.getString("downloading_model", "");
+        downloadCurrentBytes = sp.getLong("download_current_bytes", 0);
+        downloadTotalBytes = sp.getLong("download_total_bytes", 0);
+        downloadErrorText = sp.getString("download_error", "");
+        if (downloadTotalBytes > 0) {
+            totalMB = (int) (downloadTotalBytes / (1024 * 1024));
+            if (totalMB <= 0) totalMB = 1;
+        }
 
         try {
             String instJson = sp.getString("installed_models", "[]");
@@ -144,7 +170,7 @@ public class WorkerService extends Service {
         } catch (Exception ignored) {}
 
         File actualFile = new File(getFilesDir(), currentAssignedModel + ".gguf");
-        boolean modelFileOnDisk = actualFile.exists() && actualFile.length() > 50 * 1024 * 1024;
+        boolean modelFileOnDisk = actualFile.exists() && actualFile.length() > MIN_MODEL_BYTES;
         if (!modelFileOnDisk) {
             installedModelsList.remove(currentAssignedModel);
         }
@@ -158,8 +184,7 @@ public class WorkerService extends Service {
             }
             currentModelStatus = "downloading";
             currentLiveTps = 0.0f;
-            int pct = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 0;
-            initialMsg = currentAssignedModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")";
+            initialMsg = currentAssignedModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + computeDownloadPercent() + ")";
         } else {
             currentModelStatus = "ready";
             currentLiveTps = 0.0f;
@@ -183,8 +208,7 @@ public class WorkerService extends Service {
             s.put("model_status_desc", initialMsg);
             s.put("downloaded_mb", downloadedMB);
             s.put("total_mb", totalMB);
-            int pct = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 0;
-            s.put("download_progress", pct);
+            s.put("download_progress", computeDownloadPercent());
             s.put("current_tps", 0.0);
             s.put("active_vram_model", activeVramModel);
             Intent b = new Intent("org.byog.worker.STATE_CHANGED");
@@ -208,6 +232,45 @@ public class WorkerService extends Service {
         }
 
         return START_STICKY;
+    }
+
+    /**
+     * Publishes the current worker state to the local UI immediately.
+     */
+    private void broadcastCurrentState() {
+        try {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            if (sp == null) return;
+            JSONObject state = new JSONObject();
+            state.put("is_paired", true);
+            state.put("node_id", sp.getString("node_id", ""));
+            state.put("server_url", sp.getString("server_url", ""));
+            state.put("app_name", sp.getString("app_name", "{app_name}"));
+            state.put("favicon", sp.getString("favicon", "logo.png"));
+            String b64 = sp.getString("favicon_base64", "");
+            if (!b64.isEmpty()) state.put("favicon_base64", b64);
+            state.put("battery_level", getSafeBatteryPercent());
+            state.put("battery_temp", getSafeBatteryTemp());
+            state.put("is_charging", isSafeCharging());
+            state.put("assigned_model", currentAssignedModel);
+            state.put("active_vram_model", activeVramModel);
+            state.put("hot_start_enabled", hotStartEnabled);
+            state.put("model_status", currentModelStatus);
+            state.put("model_status_desc", buildDownloadStatusMessage(currentAssignedModel));
+            state.put("downloaded_mb", downloadedMB);
+            state.put("total_mb", totalMB);
+            state.put("download_progress", computeDownloadPercent());
+            state.put("current_tps", currentLiveTps);
+            state.put("downloading_model", downloadingModel);
+            if (!downloadErrorText.isEmpty()) state.put("download_error", downloadErrorText);
+            String lastCrash = sp.getString("last_crash", "");
+            if (!lastCrash.isEmpty()) state.put("last_crash", lastCrash);
+
+            Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
+            bIntent.putExtra("state", state.toString());
+            bIntent.setPackage(getPackageName());
+            sendBroadcast(bIntent);
+        } catch (Exception ignored) {}
     }
 
     private void acquireLocks() {
@@ -259,6 +322,35 @@ public class WorkerService extends Service {
         if (lower.contains("1.5b") || lower.contains("2b") || lower.contains("3b")) return 1150;
         if (lower.contains("7b") || lower.contains("8b")) return 4600;
         return 500;
+    }
+
+    /**
+     * Real download progress of the model that is currently being fetched.
+     * Uses the authoritative Content-Length when the server provided one and falls
+     * back to the byte counter otherwise. Never returns a fabricated percentage.
+     */
+    private int computeDownloadPercent() {
+        long total = downloadTotalBytes;
+        if (total <= 0 && totalMB > 0) {
+            total = (long) totalMB * 1024L * 1024L;
+        }
+        long current = downloadCurrentBytes;
+        if (current <= 0 && downloadedMB > 0) {
+            current = (long) downloadedMB * 1024L * 1024L;
+        }
+        if (total <= 0) return 0;
+        long pct = (current * 100L) / total;
+        if (pct < 0) pct = 0;
+        if (pct > 100) pct = 100;
+        return (int) pct;
+    }
+
+    private String buildDownloadStatusMessage(String modelName) {
+        int pct = computeDownloadPercent();
+        if (!downloadErrorText.isEmpty()) {
+            return modelName + " indirilemiyor: " + downloadErrorText;
+        }
+        return modelName + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")";
     }
 
     private void startTunnelLoop() {
@@ -327,7 +419,7 @@ public class WorkerService extends Service {
             }
 
             if (bgRestricted) {
-                sp.edit().putBoolean("autostart_granted", false).apply();
+                sp.edit().putBoolean("bgactivity_granted", false).apply();
                 Intent revIntent = new Intent("org.byog.worker.PERMISSION_REVOKED");
                 revIntent.setPackage(getPackageName());
                 sendBroadcast(revIntent);
@@ -344,14 +436,20 @@ public class WorkerService extends Service {
             // 1. Process Multi-Model Sequential Download Queue with Real HTTP Streamer
             if (!downloadQueueList.isEmpty()) {
                 currentAssignedModel = downloadQueueList.get(0);
-                totalMB = getModelSizeMB(currentAssignedModel);
+                if (!currentAssignedModel.equals(downloadingModel) && !isModelDownloading) {
+                    // A new model entered the queue: reset the per-model progress counters.
+                    downloadingModel = currentAssignedModel;
+                    downloadCurrentBytes = 0;
+                    downloadTotalBytes = 0;
+                    downloadedMB = 0;
+                    totalMB = getModelSizeMB(currentAssignedModel);
+                }
                 currentModelStatus = "downloading";
-                int pct = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 0;
-                statusMsg = currentAssignedModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")";
+                statusMsg = buildDownloadStatusMessage(currentAssignedModel);
                 checkAndTriggerModelDownloads();
             } else {
                 File mf = new File(getFilesDir(), currentAssignedModel + ".gguf");
-                if (mf.exists() && mf.length() > 50 * 1024 * 1024) {
+                if (mf.exists() && mf.length() > MIN_MODEL_BYTES) {
                     currentModelStatus = "ready";
                     if (!activeVramModel.isEmpty()) {
                         statusMsg = activeVramModel + " hazır (VRAM'de)";
@@ -364,10 +462,8 @@ public class WorkerService extends Service {
                     if (!downloadQueueList.contains(currentAssignedModel)) {
                         downloadQueueList.add(currentAssignedModel);
                     }
-                    totalMB = getModelSizeMB(currentAssignedModel);
                     currentModelStatus = "downloading";
-                    int pct = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 0;
-                    statusMsg = currentAssignedModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")";
+                    statusMsg = buildDownloadStatusMessage(currentAssignedModel);
                     checkAndTriggerModelDownloads();
                 }
             }
@@ -407,17 +503,23 @@ public class WorkerService extends Service {
             state.put("model_status_desc", statusMsg);
             state.put("downloaded_mb", downloadedMB);
             state.put("total_mb", totalMB);
-            int pct = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 100;
-            state.put("download_progress", pct);
+            state.put("download_progress", computeDownloadPercent());
             state.put("current_tps", currentLiveTps);
+            if (!downloadErrorText.isEmpty()) {
+                state.put("download_error", downloadErrorText);
+            }
 
             sp.edit()
                 .putString("model_status", currentModelStatus)
                 .putString("model_status_desc", statusMsg)
                 .putInt("downloaded_mb", downloadedMB)
                 .putInt("total_mb", totalMB)
-                .putInt("download_progress", pct)
+                .putInt("download_progress", computeDownloadPercent())
                 .putString("active_vram_model", activeVramModel)
+                .putString("downloading_model", downloadingModel)
+                .putLong("download_current_bytes", downloadCurrentBytes)
+                .putLong("download_total_bytes", downloadTotalBytes)
+                .putString("download_error", downloadErrorText)
                 .putBoolean("is_charging", isCharging)
                 .apply();
 
@@ -429,27 +531,96 @@ public class WorkerService extends Service {
         } catch (Exception ignored) {}
     }
 
+    /**
+     * Builds the candidate download URLs for a model. The URL published by the server
+     * always wins; well known GGUF repositories are used as a fallback so a worker can
+     * still provision itself when the server does not know the model yet.
+     */
+    private List<String> buildDownloadCandidates(String model) {
+        List<String> urls = new ArrayList<>();
+        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+        String serverUrl = sp.getString("server_url", "");
+        while (serverUrl.endsWith("/")) {
+            serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
+        }
+
+        String serverGiven = modelDownloadUrls.get(model);
+        if (serverGiven != null && !serverGiven.isEmpty()) {
+            if (serverGiven.startsWith("/") && !serverUrl.isEmpty()) {
+                serverGiven = serverUrl + serverGiven;
+            }
+            if (!urls.contains(serverGiven)) {
+                urls.add(serverGiven);
+            }
+        }
+
+        String repo = null;
+        String file = null;
+        String lower = model.toLowerCase();
+        if (lower.contains("0.5b")) {
+            repo = "Qwen/Qwen2.5-0.5B-Instruct-GGUF";
+            file = "qwen2.5-0.5b-instruct-q4_k_m.gguf";
+        } else if (lower.contains("1.5b")) {
+            repo = "Qwen/Qwen2.5-1.5B-Instruct-GGUF";
+            file = "qwen2.5-1.5b-instruct-q4_k_m.gguf";
+        } else if (lower.contains("3b")) {
+            repo = "Qwen/Qwen2.5-3B-Instruct-GGUF";
+            file = "qwen2.5-3b-instruct-q4_k_m.gguf";
+        } else if (lower.contains("7b")) {
+            repo = "Qwen/Qwen2.5-7B-Instruct-GGUF";
+            file = "qwen2.5-7b-instruct-q4_k_m.gguf";
+        } else if (lower.contains("0.6b")) {
+            repo = "Qwen/Qwen3-0.6B-GGUF";
+            file = "Qwen3-0.6B-Q4_K_M.gguf";
+        } else if (lower.contains("1.7b")) {
+            repo = "Qwen/Qwen3-1.7B-GGUF";
+            file = "Qwen3-1.7B-Q4_K_M.gguf";
+        } else if (lower.contains("4b")) {
+            repo = "Qwen/Qwen3-4B-GGUF";
+            file = "Qwen3-4B-Q4_K_M.gguf";
+        }
+
+        if (repo != null && file != null) {
+            urls.add("https://huggingface.co/" + repo + "/resolve/main/" + file);
+            urls.add("https://hf-mirror.com/" + repo + "/resolve/main/" + file);
+        }
+        return urls;
+    }
+
     private void checkAndTriggerModelDownloads() {
         if (isModelDownloading || downloadQueueList.isEmpty()) return;
 
         final String targetModel = downloadQueueList.get(0);
         final File destFile = new File(getFilesDir(), targetModel + ".gguf");
-        if (destFile.exists() && destFile.length() > 10 * 1024 * 1024) {
+        if (destFile.exists() && destFile.length() > MIN_MODEL_BYTES) {
             // Already completely downloaded on disk
             finalizeModelDownloaded(targetModel);
             return;
         }
 
+        long now = System.currentTimeMillis();
+        if (!downloadErrorText.isEmpty() && now - lastDownloadAttemptAt < DOWNLOAD_RETRY_BACKOFF_MS) {
+            return;
+        }
+        lastDownloadAttemptAt = now;
+
         isModelDownloading = true;
         currentModelStatus = "downloading";
         currentAssignedModel = targetModel;
-        totalMB = getModelSizeMB(targetModel);
-        if (totalMB <= 0) totalMB = 380;
+        downloadingModel = targetModel;
+        downloadErrorText = "";
+        Long knownSize = modelFileSizes.get(targetModel);
+        if (knownSize != null && knownSize > 0 && downloadTotalBytes <= 0) {
+            downloadTotalBytes = knownSize;
+            totalMB = (int) (knownSize / (1024 * 1024));
+            if (totalMB <= 0) totalMB = 1;
+        }
+        if (totalMB <= 0) totalMB = getModelSizeMB(targetModel);
 
         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
         String appName = sp.getString("app_name", "{app_name}");
-        String initDlMsg = targetModel + " indiriliyor... (0 MB / " + totalMB + " MB - %0)";
-        broadcastDownloadProgress(targetModel, initDlMsg, 0, totalMB, 0);
+        String initDlMsg = targetModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + computeDownloadPercent() + ")";
+        broadcastDownloadProgress(targetModel, initDlMsg, downloadedMB, totalMB, computeDownloadPercent());
 
         Notification notif = buildNotification(appName, initDlMsg);
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
@@ -459,29 +630,24 @@ public class WorkerService extends Service {
             @Override
             public void run() {
                 try {
-                    List<String> candidateUrls = new ArrayList<>();
-                    String targetLower = targetModel.toLowerCase();
-                    if (targetLower.contains("0.5b")) {
-                        candidateUrls.add("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf");
-                        candidateUrls.add("https://hf-mirror.com/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf");
-                    } else if (targetLower.contains("1.5b")) {
-                        candidateUrls.add("https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf");
-                        candidateUrls.add("https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf");
-                    }
-                    String serverGivenUrl = modelDownloadUrls.get(targetModel);
-                    if (serverGivenUrl != null && !serverGivenUrl.isEmpty() && !candidateUrls.contains(serverGivenUrl)) {
-                        candidateUrls.add(serverGivenUrl);
-                    }
+                    List<String> candidateUrls = buildDownloadCandidates(targetModel);
 
                     File destFile = new File(getFilesDir(), targetModel + ".gguf");
-                    if (destFile.exists() && destFile.length() > 10 * 1024 * 1024) {
+                    if (destFile.exists() && destFile.length() > MIN_MODEL_BYTES) {
                         finalizeModelDownloaded(targetModel);
                         isModelDownloading = false;
                         return;
                     }
 
+                    if (candidateUrls.isEmpty()) {
+                        downloadErrorText = "Model indirme adresi bulunamadi";
+                        broadcastDownloadProgress(targetModel, targetModel + " icin indirme adresi bulunamadi", downloadedMB, totalMB, computeDownloadPercent());
+                        return;
+                    }
+
                     File partFile = new File(getFilesDir(), targetModel + ".gguf.part");
                     boolean downloadSucceeded = false;
+                    String lastError = "";
 
                     for (String dlUrl : candidateUrls) {
                         if (downloadSucceeded) break;
@@ -534,7 +700,7 @@ public class WorkerService extends Service {
                                 existingLen = 0;
                             } else if (code == 416) {
                                 // Range Not Satisfiable: file might already be complete or corrupted part
-                                if (partFile.exists() && partFile.length() > 50 * 1024 * 1024) {
+                                if (partFile.exists() && partFile.length() > MIN_MODEL_BYTES) {
                                     if (partFile.renameTo(destFile) || destFile.exists()) {
                                         finalizeModelDownloaded(targetModel);
                                         downloadSucceeded = true;
@@ -546,14 +712,18 @@ public class WorkerService extends Service {
                                 conn.disconnect();
                                 continue;
                             } else {
+                                lastError = "HTTP " + code;
                                 conn.disconnect();
                                 continue;
                             }
 
                             if (totalBytes > 0) {
-                                totalMB = (int)(totalBytes / (1024 * 1024));
+                                downloadTotalBytes = totalBytes;
+                                totalMB = (int) (totalBytes / (1024 * 1024));
+                                if (totalMB <= 0) totalMB = 1;
                             }
-                            if (totalMB <= 0) totalMB = getModelSizeMB(targetModel);
+                            downloadCurrentBytes = existingLen;
+                            downloadedMB = (int) (existingLen / (1024 * 1024));
 
                             InputStream is = conn.getInputStream();
                             FileOutputStream fos = new FileOutputStream(partFile, append);
@@ -562,22 +732,27 @@ public class WorkerService extends Service {
                             long currentBytes = existingLen;
                             long lastBroadcastTime = 0;
                             long lastHttpSyncTime = 0;
+                            long lastHeartbeatTime = 0;
 
                             while ((nRead = is.read(buffer)) != -1) {
                                 fos.write(buffer, 0, nRead);
                                 currentBytes += nRead;
-                                downloadedMB = (int)(currentBytes / (1024 * 1024));
+                                downloadCurrentBytes = currentBytes;
+                                downloadedMB = (int) (currentBytes / (1024 * 1024));
 
-                                long now = System.currentTimeMillis();
-                                if (now - lastBroadcastTime > 600) {
-                                    lastBroadcastTime = now;
-                                    int pct = totalBytes > 0 ? (int)((currentBytes * 100) / totalBytes) : (int)((downloadedMB * 100.0f) / totalMB);
+                                long tick = System.currentTimeMillis();
+                                if (tick - lastBroadcastTime > 500) {
+                                    lastBroadcastTime = tick;
+                                    int pct = computeDownloadPercent();
                                     if (pct > 99) pct = 99;
                                     String dlMsg = targetModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")";
                                     broadcastDownloadProgress(targetModel, dlMsg, downloadedMB, totalMB, pct);
-                                    if (tunnelWs != null) tunnelWs.sendHeartbeatFrame();
-                                    if (now - lastHttpSyncTime > 4000) {
-                                        lastHttpSyncTime = now;
+                                    if (tick - lastHeartbeatTime > 1500) {
+                                        lastHeartbeatTime = tick;
+                                        if (tunnelWs != null) tunnelWs.sendHeartbeatFrame();
+                                    }
+                                    if (tick - lastHttpSyncTime > 4000) {
+                                        lastHttpSyncTime = tick;
                                         doHttpHeartbeatAndSync(dlMsg);
                                     }
                                 }
@@ -588,17 +763,32 @@ public class WorkerService extends Service {
                             is.close();
                             conn.disconnect();
 
+                            // Verify the transferred size against the announced content length.
+                            if (totalBytes > 0 && currentBytes < totalBytes) {
+                                lastError = "Eksik veri (" + currentBytes + "/" + totalBytes + ")";
+                                continue;
+                            }
+
                             if (partFile.renameTo(destFile) || destFile.exists()) {
                                 finalizeModelDownloaded(targetModel);
                                 downloadSucceeded = true;
                                 break;
                             }
                         } catch (Exception connEx) {
-                            android.util.Log.e("BYOG_DOWNLOAD", "Download attempt failed for url " + dlUrl + ": " + connEx.getMessage());
+                            lastError = connEx.getMessage() != null ? connEx.getMessage() : connEx.toString();
+                            android.util.Log.e("BYOG_DOWNLOAD", "Download attempt failed for url " + dlUrl + ": " + lastError);
+                            try { if (conn != null) conn.disconnect(); } catch (Exception ignored) {}
                         }
                     }
-                } catch (Exception e) {
+
+                    if (!downloadSucceeded) {
+                        downloadErrorText = lastError.isEmpty() ? "Bilinmeyen indirme hatasi" : lastError;
+                        broadcastDownloadProgress(targetModel, targetModel + " indirilemedi: " + downloadErrorText, downloadedMB, totalMB, computeDownloadPercent());
+                        doHttpHeartbeatAndSync(targetModel + " indirilemedi: " + downloadErrorText);
+                    }
+                } catch (Throwable e) {
                     android.util.Log.e("BYOG_DOWNLOAD", "Download task failed: " + e.getMessage(), e);
+                    downloadErrorText = e.getMessage() != null ? e.getMessage() : e.toString();
                 } finally {
                     isModelDownloading = false;
                 }
@@ -617,10 +807,20 @@ public class WorkerService extends Service {
             installedModelsList.add(targetModel);
         }
         downloadedMB = 0;
+        downloadCurrentBytes = 0;
+        downloadTotalBytes = 0;
+        downloadingModel = "";
+        downloadErrorText = "";
         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
         JSONArray instArr = new JSONArray();
         for (String m : installedModelsList) instArr.put(m);
-        sp.edit().putString("installed_models", instArr.toString()).apply();
+        sp.edit()
+                .putString("installed_models", instArr.toString())
+                .putString("downloading_model", "")
+                .putLong("download_current_bytes", 0L)
+                .putLong("download_total_bytes", 0L)
+                .putString("download_error", "")
+                .apply();
 
         if (hotStartEnabled && activeVramModel.isEmpty()) {
             activeVramModel = targetModel;
@@ -677,8 +877,11 @@ public class WorkerService extends Service {
             state.put("downloaded_mb", dMB);
             state.put("total_mb", tMB);
             state.put("download_progress", pct);
-            state.put("current_tps", 0.0);
+            state.put("current_tps", currentLiveTps);
             state.put("active_vram_model", activeVramModel);
+            if (!downloadErrorText.isEmpty()) {
+                state.put("download_error", downloadErrorText);
+            }
 
             sp.edit()
                 .putString("model_status", "downloading")
@@ -686,6 +889,10 @@ public class WorkerService extends Service {
                 .putInt("downloaded_mb", dMB)
                 .putInt("total_mb", tMB)
                 .putInt("download_progress", pct)
+                .putString("downloading_model", modelName)
+                .putLong("download_current_bytes", downloadCurrentBytes)
+                .putLong("download_total_bytes", downloadTotalBytes)
+                .putString("download_error", downloadErrorText)
                 .apply();
 
             Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
@@ -769,11 +976,14 @@ public class WorkerService extends Service {
             req.put("model_status", currentModelStatus);
             req.put("downloaded_mb", downloadedMB);
             req.put("total_mb", totalMB);
-            int pctProg = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 0;
-            req.put("download_progress", pctProg);
+            req.put("download_progress", computeDownloadPercent());
             req.put("current_tps", currentLiveTps);
-            req.put("current_ttft_ms", 310);
+            req.put("current_ttft_ms", lastTtftMs);
             req.put("total_tokens", totalTokensProcessed);
+            req.put("download_status", currentModelStatus);
+            if (!downloadErrorText.isEmpty()) {
+                req.put("download_error", downloadErrorText);
+            }
 
             URL url = new URL(serverUrl + "/api/v1/worker/register");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -1164,14 +1374,16 @@ public class WorkerService extends Service {
         public void sendHeartbeatFrame() {
             try {
                 JSONObject payload = new JSONObject();
-                payload.put("cpu_temp", 33.5);
-                payload.put("gpu_temp", 34.0);
+                // Mobile devices do not expose reliable CPU/GPU sensors to normal apps.
+                // Zero means "not measurable" and must not be treated as a real value.
+                payload.put("cpu_temp", 0.0);
+                payload.put("gpu_temp", 0.0);
                 payload.put("battery_temp", getSafeBatteryTemp());
                 payload.put("fan_speed", 0);
                 payload.put("battery_percent", getSafeBatteryPercent());
                 payload.put("is_charging", isSafeCharging());
                 payload.put("current_tps", currentLiveTps);
-                payload.put("current_ttft_ms", 310);
+                payload.put("current_ttft_ms", lastTtftMs);
                 payload.put("total_tokens", totalTokensProcessed);
                 JSONArray inst = new JSONArray();
                 for (String m : installedModelsList) inst.put(m);
@@ -1179,8 +1391,11 @@ public class WorkerService extends Service {
                 payload.put("model_status", currentModelStatus);
                 payload.put("downloaded_mb", downloadedMB);
                 payload.put("total_mb", totalMB);
-                int hbPct = totalMB > 0 ? (int)((downloadedMB / (float)totalMB) * 100) : 0;
-                payload.put("download_progress", hbPct);
+                payload.put("download_progress", computeDownloadPercent());
+                payload.put("download_status", currentModelStatus);
+                if (!downloadErrorText.isEmpty()) {
+                    payload.put("download_error", downloadErrorText);
+                }
                 payload.put("active_vram_model", activeVramModel);
                 payload.put("is_gamer_mode", false);
                 payload.put("is_throttled", false);
@@ -1226,16 +1441,286 @@ public class WorkerService extends Service {
                     try { payload = new JSONObject(frame.getString("payload")); } catch (Exception ignored) {}
                 }
                 executeInference(id, payload);
+            } else if ("canary_request".equals(type)) {
+                JSONObject payload = frame.optJSONObject("payload");
+                if (payload == null && frame.has("payload")) {
+                    try { payload = new JSONObject(frame.getString("payload")); } catch (Exception ignored) {}
+                }
+                executeCanary(id, payload);
+            } else if ("byte_probe_request".equals(type)) {
+                JSONObject payload = frame.optJSONObject("payload");
+                if (payload == null && frame.has("payload")) {
+                    try { payload = new JSONObject(frame.getString("payload")); } catch (Exception ignored) {}
+                }
+                respondByteProbe(id, payload);
+            } else if ("download_model".equals(type)) {
+                JSONObject payload = frame.optJSONObject("payload");
+                if (payload == null && frame.has("payload")) {
+                    try { payload = new JSONObject(frame.getString("payload")); } catch (Exception ignored) {}
+                }
+                requestModelDownload(payload);
+            } else if ("purge_model".equals(type)) {
+                JSONObject payload = frame.optJSONObject("payload");
+                if (payload == null && frame.has("payload")) {
+                    try { payload = new JSONObject(frame.getString("payload")); } catch (Exception ignored) {}
+                }
+                purgeModel(payload != null ? payload.optString("model_id", "") : "");
+            } else if ("pause_worker".equals(type)) {
+                workerPaused = true;
+                currentModelStatus = "paused";
+            } else if ("resume_worker".equals(type)) {
+                workerPaused = false;
+                currentModelStatus = downloadQueueList.isEmpty() ? "ready" : "downloading";
+            } else if ("force_update".equals(type)) {
+                SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+                String base = sp.getString("server_url", "");
+                while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+                if (!base.isEmpty()) {
+                    final String serverBase = base;
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            downloadAndNotifyUpdate("force", serverBase + "/api/v1/worker/download/android/apk");
+                        }
+                    }).start();
+                }
             }
         } catch (Exception ignored) {}
     }
 
-    private void executeInference(final String id, final JSONObject payload) {
+    /**
+     * Server driven model provisioning: the model is queued and downloaded with the very
+     * same progress pipeline that is used for the regular assignment queue.
+     */
+    private void requestModelDownload(JSONObject payload) {
+        try {
+            if (payload == null) return;
+            String modelId = payload.optString("model_id", "");
+            if (modelId.isEmpty()) return;
+            String url = payload.optString("download_url", "");
+            if (!url.isEmpty()) {
+                modelDownloadUrls.put(modelId, url);
+            }
+            long size = payload.optLong("file_size", 0);
+            if (size > 0) {
+                modelFileSizes.put(modelId, size);
+            }
+            if (!downloadQueueList.contains(modelId)) {
+                downloadQueueList.add(modelId);
+            }
+            currentAssignedModel = downloadQueueList.get(0);
+            downloadingModel = currentAssignedModel;
+            downloadCurrentBytes = 0;
+            downloadTotalBytes = size > 0 ? size : 0;
+            downloadedMB = 0;
+            totalMB = size > 0 ? (int) (size / (1024 * 1024)) : getModelSizeMB(modelId);
+            checkAndTriggerModelDownloads();
+        } catch (Exception ignored) {}
+    }
+
+    private void purgeModel(String modelId) {
+        try {
+            if (modelId.isEmpty()) return;
+            File f = new File(getFilesDir(), modelId + ".gguf");
+            if (f.exists()) {
+                f.delete();
+            }
+            File part = new File(getFilesDir(), modelId + ".gguf.part");
+            if (part.exists()) {
+                part.delete();
+            }
+            installedModelsList.remove(modelId);
+            downloadQueueList.remove(modelId);
+            if (modelId.equals(activeVramModel)) {
+                activeVramModel = "";
+                LocalNeuralEngine.releaseModel();
+            }
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            JSONArray arr = new JSONArray();
+            for (String m : installedModelsList) arr.put(m);
+            sp.edit().putString("installed_models", arr.toString()).apply();
+        } catch (Exception ignored) {}
+    }
+
+    /**
+     * Anti-cheat canary test. The answer is produced by the very same local llama.cpp
+     * runtime that serves user traffic - nothing is hard coded.
+     */
+    private void executeCanary(final String id, final JSONObject payload) {
         new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
+                    String prompt = payload != null ? payload.optString("prompt", "") : "";
+                    if (prompt.isEmpty()) prompt = "2+2=";
+                    String modelId = payload != null ? payload.optString("model_id", "") : "";
+                    if (modelId.isEmpty()) modelId = currentAssignedModel;
+                    int maxTokens = payload != null ? payload.optInt("max_tokens", 32) : 32;
+
+                    LocalNeuralEngine engine = new LocalNeuralEngine(modelId, getFilesDir());
+                    LocalNeuralEngine.InferenceResult res = engine.generateStream(prompt, maxTokens, 0.1f, null);
+
+                    JSONObject resp = new JSONObject();
+                    resp.put("request_id", payload != null ? payload.optString("request_id", id) : id);
+                    resp.put("total_tokens", res.totalTokens);
+                    resp.put("prompt_tokens", res.promptTokens);
+                    resp.put("ttft_ms", res.ttftMs);
+                    resp.put("tps", res.tps);
+                    resp.put("text", res.fullText);
+                    resp.put("error", res.error != null ? res.error : "");
+                    resp.put("raw_tokens", engine.encode(res.fullText));
+                    JSONArray logprobs = new JSONArray();
+                    for (Float lp : res.logprobs) {
+                        logprobs.put(lp);
+                    }
+                    resp.put("logprobs", logprobs);
+
+                    JSONObject frame = new JSONObject();
+                    frame.put("type", "canary_response");
+                    frame.put("id", id);
+                    frame.put("payload", resp);
+                    frame.put("timestamp", System.currentTimeMillis());
+                    if (tunnelWs != null) tunnelWs.sendText(frame.toString());
+                } catch (Throwable t) {
+                    try {
+                        JSONObject resp = new JSONObject();
+                        resp.put("request_id", id);
+                        resp.put("error", t.getMessage() != null ? t.getMessage() : t.toString());
+                        JSONObject frame = new JSONObject();
+                        frame.put("type", "canary_response");
+                        frame.put("id", id);
+                        frame.put("payload", resp);
+                        if (tunnelWs != null) tunnelWs.sendText(frame.toString());
+                    } catch (Exception ignored) {}
+                }
+            }
+        }).start();
+    }
+
+    /**
+     * Anti-cheat byte spot check: returns the real bytes of the model file on disk.
+     */
+    private void respondByteProbe(String id, JSONObject payload) {
+        try {
+            JSONObject resp = new JSONObject();
+            resp.put("request_id", payload != null ? payload.optString("request_id", id) : id);
+            String modelId = payload != null ? payload.optString("model_id", "") : "";
+            if (modelId.isEmpty()) modelId = currentAssignedModel;
+            long offset = payload != null ? payload.optLong("offset", 0) : 0;
+            int length = payload != null ? payload.optInt("length", 64) : 64;
+            if (length <= 0 || length > 4096) length = 64;
+
+            File f = new File(getFilesDir(), modelId + ".gguf");
+            byte[] data = new byte[length];
+            int read = 0;
+            if (f.exists()) {
+                try {
+                    java.io.RandomAccessFile raf = new java.io.RandomAccessFile(f, "r");
+                    try {
+                        raf.seek(offset);
+                        read = raf.read(data);
+                    } finally {
+                        raf.close();
+                    }
+                } catch (Exception ignored) {}
+            }
+            if (read < length) {
+                for (int i = Math.max(0, read); i < length; i++) {
+                    data[i] = 0;
+                }
+            }
+            resp.put("data_hex", toHex(data));
+            resp.put("length", length);
+            resp.put("offset", offset);
+            resp.put("file_size", f.exists() ? f.length() : 0);
+
+            JSONObject frame = new JSONObject();
+            frame.put("type", "byte_probe_response");
+            frame.put("id", id);
+            frame.put("payload", resp);
+            frame.put("timestamp", System.currentTimeMillis());
+            if (tunnelWs != null) tunnelWs.sendText(frame.toString());
+        } catch (Exception ignored) {}
+    }
+
+    private static String toHex(byte[] data) {
+        StringBuilder sb = new StringBuilder(data.length * 2);
+        for (int i = 0; i < data.length; i++) {
+            int v = data[i] & 0xFF;
+            if (v < 16) sb.append('0');
+            sb.append(Integer.toHexString(v));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Reports a crash to the coordinator so the panel can show what happened instead of
+     * the device silently disappearing.
+     */
+    void reportCrash(final String errorCode, final String errorMessage, final String stackTrace) {
+        try {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            final String serverUrl = sp.getString("server_url", "");
+            final String nodeId = sp.getString("node_id", "");
+            if (serverUrl.isEmpty()) return;
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        JSONObject body = new JSONObject();
+                        body.put("node_id", nodeId);
+                        body.put("error_code", errorCode);
+                        body.put("error_message", errorMessage);
+                        body.put("stack_trace", stackTrace);
+                        body.put("model_id", currentAssignedModel);
+                        body.put("created_at", System.currentTimeMillis() / 1000);
+
+                        URL url = new URL(serverUrl + "/api/v1/worker/telemetry/crash");
+                        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                        conn.setRequestMethod("POST");
+                        conn.setRequestProperty("Content-Type", "application/json");
+                        conn.setConnectTimeout(6000);
+                        conn.setReadTimeout(6000);
+                        conn.setDoOutput(true);
+                        OutputStream os = conn.getOutputStream();
+                        os.write(body.toString().getBytes("UTF-8"));
+                        os.close();
+                        conn.getResponseCode();
+                        conn.disconnect();
+                    } catch (Throwable ignored) {}
+                }
+            }).start();
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * Reports an inference failure to the coordinator. The server turns this into a
+     * proper API error instead of waiting for a timeout.
+     */
+    private void sendInferenceError(String id, String message) {
+        try {
+            JSONObject errPayload = new JSONObject();
+            errPayload.put("request_id", id);
+            errPayload.put("error", message != null ? message : "unknown error");
+            JSONObject errFrame = new JSONObject();
+            errFrame.put("type", "inference_error");
+            errFrame.put("id", id);
+            errFrame.put("payload", errPayload);
+            errFrame.put("timestamp", System.currentTimeMillis());
+            if (tunnelWs != null) tunnelWs.sendText(errFrame.toString());
+        } catch (Exception ignored) {}
+    }
+
+    private void executeInference(final String id, final JSONObject payload) {        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
                     String reqModel = payload != null ? payload.optString("model_id", "qwen-2.5-0.5b-instruct") : "qwen-2.5-0.5b-instruct";
+
+                    if (workerPaused) {
+                        sendInferenceError(id, "Worker sunucu tarafindan duraklatildi");
+                        return;
+                    }
 
                     // VRAM Hot Swapping:
                     // If requested model is not in VRAM, evict current model and load requested model into VRAM
@@ -1296,10 +1781,14 @@ public class WorkerService extends Service {
                         }
                     }
 
-                    // True On-Device Local Neural Engine Execution
+                    // True On-Device Local Neural Engine Execution (llama.cpp)
                     LocalNeuralEngine engine = new LocalNeuralEngine(reqModel, getFilesDir());
                     int maxTokens = payload != null ? payload.optInt("max_tokens", 512) : 512;
                     float temp = payload != null ? (float) payload.optDouble("temperature", 0.7) : 0.7f;
+
+                    final long[] streamStartedAt = new long[]{0};
+                    final int[] streamTokenCount = new int[]{0};
+                    final long[] lastTelemetryAt = new long[]{0};
 
                     LocalNeuralEngine.InferenceResult res = engine.generateStream(
                         userPrompt,
@@ -1309,6 +1798,11 @@ public class WorkerService extends Service {
                             @Override
                             public boolean onToken(String piece, int tokenId) {
                                 try {
+                                    if (streamStartedAt[0] == 0) {
+                                        streamStartedAt[0] = System.currentTimeMillis();
+                                    }
+                                    streamTokenCount[0]++;
+
                                     JSONObject chunkPayload = new JSONObject();
                                     chunkPayload.put("request_id", id);
                                     chunkPayload.put("content", piece);
@@ -1322,20 +1816,57 @@ public class WorkerService extends Service {
                                     chunkFrame.put("timestamp", System.currentTimeMillis());
 
                                     if (tunnelWs != null) tunnelWs.sendText(chunkFrame.toString());
+
+                                    // Publish the measured tokens/second while the model is generating.
+                                    long now = System.currentTimeMillis();
+                                    if (now - lastTelemetryAt[0] > 1500 && streamStartedAt[0] > 0) {
+                                        lastTelemetryAt[0] = now;
+                                        long elapsed = now - streamStartedAt[0];
+                                        if (elapsed > 0) {
+                                            currentLiveTps = (float) ((streamTokenCount[0] * 1000.0) / elapsed);
+                                            currentLiveTps = Math.round(currentLiveTps * 10.0f) / 10.0f;
+                                        }
+                                        if (tunnelWs != null) tunnelWs.sendHeartbeatFrame();
+                                    }
                                 } catch (Exception ignored) {}
                                 return isRunning;
                             }
                         }
                     );
 
+                    if (!res.success) {
+                        sendInferenceError(id, res.error != null ? res.error : "Yerel model calistirilamadi");
+                        currentModelStatus = downloadQueueList.isEmpty() ? "ready" : "downloading";
+                        currentLiveTps = 0.0f;
+                        if (tunnelWs != null) tunnelWs.sendHeartbeatFrame();
+                        doHttpHeartbeatAndSync("Cikarma hatasi: " + (res.error != null ? res.error : "bilinmiyor"));
+                        return;
+                    }
+
                     totalTokensProcessed += res.totalTokens;
                     currentLiveTps = res.tps;
+                    lastTtftMs = res.ttftMs;
+
+                    // Final chunk so the server can close the stream deterministically.
+                    try {
+                        JSONObject finalPayload = new JSONObject();
+                        finalPayload.put("request_id", id);
+                        finalPayload.put("content", "");
+                        finalPayload.put("token_id", 1000 + res.totalTokens);
+                        finalPayload.put("is_final", true);
+                        JSONObject finalFrame = new JSONObject();
+                        finalFrame.put("type", "inference_chunk");
+                        finalFrame.put("id", id);
+                        finalFrame.put("payload", finalPayload);
+                        finalFrame.put("timestamp", System.currentTimeMillis());
+                        if (tunnelWs != null) tunnelWs.sendText(finalFrame.toString());
+                    } catch (Exception ignored) {}
 
                     // Inference Done Frame
                     JSONObject donePayload = new JSONObject();
                     donePayload.put("request_id", id);
                     donePayload.put("total_tokens", res.totalTokens);
-                    donePayload.put("prompt_tokens", Math.max(4, userPrompt.length() / 4));
+                    donePayload.put("prompt_tokens", res.promptTokens > 0 ? res.promptTokens : Math.max(4, userPrompt.length() / 4));
                     donePayload.put("ttft_ms", res.ttftMs);
                     donePayload.put("tps", res.tps);
 
@@ -1370,8 +1901,7 @@ public class WorkerService extends Service {
 
                     String statusMsg = (!activeVramModel.isEmpty() ? activeVramModel + " hazır (VRAM'de)" : reqModel + " hazır (Beklemede)");
                     if (!downloadQueueList.isEmpty()) {
-                        String nextModel = downloadQueueList.get(0);
-                        statusMsg = nextModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB)";
+                        statusMsg = buildDownloadStatusMessage(downloadQueueList.get(0));
                     }
                     Notification idleNotif = buildNotification(appName, statusMsg);
                     if (nm != null) nm.notify(NOTIF_ID, idleNotif);
@@ -1394,7 +1924,10 @@ public class WorkerService extends Service {
                     doHttpHeartbeatAndSync(statusMsg);
                     if (tunnelWs != null) tunnelWs.sendHeartbeatFrame();
 
-                } catch (Exception ignored) {
+                } catch (Throwable t) {
+                    android.util.Log.e("BYOG_INFERENCE", "Inference failed: " + t.getMessage(), t);
+                    sendInferenceError(id, t.getMessage() != null ? t.getMessage() : t.toString());
+                    currentLiveTps = 0.0f;
                     if (!downloadQueueList.isEmpty()) {
                         currentModelStatus = "downloading";
                     } else {

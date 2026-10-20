@@ -245,6 +245,7 @@ type ByogNode struct {
 	InstalledModels       string  `json:"installed_models" gorm:"type:text"` // JSON array of local models/chunks
 	DownloadQueue         string  `json:"download_queue" gorm:"type:text"` // JSON array of models to download
 	ModelStatus           string  `json:"model_status" gorm:"type:varchar(32);default:'idle'"`
+	DownloadStatus        string  `json:"download_status" gorm:"type:varchar(32);default:''"`
 	DownloadedMB          int     `json:"downloaded_mb" gorm:"default:0"`
 	TotalMB               int     `json:"total_mb" gorm:"default:0"`
 	DownloadProgress      int     `json:"download_progress" gorm:"default:0"`

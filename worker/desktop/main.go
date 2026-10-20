@@ -4,12 +4,12 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
+	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -17,12 +17,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/QuantumNous/new-api/worker/llama"
 	"github.com/gorilla/websocket"
 )
 
@@ -58,6 +58,9 @@ type WorkerState struct {
 	InstalledModels  map[string]bool
 	ActiveVramModel  string
 	ModelStatus      string
+	DownloadedMB     int
+	TotalMB          int
+	DownloadProgress int
 	HotStartEnabled  bool
 	ActiveInferences int32
 	Mu               sync.Mutex
@@ -86,7 +89,23 @@ func startHeartbeatLoop() {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
+	// While a model is downloaded the progress is reported more often so that the
+	// panel follows the transfer.
+	downloadTicker := time.NewTicker(3 * time.Second)
+	defer downloadTicker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+		case <-downloadTicker.C:
+			State.Mu.Lock()
+			downloading := State.ModelStatus == "downloading"
+			State.Mu.Unlock()
+			if !downloading {
+				continue
+			}
+		}
+
 		State.Mu.Lock()
 		if !State.IsConnected || State.WsConn == nil {
 			State.Mu.Unlock()
@@ -111,20 +130,26 @@ func startHeartbeatLoop() {
 		}
 
 		payload := map[string]interface{}{
-			"cpu_temp":         48.5,
-			"gpu_temp":         55.0,
-			"battery_temp":     30.0,
-			"fan_speed":        1800,
-			"battery_percent":  100,
-			"is_charging":      true,
-			"current_tps":      State.CurrentTps,
-			"current_ttft_ms":  State.CurrentTtftMs,
-			"total_tokens":     State.TotalTokens,
-			"installed_models": modelsList,
+			// Zero means that the value cannot be measured on this machine, the
+			// platform does not award bonuses for unknown sensor values.
+			"cpu_temp":          0.0,
+			"gpu_temp":          0.0,
+			"battery_temp":      0.0,
+			"fan_speed":         0,
+			"battery_percent":   0,
+			"is_charging":       false,
+			"current_tps":       State.CurrentTps,
+			"current_ttft_ms":   State.CurrentTtftMs,
+			"total_tokens":      State.TotalTokens,
+			"installed_models":  modelsList,
 			"active_vram_model": State.ActiveVramModel,
-			"model_status":     State.ModelStatus,
-			"is_gamer_mode":    State.IsGamerMode,
-			"is_throttled":     State.IsThrottled,
+			"model_status":      State.ModelStatus,
+			"download_status":   State.ModelStatus,
+			"downloaded_mb":     State.DownloadedMB,
+			"total_mb":          State.TotalMB,
+			"download_progress": State.DownloadProgress,
+			"is_gamer_mode":     State.IsGamerMode,
+			"is_throttled":      State.IsThrottled,
 		}
 
 		raw, _ := json.Marshal(payload)
@@ -140,10 +165,36 @@ func startHeartbeatLoop() {
 }
 
 // IDM-Style 16-Channel Parallel Range Downloader (Section 2.2)
+//
+// The download reports the transferred amount so that the panel can show the real
+// progress of the model that is currently fetched.
 func downloadModelIDM(url string, targetPath string, fileSize int64) error {
 	partSize := fileSize / int64(ParallelConnections)
+	if partSize <= 0 {
+		partSize = fileSize
+	}
 	var wg sync.WaitGroup
 	errs := make([]error, ParallelConnections)
+
+	var downloaded int64
+	var downloadMutex sync.Mutex
+	progressDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(700 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-progressDone:
+				return
+			case <-ticker.C:
+				downloadMutex.Lock()
+				current := downloaded
+				downloadMutex.Unlock()
+				reportDownloadProgress(current, fileSize)
+			}
+		}
+	}()
+	defer close(progressDone)
 
 	fmt.Printf("[BYOG IDM] Starting 16-channel saturated download for %s (%d bytes)\n", targetPath, fileSize)
 
@@ -180,7 +231,10 @@ func downloadModelIDM(url string, targetPath string, fileSize int64) error {
 			}
 			defer out.Close()
 
-			_, err = io.Copy(out, resp.Body)
+			written, err := io.Copy(out, resp.Body)
+			downloadMutex.Lock()
+			downloaded += written
+			downloadMutex.Unlock()
 			errs[channelIdx] = err
 		}(i)
 	}
@@ -209,8 +263,51 @@ func downloadModelIDM(url string, targetPath string, fileSize int64) error {
 		}
 	}
 
+	reportDownloadProgress(fileSize, fileSize)
 	fmt.Printf("[BYOG IDM] Download and verification complete: %s\n", targetPath)
 	return nil
+}
+
+// downloadAssignedModel downloads a model into the storage directory of the worker and
+// keeps the installed model list in sync.
+func downloadAssignedModel(modelId string, downloadUrl string, fileSize int64) {
+	if modelId == "" || downloadUrl == "" {
+		return
+	}
+	targetPath := filepath.Join(State.Config.StorageDir, modelId+".gguf")
+	_ = os.MkdirAll(State.Config.StorageDir, 0755)
+
+	if info, err := os.Stat(targetPath); err == nil && info.Size() > 10*1024*1024 {
+		State.Mu.Lock()
+		State.InstalledModels[modelId] = true
+		State.Mu.Unlock()
+		return
+	}
+
+	if err := downloadModelIDM(downloadUrl, targetPath, fileSize); err != nil {
+		fmt.Printf("[BYOG IDM] Download of %s failed: %v\n", modelId, err)
+		return
+	}
+	State.Mu.Lock()
+	State.InstalledModels[modelId] = true
+	State.ModelStatus = "ready"
+	State.DownloadProgress = 100
+	State.Mu.Unlock()
+}
+
+// reportDownloadProgress publishes the download progress of the worker.
+func reportDownloadProgress(downloaded int64, total int64) {
+	State.Mu.Lock()
+	State.ModelStatus = "downloading"
+	State.DownloadedMB = int(downloaded / (1024 * 1024))
+	if total > 0 {
+		State.TotalMB = int(total / (1024 * 1024))
+		State.DownloadProgress = int((downloaded * 100) / total)
+	}
+	if State.DownloadProgress > 100 {
+		State.DownloadProgress = 100
+	}
+	State.Mu.Unlock()
 }
 
 // Self-Updater Engine with Windows File-Lock Workaround (Section 5.5)
@@ -285,334 +382,34 @@ func checkSelfUpdate() {
 func reportCrash(errCode string, errMsg string, stackTrace string, modelId string) {
 	crashUrl := fmt.Sprintf("%s/api/v1/worker/telemetry/crash", State.Config.ServerUrl)
 	payload := map[string]interface{}{
-		"node_id":          State.Config.NodeId,
-		"error_code":       errCode,
-		"error_message":    errMsg,
-		"stack_trace":      stackTrace,
-		"memory_usage_mb":  1450,
-		"model_id":         modelId,
+		"node_id":         State.Config.NodeId,
+		"error_code":      errCode,
+		"error_message":   errMsg,
+		"stack_trace":     stackTrace,
+		"memory_usage_mb": 1450,
+		"model_id":        modelId,
 	}
 	body, _ := json.Marshal(payload)
 	_, _ = http.Post(crashUrl, "application/json", bytes.NewReader(body))
 }
 
-// LocalTransformerEngine provides true on-device neural language model inference
+// LocalTransformerEngine executes the inference with the local llama.cpp runtime.
 type LocalTransformerEngine struct {
-	ModelId   string
-	GgufPath  string
-	VocabSize int
-	Dim       int
-	Layers    int
-	Heads     int
+	ModelId  string
+	GgufPath string
 }
 
 func NewLocalTransformerEngine(modelId string, storageDir string) *LocalTransformerEngine {
-	ggufPath := filepath.Join(storageDir, modelId+".gguf")
 	return &LocalTransformerEngine{
-		ModelId:   modelId,
-		GgufPath:  ggufPath,
-		VocabSize: 32000,
-		Dim:       128,
-		Layers:    4,
-		Heads:     8,
+		ModelId:  modelId,
+		GgufPath: filepath.Join(storageDir, modelId+".gguf"),
 	}
 }
 
-// Tokenize splits prompt into subword tokens
-func (e *LocalTransformerEngine) Tokenize(prompt string) []string {
-	words := strings.Fields(prompt)
-	if len(words) == 0 {
-		return []string{""}
-	}
-	return words
-}
-
-func (e *LocalTransformerEngine) extractGgufTokens() []string {
-	f, err := os.Open(e.GgufPath)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-
-	var magic [4]byte
-	if _, err := io.ReadFull(f, magic[:]); err != nil || string(magic[:]) != "GGUF" {
-		return nil
-	}
-
-	var version uint32
-	var tensorCount, metadataKvCount uint64
-	if err := binary.Read(f, binary.LittleEndian, &version); err != nil {
-		return nil
-	}
-	if err := binary.Read(f, binary.LittleEndian, &tensorCount); err != nil {
-		return nil
-	}
-	if err := binary.Read(f, binary.LittleEndian, &metadataKvCount); err != nil {
-		return nil
-	}
-
-	for i := uint64(0); i < metadataKvCount && i < 500; i++ {
-		var keyLen uint64
-		if err := binary.Read(f, binary.LittleEndian, &keyLen); err != nil || keyLen > 1024 {
-			break
-		}
-		keyBytes := make([]byte, keyLen)
-		if _, err := io.ReadFull(f, keyBytes); err != nil {
-			break
-		}
-		key := string(keyBytes)
-
-		var valType uint32
-		if err := binary.Read(f, binary.LittleEndian, &valType); err != nil {
-			break
-		}
-
-		if valType == 9 { // Array
-			var itemType uint32
-			var itemCount uint64
-			if err := binary.Read(f, binary.LittleEndian, &itemType); err != nil {
-				break
-			}
-			if err := binary.Read(f, binary.LittleEndian, &itemCount); err != nil {
-				break
-			}
-			if key == "tokenizer.ggml.tokens" && itemType == 8 {
-				maxLoad := itemCount
-				if maxLoad > 32000 {
-					maxLoad = 32000
-				}
-				tokens := make([]string, 0, maxLoad)
-				for j := uint64(0); j < itemCount; j++ {
-					var sLen uint64
-					if err := binary.Read(f, binary.LittleEndian, &sLen); err != nil || sLen > 4096 {
-						break
-					}
-					sBytes := make([]byte, sLen)
-					if _, err := io.ReadFull(f, sBytes); err != nil {
-						break
-					}
-					if uint64(len(tokens)) < maxLoad {
-						tokens = append(tokens, string(sBytes))
-					}
-				}
-				if len(tokens) > 0 {
-					return tokens
-				}
-			} else {
-				if itemType == 8 {
-					for j := uint64(0); j < itemCount; j++ {
-						var sLen uint64
-						if err := binary.Read(f, binary.LittleEndian, &sLen); err != nil || sLen > 65536 {
-							break
-						}
-						_, _ = f.Seek(int64(sLen), io.SeekCurrent)
-					}
-				} else {
-					sizes := map[uint32]int64{0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
-					if sz := sizes[itemType]; sz > 0 {
-						_, _ = f.Seek(int64(itemCount)*sz, io.SeekCurrent)
-					}
-				}
-			}
-		} else if valType == 8 { // String
-			var sLen uint64
-			if err := binary.Read(f, binary.LittleEndian, &sLen); err != nil || sLen > 65536 {
-				break
-			}
-			_, _ = f.Seek(int64(sLen), io.SeekCurrent)
-		} else {
-			sizes := map[uint32]int64{0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
-			if sz := sizes[valType]; sz > 0 {
-				_, _ = f.Seek(sz, io.SeekCurrent)
-			}
-		}
-	}
-	return nil
-}
-
-// GenerateStream executes real on-device autoregressive transformer forward passes
-func synthesizeIntelligentResponse(prompt string) string {
-	p := strings.TrimSpace(prompt)
-	if p == "" {
-		return "Hello! How can I help you today?"
-	}
-
-	pLower := strings.ToLower(p)
-
-	isTr := false
-	trMarkers := []string{"ç", "ğ", "ı", "ö", "ş", "ü", "merhaba", "selam", "nasıl", "nedir", "bana", "yaz", "kod", "yap", "ve", "ile", "ne", "kim", "nerede", "hangi", "hakkında", "açıkla", "günaydın", "iyi günler", "lütfen", "teşekkür", "makale"}
-	for _, m := range trMarkers {
-		if strings.Contains(pLower, m) {
-			isTr = true
-			break
-		}
-	}
-
-	noPunct := strings.Contains(pLower, "noktalama kullanma") || strings.Contains(pLower, "no punctuation") || strings.Contains(pLower, "without punctuation")
-
-	// 1. Direct repeat directive
-	if strings.Contains(pLower, "tekrar et:") || strings.Contains(pLower, "şunları tekrar et") || strings.Contains(pLower, "repeat after me") || strings.Contains(pLower, "repeat:") {
-		re := regexp.MustCompile("(?i).*?(tekrar et:|şunları tekrar et:|şunları tekrar et|repeat after me:|repeat after me|repeat:)")
-		toRepeat := strings.TrimSpace(re.ReplaceAllString(p, ""))
-		res := p
-		if toRepeat != "" {
-			res = toRepeat
-		}
-		return applyConstraintsDesktop(res, noPunct)
-	}
-
-	// 2. Greetings
-	isGreeting := false
-	greetings := []string{"hi", "hello", "hey", "merhaba", "selam", "günaydın", "iyi günler", "howdy", "greetings"}
-	cleanWords := strings.Fields(strings.ReplaceAll(strings.ReplaceAll(pLower, "!", ""), "?", ""))
-	if len(cleanWords) <= 3 {
-		for _, w := range cleanWords {
-			for _, g := range greetings {
-				if w == g {
-					isGreeting = true
-					break
-				}
-			}
-			if isGreeting {
-				break
-			}
-		}
-	}
-	if isGreeting {
-		res := "Hello! How can I help you today?"
-		if isTr {
-			res = "Merhaba! Size nasıl yardımcı olabilirim?"
-		}
-		return applyConstraintsDesktop(res, noPunct)
-	}
-
-	// 3. Gratitude
-	if strings.Contains(pLower, "teşekkür") || strings.Contains(pLower, "thank") {
-		res := "You're welcome! Let me know if there's anything else you need."
-		if isTr {
-			res = "Rica ederim! Başka bir sorunuz veya göreviniz olursa memnuniyetle yardımcı olurum."
-		}
-		return applyConstraintsDesktop(res, noPunct)
-	}
-
-	// 4. Code & Programming Generation
-	if strings.Contains(pLower, "kod") || strings.Contains(pLower, "code") || strings.Contains(pLower, "python") || strings.Contains(pLower, "javascript") || strings.Contains(pLower, "golang") || strings.Contains(pLower, "fonksiyon") || strings.Contains(pLower, "script") || strings.Contains(pLower, "sql") {
-		var res string
-		if strings.Contains(pLower, "fibonacci") {
-			if isTr {
-				res = "Python ile Fibonacci dizisi hesaplama:\n\n```python\ndef fibonacci(n: int) -> list[int]:\n    if n <= 0:\n        return []\n    if n == 1:\n        return [0]\n    seq = [0, 1]\n    while len(seq) < n:\n        seq.append(seq[-1] + seq[-2])\n    return seq\n\nif __name__ == '__main__':\n    print(fibonacci(10))\n```\n\nBu algoritma O(n) zaman karmaşıklığı ile ardışık terimleri toplar."
-			} else {
-				res = "Fibonacci series in Python:\n\n```python\ndef fibonacci(n: int) -> list[int]:\n    if n <= 0:\n        return []\n    if n == 1:\n        return [0]\n    seq = [0, 1]\n    while len(seq) < n:\n        seq.append(seq[-1] + seq[-2])\n    return seq\n\nif __name__ == '__main__':\n    print(fibonacci(10))\n```\n\nThis algorithm computes the sequence with O(n) time complexity."
-			}
-		} else if strings.Contains(pLower, "asal") || strings.Contains(pLower, "prime") {
-			if isTr {
-				res = "Asal sayı kontrol fonksiyonu:\n\n```python\ndef is_prime(n: int) -> bool:\n    if n <= 1:\n        return False\n    if n <= 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True\n```"
-			} else {
-				res = "Prime number check function:\n\n```python\ndef is_prime(n: int) -> bool:\n    if n <= 1:\n        return False\n    if n <= 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True\n```"
-			}
-		} else {
-			if isTr {
-				res = "İstediğiniz görev için modüler ve temiz bir çözüm:\n\n```python\ndef execute_task(data: list) -> dict:\n    valid_items = [x for x in data if x is not None]\n    return {\n        'status': 'success',\n        'count': len(valid_items),\n        'result': valid_items\n    }\n\nif __name__ == '__main__':\n    print(execute_task([1, 2, None, 4]))\n```"
-			} else {
-				res = "Clean, modular implementation for the requested task:\n\n```python\ndef execute_task(data: list) -> dict:\n    valid_items = [x for x in data if x is not None]\n    return {\n        'status': 'success',\n        'count': len(valid_items),\n        'result': valid_items\n    }\n\nif __name__ == '__main__':\n    print(execute_task([1, 2, None, 4]))\n```"
-			}
-		}
-		return applyConstraintsDesktop(res, noPunct)
-	}
-
-	// 5. In-Depth Natural Content & Question Answering
-	topic := p
-	prefixes := []string{
-		"bana bir makale yaz", "bir makale yaz", "makale yaz", "hakkında makale yaz", "ile ilgili makale yaz",
-		"hakkında bir makale yaz", "hakkında bilgi ver", "hakkında", "ile ilgili", "yazısı yaz", "açıkla", "nedir",
-		"write an essay about", "write an essay on", "write an essay", "write an article about", "explain", "what is",
-	}
-	for _, pref := range prefixes {
-		re := regexp.MustCompile("(?i)" + regexp.QuoteMeta(pref))
-		topic = re.ReplaceAllString(topic, "")
-	}
-	topic = strings.Trim(strings.TrimSpace(topic), ":,-?!.")
-	if topic == "" {
-		topic = p
-	}
-
-	var res string
-	if isTr {
-		res = fmt.Sprintf("%s konusu incelendiğinde, bu kavramın ortaya çıkışı ve günümüzdeki etkileri oldukça geniş bir perspektif sunar.\n\n"+
-			"Temel yapısı ele alındığında, %s ile ilgili süreçler belirli metodolojik adımlara ve analitik temellere dayanır. Bu temellerin doğru kavranması, karşılaşılan problemlerin çözülmesinde ve sistemli bir anlayış geliştirilmesinde kritik rol oynar.\n\n"+
-			"Uygulama alanlarına bakıldığında, %s hem bireysel hem de sektörel düzeyde verimliliği artıran ve yeni olanaklar sağlayan bir yapıya sahiptir. Sürekli evrilen dinamikleri, bu alanın gelecekte de önemini koruyacağını ve yeni gelişmelerle zenginleşeceğini gösterir.", topic, topic, topic)
-	} else {
-		res = fmt.Sprintf("Analyzing %s presents a multifaceted perspective encompassing foundational principles and practical significance.\n\n"+
-			"At its core, %s relies on structured methodologies and rigorous mechanisms. Mastering these underlying principles allows for effective problem solving and provides a robust framework for further exploration.\n\n"+
-			"In practice, %s drives efficiency and opens new possibilities across diverse disciplines. Its ongoing evolution highlights its sustained relevance and positive long-term impact.", topic, topic, topic)
-	}
-
-	return applyConstraintsDesktop(res, noPunct)
-}
-
-func applyConstraintsDesktop(text string, noPunct bool) string {
-	if !noPunct || text == "" {
-		return text
-	}
-	puncts := ".,!?;:\"'()[]{}-`#*"
-	var sb strings.Builder
-	for _, r := range text {
-		if !strings.ContainsRune(puncts, r) {
-			sb.WriteRune(r)
-		}
-	}
-	return sb.String()
-}
-
-func tokenizeToPieces(text string) []string {
-	var pieces []string
-	var currentWord strings.Builder
-	for _, r := range text {
-		if r == ' ' || r == '\n' || r == '\t' {
-			if currentWord.Len() > 0 {
-				pieces = append(pieces, currentWord.String())
-				currentWord.Reset()
-			}
-			pieces = append(pieces, string(r))
-		} else if strings.ContainsRune(".,!?;:()[]{}\"#*", r) {
-			if currentWord.Len() > 0 {
-				pieces = append(pieces, currentWord.String())
-				currentWord.Reset()
-			}
-			pieces = append(pieces, string(r))
-		} else {
-			currentWord.WriteRune(r)
-		}
-	}
-	if currentWord.Len() > 0 {
-		pieces = append(pieces, currentWord.String())
-	}
-	return pieces
-}
-
-func findLlamaCli(storageDir string) string {
-	candidates := []string{
-		filepath.Join(storageDir, "llama-cli.exe"),
-		filepath.Join(storageDir, "llama.exe"),
-		"llama-cli.exe",
-		"llama.exe",
-		"llama-cli",
-		"llama",
-	}
-	for _, c := range candidates {
-		if path, err := exec.LookPath(c); err == nil {
-			return path
-		}
-		if _, err := os.Stat(c); err == nil {
-			return c
-		}
-	}
-	return ""
-}
-
-// Intelligent neural stream generation without dialogue banks or synthetic noise
-func (e *LocalTransformerEngine) GenerateStream(prompt string, maxTokens int, temperature float64, onChunk func(piece string, tokenId int) bool) (int, int, float64) {
-	startTime := time.Now()
+// GenerateStream runs a real llama.cpp generation and streams the produced tokens.
+// The measured token count and throughput come from the engine itself, nothing is
+// estimated or fabricated.
+func (e *LocalTransformerEngine) GenerateStream(ctx context.Context, prompt string, maxTokens int, temperature float64, onChunk func(piece string, tokenId int) bool) (*llama.Result, error) {
 	if maxTokens <= 0 {
 		maxTokens = 512
 	}
@@ -620,97 +417,20 @@ func (e *LocalTransformerEngine) GenerateStream(prompt string, maxTokens int, te
 		temperature = 0.7
 	}
 
-	modelPath := e.GgufPath
-	storageDir := filepath.Dir(e.GgufPath)
-	if fi, err := os.Stat(modelPath); err != nil || fi.Size() < 10*1024*1024 {
-		msg := fmt.Sprintf("Model dosyası henüz indirilmedi veya eksik (%s.gguf). Lütfen model indirmesi tamamlandıktan sonra tekrar deneyiniz.", e.ModelId)
-		onChunk(msg, 1001)
-		return 1, 120, 24.5
+	info, err := os.Stat(e.GgufPath)
+	if err != nil || info.Size() < 10*1024*1024 {
+		return nil, fmt.Errorf("model file is missing or incomplete (%s.gguf), the download has to be finished first", e.ModelId)
 	}
 
-	llamaCli := findLlamaCli(storageDir)
-	if llamaCli != "" {
-		cmd := exec.Command(llamaCli,
-			"-m", modelPath,
-			"-p", prompt,
-			"-n", fmt.Sprintf("%d", maxTokens),
-			"--temp", fmt.Sprintf("%.2f", temperature),
-			"--simple-io",
-			"--no-warmup",
-		)
-		stdout, err := cmd.StdoutPipe()
-		if err == nil && cmd.Start() == nil {
-			reader := bufio.NewReader(stdout)
-			generatedCount := 0
-			var firstTokenTime time.Duration
-			buf := make([]byte, 64)
-			for {
-				n, readErr := reader.Read(buf)
-				if n > 0 {
-					piece := string(buf[:n])
-					generatedCount++
-					if generatedCount == 1 {
-						firstTokenTime = time.Since(startTime)
-					}
-					if !onChunk(piece, 1000+generatedCount) {
-						_ = cmd.Process.Kill()
-						break
-					}
-				}
-				if readErr != nil {
-					break
-				}
-			}
-			_ = cmd.Wait()
-			totalDuration := time.Since(startTime)
-			ttftMs := int(firstTokenTime.Milliseconds())
-			if ttftMs <= 0 {
-				ttftMs = int(totalDuration.Milliseconds())
-			}
-			tps := float64(generatedCount) / totalDuration.Seconds()
-			if tps <= 0 {
-				tps = 28.5
-			}
-			return generatedCount, ttftMs, tps
-		}
+	runtime, err := llama.EnsureRuntime(filepath.Dir(e.GgufPath))
+	if err != nil {
+		return nil, err
+	}
+	if runtime.ServerPath == "" {
+		return nil, errors.New("the llama.cpp runtime does not provide llama-server")
 	}
 
-	fullResponse := synthesizeIntelligentResponse(prompt)
-	pieces := tokenizeToPieces(fullResponse)
-
-	generatedCount := 0
-	var firstTokenTime time.Duration
-
-	for step, piece := range pieces {
-		if step >= maxTokens {
-			break
-		}
-
-		generatedCount++
-		if step == 0 {
-			firstTokenTime = time.Since(startTime)
-		}
-
-		tokenId := 1000 + step
-		continueStreaming := onChunk(piece, tokenId)
-		if !continueStreaming {
-			break
-		}
-
-		time.Sleep(time.Duration(22+(step%4)*3) * time.Millisecond)
-	}
-
-	totalDuration := time.Since(startTime)
-	ttftMs := int(firstTokenTime.Milliseconds())
-	if ttftMs < 120 {
-		ttftMs = 175
-	}
-	tps := float64(generatedCount) / totalDuration.Seconds()
-	if tps <= 0 {
-		tps = 31.5
-	}
-
-	return generatedCount, ttftMs, tps
+	return runtime.Infer(ctx, e.GgufPath, filepath.Dir(e.GgufPath), prompt, maxTokens, temperature, onChunk)
 }
 
 // WebSocket Message Dispatcher & Inference Execution
@@ -742,14 +462,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 			}
 			if err := json.Unmarshal(frame.Payload, &dReq); err == nil {
 				go func() {
-					targetPath := filepath.Join(State.Config.StorageDir, dReq.ModelId+".gguf")
-					_ = os.MkdirAll(State.Config.StorageDir, 0755)
-					err := downloadModelIDM(dReq.DownloadUrl, targetPath, dReq.FileSize)
-					if err == nil {
-						State.Mu.Lock()
-						State.InstalledModels[dReq.ModelId] = true
-						State.Mu.Unlock()
-					}
+					downloadAssignedModel(dReq.ModelId, dReq.DownloadUrl, dReq.FileSize)
 				}()
 			}
 
@@ -764,22 +477,39 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 			if err := json.Unmarshal(frame.Payload, &probe); err == nil {
 				go func() {
 					filePath := filepath.Join(State.Config.StorageDir, probe.ModelId+".gguf")
+					length := probe.Length
+					if length <= 0 {
+						length = 64
+					}
+					buf := make([]byte, length)
 					f, err := os.Open(filePath)
-					var hexData string
-					if err == nil {
-						defer f.Close()
-						buf := make([]byte, probe.Length)
-						_, _ = f.ReadAt(buf, probe.Offset)
-						hexData = hex.EncodeToString(buf)
-					} else {
-						simulated := make([]byte, probe.Length)
-						for i := range simulated {
-							simulated[i] = byte((probe.Offset + int64(i)) % 256)
-						}
-						hexData = hex.EncodeToString(simulated)
+					if err != nil {
+						respPayload, _ := json.Marshal(map[string]interface{}{
+							"data_hex": "",
+							"error":    fmt.Sprintf("model file %s is not available", probe.ModelId),
+						})
+						_ = conn.WriteJSON(map[string]interface{}{
+							"type":    "byte_probe_response",
+							"id":      frame.Id,
+							"payload": respPayload,
+						})
+						return
+					}
+					defer f.Close()
+					if _, err := f.ReadAt(buf, probe.Offset); err != nil && err != io.EOF {
+						respPayload, _ := json.Marshal(map[string]interface{}{
+							"data_hex": "",
+							"error":    err.Error(),
+						})
+						_ = conn.WriteJSON(map[string]interface{}{
+							"type":    "byte_probe_response",
+							"id":      frame.Id,
+							"payload": respPayload,
+						})
+						return
 					}
 					respPayload, _ := json.Marshal(map[string]string{
-						"data_hex": hexData,
+						"data_hex": hex.EncodeToString(buf),
 					})
 					_ = conn.WriteJSON(map[string]interface{}{
 						"type":    "byte_probe_response",
@@ -800,15 +530,25 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 			}
 			if err := json.Unmarshal(frame.Payload, &canary); err == nil {
 				go func() {
+					engine := NewLocalTransformerEngine(canary.ModelId, State.Config.StorageDir)
+					result, err := engine.GenerateStream(context.Background(), canary.Prompt, 16, 0.0, nil)
 					resp := map[string]interface{}{
 						"request_id":    canary.RequestId,
-						"total_tokens":  2,
-						"prompt_tokens": 8,
-						"ttft_ms":       180,
-						"tps":           42.5,
-						"raw_tokens":    []int{151644, 872, 151645},
-						"logprobs":      []float64{-0.0124, -0.0001},
-						"error":         "16",
+						"total_tokens":  0,
+						"prompt_tokens": 0,
+						"ttft_ms":       0,
+						"tps":           0.0,
+						"raw_tokens":    []int{},
+						"logprobs":      []float64{},
+					}
+					if err != nil {
+						resp["error"] = err.Error()
+					} else {
+						resp["total_tokens"] = result.TotalTokens
+						resp["prompt_tokens"] = result.PromptTokens
+						resp["ttft_ms"] = result.TtftMs
+						resp["tps"] = result.Tps
+						resp["text"] = result.Text
 					}
 					respBytes, _ := json.Marshal(resp)
 					_ = conn.WriteJSON(map[string]interface{}{
@@ -843,7 +583,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 					State.Mu.Lock()
 					State.ActiveVramModel = infReq.ModelId
 					State.ModelStatus = "running"
-					State.CurrentTps = 28.5
+					State.CurrentTps = 0
 					State.Mu.Unlock()
 
 					userPrompt := strings.TrimSpace(infReq.Prompt)
@@ -856,9 +596,10 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 						}
 					}
 
-					// True On-Device Local Transformer Engine Execution
+					// True on-device inference with the llama.cpp runtime
 					engine := NewLocalTransformerEngine(infReq.ModelId, State.Config.StorageDir)
-					genTokens, ttftMs, liveTps := engine.GenerateStream(
+					result, err := engine.GenerateStream(
+						context.Background(),
 						userPrompt,
 						infReq.MaxTokens,
 						infReq.Temperature,
@@ -877,13 +618,41 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 							return true
 						},
 					)
+					if err != nil {
+						errorPayload, _ := json.Marshal(map[string]interface{}{
+							"request_id": infReq.RequestId,
+							"error":      err.Error(),
+						})
+						_ = conn.WriteJSON(map[string]interface{}{
+							"type":    "inference_error",
+							"id":      infReq.RequestId,
+							"payload": errorPayload,
+						})
+						State.Mu.Lock()
+						State.ModelStatus = "ready"
+						State.CurrentTps = 0
+						State.Mu.Unlock()
+						return
+					}
+
+					finalPayload, _ := json.Marshal(map[string]interface{}{
+						"request_id": infReq.RequestId,
+						"content":    "",
+						"token_id":   1000 + result.TotalTokens,
+						"is_final":   true,
+					})
+					_ = conn.WriteJSON(map[string]interface{}{
+						"type":    "inference_chunk",
+						"id":      infReq.RequestId,
+						"payload": finalPayload,
+					})
 
 					donePayload, _ := json.Marshal(map[string]interface{}{
 						"request_id":    infReq.RequestId,
-						"total_tokens":  genTokens,
-						"prompt_tokens": len(strings.Fields(userPrompt)) + 4,
-						"ttft_ms":       ttftMs,
-						"tps":           liveTps,
+						"total_tokens":  result.TotalTokens,
+						"prompt_tokens": result.PromptTokens,
+						"ttft_ms":       result.TtftMs,
+						"tps":           result.Tps,
 					})
 					_ = conn.WriteJSON(map[string]interface{}{
 						"type":    "inference_done",
@@ -899,7 +668,8 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 					}
 					State.ModelStatus = "ready"
 					State.CurrentTps = 0.0
-					State.TotalTokens += int64(genTokens)
+					State.CurrentTtftMs = result.TtftMs
+					State.TotalTokens += int64(result.TotalTokens)
 					State.Mu.Unlock()
 				}()
 			}
@@ -1003,13 +773,19 @@ func main() {
 		var regResp struct {
 			Success bool `json:"success"`
 			Data    struct {
-				NodeId      string `json:"node_id"`
-				PairingCode string `json:"pairing_code"`
-				UserId      int    `json:"user_id"`
-				IsPaired    bool   `json:"is_paired"`
-				SystemName  string `json:"system_name"`
-				AppName     string `json:"app_name"`
-				Favicon     string `json:"favicon"`
+				NodeId               string `json:"node_id"`
+				PairingCode          string `json:"pairing_code"`
+				UserId               int    `json:"user_id"`
+				IsPaired             bool   `json:"is_paired"`
+				SystemName           string `json:"system_name"`
+				AppName              string `json:"app_name"`
+				Favicon              string `json:"favicon"`
+				AssignedModelDetails []struct {
+					ModelId     string `json:"model_id"`
+					DownloadUrl string `json:"download_url"`
+					FileSize    int64  `json:"file_size"`
+					TotalMB     int    `json:"total_mb"`
+				} `json:"assigned_model_details"`
 			} `json:"data"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&regResp)
@@ -1027,6 +803,16 @@ func main() {
 		}
 
 		fmt.Printf("[%s] Initialized successfully. Node ID: %s | Paired: %v\n", appName, State.Config.NodeId, regResp.Data.IsPaired)
+
+		// The models that the server assigns are fetched by the worker itself.
+		for _, detail := range regResp.Data.AssignedModelDetails {
+			if detail.ModelId == "" {
+				continue
+			}
+			go func(modelId string, url string, size int64) {
+				downloadAssignedModel(modelId, url, size)
+			}(detail.ModelId, detail.DownloadUrl, detail.FileSize)
+		}
 	} else {
 		fmt.Printf("[BYOG WORKER] Registration pending or offline. Connecting to tunnel...\n")
 	}
