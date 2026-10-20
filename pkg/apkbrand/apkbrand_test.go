@@ -86,6 +86,15 @@ func TestRebrandApk(t *testing.T) {
 	out, err = exec.Command(aapt, "dump", "badging", temp).CombinedOutput()
 	require.NoError(t, err, string(out))
 	assert.Contains(t, string(out), "application-label:'"+testLabel+"'")
+
+	// The platform refuses to install an APK with misaligned native libraries.
+	zipalign := findZipalign()
+	if zipalign == "" {
+		t.Skip("zipalign not available")
+	}
+	out, err = exec.Command(zipalign, "-c", "-P", "16", "-v", "4", temp).CombinedOutput()
+	require.NoError(t, err, string(out))
+	assert.Contains(t, string(out), "Verification successful")
 }
 
 // TestRebrandWithoutResourcesFails makes sure that a broken base APK is reported.
@@ -179,6 +188,22 @@ func findAapt() string {
 		return ""
 	}
 	matches, err := filepath.Glob(filepath.Join(sdk, "build-tools", "*", "aapt.exe"))
+	if err != nil || len(matches) == 0 {
+		return ""
+	}
+	return matches[len(matches)-1]
+}
+
+// findZipalign locates the zipalign tool of the Android build tools.
+func findZipalign() string {
+	sdk := os.Getenv("ANDROID_HOME")
+	if sdk == "" {
+		sdk = os.Getenv("ANDROID_SDK_ROOT")
+	}
+	if sdk == "" {
+		return ""
+	}
+	matches, err := filepath.Glob(filepath.Join(sdk, "build-tools", "*", "zipalign.exe"))
 	if err != nil || len(matches) == 0 {
 		return ""
 	}

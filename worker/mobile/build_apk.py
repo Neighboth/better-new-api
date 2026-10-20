@@ -2793,8 +2793,10 @@ with zipfile.ZipFile(unaligned_apk, "a", compression=zipfile.ZIP_DEFLATED) as zf
                 zf.writestr(zinfo, so_data)
 
 # 9. Zipalign
+# The uncompressed native libraries are aligned to a sixteen kilobyte page boundary, the
+# platform rejects the installation of an APK with misaligned native libraries.
 aligned_apk = os.path.join(WORKDIR, "aligned.apk")
-subprocess.check_call([ZIPALIGN, "-p", "-f", "-v", "4", unaligned_apk, aligned_apk])
+subprocess.check_call([ZIPALIGN, "-P", "16", "-f", "-v", "4", unaligned_apk, aligned_apk])
 
 # 10. Signing key
 #

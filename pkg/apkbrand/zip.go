@@ -75,8 +75,12 @@ type centralDirectoryRecord struct {
 	extra            []byte
 }
 
-// buildArchive serialises the entries into a ZIP archive. Stored entries are aligned to
-// four byte boundaries as required by the Android package installer.
+// buildArchive serialises the entries into a ZIP archive.
+//
+// The payload of a stored entry starts at a fixed offset, the padding of the extra
+// field aligns it. Android requires the uncompressed resources to be aligned to four
+// bytes and the uncompressed native libraries to be aligned to a page boundary,
+// otherwise the installation of the package is rejected.
 func buildArchive(entries []apkEntry) []byte {
 	var buf bytes.Buffer
 	records := make([]centralDirectoryRecord, 0, len(entries))
@@ -96,7 +100,11 @@ func buildArchive(entries []apkEntry) []byte {
 			}
 		}
 		name := []byte(entry.Name)
-		extra := alignmentExtra(len(name), method == zip.Store)
+		alignment := 4
+		if isNativeLibrary(entry.Name) {
+			alignment = nativeLibraryAlignment
+		}
+		extra := alignmentExtra(offset, len(name), alignment)
 		crc := crc32.ChecksumIEEE(entry.Data)
 
 		writeLocalHeader(&buf, method, crc, uint32(len(payload)), uint32(len(entry.Data)), name, extra)
@@ -122,6 +130,16 @@ func buildArchive(entries []apkEntry) []byte {
 	return buf.Bytes()
 }
 
+// nativeLibraryAlignment is the boundary the uncompressed native libraries of an APK
+// have to be aligned to. The platform refuses to install the package otherwise. A
+// sixteen kilobyte boundary satisfies the devices with four kilobyte pages as well.
+const nativeLibraryAlignment = 16 * 1024
+
+// isNativeLibrary reports whether the entry holds a native library.
+func isNativeLibrary(name string) bool {
+	return strings.HasPrefix(name, "lib/") && strings.HasSuffix(name, ".so")
+}
+
 // deflateBytes compresses the payload with the deflate algorithm.
 func deflateBytes(data []byte) []byte {
 	var out bytes.Buffer
@@ -140,23 +158,19 @@ func deflateBytes(data []byte) []byte {
 }
 
 // alignmentExtra returns the extra field that aligns the payload of a stored entry.
-// The extra field is a sequence of (id, size, payload) blocks; a four byte block with an
-// empty payload is the smallest valid one.
-func alignmentExtra(nameLen int, stored bool) []byte {
-	if !stored {
+//
+// The extra field is a sequence of blocks, every block starts with a four byte
+// header. A block with an empty payload is the smallest valid one.
+func alignmentExtra(headerOffset uint32, nameLen int, alignment int) []byte {
+	base := int(headerOffset) + 30 + nameLen
+	if base%alignment == 0 {
 		return nil
 	}
-	for pad := 0; pad < 4; pad++ {
-		extraLen := 4 + pad
-		if (30+nameLen+extraLen)%4 != 0 {
-			continue
-		}
-		extra := make([]byte, extraLen)
-		binary.LittleEndian.PutUint16(extra[0:2], 0xd935)
-		binary.LittleEndian.PutUint16(extra[2:4], uint16(pad))
-		return extra
-	}
-	return nil
+	blockSize := (alignment - (base+4)%alignment) % alignment
+	extra := make([]byte, 4+blockSize)
+	binary.LittleEndian.PutUint16(extra[0:2], 0xd935)
+	binary.LittleEndian.PutUint16(extra[2:4], uint16(blockSize))
+	return extra
 }
 
 // writeLocalHeader writes a ZIP local file header.
