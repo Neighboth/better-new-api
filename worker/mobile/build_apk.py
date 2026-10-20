@@ -2796,27 +2796,60 @@ with zipfile.ZipFile(unaligned_apk, "a", compression=zipfile.ZIP_DEFLATED) as zf
 aligned_apk = os.path.join(WORKDIR, "aligned.apk")
 subprocess.check_call([ZIPALIGN, "-p", "-f", "-v", "4", unaligned_apk, aligned_apk])
 
-# 10. Keystore
-keystore_path = os.path.join(WORKDIR, "release.keystore")
+# 10. Signing key
+#
+# The key has to stay the same for every build, otherwise the installed application
+# cannot be updated ("App not installed" / INSTALL_FAILED_UPDATE_INCOMPATIBLE). The
+# keystore of the repository is therefore the single source of truth: it signs the APK
+# and the private key is exported from it for the server, which signs the rebranded
+# APK with the same key.
+RELEASE_KEYSTORE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "release.keystore")
+SIGNING_KEY_PEM = os.path.join(os.path.dirname(os.path.abspath(__file__)), "apk_signing_key.pem")
+KEYSTORE_PASSWORD = "android"
+KEYSTORE_ALIAS = "androidkey"
+
+if not os.path.exists(RELEASE_KEYSTORE):
+    print("The release keystore is missing, a new one is created: " + RELEASE_KEYSTORE)
+    subprocess.check_call([
+        KEYTOOL,
+        "-genkeypair",
+        "-keystore", RELEASE_KEYSTORE,
+        "-storepass", KEYSTORE_PASSWORD,
+        "-keypass", KEYSTORE_PASSWORD,
+        "-alias", KEYSTORE_ALIAS,
+        "-keyalg", "RSA",
+        "-keysize", "2048",
+        "-validity", "10000",
+        "-dname", "CN=BYOG, OU=Dev, O=BYOG, L=City, S=State, C=US"
+    ])
+
+# The private key is exported for the server, it has to match the keystore.
+export_dir = os.path.join(WORKDIR, "signing")
+os.makedirs(export_dir, exist_ok=True)
+export_class = os.path.join(export_dir, "ExportSigningKey.class")
 subprocess.check_call([
-    KEYTOOL,
-    "-genkeypair",
-    "-keystore", keystore_path,
-    "-storepass", "android",
-    "-keypass", "android",
-    "-alias", "androidkey",
-    "-keyalg", "RSA",
-    "-keysize", "2048",
-    "-validity", "10000",
-    "-dname", "CN=BYOG, OU=Dev, O=BYOG, L=City, S=State, C=US"
+    "javac",
+    "-encoding", "UTF-8",
+    "-d", export_dir,
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "ExportSigningKey.java")
 ])
+subprocess.check_call([
+    "java",
+    "-cp", export_dir,
+    "ExportSigningKey",
+    RELEASE_KEYSTORE,
+    KEYSTORE_PASSWORD,
+    KEYSTORE_ALIAS,
+    SIGNING_KEY_PEM,
+])
+print(f"Signing key exported for the server: {SIGNING_KEY_PEM}")
 
 # 11. Apksigner sign (v1 + v2 + v3)
 subprocess.check_call([
     APKSIGNER, "sign",
-    "--ks", keystore_path,
-    "--ks-pass", "pass:android",
-    "--key-pass", "pass:android",
+    "--ks", RELEASE_KEYSTORE,
+    "--ks-pass", "pass:" + KEYSTORE_PASSWORD,
+    "--key-pass", "pass:" + KEYSTORE_PASSWORD,
     "--out", OUTPUT_APK,
     aligned_apk
 ])

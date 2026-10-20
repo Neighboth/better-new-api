@@ -103,6 +103,50 @@ func isLauncherIcon(name string) bool {
 	return false
 }
 
+// GenerateSignerFile creates a new signing key at the given path. The file holds the
+// private key and the certificate, it can be used by the server and by the build
+// script of the worker APK.
+func GenerateSignerFile(path string) (*Signer, error) {
+	signer, err := GenerateSigner()
+	if err != nil {
+		return nil, err
+	}
+	if directory := filepath.Dir(path); directory != "" {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			return nil, err
+		}
+	}
+	if err := os.WriteFile(path, signerPEM(signer), 0o600); err != nil {
+		return nil, err
+	}
+	return signer, nil
+}
+
+// SplitSignerPEM splits a signing key bundle into the private key and the
+// certificate, both in PEM format. The Android build tools expect them separately.
+func SplitSignerPEM(bundle []byte) (privateKey []byte, certificate []byte, err error) {
+	rest := bundle
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		switch block.Type {
+		case "PRIVATE KEY":
+			privateKey = pem.EncodeToMemory(block)
+		case "RSA PRIVATE KEY":
+			privateKey = pem.EncodeToMemory(block)
+		case "CERTIFICATE":
+			certificate = pem.EncodeToMemory(block)
+		}
+	}
+	if len(privateKey) == 0 || len(certificate) == 0 {
+		return nil, nil, errors.New("apkbrand: the signing key bundle is incomplete")
+	}
+	return privateKey, certificate, nil
+}
+
 // LoadSigner reads a PEM encoded RSA private key and its self signed certificate from
 // the given path. When the file does not exist a new key pair is generated and stored.
 func LoadSigner(path string) (*Signer, error) {
@@ -162,12 +206,12 @@ func GenerateSigner() (*Signer, error) {
 }
 
 // signerPEM serialises the key and the certificate of a signer.
+//
+// The key is written in the PKCS#1 format, the Android build tools accept it
+// directly and the server reads it back without a conversion.
 func signerPEM(signer *Signer) []byte {
 	var out []byte
-	keyDER, err := x509.MarshalPKCS8PrivateKey(signer.PrivateKey)
-	if err == nil {
-		out = append(out, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})...)
-	}
+	out = append(out, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(signer.PrivateKey)})...)
 	out = append(out, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: signer.Cert.Raw})...)
 	return out
 }

@@ -305,6 +305,69 @@ func parseSignerBlock(block []byte) (*parsedSigner, error) {
 	return &parsedSigner{contentDigest: digest, signedData: signedData, signature: signatureBytes}, nil
 }
 
+// signerCertificates returns the certificate chain of the v2 signature of an APK.
+func signerCertificates(apk []byte) ([][]byte, error) {
+	eocdOffset, err := findEndOfCentralDirectory(apk)
+	if err != nil {
+		return nil, err
+	}
+	cdOffset := binary.LittleEndian.Uint32(apk[eocdOffset+16:])
+	magicOffset := findMagic(apk, cdOffset)
+	if magicOffset < 0 {
+		return nil, errors.New("apkbrand: signing block not found")
+	}
+	blockSize := binary.LittleEndian.Uint64(apk[magicOffset-8:])
+	blockStart := magicOffset + 16 - int(blockSize) - 8
+	block := apk[blockStart : magicOffset+16]
+
+	offset := 8
+	end := len(block) - len(apkSigningBlockMagic) - 8
+	var v2 []byte
+	for offset < end {
+		pairLength := int(binary.LittleEndian.Uint64(block[offset:]))
+		pairID := binary.LittleEndian.Uint32(block[offset+8:])
+		if pairID == apkSignatureSchemeV2BlockID {
+			v2 = block[offset+12 : offset+8+pairLength]
+		}
+		offset += 8 + pairLength
+	}
+	if v2 == nil {
+		return nil, errors.New("apkbrand: v2 block missing")
+	}
+
+	signers, _, err := readLengthPrefixed(v2, 0)
+	if err != nil {
+		return nil, err
+	}
+	signer, _, err := readLengthPrefixed(signers, 0)
+	if err != nil {
+		return nil, err
+	}
+	signedData, _, err := readLengthPrefixed(signer, 0)
+	if err != nil {
+		return nil, err
+	}
+	_, offset2, err := readLengthPrefixed(signedData, 0)
+	if err != nil {
+		return nil, err
+	}
+	certificates, _, err := readLengthPrefixed(signedData, offset2)
+	if err != nil {
+		return nil, err
+	}
+
+	var chain [][]byte
+	for len(certificates) > 0 {
+		certificate, next, err := readLengthPrefixed(certificates, 0)
+		if err != nil {
+			return nil, err
+		}
+		chain = append(chain, certificate)
+		certificates = certificates[next:]
+	}
+	return chain, nil
+}
+
 // readLengthPrefixed reads a length prefixed payload.
 func readLengthPrefixed(data []byte, offset int) ([]byte, int, error) {
 	if offset+4 > len(data) {
