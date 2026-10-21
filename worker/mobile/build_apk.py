@@ -631,6 +631,11 @@ html_content = f'''<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- The notice is shown in every view, it explains a lost connection. -->
+  <div id="connection-notice" class="hidden" style="margin-bottom: 14px; padding: 10px 12px; border-radius: 10px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); color: #fbbf24; font-size: 0.8rem; line-height: 1.45;">
+    Bağlantı kesildi. Cihazınız çevrimdışı, yeniden eşleştirmek için eşleştirme kodunu girin.
+  </div>
+
   <!-- View 0: Sequential Permissions Checklist -->
   <div id="permissions-view">
     <div class="card">
@@ -691,10 +696,6 @@ html_content = f'''<!DOCTYPE html>
       <p class="hint-text" style="margin-bottom: 14px;">
         Web kontrol panelinizdeki "Cihaz Bağla" penceresinde gösterilen QR kodu kameranızla okutun veya eşleştirme kodunu aşağıya girin.
       </p>
-
-      <div id="connection-notice" class="hidden" style="margin-bottom: 14px; padding: 10px 12px; border-radius: 10px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); color: #fbbf24; font-size: 0.8rem; line-height: 1.45;">
-        Bağlantı kesildi. Cihazınız çevrimdışı, yeniden eşleştirmek için eşleştirme kodunu girin.
-      </div>
 
       <button id="btn-scan" class="btn btn-primary" onclick="startQrScan()">
         <svg viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
@@ -1261,7 +1262,6 @@ html_content = f'''<!DOCTYPE html>
         const notice = document.getElementById('connection-notice');
         if (!connected) {{
           document.getElementById('paired-view').classList.add('hidden');
-          document.getElementById('unpaired-view').classList.remove('hidden');
           badge.className = 'badge badge-amber';
           const message = status.device_removed_message || 'Bağlantı kesildi';
           badge.innerHTML = '<div class="dot dot-amber"></div><span>' + message + '</span>';
@@ -1271,8 +1271,17 @@ html_content = f'''<!DOCTYPE html>
               : 'Bağlantı kesildi. Cihazınız çevrimdışı, yeniden eşleştirmek için eşleştirme kodunu girin.';
             notice.classList.remove('hidden');
           }}
-        }} else if (notice) {{
-          notice.classList.add('hidden');
+          // The checklist of the permissions stays in front until every permission
+          // is granted, the pairing is only offered afterwards.
+          if (permissionsCompleted) {{
+            document.getElementById('permissions-view').classList.add('hidden');
+            document.getElementById('unpaired-view').classList.remove('hidden');
+          }} else {{
+            document.getElementById('permissions-view').classList.remove('hidden');
+            document.getElementById('unpaired-view').classList.add('hidden');
+          }}
+        }} else {{
+          if (notice) notice.classList.add('hidden');
         }}
       }} catch (e) {{}}
     }};
@@ -1329,6 +1338,16 @@ html_content = f'''<!DOCTYPE html>
 '''
 with open(os.path.join(assets_www, "index.html"), "w", encoding="utf-8") as f:
     f.write(html_content)
+
+# The behaviour of the views is verified, a broken interface must not reach the
+# device. The check is skipped when node is not installed.
+VIEW_TEST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "view_test.cjs")
+if shutil.which("node") and os.path.exists(VIEW_TEST):
+    result = subprocess.run(["node", VIEW_TEST, os.path.join(assets_www, "index.html")])
+    if result.returncode != 0:
+        raise SystemExit("the interface of the application does not behave as expected")
+else:
+    print("node is not installed, the interface check is skipped")
 
 # 3. Java Source Files
 
