@@ -1110,6 +1110,19 @@ func DeleteAdminByogNode(c *gin.Context) {
 
 // ----------------- WORKER / REVERSE TUNNEL CONTROLLERS -----------------
 
+// allocatedCores limits the number of the cores of a node. The value is used
+// by the allocation rules, a device can not offer more than sixteen cores to a
+// single model.
+func allocatedCores(cores int) int {
+	if cores < 1 {
+		return 1
+	}
+	if cores > 16 {
+		return 16
+	}
+	return cores
+}
+
 // RegisterByogWorker is called when worker binary starts up
 func RegisterByogWorker(c *gin.Context) {
 	var req struct {
@@ -1121,6 +1134,7 @@ func RegisterByogWorker(c *gin.Context) {
 		DeviceName       string  `json:"device_name"`
 		DeviceType       string  `json:"device_type"`
 		CpuModel         string  `json:"cpu_model"`
+		CpuCores         int     `json:"cpu_cores"`
 		GpuModel         string  `json:"gpu_model"`
 		NpuModel         string  `json:"npu_model"`
 		PhysicalRam      int     `json:"physical_ram_mb"`
@@ -1248,6 +1262,9 @@ func RegisterByogWorker(c *gin.Context) {
 		node.NpuModel = req.NpuModel
 		node.PhysicalRamMB = req.PhysicalRam
 		node.SwapRamMB = req.SwapRam
+		if req.CpuCores > 0 {
+			node.AllocatedCores = allocatedCores(req.CpuCores)
+		}
 		node.VramMB = req.VramMB
 		node.SharedVramMB = req.SharedVramMB
 		if isMobile {
@@ -1407,7 +1424,7 @@ func RegisterByogWorker(c *gin.Context) {
 			FreeDiskGB:           req.FreeDiskGB,
 			AllocatedVramGB:      allocVram,
 			AllocatedRamGB:       allocRam,
-			AllocatedCores:       4,
+			AllocatedCores:       allocatedCores(req.CpuCores),
 			WifiOnlyDownload:     true,
 			MonthlyDataLimitMB:   0,
 			RunOnlyWhileCharging: false,

@@ -586,6 +586,30 @@ func GetByogNodeByNodeId(nodeId string) (*ByogNode, error) {
 	return &n, err
 }
 
+// RepairByogNodeCounters repairs the counters of the nodes that an earlier
+// version of the coordinator wrote as a text.
+//
+// A node with such a counter can not be read, the worker of the node is reported
+// as unknown and the panel shows an error. The counters are statistics, they are
+// reset for the affected nodes.
+func RepairByogNodeCounters() {
+	var nodeIds []string
+	if err := DB.Model(&ByogNode{}).Pluck("node_id", &nodeIds).Error; err != nil {
+		return
+	}
+	for _, nodeId := range nodeIds {
+		if _, err := GetByogNodeByNodeId(nodeId); err == nil {
+			continue
+		}
+		_ = DB.Model(&ByogNode{}).Where("node_id = ?", nodeId).
+			Update("total_tokens_processed", 0).Error
+		_ = DB.Model(&ByogNode{}).Where("node_id = ?", nodeId).
+			Update("total_earned_credits", 0).Error
+		_ = DB.Model(&ByogNode{}).Where("node_id = ?", nodeId).
+			Update("reputation_score", 50).Error
+	}
+}
+
 func GetByogNodeByHWID(hwid string) (*ByogNode, error) {
 	var n ByogNode
 	err := DB.Where("hw_id = ?", hwid).First(&n).Error
@@ -733,7 +757,7 @@ func InitDefaultByogData() {
 				ParamSize:              "0.5B",
 				PricingTier:            3,
 				DownloadUrl:            "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-				FileSize:               398000000,
+				FileSize:               491400032,
 				ChunkSize:              4194304,
 				ModalitiesInput:        `["text"]`,
 				ModalitiesOutput:       `["text"]`,
@@ -761,7 +785,7 @@ func InitDefaultByogData() {
 				ParamSize:              "1.5B",
 				PricingTier:            2,
 				DownloadUrl:            "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
-				FileSize:               986000000,
+				FileSize:               1117320736,
 				ChunkSize:              4194304,
 				ModalitiesInput:        `["text"]`,
 				ModalitiesOutput:       `["text"]`,
@@ -789,7 +813,7 @@ func InitDefaultByogData() {
 				ParamSize:              "7B",
 				PricingTier:            1,
 				DownloadUrl:            "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
-				FileSize:               4683000000,
+				FileSize:               4683074240,
 				ChunkSize:              16777216,
 				ModalitiesInput:        `["text","image"]`,
 				ModalitiesOutput:       `["text"]`,
@@ -817,7 +841,7 @@ func InitDefaultByogData() {
 				ParamSize:              "0.3B",
 				PricingTier:            2,
 				DownloadUrl:            "https://huggingface.co/BAAI/bge-large-en-v1.5/resolve/main/model.safetensors",
-				FileSize:               1340000000,
+				FileSize:               1340616616,
 				ChunkSize:              8388608,
 				ModalitiesInput:        `["text"]`,
 				ModalitiesOutput:       `["text"]`,

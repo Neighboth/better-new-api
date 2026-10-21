@@ -12,6 +12,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"gorm.io/gorm"
 )
 
 type AntiCheatManager struct{}
@@ -341,6 +342,10 @@ func (ac *AntiCheatManager) DecreaseReputation(nodeId string, delta int) {
 		Update("reputation_score", gormExpr("CASE WHEN reputation_score - ? < 0 THEN 0 ELSE reputation_score - ? END", delta, delta))
 }
 
+// gormExpr builds an expression of the database.
+//
+// The value has to be an expression of GORM, a string would be written into the
+// column as a value and the column could not be read any more.
 func gormExpr(expr string, args ...interface{}) interface{} {
-	return model.DB.Raw(expr, args...).Statement.SQL.String()
+	return gorm.Expr(expr, args...)
 }

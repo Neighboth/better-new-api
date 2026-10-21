@@ -49,6 +49,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import javax.net.ssl.SNIHostName;
 import javax.net.ssl.SNIServerName;
@@ -68,9 +70,9 @@ public class WorkerService extends Service {
     private Thread tunnelThread;
     private TunnelWebSocket tunnelWs;
 
-    private List<String> assignedModelsList = new ArrayList<>();
-    private List<String> installedModelsList = new ArrayList<>();
-    private List<String> downloadQueueList = new ArrayList<>();
+    private List<String> assignedModelsList = new CopyOnWriteArrayList<>();
+    private List<String> installedModelsList = new CopyOnWriteArrayList<>();
+    private List<String> downloadQueueList = new CopyOnWriteArrayList<>();
     private String activeVramModel = "";
     private boolean hotStartEnabled = false;
     private int allocatedDiskGB = 40;
@@ -83,8 +85,8 @@ public class WorkerService extends Service {
     private int lastTtftMs = 0;
     private long totalTokensProcessed = 0;
 
-    private Map<String, String> modelDownloadUrls = new HashMap<>();
-    private Map<String, Long> modelFileSizes = new HashMap<>();
+    private Map<String, String> modelDownloadUrls = new ConcurrentHashMap<>();
+    private Map<String, Long> modelFileSizes = new ConcurrentHashMap<>();
     private volatile boolean isModelDownloading = false;
     private volatile boolean workerPaused = false;
     private Thread modelDownloadThread;
@@ -100,9 +102,10 @@ public class WorkerService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        installWorkerCrashHandler();
         createNotificationChannel();
         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-        String appName = sp != null ? sp.getString("app_name", "{app_name}") : "{app_name}";
+        String appName = sp != null ? stringPref(sp, "app_name", "{app_name}") : "{app_name}";
         Notification notification = buildNotification(appName, "BYOG Servisi aktif...");
         try {
             if (Build.VERSION.SDK_INT >= 29) {
@@ -119,8 +122,17 @@ public class WorkerService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        try {
+            return runWorker(intent, flags, startId);
+        } catch (Throwable failure) {
+            reportCrash("ERR_WORKER_START", describe(failure), "");
+            return START_STICKY;
+        }
+    }
+
+    private int runWorker(Intent intent, int flags, int startId) {
         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-        boolean isPaired = sp != null && sp.getBoolean("is_paired", false) && !sp.getString("node_id", "").isEmpty();
+        boolean isPaired = sp != null && boolPref(sp, "is_paired", false) && !stringPref(sp, "node_id", "").isEmpty();
         if (!isPaired) {
             try {
                 if (Build.VERSION.SDK_INT >= 24) {
@@ -142,25 +154,25 @@ public class WorkerService extends Service {
         }
         isRunning = true;
 
-        currentAssignedModel = sp.getString("assigned_model", "qwen-2.5-0.5b-instruct");
-        activeVramModel = sp.getString("active_vram_model", "");
-        hotStartEnabled = sp.getBoolean("hot_start_enabled", false);
-        allocatedDiskGB = sp.getInt("allocated_disk_gb", 40);
+        currentAssignedModel = stringPref(sp, "assigned_model", "qwen-2.5-0.5b-instruct");
+        activeVramModel = stringPref(sp, "active_vram_model", "");
+        hotStartEnabled = boolPref(sp, "hot_start_enabled", false);
+        allocatedDiskGB = intPref(sp, "allocated_disk_gb", 40);
         totalTokensProcessed = sp.getLong("total_tokens_processed", 0);
-        downloadedMB = sp.getInt("downloaded_mb", 0);
-        totalMB = sp.getInt("total_mb", getModelSizeMB(currentAssignedModel));
+        downloadedMB = intPref(sp, "downloaded_mb", 0);
+        totalMB = intPref(sp, "total_mb", getModelSizeMB(currentAssignedModel));
         if (totalMB <= 0) totalMB = getModelSizeMB(currentAssignedModel);
-        downloadingModel = sp.getString("downloading_model", "");
+        downloadingModel = stringPref(sp, "downloading_model", "");
         downloadCurrentBytes = sp.getLong("download_current_bytes", 0);
         downloadTotalBytes = sp.getLong("download_total_bytes", 0);
-        downloadErrorText = sp.getString("download_error", "");
+        downloadErrorText = stringPref(sp, "download_error", "");
         if (downloadTotalBytes > 0) {
             totalMB = (int) (downloadTotalBytes / (1024 * 1024));
             if (totalMB <= 0) totalMB = 1;
         }
 
         try {
-            String instJson = sp.getString("installed_models", "[]");
+            String instJson = stringPref(sp, "installed_models", "[]");
             JSONArray arr = new JSONArray(instJson);
             installedModelsList.clear();
             for (int i = 0; i < arr.length(); i++) {
@@ -175,7 +187,7 @@ public class WorkerService extends Service {
             installedModelsList.remove(currentAssignedModel);
         }
 
-        String appName = sp.getString("app_name", "{app_name}");
+        String appName = stringPref(sp, "app_name", "{app_name}");
         String initialMsg;
 
         if (!modelFileOnDisk || installedModelsList.isEmpty()) {
@@ -191,7 +203,8 @@ public class WorkerService extends Service {
             if (hotStartEnabled && activeVramModel.isEmpty()) {
                 activeVramModel = installedModelsList.get(0);
             }
-            initialMsg = (!activeVramModel.isEmpty() ? activeVramModel + " hazır (VRAM'de)" : installedModelsList.get(0) + " hazır (Beklemede)");
+            String readyModel = installedModelsList.isEmpty() ? currentAssignedModel : installedModelsList.get(0);
+            initialMsg = (!activeVramModel.isEmpty() ? activeVramModel + " hazır (VRAM'de)" : readyModel + " hazır (Beklemede)");
         }
 
         sp.edit()
@@ -234,6 +247,93 @@ public class WorkerService extends Service {
         return START_STICKY;
     }
 
+
+
+    /**
+     * Reads a boolean of the settings.
+     *
+     * A value of another type must not end the application. A setting of an
+     * earlier version of the application can hold a text, the value is read as
+     * a text in that case.
+     */
+    public static boolean boolPref(SharedPreferences sp, String key, boolean fallback) {
+        if (sp == null) return fallback;
+        try {
+            return sp.getBoolean(key, fallback);
+        } catch (ClassCastException e) {
+            try {
+                return Boolean.parseBoolean(sp.getString(key, String.valueOf(fallback)));
+            } catch (Exception ignored) {
+                return fallback;
+            }
+        }
+    }
+
+    /**
+     * Reads a number of the settings, a value of another type is ignored.
+     */
+    public static int intPref(SharedPreferences sp, String key, int fallback) {
+        if (sp == null) return fallback;
+        try {
+            return sp.getInt(key, fallback);
+        } catch (ClassCastException e) {
+            try {
+                return Integer.parseInt(sp.getString(key, String.valueOf(fallback)).trim());
+            } catch (Exception ignored) {
+                return fallback;
+            }
+        }
+    }
+
+    /**
+     * Reads a long of the settings, a value of another type is ignored.
+     */
+    public static long longPref(SharedPreferences sp, String key, long fallback) {
+        if (sp == null) return fallback;
+        try {
+            return sp.getLong(key, fallback);
+        } catch (ClassCastException e) {
+            try {
+                return Long.parseLong(sp.getString(key, String.valueOf(fallback)).trim());
+            } catch (Exception ignored) {
+                return fallback;
+            }
+        }
+    }
+
+    /**
+     * Reads a text of the settings, a value of another type is ignored.
+     */
+    public static String stringPref(SharedPreferences sp, String key, String fallback) {
+        if (sp == null) return fallback;
+        try {
+            return sp.getString(key, fallback);
+        } catch (ClassCastException e) {
+            return fallback;
+        }
+    }
+
+    /**
+     * Installs the handler for the failures of the threads of the worker.
+     *
+     * Without a handler of its own, a failure of a thread ends the whole
+     * application. The failure is reported to the coordinator instead, the
+     * worker keeps running.
+     */
+    private void installWorkerCrashHandler() {
+        try {
+            Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+                @Override
+                public void uncaughtException(Thread t, Throwable e) {
+                    try {
+                        android.util.Log.e("BYOG_CRASH", "Worker thread " + t.getName() + " failed", e);
+                        reportCrash("ERR_WORKER_THREAD", describe(e), "");
+                    } catch (Throwable ignored) {}
+                }
+            });
+        } catch (Throwable ignored) {}
+    }
+
     /**
      * Handles the removal of the device from the network. The pairing is dropped, the
      * interface asks for a new pairing code and the device stops the worker.
@@ -259,7 +359,7 @@ public class WorkerService extends Service {
                 sendBroadcast(bIntent);
             } catch (Exception ignored) {}
 
-            String appName = sp.getString("app_name", "{app_name}");
+            String appName = stringPref(sp, "app_name", "{app_name}");
             Notification removed = buildNotification(appName, "Cihaz kaldırıldı - yeniden eşleştirme gerekiyor");
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null) nm.notify(NOTIF_ID, removed);
@@ -276,11 +376,11 @@ public class WorkerService extends Service {
             if (sp == null) return;
             JSONObject state = new JSONObject();
             state.put("is_paired", true);
-            state.put("node_id", sp.getString("node_id", ""));
-            state.put("server_url", sp.getString("server_url", ""));
-            state.put("app_name", sp.getString("app_name", "{app_name}"));
-            state.put("favicon", sp.getString("favicon", "logo.png"));
-            String b64 = sp.getString("favicon_base64", "");
+            state.put("node_id", stringPref(sp, "node_id", ""));
+            state.put("server_url", stringPref(sp, "server_url", ""));
+            state.put("app_name", stringPref(sp, "app_name", "{app_name}"));
+            state.put("favicon", stringPref(sp, "favicon", "logo.png"));
+            String b64 = stringPref(sp, "favicon_base64", "");
             if (!b64.isEmpty()) state.put("favicon_base64", b64);
             state.put("battery_level", getSafeBatteryPercent());
             state.put("battery_temp", getSafeBatteryTemp());
@@ -296,7 +396,7 @@ public class WorkerService extends Service {
             state.put("current_tps", currentLiveTps);
             state.put("downloading_model", downloadingModel);
             if (!downloadErrorText.isEmpty()) state.put("download_error", downloadErrorText);
-            String lastCrash = sp.getString("last_crash", "");
+            String lastCrash = stringPref(sp, "last_crash", "");
             if (!lastCrash.isEmpty()) state.put("last_crash", lastCrash);
 
             Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
@@ -368,7 +468,7 @@ public class WorkerService extends Service {
         super.onTaskRemoved(rootIntent);
         try {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            if (sp != null && sp.getBoolean("is_paired", false)) {
+            if (sp != null && boolPref(sp, "is_paired", false)) {
                 Intent restartIntent = new Intent(getApplicationContext(), BootReceiver.class);
                 restartIntent.setAction("org.byog.worker.WATCHDOG_CHECK");
                 PendingIntent pi = PendingIntent.getBroadcast(
@@ -433,9 +533,9 @@ public class WorkerService extends Service {
                 while (isRunning) {
                     try {
                         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                        if (sp == null || !sp.getBoolean("is_paired", false)) break;
-                        String serverUrl = sp.getString("server_url", "");
-                        String nodeId = sp.getString("node_id", "");
+                        if (sp == null || !boolPref(sp, "is_paired", false)) break;
+                        String serverUrl = stringPref(sp, "server_url", "");
+                        String nodeId = stringPref(sp, "node_id", "");
                         if (!serverUrl.isEmpty() && !nodeId.isEmpty()) {
                             while (serverUrl.endsWith("/")) serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
                             tunnelWs = new TunnelWebSocket(serverUrl, nodeId);
@@ -462,7 +562,9 @@ public class WorkerService extends Service {
                         Thread.sleep(sleepTime);
                     } catch (InterruptedException e) {
                         break;
-                    } catch (Exception ignored) {}
+                    } catch (Throwable failure) {
+                        reportCrash("ERR_WORKER_TICK", describe(failure), "");
+                    }
                 }
             }
         });
@@ -472,7 +574,7 @@ public class WorkerService extends Service {
     private synchronized void doWorkerSyncTick() {
         try {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            if (sp == null || !sp.getBoolean("is_paired", false)) {
+            if (sp == null || !boolPref(sp, "is_paired", false)) {
                 stopSelf();
                 return;
             }
@@ -498,12 +600,12 @@ public class WorkerService extends Service {
                 sendBroadcast(revIntent);
             }
 
-            String serverUrl = sp.getString("server_url", "");
+            String serverUrl = stringPref(sp, "server_url", "");
             if (!serverUrl.isEmpty()) {
                 checkWorkerUpdatePeriodic(serverUrl);
             }
 
-            String appName = sp.getString("app_name", "{app_name}");
+            String appName = stringPref(sp, "app_name", "{app_name}");
             String statusMsg;
 
             // 1. Process Multi-Model Sequential Download Queue with Real HTTP Streamer
@@ -560,11 +662,11 @@ public class WorkerService extends Service {
 
             JSONObject state = new JSONObject();
             state.put("is_paired", true);
-            state.put("node_id", sp.getString("node_id", ""));
-            state.put("server_url", sp.getString("server_url", ""));
+            state.put("node_id", stringPref(sp, "node_id", ""));
+            state.put("server_url", stringPref(sp, "server_url", ""));
             state.put("app_name", appName);
-            state.put("favicon", sp.getString("favicon", "logo.png"));
-            String b64 = sp.getString("favicon_base64", "");
+            state.put("favicon", stringPref(sp, "favicon", "logo.png"));
+            String b64 = stringPref(sp, "favicon_base64", "");
             if (!b64.isEmpty()) state.put("favicon_base64", b64);
             state.put("battery_level", batteryLevel);
             state.put("battery_temp", batteryTemp);
@@ -619,7 +721,7 @@ public class WorkerService extends Service {
         List<String> urls = new ArrayList<>();
 
         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-        String serverUrl = sp.getString("server_url", "");
+        String serverUrl = stringPref(sp, "server_url", "");
         while (serverUrl.endsWith("/")) {
             serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
         }
@@ -703,7 +805,7 @@ public class WorkerService extends Service {
         if (totalMB <= 0) totalMB = getModelSizeMB(targetModel);
 
         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-        String appName = sp.getString("app_name", "{app_name}");
+        String appName = stringPref(sp, "app_name", "{app_name}");
         String initDlMsg = targetModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + computeDownloadPercent() + ")";
         broadcastDownloadProgress(targetModel, initDlMsg, downloadedMB, totalMB, computeDownloadPercent());
 
@@ -748,9 +850,10 @@ public class WorkerService extends Service {
                                 conn = (HttpURLConnection) u.openConnection();
                                 conn.setInstanceFollowRedirects(false);
                                 conn.setConnectTimeout(15000);
+                                // The first answer of the model host can take a moment.
                                 // A stalled transfer has to fail fast, the next address is
                                 // tried instead of waiting for minutes without progress.
-                                conn.setReadTimeout(20000);
+                                conn.setReadTimeout(60000);
                                 conn.setRequestProperty("User-Agent", "BYOG-Worker/1.0");
                                 conn.setRequestProperty("Accept-Encoding", "identity");
 
@@ -877,6 +980,7 @@ public class WorkerService extends Service {
                 } catch (Throwable e) {
                     android.util.Log.e("BYOG_DOWNLOAD", "Download task failed: " + e.getMessage(), e);
                     downloadErrorText = e.getMessage() != null ? e.getMessage() : e.toString();
+                    reportCrash("ERR_DOWNLOAD", describe(e), "");
                 } finally {
                     isModelDownloading = false;
                 }
@@ -918,7 +1022,7 @@ public class WorkerService extends Service {
         if (downloadQueueList.isEmpty()) {
             currentModelStatus = "ready";
         }
-        String appName = sp.getString("app_name", "{app_name}");
+        String appName = stringPref(sp, "app_name", "{app_name}");
         String readyMsg = (!activeVramModel.isEmpty() ? activeVramModel + " hazır (VRAM'de)" : targetModel + " hazır (Beklemede)");
         Notification notif = buildNotification(appName, readyMsg);
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
@@ -946,18 +1050,18 @@ public class WorkerService extends Service {
     private void broadcastDownloadProgress(String modelName, String dlMsg, int dMB, int tMB, int pct) {
         try {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            String appName = sp.getString("app_name", "{app_name}");
+            String appName = stringPref(sp, "app_name", "{app_name}");
             Notification updated = buildNotification(appName, dlMsg);
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null) nm.notify(NOTIF_ID, updated);
 
             JSONObject state = new JSONObject();
             state.put("is_paired", true);
-            state.put("node_id", sp.getString("node_id", ""));
-            state.put("server_url", sp.getString("server_url", ""));
+            state.put("node_id", stringPref(sp, "node_id", ""));
+            state.put("server_url", stringPref(sp, "server_url", ""));
             state.put("app_name", appName);
-            state.put("favicon", sp.getString("favicon", "logo.png"));
-            String b64 = sp.getString("favicon_base64", "");
+            state.put("favicon", stringPref(sp, "favicon", "logo.png"));
+            String b64 = stringPref(sp, "favicon_base64", "");
             if (!b64.isEmpty()) state.put("favicon_base64", b64);
             state.put("assigned_model", modelName);
             state.put("model_status", "downloading");
@@ -995,9 +1099,9 @@ public class WorkerService extends Service {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
             JSONObject state = new JSONObject();
             state.put("is_paired", true);
-            state.put("app_name", sp.getString("app_name", "{app_name}"));
-            state.put("favicon", sp.getString("favicon", "logo.png"));
-            String b64 = sp.getString("favicon_base64", "");
+            state.put("app_name", stringPref(sp, "app_name", "{app_name}"));
+            state.put("favicon", stringPref(sp, "favicon", "logo.png"));
+            String b64 = stringPref(sp, "favicon_base64", "");
             if (!b64.isEmpty()) state.put("favicon_base64", b64);
             Intent b = new Intent("org.byog.worker.STATE_CHANGED");
             b.putExtra("state", state.toString());
@@ -1009,9 +1113,9 @@ public class WorkerService extends Service {
     private void doHttpHeartbeatAndSync(String statusDesc) {
         try {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            String serverUrl = sp.getString("server_url", "");
-            String nodeId = sp.getString("node_id", "");
-            String pairingCode = sp.getString("pairing_code", "");
+            String serverUrl = stringPref(sp, "server_url", "");
+            String nodeId = stringPref(sp, "node_id", "");
+            String pairingCode = stringPref(sp, "pairing_code", "");
             if (serverUrl.isEmpty()) return;
             while (serverUrl.endsWith("/")) serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
 
@@ -1035,6 +1139,7 @@ public class WorkerService extends Service {
             req.put("device_name", Build.MANUFACTURER + " " + Build.MODEL);
             req.put("device_type", "mobile");
             req.put("cpu_model", Build.HARDWARE + " (" + cores + " cores)");
+            req.put("cpu_cores", cores);
             req.put("physical_ram_mb", realPhysicalRamMB);
             req.put("swap_ram_mb", 0);
             req.put("vram_mb", 0);
@@ -1107,21 +1212,21 @@ public class WorkerService extends Service {
                     boolean brandUpdated = false;
                     if (data.has("app_name") && !data.optString("app_name").isEmpty()) {
                         String netAppName = data.optString("app_name");
-                        if (!netAppName.equals(sp.getString("app_name", ""))) {
+                        if (!netAppName.equals(stringPref(sp, "app_name", ""))) {
                             sp.edit().putString("app_name", netAppName).apply();
                             brandUpdated = true;
                         }
                     }
                     if (data.has("favicon") && !data.optString("favicon").isEmpty()) {
                         String netFav = data.optString("favicon");
-                        if (!netFav.equals(sp.getString("favicon", ""))) {
+                        if (!netFav.equals(stringPref(sp, "favicon", ""))) {
                             sp.edit().putString("favicon", netFav).apply();
                             brandUpdated = true;
                         }
                     }
                     if (data.has("favicon_base64") && !data.optString("favicon_base64").isEmpty()) {
                         String netB64 = data.optString("favicon_base64");
-                        if (!netB64.equals(sp.getString("favicon_base64", ""))) {
+                        if (!netB64.equals(stringPref(sp, "favicon_base64", ""))) {
                             sp.edit().putString("favicon_base64", netB64).apply();
                             brandUpdated = true;
                         }
@@ -1563,7 +1668,7 @@ public class WorkerService extends Service {
                 handleDeviceRemoved();
             } else if ("force_update".equals(type)) {
                 SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                String base = sp.getString("server_url", "");
+                String base = stringPref(sp, "server_url", "");
                 while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
                 if (!base.isEmpty()) {
                     final String serverBase = base;
@@ -1598,7 +1703,7 @@ public class WorkerService extends Service {
             if (!downloadQueueList.contains(modelId)) {
                 downloadQueueList.add(modelId);
             }
-            currentAssignedModel = downloadQueueList.get(0);
+            currentAssignedModel = downloadQueueList.isEmpty() ? modelId : downloadQueueList.get(0);
             downloadingModel = currentAssignedModel;
             downloadCurrentBytes = 0;
             downloadTotalBytes = size > 0 ? size : 0;
@@ -1747,11 +1852,27 @@ public class WorkerService extends Service {
      * Reports a crash to the coordinator so the panel can show what happened instead of
      * the device silently disappearing.
      */
+    /**
+     * Describes a failure with its type and its stack trace.
+     */
+    static String describe(Throwable failure) {
+        if (failure == null) return "bilinmeyen hata";
+        StringBuilder text = new StringBuilder();
+        text.append(failure.getClass().getSimpleName());
+        if (failure.getMessage() != null) {
+            text.append(": ").append(failure.getMessage());
+        }
+        java.io.StringWriter writer = new java.io.StringWriter();
+        failure.printStackTrace(new java.io.PrintWriter(writer));
+        text.append("\n").append(writer.toString());
+        return text.toString();
+    }
+
     void reportCrash(final String errorCode, final String errorMessage, final String stackTrace) {
         try {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            final String serverUrl = sp.getString("server_url", "");
-            final String nodeId = sp.getString("node_id", "");
+            final String serverUrl = stringPref(sp, "server_url", "");
+            final String nodeId = stringPref(sp, "node_id", "");
             if (serverUrl.isEmpty()) return;
             new Thread(new Runnable() {
                 @Override
@@ -1825,7 +1946,7 @@ public class WorkerService extends Service {
                     currentModelStatus = "running";
 
                     SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                    String appName = sp != null ? sp.getString("app_name", "{app_name}") : "{app_name}";
+                    String appName = sp != null ? stringPref(sp, "app_name", "{app_name}") : "{app_name}";
                     String runningDesc = reqModel + " token üretiyor... (Üretimde)";
                     Notification runningNotif = buildNotification(appName, runningDesc);
                     NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
@@ -2031,6 +2152,7 @@ public class WorkerService extends Service {
 
                 } catch (Throwable t) {
                     android.util.Log.e("BYOG_INFERENCE", "Inference failed: " + t.getMessage(), t);
+                    reportCrash("ERR_INFERENCE", describe(t), "");
                     sendInferenceError(id, t.getMessage() != null ? t.getMessage() : t.toString());
                     currentLiveTps = 0.0f;
                     if (!downloadQueueList.isEmpty()) {
@@ -2181,7 +2303,7 @@ public class WorkerService extends Service {
                 sendBroadcast(uIntent);
 
                 SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                String appName = sp != null ? sp.getString("app_name", "{app_name}") : "{app_name}";
+                String appName = sp != null ? stringPref(sp, "app_name", "{app_name}") : "{app_name}";
                 Notification updatedNotif = buildNotification(appName, "Yeni Güncelleme İndirildi (" + version + ") - Yüklemek için dokunun");
                 NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
                 if (nm != null) nm.notify(NOTIF_ID, updatedNotif);

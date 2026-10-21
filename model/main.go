@@ -317,6 +317,7 @@ func migrateDB() error {
 		return err
 	}
 	InitDefaultByogData()
+	RepairByogNodeCounters()
 	if err := normalizeLegacyBlogTables(); err != nil {
 		return err
 	}

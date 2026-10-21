@@ -517,6 +517,7 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
             android:name=".WorkerService"
             android:exported="false"
             android:stopWithTask="false"
+            android:process=":worker"
             android:foregroundServiceType="dataSync" />
         <receiver
             android:name=".BootReceiver"
@@ -1511,6 +1512,14 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         installCrashHandler();
+        try {
+            startInterface(savedInstanceState);
+        } catch (Throwable failure) {
+            android.util.Log.e("BYOG_CRASH", "The interface could not be started", failure);
+        }
+    }
+
+    private void startInterface(Bundle savedInstanceState) {
 
         String appName = "{app_name}";
         try {
@@ -1537,7 +1546,7 @@ public class MainActivity extends Activity {
                 ed.apply();
             } else {
                 SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                appName = sp.getString("app_name", "{app_name}");
+                appName = WorkerService.stringPref(sp, "app_name", "{app_name}");
             }
         } catch (Exception ignored) {}
 
@@ -1581,7 +1590,7 @@ public class MainActivity extends Activity {
         fetchInitialServerBranding();
 
         SharedPreferences spInit = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-        if (spInit.getBoolean("is_paired", false) && !spInit.getString("node_id", "").isEmpty()) {
+        if (WorkerService.boolPref(spInit, "is_paired", false) && !WorkerService.stringPref(spInit, "node_id", "").isEmpty()) {
             try {
                 Intent sIntent = new Intent(this, WorkerService.class);
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -1609,15 +1618,15 @@ public class MainActivity extends Activity {
             if (isBgRestricted) {
                 sp.edit().putBoolean("bgactivity_granted", false).apply();
             } else {
-                if (sp.getBoolean("bgactivity_pending_check", false)) {
+                if (WorkerService.boolPref(sp, "bgactivity_pending_check", false)) {
                     sp.edit().putBoolean("bgactivity_pending_check", false).putBoolean("bgactivity_granted", true).apply();
                 }
             }
-            if (sp.getBoolean("autostart_pending_check", false)) {
+            if (WorkerService.boolPref(sp, "autostart_pending_check", false)) {
                 sp.edit().putBoolean("autostart_pending_check", false).putBoolean("autostart_granted", true).apply();
             }
 
-            if (sp.getBoolean("is_paired", false) && !sp.getString("node_id", "").isEmpty()) {
+            if (WorkerService.boolPref(sp, "is_paired", false) && !WorkerService.stringPref(sp, "node_id", "").isEmpty()) {
                 try {
                     Intent sIntent = new Intent(this, WorkerService.class);
                     sIntent.putExtra("action", "refresh_state");
@@ -1687,7 +1696,7 @@ public class MainActivity extends Activity {
      */
     private Intent perAppPowerIntent(String packageName, String className) {
         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-        String label = sp != null ? sp.getString("app_name", "BYOG Worker") : "BYOG Worker";
+        String label = sp != null ? WorkerService.stringPref(sp, "app_name", "BYOG Worker") : "BYOG Worker";
         Intent intent = componentIntent(packageName, className);
         intent.setData(Uri.parse("package:" + getPackageName()));
         intent.putExtra("title", label);
@@ -1861,9 +1870,15 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {}
     }
 
+
+
     /**
-     * Installs a crash handler that keeps the worker alive, records the failure and
-     * reports it to the coordinator instead of silently dying.
+     * Installs a crash handler that records the failure and reports it to the
+     * coordinator.
+     *
+     * The interface is only restarted when the previous crash is older than five
+     * seconds. A restart on every crash would keep the application in a crash
+     * loop and it could not be opened any more.
      */
     private void installCrashHandler() {
         try {
@@ -1876,16 +1891,27 @@ public class MainActivity extends Activity {
                         e.printStackTrace(new java.io.PrintWriter(sw));
                         String stack = sw.toString();
                         String msg = e.getMessage() != null ? e.getMessage() : e.toString();
-                        sp.edit().putString("last_crash", msg + "\\n" + stack).apply();
                         android.util.Log.e("BYOG_CRASH", "Uncaught exception on " + t.getName() + ": " + msg, e);
+                        long now = System.currentTimeMillis();
+                        long previousCrash = WorkerService.longPref(sp, "last_crash_at", 0L);
+                        sp.edit()
+                                .putString("last_crash", msg + "\\n" + stack)
+                                .putLong("last_crash_at", now)
+                                .commit();
                         reportCrashToServer("ERR_UNCAUGHT", msg, stack);
                         if (t == android.os.Looper.getMainLooper().getThread()) {
+                            if (now - previousCrash > 5000L) {
+                                try {
+                                    Intent restart = new Intent(MainActivity.this, MainActivity.class);
+                                    restart.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                                    MainActivity.this.startActivity(restart);
+                                } catch (Throwable ignored) {}
+                            }
                             try {
-                                Intent restart = new Intent(MainActivity.this, MainActivity.class);
-                                restart.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                                restart.putExtra("crash_message", msg);
-                                MainActivity.this.startActivity(restart);
                                 MainActivity.this.finish();
+                            } catch (Throwable ignored) {}
+                            try {
+                                android.os.Process.killProcess(android.os.Process.myPid());
                             } catch (Throwable ignored) {}
                         }
                     } catch (Throwable ignored) {}
@@ -1900,8 +1926,8 @@ public class MainActivity extends Activity {
     private void reportCrashToServer(final String errorCode, final String errorMessage, final String stackTrace) {
         try {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            final String serverUrl = sp.getString("server_url", "");
-            final String nodeId = sp.getString("node_id", "");
+            final String serverUrl = WorkerService.stringPref(sp, "server_url", "");
+            final String nodeId = WorkerService.stringPref(sp, "node_id", "");
             if (serverUrl.isEmpty()) return;
             new Thread(new Runnable() {
                 @Override
@@ -1934,7 +1960,7 @@ public class MainActivity extends Activity {
 
     private void fetchInitialServerBranding() {
         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-        String serverUrl = sp.getString("server_url", "");
+        String serverUrl = WorkerService.stringPref(sp, "server_url", "");
         if (serverUrl == null || serverUrl.trim().isEmpty()) return;
         while (serverUrl.endsWith("/")) serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
         final String targetUrl = serverUrl + "/api/status";
@@ -2064,7 +2090,7 @@ public class MainActivity extends Activity {
                 }
 
                 SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                boolean autostart = sp.getBoolean("autostart_granted", false);
+                boolean autostart = WorkerService.boolPref(sp, "autostart_granted", false);
 
                 obj.put("notifications", notif);
                 obj.put("battery", battery);
@@ -2154,7 +2180,7 @@ public class MainActivity extends Activity {
                     String model = "qwen-2.5-0.5b-instruct";
                     try {
                         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                        model = sp.getString("assigned_model", "qwen-2.5-0.5b-instruct");
+                        model = WorkerService.stringPref(sp, "assigned_model", "qwen-2.5-0.5b-instruct");
                     } catch (Exception ignored) {}
 
                     File mf = new File(getFilesDir(), model + ".gguf");
@@ -2235,7 +2261,7 @@ public class MainActivity extends Activity {
         public void connect(final String rawPairingCode, String rawServerUrl) {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
             if (rawServerUrl == null || rawServerUrl.trim().isEmpty()) {
-                rawServerUrl = sp.getString("server_url", "");
+                rawServerUrl = WorkerService.stringPref(sp, "server_url", "");
             }
             while (rawServerUrl.endsWith("/")) {
                 rawServerUrl = rawServerUrl.substring(0, rawServerUrl.length() - 1);
@@ -2510,9 +2536,9 @@ public class MainActivity extends Activity {
                     JSONObject state = new JSONObject();
                     try {
                         state.put("is_paired", false);
-                        state.put("app_name", sp.getString("app_name", "{app_name}"));
-                        state.put("favicon", sp.getString("favicon", "logo.png"));
-                        state.put("favicon_base64", sp.getString("favicon_base64", ""));
+                        state.put("app_name", WorkerService.stringPref(sp, "app_name", "{app_name}"));
+                        state.put("favicon", WorkerService.stringPref(sp, "favicon", "logo.png"));
+                        state.put("favicon_base64", WorkerService.stringPref(sp, "favicon_base64", ""));
                         state.put("permissions_done", true);
                     } catch (Exception ignored) {}
                     webView.evaluateJavascript("window.updateState(" + state.toString() + ")", null);
@@ -2529,8 +2555,8 @@ public class MainActivity extends Activity {
             JSONObject status = new JSONObject();
             try {
                 SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                String nodeId = sp.getString("node_id", "");
-                boolean paired = sp.getBoolean("is_paired", false) && !nodeId.isEmpty();
+                String nodeId = WorkerService.stringPref(sp, "node_id", "");
+                boolean paired = WorkerService.boolPref(sp, "is_paired", false) && !nodeId.isEmpty();
                 boolean serviceRunning = false;
                 ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
                 if (am != null) {
@@ -2545,8 +2571,8 @@ public class MainActivity extends Activity {
                 status.put("is_paired", paired);
                 status.put("service_running", serviceRunning);
                 status.put("node_id", nodeId);
-                status.put("device_removed", sp.getString("device_removed_message", "").length() > 0);
-                status.put("device_removed_message", sp.getString("device_removed_message", ""));
+                status.put("device_removed", WorkerService.stringPref(sp, "device_removed_message", "").length() > 0);
+                status.put("device_removed_message", WorkerService.stringPref(sp, "device_removed_message", ""));
             } catch (Exception ignored) {}
             return status.toString();
         }
@@ -2559,12 +2585,12 @@ public class MainActivity extends Activity {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
             JSONObject state = new JSONObject();
             try {
-                String nodeId = sp.getString("node_id", "");
-                String serverUrl = sp.getString("server_url", "");
-                String appName = sp.getString("app_name", "{app_name}");
-                String favicon = sp.getString("favicon", "logo.png");
-                String faviconBase64 = sp.getString("favicon_base64", "");
-                boolean isPaired = sp.getBoolean("is_paired", false) && !nodeId.isEmpty();
+                String nodeId = WorkerService.stringPref(sp, "node_id", "");
+                String serverUrl = WorkerService.stringPref(sp, "server_url", "");
+                String appName = WorkerService.stringPref(sp, "app_name", "{app_name}");
+                String favicon = WorkerService.stringPref(sp, "favicon", "logo.png");
+                String faviconBase64 = WorkerService.stringPref(sp, "favicon_base64", "");
+                boolean isPaired = WorkerService.boolPref(sp, "is_paired", false) && !nodeId.isEmpty();
 
                 state.put("is_paired", isPaired);
                 state.put("node_id", nodeId);
@@ -2572,35 +2598,35 @@ public class MainActivity extends Activity {
                 state.put("app_name", appName);
                 state.put("favicon", favicon);
                 state.put("favicon_base64", faviconBase64);
-                state.put("battery_level", sp.getInt("battery_percent", 100));
+                state.put("battery_level", WorkerService.intPref(sp, "battery_percent", 100));
                 state.put("battery_temp", (float) sp.getFloat("battery_temp", 31.0f));
-                String assignedModel = sp.getString("assigned_model", "qwen-2.5-0.5b-instruct");
+                String assignedModel = WorkerService.stringPref(sp, "assigned_model", "qwen-2.5-0.5b-instruct");
                 File mf = new File(getFilesDir(), assignedModel + ".gguf");
                 boolean modelOnDisk = mf.exists() && mf.length() > 10 * 1024 * 1024;
                 String defaultStatus = modelOnDisk ? "ready" : "downloading";
-                int dMB = sp.getInt("downloaded_mb", 0);
-                int tMB = sp.getInt("total_mb", 380);
+                int dMB = WorkerService.intPref(sp, "downloaded_mb", 0);
+                int tMB = WorkerService.intPref(sp, "total_mb", 380);
                 String defaultDesc = modelOnDisk ? (assignedModel + " hazır (Beklemede)") : (assignedModel + " indiriliyor... (" + dMB + " MB / " + tMB + " MB)");
 
                 state.put("assigned_model", assignedModel);
-                state.put("model_status", modelOnDisk ? sp.getString("model_status", defaultStatus) : "downloading");
-                state.put("model_status_desc", modelOnDisk ? sp.getString("model_status_desc", defaultDesc) : defaultDesc);
+                state.put("model_status", modelOnDisk ? WorkerService.stringPref(sp, "model_status", defaultStatus) : "downloading");
+                state.put("model_status_desc", modelOnDisk ? WorkerService.stringPref(sp, "model_status_desc", defaultDesc) : defaultDesc);
                 state.put("downloaded_mb", dMB);
                 state.put("total_mb", tMB);
-                state.put("download_progress", sp.getInt("download_progress", 0));
+                state.put("download_progress", WorkerService.intPref(sp, "download_progress", 0));
                 state.put("current_tps", 0.0);
-                state.put("active_vram_model", sp.getString("active_vram_model", ""));
-                state.put("is_charging", sp.getBoolean("is_charging", false));
-                state.put("downloading_model", sp.getString("downloading_model", ""));
-                String downloadError = sp.getString("download_error", "");
+                state.put("active_vram_model", WorkerService.stringPref(sp, "active_vram_model", ""));
+                state.put("is_charging", WorkerService.boolPref(sp, "is_charging", false));
+                state.put("downloading_model", WorkerService.stringPref(sp, "downloading_model", ""));
+                String downloadError = WorkerService.stringPref(sp, "download_error", "");
                 if (!downloadError.isEmpty()) {
                     state.put("download_error", downloadError);
                 }
-                String lastCrash = sp.getString("last_crash", "");
+                String lastCrash = WorkerService.stringPref(sp, "last_crash", "");
                 if (!lastCrash.isEmpty()) {
                     state.put("last_crash", lastCrash);
                 }
-                String removedMessage = sp.getString("device_removed_message", "");
+                String removedMessage = WorkerService.stringPref(sp, "device_removed_message", "");
                 if (!removedMessage.isEmpty()) {
                     state.put("device_removed", true);
                     state.put("device_removed_message", removedMessage);
@@ -2800,8 +2826,8 @@ public class BootReceiver extends BroadcastReceiver {
             "android.net.conn.CONNECTIVITY_CHANGE".equals(action) ||
             "org.byog.worker.WATCHDOG_CHECK".equals(action)) {
             SharedPreferences sp = context.getSharedPreferences("byog_prefs", Context.MODE_PRIVATE);
-            boolean isPaired = sp.getBoolean("is_paired", false);
-            String nodeId = sp.getString("node_id", "");
+            boolean isPaired = WorkerService.boolPref(sp, "is_paired", false);
+            String nodeId = WorkerService.stringPref(sp, "node_id", "");
             if (isPaired && !nodeId.isEmpty()) {
                 try {
                     Intent sIntent = new Intent(context, WorkerService.class);

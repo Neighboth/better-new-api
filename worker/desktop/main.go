@@ -156,13 +156,31 @@ func startHeartbeatLoop() {
 		raw, _ := json.Marshal(payload)
 		frame := map[string]interface{}{
 			"type":      "heartbeat",
-			"payload":   raw,
+			"payload":   json.RawMessage(raw),
 			"timestamp": time.Now().UnixMilli(),
 		}
 
 		_ = State.WsConn.WriteJSON(frame)
 		State.Mu.Unlock()
 	}
+}
+
+// progressWriter counts the bytes that a channel of the download receives.
+//
+// The progress of the download is reported while the transfer runs, the bytes are
+// counted as they arrive and not at the end of a channel.
+type progressWriter struct {
+	writer  io.Writer
+	counter *int64
+	mutex   *sync.Mutex
+}
+
+func (w *progressWriter) Write(data []byte) (int, error) {
+	written, err := w.writer.Write(data)
+	w.mutex.Lock()
+	*w.counter += int64(written)
+	w.mutex.Unlock()
+	return written, err
 }
 
 // IDM-Style 16-Channel Parallel Range Downloader (Section 2.2)
@@ -216,7 +234,9 @@ func downloadModelIDM(url string, targetPath string, fileSize int64) error {
 			}
 			req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", startByte, endByte))
 
-			client := &http.Client{Timeout: 60 * time.Second}
+			// The transfer of a model takes minutes, the timeout covers the whole
+			// download and not a single read.
+			client := &http.Client{Timeout: 6 * time.Hour}
 			resp, err := client.Do(req)
 			if err != nil {
 				errs[channelIdx] = err
@@ -232,10 +252,9 @@ func downloadModelIDM(url string, targetPath string, fileSize int64) error {
 			}
 			defer out.Close()
 
-			written, err := io.Copy(out, resp.Body)
-			downloadMutex.Lock()
-			downloaded += written
-			downloadMutex.Unlock()
+			// The bytes are counted while they arrive, the progress of the
+			// download follows the transfer.
+			_, err = io.Copy(&progressWriter{writer: out, counter: &downloaded, mutex: &downloadMutex}, resp.Body)
 			errs[channelIdx] = err
 		}(i)
 	}
@@ -261,6 +280,17 @@ func downloadModelIDM(url string, targetPath string, fileSize int64) error {
 		if err == nil {
 			_, _ = finalFile.Write(pData)
 			_ = os.Remove(partFile)
+		}
+	}
+
+	// A model that is not complete can not be used for an inference.
+	if fileSize > 0 {
+		info, err := finalFile.Stat()
+		if err != nil {
+			return err
+		}
+		if info.Size() != fileSize {
+			return fmt.Errorf("the model file is incomplete: %d of %d bytes", info.Size(), fileSize)
 		}
 	}
 
@@ -543,7 +573,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 						_ = conn.WriteJSON(map[string]interface{}{
 							"type":    "byte_probe_response",
 							"id":      frame.Id,
-							"payload": respPayload,
+							"payload": json.RawMessage(respPayload),
 						})
 						return
 					}
@@ -556,7 +586,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 						_ = conn.WriteJSON(map[string]interface{}{
 							"type":    "byte_probe_response",
 							"id":      frame.Id,
-							"payload": respPayload,
+							"payload": json.RawMessage(respPayload),
 						})
 						return
 					}
@@ -566,7 +596,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 					_ = conn.WriteJSON(map[string]interface{}{
 						"type":    "byte_probe_response",
 						"id":      frame.Id,
-						"payload": respPayload,
+						"payload": json.RawMessage(respPayload),
 					})
 				}()
 			}
@@ -606,7 +636,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 					_ = conn.WriteJSON(map[string]interface{}{
 						"type":    "canary_response",
 						"id":      frame.Id,
-						"payload": respBytes,
+						"payload": json.RawMessage(respBytes),
 					})
 				}()
 			}
@@ -668,7 +698,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 						_ = conn.WriteJSON(map[string]interface{}{
 							"type":    "inference_error",
 							"id":      infReq.RequestId,
-							"payload": errorPayload,
+							"payload": json.RawMessage(errorPayload),
 						})
 						State.Mu.Lock()
 						State.ModelStatus = "ready"
@@ -686,7 +716,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 					_ = conn.WriteJSON(map[string]interface{}{
 						"type":    "inference_chunk",
 						"id":      infReq.RequestId,
-						"payload": finalPayload,
+						"payload": json.RawMessage(finalPayload),
 					})
 
 					_ = conn.WriteJSON(inferenceDoneFrame(infReq.RequestId, result))
@@ -785,6 +815,7 @@ func main() {
 		"device_name":         State.Config.DeviceName,
 		"device_type":         "desktop",
 		"cpu_model":           "Host CPU Architecture",
+		"cpu_cores":           runtime.NumCPU(),
 		"gpu_model":           "Dedicated GPU / Compute Engine",
 		"physical_ram_mb":     16384,
 		"swap_ram_mb":         2048,

@@ -235,7 +235,7 @@ func sendHeartbeat() {
 	}
 	_ = conn.WriteJSON(map[string]interface{}{
 		"type":      "heartbeat",
-		"payload":   raw,
+		"payload":   json.RawMessage(raw),
 		"timestamp": time.Now().UnixMilli(),
 	})
 }
@@ -314,7 +314,9 @@ func downloadModel(modelID string, downloadURL string, fileSize int64) error {
 	}
 	request.Header.Set("User-Agent", "BYOG-Worker/1.0")
 
-	client := &http.Client{Timeout: 30 * time.Minute}
+	// The transfer of a model takes minutes on a phone, the timeout covers the
+	// whole download and not a single read.
+	client := &http.Client{Timeout: 6 * time.Hour}
 	resp, err := client.Do(request)
 	if err != nil {
 		return err
@@ -522,7 +524,7 @@ func sendInferenceError(requestID string, message string) {
 	_ = conn.WriteJSON(map[string]interface{}{
 		"type":    "inference_error",
 		"id":      requestID,
-		"payload": payload,
+		"payload": json.RawMessage(payload),
 	})
 }
 
@@ -562,6 +564,7 @@ func main() {
 		"device_name":         State.Config.DeviceName,
 		"device_type":         "mobile",
 		"cpu_model":           fmt.Sprintf("%s (%d cores)", runtime.GOOS, runtime.NumCPU()),
+		"cpu_cores":           runtime.NumCPU(),
 		"gpu_model":           "",
 		"physical_ram_mb":     mem.PhysicalTotalMB,
 		"swap_ram_mb":         mem.SwapTotalMB, // Logged for telemetry, ignored for capacity

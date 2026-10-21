@@ -33,6 +33,7 @@ type modelJob struct {
 	total      int64
 	started    time.Time
 	err        error
+	running    bool
 }
 
 // GlobalModelStore serves the model files of the installation.
@@ -99,7 +100,8 @@ func (s *ModelStore) Progress(modelId string) (downloaded int64, total int64, ru
 //
 // The file is taken from the cache when it is complete, otherwise the download from
 // the model host is streamed to the worker and written into the cache at the same
-// time. A range request resumes an interrupted transfer.
+// time. A request for a part of the model waits for the complete file in the cache,
+// the transfer of the model host is never started twice.
 func (s *ModelStore) ServeModelFile(c *gin.Context, modelId string) {
 	modelDef, err := model.GetByogModelByModelId(modelId)
 	if err != nil || modelDef == nil || strings.TrimSpace(modelDef.DownloadUrl) == "" {
@@ -118,42 +120,170 @@ func (s *ModelStore) ServeModelFile(c *gin.Context, modelId string) {
 		return
 	}
 
-	// Stream the download of the model host to the worker and cache it.
+	// A request for a part of the model is served from the cache that the
+	// transfer of the model host fills. The transfer is never started twice.
+	if c.GetHeader("Range") != "" {
+		if s.startDownload(modelId) {
+			go s.downloadModel(modelId, modelDef, target)
+		}
+		s.serveModelRange(c, modelId, target, modelDef.FileSize)
+		return
+	}
+
+	// The model is downloaded at the moment. The transfer of the model host is
+	// shared, the request waits for the cache and is served from it.
+	if s.isDownloading(modelId) {
+		if !s.waitForCompletedModel(modelId, target) {
+			c.JSON(http.StatusGatewayTimeout, gin.H{"success": false, "message": "the model is still being downloaded"})
+			return
+		}
+		info, err := os.Stat(target)
+		if err != nil || info.Size() == 0 {
+			c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "the model could not be cached"})
+			return
+		}
+		serveModelFile(c, target, info.Size())
+		return
+	}
+
+	// The whole model is streamed to the worker and cached at the same time.
+	s.streamModelToWorker(c, modelId, modelDef, target)
+}
+
+// serveModelRange serves a part of a model from the cache that the running
+// transfer fills.
+//
+// The worker receives the bytes of its range while the model is downloaded, the
+// transfer of the model host is shared by all the workers of the installation.
+func (s *ModelStore) serveModelRange(c *gin.Context, modelId string, target string, total int64) {
+	_, end, ok := parseRange(c.GetHeader("Range"), total)
+	if !ok {
+		c.JSON(http.StatusRequestedRangeNotSatisfiable, gin.H{"success": false, "message": "the range is not valid"})
+		return
+	}
+
+	partPath := target + ".part"
+	deadline := time.Now().Add(2 * time.Hour)
+	for time.Now().Before(deadline) {
+		if info, err := os.Stat(target); err == nil && info.Size() > 0 {
+			// The transfer is complete, the complete file is served.
+			serveModelFile(c, target, info.Size())
+			return
+		}
+		if info, err := os.Stat(partPath); err == nil && info.Size() > end {
+			serveModelFile(c, partPath, info.Size())
+			return
+		}
+		s.mu.Lock()
+		job, known := s.jobs[modelId]
+		failed := known && job.err != nil && !job.running
+		s.mu.Unlock()
+		if failed {
+			c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "the model could not be downloaded"})
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	c.JSON(http.StatusGatewayTimeout, gin.H{"success": false, "message": "the model is still being downloaded"})
+}
+
+// rememberModelSize writes the real size of a model into the database.
+//
+// The size of a model is published with the model host. A worker that receives a
+// wrong size would download a part of the model only.
+func (s *ModelStore) rememberModelSize(modelId string, modelDef *model.ByogModel, size int64) {
+	if size <= 0 || modelDef == nil {
+		return
+	}
+	if modelDef.FileSize == size {
+		return
+	}
+	modelDef.FileSize = size
+	_ = model.DB.Model(&model.ByogModel{}).
+		Where("model_id = ?", modelId).
+		Update("file_size", size).Error
+}
+
+// isDownloading reports whether a transfer of the model host runs at the moment.
+func (s *ModelStore) isDownloading(modelId string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job, ok := s.jobs[modelId]
+	return ok && job.running
+}
+
+// waitForCompletedModel waits until the model is completely in the cache.
+//
+// The wait ends when the transfer of the model host failed or when it took longer
+// than two hours.
+func (s *ModelStore) waitForCompletedModel(modelId string, target string) bool {
+	deadline := time.Now().Add(2 * time.Hour)
+	for time.Now().Before(deadline) {
+		if info, err := os.Stat(target); err == nil && info.Size() > 0 {
+			return true
+		}
+		s.mu.Lock()
+		job, ok := s.jobs[modelId]
+		failed := ok && job.err != nil && !job.running
+		s.mu.Unlock()
+		if failed {
+			return false
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return false
+}
+
+// streamModelToWorker streams the model host to the worker and writes the file
+// into the cache at the same time.
+func (s *ModelStore) streamModelToWorker(c *gin.Context, modelId string, modelDef *model.ByogModel, target string) {
+	if !s.startDownload(modelId) {
+		// Another request started the transfer of the model host, the cache is
+		// used as soon as it is complete.
+		if !s.waitForCompletedModel(modelId, target) {
+			c.JSON(http.StatusGatewayTimeout, gin.H{"success": false, "message": "the model is still being downloaded"})
+			return
+		}
+		info, err := os.Stat(target)
+		if err != nil || info.Size() == 0 {
+			c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "the model could not be cached"})
+			return
+		}
+		serveModelFile(c, target, info.Size())
+		return
+	}
+
 	upstream, err := http.NewRequest(http.MethodGet, modelDef.DownloadUrl, nil)
 	if err != nil {
+		s.finishDownload(modelId, err)
 		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 	upstream.Header.Set("User-Agent", "BYOG-Worker/1.0")
 
-	// A worker that was interrupted resumes the transfer.
-	resumeFrom := int64(0)
-	if rangeHeader := c.GetHeader("Range"); rangeHeader != "" {
-		if start, _, ok := parseRange(rangeHeader, modelDef.FileSize); ok && start > 0 {
-			resumeFrom = start
-			upstream.Header.Set("Range", fmt.Sprintf("bytes=%d-", start))
-		}
-	}
-
 	resp, err := upstreamClient.Do(upstream)
 	if err != nil {
+		s.finishDownload(modelId, err)
 		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": fmt.Sprintf("model host returned %d", resp.StatusCode)})
+		failure := fmt.Errorf("model host returned %d", resp.StatusCode)
+		s.finishDownload(modelId, failure)
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": failure.Error()})
 		return
 	}
 
 	job := s.job(modelId)
+	s.mu.Lock()
 	job.total = resp.ContentLength
-	if resumeFrom > 0 {
-		job.total += resumeFrom
-	}
+	s.mu.Unlock()
+	s.rememberModelSize(modelId, modelDef, resp.ContentLength)
 
-	cache, err := os.OpenFile(target+".part", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	cache, err := os.OpenFile(target+".part", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
+		s.finishDownload(modelId, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
@@ -172,21 +302,21 @@ func (s *ModelStore) ServeModelFile(c *gin.Context, modelId string) {
 		n, readErr := resp.Body.Read(buffer)
 		if n > 0 {
 			if _, err := c.Writer.Write(buffer[:n]); err != nil {
-				job.err = err
+				s.finishDownload(modelId, err)
 				return
 			}
 			if _, err := cache.Write(buffer[:n]); err != nil {
-				job.err = err
+				s.finishDownload(modelId, err)
 				return
 			}
 			written += int64(n)
 			s.mu.Lock()
-			job.downloaded = written + resumeFrom
+			job.downloaded = written
 			s.mu.Unlock()
 		}
 		if readErr != nil {
 			if readErr != io.EOF {
-				job.err = readErr
+				s.finishDownload(modelId, readErr)
 				return
 			}
 			break
@@ -194,19 +324,111 @@ func (s *ModelStore) ServeModelFile(c *gin.Context, modelId string) {
 	}
 
 	if err := cache.Close(); err != nil {
-		job.err = err
+		s.finishDownload(modelId, err)
 		return
 	}
-	if resumeFrom == 0 {
-		if err := os.Rename(target+".part", target); err != nil {
-			job.err = err
-			return
+	if err := os.Rename(target+".part", target); err != nil {
+		s.finishDownload(modelId, err)
+		return
+	}
+	s.finishDownload(modelId, nil)
+}
+
+// downloadModel fetches a model from the model host into the cache.
+//
+// The transfer has to be started with startDownload, the function ends it with
+// finishDownload. The file is only used when the transfer is complete, a part of a
+// model never reaches the cache.
+func (s *ModelStore) downloadModel(modelId string, modelDef *model.ByogModel, target string) {
+	upstream, err := http.NewRequest(http.MethodGet, modelDef.DownloadUrl, nil)
+	if err != nil {
+		s.finishDownload(modelId, err)
+		return
+	}
+	upstream.Header.Set("User-Agent", "BYOG-Worker/1.0")
+
+	resp, err := upstreamClient.Do(upstream)
+	if err != nil {
+		s.finishDownload(modelId, err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		s.finishDownload(modelId, fmt.Errorf("model host returned %d", resp.StatusCode))
+		return
+	}
+
+	job := s.job(modelId)
+	s.mu.Lock()
+	job.total = resp.ContentLength
+	s.mu.Unlock()
+	s.rememberModelSize(modelId, modelDef, resp.ContentLength)
+
+	cache, err := os.OpenFile(target+".part", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		s.finishDownload(modelId, err)
+		return
+	}
+	defer cache.Close()
+
+	buffer := make([]byte, 256*1024)
+	var written int64
+	for {
+		n, readErr := resp.Body.Read(buffer)
+		if n > 0 {
+			if _, err := cache.Write(buffer[:n]); err != nil {
+				s.finishDownload(modelId, err)
+				return
+			}
+			written += int64(n)
+			s.mu.Lock()
+			job.downloaded = written
+			s.mu.Unlock()
+		}
+		if readErr != nil {
+			if readErr != io.EOF {
+				s.finishDownload(modelId, readErr)
+				return
+			}
+			break
 		}
 	}
+
+	if err := cache.Close(); err != nil {
+		s.finishDownload(modelId, err)
+		return
+	}
+	if err := os.Rename(target+".part", target); err != nil {
+		s.finishDownload(modelId, err)
+		return
+	}
+	s.finishDownload(modelId, nil)
+}
+
+// startDownload marks the transfer of a model host as running.
+//
+// The function returns false when a transfer of the same model already runs.
+func (s *ModelStore) startDownload(modelId string) bool {
+	job := s.job(modelId)
 	s.mu.Lock()
-	job.downloaded = written + resumeFrom
+	defer s.mu.Unlock()
+	if job.running {
+		return false
+	}
+	job.running = true
 	job.err = nil
-	s.mu.Unlock()
+	job.downloaded = 0
+	job.started = time.Now()
+	return true
+}
+
+// finishDownload ends the transfer of a model host and records its failure.
+func (s *ModelStore) finishDownload(modelId string, failure error) {
+	job := s.job(modelId)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job.running = false
+	job.err = failure
 }
 
 // serveModelFile serves a cached model file with the support of range requests.
