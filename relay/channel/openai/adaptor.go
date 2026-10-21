@@ -178,12 +178,26 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		}
 		path := info.RequestURLPath
 		if info.ChannelType == constant.ChannelTypeAgnes && info.RelayMode == relayconstant.RelayModeImagesGenerations {
-			path = "/v1/videos"
+			// The image models of the channel are asked at the endpoint of the
+			// pictures, the other models are asked at the endpoint of the videos.
+			if isAgnesImageModel(info.UpstreamModelName) {
+				path = "/v1/images/generations"
+			} else {
+				path = "/v1/videos"
+			}
 		} else if info.RelayMode == relayconstant.RelayModeImagesGenerations && strings.Contains(path, "video") {
 			path = "/v1/video/generations"
 		}
 		return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, path, info.ChannelType), nil
 	}
+}
+
+// isAgnesImageModel tells whether the model of the channel makes pictures.
+//
+// The image models are asked at the endpoint of the pictures, the other models
+// are asked at the endpoint of the videos.
+func isAgnesImageModel(model string) bool {
+	return strings.Contains(strings.ToLower(model), "image")
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *relaycommon.RelayInfo) error {
@@ -576,7 +590,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		return &requestBody, nil
 
 	case relayconstant.RelayModeImagesGenerations:
-		if info.ChannelType == constant.ChannelTypeAgnes {
+		if info.ChannelType == constant.ChannelTypeAgnes && !isAgnesImageModel(info.UpstreamModelName) {
 			mode := "text"
 			if len(request.Image) > 0 || len(request.ImageURL) > 0 || len(request.Images) > 0 {
 				mode = "image"

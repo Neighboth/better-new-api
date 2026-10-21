@@ -43,12 +43,12 @@ type V1InternalResponse struct {
 }
 
 type AntigravityKey struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	Token        string `json:"token"`
-	ProjectID    string `json:"project_id"`
-	Project      string `json:"project"`
-	Expired      string `json:"expired"`
+	AccessToken   string `json:"access_token"`
+	RefreshToken  string `json:"refresh_token"`
+	Token         string `json:"token"`
+	ProjectID     string `json:"project_id"`
+	Project       string `json:"project"`
+	Expired       string `json:"expired"`
 	Plan          string `json:"plan,omitempty"`           // "pro" (Google AI Pro), "plus" (Google AI Plus), "ultra" (Google AI Ultra), "free"
 	ThinkingLevel string `json:"thinking_level,omitempty"` // "none", "low", "medium", "high" (or empty for default low on flash)
 }

@@ -154,7 +154,7 @@ type RelayInfo struct {
 	// BillingDurationSeconds and BillingCharacters hold validated request or
 	// response measurements for unit-priced media and character models.
 	BillingDurationSeconds float64
-	BillingCharacters     int
+	BillingCharacters      int
 
 	// QuotaClamp is set (non-nil) when a quota conversion saturated at the
 	// int32 bound (or NaN fallback) while computing this request's charge.
