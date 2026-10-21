@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -23,12 +24,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/QuantumNous/new-api/worker/desktop/installer"
 	"github.com/QuantumNous/new-api/worker/llama"
 	"github.com/gorilla/websocket"
 )
 
 const (
-	WorkerVersion       = "1.8.0"
+	WorkerVersion       = "1.9.0"
 	DefaultServerUrl    = "http://localhost:3000"
 	DefaultChunkSize    = 4194304 // 4 MB
 	ParallelConnections = 16
@@ -71,6 +73,12 @@ var State = &WorkerState{
 	InstalledModels: make(map[string]bool),
 	ModelStatus:     "ready",
 }
+
+// defaultIconPNG is the icon of the client, it is the picture of the logo of
+// the installation.
+//
+//go:embed assets/logo.png
+var defaultIconPNG []byte
 
 // Generate Cryptographic HWID (Section 3.1 & 5.1)
 func generateHWID() string {
@@ -743,47 +751,131 @@ func main() {
 		os.Exit(1)
 	}
 
+	installFlag := flag.Bool("install", false, "Install the client on this computer")
+	uninstallFlag := flag.Bool("uninstall", false, "Remove the client from this computer")
+	consoleFlag := flag.Bool("console", false, "Run the client in the terminal")
 	serverFlag := flag.String("server", "", "Server URL (e.g. https://your-server.com or http://localhost:3000)")
 	codeFlag := flag.String("code", "", "Pairing code from web dashboard")
 	deviceFlag := flag.String("device", "", "Custom device name")
 	flag.Parse()
 
-	hwid := generateHWID()
-	serverUrl := *serverFlag
-	if serverUrl == "" {
-		serverUrl = os.Getenv("BYOG_SERVER_URL")
+	if *installFlag {
+		installApp()
+		return
 	}
-	if serverUrl == "" {
-		serverUrl = DefaultServerUrl
-	}
-
-	storageDir := os.Getenv("BYOG_STORAGE_DIR")
-	if storageDir == "" {
-		storageDir = filepath.Join(os.TempDir(), "byog_models")
-	}
-	_ = os.MkdirAll(storageDir, 0755)
-
-	configPath := filepath.Join(storageDir, "byog-config.json")
-	var savedConfig Config
-	if data, err := os.ReadFile(configPath); err == nil {
-		_ = json.Unmarshal(data, &savedConfig)
+	if *uninstallFlag {
+		_ = installer.Uninstall()
+		fmt.Println("BYOG Worker was removed from this computer.")
+		return
 	}
 
-	pairingCode := *codeFlag
-	if pairingCode == "" && savedConfig.PairingCode != "" {
-		pairingCode = savedConfig.PairingCode
+	// The file of the installation installs the client and starts it.
+	if installIfNeeded() {
+		return
 	}
 
-	deviceName := *deviceFlag
-	if deviceName == "" {
-		if savedConfig.DeviceName != "" {
-			deviceName = savedConfig.DeviceName
-		} else {
-			deviceName = "Worker-Node-" + hwid[:6]
+	if *consoleFlag {
+		runConsole(*serverFlag, *codeFlag, *deviceFlag)
+		return
+	}
+
+	runGui(*serverFlag, *codeFlag, *deviceFlag)
+}
+
+// installIfNeeded installs the client when it is started outside of the program
+// directory of the user.
+//
+// The file of the installation is a copy of the client, it installs the client
+// and starts the installed program. The function returns true when the client
+// was installed, the program of the installation ends then.
+func installIfNeeded() bool {
+	executable, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	if installer.IsInstalled() && sameFile(executable, installer.Executable()) {
+		return false
+	}
+	installApp()
+	return true
+}
+
+// installApp installs the client on this computer.
+//
+// The program of the client is copied into the program directory of the user,
+// the entries of the control panel and the shortcut of the start menu are
+// written and the client is started.
+func installApp() {
+	source, err := os.Executable()
+	if err != nil {
+		fmt.Println("The client can not be installed:", err)
+		return
+	}
+	directory := installer.Directory()
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		fmt.Println("The directory of the client could not be created:", err)
+		return
+	}
+	target := installer.Executable()
+	data, err := os.ReadFile(source)
+	if err == nil && !sameFile(source, target) {
+		if err := os.WriteFile(target, data, 0755); err != nil {
+			fmt.Println("The client could not be copied:", err)
+			return
 		}
 	}
+	_ = os.MkdirAll(modelDirectory(), 0755)
 
-	if pairingCode == "" {
+	// The icon of the client is the icon of the installation.
+	icon := filepath.Join(directory, "byog.ico")
+	_ = os.WriteFile(icon, buildIconFile(defaultIconPNG), 0644)
+
+	if err := installer.Install("BYOG Worker", WorkerVersion); err != nil {
+		fmt.Println("The entries of the client could not be written:", err)
+		return
+	}
+	fmt.Println("BYOG Worker was installed in", directory)
+
+	command := exec.Command(target)
+	command.Dir = directory
+	_ = command.Start()
+}
+
+// runConsole starts the client in the terminal.
+//
+// The clients of the systems that have no graphical interface of their own use
+// this mode.
+func runConsole(serverFlag string, codeFlag string, deviceFlag string) {
+	if err := os.MkdirAll(storageRoot(), 0755); err != nil {
+		_ = err
+	}
+
+	config := loadConfig()
+	if serverFlag != "" {
+		config.ServerUrl = serverFlag
+	}
+	if codeFlag != "" {
+		config.PairingCode = codeFlag
+	}
+	if deviceFlag != "" {
+		config.DeviceName = deviceFlag
+	}
+	if config.ServerUrl == "" {
+		config.ServerUrl = DefaultServerUrl
+	}
+	if config.DeviceName == "" {
+		config.DeviceName = "Worker-Node-" + generateHWID()[:6]
+	}
+	if config.StorageDir == "" {
+		config.StorageDir = modelDirectory()
+	}
+	if config.HWID == "" {
+		config.HWID = generateHWID()
+	}
+	applyConfig(config)
+	saveConfig(config)
+
+	if config.PairingCode == "" {
 		fmt.Println("----------------------------------------------------------------")
 		fmt.Println("BYOG Compute Worker")
 		fmt.Println("Open your dashboard, click 'Link Device', and enter the code below.")
@@ -791,119 +883,24 @@ func main() {
 		fmt.Print("Enter Pairing Code: ")
 		var inputCode string
 		_, _ = fmt.Scanln(&inputCode)
-		pairingCode = strings.TrimSpace(inputCode)
+		State.Mu.Lock()
+		State.Config.PairingCode = strings.TrimSpace(inputCode)
+		State.Mu.Unlock()
+		saveConfig(State.Config)
 	}
 
-	State.Config = Config{
-		ServerUrl:         serverUrl,
-		HWID:              hwid,
-		DeviceName:        deviceName,
-		PairingCode:       pairingCode,
-		StorageDir:        storageDir,
-		MaxDiskGB:         40,
-		AutoPauseOnGame:   true,
-		ThermalGuardLimit: 83,
-	}
-
-	// Register with Server
-	regUrl := fmt.Sprintf("%s/api/v1/worker/register", serverUrl)
-	regBody, _ := json.Marshal(map[string]interface{}{
-		"hwid":                hwid,
-		"pairing_code":        pairingCode,
-		"os":                  runtime.GOOS,
-		"arch":                runtime.GOARCH,
-		"device_name":         State.Config.DeviceName,
-		"device_type":         "desktop",
-		"cpu_model":           "Host CPU Architecture",
-		"cpu_cores":           runtime.NumCPU(),
-		"gpu_model":           "Dedicated GPU / Compute Engine",
-		"physical_ram_mb":     16384,
-		"swap_ram_mb":         2048,
-		"vram_mb":             8192,
-		"shared_vram_mb":      0,
-		"tee_supported":       true,
-		"tee_type":            "sgx",
-		"bandwidth_down_mbps": 120.0,
-		"bandwidth_up_mbps":   100.0,
-		"ping_ms":             18,
-		"network_type":        "ethernet",
-	})
-
-	appName := "BYOG Worker"
-	resp, err := http.Post(regUrl, "application/json", bytes.NewReader(regBody))
-	if err == nil && resp.StatusCode == http.StatusOK {
-		var regResp struct {
-			Success bool `json:"success"`
-			Data    struct {
-				NodeId               string `json:"node_id"`
-				PairingCode          string `json:"pairing_code"`
-				UserId               int    `json:"user_id"`
-				IsPaired             bool   `json:"is_paired"`
-				SystemName           string `json:"system_name"`
-				AppName              string `json:"app_name"`
-				Favicon              string `json:"favicon"`
-				AssignedModelDetails []struct {
-					ModelId     string `json:"model_id"`
-					DownloadUrl string `json:"download_url"`
-					FileSize    int64  `json:"file_size"`
-					TotalMB     int    `json:"total_mb"`
-				} `json:"assigned_model_details"`
-			} `json:"data"`
-		}
-		_ = json.NewDecoder(resp.Body).Decode(&regResp)
-		State.Config.NodeId = regResp.Data.NodeId
-		if regResp.Data.PairingCode != "" {
-			State.Config.PairingCode = regResp.Data.PairingCode
-		}
-		if regResp.Data.AppName != "" {
-			appName = regResp.Data.AppName
-		}
-
-		// Persist configuration
-		if cfgBytes, err := json.MarshalIndent(State.Config, "", "  "); err == nil {
-			_ = os.WriteFile(configPath, cfgBytes, 0644)
-		}
-
-		fmt.Printf("[%s] Initialized successfully. Node ID: %s | Paired: %v\n", appName, State.Config.NodeId, regResp.Data.IsPaired)
-
-		// The models that the server assigns are fetched by the worker itself.
-		for _, detail := range regResp.Data.AssignedModelDetails {
-			if detail.ModelId == "" {
-				continue
-			}
-			go func(modelId string, url string, size int64) {
-				downloadAssignedModel(modelId, url, size)
-			}(detail.ModelId, detail.DownloadUrl, detail.FileSize)
-		}
+	result, err := registerWorker()
+	if err != nil {
+		fmt.Println("[BYOG WORKER] Registration pending or offline. Connecting to tunnel...")
 	} else {
-		fmt.Printf("[BYOG WORKER] Registration pending or offline. Connecting to tunnel...\n")
+		updateInstallationBranding(result.AppName, result.FaviconB64)
 	}
 
-	// Start self updater cron: checks at launch and every 15 minutes
-	go func() {
-		time.Sleep(2 * time.Second)
-		checkSelfUpdate()
-		ticker := time.NewTicker(15 * time.Minute)
-		defer ticker.Stop()
-		for range ticker.C {
-			checkSelfUpdate()
-		}
-	}()
+	startTunnel()
+	startBackgroundTasks()
 
-	// Reverse Tunnel Reconnection Loop (Section 2.1)
-	wsUrl := fmt.Sprintf("ws%s/api/v1/worker/tunnel?node_id=%s", strings.TrimPrefix(serverUrl, "http"), State.Config.NodeId)
+	// The client stays in the foreground.
 	for {
-		conn, _, err := websocket.DefaultDialer.Dial(wsUrl, nil)
-		if err == nil {
-			State.Mu.Lock()
-			State.WsConn = conn
-			State.IsConnected = true
-			State.Mu.Unlock()
-			fmt.Printf("[%s] Reverse tunnel connected. Listening for inference tasks...\n", appName)
-
-			go startHeartbeatLoop()
-			handleWebSocketMessages(conn)
-		}
-		time.Sleep(3 * time.Second)
+		time.Sleep(time.Second)
 	}
 }

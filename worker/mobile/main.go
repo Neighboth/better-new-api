@@ -59,6 +59,7 @@ type MemoryMetrics struct {
 type MobileState struct {
 	Config           MobileConfig
 	Memory           MemoryMetrics
+	HWID             string
 	WsConn           *websocket.Conn
 	IsConnected      bool
 	IsPaused         bool
@@ -549,70 +550,30 @@ func main() {
 	State.Config.ServerUrl = serverUrl
 	State.Config.StorageDir = storageDir
 	State.Config.DeviceName = "Mobile-Node-" + hwid[:6]
+	State.HWID = hwid
 	State.NetworkType = detectNetworkType()
 	readBatteryState()
 
 	fmt.Printf("[BYOG MOBILE] Initialized Node. Physical RAM: %d MB | Safe Budget: %d MB (ZRAM %d MB Ignored)\n",
 		mem.PhysicalTotalMB, mem.SafeBudgetMB, mem.SwapTotalMB)
 
+	// The interface of the client shows the state of the worker.
+	startInterface()
+
 	// Register with the coordinator
-	regUrl := fmt.Sprintf("%s/api/v1/worker/register", serverUrl)
-	regBody, _ := json.Marshal(map[string]interface{}{
-		"hwid":                hwid,
-		"os":                  "android",
-		"arch":                runtime.GOARCH,
-		"device_name":         State.Config.DeviceName,
-		"device_type":         "mobile",
-		"cpu_model":           fmt.Sprintf("%s (%d cores)", runtime.GOOS, runtime.NumCPU()),
-		"cpu_cores":           runtime.NumCPU(),
-		"gpu_model":           "",
-		"physical_ram_mb":     mem.PhysicalTotalMB,
-		"swap_ram_mb":         mem.SwapTotalMB, // Logged for telemetry, ignored for capacity
-		"vram_mb":             0,
-		"shared_vram_mb":      mem.SafeBudgetMB,
-		"tee_supported":       false,
-		"bandwidth_down_mbps": 0.0,
-		"bandwidth_up_mbps":   0.0,
-		"ping_ms":             0,
-		"network_type":        State.NetworkType,
-		"battery_percent":     State.BatteryPercent,
-		"battery_temp":        State.BatteryTemp,
-		"is_charging":         State.IsCharging,
-	})
-
-	type assignedModel struct {
-		ModelID     string `json:"model_id"`
-		DownloadURL string `json:"download_url"`
-		FileSize    int64  `json:"file_size"`
-	}
-
-	resp, err := http.Post(regUrl, "application/json", bytes.NewReader(regBody))
-	if err == nil && resp.StatusCode == http.StatusOK {
-		var regResp struct {
-			Success bool `json:"success"`
-			Data    struct {
-				NodeId      string          `json:"node_id"`
-				PairingCode string          `json:"pairing_code"`
-				Assigned    []assignedModel `json:"assigned_model_details"`
-			} `json:"data"`
-		}
-		_ = json.NewDecoder(resp.Body).Decode(&regResp)
-		resp.Body.Close()
-		State.Config.NodeId = regResp.Data.NodeId
-		if regResp.Data.PairingCode != "" {
-			State.Config.PairingCode = regResp.Data.PairingCode
-		}
-		fmt.Printf("[BYOG MOBILE] Paired successfully. Node ID: %s | Pairing Code: %s\n", State.Config.NodeId, State.Config.PairingCode)
-
-		for _, model := range regResp.Data.Assigned {
-			go func(model assignedModel) {
-				if err := downloadModel(model.ModelID, model.DownloadURL, model.FileSize); err != nil {
-					fmt.Printf("[BYOG MOBILE] Download of %s failed: %v\n", model.ModelID, err)
+	if !registerWithServer() {
+		// The client waits for the pairing code of the user.
+		for {
+			time.Sleep(5 * time.Second)
+			State.Mu.Lock()
+			paired := State.Config.PairingCode != ""
+			State.Mu.Unlock()
+			if paired {
+				if registerWithServer() {
+					break
 				}
-			}(model)
+			}
 		}
-	} else if resp != nil {
-		resp.Body.Close()
 	}
 
 	// Reverse Tunnel loop
@@ -690,4 +651,86 @@ func main() {
 		State.Mu.Unlock()
 		time.Sleep(5 * time.Second)
 	}
+}
+
+// registerWithServer registers the client with the coordinator.
+//
+// The function returns true when the client is paired. The pairing code of the
+// user can be entered into the interface of the client, the client registers
+// itself again then.
+func registerWithServer() bool {
+	State.Mu.Lock()
+	serverUrl := State.Config.ServerUrl
+	pairingCode := State.Config.PairingCode
+	hwid := State.HWID
+	mem := State.Memory
+	State.Mu.Unlock()
+
+	if pairingCode == "" {
+		return false
+	}
+
+	regUrl := fmt.Sprintf("%s/api/v1/worker/register", serverUrl)
+	regBody, _ := json.Marshal(map[string]interface{}{
+		"hwid":                hwid,
+		"os":                  "android",
+		"arch":                runtime.GOARCH,
+		"device_name":         State.Config.DeviceName,
+		"device_type":         "mobile",
+		"cpu_model":           fmt.Sprintf("%s (%d cores)", runtime.GOOS, runtime.NumCPU()),
+		"cpu_cores":           runtime.NumCPU(),
+		"gpu_model":           "",
+		"physical_ram_mb":     mem.PhysicalTotalMB,
+		"swap_ram_mb":         mem.SwapTotalMB, // Logged for telemetry, ignored for capacity
+		"vram_mb":             0,
+		"shared_vram_mb":      mem.SafeBudgetMB,
+		"tee_supported":       false,
+		"bandwidth_down_mbps": 0.0,
+		"bandwidth_up_mbps":   0.0,
+		"ping_ms":             0,
+		"network_type":        State.NetworkType,
+		"battery_percent":     State.BatteryPercent,
+		"battery_temp":        State.BatteryTemp,
+		"is_charging":         State.IsCharging,
+	})
+
+	type assignedModel struct {
+		ModelID     string `json:"model_id"`
+		DownloadURL string `json:"download_url"`
+		FileSize    int64  `json:"file_size"`
+	}
+
+	resp, err := http.Post(regUrl, "application/json", bytes.NewReader(regBody))
+	if err == nil && resp.StatusCode == http.StatusOK {
+		var regResp struct {
+			Success bool `json:"success"`
+			Data    struct {
+				NodeId      string          `json:"node_id"`
+				PairingCode string          `json:"pairing_code"`
+				Assigned    []assignedModel `json:"assigned_model_details"`
+			} `json:"data"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&regResp)
+		resp.Body.Close()
+		State.Config.NodeId = regResp.Data.NodeId
+		if regResp.Data.PairingCode != "" {
+			State.Config.PairingCode = regResp.Data.PairingCode
+		}
+		fmt.Printf("[BYOG MOBILE] Paired successfully. Node ID: %s | Pairing Code: %s\n", State.Config.NodeId, State.Config.PairingCode)
+
+		for _, model := range regResp.Data.Assigned {
+			go func(model assignedModel) {
+				if err := downloadModel(model.ModelID, model.DownloadURL, model.FileSize); err != nil {
+					fmt.Printf("[BYOG MOBILE] Download of %s failed: %v\n", model.ModelID, err)
+				}
+			}(model)
+		}
+	} else if resp != nil {
+		resp.Body.Close()
+	}
+
+	State.Mu.Lock()
+	paired := State.Config.NodeId != ""
+	State.Mu.Unlock()
+	return paired
 }

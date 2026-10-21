@@ -91,7 +91,7 @@ func TestDownloadByogWorkerEndpoints(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "application/octet-stream", w.Header().Get("Content-Type"))
-	assert.Contains(t, w.Header().Get("Content-Disposition"), "byog-worker-windows-amd64.exe")
+	assert.Contains(t, w.Header().Get("Content-Disposition"), "BYOG Worker.exe")
 
 	// 3. Test Linux AMD64
 	req, _ = http.NewRequest(http.MethodGet, "/api/byog/worker/download/linux/amd64", nil)
