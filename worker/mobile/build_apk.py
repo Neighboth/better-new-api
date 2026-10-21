@@ -889,12 +889,17 @@ html_content = f'''<!DOCTYPE html>
 
           const bgCard = document.getElementById('card-perm-bgactivity');
           const bgBadge = document.getElementById('badge-perm-bgactivity');
+          const hasBgActivity = p.bgactivity_supported !== false;
           const isBgActive = Boolean(p.bgactivity !== false);
-          if (isBgActive) {{
+          if (!hasBgActivity) {{
+            bgCard.classList.add('hidden');
+          }} else if (isBgActive) {{
+            bgCard.classList.remove('hidden');
             bgCard.classList.add('granted');
             bgBadge.className = 'perm-status-badge granted';
             bgBadge.innerText = '✓ Verildi';
           }} else {{
+            bgCard.classList.remove('hidden');
             bgCard.classList.remove('granted');
             bgBadge.className = 'perm-status-badge';
             bgBadge.innerText = 'İzin Ver';
@@ -902,18 +907,23 @@ html_content = f'''<!DOCTYPE html>
 
           const autoCard = document.getElementById('card-perm-autostart');
           const autoBadge = document.getElementById('badge-perm-autostart');
+          const hasAutoStart = p.autostart_supported !== false;
           const isAutoStart = Boolean(p.autostart);
-          if (isAutoStart) {{
+          if (!hasAutoStart) {{
+            autoCard.classList.add('hidden');
+          }} else if (isAutoStart) {{
+            autoCard.classList.remove('hidden');
             autoCard.classList.add('granted');
             autoBadge.className = 'perm-status-badge granted';
             autoBadge.innerText = '✓ Verildi';
           }} else {{
+            autoCard.classList.remove('hidden');
             autoCard.classList.remove('granted');
             autoBadge.className = 'perm-status-badge';
             autoBadge.innerText = 'İzin Ver';
           }}
 
-          permissionsCompleted = Boolean(p.notifications && p.battery && isBgActive && isAutoStart);
+          permissionsCompleted = Boolean(p.notifications && p.battery);
           const btnCont = document.getElementById('btn-perm-continue');
           if (btnCont) {{
             if (permissionsCompleted) {{
@@ -925,7 +935,7 @@ html_content = f'''<!DOCTYPE html>
             }}
           }}
 
-          if (!isBgActive || !isAutoStart || !p.battery) {{
+          if (!p.notifications || !p.battery) {{
             document.getElementById('unpaired-view').classList.add('hidden');
             document.getElementById('paired-view').classList.add('hidden');
             document.getElementById('permissions-view').classList.remove('hidden');
@@ -1737,21 +1747,82 @@ public class MainActivity extends Activity {
 
         Toast.makeText(this, "Otomatik başlatma ekranında uygulamayı etkinleştirin.", Toast.LENGTH_LONG).show();
 
-        Intent[] actions = new Intent[] {
-            new Intent("miui.intent.action.OP_AUTO_START"),
-            new Intent("huawei.intent.action.HSM_STARTUPAPP_MANAGER"),
-            new Intent("com.iqoo.secure.BGSTARTUPMANAGER"),
-            new Intent("com.cyin.himgr.applicationmanager.view.activities.AUTO_START_ACTIVITY"),
-            new Intent("com.android.settings.action.BACKGROUND_OPTIMIZE"),
-        };
-        for (Intent action : actions) {
+        for (Intent action : autoStartActions()) {
             if (launch(action)) {
                 markAutoStartPending();
                 return;
             }
         }
 
-        Intent[] components = new Intent[] {
+        for (Intent component : autoStartComponents()) {
+            if (launch(component)) {
+                markAutoStartPending();
+                return;
+            }
+        }
+
+        Toast.makeText(this, "Otomatik başlatma ekranı bulunamadı. Ayarlar > Uygulamalar > BYOG > Pil kullanımı bölümünden açabilirsiniz.", Toast.LENGTH_LONG).show();
+    }
+
+    /**
+     * Tells whether the system of the device holds the screen of the automatic
+     * start. The screen is not on every device, the worker starts after the
+     * reboot with its own receiver when it is missing.
+     */
+    public boolean hasAutoStartScreen() {
+        for (Intent action : autoStartActions()) {
+            if (canLaunch(action)) {
+                return true;
+            }
+        }
+        for (Intent component : autoStartComponents()) {
+            if (canLaunch(component)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Tells whether the system of the device holds the screen of the background
+     * activity. The screen is not on every device.
+     */
+    public boolean hasBackgroundActivityScreen() {
+        Intent[] actions = new Intent[] {
+            new Intent("com.android.settings.action.BACKGROUND_OPTIMIZE"),
+            new Intent("android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS"),
+        };
+        for (Intent action : actions) {
+            if (canLaunch(action)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Tells whether the system of the device can open the given screen.
+     */
+    private boolean canLaunch(Intent intent) {
+        try {
+            return intent.resolveActivity(getPackageManager()) != null;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private Intent[] autoStartActions() {
+        return new Intent[] {
+            new Intent("miui.intent.action.OP_AUTO_START"),
+            new Intent("huawei.intent.action.HSM_STARTUPAPP_MANAGER"),
+            new Intent("com.iqoo.secure.BGSTARTUPMANAGER"),
+            new Intent("com.cyin.himgr.applicationmanager.view.activities.AUTO_START_ACTIVITY"),
+            new Intent("com.android.settings.action.BACKGROUND_OPTIMIZE"),
+        };
+    }
+
+    private Intent[] autoStartComponents() {
+        return new Intent[] {
             // realme UI 6/7 and ColorOS 15 or newer
             componentIntent("com.oplus.safecenter", "com.oplus.safecenter.startupapp.StartupAppListActivity"),
             componentIntent("com.oplus.safecenter", "com.oplus.safecenter.permission.startup.StartupAppListActivity"),
@@ -1788,14 +1859,6 @@ public class MainActivity extends Activity {
             componentIntent("com.transsion.phonemaster", "com.cyin.himgr.autostart.AutoStartActivity"),
             componentIntent("com.transsion.phonemanager", "com.itel.autobootmanager.activity.AutoBootMgrActivity"),
         };
-        for (Intent component : components) {
-            if (launch(component)) {
-                markAutoStartPending();
-                return;
-            }
-        }
-
-        Toast.makeText(this, "Otomatik başlatma ekranı bulunamadı. Ayarlar > Uygulamalar > BYOG > Pil kullanımı bölümünden açabilirsiniz.", Toast.LENGTH_LONG).show();
     }
 
     /**
@@ -2096,6 +2159,8 @@ public class MainActivity extends Activity {
                 obj.put("battery", battery);
                 obj.put("autostart", autostart);
                 obj.put("bgactivity", bgAllowed);
+                obj.put("autostart_supported", hasAutoStartScreen());
+                obj.put("bgactivity_supported", hasBackgroundActivityScreen());
             } catch (Exception ignored) {}
             return obj.toString();
         }

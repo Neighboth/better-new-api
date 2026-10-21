@@ -58,8 +58,8 @@ func design(value int32) int32 {
 // resolution of the screen.
 func (w *guiWindow) layout() {
 	moveField := func(field uintptr, left int32, top int32, width int32) {
-		procSetWindowPos.Call(field, 0, uintptr(design(left)), uintptr(design(top)),
-			uintptr(design(width)), uintptr(design(30)), 0x0004) // SWP_NOZORDER
+		procSetWindowPos.Call(field, 0, uintptr(w.scaleValue(left)), uintptr(w.scaleValue(top)),
+			uintptr(w.scaleValue(width)), uintptr(w.scaleValue(30)), 0x0004) // SWP_NOZORDER
 	}
 	if w.serverFieldShown {
 		moveField(w.serverEdit, 48, 196, 464)
@@ -172,9 +172,9 @@ func (w *guiWindow) paint(hdc uintptr) {
 	w.drawText(dc, statusText, w.fontText, colorText, design(78), design(70), design(330), design(98), taLeft|taVCenter)
 
 	// The details of the worker.
-	labels := [3]string{"Sunucu", "Cihaz", "Model"}
+	labels := [4]string{"Sunucu", "Cihaz", "Model", "Hız"}
 	for index, label := range labels {
-		top := design(int32(32 + index*26))
+		top := design(int32(30 + index*24))
 		w.drawText(dc, label, w.fontSmall, colorMuted, design(350), top, design(420), top+design(22), taLeft|taVCenter)
 		w.drawText(dc, details[index], w.fontSmall, colorText, design(424), top, design(520), top+design(22), taLeft|taVCenter)
 	}

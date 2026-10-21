@@ -16,6 +16,7 @@ package main
 // dependency.
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -79,6 +80,7 @@ const (
 	commandPanel   = 101
 	commandQuit    = 102
 	commandConnect = 103
+	commandTest    = 104
 
 	controlServerEdit = 201
 	controlPairEdit   = 202
@@ -98,6 +100,7 @@ var (
 
 	procRegisterClassEx             = user32.NewProc("RegisterClassExW")
 	procCreateWindowEx              = user32.NewProc("CreateWindowExW")
+	procMessageBox                  = user32.NewProc("MessageBoxW")
 	procDefWindowProc               = user32.NewProc("DefWindowProcW")
 	procGetMessage                  = user32.NewProc("GetMessageW")
 	procTranslateMessage            = user32.NewProc("TranslateMessage")
@@ -269,7 +272,7 @@ type guiWindow struct {
 
 	statusText  string
 	statusState int
-	details     [3]string
+	details     [4]string
 	progress    int
 	progressSet bool
 
@@ -394,7 +397,7 @@ func (w *guiWindow) watchWorker() {
 		w.lastConnected = status.Connected
 		w.progress = status.Progress
 		w.progressSet = status.ModelStatus == "downloading"
-		w.details = [3]string{status.ServerUrl, status.NodeId, modelDescription(status)}
+		w.details = [4]string{status.ServerUrl, status.NodeId, modelDescription(status), speedDescription(status)}
 		w.mutex.Unlock()
 
 		if changed {
@@ -604,9 +607,10 @@ func (w *guiWindow) createFonts() {
 // createControls builds the fields and the buttons of the window.
 func (w *guiWindow) createControls() {
 	w.buttons = []uiButton{
-		{command: commandConnect, left: 48, top: 368, right: 176, bottom: 404, label: "Bağlan", primary: true},
-		{command: commandPanel, left: 188, top: 368, right: 316, bottom: 404, label: "Panele git"},
-		{command: commandQuit, left: 328, top: 368, right: 456, bottom: 404, label: "Çıkış"},
+		{command: commandConnect, left: 48, top: 368, right: 158, bottom: 404, label: "Bağlan", primary: true},
+		{command: commandTest, left: 170, top: 368, right: 280, bottom: 404, label: "Test"},
+		{command: commandPanel, left: 292, top: 368, right: 402, bottom: 404, label: "Panele git"},
+		{command: commandQuit, left: 414, top: 368, right: 524, bottom: 404, label: "Çıkış"},
 	}
 
 	createField := func(id int, text string, left int32, top int32, width int32) uintptr {
@@ -794,7 +798,13 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 
 	case wmDpiChanged:
 		if window != nil {
+			// The window takes the size of the design with the new resolution of
+			// the screen, the measures of the design never change.
 			window.dpi = window.screenDpi()
+			window.createFonts()
+			procSetWindowPos.Call(window.window, 0, 0, 0,
+				uintptr(window.scaleValue(designWidth+16)),
+				uintptr(window.scaleValue(designHeight+55)), 0x0004)
 			window.layout()
 		}
 		return 0
@@ -873,11 +883,61 @@ func (w *guiWindow) runCommand(command int) {
 	switch command {
 	case commandConnect:
 		w.connect()
+	case commandTest:
+		w.testModel()
 	case commandPanel:
 		w.openPanel()
 	case commandQuit:
 		w.quit()
 	}
+}
+
+// testModel runs a test inference with the model of the worker and shows the
+// answer with the measurements of the inference.
+//
+// The inference runs in the background, the window stays open while it runs.
+func (w *guiWindow) testModel() {
+	status := readStatus()
+	if status.ModelName == "" {
+		w.showMessage("Test", "Test için önce bir model indirilmelidir.")
+		return
+	}
+	go func() {
+		started := time.Now()
+		engine := NewLocalTransformerEngine(status.ModelName, State.Config.StorageDir)
+		result, err := engine.GenerateStream(
+			context.Background(),
+			"Merhaba! Kendini tek cümleyle tanıt.",
+			96,
+			0.7,
+			func(piece string, tokenId int) bool { return true },
+		)
+		elapsed := time.Since(started)
+		if err != nil {
+			w.showMessage("Test", "Çıkarım yapılamadı:\n"+err.Error())
+			return
+		}
+		speed := result.Tps
+		if speed <= 0 && elapsed.Seconds() > 0 {
+			speed = float64(result.TotalTokens) / elapsed.Seconds()
+		}
+		w.showMessage("Test", fmt.Sprintf("%s\n\nSüre: %s\nToken: %d\nHız: %.1f token/s",
+			strings.TrimSpace(result.Text), elapsed.Round(time.Millisecond), result.TotalTokens, speed))
+	}()
+}
+
+// showMessage shows a text of the client in a window of the system.
+func (w *guiWindow) showMessage(title string, text string) {
+	procMessageBox.Call(w.window, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(text))),
+		uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(title))), 0x00000040)
+}
+
+// speedDescription returns the speed of the worker for the window.
+func speedDescription(status AppStatus) string {
+	if status.CurrentTps <= 0 {
+		return "Beklemede"
+	}
+	return fmt.Sprintf("%.1f token/s", status.CurrentTps)
 }
 
 // connect pairs the client with the coordinator.
@@ -989,7 +1049,19 @@ func (w *guiWindow) showTrayMenu() {
 // control panel and in the search of the system.
 func updateInstallationBranding(appName string, systemName string, faviconBase64 string) {
 	writeApplicationIcon(faviconBase64)
-	_ = installer.UpdateBranding(appName, WorkerVersion)
+	_ = installer.UpdateBranding(installationDisplayName(appName, systemName), WorkerVersion)
+}
+
+// installationDisplayName returns the name of the installation.
+//
+// The name of the installation and the name of the client are shown together,
+// the user knows the installation from the name of it.
+func installationDisplayName(appName string, systemName string) string {
+	name := strings.TrimSpace(systemName)
+	if name == "" {
+		return appName
+	}
+	return name + " BYOG"
 }
 
 // applicationIconPath returns the path of the icon of the client.

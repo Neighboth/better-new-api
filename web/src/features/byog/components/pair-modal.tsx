@@ -21,6 +21,7 @@ import {
   Check,
   Copy,
   Download,
+  Link2,
   KeyRound,
   Laptop,
   Monitor,
@@ -117,11 +118,12 @@ export function PairModal({ onPaired }: PairModalProps) {
     return () => clearInterval(interval)
   }, [open])
 
-  const handleDownload = (platform: string, arch: string) => {
-    const downloadUrl = `/api/v1/worker/download/${platform}/${arch}`
+  const handleDownload = (platform: string, arch: string, shortcut = false) => {
+    const suffix = shortcut ? '?shortcut=1' : ''
+    const downloadUrl = `/api/v1/worker/download/${platform}/${arch}${suffix}`
     const a = document.createElement('a')
     a.href = downloadUrl
-    a.setAttribute('download', '')
+    a.rel = 'noopener'
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -260,13 +262,26 @@ export function PairModal({ onPaired }: PairModalProps) {
                     </div>
                   </div>
                 </div>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  onClick={() => handleDownload('windows', 'amd64')}
-                >
-                  <Download className='h-3.5 w-3.5' />
-                </Button>
+                <div className='flex items-center gap-1.5'>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => handleDownload('windows', 'amd64', true)}
+                    title={t(
+                      'byog.download_windows_shortcut',
+                      'Download the shortcut (.lnk)'
+                    )}
+                  >
+                    <Link2 className='h-3.5 w-3.5' />
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => handleDownload('windows', 'amd64')}
+                  >
+                    <Download className='h-3.5 w-3.5' />
+                  </Button>
+                </div>
               </div>
 
               {/* Linux */}

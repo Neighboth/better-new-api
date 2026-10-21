@@ -87,13 +87,20 @@ func TestDownloadByogWorkerEndpoints(t *testing.T) {
 
 	// 2. Test Windows AMD64
 	//
-	// The dashboard hands out a shortcut for the client of Windows, the shortcut
-	// carries the name and the icon of the installation.
+	// The dashboard hands out the program of the installation. The shortcut of
+	// the client is asked for on its own.
 	req, _ = http.NewRequest(http.MethodGet, "/api/byog/worker/download/windows/amd64", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "application/octet-stream", w.Header().Get("Content-Type"))
+	assert.Contains(t, w.Header().Get("Content-Disposition"), "BYOG Worker Kurulumu.exe")
+
+	// 3. Test the shortcut of the client of Windows
+	req, _ = http.NewRequest(http.MethodGet, "/api/byog/worker/download/windows/amd64?shortcut=1", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Header().Get("Content-Disposition"), "TestPlatform BYOG.lnk")
 	assert.Greater(t, w.Body.Len(), 100)
 	assert.Contains(t, string(w.Body.Bytes()), "powershell.exe")

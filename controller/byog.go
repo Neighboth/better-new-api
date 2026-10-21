@@ -1764,36 +1764,39 @@ func DownloadByogWorker(c *gin.Context) {
 	arch := c.Param("arch")
 	fileName := fmt.Sprintf("byog-worker-%s-%s", platform, arch)
 	if platform == "windows" {
-		// The client of Windows is a program of the graphical user interface, the
-		// dashboard hands out a shortcut that carries the name and the icon of the
-		// installation and the address of the program of the installation.
-		scheme := "http"
-		if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
-			scheme = "https"
+		// The dashboard hands out a shortcut for the client of Windows when it is
+		// asked for one. The shortcut carries the name and the icon of the
+		// installation and the address of the installation.
+		if c.Query("shortcut") == "1" {
+			scheme := "http"
+			if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+				scheme = "https"
+			}
+			serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+			systemName, appName, _, _ := getBranding(serverUrl)
+			displayName := strings.TrimSpace(systemName + " BYOG")
+			if displayName == "BYOG" {
+				displayName = appName
+			}
+			clientUrl := fmt.Sprintf("%s/api/v1/worker/download/windows/amd64", serverUrl)
+			shortcut := lnk.Shortcut{
+				Name:       displayName,
+				TargetPath: "powershell.exe",
+				Arguments: fmt.Sprintf(
+					"-NoProfile -WindowStyle Hidden -Command \"Invoke-WebRequest -Uri '%s' -OutFile \\\"$env:TEMP\\\\BYOG Worker.exe\\\"; "+
+						"Start-Process \\\"$env:TEMP\\\\BYOG Worker.exe\\\" -ArgumentList '--server=%s'\"",
+					clientUrl, serverUrl),
+				WorkingDirectory: "C:\\Windows\\System32",
+				Description:      "The client of the local computing network of the installation",
+				IconLocation:     fmt.Sprintf("%s/api/byog/favicon.ico", serverUrl),
+			}
+			name := lnk.FileName(displayName)
+			c.Header("Content-Type", "application/octet-stream")
+			c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
+			c.Data(http.StatusOK, "application/octet-stream", shortcut.Bytes())
+			return
 		}
-		serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
-		systemName, appName, _, _ := getBranding(serverUrl)
-		displayName := strings.TrimSpace(systemName + " BYOG")
-		if displayName == "BYOG" {
-			displayName = appName
-		}
-		clientUrl := fmt.Sprintf("%s/api/v1/worker/download/windows/amd64", serverUrl)
-		shortcut := lnk.Shortcut{
-			Name:       displayName,
-			TargetPath: "powershell.exe",
-			Arguments: fmt.Sprintf(
-				"-NoProfile -WindowStyle Hidden -Command \"Invoke-WebRequest -Uri '%s' -OutFile \\\"$env:TEMP\\\\BYOG Worker.exe\\\"; "+
-					"Start-Process \\\"$env:TEMP\\\\BYOG Worker.exe\\\" -ArgumentList '--server=%s'\"",
-				clientUrl, serverUrl),
-			WorkingDirectory: "C:\\Windows\\System32",
-			Description:      "The client of the local computing network of the installation",
-			IconLocation:     fmt.Sprintf("%s/api/byog/favicon.ico", serverUrl),
-		}
-		name := lnk.FileName(displayName)
-		c.Header("Content-Type", "application/octet-stream")
-		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
-		c.Data(http.StatusOK, "application/octet-stream", shortcut.Bytes())
-		return
+		fileName = "BYOG Worker Kurulumu.exe"
 	} else if platform == "android" {
 		if arch == "apk" {
 			fileName = "byog-worker.apk"
