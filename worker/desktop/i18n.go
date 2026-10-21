@@ -15,7 +15,8 @@ var clientTexts = map[string]map[string]string{
 		"server_url": "Sunucu adresi", "pairing": "Eşleştirme kodu", "idle": "Beklemede",
 		"connecting": "Bağlanılıyor...", "online": "Çevrimiçi", "offline": "Çevrimdışı",
 		"downloading": "İndiriliyor...", "policy_title": "Gizlilik ve kullanım şartları",
-		"show": "Göster", "change_language": "Dili değiştir",
+		"show": "Client'i Göster", "go_site": "Siteye git", "site_settings": "Ayarlar (Site)", "close_app": "Kapat",
+		"change_language": "Dili değiştir",
 	},
 	"en": {
 		"setup": "Setup", "language": "Language", "privacy": "Privacy policy",
@@ -26,7 +27,8 @@ var clientTexts = map[string]map[string]string{
 		"server_url": "Server address", "pairing": "Pairing code", "idle": "Idle",
 		"connecting": "Connecting...", "online": "Online", "offline": "Offline",
 		"downloading": "Downloading...", "policy_title": "Privacy and terms of service",
-		"show": "Show", "change_language": "Change language",
+		"show": "Show client", "go_site": "Go to site", "site_settings": "Settings (Site)", "close_app": "Close",
+		"change_language": "Change language",
 	},
 	"zh_CN": {
 		"setup": "安装", "language": "语言", "privacy": "隐私政策",
@@ -37,7 +39,8 @@ var clientTexts = map[string]map[string]string{
 		"server_url": "服务器地址", "pairing": "配对码", "idle": "等待中",
 		"connecting": "连接中...", "online": "在线", "offline": "离线",
 		"downloading": "下载中...", "policy_title": "隐私政策和使用条款",
-		"show": "显示", "change_language": "更改语言",
+		"show": "显示客户端", "go_site": "前往网站", "site_settings": "设置（网站）", "close_app": "关闭",
+		"change_language": "更改语言",
 	},
 	"zh_TW": {
 		"setup": "安裝", "language": "語言", "privacy": "隱私政策",
@@ -48,7 +51,8 @@ var clientTexts = map[string]map[string]string{
 		"server_url": "伺服器位址", "pairing": "配對碼", "idle": "等待中",
 		"connecting": "連線中...", "online": "線上", "offline": "離線",
 		"downloading": "下載中...", "policy_title": "隱私政策和使用條款",
-		"show": "顯示", "change_language": "更改語言",
+		"show": "顯示用戶端", "go_site": "前往網站", "site_settings": "設定（網站）", "close_app": "關閉",
+		"change_language": "更改語言",
 	},
 	"fr": {
 		"setup": "Installation", "language": "Langue", "privacy": "Politique de confidentialité",
@@ -59,7 +63,8 @@ var clientTexts = map[string]map[string]string{
 		"server_url": "Adresse du serveur", "pairing": "Code d'appairage", "idle": "En attente",
 		"connecting": "Connexion...", "online": "En ligne", "offline": "Hors ligne",
 		"downloading": "Téléchargement...", "policy_title": "Confidentialité et conditions d'utilisation",
-		"show": "Afficher", "change_language": "Changer de langue",
+		"show": "Afficher le client", "go_site": "Aller sur le site", "site_settings": "Paramètres (Site)", "close_app": "Fermer",
+		"change_language": "Changer de langue",
 	},
 	"ru": {
 		"setup": "Установка", "language": "Язык", "privacy": "Политика конфиденциальности",
@@ -70,7 +75,8 @@ var clientTexts = map[string]map[string]string{
 		"server_url": "Адрес сервера", "pairing": "Код сопряжения", "idle": "Ожидание",
 		"connecting": "Подключение...", "online": "В сети", "offline": "Не в сети",
 		"downloading": "Загрузка...", "policy_title": "Конфиденциальность и условия использования",
-		"show": "Показать", "change_language": "Сменить язык",
+		"show": "Показать клиент", "go_site": "Перейти на сайт", "site_settings": "Настройки (сайт)", "close_app": "Закрыть",
+		"change_language": "Сменить язык",
 	},
 	"ja": {
 		"setup": "セットアップ", "language": "言語", "privacy": "プライバシーポリシー",
@@ -81,7 +87,8 @@ var clientTexts = map[string]map[string]string{
 		"server_url": "サーバーアドレス", "pairing": "ペアリングコード", "idle": "待機中",
 		"connecting": "接続中...", "online": "オンライン", "offline": "オフライン",
 		"downloading": "ダウンロード中...", "policy_title": "プライバシーと利用規約",
-		"show": "表示", "change_language": "言語を変更",
+		"show": "クライアントを表示", "go_site": "サイトへ移動", "site_settings": "設定（サイト）", "close_app": "閉じる",
+		"change_language": "言語を変更",
 	},
 	"vi": {
 		"setup": "Cài đặt", "language": "Ngôn ngữ", "privacy": "Chính sách bảo mật",
@@ -92,7 +99,8 @@ var clientTexts = map[string]map[string]string{
 		"server_url": "Địa chỉ máy chủ", "pairing": "Mã ghép nối", "idle": "Đang chờ",
 		"connecting": "Đang kết nối...", "online": "Trực tuyến", "offline": "Ngoại tuyến",
 		"downloading": "Đang tải...", "policy_title": "Bảo mật và điều khoản sử dụng",
-		"show": "Hiện", "change_language": "Đổi ngôn ngữ",
+		"show": "Hiện ứng dụng", "go_site": "Đến trang web", "site_settings": "Cài đặt (Trang web)", "close_app": "Đóng",
+		"change_language": "Đổi ngôn ngữ",
 	},
 }
 

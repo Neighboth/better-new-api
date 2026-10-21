@@ -82,6 +82,8 @@ const (
 	commandConnect  = 103
 	commandTest     = 104
 	commandLanguage = 105
+	commandSettings = 106
+	commandClose    = 107
 
 	controlServerEdit = 201
 	controlPairEdit   = 202
@@ -807,6 +809,10 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 				window.show()
 			case commandPanel:
 				window.openPanel()
+			case commandSettings:
+				window.openSiteSettings()
+			case commandClose:
+				window.closeApp()
 			case commandQuit:
 				window.quit()
 			case commandLanguage:
@@ -1032,6 +1038,28 @@ func (w *guiWindow) openPanel() {
 	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", target).Start()
 }
 
+// openSiteSettings opens the settings of the installation on the site.
+func (w *guiWindow) openSiteSettings() {
+	status := readStatus()
+	target := strings.TrimRight(status.ServerUrl, "/")
+	if target == "" {
+		return
+	}
+	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
+		target = "http://" + target
+	}
+	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", target+"/console/personal").Start()
+}
+
+// closeApp closes the window of the client.
+//
+// The worker keeps serving the tasks of the coordinator, the window of the
+// client stays closed until the client is started again.
+func (w *guiWindow) closeApp() {
+	w.removeTrayIcon()
+	procShowWindow.Call(w.window, swHide)
+}
+
 // quit ends the client.
 func (w *guiWindow) quit() {
 	w.removeTrayIcon()
@@ -1079,9 +1107,9 @@ func (w *guiWindow) removeTrayIcon() {
 func (w *guiWindow) showTrayMenu() {
 	menu, _, _ := procCreatePopupMenu.Call()
 	procAppendMenu.Call(menu, 0, commandShow, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("show")))))
-	procAppendMenu.Call(menu, 0, commandLanguage, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("change_language")))))
-	procAppendMenu.Call(menu, 0, commandPanel, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("panel")))))
-	procAppendMenu.Call(menu, 0, commandQuit, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("quit")))))
+	procAppendMenu.Call(menu, 0, commandPanel, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("go_site")))))
+	procAppendMenu.Call(menu, 0, commandSettings, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("site_settings")))))
+	procAppendMenu.Call(menu, 0, commandClose, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("close_app")))))
 
 	var point windowPoint
 	procGetCursorPos.Call(uintptr(unsafe.Pointer(&point)))

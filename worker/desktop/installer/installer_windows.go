@@ -61,7 +61,23 @@ func Install(displayName string, version string) error {
 	writeUninstallEntry(displayName, version, executable, icon)
 	writeAppPathsEntry(executable)
 	writeStartMenuShortcut(executable, icon)
+	writeStartupEntry(displayName, executable)
 	return nil
+}
+
+// The key of the programs that start with the system.
+const startupKey = `Software\Microsoft\Windows\CurrentVersion\Run`
+
+// writeStartupEntry writes the entry that starts the client with the system.
+//
+// The client works in the background, it starts with the system always.
+func writeStartupEntry(displayName string, executable string) {
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, startupKey, registry.SET_VALUE)
+	if err != nil {
+		return
+	}
+	defer key.Close()
+	_ = key.SetStringValue(displayName, "\""+executable+"\"")
 }
 
 // Uninstall removes the entries of the client from the system.
@@ -70,6 +86,12 @@ func Install(displayName string, version string) error {
 func Uninstall() error {
 	removeRegistryKey(uninstallKey)
 	removeRegistryKey(appPathsKey)
+
+	if key, err := registry.OpenKey(registry.CURRENT_USER, startupKey, registry.SET_VALUE); err == nil {
+		_ = key.DeleteValue("BYOG Worker")
+		_ = key.DeleteValue("BYOG")
+		key.Close()
+	}
 
 	shortcut := ShortcutPath()
 	if _, err := os.Stat(shortcut); err == nil {
