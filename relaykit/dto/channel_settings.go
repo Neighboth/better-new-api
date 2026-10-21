@@ -143,6 +143,7 @@ const (
 	advancedCustomEndpointPathJinaRerank             = "/v1/rerank"
 	advancedCustomEndpointPathImageGeneration        = "/v1/images/generations"
 	advancedCustomEndpointPathEmbeddings             = "/v1/embeddings"
+	advancedCustomEndpointPathOpenAIRealtime         = "/v1/realtime"
 )
 
 const (
@@ -262,6 +263,8 @@ func advancedCustomEndpointTypeFromIncomingPath(incomingPath string) (types.Endp
 		return types.EndpointTypeJinaRerank, true
 	case advancedCustomEndpointPathImageGeneration:
 		return types.EndpointTypeImageGeneration, true
+	case advancedCustomEndpointPathOpenAIRealtime:
+		return types.EndpointTypeOpenAIRealtime, true
 	case advancedCustomEndpointPathEmbeddings:
 		return types.EndpointTypeEmbeddings, true
 	default:
