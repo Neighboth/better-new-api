@@ -38,6 +38,11 @@ const (
 
 type Config struct {
 	ServerUrl         string `json:"server_url"`
+	SystemName        string `json:"system_name"`
+	AppName           string `json:"app_name"`
+	FaviconBase64     string `json:"favicon_base64"`
+	Language          string `json:"language"`
+	LegalAccepted     bool   `json:"legal_accepted"`
 	NodeId            string `json:"node_id"`
 	PairingCode       string `json:"pairing_code"`
 	HWID              string `json:"hwid"`

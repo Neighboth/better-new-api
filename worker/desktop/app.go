@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/QuantumNous/new-api/pkg/embedcfg"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -127,6 +129,36 @@ func configPath() string {
 // logPath returns the path of the log file of the client.
 func logPath() string {
 	return filepath.Join(storageRoot(), "worker.log")
+}
+
+// embeddedSettings reads the settings of the installation from the program of
+// the client.
+//
+// The dashboard writes the name, the icon and the address of the installation
+// into the program, the client does not ask the user for them.
+func embeddedSettings() (serverUrl string, systemName string, appName string, faviconBase64 string, ok bool) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", "", "", "", false
+	}
+	data, err := os.ReadFile(executable)
+	if err != nil {
+		return "", "", "", "", false
+	}
+	raw, found := embedcfg.Extract(data)
+	if !found {
+		return "", "", "", "", false
+	}
+	var payload struct {
+		ServerUrl     string `json:"server_url"`
+		SystemName    string `json:"system_name"`
+		AppName       string `json:"app_name"`
+		FaviconBase64 string `json:"favicon_base64"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return "", "", "", "", false
+	}
+	return payload.ServerUrl, payload.SystemName, payload.AppName, payload.FaviconBase64, true
 }
 
 // loadConfig reads the configuration of the worker from the disk.

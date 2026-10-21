@@ -30,7 +30,7 @@ func GetModelDeploymentSettings(c *gin.Context) {
 	common.OptionMapRWMutex.RLock()
 	enabled := common.OptionMap["model_deployment.ionet.enabled"] == "true"
 	hasAPIKey := strings.TrimSpace(common.OptionMap["model_deployment.ionet.api_key"]) != ""
-	
+
 	modalEnabled := common.OptionMap["model_deployment.modal.enabled"] == "true"
 	hasModalAPIKey := strings.TrimSpace(common.OptionMap["model_deployment.modal.token_id"]) != "" || strings.TrimSpace(common.OptionMap["model_deployment.modal.token_secret"]) != ""
 

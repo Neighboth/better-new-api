@@ -68,8 +68,8 @@ func GetSubscriptionSelf(c *gin.Context) {
 	}
 
 	common.ApiSuccess(c, gin.H{
-		"billing_preference":    pref,
-		"billing_priority":      settingMap.BillingPriority,
+		"billing_preference": pref,
+		"billing_priority":   settingMap.BillingPriority,
 		"enabled_billing_types": gin.H{
 			"requests":     model.IsBillingRequestsEnabled(),
 			"tokens":       model.IsBillingTokensEnabled(),
@@ -129,7 +129,6 @@ func UpdateBillingPriority(c *gin.Context) {
 	}
 	common.ApiSuccess(c, gin.H{"billing_priority": req.BillingPriority})
 }
-
 
 func SubscriptionRequestBalancePay(c *gin.Context) {
 	if !requirePaymentCompliance(c) {

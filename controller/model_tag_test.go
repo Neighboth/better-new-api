@@ -9,10 +9,10 @@ import (
 
 func TestParseModelTagRouting(t *testing.T) {
 	cases := []struct {
-		raw   string
-		base  string
-		floor bool
-		nitro bool
+		raw    string
+		base   string
+		floor  bool
+		nitro  bool
 		online bool
 	}{
 		{"gpt-4o", "gpt-4o", false, false, false},

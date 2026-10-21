@@ -21,6 +21,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/embedcfg"
 	"github.com/QuantumNous/new-api/pkg/icon"
 	"github.com/QuantumNous/new-api/pkg/lnk"
 	byogservice "github.com/QuantumNous/new-api/service/byog"
@@ -1707,6 +1708,93 @@ func hasLocalWorkerBinary(platform, arch string) bool {
 	return false
 }
 
+// The languages of the client of the installation.
+var byogLanguages = []struct {
+	Code string
+	Name string
+}{
+	{"tr", "Türkçe"},
+	{"en", "English"},
+	{"zh_CN", "简体中文"},
+	{"zh_TW", "繁體中文"},
+	{"fr", "Français"},
+	{"ru", "Русский"},
+	{"ja", "日本語"},
+	{"vi", "Tiếng Việt"},
+}
+
+// byogPolicy returns the privacy policy and the terms of service of a language.
+//
+// The policy of the language is used when it is written. The policy of English
+// is used when the policy of the language is not written, the policy of any
+// language is used when English has no policy either. The second value tells
+// whether there is a policy at all.
+func byogPolicy(language string) (string, string, bool) {
+	read := func(name string, lang string) string {
+		if lang == "" {
+			return ""
+		}
+		value := common.OptionMap[name+"_"+lang]
+		if value == "" {
+			return ""
+		}
+		return value
+	}
+
+	privacy := read("PrivacyPolicy", language)
+	terms := read("TermsOfService", language)
+	if privacy != "" || terms != "" {
+		return privacy, terms, true
+	}
+	if language != "en" {
+		privacy = read("PrivacyPolicy", "en")
+		terms = read("TermsOfService", "en")
+		if privacy != "" || terms != "" {
+			return privacy, terms, true
+		}
+	}
+	for _, item := range byogLanguages {
+		privacy = read("PrivacyPolicy", item.Code)
+		terms = read("TermsOfService", item.Code)
+		if privacy != "" || terms != "" {
+			return privacy, terms, true
+		}
+	}
+	return "", "", false
+}
+
+// GetByogBootstrap gives the client of the installation the languages and the
+// policies of the installation.
+//
+// The client asks the language at the first start and it shows the privacy
+// policy and the terms of service of the chosen language.
+func GetByogBootstrap(c *gin.Context) {
+	languages := make([]gin.H, 0, len(byogLanguages))
+	for _, item := range byogLanguages {
+		languages = append(languages, gin.H{"code": item.Code, "name": item.Name})
+	}
+
+	systemLanguage := "zh"
+	if value := common.OptionMap["language"]; value != "" {
+		systemLanguage = value
+	}
+
+	policies := make(map[string]gin.H)
+	for _, item := range byogLanguages {
+		privacy, terms, found := byogPolicy(item.Code)
+		if !found {
+			continue
+		}
+		policies[item.Code] = gin.H{"privacy": privacy, "terms": terms}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"languages":       languages,
+		"system_language": systemLanguage,
+		"policies":        policies,
+	})
+}
+
 // GetByogWorkerVersion returns latest version for the self-updater engine
 func GetByogWorkerVersion(c *gin.Context) {
 	winUrl := "/api/v1/worker/download/windows/amd64"
@@ -1758,6 +1846,32 @@ func GetByogFaviconIcon(c *gin.Context) {
 	c.Data(http.StatusOK, "image/x-icon", iconData)
 }
 
+// embedByogClient writes the settings of the installation into the program of
+// the client.
+//
+// The settings hold the name, the icon and the address of the installation, the
+// client reads them when it starts.
+func embedByogClient(program []byte, c *gin.Context) ([]byte, error) {
+	scheme := "http"
+	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+	systemName, appName, faviconUrl, faviconBase64 := getBranding(serverUrl)
+
+	settings, err := json.Marshal(map[string]string{
+		"server_url":     serverUrl,
+		"system_name":    systemName,
+		"app_name":       appName,
+		"favicon":        faviconUrl,
+		"favicon_base64": faviconBase64,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return embedcfg.Append(program, settings), nil
+}
+
 // DownloadByogWorker serves worker release binary or APK if present, or redirects to configured external download URL
 func DownloadByogWorker(c *gin.Context) {
 	platform := c.Param("platform")
@@ -1796,7 +1910,7 @@ func DownloadByogWorker(c *gin.Context) {
 			c.Data(http.StatusOK, "application/octet-stream", shortcut.Bytes())
 			return
 		}
-		fileName = "BYOG Worker Kurulumu.exe"
+		fileName = "BYOG Worker.exe"
 	} else if platform == "android" {
 		if arch == "apk" {
 			fileName = "byog-worker.apk"
@@ -1819,6 +1933,23 @@ func DownloadByogWorker(c *gin.Context) {
 
 	for _, p := range searchPaths {
 		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Size() > 0 {
+			if platform == "windows" && c.Query("shortcut") != "1" {
+				// The program of the client carries the name, the icon and the
+				// address of the installation, the client does not ask the user
+				// for them.
+				raw, err := os.ReadFile(p)
+				if err == nil {
+					if branded, err := embedByogClient(raw, c); err == nil {
+						raw = branded
+					} else {
+						common.SysError(fmt.Sprintf("[BYOG] client branding failed: %v", err))
+					}
+					c.Header("Content-Type", "application/octet-stream")
+					c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+					c.Data(http.StatusOK, "application/octet-stream", raw)
+					return
+				}
+			}
 			if strings.HasSuffix(fileName, ".apk") {
 				c.Header("Content-Type", "application/vnd.android.package-archive")
 				c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))

@@ -17,7 +17,7 @@ type channelOAuthStartRequest struct {
 }
 
 type channelOAuthExchangeRequest struct {
-	Provider   string `json:"provider" binding:"required"`
+	Provider  string `json:"provider" binding:"required"`
 	SessionID string `json:"session_id" binding:"required"`
 	Callback  string `json:"callback" binding:"required"`
 }

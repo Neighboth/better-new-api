@@ -172,7 +172,7 @@ func (w *guiWindow) paint(hdc uintptr) {
 	w.drawText(dc, statusText, w.fontText, colorText, design(78), design(70), design(330), design(98), taLeft|taVCenter)
 
 	// The details of the worker.
-	labels := [4]string{"Sunucu", "Cihaz", "Model", "Hız"}
+	labels := [4]string{clientText("server"), clientText("device"), clientText("model"), clientText("speed")}
 	for index, label := range labels {
 		top := design(int32(30 + index*24))
 		w.drawText(dc, label, w.fontSmall, colorMuted, design(350), top, design(420), top+design(22), taLeft|taVCenter)
@@ -182,10 +182,10 @@ func (w *guiWindow) paint(hdc uintptr) {
 	// The card of the fields.
 	drawRoundRect(dc, design(24), design(152), design(536), design(332), design(16), colorCard, colorBorder, true)
 	if w.serverFieldShown {
-		w.drawText(dc, "Sunucu adresi", w.fontSmall, colorMuted, design(48), design(166), design(320), design(190), taLeft|taVCenter)
-		w.drawText(dc, "Eşleştirme kodu", w.fontSmall, colorMuted, design(48), design(246), design(320), design(270), taLeft|taVCenter)
+		w.drawText(dc, clientText("server_url"), w.fontSmall, colorMuted, design(48), design(166), design(320), design(190), taLeft|taVCenter)
+		w.drawText(dc, clientText("pairing"), w.fontSmall, colorMuted, design(48), design(246), design(320), design(270), taLeft|taVCenter)
 	} else {
-		w.drawText(dc, "Eşleştirme kodu", w.fontSmall, colorMuted, design(48), design(166), design(320), design(190), taLeft|taVCenter)
+		w.drawText(dc, clientText("pairing"), w.fontSmall, colorMuted, design(48), design(166), design(320), design(190), taLeft|taVCenter)
 	}
 
 	// The bar of the download.

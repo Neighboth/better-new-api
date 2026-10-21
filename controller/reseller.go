@@ -70,47 +70,47 @@ func ResellerGetSelfConfig(c *gin.Context) {
 }
 
 type ResellerUpdateSelfConfigRequest struct {
-	CustomDomain        *string `json:"custom_domain"`
-	SiteName            *string `json:"site_name"`
-	Logo                *string `json:"logo"`
-	LogoUrl             *string `json:"logo_url"`
-	Favicon             *string `json:"favicon"`
-	FaviconUrl          *string `json:"favicon_url"`
-	SeoTitle            *string `json:"seo_title"`
-	SeoDescription      *string `json:"seo_description"`
-	SeoKeywords         *string `json:"seo_keywords"`
-	HomepageContent     *string `json:"homepage_content"`
-	HomePageContent     *string `json:"home_page_content"`
-	EpayPartnerId       *string `json:"epay_partner_id"`
-	EpayKey             *string `json:"epay_key"`
-	EpayPartnerKey      *string `json:"epay_partner_key"`
-	EpayUrl             *string `json:"epay_url"`
-	EpayGatewayUrl      *string `json:"epay_gateway_url"`
-	EpayCallbackUrl     *string `json:"epay_callback_url"`
-	StripeApiSecret     *string `json:"stripe_api_secret"`
-	StripeWebhookSecret *string `json:"stripe_webhook_secret"`
-	StripePriceId       *string `json:"stripe_price_id"`
-	CreemApiKey         *string `json:"creem_api_key"`
-	CreemWebhookSecret  *string `json:"creem_webhook_secret"`
-	CreemTestMode       *bool   `json:"creem_test_mode"`
-	WaffoMerchantId     *string `json:"waffo_merchant_id"`
-	WaffoApiKey         *string `json:"waffo_api_key"`
-	WaffoPrivateKey     *string `json:"waffo_private_key"`
-	ShopierApiKey       *string `json:"shopier_api_key"`
-	ShopierApiSecret    *string `json:"shopier_api_secret"`
-	ShopierWebsiteIndex *string `json:"shopier_website_index"`
-	PayTRMerchantId     *string `json:"paytr_merchant_id"`
-	PayTRMerchantKey    *string `json:"paytr_merchant_key"`
-	PayTRMerchantSalt   *string `json:"paytr_merchant_salt"`
-	PayTRTestMode       *bool   `json:"paytr_test_mode"`
-	PayPalClientId      *string `json:"paypal_client_id"`
-	PayPalClientSecret  *string `json:"paypal_client_secret"`
-	PayPalMode          *string `json:"paypal_mode"`
-	IyzicoApiKey        *string `json:"iyzico_api_key"`
-	IyzicoSecretKey     *string `json:"iyzico_secret_key"`
-	IyzicoBaseUrl       *string `json:"iyzico_base_url"`
-	ShopifyStoreDomain  *string `json:"shopify_store_domain"`
-	ShopifyAccessToken  *string `json:"shopify_access_token"`
+	CustomDomain         *string `json:"custom_domain"`
+	SiteName             *string `json:"site_name"`
+	Logo                 *string `json:"logo"`
+	LogoUrl              *string `json:"logo_url"`
+	Favicon              *string `json:"favicon"`
+	FaviconUrl           *string `json:"favicon_url"`
+	SeoTitle             *string `json:"seo_title"`
+	SeoDescription       *string `json:"seo_description"`
+	SeoKeywords          *string `json:"seo_keywords"`
+	HomepageContent      *string `json:"homepage_content"`
+	HomePageContent      *string `json:"home_page_content"`
+	EpayPartnerId        *string `json:"epay_partner_id"`
+	EpayKey              *string `json:"epay_key"`
+	EpayPartnerKey       *string `json:"epay_partner_key"`
+	EpayUrl              *string `json:"epay_url"`
+	EpayGatewayUrl       *string `json:"epay_gateway_url"`
+	EpayCallbackUrl      *string `json:"epay_callback_url"`
+	StripeApiSecret      *string `json:"stripe_api_secret"`
+	StripeWebhookSecret  *string `json:"stripe_webhook_secret"`
+	StripePriceId        *string `json:"stripe_price_id"`
+	CreemApiKey          *string `json:"creem_api_key"`
+	CreemWebhookSecret   *string `json:"creem_webhook_secret"`
+	CreemTestMode        *bool   `json:"creem_test_mode"`
+	WaffoMerchantId      *string `json:"waffo_merchant_id"`
+	WaffoApiKey          *string `json:"waffo_api_key"`
+	WaffoPrivateKey      *string `json:"waffo_private_key"`
+	ShopierApiKey        *string `json:"shopier_api_key"`
+	ShopierApiSecret     *string `json:"shopier_api_secret"`
+	ShopierWebsiteIndex  *string `json:"shopier_website_index"`
+	PayTRMerchantId      *string `json:"paytr_merchant_id"`
+	PayTRMerchantKey     *string `json:"paytr_merchant_key"`
+	PayTRMerchantSalt    *string `json:"paytr_merchant_salt"`
+	PayTRTestMode        *bool   `json:"paytr_test_mode"`
+	PayPalClientId       *string `json:"paypal_client_id"`
+	PayPalClientSecret   *string `json:"paypal_client_secret"`
+	PayPalMode           *string `json:"paypal_mode"`
+	IyzicoApiKey         *string `json:"iyzico_api_key"`
+	IyzicoSecretKey      *string `json:"iyzico_secret_key"`
+	IyzicoBaseUrl        *string `json:"iyzico_base_url"`
+	ShopifyStoreDomain   *string `json:"shopify_store_domain"`
+	ShopifyAccessToken   *string `json:"shopify_access_token"`
 	ShopifyWebhookSecret *string `json:"shopify_webhook_secret"`
 }
 
@@ -618,4 +618,3 @@ func ResellerGetSummary(c *gin.Context) {
 		},
 	})
 }
-

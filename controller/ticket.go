@@ -19,8 +19,8 @@ func GetTicketConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"enabled":                   setting.Enabled,
-			"live_support_enabled":      setting.LiveSupportEnabled,
+			"enabled":                    setting.Enabled,
+			"live_support_enabled":       setting.LiveSupportEnabled,
 			"notify_admin_on_new_ticket": setting.NotifyAdminOnNewTicket,
 			"notify_user_on_reply":       setting.NotifyUserOnReply,
 		},
@@ -117,10 +117,10 @@ func CreateTicket(c *gin.Context) {
 	}
 
 	ticket := &model.Ticket{
-		UserId:   userId,
-		Title:    req.Title,
-		Category: req.Category,
-		Priority: req.Priority,
+		UserId:        userId,
+		Title:         req.Title,
+		Category:      req.Category,
+		Priority:      req.Priority,
 		IsLiveSupport: req.LiveSupport,
 	}
 
@@ -139,7 +139,7 @@ func CreateTicket(c *gin.Context) {
 
 	service.GlobalTicketHub.BroadcastToAdmins("new_ticket", ticket)
 	service.NotifyAdminNewTicketEmail(ticket, req.Content)
-	
+
 	if ticket.IsLiveSupport {
 		// AI assists first unless human mode was connected
 		if !ticket.HumanConnected {
@@ -297,7 +297,7 @@ func AddTicketMessage(c *gin.Context) {
 		service.NotifyUserTicketReplyEmail(ticket, req.Content)
 	} else {
 		service.NotifyAdminNewTicketEmail(ticket, req.Content)
-		
+
 		if ticket.IsLiveSupport {
 			// AI assists first unless human mode was connected
 			if !ticket.HumanConnected {
@@ -582,7 +582,7 @@ func CreateGuestTicket(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data": ticket,
+		"data":    ticket,
 	})
 }
 
@@ -725,4 +725,3 @@ func ConnectHuman(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": ticket})
 }
-

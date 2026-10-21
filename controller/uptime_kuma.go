@@ -161,9 +161,9 @@ func fetchGroupData(ctx context.Context, client *http.Client, groupConfig map[st
 			if err == nil && resp.StatusCode == http.StatusOK {
 				var urData struct {
 					Monitors []struct {
-						FriendlyName string  `json:"friendly_name"`
-						Status       int     `json:"status"`
-						UptimeRatio  string  `json:"custom_uptime_ratio"`
+						FriendlyName string `json:"friendly_name"`
+						Status       int    `json:"status"`
+						UptimeRatio  string `json:"custom_uptime_ratio"`
 					} `json:"monitors"`
 				}
 				if json.NewDecoder(resp.Body).Decode(&urData) == nil {

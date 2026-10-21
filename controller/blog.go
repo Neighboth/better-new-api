@@ -61,18 +61,18 @@ func GetBlogPosts(c *gin.Context) {
 	for _, post := range posts {
 		localized := post.ResolveBlogContent(locale)
 		items = append(items, gin.H{
-			"id":         post.Id,
-			"title":      localized.Title,
-			"summary":    localized.Summary,
-			"cover":      post.CoverImage,
-			"tags":       splitBlogTags(localized.Tags),
-			"created_at": post.CreatedAt,
+			"id":              post.Id,
+			"title":           localized.Title,
+			"summary":         localized.Summary,
+			"cover":           post.CoverImage,
+			"tags":            splitBlogTags(localized.Tags),
+			"created_at":      post.CreatedAt,
 			"seo_description": localized.SeoDescription,
-			"localizations":    gin.H{
-				"titles":            mustUnmarshalBlogLocalized(post.Titles),
-				"summaries":         mustUnmarshalBlogLocalized(post.Summaries),
+			"localizations": gin.H{
+				"titles":           mustUnmarshalBlogLocalized(post.Titles),
+				"summaries":        mustUnmarshalBlogLocalized(post.Summaries),
 				"contents":         mustUnmarshalBlogLocalized(post.Contents),
-				"tags_list":         mustUnmarshalBlogLocalized(post.TagsList),
+				"tags_list":        mustUnmarshalBlogLocalized(post.TagsList),
 				"seo_descriptions": mustUnmarshalBlogLocalized(post.SeoDescriptions),
 			},
 		})
@@ -164,11 +164,11 @@ func GetBlogPost(c *gin.Context) {
 				"dislike_count":   post.DislikeCount,
 				"created_at":      post.CreatedAt,
 				"updated_at":      post.UpdatedAt,
-				"localizations":   gin.H{
-					"titles":            mustUnmarshalBlogLocalized(post.Titles),
-					"summaries":         mustUnmarshalBlogLocalized(post.Summaries),
+				"localizations": gin.H{
+					"titles":           mustUnmarshalBlogLocalized(post.Titles),
+					"summaries":        mustUnmarshalBlogLocalized(post.Summaries),
 					"contents":         mustUnmarshalBlogLocalized(post.Contents),
-					"tags_list":         mustUnmarshalBlogLocalized(post.TagsList),
+					"tags_list":        mustUnmarshalBlogLocalized(post.TagsList),
 					"seo_descriptions": mustUnmarshalBlogLocalized(post.SeoDescriptions),
 				},
 			},
@@ -187,7 +187,7 @@ type blogPostRequest struct {
 	SeoDescription string `json:"seo_description"`
 	Published      bool   `json:"published"`
 	// Per-language localized fields;keyed by locale ("en", "tr", ...).
-	Localizations  struct {
+	Localizations struct {
 		Titles          map[string]string `json:"titles"`
 		Summaries       map[string]string `json:"summaries"`
 		Contents        map[string]string `json:"contents"`
@@ -251,20 +251,20 @@ func GetAllBlogPosts(c *gin.Context) {
 		localized := post.ResolveBlogContent(locale)
 		localeItems = append(localeItems, gin.H{
 			"id":              post.Id,
-			"title":            localized.Title,
-			"summary":          localized.Summary,
-			"content":          localized.Content,
-			"cover_image":      post.CoverImage,
-			"tags":             splitBlogTags(localized.Tags),
-			"seo_description":  localized.SeoDescription,
-			"published":        post.Published,
-			"created_at":       post.CreatedAt,
-			"updated_at":       post.UpdatedAt,
-			"localizations":    gin.H{
-				"titles":            mustUnmarshalBlogLocalized(post.Titles),
-				"summaries":         mustUnmarshalBlogLocalized(post.Summaries),
+			"title":           localized.Title,
+			"summary":         localized.Summary,
+			"content":         localized.Content,
+			"cover_image":     post.CoverImage,
+			"tags":            splitBlogTags(localized.Tags),
+			"seo_description": localized.SeoDescription,
+			"published":       post.Published,
+			"created_at":      post.CreatedAt,
+			"updated_at":      post.UpdatedAt,
+			"localizations": gin.H{
+				"titles":           mustUnmarshalBlogLocalized(post.Titles),
+				"summaries":        mustUnmarshalBlogLocalized(post.Summaries),
 				"contents":         mustUnmarshalBlogLocalized(post.Contents),
-				"tags_list":         mustUnmarshalBlogLocalized(post.TagsList),
+				"tags_list":        mustUnmarshalBlogLocalized(post.TagsList),
 				"seo_descriptions": mustUnmarshalBlogLocalized(post.SeoDescriptions),
 			},
 		})

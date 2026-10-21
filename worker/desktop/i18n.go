@@ -1,0 +1,117 @@
+package main
+
+// The texts of the interface of the client.
+//
+// The client asks the language at the first start, the text of the interface
+// follows the language of the user from then on.
+
+var clientTexts = map[string]map[string]string{
+	"tr": {
+		"setup": "Kurulum", "language": "Dil", "privacy": "Gizlilik politikası",
+		"terms": "Kullanım şartları", "accept_privacy": "Gizlilik politikasını okudum ve kabul ediyorum",
+		"accept_terms": "Kullanım şartlarını okudum ve kabul ediyorum", "continue": "Devam",
+		"connect": "Bağlan", "test": "Test", "panel": "Panele git", "quit": "Çıkış",
+		"server": "Sunucu", "device": "Cihaz", "model": "Model", "speed": "Hız",
+		"server_url": "Sunucu adresi", "pairing": "Eşleştirme kodu", "idle": "Beklemede",
+		"connecting": "Bağlanılıyor...", "online": "Çevrimiçi", "offline": "Çevrimdışı",
+		"downloading": "İndiriliyor...", "policy_title": "Gizlilik ve kullanım şartları",
+		"show": "Göster", "change_language": "Dili değiştir",
+	},
+	"en": {
+		"setup": "Setup", "language": "Language", "privacy": "Privacy policy",
+		"terms": "Terms of service", "accept_privacy": "I have read and accept the privacy policy",
+		"accept_terms": "I have read and accept the terms of service", "continue": "Continue",
+		"connect": "Connect", "test": "Test", "panel": "Open panel", "quit": "Quit",
+		"server": "Server", "device": "Device", "model": "Model", "speed": "Speed",
+		"server_url": "Server address", "pairing": "Pairing code", "idle": "Idle",
+		"connecting": "Connecting...", "online": "Online", "offline": "Offline",
+		"downloading": "Downloading...", "policy_title": "Privacy and terms of service",
+		"show": "Show", "change_language": "Change language",
+	},
+	"zh_CN": {
+		"setup": "安装", "language": "语言", "privacy": "隐私政策",
+		"terms": "使用条款", "accept_privacy": "我已阅读并同意隐私政策",
+		"accept_terms": "我已阅读并同意使用条款", "continue": "继续",
+		"connect": "连接", "test": "测试", "panel": "打开面板", "quit": "退出",
+		"server": "服务器", "device": "设备", "model": "模型", "speed": "速度",
+		"server_url": "服务器地址", "pairing": "配对码", "idle": "等待中",
+		"connecting": "连接中...", "online": "在线", "offline": "离线",
+		"downloading": "下载中...", "policy_title": "隐私政策和使用条款",
+		"show": "显示", "change_language": "更改语言",
+	},
+	"zh_TW": {
+		"setup": "安裝", "language": "語言", "privacy": "隱私政策",
+		"terms": "使用條款", "accept_privacy": "我已閱讀並同意隱私政策",
+		"accept_terms": "我已閱讀並同意使用條款", "continue": "繼續",
+		"connect": "連線", "test": "測試", "panel": "開啟面板", "quit": "離開",
+		"server": "伺服器", "device": "裝置", "model": "模型", "speed": "速度",
+		"server_url": "伺服器位址", "pairing": "配對碼", "idle": "等待中",
+		"connecting": "連線中...", "online": "線上", "offline": "離線",
+		"downloading": "下載中...", "policy_title": "隱私政策和使用條款",
+		"show": "顯示", "change_language": "更改語言",
+	},
+	"fr": {
+		"setup": "Installation", "language": "Langue", "privacy": "Politique de confidentialité",
+		"terms": "Conditions d'utilisation", "accept_privacy": "J'ai lu et j'accepte la politique de confidentialité",
+		"accept_terms": "J'ai lu et j'accepte les conditions d'utilisation", "continue": "Continuer",
+		"connect": "Se connecter", "test": "Tester", "panel": "Ouvrir le panneau", "quit": "Quitter",
+		"server": "Serveur", "device": "Appareil", "model": "Modèle", "speed": "Vitesse",
+		"server_url": "Adresse du serveur", "pairing": "Code d'appairage", "idle": "En attente",
+		"connecting": "Connexion...", "online": "En ligne", "offline": "Hors ligne",
+		"downloading": "Téléchargement...", "policy_title": "Confidentialité et conditions d'utilisation",
+		"show": "Afficher", "change_language": "Changer de langue",
+	},
+	"ru": {
+		"setup": "Установка", "language": "Язык", "privacy": "Политика конфиденциальности",
+		"terms": "Условия использования", "accept_privacy": "Я прочитал и принимаю политику конфиденциальности",
+		"accept_terms": "Я прочитал и принимаю условия использования", "continue": "Продолжить",
+		"connect": "Подключить", "test": "Тест", "panel": "Открыть панель", "quit": "Выход",
+		"server": "Сервер", "device": "Устройство", "model": "Модель", "speed": "Скорость",
+		"server_url": "Адрес сервера", "pairing": "Код сопряжения", "idle": "Ожидание",
+		"connecting": "Подключение...", "online": "В сети", "offline": "Не в сети",
+		"downloading": "Загрузка...", "policy_title": "Конфиденциальность и условия использования",
+		"show": "Показать", "change_language": "Сменить язык",
+	},
+	"ja": {
+		"setup": "セットアップ", "language": "言語", "privacy": "プライバシーポリシー",
+		"terms": "利用規約", "accept_privacy": "プライバシーポリシーを読み、同意します",
+		"accept_terms": "利用規約を読み、同意します", "continue": "続ける",
+		"connect": "接続", "test": "テスト", "panel": "パネルを開く", "quit": "終了",
+		"server": "サーバー", "device": "デバイス", "model": "モデル", "speed": "速度",
+		"server_url": "サーバーアドレス", "pairing": "ペアリングコード", "idle": "待機中",
+		"connecting": "接続中...", "online": "オンライン", "offline": "オフライン",
+		"downloading": "ダウンロード中...", "policy_title": "プライバシーと利用規約",
+		"show": "表示", "change_language": "言語を変更",
+	},
+	"vi": {
+		"setup": "Cài đặt", "language": "Ngôn ngữ", "privacy": "Chính sách bảo mật",
+		"terms": "Điều khoản sử dụng", "accept_privacy": "Tôi đã đọc và đồng ý với chính sách bảo mật",
+		"accept_terms": "Tôi đã đọc và đồng ý với điều khoản sử dụng", "continue": "Tiếp tục",
+		"connect": "Kết nối", "test": "Thử", "panel": "Mở bảng điều khiển", "quit": "Thoát",
+		"server": "Máy chủ", "device": "Thiết bị", "model": "Mô hình", "speed": "Tốc độ",
+		"server_url": "Địa chỉ máy chủ", "pairing": "Mã ghép nối", "idle": "Đang chờ",
+		"connecting": "Đang kết nối...", "online": "Trực tuyến", "offline": "Ngoại tuyến",
+		"downloading": "Đang tải...", "policy_title": "Bảo mật và điều khoản sử dụng",
+		"show": "Hiện", "change_language": "Đổi ngôn ngữ",
+	},
+}
+
+// clientLanguage is the language of the interface of the client.
+var clientLanguage = "tr"
+
+// clientText returns the text of the interface in the language of the user.
+//
+// The text of English is used when the language of the user has no text.
+func clientText(key string) string {
+	if texts, ok := clientTexts[clientLanguage]; ok {
+		if value, ok := texts[key]; ok && value != "" {
+			return value
+		}
+	}
+	if texts, ok := clientTexts["en"]; ok {
+		if value, ok := texts[key]; ok {
+			return value
+		}
+	}
+	return key
+}

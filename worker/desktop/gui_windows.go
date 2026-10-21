@@ -76,11 +76,12 @@ const (
 	iconFlagIcon    = 0x00000002
 	iconFlagTip     = 0x00000004
 
-	commandShow    = 100
-	commandPanel   = 101
-	commandQuit    = 102
-	commandConnect = 103
-	commandTest    = 104
+	commandShow     = 100
+	commandPanel    = 101
+	commandQuit     = 102
+	commandConnect  = 103
+	commandTest     = 104
+	commandLanguage = 105
 
 	controlServerEdit = 201
 	controlPairEdit   = 202
@@ -292,6 +293,15 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string) {
 	redirectOutputToLog()
 
 	config := loadConfig()
+	if serverUrl, systemName, appName, faviconBase64, ok := embeddedSettings(); ok {
+		// The program carries the settings of the installation, they are used
+		// before the user does anything.
+		config.ServerUrl = serverUrl
+		config.SystemName = systemName
+		config.AppName = appName
+		config.FaviconBase64 = faviconBase64
+		writeApplicationIcon(faviconBase64)
+	}
 	if serverFlag != "" {
 		config.ServerUrl = serverFlag
 	}
@@ -313,10 +323,22 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string) {
 	if config.HWID == "" {
 		config.HWID = generateHWID()
 	}
-	applyConfig(config)
+	// The language of the user and the policies of the installation are asked
+	// before the client is used.
+	if !runSetup(&config) {
+		return
+	}
 	saveConfig(config)
 
-	window := &guiWindow{statusState: stateOffline, statusText: "Bağlanılıyor...", hovered: -1}
+	applyConfig(config)
+
+	// The entries of the system carry the name and the icon of the installation
+	// from the first start.
+	if config.SystemName != "" || config.AppName != "" {
+		updateInstallationBranding(config.AppName, config.SystemName, config.FaviconBase64)
+	}
+
+	window := &guiWindow{statusState: stateOffline, statusText: clientText("connecting"), hovered: -1}
 	window.create()
 
 	// The worker starts in the background, the window shows its state.
@@ -386,7 +408,7 @@ func (w *guiWindow) watchWorker() {
 			connection = "Model indiriliyor"
 			state = stateDownloading
 		case status.Connected:
-			connection = "Çevrimiçi"
+			connection = clientText("online")
 			state = stateOnline
 		}
 
@@ -607,10 +629,10 @@ func (w *guiWindow) createFonts() {
 // createControls builds the fields and the buttons of the window.
 func (w *guiWindow) createControls() {
 	w.buttons = []uiButton{
-		{command: commandConnect, left: 48, top: 368, right: 158, bottom: 404, label: "Bağlan", primary: true},
-		{command: commandTest, left: 170, top: 368, right: 280, bottom: 404, label: "Test"},
-		{command: commandPanel, left: 292, top: 368, right: 402, bottom: 404, label: "Panele git"},
-		{command: commandQuit, left: 414, top: 368, right: 524, bottom: 404, label: "Çıkış"},
+		{command: commandConnect, left: 48, top: 368, right: 158, bottom: 404, label: clientText("connect"), primary: true},
+		{command: commandTest, left: 170, top: 368, right: 280, bottom: 404, label: clientText("test")},
+		{command: commandPanel, left: 292, top: 368, right: 402, bottom: 404, label: clientText("panel")},
+		{command: commandQuit, left: 414, top: 368, right: 524, bottom: 404, label: clientText("quit")},
 	}
 
 	createField := func(id int, text string, left int32, top int32, width int32) uintptr {
@@ -665,7 +687,11 @@ func setText(window uintptr, text string) {
 func (w *guiWindow) fillFields() {
 	status := readStatus()
 	setText(w.serverEdit, status.ServerUrl)
-	setText(w.pairEdit, status.PairingCode)
+	if status.Paired {
+		setText(w.pairEdit, status.PairingCode)
+	} else {
+		setText(w.pairEdit, "")
+	}
 }
 
 // loadApplicationIcon loads the icon of the client.
@@ -777,6 +803,14 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 			switch wparam & 0xFFFF {
 			case controlPairEdit:
 				window.connect()
+			case commandShow:
+				window.show()
+			case commandPanel:
+				window.openPanel()
+			case commandQuit:
+				window.quit()
+			case commandLanguage:
+				window.changeLanguage()
 			}
 		}
 		return 0
@@ -935,9 +969,22 @@ func (w *guiWindow) showMessage(title string, text string) {
 // speedDescription returns the speed of the worker for the window.
 func speedDescription(status AppStatus) string {
 	if status.CurrentTps <= 0 {
-		return "Beklemede"
+		return clientText("idle")
 	}
 	return fmt.Sprintf("%.1f token/s", status.CurrentTps)
+}
+
+// changeLanguage asks the language of the user again.
+//
+// The language of the user is used by the texts of the interface and it is kept
+// for the next start of the client.
+func (w *guiWindow) changeLanguage() {
+	config := loadConfig()
+	if !runSetup(&config) {
+		return
+	}
+	saveConfig(config)
+	w.invalidate()
 }
 
 // connect pairs the client with the coordinator.
@@ -1031,9 +1078,10 @@ func (w *guiWindow) removeTrayIcon() {
 // showTrayMenu shows the menu of the icon in the notification area.
 func (w *guiWindow) showTrayMenu() {
 	menu, _, _ := procCreatePopupMenu.Call()
-	procAppendMenu.Call(menu, 0, commandShow, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("Göster"))))
-	procAppendMenu.Call(menu, 0, commandPanel, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("Panele git"))))
-	procAppendMenu.Call(menu, 0, commandQuit, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("Çıkış"))))
+	procAppendMenu.Call(menu, 0, commandShow, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("show")))))
+	procAppendMenu.Call(menu, 0, commandLanguage, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("change_language")))))
+	procAppendMenu.Call(menu, 0, commandPanel, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("panel")))))
+	procAppendMenu.Call(menu, 0, commandQuit, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("quit")))))
 
 	var point windowPoint
 	procGetCursorPos.Call(uintptr(unsafe.Pointer(&point)))
@@ -1061,7 +1109,7 @@ func installationDisplayName(appName string, systemName string) string {
 	if name == "" {
 		return appName
 	}
-	return name + " BYOG"
+	return name + " BYOG Worker"
 }
 
 // applicationIconPath returns the path of the icon of the client.
