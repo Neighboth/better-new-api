@@ -90,8 +90,6 @@ const (
 	trayIconID        = 1
 
 	// The measures of the design of the window.
-	designWidth  = 560
-	designHeight = 424
 )
 
 // The libraries of the system.
@@ -276,6 +274,10 @@ type guiWindow struct {
 	statusText  string
 	statusState int
 	details     [4]string
+	// page is the page of the menu that is shown.
+	page int
+	// testResult is the answer of the test of the model.
+	testResult  string
 	progress    int
 	progressSet bool
 
@@ -560,6 +562,7 @@ func (w *guiWindow) create() {
 
 	w.createFonts()
 	w.createControls()
+	w.layout()
 	w.addTrayIcon()
 	procSetTimer.Call(w.window, 1, 1000, 0)
 	procShowWindow.Call(w.window, swShow)
@@ -630,12 +633,6 @@ func (w *guiWindow) createFonts() {
 
 // createControls builds the fields and the buttons of the window.
 func (w *guiWindow) createControls() {
-	w.buttons = []uiButton{
-		{command: commandConnect, left: 48, top: 368, right: 158, bottom: 404, label: clientText("connect"), primary: true},
-		{command: commandTest, left: 170, top: 368, right: 280, bottom: 404, label: clientText("test")},
-		{command: commandPanel, left: 292, top: 368, right: 402, bottom: 404, label: clientText("panel")},
-		{command: commandQuit, left: 414, top: 368, right: 524, bottom: 404, label: clientText("quit")},
-	}
 
 	createField := func(id int, text string, left int32, top int32, width int32) uintptr {
 		class := syscall.StringToUTF16Ptr("EDIT")
@@ -877,11 +874,22 @@ func (w *guiWindow) trackMouse(lparam uintptr) {
 	x := int32(lparam & 0xFFFF)
 	y := int32((lparam >> 16) & 0xFFFF)
 	hovered := -1
-	for index, button := range w.buttons {
-		if x >= w.scaleValue(button.left) && x <= w.scaleValue(button.right) &&
-			y >= w.scaleValue(button.top) && y <= w.scaleValue(button.bottom) {
-			hovered = index
-			break
+	if x < w.scaleValue(sidebarWidth) {
+		for index := range menuItems() {
+			top := w.scaleValue(int32(menuTop + index*menuStep))
+			bottom := top + w.scaleValue(34)
+			if y >= top && y <= bottom {
+				hovered = index
+				break
+			}
+		}
+	} else {
+		for index, button := range w.buttons {
+			if x >= w.scaleValue(button.left) && x <= w.scaleValue(button.right) &&
+				y >= w.scaleValue(button.top) && y <= w.scaleValue(button.bottom) {
+				hovered = index
+				break
+			}
 		}
 	}
 	if hovered == w.hovered {
@@ -909,6 +917,20 @@ func (w *guiWindow) trackMouse(lparam uintptr) {
 func (w *guiWindow) click(lparam uintptr) {
 	x := int32(lparam & 0xFFFF)
 	y := int32((lparam >> 16) & 0xFFFF)
+	if x < w.scaleValue(sidebarWidth) {
+		for index := range menuItems() {
+			top := w.scaleValue(int32(menuTop + index*menuStep))
+			bottom := top + w.scaleValue(34)
+			if y >= top && y <= bottom {
+				w.mutex.Lock()
+				w.page = index
+				w.mutex.Unlock()
+				w.layout()
+				return
+			}
+		}
+		return
+	}
 	for _, button := range w.buttons {
 		if x >= w.scaleValue(button.left) && x <= w.scaleValue(button.right) &&
 			y >= w.scaleValue(button.top) && y <= w.scaleValue(button.bottom) {
@@ -961,8 +983,13 @@ func (w *guiWindow) testModel() {
 		if speed <= 0 && elapsed.Seconds() > 0 {
 			speed = float64(result.TotalTokens) / elapsed.Seconds()
 		}
-		w.showMessage("Test", fmt.Sprintf("%s\n\nSüre: %s\nToken: %d\nHız: %.1f token/s",
-			strings.TrimSpace(result.Text), elapsed.Round(time.Millisecond), result.TotalTokens, speed))
+		answer := fmt.Sprintf("%s\n\nSüre: %s\nToken: %d\nHız: %.1f token/s",
+			strings.TrimSpace(result.Text), elapsed.Round(time.Millisecond), result.TotalTokens, speed)
+		w.mutex.Lock()
+		w.testResult = answer
+		w.page = pageTest
+		w.mutex.Unlock()
+		w.layout()
 	}()
 }
 

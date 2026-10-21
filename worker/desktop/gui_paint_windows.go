@@ -4,9 +4,9 @@ package main
 
 // The drawing of the window of the client.
 //
+// The window has a menu on the left, the page of the menu is shown on the right.
 // Every measure comes from the design of the window, the window scales the
-// design with the resolution of the screen. The window looks the same on every
-// screen.
+// design with the resolution of the screen.
 
 import (
 	"runtime"
@@ -24,6 +24,25 @@ const (
 	taEndEllipsis = 0x00008000
 )
 
+// The pages of the window of the client.
+const (
+	pageStatus   = 0
+	pagePair     = 1
+	pageSettings = 2
+	pageTest     = 3
+)
+
+// The measures of the design of the window.
+const (
+	designWidth  = 680
+	designHeight = 262
+	sidebarWidth = 164
+	menuTop      = 28
+	menuStep     = 46
+	contentLeft  = 188
+	contentRight = 656
+)
+
 // uiColor is a color of the window.
 type uiColor struct {
 	Red   uint8
@@ -33,39 +52,82 @@ type uiColor struct {
 
 // The colors of the window.
 var (
-	colorBackground = uiColor{0xF2, 0xF4, 0xF8}
+	colorBackground = uiColor{0xF4, 0xF6, 0xFA}
+	colorSidebar    = uiColor{0xFF, 0xFF, 0xFF}
 	colorCard       = uiColor{0xFF, 0xFF, 0xFF}
-	colorBorder     = uiColor{0xE4, 0xE7, 0xEC}
+	colorBorder     = uiColor{0xE3, 0xE8, 0xF0}
 	colorText       = uiColor{0x10, 0x18, 0x28}
-	colorMuted      = uiColor{0x66, 0x70, 0x85}
+	colorMuted      = uiColor{0x64, 0x71, 0x87}
 	colorAccent     = uiColor{0x2F, 0x6D, 0xF6}
+	colorAccentSoft = uiColor{0xE8, 0xEF, 0xFD}
 	colorAccentText = uiColor{0xFF, 0xFF, 0xFF}
 	colorSuccess    = uiColor{0x12, 0xB7, 0x6A}
 	colorWarning    = uiColor{0xF7, 0x90, 0x09}
 	colorError      = uiColor{0xF0, 0x44, 0x38}
-	colorField      = uiColor{0xF9, 0xFA, 0xFB}
+	colorField      = uiColor{0xF8, 0xFA, 0xFC}
 )
 
 // design returns the measure of the design.
-//
-// The system scales the measures of the design with the resolution of the
-// screen, the window of the client is drawn with them.
 func design(value int32) int32 {
 	return value
 }
 
-// layout places the fields and the buttons of the window after a change of the
-// resolution of the screen.
+// menuItems returns the entries of the menu of the window.
+func menuItems() []struct {
+	key   string
+	label string
+} {
+	return []struct {
+		key   string
+		label string
+	}{
+		{"menu_status", clientText("menu_status")},
+		{"menu_pair", clientText("pairing")},
+		{"menu_settings", clientText("menu_settings")},
+		{"menu_test", clientText("test")},
+	}
+}
+
+// layout places the fields and the buttons of the window for the page of the
+// menu.
 func (w *guiWindow) layout() {
 	moveField := func(field uintptr, left int32, top int32, width int32) {
 		procSetWindowPos.Call(field, 0, uintptr(w.scaleValue(left)), uintptr(w.scaleValue(top)),
 			uintptr(w.scaleValue(width)), uintptr(w.scaleValue(30)), 0x0004) // SWP_NOZORDER
 	}
-	if w.serverFieldShown {
-		moveField(w.serverEdit, 48, 196, 464)
-		moveField(w.pairEdit, 48, 276, 464)
-	} else {
-		moveField(w.pairEdit, 48, 166, 464)
+	showField := func(field uintptr, visible bool) {
+		if visible {
+			procShowWindow.Call(field, swShow)
+			return
+		}
+		procShowWindow.Call(field, swHide)
+	}
+
+	w.buttons = nil
+	switch w.page {
+	case pagePair:
+		showField(w.serverEdit, false)
+		showField(w.pairEdit, true)
+		moveField(w.pairEdit, contentLeft, 68, contentRight-contentLeft)
+		w.buttons = []uiButton{
+			{command: commandConnect, left: contentLeft, top: 118, right: contentLeft + 150, bottom: 156, label: clientText("connect"), primary: true},
+		}
+	case pageSettings:
+		showField(w.serverEdit, true)
+		showField(w.pairEdit, false)
+		moveField(w.serverEdit, contentLeft, 68, contentRight-contentLeft)
+		w.buttons = []uiButton{
+			{command: commandLanguage, left: contentLeft, top: 118, right: contentLeft + 200, bottom: 156, label: clientText("change_language")},
+		}
+	case pageTest:
+		showField(w.serverEdit, false)
+		showField(w.pairEdit, false)
+		w.buttons = []uiButton{
+			{command: commandTest, left: contentLeft, top: 68, right: contentLeft + 150, bottom: 106, label: clientText("test"), primary: true},
+		}
+	default:
+		showField(w.serverEdit, false)
+		showField(w.pairEdit, false)
 	}
 	w.invalidate()
 }
@@ -140,7 +202,6 @@ func (w *guiWindow) paint(hdc uintptr) {
 	bitmap, _, _ := procCreateCompatibleBitmap.Call(hdc, uintptr(width), uintptr(height))
 	old, _, _ := procSelectObject.Call(dc, bitmap)
 
-	// The background of the window.
 	fill(dc, 0, 0, width, height, colorBackground)
 
 	w.mutex.Lock()
@@ -150,15 +211,57 @@ func (w *guiWindow) paint(hdc uintptr) {
 	progress := w.progress
 	progressSet := w.progressSet
 	hovered := w.hovered
+	page := w.page
+	testResult := w.testResult
 	w.mutex.Unlock()
 
-	// The card of the state of the worker.
-	drawRoundRect(dc, design(24), design(24), design(536), design(136), design(16), colorCard, colorBorder, true)
-	fill(dc, design(24), design(24), design(31), design(136), colorAccent)
+	w.paintSidebar(dc, page, hovered)
 
-	w.drawText(dc, windowTitle(), w.fontTitle, colorText, design(52), design(34), design(330), design(62), taLeft|taVCenter)
+	switch page {
+	case pagePair:
+		w.paintPair(dc, statusText)
+	case pageSettings:
+		w.paintSettings(dc)
+	case pageTest:
+		w.paintTest(dc, details, testResult)
+	default:
+		w.paintStatus(dc, statusText, statusState, details, progress, progressSet)
+	}
 
-	// The state of the worker with its color.
+	procBitBlt.Call(hdc, 0, 0, uintptr(width), uintptr(height), dc, 0, 0, srccopy)
+	procSelectObject.Call(dc, old)
+	procDeleteObject.Call(bitmap)
+	procDeleteDC.Call(dc)
+}
+
+// paintSidebar draws the menu of the window.
+func (w *guiWindow) paintSidebar(dc uintptr, page int, hovered int) {
+	fill(dc, 0, 0, design(sidebarWidth), design(designHeight), colorSidebar)
+	fill(dc, design(sidebarWidth)-1, 0, design(sidebarWidth), design(designHeight), colorBorder)
+
+	for index, item := range menuItems() {
+		top := design(int32(menuTop + index*menuStep))
+		bottom := top + design(34)
+		if index == page {
+			drawRoundRect(dc, design(12), top, design(sidebarWidth-12), bottom, design(8), colorAccentSoft, colorAccentSoft, false)
+			fill(dc, design(12), top+design(10), design(16), bottom-design(10), colorAccent)
+		} else if index == hovered {
+			drawRoundRect(dc, design(12), top, design(sidebarWidth-12), bottom, design(8), colorField, colorField, false)
+		}
+		color := colorText
+		if index == page {
+			color = colorAccent
+		}
+		w.drawText(dc, item.label, w.fontText, color, design(28), top, design(sidebarWidth-14), bottom, taLeft|taVCenter)
+	}
+}
+
+// paintStatus draws the page of the state of the worker.
+func (w *guiWindow) paintStatus(dc uintptr, statusText string, statusState int, details [4]string, progress int, progressSet bool) {
+	drawRoundRect(dc, design(contentLeft), design(24), design(contentRight), design(214), design(14), colorCard, colorBorder, true)
+
+	w.drawText(dc, windowTitle(), w.fontTitle, colorText, design(contentLeft+24), design(38), design(contentLeft+300), design(66), taLeft|taVCenter)
+
 	stateColor := colorMuted
 	switch statusState {
 	case stateOnline:
@@ -168,55 +271,53 @@ func (w *guiWindow) paint(hdc uintptr) {
 	case stateError:
 		stateColor = colorError
 	}
-	drawEllipse(dc, design(54), design(78), design(66), design(90), stateColor)
-	w.drawText(dc, statusText, w.fontText, colorText, design(78), design(70), design(330), design(98), taLeft|taVCenter)
+	drawEllipse(dc, design(contentLeft+26), design(90), design(contentLeft+38), design(102), stateColor)
+	w.drawText(dc, statusText, w.fontText, colorText, design(contentLeft+50), design(82), design(contentLeft+290), design(110), taLeft|taVCenter)
 
-	// The details of the worker.
 	labels := [4]string{clientText("server"), clientText("device"), clientText("model"), clientText("speed")}
 	for index, label := range labels {
-		top := design(int32(30 + index*24))
-		w.drawText(dc, label, w.fontSmall, colorMuted, design(350), top, design(420), top+design(22), taLeft|taVCenter)
-		w.drawText(dc, details[index], w.fontSmall, colorText, design(424), top, design(520), top+design(22), taLeft|taVCenter)
+		top := design(int32(88 + index*26))
+		w.drawText(dc, label, w.fontSmall, colorMuted, design(contentLeft+300), top, design(contentLeft+368), top+design(22), taLeft|taVCenter)
+		w.drawText(dc, details[index], w.fontSmall, colorText, design(contentLeft+372), top, design(contentRight-24), top+design(22), taLeft|taVCenter)
 	}
 
-	// The card of the fields.
-	drawRoundRect(dc, design(24), design(152), design(536), design(332), design(16), colorCard, colorBorder, true)
-	if w.serverFieldShown {
-		w.drawText(dc, clientText("server_url"), w.fontSmall, colorMuted, design(48), design(166), design(320), design(190), taLeft|taVCenter)
-		w.drawText(dc, clientText("pairing"), w.fontSmall, colorMuted, design(48), design(246), design(320), design(270), taLeft|taVCenter)
-	} else {
-		w.drawText(dc, clientText("pairing"), w.fontSmall, colorMuted, design(48), design(166), design(320), design(190), taLeft|taVCenter)
-	}
-
-	// The bar of the download.
 	if progressSet {
-		drawRoundRect(dc, design(48), design(344), design(512), design(352), design(4), colorField, colorBorder, true)
-		length := int32(464) * int32(progress) / 100
+		drawRoundRect(dc, design(contentLeft), design(236), design(contentRight), design(244), design(4), colorField, colorBorder, true)
+		length := int32(contentRight-contentLeft) * int32(progress) / 100
 		if length > 0 {
-			drawRoundRect(dc, design(48), design(344), design(48+length), design(352), design(4), colorAccent, colorAccent, false)
+			drawRoundRect(dc, design(contentLeft), design(236), design(contentLeft+length), design(244), design(4), colorAccent, colorAccent, false)
 		}
 	}
+}
 
-	// The buttons of the window.
-	for index, button := range w.buttons {
-		background := colorField
-		text := colorText
-		if button.primary {
-			background = colorAccent
-			text = colorAccentText
-		} else if index == hovered {
-			background = uiColor{0xE8, 0xEE, 0xFD}
-		}
-		drawRoundRect(dc, design(button.left), design(button.top), design(button.right), design(button.bottom),
-			design(8), background, colorBorder, !button.primary)
-		w.drawText(dc, button.label, w.fontText, text, design(button.left), design(button.top),
-			design(button.right), design(button.bottom), taLeft|taVCenter)
+// paintPair draws the page of the pairing of the client.
+func (w *guiWindow) paintPair(dc uintptr, statusText string) {
+	drawRoundRect(dc, design(contentLeft), design(24), design(contentRight), design(214), design(14), colorCard, colorBorder, true)
+
+	w.drawText(dc, clientText("pairing"), w.fontTitle, colorText, design(contentLeft+24), design(40), design(contentRight-24), design(68), taLeft|taVCenter)
+	w.drawText(dc, clientText("pairing"), w.fontSmall, colorMuted, design(contentLeft+24), design(70), design(contentRight-24), design(92), taLeft|taVCenter)
+	w.drawText(dc, statusText, w.fontSmall, colorMuted, design(contentLeft+24), design(176), design(contentRight-24), design(200), taLeft|taVCenter)
+}
+
+// paintSettings draws the page of the settings of the client.
+func (w *guiWindow) paintSettings(dc uintptr) {
+	drawRoundRect(dc, design(contentLeft), design(24), design(contentRight), design(214), design(14), colorCard, colorBorder, true)
+
+	w.drawText(dc, clientText("menu_settings"), w.fontTitle, colorText, design(contentLeft+24), design(40), design(contentRight-24), design(68), taLeft|taVCenter)
+	w.drawText(dc, clientText("server_url"), w.fontSmall, colorMuted, design(contentLeft+24), design(70), design(contentRight-24), design(92), taLeft|taVCenter)
+}
+
+// paintTest draws the page of the test of the model.
+func (w *guiWindow) paintTest(dc uintptr, details [4]string, result string) {
+	drawRoundRect(dc, design(contentLeft), design(24), design(contentRight), design(264), design(14), colorCard, colorBorder, true)
+
+	w.drawText(dc, clientText("test"), w.fontTitle, colorText, design(contentLeft+24), design(40), design(contentRight-24), design(68), taLeft|taVCenter)
+	w.drawText(dc, details[2], w.fontSmall, colorMuted, design(contentLeft+24), design(70), design(contentRight-24), design(92), taLeft|taVCenter)
+
+	if result != "" {
+		drawRoundRect(dc, design(contentLeft+24), design(120), design(contentRight-24), design(244), design(10), colorField, colorBorder, true)
+		w.drawText(dc, result, w.fontSmall, colorText, design(contentLeft+36), design(132), design(contentRight-36), design(234), taLeft|taVCenter)
 	}
-
-	procBitBlt.Call(hdc, 0, 0, uintptr(width), uintptr(height), dc, 0, 0, srccopy)
-	procSelectObject.Call(dc, old)
-	procDeleteObject.Call(bitmap)
-	procDeleteDC.Call(dc)
 }
 
 // windowTitle returns the title of the window of the client.

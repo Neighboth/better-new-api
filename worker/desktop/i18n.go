@@ -17,6 +17,7 @@ var clientTexts = map[string]map[string]string{
 		"downloading": "İndiriliyor...", "policy_title": "Gizlilik ve kullanım şartları",
 		"show": "Client'i Göster", "go_site": "Siteye git", "site_settings": "Ayarlar (Site)", "close_app": "Kapat",
 		"change_language": "Dili değiştir",
+		"menu_status":     "Durum", "menu_settings": "Ayarlar",
 	},
 	"en": {
 		"setup": "Setup", "language": "Language", "privacy": "Privacy policy",
@@ -29,6 +30,7 @@ var clientTexts = map[string]map[string]string{
 		"downloading": "Downloading...", "policy_title": "Privacy and terms of service",
 		"show": "Show client", "go_site": "Go to site", "site_settings": "Settings (Site)", "close_app": "Close",
 		"change_language": "Change language",
+		"menu_status":     "Status", "menu_settings": "Settings",
 	},
 	"zh_CN": {
 		"setup": "安装", "language": "语言", "privacy": "隐私政策",
@@ -41,6 +43,7 @@ var clientTexts = map[string]map[string]string{
 		"downloading": "下载中...", "policy_title": "隐私政策和使用条款",
 		"show": "显示客户端", "go_site": "前往网站", "site_settings": "设置（网站）", "close_app": "关闭",
 		"change_language": "更改语言",
+		"menu_status":     "状态", "menu_settings": "设置",
 	},
 	"zh_TW": {
 		"setup": "安裝", "language": "語言", "privacy": "隱私政策",
@@ -53,6 +56,7 @@ var clientTexts = map[string]map[string]string{
 		"downloading": "下載中...", "policy_title": "隱私政策和使用條款",
 		"show": "顯示用戶端", "go_site": "前往網站", "site_settings": "設定（網站）", "close_app": "關閉",
 		"change_language": "更改語言",
+		"menu_status":     "狀態", "menu_settings": "設定",
 	},
 	"fr": {
 		"setup": "Installation", "language": "Langue", "privacy": "Politique de confidentialité",
@@ -65,6 +69,7 @@ var clientTexts = map[string]map[string]string{
 		"downloading": "Téléchargement...", "policy_title": "Confidentialité et conditions d'utilisation",
 		"show": "Afficher le client", "go_site": "Aller sur le site", "site_settings": "Paramètres (Site)", "close_app": "Fermer",
 		"change_language": "Changer de langue",
+		"menu_status":     "État", "menu_settings": "Paramètres",
 	},
 	"ru": {
 		"setup": "Установка", "language": "Язык", "privacy": "Политика конфиденциальности",
@@ -77,6 +82,7 @@ var clientTexts = map[string]map[string]string{
 		"downloading": "Загрузка...", "policy_title": "Конфиденциальность и условия использования",
 		"show": "Показать клиент", "go_site": "Перейти на сайт", "site_settings": "Настройки (сайт)", "close_app": "Закрыть",
 		"change_language": "Сменить язык",
+		"menu_status":     "Состояние", "menu_settings": "Настройки",
 	},
 	"ja": {
 		"setup": "セットアップ", "language": "言語", "privacy": "プライバシーポリシー",
@@ -89,6 +95,7 @@ var clientTexts = map[string]map[string]string{
 		"downloading": "ダウンロード中...", "policy_title": "プライバシーと利用規約",
 		"show": "クライアントを表示", "go_site": "サイトへ移動", "site_settings": "設定（サイト）", "close_app": "閉じる",
 		"change_language": "言語を変更",
+		"menu_status":     "状態", "menu_settings": "設定",
 	},
 	"vi": {
 		"setup": "Cài đặt", "language": "Ngôn ngữ", "privacy": "Chính sách bảo mật",
@@ -101,6 +108,7 @@ var clientTexts = map[string]map[string]string{
 		"downloading": "Đang tải...", "policy_title": "Bảo mật và điều khoản sử dụng",
 		"show": "Hiện ứng dụng", "go_site": "Đến trang web", "site_settings": "Cài đặt (Trang web)", "close_app": "Đóng",
 		"change_language": "Đổi ngôn ngữ",
+		"menu_status":     "Trạng thái", "menu_settings": "Cài đặt",
 	},
 }
 
