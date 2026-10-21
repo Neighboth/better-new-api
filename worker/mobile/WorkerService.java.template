@@ -235,6 +235,39 @@ public class WorkerService extends Service {
     }
 
     /**
+     * Handles the removal of the device from the network. The pairing is dropped, the
+     * interface asks for a new pairing code and the device stops the worker.
+     */
+    private void handleDeviceRemoved() {
+        try {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            sp.edit()
+                    .putBoolean("is_paired", false)
+                    .putString("node_id", "")
+                    .putString("pairing_code", "")
+                    .putString("device_removed_message", "Cihaz kaldırıldı")
+                    .apply();
+
+            try {
+                JSONObject state = new JSONObject();
+                state.put("is_paired", false);
+                state.put("device_removed", true);
+                state.put("message", "Cihaz kaldırıldı");
+                Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
+                bIntent.putExtra("state", state.toString());
+                bIntent.setPackage(getPackageName());
+                sendBroadcast(bIntent);
+            } catch (Exception ignored) {}
+
+            String appName = sp.getString("app_name", "{app_name}");
+            Notification removed = buildNotification(appName, "Cihaz kaldırıldı - yeniden eşleştirme gerekiyor");
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify(NOTIF_ID, removed);
+        } catch (Exception ignored) {}
+        stopSelf();
+    }
+
+    /**
      * Publishes the current worker state to the local UI immediately.
      */
     private void broadcastCurrentState() {
@@ -271,6 +304,46 @@ public class WorkerService extends Service {
             bIntent.setPackage(getPackageName());
             sendBroadcast(bIntent);
         } catch (Exception ignored) {}
+    }
+
+    /**
+     * Returns the physical memory of the device in megabytes.
+     */
+    private int getPhysicalRamMB() {
+        try {
+            ActivityManager actMgr = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            if (actMgr == null) return 0;
+            ActivityManager.MemoryInfo memInfo = new ActivityManager.MemoryInfo();
+            actMgr.getMemoryInfo(memInfo);
+            return (int) (memInfo.totalMem / (1024L * 1024L));
+        } catch (Exception ignored) {}
+        return 0;
+    }
+
+    /**
+     * Returns the free space of the data partition in gigabytes.
+     */
+    private int getFreeDiskGB() {
+        try {
+            StatFs stat = new StatFs(Environment.getDataDirectory().getPath());
+            long blockSize = stat.getBlockSizeLong();
+            long freeBlocks = stat.getAvailableBlocksLong();
+            return (int) Math.max(0, (freeBlocks * blockSize) / (1024L * 1024L * 1024L));
+        } catch (Exception ignored) {}
+        return 0;
+    }
+
+    /**
+     * Returns the size of the downloaded model in megabytes.
+     */
+    private int getModelFileSizeMB(String modelId) {
+        try {
+            if (modelId == null || modelId.isEmpty()) return 0;
+            File modelFile = new File(getFilesDir(), modelId + ".gguf");
+            if (!modelFile.exists()) return 0;
+            return (int) (modelFile.length() / (1024L * 1024L));
+        } catch (Exception ignored) {}
+        return 0;
     }
 
     private void acquireLocks() {
@@ -496,6 +569,11 @@ public class WorkerService extends Service {
             state.put("battery_level", batteryLevel);
             state.put("battery_temp", batteryTemp);
             state.put("is_charging", isCharging);
+            state.put("device_type", "mobile");
+            state.put("cpu_cores", Runtime.getRuntime().availableProcessors());
+            state.put("physical_ram_mb", getPhysicalRamMB());
+            state.put("free_disk_gb", getFreeDiskGB());
+            state.put("model_file_mb", getModelFileSizeMB(currentAssignedModel));
             state.put("assigned_model", currentAssignedModel);
             state.put("active_vram_model", activeVramModel);
             state.put("hot_start_enabled", hotStartEnabled);
@@ -532,16 +610,23 @@ public class WorkerService extends Service {
     }
 
     /**
-     * Builds the candidate download URLs for a model. The URL published by the server
-     * always wins; well known GGUF repositories are used as a fallback so a worker can
-     * still provision itself when the server does not know the model yet.
+     * Builds the candidate download URLs for a model. The coordinator is the primary
+     * source, it keeps the file in a cache and has a stable connection to the model
+     * host. The direct addresses are the fallback for a coordinator that does not know
+     * the model.
      */
     private List<String> buildDownloadCandidates(String model) {
         List<String> urls = new ArrayList<>();
+
         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
         String serverUrl = sp.getString("server_url", "");
         while (serverUrl.endsWith("/")) {
             serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
+        }
+        if (!serverUrl.isEmpty() && !model.isEmpty()) {
+            try {
+                urls.add(serverUrl + "/api/v1/worker/models/" + URLEncoder.encode(model, "UTF-8") + "/file");
+            } catch (Exception ignored) {}
         }
 
         String serverGiven = modelDownloadUrls.get(model);
@@ -640,8 +725,8 @@ public class WorkerService extends Service {
                     }
 
                     if (candidateUrls.isEmpty()) {
-                        downloadErrorText = "Model indirme adresi bulunamadi";
-                        broadcastDownloadProgress(targetModel, targetModel + " icin indirme adresi bulunamadi", downloadedMB, totalMB, computeDownloadPercent());
+                        downloadErrorText = "Model indirme adresi bulunamadı";
+                        broadcastDownloadProgress(targetModel, targetModel + " için indirme adresi bulunamadı", downloadedMB, totalMB, computeDownloadPercent());
                         return;
                     }
 
@@ -662,9 +747,12 @@ public class WorkerService extends Service {
                                 URL u = new URL(currentUrl);
                                 conn = (HttpURLConnection) u.openConnection();
                                 conn.setInstanceFollowRedirects(false);
-                                conn.setConnectTimeout(20000);
-                                conn.setReadTimeout(45000);
-                                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
+                                conn.setConnectTimeout(15000);
+                                // A stalled transfer has to fail fast, the next address is
+                                // tried instead of waiting for minutes without progress.
+                                conn.setReadTimeout(20000);
+                                conn.setRequestProperty("User-Agent", "BYOG-Worker/1.0");
+                                conn.setRequestProperty("Accept-Encoding", "identity");
 
                                 if (existingLen > 0) {
                                     conn.setRequestProperty("Range", "bytes=" + existingLen + "-");
@@ -727,7 +815,7 @@ public class WorkerService extends Service {
 
                             InputStream is = conn.getInputStream();
                             FileOutputStream fos = new FileOutputStream(partFile, append);
-                            byte[] buffer = new byte[65536];
+                            byte[] buffer = new byte[256 * 1024];
                             int nRead;
                             long currentBytes = existingLen;
                             long lastBroadcastTime = 0;
@@ -782,7 +870,7 @@ public class WorkerService extends Service {
                     }
 
                     if (!downloadSucceeded) {
-                        downloadErrorText = lastError.isEmpty() ? "Bilinmeyen indirme hatasi" : lastError;
+                        downloadErrorText = lastError.isEmpty() ? "Bilinmeyen indirme hatası" : lastError;
                         broadcastDownloadProgress(targetModel, targetModel + " indirilemedi: " + downloadErrorText, downloadedMB, totalMB, computeDownloadPercent());
                         doHttpHeartbeatAndSync(targetModel + " indirilemedi: " + downloadErrorText);
                     }
@@ -1011,7 +1099,7 @@ public class WorkerService extends Service {
                     boolean isPaired = data.optBoolean("is_paired", false);
                     if (!isPaired) {
                         sp.edit().putBoolean("is_paired", false).apply();
-                        stopSelf();
+                        handleDeviceRemoved();
                         conn.disconnect();
                         return;
                     }
@@ -1471,6 +1559,8 @@ public class WorkerService extends Service {
             } else if ("resume_worker".equals(type)) {
                 workerPaused = false;
                 currentModelStatus = downloadQueueList.isEmpty() ? "ready" : "downloading";
+            } else if ("device_removed".equals(type) || "pairing_revoked".equals(type)) {
+                handleDeviceRemoved();
             } else if ("force_update".equals(type)) {
                 SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
                 String base = sp.getString("server_url", "");
@@ -1558,7 +1648,7 @@ public class WorkerService extends Service {
                     int maxTokens = payload != null ? payload.optInt("max_tokens", 32) : 32;
 
                     LocalNeuralEngine engine = new LocalNeuralEngine(modelId, getFilesDir());
-                    LocalNeuralEngine.InferenceResult res = engine.generateStream(prompt, maxTokens, 0.1f, null);
+                    LocalNeuralEngine.InferenceResult res = engine.generateStream(prompt, maxTokens, 0.1f, 0.92f, null, null);
 
                     JSONObject resp = new JSONObject();
                     resp.put("request_id", payload != null ? payload.optString("request_id", id) : id);
@@ -1785,6 +1875,19 @@ public class WorkerService extends Service {
                     LocalNeuralEngine engine = new LocalNeuralEngine(reqModel, getFilesDir());
                     int maxTokens = payload != null ? payload.optInt("max_tokens", 512) : 512;
                     float temp = payload != null ? (float) payload.optDouble("temperature", 0.7) : 0.7f;
+                    float topP = payload != null ? (float) payload.optDouble("top_p", 0.92) : 0.92f;
+                    String[] stopWords = null;
+                    if (payload != null && payload.has("stop")) {
+                        try {
+                            JSONArray stopArr = payload.optJSONArray("stop");
+                            if (stopArr != null && stopArr.length() > 0) {
+                                stopWords = new String[stopArr.length()];
+                                for (int s = 0; s < stopArr.length(); s++) {
+                                    stopWords[s] = stopArr.optString(s, "");
+                                }
+                            }
+                        } catch (Exception ignored) {}
+                    }
 
                     final long[] streamStartedAt = new long[]{0};
                     final int[] streamTokenCount = new int[]{0};
@@ -1794,6 +1897,8 @@ public class WorkerService extends Service {
                         userPrompt,
                         maxTokens,
                         temp,
+                        topP,
+                        stopWords,
                         new LocalNeuralEngine.StreamCallback() {
                             @Override
                             public boolean onToken(String piece, int tokenId) {
@@ -1835,11 +1940,11 @@ public class WorkerService extends Service {
                     );
 
                     if (!res.success) {
-                        sendInferenceError(id, res.error != null ? res.error : "Yerel model calistirilamadi");
+                        sendInferenceError(id, res.error != null ? res.error : "Yerel model çalıştırılamadı");
                         currentModelStatus = downloadQueueList.isEmpty() ? "ready" : "downloading";
                         currentLiveTps = 0.0f;
                         if (tunnelWs != null) tunnelWs.sendHeartbeatFrame();
-                        doHttpHeartbeatAndSync("Cikarma hatasi: " + (res.error != null ? res.error : "bilinmiyor"));
+                        doHttpHeartbeatAndSync("Çıkarma hatası: " + (res.error != null ? res.error : "bilinmiyor"));
                         return;
                     }
 

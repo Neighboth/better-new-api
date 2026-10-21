@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -284,6 +285,12 @@ func downloadAssignedModel(modelId string, downloadUrl string, fileSize int64) {
 		return
 	}
 
+	// The coordinator keeps the model in a cache and serves it with the support of
+	// range requests, the parallel download works against it as well.
+	if server := strings.TrimSuffix(State.Config.ServerUrl, "/"); server != "" && modelId != "" {
+		downloadUrl = server + "/api/v1/worker/models/" + url.PathEscape(modelId) + "/file"
+	}
+
 	if err := downloadModelIDM(downloadUrl, targetPath, fileSize); err != nil {
 		fmt.Printf("[BYOG IDM] Download of %s failed: %v\n", modelId, err)
 		return
@@ -453,6 +460,17 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 		switch frame.Type {
 		case "ping":
 			_ = conn.WriteJSON(map[string]string{"type": "pong"})
+
+		case "device_removed", "pairing_revoked":
+			// The device was removed from the network, the pairing is dropped.
+			State.Mu.Lock()
+			State.IsConnected = false
+			State.Config.NodeId = ""
+			State.Config.PairingCode = ""
+			State.Mu.Unlock()
+			fmt.Println("[BYOG WORKER] The device was removed from the network, the pairing has to be done again")
+			_ = conn.WriteJSON(map[string]string{"type": "device_removed_ack"})
+			return
 
 		case "download_model":
 			var dReq struct {

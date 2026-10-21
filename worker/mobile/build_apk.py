@@ -692,6 +692,10 @@ html_content = f'''<!DOCTYPE html>
         Web kontrol panelinizdeki "Cihaz Bağla" penceresinde gösterilen QR kodu kameranızla okutun veya eşleştirme kodunu aşağıya girin.
       </p>
 
+      <div id="connection-notice" class="hidden" style="margin-bottom: 14px; padding: 10px 12px; border-radius: 10px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); color: #fbbf24; font-size: 0.8rem; line-height: 1.45;">
+        Bağlantı kesildi. Cihazınız çevrimdışı, yeniden eşleştirmek için eşleştirme kodunu girin.
+      </div>
+
       <button id="btn-scan" class="btn btn-primary" onclick="startQrScan()">
         <svg viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
         <span>QR Kod Tara</span>
@@ -745,6 +749,16 @@ html_content = f'''<!DOCTYPE html>
           <div id="download-error-text" class="hidden" style="margin-top: 6px; font-size: 0.7rem; color: #f87171;"></div>
         </div>
         <div id="crash-text" class="hidden" style="margin-top: 8px; font-size: 0.7rem; color: #fb923c;"></div>
+
+        <div id="device-details" class="hidden" style="margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);">
+          <div style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;">Cihaz Bilgileri</div>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; font-size: 0.75rem;">
+            <div><span style="color: #64748b;">Bellek</span><div id="device-ram" style="color: #e2e8f0;">-</div></div>
+            <div><span style="color: #64748b;">Çekirdek</span><div id="device-cores" style="color: #e2e8f0;">-</div></div>
+            <div><span style="color: #64748b;">Boş Alan</span><div id="device-disk" style="color: #e2e8f0;">-</div></div>
+            <div><span style="color: #64748b;">Model Dosyası</span><div id="device-model-size" style="color: #e2e8f0;">-</div></div>
+          </div>
+        </div>
 
         <button id="btn-test-model" class="btn btn-secondary" onclick="openModelChatModal()" style="margin-top: 10px; font-size: 0.85rem; padding: 9px 12px;">
           <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -1167,7 +1181,7 @@ html_content = f'''<!DOCTYPE html>
           if (s.download_error && s.download_error.length > 0) {{
             const errEl = document.getElementById('download-error-text');
             if (errEl) {{
-              errEl.innerText = 'Indirme hatasi: ' + s.download_error;
+              errEl.innerText = 'İndirme hatası: ' + s.download_error;
               errEl.classList.remove('hidden');
             }}
           }} else {{
@@ -1183,6 +1197,21 @@ html_content = f'''<!DOCTYPE html>
           }} else {{
             const crashEl = document.getElementById('crash-text');
             if (crashEl) crashEl.classList.add('hidden');
+          }}
+          const deviceDetails = document.getElementById('device-details');
+          if (deviceDetails) {{
+            const hasDetails = s.physical_ram_mb || s.cpu_cores || s.free_disk_gb || s.model_file_mb;
+            deviceDetails.classList.toggle('hidden', !hasDetails);
+            if (hasDetails) {{
+              const ram = document.getElementById('device-ram');
+              if (ram) ram.innerText = s.physical_ram_mb ? (s.physical_ram_mb / 1024).toFixed(1) + ' GB' : '-';
+              const cores = document.getElementById('device-cores');
+              if (cores) cores.innerText = s.cpu_cores ? s.cpu_cores + ' çekirdek' : '-';
+              const disk = document.getElementById('device-disk');
+              if (disk) disk.innerText = s.free_disk_gb ? s.free_disk_gb + ' GB' : '-';
+              const modelSize = document.getElementById('device-model-size');
+              if (modelSize) modelSize.innerText = s.model_file_mb ? s.model_file_mb + ' MB' : '-';
+            }}
           }}
           if (s.model_status) {{
             const mBadge = document.getElementById('stat-model-badge');
@@ -1222,6 +1251,32 @@ html_content = f'''<!DOCTYPE html>
       }} catch(e) {{}}
     }};
 
+    window.checkWorkerStatus = function() {{
+      if (!window.AndroidBridge || !window.AndroidBridge.getWorkerStatus) return;
+      try {{
+        const raw = window.AndroidBridge.getWorkerStatus();
+        const status = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const badge = document.getElementById('status-badge');
+        const connected = status.is_paired && status.service_running;
+        const notice = document.getElementById('connection-notice');
+        if (!connected) {{
+          document.getElementById('paired-view').classList.add('hidden');
+          document.getElementById('unpaired-view').classList.remove('hidden');
+          badge.className = 'badge badge-amber';
+          const message = status.device_removed_message || 'Bağlantı kesildi';
+          badge.innerHTML = '<div class="dot dot-amber"></div><span>' + message + '</span>';
+          if (notice) {{
+            notice.innerText = status.device_removed
+              ? 'Cihazınız ağdan kaldırıldı. Yeniden bağlanmak için eşleştirme kodunu tekrar girin.'
+              : 'Bağlantı kesildi. Cihazınız çevrimdışı, yeniden eşleştirmek için eşleştirme kodunu girin.';
+            notice.classList.remove('hidden');
+          }}
+        }} else if (notice) {{
+          notice.classList.add('hidden');
+        }}
+      }} catch (e) {{}}
+    }};
+
     window.showUpdatePrompt = function(version) {{
       const modal = document.getElementById('update-modal');
       const desc = document.getElementById('update-desc');
@@ -1253,12 +1308,20 @@ html_content = f'''<!DOCTYPE html>
       refreshPermissions();
     }}, 1500);
 
+    window.startLiveCheck = function() {{
+      if (window.checkWorkerStatus) window.checkWorkerStatus();
+      setInterval(function() {{
+        if (window.checkWorkerStatus) window.checkWorkerStatus();
+      }}, 5000);
+    }};
+
     window.onload = function() {{
       refreshPermissions();
       if (window.AndroidBridge && window.AndroidBridge.getInitialState) {{
         const initStr = window.AndroidBridge.getInitialState();
         if (initStr) window.updateState(initStr);
       }}
+      if (window.startLiveCheck) window.startLiveCheck();
     }};
   </script>
 </body>
@@ -1566,154 +1629,205 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Launches the first candidate that is actually available on this device.
-     * The PackageManager is consulted before every launch so the user never ends up
-     * on a foreign vendor screen.
-     */
-    private boolean launchFirstAvailable(Intent[] candidates) {
-        if (candidates == null) return false;
-        for (Intent candidate : candidates) {
-            try {
-                if (candidate == null) continue;
-                candidate.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                if (candidate.getComponent() != null) {
-                    PackageManager pm = getPackageManager();
-                    if (pm == null || pm.resolveActivity(candidate, PackageManager.MATCH_DEFAULT_ONLY) == null) {
-                        continue;
-                    }
-                }
-                startActivity(candidate);
-                return true;
-            } catch (Throwable ignored) {}
-        }
-        return false;
-    }
-
-    /**
      * Opens the OEM "Auto start / Startup" manager of the device.
      */
-    public void openAutoStartSettings() {
-        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-        lastPausedAt = 0;
-        sp.edit().putBoolean("autostart_pending_check", true).apply();
-
-        Toast.makeText(this, "Otomatik baslatma ekraninda uygulamayi etkinlestirin.", Toast.LENGTH_LONG).show();
-
-        Intent[] candidates = new Intent[] {
-            // ColorOS / OPPO / Realme (Realme C55) auto start managers
-            new Intent().setComponent(new ComponentName("com.oplus.securitypermission", "com.oplus.securitypermission.startup.StartupAppListActivity")),
-            new Intent().setComponent(new ComponentName("com.oplus.securitypermission", "com.oplus.securitypermission.permission.startup.StartupAppListActivity")),
-            new Intent().setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity")),
-            new Intent().setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startupapp.StartupAppListActivity")),
-            new Intent().setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity")),
-            new Intent().setComponent(new ComponentName("com.oplus.safecenter", "com.oplus.safecenter.permission.startup.StartupAppListActivity")),
-            new Intent().setComponent(new ComponentName("com.oplus.safecenter", "com.oplus.safecenter.startupapp.StartupAppListActivity")),
-            new Intent().setComponent(new ComponentName("com.realme.safecenter", "com.realme.safecenter.permission.startup.StartupAppListActivity")),
-            new Intent().setComponent(new ComponentName("com.realme.safecenter", "com.realme.safecenter.startupapp.StartupAppListActivity")),
-            new Intent().setComponent(new ComponentName("com.realme.securitypermission", "com.realme.securitypermission.startup.StartupAppListActivity")),
-
-            // Honor / Huawei (Honor Pad 10) app control / startup managers
-            new Intent().setComponent(new ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.appcontrol.activity.StartupAppControlActivity")),
-            new Intent().setComponent(new ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity")),
-            new Intent().setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity")),
-            new Intent().setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")),
-
-            // Xiaomi / Vivo / Samsung / Transsion
-            new Intent().setComponent(new ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")),
-            new Intent().setComponent(new ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity")),
-            new Intent().setComponent(new ComponentName("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity")),
-            new Intent().setComponent(new ComponentName("com.samsung.android.sm", "com.samsung.android.sm.ui.battery.BatteryActivity")),
-            new Intent().setComponent(new ComponentName("com.transsion.phonemaster", "com.transsion.phonemaster.StartupManagerActivity"))
-        };
-
-        if (launchFirstAvailable(candidates)) return;
-
+    /**
+     * Launches an intent and reports whether the screen was opened.
+     *
+     * The activities of the vendors are protected with signature permissions, the
+     * launch can be rejected with a security exception. Every candidate is therefore
+     * resolved with the package manager and the exception is caught.
+     */
+    private boolean launch(Intent intent) {
+        if (intent == null) return false;
         try {
-            Intent appDetails = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-            appDetails.setData(Uri.parse("package:" + getPackageName()));
-            appDetails.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(appDetails);
-        } catch (Throwable ignored) {}
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (intent.getComponent() != null) {
+                PackageManager pm = getPackageManager();
+                if (pm == null || pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY) == null) {
+                    return false;
+                }
+            }
+            startActivity(intent);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     /**
-     * Opens the "Battery usage -> allow background activity" screen of the device.
-     * On Realme C55 / ColorOS this is the "Pil Kullanimi" page of the app where the
-     * "Arka plan aktivitesine izin ver" switch lives.
+     * Builds an intent for an activity of a system application.
+     */
+    private Intent componentIntent(String packageName, String className) {
+        return new Intent().setComponent(new ComponentName(packageName, className));
+    }
+
+    /**
+     * Builds the intent for the screen that holds the background activity switch of an
+     * application. The screen expects the name of the application and its package.
+     */
+    private Intent perAppPowerIntent(String packageName, String className) {
+        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+        String label = sp != null ? sp.getString("app_name", "BYOG Worker") : "BYOG Worker";
+        Intent intent = componentIntent(packageName, className);
+        intent.setData(Uri.parse("package:" + getPackageName()));
+        intent.putExtra("title", label);
+        intent.putExtra("pkgName", getPackageName());
+        intent.putExtra("package_name", getPackageName());
+        intent.putExtra("packageName", getPackageName());
+        intent.putExtra("package_label", label);
+        intent.putExtra("drainType", "APP");
+        return intent;
+    }
+
+    /**
+     * Marks the auto start screen as open, the permission is only counted as granted
+     * when the user really came back from a screen of the system.
+     */
+    private void markAutoStartPending() {
+        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+        sp.edit().putBoolean("autostart_pending_check", true).apply();
+    }
+
+    /**
+     * Marks the background activity screen as open.
+     */
+    private void markBackgroundActivityPending() {
+        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+        sp.edit().putBoolean("bgactivity_pending_check", true).apply();
+    }
+
+    /**
+     * Opens the "Otomatik Başlatma" screen of the device.
+     *
+     * The intent actions are tried first, they survive the renames of the activities
+     * between the versions of the system. Afterwards the known activities of the
+     * vendors are used.
+     */
+    public void openAutoStartSettings() {
+        lastPausedAt = 0;
+
+        Toast.makeText(this, "Otomatik başlatma ekranında uygulamayı etkinleştirin.", Toast.LENGTH_LONG).show();
+
+        Intent[] actions = new Intent[] {
+            new Intent("miui.intent.action.OP_AUTO_START"),
+            new Intent("huawei.intent.action.HSM_STARTUPAPP_MANAGER"),
+            new Intent("com.iqoo.secure.BGSTARTUPMANAGER"),
+            new Intent("com.cyin.himgr.applicationmanager.view.activities.AUTO_START_ACTIVITY"),
+            new Intent("com.android.settings.action.BACKGROUND_OPTIMIZE"),
+        };
+        for (Intent action : actions) {
+            if (launch(action)) {
+                markAutoStartPending();
+                return;
+            }
+        }
+
+        Intent[] components = new Intent[] {
+            // realme UI 6/7 and ColorOS 15 or newer
+            componentIntent("com.oplus.safecenter", "com.oplus.safecenter.startupapp.StartupAppListActivity"),
+            componentIntent("com.oplus.safecenter", "com.oplus.safecenter.permission.startup.StartupAppListActivity"),
+            // realme UI 5 and ColorOS 14 or older
+            componentIntent("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity"),
+            componentIntent("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"),
+            componentIntent("com.coloros.safecenter", "com.coloros.safecenter.permission.startupapp.StartupAppListActivity"),
+            componentIntent("com.coloros.safecenter", "com.coloros.safecenter.permission.startupmanager.StartupAppListActivity"),
+            // the permission hub of the security center holds the auto start entry
+            componentIntent("com.coloros.safecenter", "com.coloros.privacypermissionsentry.PermissionTopActivity"),
+            componentIntent("com.oplus.safecenter", "com.oplus.safecenter.permission.topactivity.PermissionTopActivity"),
+            // older ColorOS
+            componentIntent("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity"),
+            componentIntent("com.coloros.safe", "com.coloros.safe.permission.startup.StartupAppListActivity"),
+            componentIntent("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerUsageModelActivity"),
+            componentIntent("com.oplus.battery", "com.oplus.startupapp.view.StartupAppListActivity"),
+            // HONOR and HUAWEI
+            componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+            componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.appcontrol.activity.StartupAppControlActivity"),
+            componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.optimize.process.ProtectActivity"),
+            componentIntent("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+            componentIntent("com.huawei.systemmanager", "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity"),
+            componentIntent("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity"),
+            // Xiaomi
+            componentIntent("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
+            // vivo and iQOO
+            componentIntent("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"),
+            componentIntent("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.BgStartUpManager"),
+            // Samsung
+            componentIntent("com.samsung.android.lool", "com.samsung.android.sm.battery.ui.usage.CheckableAppListActivity"),
+            componentIntent("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity"),
+            componentIntent("com.samsung.android.sm", "com.samsung.android.sm.ui.battery.BatteryActivity"),
+            // Transsion
+            componentIntent("com.transsion.phonemaster", "com.cyin.himgr.autostart.AutoStartActivity"),
+            componentIntent("com.transsion.phonemanager", "com.itel.autobootmanager.activity.AutoBootMgrActivity"),
+        };
+        for (Intent component : components) {
+            if (launch(component)) {
+                markAutoStartPending();
+                return;
+            }
+        }
+
+        Toast.makeText(this, "Otomatik başlatma ekranı bulunamadı. Ayarlar > Uygulamalar > BYOG > Pil kullanımı bölümünden açabilirsiniz.", Toast.LENGTH_LONG).show();
+    }
+
+    /**
+     * Opens the screen that holds the "Arka plan aktivitesine izin ver" switch of the
+     * application. On realme and OPPO this is the power control of the application,
+     * on HONOR the detail of the power consumption.
      */
     public void openBackgroundActivitySettings() {
-        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
         lastPausedAt = 0;
-        sp.edit().putBoolean("bgactivity_pending_check", true).apply();
 
-        Toast.makeText(this, "Pil Kullanimi ekraninda 'Arka plan aktivitesine izin ver' secenegini acin.", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, "Pil kullanımı ekranında 'Arka plan aktivitesine izin ver' seçeneğini açın.", Toast.LENGTH_LONG).show();
 
         Intent[] candidates = new Intent[] {
-            // Realme C55 / ColorOS / OPPO: per app battery usage page
-            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.battery.AppBatteryUseDetailActivity"))
-                .setData(Uri.parse("package:" + getPackageName()))
-                .putExtra("package_name", getPackageName())
-                .putExtra("pkgName", getPackageName())
-                .putExtra("packageName", getPackageName())
-                .putExtra("title", "{app_name}"),
-
-            // ColorOS / OPPO: background activity (power control) manager
-            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgauge.PowerControlActivity"))
-                .putExtra("pkgName", getPackageName())
-                .putExtra("package_name", getPackageName())
-                .putExtra("packageName", getPackageName())
-                .putExtra("title", "{app_name}")
-                .putExtra("drainType", "APP"),
-            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.powermanager.fuelgauge.PowerControlActivity"))
-                .setData(Uri.parse("package:" + getPackageName()))
-                .putExtra("pkgName", getPackageName())
-                .putExtra("package_name", getPackageName())
-                .putExtra("packageName", getPackageName())
-                .putExtra("title", "{app_name}")
-                .putExtra("drainType", "APP"),
-            new Intent().setComponent(new ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgauge.PowerConsumptionActivity"))
-                .putExtra("pkgName", getPackageName())
-                .putExtra("package_name", getPackageName()),
-            new Intent().setComponent(new ComponentName("com.oplus.battery", "com.oplus.battery.fuelgauge.PowerConsumptionActivity"))
-                .putExtra("pkgName", getPackageName())
-                .putExtra("package_name", getPackageName()),
-
-            // Honor / Huawei battery managers
-            new Intent().setComponent(new ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.battery.ui.BatteryManagerActivity"))
-                .putExtra("package_name", getPackageName()),
-            new Intent().setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.battery.ui.BatteryManagerActivity"))
-                .putExtra("package_name", getPackageName()),
-
-            // Generic AOSP battery usage screens
-            new Intent("android.settings.APP_BATTERY_SETTINGS")
-                .setData(Uri.parse("package:" + getPackageName()))
-                .putExtra("package", getPackageName())
-                .putExtra("package_name", getPackageName())
-                .putExtra("extra_package_name", getPackageName())
-                .putExtra(Intent.EXTRA_PACKAGE_NAME, getPackageName()),
-            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.fuelgauge.AdvancedPowerUsageDetailActivity"))
-                .setData(Uri.parse("package:" + getPackageName()))
-                .putExtra("package", getPackageName())
-                .putExtra("package_name", getPackageName())
-                .putExtra(Intent.EXTRA_PACKAGE_NAME, getPackageName()),
-            new Intent("android.intent.action.VIEW").setComponent(new ComponentName("com.android.settings", "com.android.settings.SubSettings"))
-                .putExtra(":settings:show_fragment", "com.android.settings.fuelgauge.AdvancedPowerUsageDetail")
-                .putExtra(":settings:fragment_args_key", getPackageName())
-                .putExtra("package", getPackageName())
-                .putExtra("extra_package_name", getPackageName()),
-            new Intent().setComponent(new ComponentName("com.android.settings", "com.android.settings.Settings$AppBatteryUsageActivity"))
-                .setData(Uri.parse("package:" + getPackageName()))
-                .putExtra("package", getPackageName())
+            // realme UI and ColorOS: the power control of the application
+            perAppPowerIntent("com.oplus.battery", "com.oplus.powermanager.fuelgaue.PowerControlActivity"),
+            perAppPowerIntent("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerControlActivity"),
+            perAppPowerIntent("com.coloros.safecenter", "com.coloros.powermanager.fuelgaue.PowerControlActivity"),
+            // realme UI and ColorOS: the list of the power consumption
+            perAppPowerIntent("com.oplus.battery", "com.oplus.powermanager.fuelgaue.PowerConsumptionActivity"),
+            perAppPowerIntent("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerConsumptionActivity"),
+            perAppPowerIntent("com.oplus.battery", "com.oplus.battery.AppBatteryUseDetailActivity"),
+            // HONOR: the detail of the power consumption holds the background activity
+            perAppPowerIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.power.ui.DetailOfSoftConsumptionActivity"),
+            perAppPowerIntent("com.huawei.systemmanager", "com.huawei.systemmanager.power.ui.HwPowerManagerActivity"),
+            // Xiaomi
+            perAppPowerIntent("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsConfigActivity"),
+            // vivo and iQOO
+            perAppPowerIntent("com.vivo.abe", "com.vivo.applicationbehaviorengine.ui.ExcessivePowerManagerActivity"),
+            // Samsung
+            perAppPowerIntent("com.samsung.android.lool", "com.samsung.android.sm.battery.ui.usage.CheckableAppListActivity"),
+            // the generic screen of the system
+            perAppPowerIntent("com.android.settings", "com.android.settings.fuelgauge.AdvancedPowerUsageDetailActivity"),
+            perAppPowerIntent("com.android.settings", "com.android.settings.Settings$AppBatteryUsageActivity"),
         };
+        for (Intent candidate : candidates) {
+            if (launch(candidate)) {
+                markBackgroundActivityPending();
+                return;
+            }
+        }
 
-        if (launchFirstAvailable(candidates)) return;
+        // The generic screen of the system, it exists on every device.
+        Intent generic = new Intent("android.settings.APP_BATTERY_SETTINGS");
+        generic.setData(Uri.parse("package:" + getPackageName()));
+        generic.putExtra("package", getPackageName());
+        generic.putExtra("package_name", getPackageName());
+        generic.putExtra(Intent.EXTRA_PACKAGE_NAME, getPackageName());
+        if (launch(generic)) {
+            markBackgroundActivityPending();
+            return;
+        }
 
-        try {
-            Intent appDetails = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-            appDetails.setData(Uri.parse("package:" + getPackageName()));
-            appDetails.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(appDetails);
-        } catch (Throwable ignored) {}
+        Intent details = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+        details.setData(Uri.parse("package:" + getPackageName()));
+        if (launch(details)) {
+            markBackgroundActivityPending();
+            return;
+        }
+
+        Toast.makeText(this, "Pil kullanımı ekranı bulunamadı. Ayarlar > Uygulamalar > BYOG > Pil kullanımı bölümünden açabilirsiniz.", Toast.LENGTH_LONG).show();
     }
 
     private void saveBase64ToCacheFile(String base64Data) {
@@ -2041,7 +2155,7 @@ public class MainActivity extends Activity {
                     }
 
                     LocalNeuralEngine engine = new LocalNeuralEngine(model, getFilesDir());
-                    LocalNeuralEngine.InferenceResult res = engine.generateStream(prompt, 256, 0.7f, null);
+                    LocalNeuralEngine.InferenceResult res = engine.generateStream(prompt, 256, 0.7f, 0.92f, null, null);
 
                     final String finalReply = res.fullText;
                     final int finalLatency = res.ttftMs;
@@ -2387,6 +2501,37 @@ public class MainActivity extends Activity {
             });
         }
 
+        /**
+         * Reports the live state of the worker so that the interface can show a lost
+         * connection right away instead of waiting for the next registration.
+         */
+        @JavascriptInterface
+        public String getWorkerStatus() {
+            JSONObject status = new JSONObject();
+            try {
+                SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+                String nodeId = sp.getString("node_id", "");
+                boolean paired = sp.getBoolean("is_paired", false) && !nodeId.isEmpty();
+                boolean serviceRunning = false;
+                ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+                if (am != null) {
+                    java.util.List<ActivityManager.RunningServiceInfo> services = am.getRunningServices(200);
+                    for (ActivityManager.RunningServiceInfo info : services) {
+                        if (info.service != null && info.service.getClassName().equals(WorkerService.class.getName())) {
+                            serviceRunning = true;
+                            break;
+                        }
+                    }
+                }
+                status.put("is_paired", paired);
+                status.put("service_running", serviceRunning);
+                status.put("node_id", nodeId);
+                status.put("device_removed", sp.getString("device_removed_message", "").length() > 0);
+                status.put("device_removed_message", sp.getString("device_removed_message", ""));
+            } catch (Exception ignored) {}
+            return status.toString();
+        }
+
         @JavascriptInterface
         public String getInitialState() {
             if (latestWorkerState != null && latestWorkerState.length() > 0) {
@@ -2435,6 +2580,11 @@ public class MainActivity extends Activity {
                 String lastCrash = sp.getString("last_crash", "");
                 if (!lastCrash.isEmpty()) {
                     state.put("last_crash", lastCrash);
+                }
+                String removedMessage = sp.getString("device_removed_message", "");
+                if (!removedMessage.isEmpty()) {
+                    state.put("device_removed", true);
+                    state.put("device_removed_message", removedMessage);
                 }
             } catch (Exception ignored) {}
             return state.toString();

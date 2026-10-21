@@ -435,7 +435,6 @@ func SetApiRouter(router *gin.Engine) {
 			adminTicketRoute.DELETE("/:id/permanent", middleware.RequirePermission(authz.TicketDelete), controller.AdminDeleteTicketPermanently)
 		}
 
-
 		vendorRoute := apiRouter.Group("/vendors")
 		vendorRoute.Use(middleware.AdminAuth())
 		{
@@ -572,6 +571,7 @@ func SetApiRouter(router *gin.Engine) {
 			workerRoute.POST("/telemetry/crash", controller.ReportByogWorkerCrash)
 			workerRoute.GET("/version", controller.GetByogWorkerVersion)
 			workerRoute.GET("/download/:platform/:arch", controller.DownloadByogWorker)
+			workerRoute.GET("/models/:model_id/file", controller.ServeByogWorkerModel)
 			workerRoute.POST("/test-inference", controller.TestByogNodeInference)
 		}
 		byogWorkerAlias := apiRouter.Group("/byog/worker")
@@ -579,6 +579,7 @@ func SetApiRouter(router *gin.Engine) {
 			byogWorkerAlias.POST("/register", controller.RegisterByogWorker)
 			byogWorkerAlias.GET("/tunnel", controller.ByogWorkerTunnel)
 			byogWorkerAlias.GET("/download/:platform/:arch", controller.DownloadByogWorker)
+			byogWorkerAlias.GET("/models/:model_id/file", controller.ServeByogWorkerModel)
 			byogWorkerAlias.POST("/test-inference", controller.TestByogNodeInference)
 		}
 	}

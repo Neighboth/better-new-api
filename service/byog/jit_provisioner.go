@@ -173,9 +173,9 @@ func (j *JitProvisioner) ProvisionColdModel(c *gin.Context, modelDef *model.Byog
 	}
 
 	stateVal, loaded := j.provisioningLocks.LoadOrStore(modelDef.ModelId, &ProvisioningState{
-		ModelId:       modelDef.ModelId,
+		ModelId:         modelDef.ModelId,
 		PercentComplete: 0,
-		StatusMessage: "İstediğiniz model şu anda aktif düğüme indiriliyor, lütfen bekleyin.",
+		StatusMessage:   "İstediğiniz model şu anda aktif düğüme indiriliyor, lütfen bekleyin.",
 	})
 	state := stateVal.(*ProvisioningState)
 

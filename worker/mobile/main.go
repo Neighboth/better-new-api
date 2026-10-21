@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -272,8 +273,17 @@ func detectNetworkType() string {
 
 // downloadModel fetches a model into the storage directory and reports the progress.
 func downloadModel(modelID string, downloadURL string, fileSize int64) error {
-	if modelID == "" || downloadURL == "" {
-		return errors.New("model id or download url is missing")
+	if modelID == "" {
+		return errors.New("model id is missing")
+	}
+	// The coordinator keeps the model in a cache and serves it with the support of
+	// range requests, the device therefore does not need a direct connection to the
+	// model host.
+	if server := strings.TrimSuffix(State.Config.ServerUrl, "/"); server != "" {
+		downloadURL = server + "/api/v1/worker/models/" + url.PathEscape(modelID) + "/file"
+	}
+	if downloadURL == "" {
+		return errors.New("model download url is missing")
 	}
 	storageDir := State.Config.StorageDir
 	if storageDir == "" {
@@ -625,6 +635,14 @@ func main() {
 					if err := json.Unmarshal(frame.Payload, &payload); err == nil {
 						go handleInference(frame.Id, payload)
 					}
+				case "device_removed", "pairing_revoked":
+					// The device was removed from the network, the pairing is dropped.
+					State.Mu.Lock()
+					State.Config.NodeId = ""
+					State.Config.PairingCode = ""
+					State.Mu.Unlock()
+					fmt.Println("[BYOG MOBILE] The device was removed from the network, the pairing has to be done again")
+					continue
 				case "download_model":
 					var payload struct {
 						ModelID     string `json:"model_id"`

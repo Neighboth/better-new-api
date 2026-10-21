@@ -15,23 +15,48 @@ import (
 
 // Tunnel message types
 const (
-	MsgTypeHeartbeat       = "heartbeat"
-	MsgTypeHeartbeatAck    = "heartbeat_ack"
-	MsgTypeInferenceReq    = "inference_request"
-	MsgTypeInferenceChunk  = "inference_chunk"
-	MsgTypeInferenceDone   = "inference_done"
-	MsgTypeInferenceError  = "inference_error"
-	MsgTypeCanaryReq       = "canary_request"
-	MsgTypeCanaryResp      = "canary_response"
-	MsgTypeByteProbeReq    = "byte_probe_request"
-	MsgTypeByteProbeResp   = "byte_probe_response"
-	MsgTypeDownloadModel   = "download_model"
+	MsgTypeHeartbeat        = "heartbeat"
+	MsgTypeHeartbeatAck     = "heartbeat_ack"
+	MsgTypeInferenceReq     = "inference_request"
+	MsgTypeInferenceChunk   = "inference_chunk"
+	MsgTypeInferenceDone    = "inference_done"
+	MsgTypeInferenceError   = "inference_error"
+	MsgTypeCanaryReq        = "canary_request"
+	MsgTypeCanaryResp       = "canary_response"
+	MsgTypeByteProbeReq     = "byte_probe_request"
+	MsgTypeByteProbeResp    = "byte_probe_response"
+	MsgTypeDownloadModel    = "download_model"
 	MsgTypeDownloadProgress = "download_progress"
-	MsgTypePurgeModel      = "purge_model"
-	MsgTypeForceUpdate     = "force_update"
-	MsgTypePauseWorker     = "pause_worker"
-	MsgTypeResumeWorker    = "resume_worker"
+	MsgTypePurgeModel       = "purge_model"
+	MsgTypeForceUpdate      = "force_update"
+	MsgTypePauseWorker      = "pause_worker"
+	MsgTypeResumeWorker     = "resume_worker"
+	MsgTypeDeviceRemoved    = "device_removed"
+	MsgTypePairingRevoked   = "pairing_revoked"
 )
+
+// NotifyDeviceRemoved tells a worker that it was removed from the network.
+//
+// The worker clears the pairing and shows the state in its interface, the device does
+// not have to wait for the next registration to notice the removal.
+func NotifyDeviceRemoved(nodeId string, message string) {
+	if nodeId == "" {
+		return
+	}
+	session, ok := GlobalHub.GetSession(nodeId)
+	if !ok || session == nil {
+		return
+	}
+	payload, err := json.Marshal(map[string]interface{}{
+		"node_id": nodeId,
+		"message": message,
+		"reason":  "removed",
+	})
+	if err != nil {
+		return
+	}
+	_ = session.WriteFrame(TunnelFrame{Type: MsgTypeDeviceRemoved, Payload: payload})
+}
 
 // Tunnel Frame
 type TunnelFrame struct {
@@ -43,14 +68,14 @@ type TunnelFrame struct {
 
 // Telemetry Payload in Heartbeat
 type TelemetryPayload struct {
-	CpuTemp         float64  `json:"cpu_temp"`
-	GpuTemp         float64  `json:"gpu_temp"`
-	BatteryTemp     float64  `json:"battery_temp"`
-	FanSpeed        int      `json:"fan_speed"`
-	BatteryPercent  int      `json:"battery_percent"`
-	IsCharging      bool     `json:"is_charging"`
-	CurrentTps      float64  `json:"current_tps"`
-	CurrentTtftMs   int      `json:"current_ttft_ms"`
+	CpuTemp          float64  `json:"cpu_temp"`
+	GpuTemp          float64  `json:"gpu_temp"`
+	BatteryTemp      float64  `json:"battery_temp"`
+	FanSpeed         int      `json:"fan_speed"`
+	BatteryPercent   int      `json:"battery_percent"`
+	IsCharging       bool     `json:"is_charging"`
+	CurrentTps       float64  `json:"current_tps"`
+	CurrentTtftMs    int      `json:"current_ttft_ms"`
 	TotalTokens      int64    `json:"total_tokens"`
 	InstalledModels  []string `json:"installed_models"`
 	ModelStatus      string   `json:"model_status,omitempty"`
@@ -83,23 +108,23 @@ type InferencePayload struct {
 
 // Inference Chunk Payload
 type ChunkPayload struct {
-	RequestId string `json:"request_id"`
-	Content   string `json:"content"`
-	TokenId   int    `json:"token_id,omitempty"`
+	RequestId string  `json:"request_id"`
+	Content   string  `json:"content"`
+	TokenId   int     `json:"token_id,omitempty"`
 	Logprob   float64 `json:"logprob,omitempty"`
-	IsFinal   bool   `json:"is_final"`
+	IsFinal   bool    `json:"is_final"`
 }
 
 // Inference Done Payload
 type DonePayload struct {
-	RequestId    string  `json:"request_id"`
-	TotalTokens  int     `json:"total_tokens"`
-	PromptTokens int     `json:"prompt_tokens"`
-	TtftMs       int     `json:"ttft_ms"`
-	Tps          float64 `json:"tps"`
-	RawTokens    []int   `json:"raw_tokens,omitempty"`
+	RequestId    string    `json:"request_id"`
+	TotalTokens  int       `json:"total_tokens"`
+	PromptTokens int       `json:"prompt_tokens"`
+	TtftMs       int       `json:"ttft_ms"`
+	Tps          float64   `json:"tps"`
+	RawTokens    []int     `json:"raw_tokens,omitempty"`
 	Logprobs     []float64 `json:"logprobs,omitempty"`
-	Error        string  `json:"error,omitempty"`
+	Error        string    `json:"error,omitempty"`
 }
 
 // Worker Node Session

@@ -80,6 +80,26 @@ public class LocalNeuralEngine {
     }
 
     /**
+     * The context of the model follows the memory of the device. A small context keeps
+     * the device responsive, a large one gives the model more room for long answers.
+     */
+    private static int contextSizeForDevice() {
+        Runtime runtime = Runtime.getRuntime();
+        long available = runtime.maxMemory();
+        if (available <= 0) {
+            available = 2L * 1024 * 1024 * 1024;
+        }
+        long megabytes = available / (1024 * 1024);
+        if (megabytes >= 6144) {
+            return 8192;
+        }
+        if (megabytes >= 3072) {
+            return 4096;
+        }
+        return 2048;
+    }
+
+    /**
      * Loads (and caches) the llama.cpp model. The caller must surface any failure to
      * the server instead of substituting generated content.
      */
@@ -105,7 +125,7 @@ public class LocalNeuralEngine {
                     .setModel(file.getAbsolutePath())
                     .setThreads(threads)
                     .setThreadsBatch(threads)
-                    .setCtxSize(2048)
+                    .setCtxSize(contextSizeForDevice())
                     .setBatchSize(256)
                     .setGpuLayers(0)
                     .skipWarmup()
@@ -137,7 +157,7 @@ public class LocalNeuralEngine {
      * itself (use_jinja), so prompts are formatted correctly for the concrete model
      * family instead of relying on a hard coded template.
      */
-    private InferenceParameters buildParameters(String prompt, int maxTokens, float temperature) {
+    private InferenceParameters buildParameters(String prompt, int maxTokens, float temperature, float topP, String[] stop) {
         InferenceParameters params = new InferenceParameters("");
         List<Pair<String, String>> messages = new ArrayList<>();
         messages.add(new Pair<>("user", prompt));
@@ -145,17 +165,23 @@ public class LocalNeuralEngine {
         params.setUseChatTemplate(true);
         params.setNPredict(maxTokens);
         params.setTemperature(temperature);
-        params.setTopP(0.92f);
+        params.setTopP(topP > 0 ? topP : 0.92f);
         params.setRepeatPenalty(1.08f);
+        if (stop != null && stop.length > 0) {
+            try {
+                params.setStopStrings(stop);
+            } catch (Throwable ignored) {
+            }
+        }
         return params;
     }
 
     /** Fallback parameters for GGUF files that do not ship a usable chat template. */
-    private InferenceParameters buildRawParameters(String prompt, int maxTokens, float temperature) {
+    private InferenceParameters buildRawParameters(String prompt, int maxTokens, float temperature, float topP) {
         InferenceParameters params = new InferenceParameters(prompt);
         params.setNPredict(maxTokens);
         params.setTemperature(temperature);
-        params.setTopP(0.92f);
+        params.setTopP(topP > 0 ? topP : 0.92f);
         params.setRepeatPenalty(1.08f);
         return params;
     }
@@ -207,7 +233,7 @@ public class LocalNeuralEngine {
     /**
      * Runs a real llama.cpp generation pass and streams the produced tokens.
      */
-    public InferenceResult generateStream(String prompt, int maxTokens, float temperature, StreamCallback callback) {
+    public InferenceResult generateStream(String prompt, int maxTokens, float temperature, float topP, String[] stop, StreamCallback callback) {
         InferenceResult res = new InferenceResult();
         long startTime = System.currentTimeMillis();
 
@@ -219,7 +245,7 @@ public class LocalNeuralEngine {
         }
 
         if (modelFile == null || !modelFile.exists() || modelFile.length() < MIN_MODEL_BYTES) {
-            res.error = "Model dosyasi bulunamadi veya eksik: " + (modelFile != null ? modelFile.getName() : "model.gguf");
+            res.error = "Model dosyası bulunamadı veya eksik: " + (modelFile != null ? modelFile.getName() : "model.gguf");
             res.success = false;
             res.ttftMs = 0;
             res.tps = 0.0f;
@@ -238,7 +264,7 @@ public class LocalNeuralEngine {
             }
 
             try {
-                streamTokens(model, buildParameters(prompt, maxTokens, temperature), callback, state);
+                streamTokens(model, buildParameters(prompt, maxTokens, temperature, topP, stop), callback, state);
             } catch (Throwable templateFailure) {
                 // GGUF without a usable chat template: retry once with the raw prompt.
                 Log.w(TAG, "chat template generation failed, retrying with raw prompt: " + templateFailure.getMessage());
@@ -246,14 +272,14 @@ public class LocalNeuralEngine {
                 state.firstTokenAt = 0;
                 state.text.setLength(0);
                 state.logprobs.clear();
-                streamTokens(model, buildRawParameters(prompt, maxTokens, temperature), callback, state);
+                streamTokens(model, buildRawParameters(prompt, maxTokens, temperature, topP), callback, state);
             }
 
             res.success = true;
         } catch (Throwable t) {
             String msg = t.getMessage() != null ? t.getMessage() : t.toString();
             Log.e(TAG, "llama.cpp inference failed: " + msg, t);
-            res.error = "Cihazda yerel model calistirilamadi: " + msg;
+            res.error = "Cihazda yerel model çalıştırılamadı: " + msg;
             res.success = false;
             if (state.tokenCount == 0) {
                 state.text.setLength(0);

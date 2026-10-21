@@ -312,8 +312,6 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 	return
 }
 
-
-
 type userPairingSession struct {
 	UserId    int
 	CreatedAt int64
@@ -570,6 +568,10 @@ func DeleteUserByogNode(c *gin.Context) {
 	targetNodeId := node.NodeId
 	targetId := node.Id
 	hwid := node.HWID
+
+	// The device is told that it was removed before the session is closed, so the
+	// application can show the state instead of waiting for the next registration.
+	byogservice.NotifyDeviceRemoved(targetNodeId, "Cihaz kaldırıldı")
 	byogservice.GlobalHub.Unregister(targetNodeId)
 
 	if model.DB != nil {
@@ -1032,11 +1034,11 @@ func InspectByogAdminNode(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"node":              node,
-			"multiplier":        mult,
-			"bonuses":           bonuses,
-			"tee_supported":     node.TeeSupported,
-			"tee_type":          node.TeeType,
+			"node":          node,
+			"multiplier":    mult,
+			"bonuses":       bonuses,
+			"tee_supported": node.TeeSupported,
+			"tee_type":      node.TeeType,
 			"temperatures": gin.H{
 				"cpu":     node.CpuTemp,
 				"gpu":     node.GpuTemp,
@@ -1095,6 +1097,7 @@ func DeleteAdminByogNode(c *gin.Context) {
 		return
 	}
 
+	byogservice.NotifyDeviceRemoved(nodeId, "Cihaz kaldırıldı")
 	byogservice.GlobalHub.Unregister(nodeId)
 	err := model.DeleteByogNode(nodeId)
 	if err != nil {
@@ -1110,35 +1113,35 @@ func DeleteAdminByogNode(c *gin.Context) {
 // RegisterByogWorker is called when worker binary starts up
 func RegisterByogWorker(c *gin.Context) {
 	var req struct {
-		NodeId          string  `json:"node_id"`
-		HWID            string  `json:"hwid" binding:"required"`
-		PairingCode     string  `json:"pairing_code"`
-		OS              string  `json:"os"`
-		Arch            string  `json:"arch"`
-		DeviceName      string  `json:"device_name"`
-		DeviceType      string  `json:"device_type"`
-		CpuModel        string  `json:"cpu_model"`
-		GpuModel        string  `json:"gpu_model"`
-		NpuModel        string  `json:"npu_model"`
-		PhysicalRam     int     `json:"physical_ram_mb"`
-		SwapRam         int     `json:"swap_ram_mb"`
-		VramMB          int     `json:"vram_mb"`
-		SharedVramMB    int     `json:"shared_vram_mb"`
-		TeeSupported    bool    `json:"tee_supported"`
-		TeeType         string  `json:"tee_type"`
-		DownMbps        float64 `json:"bandwidth_down_mbps"`
-		UpMbps          float64 `json:"bandwidth_up_mbps"`
-		PingMs          int     `json:"ping_ms"`
-		NetworkType     string  `json:"network_type"`
-		ClientIp        string  `json:"client_ip"`
-		BatteryPercent  int     `json:"battery_percent"`
-		BatteryTemp     float64 `json:"battery_temp"`
-		IsCharging      *bool   `json:"is_charging"`
-		InstalledModels string  `json:"installed_models"`
-		DownloadQueue   string  `json:"download_queue"`
-		ActiveVramModel string  `json:"active_vram_model"`
-		ModelStatus     string  `json:"model_status"`
-		DownloadedMB    int     `json:"downloaded_mb"`
+		NodeId           string  `json:"node_id"`
+		HWID             string  `json:"hwid" binding:"required"`
+		PairingCode      string  `json:"pairing_code"`
+		OS               string  `json:"os"`
+		Arch             string  `json:"arch"`
+		DeviceName       string  `json:"device_name"`
+		DeviceType       string  `json:"device_type"`
+		CpuModel         string  `json:"cpu_model"`
+		GpuModel         string  `json:"gpu_model"`
+		NpuModel         string  `json:"npu_model"`
+		PhysicalRam      int     `json:"physical_ram_mb"`
+		SwapRam          int     `json:"swap_ram_mb"`
+		VramMB           int     `json:"vram_mb"`
+		SharedVramMB     int     `json:"shared_vram_mb"`
+		TeeSupported     bool    `json:"tee_supported"`
+		TeeType          string  `json:"tee_type"`
+		DownMbps         float64 `json:"bandwidth_down_mbps"`
+		UpMbps           float64 `json:"bandwidth_up_mbps"`
+		PingMs           int     `json:"ping_ms"`
+		NetworkType      string  `json:"network_type"`
+		ClientIp         string  `json:"client_ip"`
+		BatteryPercent   int     `json:"battery_percent"`
+		BatteryTemp      float64 `json:"battery_temp"`
+		IsCharging       *bool   `json:"is_charging"`
+		InstalledModels  string  `json:"installed_models"`
+		DownloadQueue    string  `json:"download_queue"`
+		ActiveVramModel  string  `json:"active_vram_model"`
+		ModelStatus      string  `json:"model_status"`
+		DownloadedMB     int     `json:"downloaded_mb"`
 		TotalMB          int     `json:"total_mb"`
 		DownloadProgress int     `json:"download_progress"`
 		TotalDiskGB      int     `json:"total_disk_gb"`
@@ -1926,6 +1929,3 @@ func getByogModelEstimatedSizeMB(modelId string) int {
 	}
 	return 500
 }
-
-
-

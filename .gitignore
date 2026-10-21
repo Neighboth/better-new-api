@@ -52,3 +52,5 @@ worker/mobile/build_tmp/
 # Local APK signing key of the BYOG worker (generated on first use).
 byog_apk_signing_key.pem
 worker/binaries/byog-worker.apk.idsig
+# Model cache of the BYOG coordinator.
+byog_models/
