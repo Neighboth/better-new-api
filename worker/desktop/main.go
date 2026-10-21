@@ -440,6 +440,40 @@ func (e *LocalTransformerEngine) GenerateStream(ctx context.Context, prompt stri
 	return runtime.Infer(ctx, e.GgufPath, filepath.Dir(e.GgufPath), prompt, maxTokens, temperature, onChunk)
 }
 
+// inferenceChunkFrame builds the frame of a generated part of the answer.
+//
+// The payload has to be a JSON object, a byte slice would be encoded as a base64
+// string and the coordinator would not be able to read the answer.
+func inferenceChunkFrame(requestID string, content string, tokenID int, final bool) map[string]interface{} {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"request_id": requestID,
+		"content":    content,
+		"token_id":   tokenID,
+		"is_final":   final,
+	})
+	return map[string]interface{}{
+		"type":    "inference_chunk",
+		"id":      requestID,
+		"payload": json.RawMessage(payload),
+	}
+}
+
+// inferenceDoneFrame builds the frame that closes an inference.
+func inferenceDoneFrame(requestID string, result *llama.Result) map[string]interface{} {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"request_id":    requestID,
+		"total_tokens":  result.TotalTokens,
+		"prompt_tokens": result.PromptTokens,
+		"ttft_ms":       result.TtftMs,
+		"tps":           result.Tps,
+	})
+	return map[string]interface{}{
+		"type":    "inference_done",
+		"id":      requestID,
+		"payload": json.RawMessage(payload),
+	}
+}
+
 // WebSocket Message Dispatcher & Inference Execution
 func handleWebSocketMessages(conn *websocket.Conn) {
 	for {
@@ -622,17 +656,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 						infReq.MaxTokens,
 						infReq.Temperature,
 						func(piece string, tokenId int) bool {
-							chunkPayload, _ := json.Marshal(map[string]interface{}{
-								"request_id": infReq.RequestId,
-								"content":    piece,
-								"token_id":   tokenId,
-								"is_final":   false,
-							})
-							_ = conn.WriteJSON(map[string]interface{}{
-								"type":    "inference_chunk",
-								"id":      infReq.RequestId,
-								"payload": chunkPayload,
-							})
+							_ = conn.WriteJSON(inferenceChunkFrame(infReq.RequestId, piece, tokenId, false))
 							return true
 						},
 					)
@@ -665,18 +689,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 						"payload": finalPayload,
 					})
 
-					donePayload, _ := json.Marshal(map[string]interface{}{
-						"request_id":    infReq.RequestId,
-						"total_tokens":  result.TotalTokens,
-						"prompt_tokens": result.PromptTokens,
-						"ttft_ms":       result.TtftMs,
-						"tps":           result.Tps,
-					})
-					_ = conn.WriteJSON(map[string]interface{}{
-						"type":    "inference_done",
-						"id":      infReq.RequestId,
-						"payload": donePayload,
-					})
+					_ = conn.WriteJSON(inferenceDoneFrame(infReq.RequestId, result))
 
 					// Post-inference VRAM policy:
 					// If hot-start disabled, purge model from VRAM immediately!

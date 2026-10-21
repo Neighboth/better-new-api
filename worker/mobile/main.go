@@ -446,7 +446,7 @@ func handleInference(requestID string, payload map[string]interface{}) {
 			_ = conn.WriteJSON(map[string]interface{}{
 				"type":    "inference_chunk",
 				"id":      requestID,
-				"payload": chunk,
+				"payload": json.RawMessage(chunk),
 			})
 		}
 		return true
@@ -468,19 +468,42 @@ func handleInference(requestID string, payload map[string]interface{}) {
 	conn := State.WsConn
 	State.Mu.Unlock()
 
-	done, _ := json.Marshal(map[string]interface{}{
+	if conn != nil {
+		_ = conn.WriteJSON(inferenceDoneFrame(requestID, result))
+	}
+}
+
+// inferenceChunkFrame builds the frame of a generated part of the answer.
+//
+// The payload has to be a JSON object, a byte slice would be encoded as a base64
+// string and the coordinator would not be able to read the answer.
+func inferenceChunkFrame(requestID string, content string, tokenID int, final bool) map[string]interface{} {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"request_id": requestID,
+		"content":    content,
+		"token_id":   tokenID,
+		"is_final":   final,
+	})
+	return map[string]interface{}{
+		"type":    "inference_chunk",
+		"id":      requestID,
+		"payload": json.RawMessage(payload),
+	}
+}
+
+// inferenceDoneFrame builds the frame that closes an inference.
+func inferenceDoneFrame(requestID string, result *llama.Result) map[string]interface{} {
+	payload, _ := json.Marshal(map[string]interface{}{
 		"request_id":    requestID,
 		"total_tokens":  result.TotalTokens,
 		"prompt_tokens": result.PromptTokens,
 		"ttft_ms":       result.TtftMs,
 		"tps":           result.Tps,
 	})
-	if conn != nil {
-		_ = conn.WriteJSON(map[string]interface{}{
-			"type":    "inference_done",
-			"id":      requestID,
-			"payload": done,
-		})
+	return map[string]interface{}{
+		"type":    "inference_done",
+		"id":      requestID,
+		"payload": json.RawMessage(payload),
 	}
 }
 
