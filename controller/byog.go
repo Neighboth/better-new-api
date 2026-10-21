@@ -1763,6 +1763,37 @@ func byogPolicy(language string) (string, string, bool) {
 	return "", "", false
 }
 
+// GetByogWorkerStatus gives the state of a client of the installation.
+//
+// The page of the client shows the state of the worker, it does not need the
+// session of the user.
+func GetByogWorkerStatus(c *gin.Context) {
+	nodeId := strings.TrimSpace(c.Query("node_id"))
+	if nodeId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "node_id is required"})
+		return
+	}
+	node, err := model.GetByogNodeByNodeId(nodeId)
+	if err != nil || node == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "the client is not known"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"node_id":           node.NodeId,
+			"device_name":       node.DeviceName,
+			"status":            node.Status,
+			"model_status":      node.ModelStatus,
+			"download_status":   node.DownloadStatus,
+			"download_progress": node.DownloadProgress,
+			"current_tps":       node.CurrentTps,
+			"models":            node.InstalledModels,
+			"updated_at":        node.UpdatedAt,
+		},
+	})
+}
+
 // GetByogBootstrap gives the client of the installation the languages and the
 // policies of the installation.
 //

@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,17 +35,19 @@ import (
 
 // The constants of the system.
 const (
-	wmDestroy    = 0x0002
-	wmClose      = 0x0010
-	wmCommand    = 0x0111
-	wmTimer      = 0x0113
-	wmMouseMove  = 0x0200
-	wmLButtonUp  = 0x0202
-	wmEraseBkgnd = 0x0014
-	wmDpiChanged = 0x02E0
-	wmPaint      = 0x000F
-	wmTray       = 0x8000 + 1
-	notifyClick  = 0x40000000
+	wmDestroy       = 0x0002
+	wmClose         = 0x0010
+	wmCommand       = 0x0111
+	wmTimer         = 0x0113
+	wmMouseMove     = 0x0200
+	wmLButtonUp     = 0x0202
+	wmLButtonDblClk = 0x0203
+	wmRButtonUp     = 0x0205
+	wmEraseBkgnd    = 0x0014
+	wmDpiChanged    = 0x02E0
+	wmPaint         = 0x000F
+	wmTray          = 0x8000 + 1
+	notifyClick     = 0x40000000
 
 	csHRedraw = 0x0002
 	csVRedraw = 0x0001
@@ -805,7 +808,7 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 			case commandShow:
 				window.show()
 			case commandPanel:
-				window.openPanel()
+				window.openClientPage()
 			case commandSettings:
 				window.openSiteSettings()
 			case commandClose:
@@ -821,14 +824,14 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 	case wmTray:
 		if window != nil {
 			switch lparam {
-			case notifyClick:
+			case wmRButtonUp, wmLButtonUp:
+				// The menu of the icon is shown with the right button of the
+				// mouse, the left button shows it as well.
 				window.showTrayMenu()
-			case commandShow:
+			case wmLButtonDblClk:
+				// The double click brings the window of the client to the
+				// front.
 				window.show()
-			case commandPanel:
-				window.openPanel()
-			case commandQuit:
-				window.quit()
 			}
 		}
 		return 0
@@ -1063,6 +1066,55 @@ func (w *guiWindow) openPanel() {
 		target = "http://" + target
 	}
 	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", target).Start()
+}
+
+// openClientPage opens the page of the client of the installation.
+//
+// The page is shown in a window of the browser without the bars of it, the
+// window fills itself and it follows the theme of the site.
+func (w *guiWindow) openClientPage() {
+	status := readStatus()
+	target := strings.TrimRight(status.ServerUrl, "/")
+	if target == "" {
+		return
+	}
+	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
+		target = "http://" + target
+	}
+	page := target + "/client"
+	if status.NodeId != "" {
+		page += "?node=" + neturl.QueryEscape(status.NodeId)
+	}
+
+	for _, browser := range clientBrowsers() {
+		if _, err := os.Stat(browser); err != nil {
+			continue
+		}
+		command := exec.Command(browser, "--app="+page, "--window-size=760,520")
+		command.Dir = filepath.Dir(browser)
+		if command.Start() == nil {
+			return
+		}
+	}
+	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", page).Start()
+}
+
+// clientBrowsers returns the browsers of the computer.
+//
+// The window of the browser is used without the bars of it, the page of the
+// client fills the window.
+func clientBrowsers() []string {
+	paths := make([]string, 0, 4)
+	for _, root := range []string{os.Getenv("ProgramFiles(x86)"), os.Getenv("ProgramFiles"), os.Getenv("LocalAppData")} {
+		if root == "" {
+			continue
+		}
+		paths = append(paths,
+			filepath.Join(root, "Microsoft", "Edge", "Application", "msedge.exe"),
+			filepath.Join(root, "Google", "Chrome", "Application", "chrome.exe"),
+		)
+	}
+	return paths
 }
 
 // openSiteSettings opens the settings of the installation on the site.
