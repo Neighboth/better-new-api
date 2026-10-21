@@ -26,6 +26,7 @@ import (
 // AppStatus is the state of the worker that the interface shows.
 type AppStatus struct {
 	AppName      string
+	SystemName   string
 	ServerUrl    string
 	NodeId       string
 	DeviceName   string
@@ -162,6 +163,7 @@ func applyConfig(config Config) {
 // registerResult is the answer of the coordinator to a registration.
 type registerResult struct {
 	AppName     string
+	SystemName  string
 	FaviconURL  string
 	FaviconB64  string
 	Assigned    []assignedModel
@@ -240,6 +242,7 @@ func registerWorker() (registerResult, error) {
 			UserId      int    `json:"user_id"`
 			IsPaired    bool   `json:"is_paired"`
 			AppName     string `json:"app_name"`
+			SystemName  string `json:"system_name"`
 			Favicon     string `json:"favicon"`
 			FaviconB64  string `json:"favicon_base64"`
 			Assigned    []struct {
@@ -275,6 +278,10 @@ func registerWorker() (registerResult, error) {
 	if payload.Data.AppName != "" {
 		result.AppName = payload.Data.AppName
 	}
+	result.SystemName = payload.Data.SystemName
+	if result.SystemName != "" {
+		result.AppName = result.SystemName + " BYOG"
+	}
 	result.FaviconURL = payload.Data.Favicon
 	result.FaviconB64 = payload.Data.FaviconB64
 	for _, detail := range payload.Data.Assigned {
@@ -287,6 +294,7 @@ func registerWorker() (registerResult, error) {
 
 	updateStatus(func(status *AppStatus) {
 		status.AppName = result.AppName
+		status.SystemName = result.SystemName
 		status.NodeId = payload.Data.NodeId
 		status.Paired = payload.Data.IsPaired
 		status.PairingCode = State.Config.PairingCode

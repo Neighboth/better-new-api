@@ -518,6 +518,7 @@ func SetApiRouter(router *gin.Engine) {
 		byogRoute := apiRouter.Group("/byog")
 		{
 			byogRoute.GET("/status", middleware.TryUserAuth(), controller.GetByogStatus)
+			byogRoute.GET("/favicon.ico", controller.GetByogFaviconIcon)
 			byogUserRoute := byogRoute.Group("/user")
 			byogUserRoute.Use(middleware.UserAuth())
 			{

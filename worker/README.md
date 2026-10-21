@@ -9,7 +9,7 @@ device and it takes the tasks of the coordinator.
 | Dosya | Sistem | Arayüz |
 | --- | --- | --- |
 | `BYOG Worker.exe` | Windows | Kendi penceresi, bildirim alanında simge |
-| `BYOG Worker Kurulumu.exe` | Windows | Dosya, istemciyi kendisi kurar |
+| `BYOG Worker Kurulumu.exe` | Windows | Inno Setup ile kurulum programı |
 | `byog-worker-linux-amd64` | Linux | Tarayıcıda açılan sayfa |
 | `byog-worker-darwin-arm64` | macOS | Tarayıcıda açılan sayfa |
 | `byog-worker-android-arm64` | Android / Termux | Termux arayüzü (`termux-gui`) |
@@ -18,17 +18,26 @@ device and it takes the tasks of the coordinator.
 ## The installation on Windows
 
 The client of Windows is a program of the graphical user interface, it has no
-terminal. The program of the installation is a copy of the client:
+terminal. The program of the installation is built with Inno Setup, the standard
+tool of Windows:
 
 1. The user downloads `BYOG Worker Kurulumu.exe` from the dashboard.
-2. The program copies itself into `%LOCALAPPDATA%\Programs\BYOG Worker`.
-3. The entries of the control panel are written, the client appears in the
+2. The program asks the directory of the installation, the default is
+   `%LOCALAPPDATA%\Programs\BYOG Worker`.
+3. The user decides whether the client gets a shortcut on the desktop.
+4. The entries of the control panel are written, the client appears in the
    applications of the system and in the search of Windows.
-4. The shortcut of the start menu is written, the client starts.
+5. The shortcut of the start menu is written with the icon of the installation,
+   the client starts.
 
-The client is removed with the applications of the control panel. The entry of
-the system is `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\BYOGWorker`,
-the removal calls the client with `--uninstall`.
+The client is removed with the applications of the control panel, the removal is
+done by the uninstaller of the installation. The entry of the system is
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{5B4C0A1E-6C1B-4C0E-9E4F-7A3D2B5C8E11}_is1`.
+
+The dashboard hands out a shortcut (`.lnk`) for the client of Windows as well.
+The shortcut carries the name of the installation and its icon, it downloads the
+client and it gives the address of the installation to it. The client does not
+ask the address of the installation when it comes from the dashboard.
 
 The client installs itself when it is started outside of the program directory
 of the user, the file of the installation is only a copy with a name that the
@@ -45,7 +54,8 @@ The files of the client are in the profile of the user:
 | `~/.byog/models/` | Modeller |
 
 The server address and the pairing code are also written in the interface of
-the client.
+the client. The field of the server address is hidden when the address is known
+from the dashboard.
 
 ## The build of the clients
 
@@ -54,4 +64,6 @@ powershell -ExecutionPolicy Bypass -File worker\build-clients.ps1
 ```
 
 The script builds the clients of all systems, the client of Windows is built
-with the subsystem of the graphical user interface, it has no terminal.
+with the subsystem of the graphical user interface, it has no terminal. The
+program of the installation is built with Inno Setup, it is skipped when Inno
+Setup is not on the computer.

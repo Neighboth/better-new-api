@@ -8,6 +8,10 @@ package main
 // it can be removed with the applications of the control panel. The worker runs
 // in the background, the window only shows the state of the worker.
 //
+// Every measure of the layout comes from a design of 480 points, the window
+// scales the design with the resolution of the screen. The window looks the same
+// on every screen and it does not break when the resolution changes.
+//
 // The functions of the system are called directly, the client has no other
 // dependency.
 
@@ -17,9 +21,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/QuantumNous/new-api/worker/desktop/installer"
@@ -27,13 +33,17 @@ import (
 
 // The constants of the system.
 const (
-	wmDestroy   = 0x0002
-	wmClose     = 0x0010
-	wmCommand   = 0x0111
-	wmTimer     = 0x0113
-	wmTray      = 0x8000 + 1
-	wmRefresh   = 0x8000 + 2
-	notifyClick = 0x40000000
+	wmDestroy    = 0x0002
+	wmClose      = 0x0010
+	wmCommand    = 0x0111
+	wmTimer      = 0x0113
+	wmMouseMove  = 0x0200
+	wmLButtonUp  = 0x0202
+	wmEraseBkgnd = 0x0014
+	wmDpiChanged = 0x02E0
+	wmPaint      = 0x000F
+	wmTray       = 0x8000 + 1
+	notifyClick  = 0x40000000
 
 	csHRedraw = 0x0002
 	csVRedraw = 0x0001
@@ -44,10 +54,9 @@ const (
 	wsMinimizeBox      = 0x00020000
 	wsChild            = 0x40000000
 	wsVisible          = 0x10000000
+	wsBorder           = 0x00800000
+	wsClipChildren     = 0x02000000
 
-	ssLeft          = 0x0000
-	bsPushButton    = 0x0000
-	bsDefaultPush   = 0x0001
 	esAutoHScroll   = 0x0080
 	swShow          = 5
 	swHide          = 0
@@ -56,37 +65,28 @@ const (
 	lrLoadFromFile  = 0x0010
 	lrDefaultSize   = 0x0040
 	cwUseDefault    = 0x80000000
+	idcHand         = 32512
+	resourceArrow   = 32512
+	resourceAppIcon = 32512
+
 	iconAdd         = 0x00000000
 	iconDelete      = 0x00000002
 	iconFlagMessage = 0x00000001
 	iconFlagIcon    = 0x00000002
 	iconFlagTip     = 0x00000004
-	commandShow     = 100
-	commandPanel    = 101
-	commandQuit     = 102
-	commandConnect  = 103
-	commandRefresh  = 104
 
-	// The ids of the controls of the window.
-	controlPairEdit   = 201
-	controlPairButton = 202
-	controlPanel      = 203
-	controlRefresh    = 204
-	controlQuit       = 205
-	controlServerEdit = 206
+	commandShow    = 100
+	commandPanel   = 101
+	commandQuit    = 102
+	commandConnect = 103
 
-	// The messages of the window.
-	wmSetFont = 0x0030
+	controlServerEdit = 201
+	controlPairEdit   = 202
+	trayIconID        = 1
 
-	// The stock objects of the system.
-	stockDefaultGuiFont = 17
-
-	// The border of the fields of the window.
-	wsBorder         = 0x00800000
-	trayIconID       = 1
-	resourceArrow    = 32512
-	resourceAppIcon  = 32512
-	sysMenuSeparator = 0x0800
+	// The measures of the design of the window.
+	designWidth  = 560
+	designHeight = 424
 )
 
 // The libraries of the system.
@@ -94,43 +94,70 @@ var (
 	user32   = syscall.NewLazyDLL("user32.dll")
 	kernel32 = syscall.NewLazyDLL("kernel32.dll")
 	shell32  = syscall.NewLazyDLL("shell32.dll")
+	gdi32    = syscall.NewLazyDLL("gdi32.dll")
 
-	procRegisterClassEx   = user32.NewProc("RegisterClassExW")
-	procCreateWindowEx    = user32.NewProc("CreateWindowExW")
-	procDefWindowProc     = user32.NewProc("DefWindowProcW")
-	procGetMessage        = user32.NewProc("GetMessageW")
-	procTranslateMessage  = user32.NewProc("TranslateMessage")
-	procDispatchMessage   = user32.NewProc("DispatchMessageW")
-	procPostQuitMessage   = user32.NewProc("PostQuitMessage")
-	procSetWindowText     = user32.NewProc("SetWindowTextW")
-	procGetWindowText     = user32.NewProc("GetWindowTextW")
-	procGetWindowTextLen  = user32.NewProc("GetWindowTextLengthW")
-	procLoadIcon          = user32.NewProc("LoadIconW")
-	procLoadCursor        = user32.NewProc("LoadCursorW")
-	procLoadImage         = user32.NewProc("LoadImageW")
-	procGetSysColorBrush  = user32.NewProc("GetSysColorBrush")
-	procSetTimer          = user32.NewProc("SetTimer")
-	procShowWindow        = user32.NewProc("ShowWindow")
-	procUpdateWindow      = user32.NewProc("UpdateWindow")
-	procCreatePopupMenu   = user32.NewProc("CreatePopupMenu")
-	procAppendMenu        = user32.NewProc("AppendMenuW")
-	procTrackPopupMenu    = user32.NewProc("TrackPopupMenu")
-	procDestroyMenu       = user32.NewProc("DestroyMenu")
-	procGetCursorPos      = user32.NewProc("GetCursorPos")
-	procSetForeground     = user32.NewProc("SetForegroundWindow")
-	procDestroyWindow     = user32.NewProc("DestroyWindow")
-	procGetCurrentProcess = kernel32.NewProc("GetCurrentProcessId")
-	procShellNotifyIcon   = shell32.NewProc("Shell_NotifyIconW")
-	gdi32                 = syscall.NewLazyDLL("gdi32.dll")
+	procRegisterClassEx             = user32.NewProc("RegisterClassExW")
+	procCreateWindowEx              = user32.NewProc("CreateWindowExW")
+	procDefWindowProc               = user32.NewProc("DefWindowProcW")
+	procGetMessage                  = user32.NewProc("GetMessageW")
+	procTranslateMessage            = user32.NewProc("TranslateMessage")
+	procDispatchMessage             = user32.NewProc("DispatchMessageW")
+	procPostQuitMessage             = user32.NewProc("PostQuitMessage")
+	procSetWindowText               = user32.NewProc("SetWindowTextW")
+	procGetWindowText               = user32.NewProc("GetWindowTextW")
+	procGetWindowTextLen            = user32.NewProc("GetWindowTextLengthW")
+	procLoadIcon                    = user32.NewProc("LoadIconW")
+	procLoadCursor                  = user32.NewProc("LoadCursorW")
+	procLoadImage                   = user32.NewProc("LoadImageW")
+	procGetSysColorBrush            = user32.NewProc("GetSysColorBrush")
+	procSetTimer                    = user32.NewProc("SetTimer")
+	procShowWindow                  = user32.NewProc("ShowWindow")
+	procUpdateWindow                = user32.NewProc("UpdateWindow")
+	procInvalidateRect              = user32.NewProc("InvalidateRect")
+	procCreatePopupMenu             = user32.NewProc("CreatePopupMenu")
+	procAppendMenu                  = user32.NewProc("AppendMenuW")
+	procTrackPopupMenu              = user32.NewProc("TrackPopupMenu")
+	procDestroyMenu                 = user32.NewProc("DestroyMenu")
+	procGetCursorPos                = user32.NewProc("GetCursorPos")
+	procSetForeground               = user32.NewProc("SetForegroundWindow")
+	procDestroyWindow               = user32.NewProc("DestroyWindow")
+	procGetDC                       = user32.NewProc("GetDC")
+	procReleaseDC                   = user32.NewProc("ReleaseDC")
+	procBeginPaint                  = user32.NewProc("BeginPaint")
+	procEndPaint                    = user32.NewProc("EndPaint")
+	procDrawText                    = user32.NewProc("DrawTextW")
+	procFillRect                    = user32.NewProc("FillRect")
+	procSetWindowPos                = user32.NewProc("SetWindowPos")
+	procSetCursor                   = user32.NewProc("SetCursor")
+	procTrackMouseEvent             = user32.NewProc("TrackMouseEvent")
+	procSetProcessDpiAwareContext   = user32.NewProc("SetProcessDpiAwarenessContext")
+	procSetProcessDPIAware          = user32.NewProc("SetProcessDPIAware")
+	procGetDeviceCaps               = gdi32.NewProc("GetDeviceCaps")
+	procAddFontResourceEx           = gdi32.NewProc("AddFontResourceExW")
+	procGetDpiForWindow             = user32.NewProc("GetDpiForWindow")
+	procSetProcessDpiAwareContextV2 = user32.NewProc("SetProcessDpiAwarenessContext")
+	procSetProcessDpiAwareContext1  = user32.NewProc("SetProcessDpiAwarenessContext")
+	procGetDpiForSystem             = user32.NewProc("GetDpiForSystem")
+	procSendMessage                 = user32.NewProc("SendMessageW")
+	procGetCurrentProcess           = kernel32.NewProc("GetCurrentProcessId")
+	procShellNotifyIcon             = shell32.NewProc("Shell_NotifyIconW")
 
-	procGetStockObject            = gdi32.NewProc("GetStockObject")
-	procSendMessage               = user32.NewProc("SendMessageW")
-	procSetProcessDpiAwareContext = user32.NewProc("SetProcessDpiAwarenessContext")
-	procSetProcessDPIAware        = user32.NewProc("SetProcessDPIAware")
-	procGetDpiForSystem           = user32.NewProc("GetDpiForSystem")
+	procCreateCompatibleDC     = gdi32.NewProc("CreateCompatibleDC")
+	procCreateCompatibleBitmap = gdi32.NewProc("CreateCompatibleBitmap")
+	procSelectObject           = gdi32.NewProc("SelectObject")
+	procDeleteObject           = gdi32.NewProc("DeleteObject")
+	procDeleteDC               = gdi32.NewProc("DeleteDC")
+	procBitBlt                 = gdi32.NewProc("BitBlt")
+	procRoundRect              = gdi32.NewProc("RoundRect")
+	procEllipse                = gdi32.NewProc("Ellipse")
+	procSetBkMode              = gdi32.NewProc("SetBkMode")
+	procSetTextColor           = gdi32.NewProc("SetTextColor")
+	procCreateSolidBrush       = gdi32.NewProc("CreateSolidBrush")
+	procCreatePen              = gdi32.NewProc("CreatePen")
+	procCreateFont             = gdi32.NewProc("CreateFontW")
 )
 
-// windowClassEx is the description of the class of the window.
+// The structures of the system.
 type windowClassEx struct {
 	Size       uint32
 	Style      uint32
@@ -146,7 +173,6 @@ type windowClassEx struct {
 	IconName   *uint16
 }
 
-// windowMessage is a message of the window.
 type windowMessage struct {
 	Hwnd    uintptr
 	Message uint32
@@ -156,13 +182,34 @@ type windowMessage struct {
 	Point   struct{ X, Y int32 }
 }
 
-// windowPoint is a point of the screen.
 type windowPoint struct {
 	X int32
 	Y int32
 }
 
-// notifyIconData is the structure of the icon in the notification area.
+type clientRect struct {
+	Left   int32
+	Top    int32
+	Right  int32
+	Bottom int32
+}
+
+type paintStruct struct {
+	HDC       uintptr
+	Erase     int32
+	RectPaint clientRect
+	Restore   int32
+	IncUpdate int32
+	Reserved  [32]byte
+}
+
+type trackMouseEvent struct {
+	Size        uint32
+	Flags       uint32
+	TrackWindow uintptr
+	HoverTime   uint32
+}
+
 type notifyIconData struct {
 	Size             uint32
 	Window           uintptr
@@ -181,20 +228,54 @@ type notifyIconData struct {
 	BalloonIcon      uintptr
 }
 
-// guiWindow holds the controls of the window of the client.
+// The states of the connection of the worker.
+const (
+	stateOffline = iota
+	stateOnline
+	stateDownloading
+	stateError
+)
+
+// The button of the window.
+type uiButton struct {
+	command int
+	left    int32
+	top     int32
+	right   int32
+	bottom  int32
+	label   string
+	primary bool
+}
+
+// guiWindow holds the state of the window of the client.
 type guiWindow struct {
-	window      uintptr
-	statusLabel uintptr
-	nodeLabel   uintptr
-	modelLabel  uintptr
-	serverEdit  uintptr
-	pairEdit    uintptr
-	icon        uintptr
-	trayAdded   bool
-	instance    uintptr
-	className   *uint16
-	mutex       sync.Mutex
-	lastStatus  string
+	window    uintptr
+	icon      uintptr
+	instance  uintptr
+	className *uint16
+	dpi       int32
+
+	serverEdit uintptr
+	pairEdit   uintptr
+	// serverFieldShown tells if the field of the address of the installation is
+	// shown in the window.
+	serverFieldShown bool
+	buttons          []uiButton
+	hovered          int
+
+	fontTitle uintptr
+	fontText  uintptr
+	fontSmall uintptr
+
+	statusText  string
+	statusState int
+	details     [3]string
+	progress    int
+	progressSet bool
+
+	mutex         sync.Mutex
+	trayAdded     bool
+	lastConnected bool
 }
 
 var (
@@ -232,7 +313,7 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string) {
 	applyConfig(config)
 	saveConfig(config)
 
-	window := &guiWindow{}
+	window := &guiWindow{statusState: stateOffline, statusText: "Bağlanılıyor...", hovered: -1}
 	window.create()
 
 	// The worker starts in the background, the window shows its state.
@@ -242,14 +323,85 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string) {
 			if err != nil {
 				updateStatus(func(status *AppStatus) { status.LastError = err.Error() })
 			} else {
-				updateInstallationBranding(result.AppName, result.FaviconB64)
+				updateInstallationBranding(result.AppName, result.SystemName, result.FaviconB64)
 			}
 			startTunnel()
 		}
 		startBackgroundTasks()
 	}()
 
+	// The state of the worker is read in the background, the window never waits
+	// for the worker.
+	go window.watchWorker()
+
 	window.messageLoop()
+}
+
+// applyBranding shows the name and the icon of the installation in the window.
+//
+// The dashboard sends its name and its icon, the window shows them as soon as
+// the client is known.
+func (w *guiWindow) applyBranding() {
+	setText(w.window, windowTitle())
+	path := applicationIconPath()
+	if path == "" {
+		return
+	}
+	icon, _, _ := procLoadImage.Call(
+		0,
+		uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(path))),
+		uintptr(imageIcon),
+		0,
+		0,
+		uintptr(lrLoadFromFile|lrDefaultSize),
+	)
+	if icon == 0 {
+		return
+	}
+	w.icon = icon
+	// WM_SETICON
+	procSendMessage.Call(w.window, 0x0080, 0, icon)
+	procSendMessage.Call(w.window, 0x0080, 1, icon)
+	w.addTrayIcon()
+	w.invalidate()
+}
+
+// watchWorker reads the state of the worker and shows it in the window.
+func (w *guiWindow) watchWorker() {
+	for {
+		time.Sleep(time.Second)
+		syncStatus()
+		status := readStatus()
+
+		connection := "Bağlı değil"
+		state := stateOffline
+		switch {
+		case status.LastError != "":
+			connection = status.LastError
+			state = stateError
+		case status.ModelStatus == "downloading":
+			connection = "Model indiriliyor"
+			state = stateDownloading
+		case status.Connected:
+			connection = "Çevrimiçi"
+			state = stateOnline
+		}
+
+		w.mutex.Lock()
+		changed := connection != w.statusText || state != w.statusState || status.Connected != w.lastConnected
+		w.statusText = connection
+		w.statusState = state
+		w.lastConnected = status.Connected
+		w.progress = status.Progress
+		w.progressSet = status.ModelStatus == "downloading"
+		w.details = [3]string{status.ServerUrl, status.NodeId, modelDescription(status)}
+		w.mutex.Unlock()
+
+		if changed {
+			w.applyBranding()
+			w.invalidate()
+		}
+	}
 }
 
 // redirectOutputToLog writes the output of the client into its log file.
@@ -267,26 +419,64 @@ func redirectOutputToLog() {
 
 // enableDpiAwareness lets the window use the real sizes of the screen.
 //
-// Without the awareness of the resolution, the system draws the text of the
-// controls bigger than the controls themselves.
+// Without the awareness of the resolution, the system scales the window of the
+// client and the text of the window is blurred.
 func enableDpiAwareness() {
 	// PER_MONITOR_AWARE_V2
-	context, _, _ := procSetProcessDpiAwareContext.Call(uintptr(0xFFFFFFFC))
-	if context == 0 {
-		procSetProcessDPIAware.Call()
+	if result, _, _ := procSetProcessDpiAwareContextV2.Call(uintptr(0xFFFFFFFC)); result != 0 {
+		return
 	}
+	// PER_MONITOR_AWARE
+	if result, _, _ := procSetProcessDpiAwareContext1.Call(uintptr(0xFFFFFFFD)); result != 0 {
+		return
+	}
+	procSetProcessDPIAware.Call()
 }
 
-// scale returns the measure of the screen for a value of the layout.
+// screenDpi returns the resolution of the screen of the window in dots per inch.
 //
-// The controls of the window keep their size on a screen with a high
-// resolution.
-func scale(value int32) int32 {
-	dpi, _, _ := procGetDpiForSystem.Call()
-	if dpi == 0 {
-		dpi = 96
+// The value is read from the window, the window can be on a screen with another
+// resolution than the screen of the system.
+func (w *guiWindow) screenDpi() int32 {
+	if w.window != 0 {
+		dpi, _, _ := procGetDpiForWindow.Call(w.window)
+		if dpi > 0 {
+			return int32(dpi)
+		}
 	}
-	return value * int32(dpi) / 96
+	if w.dpi > 0 {
+		return w.dpi
+	}
+	return systemDpi()
+}
+
+// scaleValue returns the measure of the screen for a measure of the design.
+func (w *guiWindow) scaleValue(value int32) int32 {
+	return value * w.dpi / 96
+}
+
+// windowDpi returns the resolution of the screen of the window in dots per inch.
+func (w *guiWindow) windowDpi() int32 {
+	dpi, _, _ := procGetDpiForWindow.Call(w.window)
+	return int32(dpi)
+}
+
+// systemDpi returns the resolution of the screen of the system in dots per inch.
+func systemDpi() int32 {
+	if dpi, _, _ := procGetDpiForSystem.Call(); dpi > 0 {
+		return int32(dpi)
+	}
+	device, _, _ := procGetDC.Call(0)
+	if device == 0 {
+		return 96
+	}
+	defer procReleaseDC.Call(0, device)
+	// LOGPIXELSX
+	dpi, _, _ := procGetDeviceCaps.Call(device, 88)
+	if dpi == 0 {
+		return 96
+	}
+	return int32(dpi)
 }
 
 // create builds the window of the client.
@@ -296,6 +486,10 @@ func (w *guiWindow) create() {
 	w.instance = processId
 	w.className, _ = syscall.UTF16PtrFromString("ByogWorkerWindow")
 	w.icon = w.loadApplicationIcon()
+	w.dpi = systemDpi()
+
+	brush, _, _ := procGetSysColorBrush.Call(uintptr(colorWindow))
+	cursor, _, _ := procLoadCursor.Call(0, uintptr(resourceArrow))
 
 	class := windowClassEx{
 		Size:       uint32(unsafe.Sizeof(windowClassEx{})),
@@ -303,8 +497,8 @@ func (w *guiWindow) create() {
 		WndProc:    syscall.NewCallback(wndProc),
 		Instance:   w.instance,
 		Icon:       w.icon,
-		Cursor:     w.loadCursor(),
-		Background: w.loadBrush(),
+		Cursor:     cursor,
+		Background: brush,
 		ClassName:  w.className,
 	}
 	procRegisterClassEx.Call(uintptr(unsafe.Pointer(&class)))
@@ -312,12 +506,12 @@ func (w *guiWindow) create() {
 	window, _, _ := procCreateWindowEx.Call(
 		0,
 		uintptr(unsafe.Pointer(w.className)),
-		uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("BYOG Worker"))),
-		wsOverlappedWindow|wsCaption|wsSysMenu|wsMinimizeBox,
+		uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("BYOG"))),
+		wsOverlappedWindow|wsCaption|wsSysMenu|wsMinimizeBox|wsClipChildren,
 		uintptr(cwUseDefault),
 		uintptr(cwUseDefault),
-		uintptr(scale(460)),
-		uintptr(scale(360)),
+		uintptr(w.scaleValue(designWidth)),
+		uintptr(w.scaleValue(designHeight)),
 		0,
 		0,
 		w.instance,
@@ -332,65 +526,142 @@ func (w *guiWindow) create() {
 	guiWindows[window] = w
 	guiWindowsMutex.Unlock()
 
+	loadInterfaceFont()
+	// The window knows its resolution now, it gets the size of the design.
+	w.dpi = w.screenDpi()
+	procSetWindowPos.Call(w.window, 0, 0, 0, uintptr(w.scaleValue(designWidth+16)), uintptr(w.scaleValue(designHeight+55)), 0x0004)
+
+	w.createFonts()
 	w.createControls()
-	w.fillFields()
 	w.addTrayIcon()
 	procSetTimer.Call(w.window, 1, 1000, 0)
 	procShowWindow.Call(w.window, swShow)
 	procUpdateWindow.Call(w.window)
-	w.refresh()
 }
 
-// loadCursor loads the pointer of the mouse of the window.
-func (w *guiWindow) loadCursor() uintptr {
-	cursor, _, _ := procLoadCursor.Call(0, uintptr(resourceArrow))
-	return cursor
+// loadInterfaceFont adds the font of the interface to the system.
+//
+// The font belongs to the client, the user does not have to install it. The
+// shapes of the font are written to a file of the temporary directory, the
+// system of the drawing reads the font from a file.
+func loadInterfaceFont() {
+	addFont := func(font []byte, name string) {
+		if len(font) == 0 {
+			return
+		}
+		directory := filepath.Join(os.TempDir(), "byog-fonts")
+		if err := os.MkdirAll(directory, 0755); err != nil {
+			return
+		}
+		path := filepath.Join(directory, name)
+		if err := os.WriteFile(path, font, 0644); err != nil {
+			return
+		}
+		file, _ := syscall.UTF16PtrFromString(path)
+		procAddFontResourceEx.Call(
+			uintptr(unsafe.Pointer(file)),
+			0x00000010, // FR_PRIVATE
+			0,
+		)
+		// The name of the file must stay in the memory until the system is done
+		// with it.
+		runtime.KeepAlive(file)
+	}
+	addFont(interfaceFont, "DMSans-Regular.ttf")
+	addFont(interfaceFontBold, "DMSans-Bold.ttf")
 }
 
-// loadBrush loads the brush of the background of the window.
-func (w *guiWindow) loadBrush() uintptr {
-	brush, _, _ := procGetSysColorBrush.Call(uintptr(colorWindow))
-	return brush
+// createFonts builds the fonts of the window.
+func (w *guiWindow) createFonts() {
+	makeFont := func(weight int32, height int32) uintptr {
+		name := syscall.StringToUTF16Ptr("DM Sans")
+		font, _, _ := procCreateFont.Call(
+			uintptr(-height),
+			0,
+			0,
+			0,
+			uintptr(weight),
+			0,
+			0,
+			0,
+			1, // DEFAULT_CHARSET
+			0,
+			0,
+			5, // CLEARTYPE_QUALITY
+			0,
+			uintptr(unsafe.Pointer(name)),
+		)
+		// The name of the font must stay in the memory until the system is done
+		// with it.
+		runtime.KeepAlive(name)
+		return font
+	}
+	w.fontTitle = makeFont(700, 18)
+	w.fontText = makeFont(400, 14)
+	w.fontSmall = makeFont(400, 13)
 }
 
-// createControls builds the controls of the window.
+// createControls builds the fields and the buttons of the window.
 func (w *guiWindow) createControls() {
-	font, _, _ := procGetStockObject.Call(uintptr(stockDefaultGuiFont))
+	w.buttons = []uiButton{
+		{command: commandConnect, left: 48, top: 368, right: 176, bottom: 404, label: "Bağlan", primary: true},
+		{command: commandPanel, left: 188, top: 368, right: 316, bottom: 404, label: "Panele git"},
+		{command: commandQuit, left: 328, top: 368, right: 456, bottom: 404, label: "Çıkış"},
+	}
 
-	child := func(id int, class string, text string, style uint32, x int32, y int32, width int32, height int32) uintptr {
+	createField := func(id int, text string, left int32, top int32, width int32) uintptr {
+		class := syscall.StringToUTF16Ptr("EDIT")
+		title := syscall.StringToUTF16Ptr(text)
 		control, _, _ := procCreateWindowEx.Call(
 			0,
-			uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(class))),
-			uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(text))),
-			uintptr(wsChild|wsVisible|style),
-			uintptr(scale(x)),
-			uintptr(scale(y)),
-			uintptr(scale(width)),
-			uintptr(scale(height)),
+			uintptr(unsafe.Pointer(class)),
+			uintptr(unsafe.Pointer(title)),
+			uintptr(wsChild|wsVisible|esAutoHScroll),
+			uintptr(w.scaleValue(left)),
+			uintptr(w.scaleValue(top)),
+			uintptr(w.scaleValue(width)),
+			uintptr(w.scaleValue(30)),
 			w.window,
 			uintptr(id),
 			w.instance,
 			0,
 		)
-		procSendMessage.Call(control, wmSetFont, font, 1)
+		// The characters of the field must stay in the memory until the system is
+		// done with them.
+		runtime.KeepAlive(class)
+		runtime.KeepAlive(title)
 		return control
 	}
 
-	w.statusLabel = child(0, "STATIC", "Bağlanılıyor...", ssLeft, 20, 18, 400, 22)
-	child(0, "STATIC", "Cihaz:", ssLeft, 20, 54, 90, 20)
-	w.nodeLabel = child(0, "STATIC", "-", ssLeft, 120, 54, 300, 20)
-	child(0, "STATIC", "Model:", ssLeft, 20, 82, 90, 20)
-	w.modelLabel = child(0, "STATIC", "-", ssLeft, 120, 82, 300, 20)
+	// The address of the installation is known when the client comes from the
+	// dashboard, the field of it is hidden then.
+	w.serverFieldShown = readStatus().ServerUrl == ""
+	if w.serverFieldShown {
+		w.serverEdit = createField(controlServerEdit, "", 48, 196, 464)
+		w.pairEdit = createField(controlPairEdit, "", 48, 276, 464)
+	} else {
+		w.pairEdit = createField(controlPairEdit, "", 48, 166, 464)
+	}
+	procSendMessage.Call(w.serverEdit, 0x0030, w.fontText, 1)
+	procSendMessage.Call(w.pairEdit, 0x0030, w.fontText, 1)
+	w.fillFields()
+}
 
-	child(0, "STATIC", "Sunucu adresi:", ssLeft, 20, 116, 100, 20)
-	w.serverEdit = child(controlServerEdit, "EDIT", "", esAutoHScroll|wsBorder, 20, 138, 362, 26)
-	child(0, "STATIC", "Eşleştirme kodu:", ssLeft, 20, 172, 120, 20)
-	w.pairEdit = child(controlPairEdit, "EDIT", "", esAutoHScroll|wsBorder, 20, 194, 250, 26)
-	child(controlPairButton, "BUTTON", "Bağlan", bsDefaultPush, 282, 192, 100, 30)
-	child(controlPanel, "BUTTON", "Panele git", bsPushButton, 20, 240, 120, 30)
-	child(controlRefresh, "BUTTON", "Yeniden bağlan", bsPushButton, 150, 240, 140, 30)
-	child(controlQuit, "BUTTON", "Çıkış", bsPushButton, 300, 240, 100, 30)
-	child(0, "STATIC", "Bilgiler worker.log dosyasına yazılır.", ssLeft, 20, 282, 400, 20)
+// setText writes a text into a window of the system.
+//
+// The characters of the text must stay in the memory until the system is done
+// with them.
+func setText(window uintptr, text string) {
+	chars := syscall.StringToUTF16Ptr(text)
+	procSetWindowText.Call(window, uintptr(unsafe.Pointer(chars)))
+	runtime.KeepAlive(chars)
+}
+
+// fillFields writes the known values into the fields of the window.
+func (w *guiWindow) fillFields() {
+	status := readStatus()
+	setText(w.serverEdit, status.ServerUrl)
+	setText(w.pairEdit, status.PairingCode)
 }
 
 // loadApplicationIcon loads the icon of the client.
@@ -429,32 +700,20 @@ func (w *guiWindow) messageLoop() {
 	}
 }
 
-// refresh reads the state of the worker and shows it.
-func (w *guiWindow) refresh() {
-	syncStatus()
-	status := readStatus()
+// invalidate asks the window to draw itself again.
+func (w *guiWindow) invalidate() {
+	procInvalidateRect.Call(w.window, 0, 0)
+}
 
-	connection := "Bağlı değil"
-	switch {
-	case status.ModelStatus == "downloading":
-		connection = fmt.Sprintf("Çevrimiçi (İndiriliyor %%%d)", status.Progress)
-	case status.Connected:
-		connection = "Çevrimiçi"
+// readField reads the value of a field of the window.
+func (w *guiWindow) readField(field uintptr) string {
+	var buffer [512]uint16
+	length, _, _ := procGetWindowTextLen.Call(field)
+	if length > uintptr(len(buffer)-1) {
+		length = uintptr(len(buffer) - 1)
 	}
-	if status.LastError != "" {
-		connection = status.LastError
-	}
-
-	w.mutex.Lock()
-	changed := connection != w.lastStatus
-	w.lastStatus = connection
-	w.mutex.Unlock()
-
-	if changed {
-		procSetWindowText.Call(w.statusLabel, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(connection))))
-	}
-	procSetWindowText.Call(w.nodeLabel, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(status.NodeId))))
-	procSetWindowText.Call(w.modelLabel, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(modelDescription(status)))))
+	procGetWindowText.Call(field, uintptr(unsafe.Pointer(&buffer[0])), length+1)
+	return strings.TrimSpace(syscall.UTF16ToString(buffer[:length+1]))
 }
 
 // modelDescription describes the model of the worker for the interface.
@@ -471,6 +730,214 @@ func modelDescription(status AppStatus) string {
 	return "model bekleniyor"
 }
 
+// wndProc handles the messages of the window of the client.
+func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
+	guiWindowsMutex.Lock()
+	window := guiWindows[hwnd]
+	guiWindowsMutex.Unlock()
+
+	switch message {
+	case wmTimer:
+		if window != nil {
+			window.invalidate()
+		}
+		return 0
+
+	case wmPaint:
+		if window != nil {
+			var surface paintStruct
+			device, _, _ := procBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&surface)))
+			window.paint(device)
+			procEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&surface)))
+		}
+		return 0
+
+	case wmEraseBkgnd:
+		// The window draws its background itself.
+		return 1
+
+	case wmMouseMove:
+		if window != nil {
+			window.trackMouse(lparam)
+		}
+		return 0
+
+	case wmLButtonUp:
+		if window != nil {
+			window.click(lparam)
+		}
+		return 0
+
+	case wmCommand:
+		if window != nil {
+			switch wparam & 0xFFFF {
+			case controlPairEdit:
+				window.connect()
+			}
+		}
+		return 0
+
+	case wmTray:
+		if window != nil {
+			switch lparam {
+			case notifyClick:
+				window.showTrayMenu()
+			case commandShow:
+				window.show()
+			case commandPanel:
+				window.openPanel()
+			case commandQuit:
+				window.quit()
+			}
+		}
+		return 0
+
+	case wmDpiChanged:
+		if window != nil {
+			window.dpi = window.screenDpi()
+			window.layout()
+		}
+		return 0
+
+	case wmClose:
+		if window != nil {
+			// The client stays in the notification area, the worker keeps running.
+			procShowWindow.Call(window.window, swHide)
+			return 0
+		}
+		return 0
+
+	case wmDestroy:
+		if window != nil {
+			window.removeTrayIcon()
+			guiWindowsMutex.Lock()
+			delete(guiWindows, hwnd)
+			guiWindowsMutex.Unlock()
+		}
+		procPostQuitMessage.Call(0)
+		return 0
+	}
+
+	result, _, _ := procDefWindowProc.Call(hwnd, uintptr(message), wparam, lparam)
+	return result
+}
+
+// trackMouse follows the pointer of the mouse over the buttons of the window.
+func (w *guiWindow) trackMouse(lparam uintptr) {
+	x := int32(lparam & 0xFFFF)
+	y := int32((lparam >> 16) & 0xFFFF)
+	hovered := -1
+	for index, button := range w.buttons {
+		if x >= w.scaleValue(button.left) && x <= w.scaleValue(button.right) &&
+			y >= w.scaleValue(button.top) && y <= w.scaleValue(button.bottom) {
+			hovered = index
+			break
+		}
+	}
+	if hovered == w.hovered {
+		return
+	}
+	w.hovered = hovered
+	if hovered >= 0 {
+		cursor, _, _ := procLoadCursor.Call(0, idcHand)
+		procSetCursor.Call(cursor)
+		event := trackMouseEvent{
+			Size:        uint32(unsafe.Sizeof(trackMouseEvent{})),
+			Flags:       0x00000001 | 0x00000002, // TME_LEAVE | TME_HOVER
+			TrackWindow: w.window,
+			HoverTime:   100,
+		}
+		procTrackMouseEvent.Call(uintptr(unsafe.Pointer(&event)))
+	} else {
+		cursor, _, _ := procLoadCursor.Call(0, uintptr(resourceArrow))
+		procSetCursor.Call(cursor)
+	}
+	w.invalidate()
+}
+
+// click handles a click of the mouse over a button of the window.
+func (w *guiWindow) click(lparam uintptr) {
+	x := int32(lparam & 0xFFFF)
+	y := int32((lparam >> 16) & 0xFFFF)
+	for _, button := range w.buttons {
+		if x >= w.scaleValue(button.left) && x <= w.scaleValue(button.right) &&
+			y >= w.scaleValue(button.top) && y <= w.scaleValue(button.bottom) {
+			w.runCommand(button.command)
+			return
+		}
+	}
+}
+
+// runCommand runs the command of a button of the window.
+func (w *guiWindow) runCommand(command int) {
+	switch command {
+	case commandConnect:
+		w.connect()
+	case commandPanel:
+		w.openPanel()
+	case commandQuit:
+		w.quit()
+	}
+}
+
+// connect pairs the client with the coordinator.
+func (w *guiWindow) connect() {
+	code := w.readField(w.pairEdit)
+	server := w.readField(w.serverEdit)
+
+	if code == "" {
+		updateStatus(func(status *AppStatus) { status.LastError = "Eşleştirme kodu girilmedi" })
+		w.invalidate()
+		return
+	}
+
+	State.Mu.Lock()
+	State.Config.PairingCode = strings.ToUpper(code)
+	if server != "" {
+		State.Config.ServerUrl = server
+	}
+	State.Mu.Unlock()
+	saveConfig(State.Config)
+
+	updateStatus(func(status *AppStatus) { status.LastError = "" })
+
+	go func() {
+		result, err := registerWorker()
+		if err != nil {
+			updateStatus(func(status *AppStatus) { status.LastError = err.Error() })
+			return
+		}
+		updateInstallationBranding(result.AppName, result.SystemName, result.FaviconB64)
+		startTunnel()
+	}()
+}
+
+// openPanel opens the dashboard of the installation in the browser.
+func (w *guiWindow) openPanel() {
+	status := readStatus()
+	target := strings.TrimRight(status.ServerUrl, "/")
+	if target == "" {
+		return
+	}
+	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
+		target = "http://" + target
+	}
+	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", target).Start()
+}
+
+// quit ends the client.
+func (w *guiWindow) quit() {
+	w.removeTrayIcon()
+	os.Exit(0)
+}
+
+// show brings the window of the client to the front.
+func (w *guiWindow) show() {
+	procShowWindow.Call(w.window, swShow)
+	procUpdateWindow.Call(w.window)
+	w.invalidate()
+}
+
 // addTrayIcon shows the client in the notification area of the system.
 func (w *guiWindow) addTrayIcon() {
 	data := notifyIconData{
@@ -481,7 +948,7 @@ func (w *guiWindow) addTrayIcon() {
 		CallbackMessage: wmTray,
 		Icon:            w.icon,
 	}
-	tip, _ := syscall.UTF16FromString("BYOG Worker")
+	tip, _ := syscall.UTF16FromString("BYOG")
 	copy(data.Tip[:], tip)
 	procShellNotifyIcon.Call(uintptr(iconAdd), uintptr(unsafe.Pointer(&data)))
 	w.trayAdded = true
@@ -515,172 +982,12 @@ func (w *guiWindow) showTrayMenu() {
 	procDestroyMenu.Call(menu)
 }
 
-// wndProc handles the messages of the window of the client.
-func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
-	guiWindowsMutex.Lock()
-	window := guiWindows[hwnd]
-	guiWindowsMutex.Unlock()
-
-	switch message {
-	case wmTimer:
-		if window != nil {
-			window.refresh()
-		}
-		return 0
-
-	case wmCommand:
-		if window != nil {
-			switch wparam & 0xFFFF {
-			case controlPairButton:
-				window.connect()
-			case controlPanel:
-				window.openPanel()
-			case controlRefresh:
-				window.reconnect()
-			case controlQuit:
-				window.quit()
-			}
-		}
-		return 0
-
-	case wmTray:
-		if window != nil {
-			switch lparam {
-			case notifyClick:
-				window.showTrayMenu()
-			case commandShow:
-				window.show()
-			case commandPanel:
-				window.openPanel()
-			case commandQuit:
-				window.quit()
-			}
-		}
-		return 0
-
-	case wmRefresh:
-		if window != nil {
-			window.show()
-		}
-		return 0
-
-	case wmClose:
-		if window != nil {
-			// The client stays in the notification area, the worker keeps running.
-			procShowWindow.Call(window.window, swHide)
-			return 0
-		}
-		return 0
-
-	case wmDestroy:
-		if window != nil {
-			window.removeTrayIcon()
-			guiWindowsMutex.Lock()
-			delete(guiWindows, hwnd)
-			guiWindowsMutex.Unlock()
-		}
-		procPostQuitMessage.Call(0)
-		return 0
-	}
-
-	result, _, _ := procDefWindowProc.Call(hwnd, uintptr(message), wparam, lparam)
-	return result
-}
-
-// show brings the window of the client to the front.
-func (w *guiWindow) show() {
-	procShowWindow.Call(w.window, swShow)
-	procUpdateWindow.Call(w.window)
-	w.refresh()
-}
-
-// fillFields writes the known values into the fields of the window.
-func (w *guiWindow) fillFields() {
-	status := readStatus()
-	procSetWindowText.Call(w.serverEdit, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(status.ServerUrl))))
-	procSetWindowText.Call(w.pairEdit, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(status.PairingCode))))
-}
-
-// readField reads the value of a field of the window.
-func (w *guiWindow) readField(field uintptr) string {
-	var buffer [512]uint16
-	length, _, _ := procGetWindowTextLen.Call(field)
-	if length > uintptr(len(buffer)-1) {
-		length = uintptr(len(buffer) - 1)
-	}
-	procGetWindowText.Call(field, uintptr(unsafe.Pointer(&buffer[0])), length+1)
-	return strings.TrimSpace(syscall.UTF16ToString(buffer[:length+1]))
-}
-
-// connect pairs the client with the coordinator.
-func (w *guiWindow) connect() {
-	code := w.readField(w.pairEdit)
-	server := w.readField(w.serverEdit)
-
-	if code == "" {
-		updateStatus(func(status *AppStatus) { status.LastError = "Eşleştirme kodu girilmedi" })
-		w.refresh()
-		return
-	}
-
-	State.Mu.Lock()
-	State.Config.PairingCode = strings.ToUpper(code)
-	if server != "" {
-		State.Config.ServerUrl = server
-	}
-	State.Mu.Unlock()
-	saveConfig(State.Config)
-
-	updateStatus(func(status *AppStatus) { status.LastError = "" })
-
-	go func() {
-		result, err := registerWorker()
-		if err != nil {
-			updateStatus(func(status *AppStatus) { status.LastError = err.Error() })
-			return
-		}
-		updateInstallationBranding(result.AppName, result.FaviconB64)
-		startTunnel()
-	}()
-}
-
-// reconnect registers the worker again and opens the tunnel.
-func (w *guiWindow) reconnect() {
-	updateStatus(func(status *AppStatus) { status.LastError = "" })
-	go func() {
-		if _, err := registerWorker(); err != nil {
-			updateStatus(func(status *AppStatus) { status.LastError = err.Error() })
-			return
-		}
-		startTunnel()
-	}()
-}
-
-// openPanel opens the dashboard of the installation in the browser.
-func (w *guiWindow) openPanel() {
-	status := readStatus()
-	target := strings.TrimRight(status.ServerUrl, "/")
-	if target == "" {
-		return
-	}
-	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
-		target = "http://" + target
-	}
-	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", target).Start()
-}
-
-// quit ends the client.
-func (w *guiWindow) quit() {
-	w.removeTrayIcon()
-	os.Exit(0)
-}
-
 // updateInstallationBranding writes the name and the icon of the installation
 // into the entries of the system.
 //
 // The dashboard sends its name and its icon, the client shows them in the
 // control panel and in the search of the system.
-func updateInstallationBranding(appName string, faviconBase64 string) {
+func updateInstallationBranding(appName string, systemName string, faviconBase64 string) {
 	writeApplicationIcon(faviconBase64)
 	_ = installer.UpdateBranding(appName, WorkerVersion)
 }

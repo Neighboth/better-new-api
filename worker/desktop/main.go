@@ -80,6 +80,16 @@ var State = &WorkerState{
 //go:embed assets/logo.png
 var defaultIconPNG []byte
 
+// interfaceFont is the font of the interface of the client.
+//
+//go:embed assets/DMSans-Regular.ttf
+var interfaceFont []byte
+
+// interfaceFontBold is the bold shape of the font of the interface.
+//
+//go:embed assets/DMSans-Bold.ttf
+var interfaceFontBold []byte
+
 // Generate Cryptographic HWID (Section 3.1 & 5.1)
 func generateHWID() string {
 	raw := fmt.Sprintf("%s-%s-%s-%s-%d",
@@ -789,11 +799,7 @@ func main() {
 // and starts the installed program. The function returns true when the client
 // was installed, the program of the installation ends then.
 func installIfNeeded() bool {
-	executable, err := os.Executable()
-	if err != nil {
-		return false
-	}
-	if installer.IsInstalled() && sameFile(executable, installer.Executable()) {
+	if installer.IsInstalled() {
 		return false
 	}
 	installApp()
@@ -893,7 +899,7 @@ func runConsole(serverFlag string, codeFlag string, deviceFlag string) {
 	if err != nil {
 		fmt.Println("[BYOG WORKER] Registration pending or offline. Connecting to tunnel...")
 	} else {
-		updateInstallationBranding(result.AppName, result.FaviconB64)
+		updateInstallationBranding(result.AppName, result.SystemName, result.FaviconB64)
 	}
 
 	startTunnel()

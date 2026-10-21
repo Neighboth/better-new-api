@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/sys/windows/registry"
@@ -86,22 +87,100 @@ func Uninstall() error {
 	return nil
 }
 
-// UpdateBranding writes the name of the installation into the entries of the
-// system.
+// UpdateBranding writes the name and the icon of the installation into the
+// entries of the system.
 //
-// The dashboard sends its name, the client shows it in the control panel and in
-// the search of the system.
+// The dashboard sends its name and its icon, the client shows them in the
+// control panel and in the search of the system.
 func UpdateBranding(displayName string, version string) error {
 	if displayName == "" {
+		return nil
+	}
+	if err := updateInstallationName(displayName, version); err != nil {
+		return err
+	}
+	renameShortcut(displayName)
+	return nil
+}
+
+// The key of the installer of the system.
+const systemUninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\{5B4C0A1E-6C1B-4C0E-9E4F-7A3D2B5C8E11}_is1`
+
+// updateInstallationName writes the name of the installation into the entry of
+// the installation.
+//
+// The installer of the system writes its own entry, the name of the installation
+// is written into that entry when it is there. The client writes its own entry
+// when the installation was made by the client.
+func updateInstallationName(displayName string, version string) error {
+	if _, err := os.Stat(filepath.Join(Directory(), "unins000.exe")); err == nil {
+		key, err := registry.OpenKey(registry.CURRENT_USER, systemUninstallKey, registry.SET_VALUE)
+		if err != nil {
+			return Install(displayName, version)
+		}
+		defer key.Close()
+		_ = key.SetStringValue("DisplayName", displayName)
+		_ = key.SetStringValue("DisplayVersion", version)
+		_ = key.SetStringValue("DisplayIcon", filepath.Join(Directory(), "byog.ico"))
 		return nil
 	}
 	return Install(displayName, version)
 }
 
+// renameShortcut gives the shortcut of the client the name of the installation.
+//
+// The shortcut of the start menu is the way the user starts the client, it shows
+// the name of the installation.
+func renameShortcut(displayName string) {
+	current := ShortcutPath()
+	if _, err := os.Stat(current); err != nil {
+		return
+	}
+	cleaned := strings.Map(func(character rune) rune {
+		switch character {
+		case '\\', '/', ':', '*', '?', '"', '<', '>', '|':
+			return '-'
+		}
+		return character
+	}, displayName)
+	target := filepath.Join(filepath.Dir(current), strings.TrimSpace(cleaned)+".lnk")
+	if target == current {
+		return
+	}
+	if _, err := os.Stat(target); err == nil {
+		_ = os.Remove(target)
+	}
+	if err := os.Rename(current, target); err != nil {
+		return
+	}
+	script := fmt.Sprintf(
+		"$shell = New-Object -ComObject WScript.Shell; "+
+			"$shortcut = $shell.CreateShortcut(%q); "+
+			"$shortcut.IconLocation = %q; "+
+			"$shortcut.Save()",
+		target, filepath.Join(Directory(), "byog.ico"))
+	command := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	_ = command.Run()
+}
+
 // IsInstalled reports whether the client is installed on the computer.
+//
+// The installer of the system writes the uninstaller into the directory of the
+// client, the entries of the system are written by the client itself.
 func IsInstalled() bool {
-	_, err := os.Stat(Executable())
-	return err == nil
+	if _, err := os.Stat(filepath.Join(Directory(), "unins000.exe")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(Executable()); err == nil {
+		key, err := registry.OpenKey(registry.CURRENT_USER, uninstallKey, registry.QUERY_VALUE)
+		if err == nil {
+			defer key.Close()
+			if _, _, err := key.GetIntegerValue("NoModify"); err == nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // writeUninstallEntry writes the entry of the client in the applications of the
@@ -146,7 +225,8 @@ func removeRegistryKey(path string) {
 // writeStartMenuShortcut writes the shortcut of the client in the start menu.
 //
 // The shortcut shows the client in the search of the system, it is the way the
-// user starts the client.
+// user starts the client. The system writes the file, it knows the way to the
+// program of the shortcut.
 func writeStartMenuShortcut(executable string, icon string) {
 	shortcut := ShortcutPath()
 	if err := os.MkdirAll(filepath.Dir(shortcut), 0755); err != nil {

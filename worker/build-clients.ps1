@@ -2,11 +2,13 @@
 #
 # The Windows client is a program of the graphical user interface, it is shown
 # in the applications of the control panel and in the search of the system. The
-# program of the installation copies the client into the computer and writes the
-# entries of the system.
+# program of the installation is built with Inno Setup, the user chooses the
+# directory of the installation and decides whether the client gets a shortcut
+# on the desktop.
 
 param(
-    [switch]$SkipMobile
+    [switch]$SkipMobile,
+    [switch]$SkipInstaller
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,18 +25,13 @@ $env:GOARCH = "amd64"
 # The client has no terminal, the graphical interface of the client is the
 # program itself.
 $ldflags = "-s -w -H windowsgui"
-$workerExe = Join-Path $binaries "byog-worker.exe"
-go build -ldflags $ldflags -o $workerExe ./worker/desktop
-Copy-Item $workerExe (Join-Path $binaries "BYOG Worker.exe") -Force
+go build -ldflags $ldflags -o (Join-Path $binaries "BYOG Worker.exe") ./worker/desktop
 
-# The file of the installation is a copy of the client, the client installs
-# itself when it is started for the first time.
-Write-Host "BYOG Worker Kurulumu hazirlaniyor..."
-Copy-Item (Join-Path $binaries "BYOG Worker.exe") (Join-Path $binaries "BYOG Worker Kurulumu.exe") -Force
-
-# The program of the client is only kept in the program directory of the
-# installation.
-Remove-Item $workerExe -Force -ErrorAction SilentlyContinue
+# The icon of the installation is the picture of the logo.
+$icon = Join-Path $root "worker\desktop\assets\byog.ico"
+if (-not (Test-Path $icon)) {
+    Write-Host "Ikon bulunamadi: $icon"
+}
 
 Write-Host "BYOG Worker (Linux) derleniyor..."
 $env:GOOS = "linux"
@@ -59,6 +56,30 @@ if (-not $SkipMobile) {
     Remove-Item Env:GOOS
     Remove-Item Env:GOARCH
     Remove-Item Env:CGO_ENABLED
+}
+
+if (-not $SkipInstaller) {
+    # The program of the installation is built with Inno Setup, the standard
+    # tool of Windows.
+    $compiler = $null
+    foreach ($candidate in @(
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+            "C:\Program Files\Inno Setup 6\ISCC.exe")) {
+        if (Test-Path $candidate) {
+            $compiler = $candidate
+            break
+        }
+    }
+    if ($null -eq $compiler) {
+        Write-Host "Inno Setup bulunamadi, kurulum programi derlenmedi."
+    } else {
+        Write-Host "BYOG Worker Kurulumu derleniyor..."
+        & $compiler (Join-Path $root "worker\installer\byog-worker.iss")
+        if ($LASTEXITCODE -ne 0) {
+            throw "Kurulum programi derlenemedi."
+        }
+    }
 }
 
 Write-Host ""

@@ -21,6 +21,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/icon"
+	"github.com/QuantumNous/new-api/pkg/lnk"
 	byogservice "github.com/QuantumNous/new-api/service/byog"
 	"github.com/gin-gonic/gin"
 )
@@ -1725,19 +1727,73 @@ func GetByogWorkerVersion(c *gin.Context) {
 	})
 }
 
+// GetByogFaviconIcon serves the icon of the installation as an icon file of
+// Windows.
+//
+// The shortcut of the client of Windows points to this address, the icon of the
+// installation is the icon of the client.
+func GetByogFaviconIcon(c *gin.Context) {
+	scheme := "http"
+	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+	_, _, _, faviconBase64 := getBranding(serverUrl)
+
+	payload := faviconBase64
+	if index := strings.Index(payload, ","); index >= 0 {
+		payload = payload[index+1:]
+	}
+	raw, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "the installation has no icon"})
+		return
+	}
+	iconData := icon.FromPNG(raw)
+	if len(iconData) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "the installation has no icon"})
+		return
+	}
+	c.Header("Content-Type", "image/x-icon")
+	c.Data(http.StatusOK, "image/x-icon", iconData)
+}
+
 // DownloadByogWorker serves worker release binary or APK if present, or redirects to configured external download URL
 func DownloadByogWorker(c *gin.Context) {
 	platform := c.Param("platform")
 	arch := c.Param("arch")
 	fileName := fmt.Sprintf("byog-worker-%s-%s", platform, arch)
 	if platform == "windows" {
-		// The client of Windows is a program of the graphical user interface, it
-		// installs itself when it is started for the first time.
-		if c.Query("setup") == "1" {
-			fileName = "BYOG Worker Kurulumu.exe"
-		} else {
-			fileName = "BYOG Worker.exe"
+		// The client of Windows is a program of the graphical user interface, the
+		// dashboard hands out a shortcut that carries the name and the icon of the
+		// installation and the address of the program of the installation.
+		scheme := "http"
+		if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+			scheme = "https"
 		}
+		serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+		systemName, appName, _, _ := getBranding(serverUrl)
+		displayName := strings.TrimSpace(systemName + " BYOG")
+		if displayName == "BYOG" {
+			displayName = appName
+		}
+		clientUrl := fmt.Sprintf("%s/api/v1/worker/download/windows/amd64", serverUrl)
+		shortcut := lnk.Shortcut{
+			Name:       displayName,
+			TargetPath: "powershell.exe",
+			Arguments: fmt.Sprintf(
+				"-NoProfile -WindowStyle Hidden -Command \"Invoke-WebRequest -Uri '%s' -OutFile \\\"$env:TEMP\\\\BYOG Worker.exe\\\"; "+
+					"Start-Process \\\"$env:TEMP\\\\BYOG Worker.exe\\\" -ArgumentList '--server=%s'\"",
+				clientUrl, serverUrl),
+			WorkingDirectory: "C:\\Windows\\System32",
+			Description:      "The client of the local computing network of the installation",
+			IconLocation:     fmt.Sprintf("%s/api/byog/favicon.ico", serverUrl),
+		}
+		name := lnk.FileName(displayName)
+		c.Header("Content-Type", "application/octet-stream")
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
+		c.Data(http.StatusOK, "application/octet-stream", shortcut.Bytes())
+		return
 	} else if platform == "android" {
 		if arch == "apk" {
 			fileName = "byog-worker.apk"
