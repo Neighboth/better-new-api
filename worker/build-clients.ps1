@@ -45,12 +45,12 @@ if (-not (Test-Path $icon)) {
 Write-Host "BYOG Worker (Linux) derleniyor..."
 $env:GOOS = "linux"
 $env:GOARCH = "amd64"
-go build -ldflags "-s -w" -o (Join-Path $binaries "byog-worker-linux-amd64") ./worker/desktop
+go build -trimpath -ldflags "-s -w" -o (Join-Path $binaries "byog-worker-linux-amd64") ./worker/desktop
 
 Write-Host "BYOG Worker (macOS) derleniyor..."
 $env:GOOS = "darwin"
 $env:GOARCH = "arm64"
-go build -ldflags "-s -w" -o (Join-Path $binaries "byog-worker-darwin-arm64") ./worker/desktop
+go build -trimpath -ldflags "-s -w" -o (Join-Path $binaries "byog-worker-darwin-arm64") ./worker/desktop
 
 Remove-Item Env:GOOS
 Remove-Item Env:GOARCH
@@ -61,7 +61,7 @@ if (-not $SkipMobile) {
     $env:CGO_ENABLED = "0"
     $env:GOOS = "linux"
     $env:GOARCH = "arm64"
-    go build -ldflags "-s -w" -o (Join-Path $binaries "byog-worker-android-arm64") ./worker/mobile
+    go build -trimpath -ldflags "-s -w" -o (Join-Path $binaries "byog-worker-android-arm64") ./worker/mobile
     Remove-Item Env:GOOS
     Remove-Item Env:GOARCH
     Remove-Item Env:CGO_ENABLED

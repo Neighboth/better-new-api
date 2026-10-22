@@ -129,10 +129,20 @@ export function ClientPage() {
   const [localApi, setLocalApi] = useState('')
   const [localToken, setLocalToken] = useState('')
 
-  // The page of the client is always light, the client of the installation is
-  // not a part of the theme of the site.
+  // The page of the client follows the theme of the system, the theme of the
+  // site is not used for it.
   useEffect(() => {
-    document.documentElement.classList.remove('dark')
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const apply = () => {
+      if (media.matches) {
+        document.documentElement.classList.add('dark')
+      } else {
+        document.documentElement.classList.remove('dark')
+      }
+    }
+    apply()
+    media.addEventListener('change', apply)
+    return () => media.removeEventListener('change', apply)
   }, [])
 
   // The application of Android tells the page that a new version of it is
@@ -433,7 +443,7 @@ export function ClientPage() {
     const step = onboardingSteps[Math.min(onboardingStep, onboardingSteps.length - 1)]
     const Icon = step.icon
     return (
-      <div className='bg-white text-slate-900 flex h-screen w-full items-center justify-center p-6'>
+      <div className='bg-background text-foreground flex h-screen w-full items-center justify-center p-6'>
         <Card className='w-full max-w-md'>
           <CardHeader>
             <CardTitle className='flex items-center gap-2'>
@@ -442,15 +452,15 @@ export function ClientPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className='grid gap-4'>
-            <p className='text-slate-600 text-sm'>
+            <p className='text-muted-foreground text-sm'>
               {t('byog.client_onboarding_description')}
             </p>
-            <div className='text-slate-500 flex items-center gap-2 text-xs'>
+            <div className='text-muted-foreground flex items-center gap-2 text-xs'>
               {onboardingSteps.map((item, index) => (
                 <span
                   key={item.key}
                   className={`h-2 w-8 rounded-full ${
-                    index <= onboardingStep ? 'bg-blue-500' : 'bg-slate-200'
+                    index <= onboardingStep ? 'bg-primary' : 'bg-slate-200'
                   }`}
                 />
               ))}
@@ -487,9 +497,9 @@ export function ClientPage() {
     : PAGES
 
   return (
-    <div className='bg-white text-slate-900 flex h-screen w-full overflow-hidden text-left'>
+    <div className='bg-background text-foreground flex h-screen w-full overflow-hidden text-left'>
       {updateVersion && (
-        <div className='flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm'>
+        <div className='flex items-center gap-3 rounded-lg border border-primary/20 bg-primary/10 px-4 py-2 text-sm'>
           <span className='flex-1'>
             {t('byog.client_update_available', { version: updateVersion })}
           </span>
@@ -501,8 +511,8 @@ export function ClientPage() {
           </Button>
         </div>
       )}
-      <aside className='flex w-52 shrink-0 flex-col gap-1 border-r border-slate-200 bg-slate-50 p-3'>
-        <div className='text-blue-600 mb-2 px-3 text-lg font-bold'>
+      <aside className='flex w-52 shrink-0 flex-col gap-1 border-r border-border bg-card p-3'>
+        <div className='text-primary mb-2 px-3 text-lg font-bold'>
           {t('byog.client_title')}
         </div>
         {pages.map((item) => {
@@ -515,8 +525,8 @@ export function ClientPage() {
               onClick={() => setPage(item.key)}
               className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
                 active
-                  ? 'bg-blue-50 text-blue-600 font-semibold'
-                  : 'text-slate-600 hover:bg-slate-100'
+                  ? 'bg-blue-50 text-primary font-semibold'
+                  : 'text-muted-foreground hover:bg-slate-100'
               }`}
             >
               <Icon className='h-4 w-4' />
@@ -526,7 +536,7 @@ export function ClientPage() {
             </button>
           )
         })}
-        <div className='text-slate-500 mt-auto px-3 text-xs'>
+        <div className='text-muted-foreground mt-auto px-3 text-xs'>
           {state?.device_name || nodeId || '-'}
         </div>
       </aside>
@@ -552,30 +562,30 @@ export function ClientPage() {
             </CardHeader>
             <CardContent className='grid gap-3'>
               <div className='flex items-center gap-2 text-sm'>
-                <Server className='text-slate-400 h-4 w-4' />
-                <span className='text-slate-500 w-24'>
+                <Server className='text-muted-foreground h-4 w-4' />
+                <span className='text-muted-foreground w-24'>
                   {t('byog.client_server')}
                 </span>
                 <span className='truncate'>{serverUrl || window.location.origin}</span>
               </div>
               <div className='flex items-center gap-2 text-sm'>
-                <Cpu className='text-slate-400 h-4 w-4' />
-                <span className='text-slate-500 w-24'>
+                <Cpu className='text-muted-foreground h-4 w-4' />
+                <span className='text-muted-foreground w-24'>
                   {t('byog.client_model')}
                 </span>
                 <span className='truncate'>{state?.models || '-'}</span>
               </div>
               <div className='flex items-center gap-2 text-sm'>
-                <Gauge className='text-slate-400 h-4 w-4' />
-                <span className='text-slate-500 w-24'>
+                <Gauge className='text-muted-foreground h-4 w-4' />
+                <span className='text-muted-foreground w-24'>
                   {t('byog.client_speed')}
                 </span>
                 <span>{(state?.current_tps ?? 0).toFixed(1)}</span>
               </div>
               {state && state.download_progress > 0 && (
-                <div className='bg-slate-200 h-2 w-full overflow-hidden rounded-full'>
+                <div className='bg-muted h-2 w-full overflow-hidden rounded-full'>
                   <div
-                    className='h-full rounded-full bg-blue-500'
+                    className='h-full rounded-full bg-primary'
                     style={{ width: `${state.download_progress}%` }}
                   />
                 </div>
@@ -590,7 +600,7 @@ export function ClientPage() {
               <CardTitle>{t('byog.client_pairing')}</CardTitle>
             </CardHeader>
             <CardContent className='grid gap-3'>
-              <p className='text-slate-600 text-sm'>
+              <p className='text-muted-foreground text-sm'>
                 {t('byog.enter_pairing_code_instructions')}
               </p>
               <div className='flex gap-2'>
@@ -615,7 +625,7 @@ export function ClientPage() {
             </CardHeader>
             <CardContent className='grid gap-3 text-sm'>
               <div className='flex gap-2'>
-                <span className='text-slate-500 w-24'>
+                <span className='text-muted-foreground w-24'>
                   {t('byog.client_server')}
                 </span>
                 <span className='truncate'>
@@ -623,14 +633,14 @@ export function ClientPage() {
                 </span>
               </div>
               <div className='flex gap-2'>
-                <span className='text-slate-500 w-24'>
+                <span className='text-muted-foreground w-24'>
                   {t('byog.client_node')}
                 </span>
                 <span className='truncate'>{nodeId || '-'}</span>
               </div>
               {language && (
                 <div className='flex gap-2'>
-                  <span className='text-slate-500 w-24'>
+                  <span className='text-muted-foreground w-24'>
                     {t('byog.client_language')}
                   </span>
                   <span className='truncate'>{language}</span>
@@ -638,13 +648,13 @@ export function ClientPage() {
               )}
               {localApi && (
                 <div className='flex items-center gap-2'>
-                  <span className='text-slate-500 w-24'>
+                  <span className='text-muted-foreground w-24'>
                     {t('byog.client_language')}
                   </span>
                   <select
                     value={language}
                     onChange={changeLanguage}
-                    className='border-slate-200 bg-white h-9 rounded-md border px-3 text-sm'
+                    className='border-slate-200 bg-background h-9 rounded-md border px-3 text-sm'
                   >
                     {LANGUAGES.map((code) => (
                       <option key={code} value={code}>
@@ -674,7 +684,7 @@ export function ClientPage() {
                 {t('byog.client_run_test')}
               </Button>
               {answer && (
-                <pre className='bg-slate-100 max-h-64 overflow-auto rounded-lg p-3 text-sm whitespace-pre-wrap'>
+                <pre className='bg-muted max-h-64 overflow-auto rounded-lg p-3 text-sm whitespace-pre-wrap'>
                   {answer}
                 </pre>
               )}
@@ -690,7 +700,7 @@ export function ClientPage() {
             </CardHeader>
             <CardContent className='grid gap-3'>
               <div className='flex items-center gap-3 text-sm'>
-                <Bell className='text-slate-400 h-4 w-4' />
+                <Bell className='text-muted-foreground h-4 w-4' />
                 <span className='flex-1'>{t('byog.client_permission_notifications')}</span>
                 <Badge
                   variant={
@@ -711,7 +721,7 @@ export function ClientPage() {
                 )}
               </div>
               <div className='flex items-center gap-3 text-sm'>
-                <Battery className='text-slate-400 h-4 w-4' />
+                <Battery className='text-muted-foreground h-4 w-4' />
                 <span className='flex-1'>{t('byog.client_permission_battery')}</span>
                 <Badge variant={permissions?.battery ? 'default' : 'secondary'}>
                   {permissions?.battery
@@ -729,7 +739,7 @@ export function ClientPage() {
               </div>
               {permissions?.autostart_supported && (
                 <div className='flex items-center gap-3 text-sm'>
-                  <Zap className='text-slate-400 h-4 w-4' />
+                  <Zap className='text-muted-foreground h-4 w-4' />
                   <span className='flex-1'>
                     {t('byog.client_permission_autostart')}
                   </span>
@@ -749,7 +759,7 @@ export function ClientPage() {
               )}
               {permissions?.bgactivity_supported && (
                 <div className='flex items-center gap-3 text-sm'>
-                  <Activity className='text-slate-400 h-4 w-4' />
+                  <Activity className='text-muted-foreground h-4 w-4' />
                   <span className='flex-1'>
                     {t('byog.client_permission_background')}
                   </span>
@@ -771,7 +781,7 @@ export function ClientPage() {
                 </div>
               )}
               {onboardingDone && (
-                <div className='text-slate-500 flex items-center gap-2 text-xs'>
+                <div className='text-muted-foreground flex items-center gap-2 text-xs'>
                   <CheckCircle2 className='h-4 w-4' />
                   {t('byog.client_onboarding_description')}
                 </div>
