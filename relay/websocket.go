@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relay/realtime"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -35,7 +37,17 @@ func WssHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.
 		defer info.TargetWs.Close()
 	}
 
-	usage, newAPIError := adaptor.DoResponse(c, nil, info)
+	// The realtime conversation is the same for every channel, the protocol of
+	// the channel is known here. The channels that do not serve it are not
+	// asked for it.
+	var usage any
+	if info.RelayMode == relayconstant.RelayModeRealtime {
+		var realtimeError *types.NewAPIError
+		realtimeError, usage = realtime.Relay(c, info, realtime.UpstreamDialect(info))
+		newAPIError = realtimeError
+	} else {
+		usage, newAPIError = adaptor.DoResponse(c, nil, info)
+	}
 	if newAPIError != nil {
 		// reset status code 重置状态码
 		service.ResetStatusCode(newAPIError, statusCodeMappingStr)

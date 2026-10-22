@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 // localBridge gives the state of the client to the page of the client.
@@ -19,6 +20,9 @@ type localBridge struct {
 	server   *http.Server
 	token    string
 	address  string
+	mutex    sync.Mutex
+	// pairing tells whether the client is registering itself at the moment.
+	pairing bool
 }
 
 // bridgeState is the state of the client that the page shows.
@@ -135,7 +139,24 @@ func (b *localBridge) handlePair(writer http.ResponseWriter, request *http.Reque
 	saveConfig(State.Config)
 	updateStatus(func(status *AppStatus) { status.LastError = "" })
 
+	b.mutex.Lock()
+	if b.pairing {
+		b.mutex.Unlock()
+		writeBridgeJSON(writer, map[string]any{
+			"success": false,
+			"message": "the pairing of the client is already running",
+		})
+		return
+	}
+	b.pairing = true
+	b.mutex.Unlock()
+
 	go func() {
+		defer func() {
+			b.mutex.Lock()
+			b.pairing = false
+			b.mutex.Unlock()
+		}()
 		result, err := registerWorker()
 		if err != nil {
 			updateStatus(func(status *AppStatus) { status.LastError = err.Error() })

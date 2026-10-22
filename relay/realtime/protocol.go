@@ -11,7 +11,20 @@ import (
 	"encoding/json"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
+
+// UpstreamDialect returns the protocol of the channel of the conversation.
+//
+// The channels of Gemini speak the live protocol of Gemini, the other channels
+// speak the realtime protocol of OpenAI.
+func UpstreamDialect(info *relaycommon.RelayInfo) Dialect {
+	if info != nil && info.ApiType == constant.APITypeGemini {
+		return DialectGemini
+	}
+	return DialectOpenAI
+}
 
 // Dialect is the protocol of a realtime conversation.
 type Dialect int

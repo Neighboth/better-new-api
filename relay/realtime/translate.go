@@ -77,6 +77,12 @@ func (b *bridge) holdMessage(message []byte) bool {
 	if b.client != DialectUnknown {
 		return false
 	}
+	// The messages that wait for the protocol of the client are not kept
+	// without a limit, the client that does not answer does not fill the
+	// memory of the program.
+	if len(b.pending) >= 64 {
+		b.pending = b.pending[len(b.pending)-63:]
+	}
 	b.pending = append(b.pending, message)
 	return true
 }

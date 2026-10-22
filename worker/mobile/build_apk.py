@@ -2545,6 +2545,12 @@ public class MainActivity extends Activity {
 
                                         Toast.makeText(MainActivity.this, "Cihaz başarıyla bağlandı", Toast.LENGTH_SHORT).show();
 
+                                        // The page of the client of the installation is on the
+                                        // site, it uses the theme of the site.
+                                        if (webView != null) {
+                                            webView.loadUrl(clientPageUrl());
+                                        }
+
                                         JSONObject state = new JSONObject();
                                         try {
                                             state.put("is_paired", true);

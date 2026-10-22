@@ -439,7 +439,10 @@ func runModelTest(prompt string) (string, error) {
 	if strings.TrimSpace(prompt) == "" {
 		prompt = "Merhaba! Kendini tek cümleyle tanıt."
 	}
-	engine := NewLocalTransformerEngine(status.ModelName, State.Config.StorageDir)
+	State.Mu.Lock()
+	storageDir := State.Config.StorageDir
+	State.Mu.Unlock()
+	engine := NewLocalTransformerEngine(status.ModelName, storageDir)
 	result, err := engine.GenerateStream(
 		context.Background(),
 		prompt,

@@ -43,6 +43,10 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 		model:    info.UpstreamModelName,
 		state:    &sessionState{},
 	}
+	if translator.model == "" {
+		// The setup of Gemini needs the name of the model.
+		translator.model = info.OriginModelName
+	}
 
 	gopool.Go(func() {
 		defer func() {

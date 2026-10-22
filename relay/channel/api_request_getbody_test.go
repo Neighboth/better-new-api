@@ -283,6 +283,24 @@ func acceptH2TestConnection(ln net.Listener) (net.Conn, *http2.Framer, error) {
 	return conn, framer, nil
 }
 
+// closeH2TestConnection ends the connection of the test server.
+//
+// The connection is closed without a reset, the client must see the end of it
+// and not the reset of it. The reset hides the error of the transport and the
+// test of the retry fails with it.
+func closeH2TestConnection(conn net.Conn) {
+	if conn == nil {
+		return
+	}
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		_ = tcp.CloseWrite()
+		// The client reads the end of the connection before the socket is
+		// closed.
+		time.Sleep(50 * time.Millisecond)
+	}
+	_ = conn.Close()
+}
+
 func readH2TestRequest(framer *http2.Framer) (uint32, []byte, error) {
 	var streamID uint32
 	var body []byte
@@ -362,7 +380,7 @@ func runResetOnFirstStreamServer(ln net.Listener, expectRetry bool) <-chan h2Ser
 			res.err = err
 			return
 		}
-		defer conn.Close()
+		defer closeH2TestConnection(conn)
 
 	attempts:
 		for attempt := 0; ; attempt++ {
@@ -408,7 +426,7 @@ func runGoAwayAfterFirstRequestServer(ln net.Listener) <-chan h2ServerResult {
 			}
 			streamID, body, err := readH2TestRequest(framer)
 			if err != nil {
-				conn.Close()
+				closeH2TestConnection(conn)
 				res.err = err
 				return
 			}
@@ -417,7 +435,7 @@ func runGoAwayAfterFirstRequestServer(ln net.Listener) <-chan h2ServerResult {
 
 			if attempt == 0 {
 				err = framer.WriteGoAway(0, http2.ErrCodeNo, nil)
-				conn.Close()
+				closeH2TestConnection(conn)
 				if err != nil {
 					res.err = err
 					return
@@ -426,7 +444,7 @@ func runGoAwayAfterFirstRequestServer(ln net.Listener) <-chan h2ServerResult {
 			}
 
 			err = writeH2TestResponse(framer, streamID)
-			conn.Close()
+			closeH2TestConnection(conn)
 			if err != nil {
 				res.err = err
 			}
