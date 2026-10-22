@@ -6710,7 +6710,17 @@
     "byog.client_pair_failed": "Eşleştirme yapılamadı.",
     "byog.client_test_prompt": "Test mesajı",
     "byog.client_run_test": "Testi çalıştır",
-    "byog.client_test_failed": "Test yapılamadı."
+    "byog.client_test_failed": "Test yapılamadı.",
+    "byog.client_permissions": "İzinler",
+    "byog.client_permission_notifications": "Bildirimler",
+    "byog.client_permission_battery": "Pil optimizasyonu",
+    "byog.client_permission_autostart": "Otomatik başlatma",
+    "byog.client_permission_background": "Arka plan etkinliği",
+    "byog.client_permission_granted": "Verildi",
+    "byog.client_permission_needed": "Gerekli",
+    "byog.client_permission_grant": "Ver",
+    "byog.client_permission_open": "Aç",
+    "byog.client_language": "Dil"
   },
   "URL to your logo image (used in header, footer, etc.)": "Logo görselinizin URL'si (üst bar, altbilgi vb. yerlerde kullanılır)",
   "Direct link to browser tab icon. If empty, uses Logo URL.": "Tarayıcı sekmesi simgesine doğrudan bağlantı. Boş bırakılırsa Logo URL'si kullanılır.",

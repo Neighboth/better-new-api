@@ -9,8 +9,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -425,4 +427,28 @@ func syncStatus() {
 		status.TotalTokens = tokens
 		status.ModelName = model
 	})
+}
+
+// runModelTest runs the model of the client with a message and returns the
+// answer of it.
+func runModelTest(prompt string) (string, error) {
+	status := readStatus()
+	if status.ModelName == "" {
+		return "", errors.New("the model of the client is not downloaded yet")
+	}
+	if strings.TrimSpace(prompt) == "" {
+		prompt = "Merhaba! Kendini tek cümleyle tanıt."
+	}
+	engine := NewLocalTransformerEngine(status.ModelName, State.Config.StorageDir)
+	result, err := engine.GenerateStream(
+		context.Background(),
+		prompt,
+		96,
+		0.7,
+		func(piece string, tokenId int) bool { return true },
+	)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(result.Text), nil
 }

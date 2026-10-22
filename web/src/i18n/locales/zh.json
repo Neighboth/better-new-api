@@ -6710,7 +6710,17 @@
     "byog.client_pair_failed": "设备配对失败。",
     "byog.client_test_prompt": "测试消息",
     "byog.client_run_test": "运行测试",
-    "byog.client_test_failed": "测试失败。"
+    "byog.client_test_failed": "测试失败。",
+    "byog.client_permissions": "权限",
+    "byog.client_permission_notifications": "通知",
+    "byog.client_permission_battery": "电池优化",
+    "byog.client_permission_autostart": "自动启动",
+    "byog.client_permission_background": "后台活动",
+    "byog.client_permission_granted": "已授予",
+    "byog.client_permission_needed": "需要授权",
+    "byog.client_permission_grant": "授权",
+    "byog.client_permission_open": "打开",
+    "byog.client_language": "语言"
   },
   "URL to your logo image (used in header, footer, etc.)": "网站 Logo 图片 URL（用于页眉、页脚等）",
   "Direct link to browser tab icon. If empty, uses Logo URL.": "浏览器标签页图标直链。留空则使用 Logo URL。",

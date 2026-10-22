@@ -6710,7 +6710,17 @@
     "byog.client_pair_failed": "L'appareil n'a pas pu être appairé.",
     "byog.client_test_prompt": "Message de test",
     "byog.client_run_test": "Lancer le test",
-    "byog.client_test_failed": "Le test n'a pas pu être fait."
+    "byog.client_test_failed": "Le test n'a pas pu être fait.",
+    "byog.client_permissions": "Autorisations",
+    "byog.client_permission_notifications": "Notifications",
+    "byog.client_permission_battery": "Optimisation de la batterie",
+    "byog.client_permission_autostart": "Démarrage automatique",
+    "byog.client_permission_background": "Activité en arrière-plan",
+    "byog.client_permission_granted": "Accordée",
+    "byog.client_permission_needed": "Nécessaire",
+    "byog.client_permission_grant": "Accorder",
+    "byog.client_permission_open": "Ouvrir",
+    "byog.client_language": "Langue"
   },
   "URL to your logo image (used in header, footer, etc.)": "URL de l'image de votre logo (utilisé dans l'en-tête, le pied de page, etc.)",
   "Direct link to browser tab icon. If empty, uses Logo URL.": "Lien direct vers l'icône d'onglet du navigateur. Si vide, utilise l'URL du logo.",

@@ -6710,7 +6710,17 @@
     "byog.client_pair_failed": "Không thể ghép nối thiết bị.",
     "byog.client_test_prompt": "Tin nhắn thử",
     "byog.client_run_test": "Chạy thử",
-    "byog.client_test_failed": "Không thể chạy thử."
+    "byog.client_test_failed": "Không thể chạy thử.",
+    "byog.client_permissions": "Quyền",
+    "byog.client_permission_notifications": "Thông báo",
+    "byog.client_permission_battery": "Tối ưu pin",
+    "byog.client_permission_autostart": "Tự động khởi động",
+    "byog.client_permission_background": "Hoạt động nền",
+    "byog.client_permission_granted": "Đã cấp",
+    "byog.client_permission_needed": "Cần cấp",
+    "byog.client_permission_grant": "Cấp",
+    "byog.client_permission_open": "Mở",
+    "byog.client_language": "Ngôn ngữ"
   },
   "URL to your logo image (used in header, footer, etc.)": "URL hình ảnh logo của bạn (dùng trong đầu trang, chân trang, v.v.)",
   "Direct link to browser tab icon. If empty, uses Logo URL.": "Liên kết trực tiếp đến biểu tượng thẻ trình duyệt. Nếu để trống, sẽ dùng URL Logo.",

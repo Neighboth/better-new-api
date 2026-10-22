@@ -1529,6 +1529,28 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * The address of the page of the client.
+     *
+     * The page is on the site, it uses the theme of the site and it follows the
+     * changes of it. The page of the application is used while the address of
+     * the server is not known yet.
+     */
+    private String clientPageUrl() {
+        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+        String server = WorkerService.stringPref(sp, "server_url", "");
+        String nodeId = WorkerService.stringPref(sp, "node_id", "");
+        if (server == null || server.trim().isEmpty()) {
+            return "file:///android_asset/www/index.html";
+        }
+        while (server.endsWith("/")) server = server.substring(0, server.length() - 1);
+        String url = server + "/client";
+        if (!nodeId.isEmpty()) {
+            url += "?node=" + Uri.encode(nodeId);
+        }
+        return url;
+    }
+
     private void startInterface(Bundle savedInstanceState) {
 
         String appName = "{app_name}";
@@ -1579,7 +1601,7 @@ public class MainActivity extends Activity {
         webView.setBackgroundColor(0xFF020817);
 
         webView.addJavascriptInterface(new WebAppInterface(), "AndroidBridge");
-        webView.loadUrl("file:///android_asset/www/index.html");
+        webView.loadUrl(clientPageUrl());
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             try {

@@ -6710,7 +6710,17 @@
     "byog.client_pair_failed": "The device could not be paired.",
     "byog.client_test_prompt": "Test message",
     "byog.client_run_test": "Run the test",
-    "byog.client_test_failed": "The test could not be done."
+    "byog.client_test_failed": "The test could not be done.",
+    "byog.client_permissions": "Permissions",
+    "byog.client_permission_notifications": "Notifications",
+    "byog.client_permission_battery": "Battery optimization",
+    "byog.client_permission_autostart": "Auto start",
+    "byog.client_permission_background": "Background activity",
+    "byog.client_permission_granted": "Granted",
+    "byog.client_permission_needed": "Needed",
+    "byog.client_permission_grant": "Grant",
+    "byog.client_permission_open": "Open",
+    "byog.client_language": "Language"
   },
   "URL to your logo image (used in header, footer, etc.)": "URL to your logo image (used in header, footer, etc.)",
   "Direct link to browser tab icon. If empty, uses Logo URL.": "Direct link to browser tab icon. If empty, uses Logo URL.",

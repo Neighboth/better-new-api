@@ -364,9 +364,12 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		}
 		modelRequest.Model = req.Model
 	}
-	if strings.HasPrefix(c.Request.URL.Path, "/v1/realtime") {
+	if strings.HasPrefix(c.Request.URL.Path, "/v1/realtime") ||
+		strings.HasSuffix(c.Request.URL.Path, "/GenerativeService.BidiGenerateContent") {
 		//wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01
-		modelRequest.Model = c.Query("model")
+		// The clients of the live protocol of Gemini put the model into the
+		// setup message, the model of the query has the priority over it.
+		modelRequest.Model = strings.TrimPrefix(c.Query("model"), "models/")
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/moderations") {
 		if modelRequest.Model == "" {

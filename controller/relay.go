@@ -80,11 +80,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	)
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
-		var err error
-		ws, err = upgrader.Upgrade(c.Writer, c.Request, nil)
-		if err != nil {
-			helper.WssError(c, ws, types.NewError(err, types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry()).ToOpenAIError())
-			return
+		// The connection of a realtime conversation may be opened before the
+		// channel of the request is chosen.
+		if value, ok := c.Get(middleware.ContextKeyRealtimeWs); ok {
+			ws, _ = value.(*websocket.Conn)
+		}
+		if ws == nil {
+			var err error
+			ws, err = upgrader.Upgrade(c.Writer, c.Request, nil)
+			if err != nil {
+				helper.WssError(c, ws, types.NewError(err, types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry()).ToOpenAIError())
+				return
+			}
 		}
 		defer ws.Close()
 	}

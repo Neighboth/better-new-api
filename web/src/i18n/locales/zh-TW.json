@@ -6710,7 +6710,17 @@
     "byog.client_pair_failed": "裝置配對失敗。",
     "byog.client_test_prompt": "測試訊息",
     "byog.client_run_test": "執行測試",
-    "byog.client_test_failed": "測試失敗。"
+    "byog.client_test_failed": "測試失敗。",
+    "byog.client_permissions": "權限",
+    "byog.client_permission_notifications": "通知",
+    "byog.client_permission_battery": "電池最佳化",
+    "byog.client_permission_autostart": "自動啟動",
+    "byog.client_permission_background": "背景活動",
+    "byog.client_permission_granted": "已授予",
+    "byog.client_permission_needed": "需要授權",
+    "byog.client_permission_grant": "授權",
+    "byog.client_permission_open": "開啟",
+    "byog.client_language": "語言"
   },
   "URL to your logo image (used in header, footer, etc.)": "網站 Logo 圖片 URL（用於頁眉、頁尾等）",
   "Direct link to browser tab icon. If empty, uses Logo URL.": "瀏覽器標籤頁圖示直鏈。留空則使用 Logo URL。",

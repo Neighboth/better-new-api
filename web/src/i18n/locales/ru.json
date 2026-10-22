@@ -6710,7 +6710,17 @@
     "byog.client_pair_failed": "Не удалось сопрячь устройство.",
     "byog.client_test_prompt": "Тестовое сообщение",
     "byog.client_run_test": "Запустить тест",
-    "byog.client_test_failed": "Не удалось выполнить тест."
+    "byog.client_test_failed": "Не удалось выполнить тест.",
+    "byog.client_permissions": "Разрешения",
+    "byog.client_permission_notifications": "Уведомления",
+    "byog.client_permission_battery": "Оптимизация батареи",
+    "byog.client_permission_autostart": "Автозапуск",
+    "byog.client_permission_background": "Работа в фоне",
+    "byog.client_permission_granted": "Выдано",
+    "byog.client_permission_needed": "Требуется",
+    "byog.client_permission_grant": "Выдать",
+    "byog.client_permission_open": "Открыть",
+    "byog.client_language": "Язык"
   },
   "URL to your logo image (used in header, footer, etc.)": "URL-адрес изображения вашего логотипа (используется в шапке, подвале и т.д.)",
   "Direct link to browser tab icon. If empty, uses Logo URL.": "Прямая ссылка на иконку вкладки браузера. Если пусто, используется URL логотипа.",

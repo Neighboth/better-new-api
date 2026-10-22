@@ -86,6 +86,10 @@ func SetRelayRouter(router *gin.Engine) {
 		wsRootRouter.Use(middleware.SystemPerformanceCheck())
 		wsRootRouter.Use(middleware.TokenAuth())
 		wsRootRouter.Use(middleware.ModelRequestRateLimit())
+		// The clients of the live protocol of Gemini put the model into the
+		// setup message, the connection is opened before the channel of the
+		// request is chosen.
+		wsRootRouter.Use(middleware.RealtimeModelFromSetup())
 		wsRootRouter.Use(middleware.Distribute())
 		wsRootRouter.GET("/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIRealtime)

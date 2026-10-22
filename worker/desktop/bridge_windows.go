@@ -1,0 +1,236 @@
+package main
+
+// The page of the client lives on the site, the site does not know the state
+// of the client of the computer. A small server that listens on the computer
+// of the user gives the state of the client to the page.
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"net"
+	"net/http"
+	"strings"
+)
+
+// localBridge gives the state of the client to the page of the client.
+type localBridge struct {
+	listener net.Listener
+	server   *http.Server
+	token    string
+	address  string
+}
+
+// bridgeState is the state of the client that the page shows.
+type bridgeState struct {
+	NodeId           string  `json:"node_id"`
+	DeviceName       string  `json:"device_name"`
+	ServerUrl        string  `json:"server_url"`
+	AppName          string  `json:"app_name"`
+	SystemName       string  `json:"system_name"`
+	Language         string  `json:"language"`
+	PairingCode      string  `json:"pairing_code"`
+	Paired           bool    `json:"paired"`
+	Connected        bool    `json:"connected"`
+	ModelName        string  `json:"model_name"`
+	ModelStatus      string  `json:"model_status"`
+	DownloadProgress int     `json:"download_progress"`
+	CurrentTps       float64 `json:"current_tps"`
+	TotalTokens      int64   `json:"total_tokens"`
+	LastError        string  `json:"last_error"`
+}
+
+// startLocalBridge starts the server of the state of the client.
+//
+// The server listens on the computer of the user only, the page of the client
+// uses it with the key of it.
+func startLocalBridge() (*localBridge, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, err
+	}
+	bridge := &localBridge{
+		listener: listener,
+		token:    randomKey(),
+		address:  "http://" + listener.Addr().String(),
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/state", bridge.handleState)
+	mux.HandleFunc("/pair", bridge.handlePair)
+	mux.HandleFunc("/test", bridge.handleTest)
+	mux.HandleFunc("/settings", bridge.handleSettings)
+	bridge.server = &http.Server{Handler: withBridgeHeaders(mux)}
+	go func() {
+		_ = bridge.server.Serve(listener)
+	}()
+	return bridge, nil
+}
+
+// pageAddress returns the address of the page of the client with the key of
+// the server of the state.
+func (b *localBridge) pageAddress(serverUrl string) string {
+	target := strings.TrimRight(serverUrl, "/")
+	if target == "" {
+		return ""
+	}
+	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
+		target = "http://" + target
+	}
+	return target + "/client?local=" + b.address + "&token=" + b.token
+}
+
+// handleState gives the state of the client to the page.
+func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Request) {
+	if !b.allowed(writer, request) {
+		return
+	}
+	status := readStatus()
+	State.Mu.Lock()
+	language := State.Config.Language
+	serverUrl := State.Config.ServerUrl
+	State.Mu.Unlock()
+	writeBridgeJSON(writer, bridgeState{
+		NodeId:           status.NodeId,
+		DeviceName:       status.DeviceName,
+		ServerUrl:        serverUrl,
+		AppName:          status.AppName,
+		SystemName:       status.SystemName,
+		Language:         language,
+		PairingCode:      status.PairingCode,
+		Paired:           status.Paired,
+		Connected:        status.Connected,
+		ModelName:        status.ModelName,
+		ModelStatus:      status.ModelStatus,
+		DownloadProgress: status.Progress,
+		CurrentTps:       status.CurrentTps,
+		TotalTokens:      status.TotalTokens,
+		LastError:        status.LastError,
+	})
+}
+
+// handlePair pairs the client with the code of the installation.
+func (b *localBridge) handlePair(writer http.ResponseWriter, request *http.Request) {
+	if !b.allowed(writer, request) {
+		return
+	}
+	var payload struct {
+		Code      string `json:"code"`
+		ServerUrl string `json:"server_url"`
+	}
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+		writeBridgeJSON(writer, map[string]any{"success": false, "message": err.Error()})
+		return
+	}
+	code := strings.ToUpper(strings.TrimSpace(payload.Code))
+	if code == "" {
+		writeBridgeJSON(writer, map[string]any{"success": false, "message": "the pairing code is empty"})
+		return
+	}
+	State.Mu.Lock()
+	State.Config.PairingCode = code
+	if payload.ServerUrl != "" {
+		State.Config.ServerUrl = payload.ServerUrl
+	}
+	State.Mu.Unlock()
+	saveConfig(State.Config)
+	updateStatus(func(status *AppStatus) { status.LastError = "" })
+
+	go func() {
+		result, err := registerWorker()
+		if err != nil {
+			updateStatus(func(status *AppStatus) { status.LastError = err.Error() })
+			return
+		}
+		updateInstallationBranding(result.AppName, result.SystemName, result.FaviconB64)
+		startTunnel()
+	}()
+	writeBridgeJSON(writer, map[string]any{"success": true})
+}
+
+// handleTest runs the model of the client with the message of the page.
+func (b *localBridge) handleTest(writer http.ResponseWriter, request *http.Request) {
+	if !b.allowed(writer, request) {
+		return
+	}
+	var payload struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+		writeBridgeJSON(writer, map[string]any{"success": false, "message": err.Error()})
+		return
+	}
+	answer, err := runModelTest(payload.Prompt)
+	if err != nil {
+		writeBridgeJSON(writer, map[string]any{"success": false, "message": err.Error()})
+		return
+	}
+	writeBridgeJSON(writer, map[string]any{"success": true, "data": map[string]any{"reply": answer}})
+}
+
+// handleSettings saves the settings of the client that the page changes.
+func (b *localBridge) handleSettings(writer http.ResponseWriter, request *http.Request) {
+	if !b.allowed(writer, request) {
+		return
+	}
+	var payload struct {
+		ServerUrl string `json:"server_url"`
+		Language  string `json:"language"`
+	}
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+		writeBridgeJSON(writer, map[string]any{"success": false, "message": err.Error()})
+		return
+	}
+	State.Mu.Lock()
+	if payload.ServerUrl != "" {
+		State.Config.ServerUrl = payload.ServerUrl
+	}
+	if payload.Language != "" {
+		State.Config.Language = payload.Language
+	}
+	State.Mu.Unlock()
+	saveConfig(State.Config)
+	writeBridgeJSON(writer, map[string]any{"success": true})
+}
+
+// allowed tells whether the request of the page carries the key of the
+// server of the state.
+func (b *localBridge) allowed(writer http.ResponseWriter, request *http.Request) bool {
+	key := request.Header.Get("X-Client-Key")
+	if key == "" {
+		key = request.URL.Query().Get("token")
+	}
+	if key != b.token {
+		writeBridgeJSON(writer, map[string]any{"success": false, "message": "the key of the client is not known"})
+		return false
+	}
+	return true
+}
+
+// withBridgeHeaders lets the page of the site use the server of the state.
+func withBridgeHeaders(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Access-Control-Allow-Origin", "*")
+		writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Client-Key")
+		writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		if request.Method == http.MethodOptions {
+			writer.WriteHeader(http.StatusNoContent)
+			return
+		}
+		handler.ServeHTTP(writer, request)
+	})
+}
+
+// writeBridgeJSON writes the answer of the server of the state.
+func writeBridgeJSON(writer http.ResponseWriter, value any) {
+	writer.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(writer).Encode(value)
+}
+
+// randomKey returns a key for the server of the state.
+func randomKey() string {
+	buffer := make([]byte, 16)
+	if _, err := rand.Read(buffer); err != nil {
+		return "byog"
+	}
+	return hex.EncodeToString(buffer)
+}

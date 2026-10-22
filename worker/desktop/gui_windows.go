@@ -287,6 +287,9 @@ type guiWindow struct {
 	mutex         sync.Mutex
 	trayAdded     bool
 	lastConnected bool
+	// bridge is the server that gives the state of the client to the page of
+	// the installation.
+	bridge *localBridge
 }
 
 var (
@@ -570,6 +573,17 @@ func (w *guiWindow) create() {
 	procSetTimer.Call(w.window, 1, 1000, 0)
 	procShowWindow.Call(w.window, swShow)
 	procUpdateWindow.Call(w.window)
+	w.startBridge()
+}
+
+// startBridge starts the server that gives the state of the client to the
+// page of the installation.
+func (w *guiWindow) startBridge() {
+	bridge, err := startLocalBridge()
+	if err != nil {
+		return
+	}
+	w.bridge = bridge
 }
 
 // loadInterfaceFont adds the font of the interface to the system.
@@ -1084,6 +1098,14 @@ func (w *guiWindow) openClientPage() {
 	page := target + "/client"
 	if status.NodeId != "" {
 		page += "?node=" + neturl.QueryEscape(status.NodeId)
+	}
+	// The page of the client asks the state of the client from the server of
+	// the computer of the user, it knows the pairing code and the model.
+	if w.bridge != nil {
+		page = w.bridge.pageAddress(status.ServerUrl)
+		if page == "" {
+			page = target + "/client"
+		}
 	}
 
 	for _, browser := range clientBrowsers() {
