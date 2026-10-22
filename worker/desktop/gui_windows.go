@@ -574,6 +574,13 @@ func (w *guiWindow) create() {
 	procShowWindow.Call(w.window, swShow)
 	procUpdateWindow.Call(w.window)
 	w.startBridge()
+
+	// The page of the client of the installation is the interface of the
+	// client, it uses the theme of the site. The window of the program stays
+	// as the fallback of it.
+	if w.openClientPage() {
+		procShowWindow.Call(w.window, swHide)
+	}
 }
 
 // startBridge starts the server that gives the state of the client to the
@@ -820,9 +827,11 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 			case controlPairEdit:
 				window.connect()
 			case commandShow:
-				window.show()
+				if !window.openClientPage() {
+					window.show()
+				}
 			case commandPanel:
-				window.openClientPage()
+				window.openPanel()
 			case commandSettings:
 				window.openSiteSettings()
 			case commandClose:
@@ -1085,12 +1094,13 @@ func (w *guiWindow) openPanel() {
 // openClientPage opens the page of the client of the installation.
 //
 // The page is shown in a window of the browser without the bars of it, the
-// window fills itself and it follows the theme of the site.
-func (w *guiWindow) openClientPage() {
+// window fills itself and it follows the theme of the site. The answer of the
+// browser tells whether the page could be opened.
+func (w *guiWindow) openClientPage() bool {
 	status := readStatus()
 	target := strings.TrimRight(status.ServerUrl, "/")
 	if target == "" {
-		return
+		return false
 	}
 	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
 		target = "http://" + target
@@ -1112,13 +1122,14 @@ func (w *guiWindow) openClientPage() {
 		if _, err := os.Stat(browser); err != nil {
 			continue
 		}
-		command := exec.Command(browser, "--app="+page, "--window-size=760,520")
+		command := exec.Command(browser, "--app="+page, "--window-size=1100,760")
 		command.Dir = filepath.Dir(browser)
 		if command.Start() == nil {
-			return
+			return true
 		}
 	}
 	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", page).Start()
+	return true
 }
 
 // clientBrowsers returns the browsers of the computer.

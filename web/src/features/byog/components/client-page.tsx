@@ -89,6 +89,9 @@ const PAGES = [
   { key: 'test', icon: Terminal },
 ] as const
 
+// The languages of the installation.
+const LANGUAGES = ['tr', 'en', 'zh_CN', 'zh_TW', 'fr', 'ru', 'ja', 'vi']
+
 type PageKey = (typeof PAGES)[number]['key'] | 'permissions'
 
 /**
@@ -100,7 +103,7 @@ type PageKey = (typeof PAGES)[number]['key'] | 'permissions'
  * the browsers ask the server of the installation for it.
  */
 export function ClientPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [page, setPage] = useState<PageKey>('status')
   const [nodeId, setNodeId] = useState('')
   const [state, setState] = useState<WorkerState | null>(null)
@@ -314,8 +317,27 @@ export function ClientPage() {
     }
   }
 
-  const statusLabel = () => {
-    if (!state) {
+  const changeLanguage = async (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = event.target.value
+    setLanguage(value)
+    if (localApi) {
+      try {
+        await fetch(`${localApi}/settings`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Key': localToken,
+          },
+          body: JSON.stringify({ language: value }),
+        })
+      } catch {
+        // The client of the installation does not answer.
+      }
+    }
+    await i18n.changeLanguage(value)
+  }
+
+  const statusLabel = () => {    if (!state) {
       return t('byog.client_offline')
     }
     if (state.status === 'online') {
@@ -466,6 +488,24 @@ export function ClientPage() {
                     {t('byog.client_language')}
                   </span>
                   <span className='truncate'>{language}</span>
+                </div>
+              )}
+              {localApi && (
+                <div className='flex items-center gap-2'>
+                  <span className='text-muted-foreground w-24'>
+                    {t('byog.client_language')}
+                  </span>
+                  <select
+                    value={language}
+                    onChange={changeLanguage}
+                    className='border-input bg-background h-9 rounded-md border px-3 text-sm'
+                  >
+                    {LANGUAGES.map((code) => (
+                      <option key={code} value={code}>
+                        {code}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
             </CardContent>
