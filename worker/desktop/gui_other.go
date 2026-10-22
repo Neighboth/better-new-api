@@ -178,8 +178,11 @@ func openInterface(address string) {
 
 // updateInstallationBranding writes the name of the installation into the
 // entries of the system.
-func updateInstallationBranding(appName string, faviconBase64 string) {
-	_ = installer.UpdateBranding(appName, WorkerVersion)
+//
+// The icon of the installation belongs to the system of Windows, the other
+// systems do not have it.
+func updateInstallationBranding(appName string, systemName string, faviconBase64 string) {
+	_ = installer.UpdateBranding(installationDisplayName(appName, systemName), WorkerVersion)
 }
 
 // portOf returns the port of a server.

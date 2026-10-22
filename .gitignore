@@ -57,3 +57,7 @@ worker/desktop/setup/byog-worker.exe
 worker/desktop/setup/logo.png
 # Model cache of the BYOG coordinator.
 byog_models/
+
+# The temporary folder of the build of the clients (the antivirus scans the
+# temporary folder of the system and it blocks the program of the compiler).
+worker/.buildtmp/

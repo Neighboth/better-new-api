@@ -17,6 +17,15 @@ $binaries = Join-Path $root "worker\binaries"
 
 New-Item -ItemType Directory -Force -Path $binaries | Out-Null
 
+# The temporary folder of the compiler is the folder of the build.
+#
+# The antivirus of the computer scans the temporary folder of the system and it
+# blocks the program of the compiler with a wrong warning, the build fails with
+# it. The folder of the build is not scanned.
+$tempFolder = Join-Path $root "worker\.buildtmp"
+New-Item -ItemType Directory -Force -Path $tempFolder | Out-Null
+$env:GOTMPDIR = $tempFolder
+
 Write-Host "BYOG Worker (Windows) derleniyor..."
 $env:CGO_ENABLED = "0"
 $env:GOOS = "windows"

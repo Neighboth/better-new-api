@@ -429,6 +429,18 @@ func syncStatus() {
 	})
 }
 
+// installationDisplayName returns the name of the installation.
+//
+// The name of the installation and the name of the client are shown together,
+// the user knows the installation from the name of it.
+func installationDisplayName(appName string, systemName string) string {
+	name := strings.TrimSpace(systemName)
+	if name == "" {
+		return appName
+	}
+	return name + " BYOG Worker"
+}
+
 // runModelTest runs the model of the client with a message and returns the
 // answer of it.
 func runModelTest(prompt string) (string, error) {

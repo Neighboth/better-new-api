@@ -1215,6 +1215,16 @@ func (w *guiWindow) removeTrayIcon() {
 	w.trayAdded = false
 }
 
+// updateInstallationBranding writes the name and the icon of the installation
+// into the entries of the system.
+//
+// The dashboard sends its name and its icon, the client shows them in the
+// control panel and in the search of the system.
+func updateInstallationBranding(appName string, systemName string, faviconBase64 string) {
+	writeApplicationIcon(faviconBase64)
+	_ = installer.UpdateBranding(installationDisplayName(appName, systemName), WorkerVersion)
+}
+
 // showTrayMenu shows the menu of the icon in the notification area.
 func (w *guiWindow) showTrayMenu() {
 	menu, _, _ := procCreatePopupMenu.Call()
@@ -1228,28 +1238,6 @@ func (w *guiWindow) showTrayMenu() {
 	procSetForeground.Call(w.window)
 	procTrackPopupMenu.Call(menu, 0, uintptr(point.X), uintptr(point.Y), 0, w.window, 0)
 	procDestroyMenu.Call(menu)
-}
-
-// updateInstallationBranding writes the name and the icon of the installation
-// into the entries of the system.
-//
-// The dashboard sends its name and its icon, the client shows them in the
-// control panel and in the search of the system.
-func updateInstallationBranding(appName string, systemName string, faviconBase64 string) {
-	writeApplicationIcon(faviconBase64)
-	_ = installer.UpdateBranding(installationDisplayName(appName, systemName), WorkerVersion)
-}
-
-// installationDisplayName returns the name of the installation.
-//
-// The name of the installation and the name of the client are shown together,
-// the user knows the installation from the name of it.
-func installationDisplayName(appName string, systemName string) string {
-	name := strings.TrimSpace(systemName)
-	if name == "" {
-		return appName
-	}
-	return name + " BYOG Worker"
 }
 
 // applicationIconPath returns the path of the icon of the client.
