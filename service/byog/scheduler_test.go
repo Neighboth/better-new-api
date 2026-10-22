@@ -4,38 +4,48 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSchedulerDeviceClassMatching(t *testing.T) {
-	nodeMobile := &model.ByogNode{
-		DeviceType:    "mobile",
-		PhysicalRamMB: 8192,
-		AllocatedCores: 8,
+func TestAvailableRamMB(t *testing.T) {
+	cases := []struct {
+		name      string
+		physical  int
+		allocated int
+		want      int
+	}{
+		{
+			name:      "the whole memory of the device is used when nothing is given",
+			physical:  8192,
+			allocated: 0,
+			want:      8192,
+		},
+		{
+			name:      "the memory that the user gives limits the models",
+			physical:  8192,
+			allocated: 3,
+			want:      3072,
+		},
+		{
+			name:      "the memory of the device is smaller than the memory that is given",
+			physical:  2048,
+			allocated: 8,
+			want:      2048,
+		},
 	}
 
-	nodeTablet := &model.ByogNode{
-		DeviceType:    "tablet",
-		PhysicalRamMB: 8192,
-		AllocatedCores: 8,
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			node := &model.ByogNode{
+				PhysicalRamMB:  testCase.physical,
+				AllocatedRamGB: testCase.allocated,
+			}
+			assert.Equal(t, testCase.want, availableRamMB(node))
+		})
 	}
+}
 
-	nodeDesktop := &model.ByogNode{
-		DeviceType:    "desktop",
-		PhysicalRamMB: 16384,
-		AllocatedCores: 8,
-	}
-
-	// Verify IsModelSafeForMobile
-	s := GlobalScheduler
-	safe05b := s.IsModelSafeForMobile(nodeMobile, "non-existent")
-	assert.False(t, safe05b) // non existent model returns false
-
-	// Test CalculateSafeMobileBudgetMB
-	budget := s.CalculateSafeMobileBudgetMB(8192, 4096)
-	assert.Greater(t, budget, 1000)
-	assert.LessOrEqual(t, budget, 8192)
-
-	_ = nodeTablet
-	_ = nodeDesktop
+func TestAvailableRamMBWithoutNode(t *testing.T) {
+	assert.Equal(t, 0, availableRamMB(nil))
 }

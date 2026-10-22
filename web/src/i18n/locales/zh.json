@@ -6720,7 +6720,13 @@
     "byog.client_permission_needed": "需要授权",
     "byog.client_permission_grant": "授权",
     "byog.client_permission_open": "打开",
-    "byog.client_language": "语言"
+    "byog.client_language": "语言",
+    "byog.enter_pairing_code_instructions": "输入配对码，您的设备即可连接到安装。",
+    "byog.client_onboarding_description": "应用需要这些权限才能正常工作，我们将逐个请求。",
+    "byog.client_onboarding_grant": "授予权限",
+    "byog.client_onboarding_continue": "继续",
+    "byog.client_update_available": "应用程序有新版本可用（{{version}}）。",
+    "byog.client_update_install": "更新"
   },
   "URL to your logo image (used in header, footer, etc.)": "网站 Logo 图片 URL（用于页眉、页脚等）",
   "Direct link to browser tab icon. If empty, uses Logo URL.": "浏览器标签页图标直链。留空则使用 Logo URL。",

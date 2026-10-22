@@ -267,6 +267,14 @@ func downloadModelIDM(url string, targetPath string, fileSize int64) error {
 			}
 			defer resp.Body.Close()
 
+			if resp.StatusCode != http.StatusPartialContent {
+				// The server does not give the piece of the file, it sends the
+				// whole file for every request. The download of the file has
+				// to be done with a single connection.
+				errs[channelIdx] = fmt.Errorf("the server does not support the range: %d", resp.StatusCode)
+				return
+			}
+
 			partFile := fmt.Sprintf("%s.part%d", targetPath, channelIdx)
 			out, err := os.Create(partFile)
 			if err != nil {
@@ -276,8 +284,13 @@ func downloadModelIDM(url string, targetPath string, fileSize int64) error {
 			defer out.Close()
 
 			// The bytes are counted while they arrive, the progress of the
-			// download follows the transfer.
-			_, err = io.Copy(&progressWriter{writer: out, counter: &downloaded, mutex: &downloadMutex}, resp.Body)
+			// download follows the transfer. Only the bytes of the piece are
+			// read, a server that sends more does not fill the disk.
+			expected := endByte - startByte + 1
+			written, err := io.CopyN(&progressWriter{writer: out, counter: &downloaded, mutex: &downloadMutex}, resp.Body, expected)
+			if err == nil && written != expected {
+				err = fmt.Errorf("the piece of the file is incomplete: %d of %d bytes", written, expected)
+			}
 			errs[channelIdx] = err
 		}(i)
 	}
@@ -346,13 +359,62 @@ func downloadAssignedModel(modelId string, downloadUrl string, fileSize int64) {
 
 	if err := downloadModelIDM(downloadUrl, targetPath, fileSize); err != nil {
 		fmt.Printf("[BYOG IDM] Download of %s failed: %v\n", modelId, err)
-		return
+		// The server does not give the pieces of the file, the file is
+		// downloaded with a single connection.
+		if singleErr := downloadModelSingle(downloadUrl, targetPath, fileSize); singleErr != nil {
+			fmt.Printf("[BYOG IDM] Download of %s failed: %v\n", modelId, singleErr)
+			return
+		}
 	}
 	State.Mu.Lock()
 	State.InstalledModels[modelId] = true
 	State.ModelStatus = "ready"
 	State.DownloadProgress = 100
 	State.Mu.Unlock()
+}
+
+// downloadModelSingle downloads a model with a single connection.
+//
+// The server of the coordinator does not always give the pieces of the file
+// with the range requests, the file is downloaded as a whole then.
+func downloadModelSingle(downloadUrl string, targetPath string, fileSize int64) error {
+	request, err := http.NewRequest("GET", downloadUrl, nil)
+	if err != nil {
+		return err
+	}
+	client := &http.Client{Timeout: 6 * time.Hour}
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("the server answered with %d", response.StatusCode)
+	}
+
+	partFile := targetPath + ".part"
+	out, err := os.Create(partFile)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	var downloaded int64
+	var mutex sync.Mutex
+	writer := &progressWriter{writer: out, counter: &downloaded, mutex: &mutex}
+	if _, err := io.Copy(writer, response.Body); err != nil {
+		return err
+	}
+	if fileSize > 0 {
+		info, err := out.Stat()
+		if err != nil {
+			return err
+		}
+		if info.Size() != fileSize {
+			return fmt.Errorf("the model file is incomplete: %d of %d bytes", info.Size(), fileSize)
+		}
+	}
+	return os.Rename(partFile, targetPath)
 }
 
 // reportDownloadProgress publishes the download progress of the worker.

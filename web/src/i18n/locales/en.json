@@ -6720,7 +6720,13 @@
     "byog.client_permission_needed": "Needed",
     "byog.client_permission_grant": "Grant",
     "byog.client_permission_open": "Open",
-    "byog.client_language": "Language"
+    "byog.client_language": "Language",
+    "byog.enter_pairing_code_instructions": "Enter the pairing code, your device connects to the installation.",
+    "byog.client_onboarding_description": "The application needs these permissions to work well. We ask them one by one.",
+    "byog.client_onboarding_grant": "Grant the permission",
+    "byog.client_onboarding_continue": "Continue",
+    "byog.client_update_available": "A new version of the application is ready ({{version}}).",
+    "byog.client_update_install": "Update"
   },
   "URL to your logo image (used in header, footer, etc.)": "URL to your logo image (used in header, footer, etc.)",
   "Direct link to browser tab icon. If empty, uses Logo URL.": "Direct link to browser tab icon. If empty, uses Logo URL.",

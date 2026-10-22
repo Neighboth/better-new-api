@@ -97,16 +97,16 @@ func TestDownloadByogWorkerEndpoints(t *testing.T) {
 	assert.Contains(t, w.Header().Get("Content-Disposition"), "BYOG Worker.exe")
 	assert.Greater(t, w.Body.Len(), 100)
 
-	// 3. Test the shortcut of the client of Windows
+	// 3. The client of the installation is only handed out as a program, the
+	// shortcut of the client does not exist anymore.
 	req, _ = http.NewRequest(http.MethodGet, "/api/byog/worker/download/windows/amd64?shortcut=1", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Header().Get("Content-Disposition"), "TestPlatform BYOG.lnk")
-	assert.Greater(t, w.Body.Len(), 100)
-	assert.Contains(t, string(w.Body.Bytes()), "powershell.exe")
+	assert.Contains(t, w.Header().Get("Content-Disposition"), "BYOG Worker.exe")
+	assert.NotContains(t, string(w.Body.Bytes()), "powershell.exe")
 
-	// 3. Test Linux AMD64
+	// 4. Test Linux AMD64
 	req, _ = http.NewRequest(http.MethodGet, "/api/byog/worker/download/linux/amd64", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -114,7 +114,7 @@ func TestDownloadByogWorkerEndpoints(t *testing.T) {
 	assert.Equal(t, "application/octet-stream", w.Header().Get("Content-Type"))
 	assert.Contains(t, w.Header().Get("Content-Disposition"), "byog-worker-linux-amd64")
 
-	// 4. Test Darwin ARM64
+	// 5. Test Darwin ARM64
 	req, _ = http.NewRequest(http.MethodGet, "/api/byog/worker/download/darwin/arm64", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)

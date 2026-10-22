@@ -16,12 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Activity,
   Battery,
   Bell,
+  CheckCircle2,
   Cpu,
   Gauge,
   Link2,
@@ -67,10 +68,13 @@ interface AndroidBridge {
   getInitialState(): string
   getWorkerStatus(): string
   getPermissionStatus(): string
+  isOnboardingDone(): boolean
+  completeOnboarding(): void
   requestNotificationPermission(): void
   requestBatteryOptimization(): void
   openAutoStartSettings(): void
   openBackgroundActivitySettings(): void
+  installDownloadedUpdate(): void
   connect(pairingCode: string, serverUrl: string): void
 }
 
@@ -115,12 +119,31 @@ export function ClientPage() {
   const [answer, setAnswer] = useState('')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  const [onboardingDone, setOnboardingDone] = useState(true)
+  const [onboardingStep, setOnboardingStep] = useState(0)
+  const [updateVersion, setUpdateVersion] = useState('')
 
   const bridge = getBridge()
   // The client of the installation runs a small server on the computer of the
   // user, the page asks the state of the client from it.
   const [localApi, setLocalApi] = useState('')
   const [localToken, setLocalToken] = useState('')
+
+  // The page of the client is always light, the client of the installation is
+  // not a part of the theme of the site.
+  useEffect(() => {
+    document.documentElement.classList.remove('dark')
+  }, [])
+
+  // The application of Android tells the page that a new version of it is
+  // ready to install.
+  useEffect(() => {
+    const target = window as unknown as Record<string, unknown>
+    target.showUpdatePrompt = (version: string) => setUpdateVersion(version)
+    return () => {
+      delete target.showUpdatePrompt
+    }
+  }, [])
 
   useEffect(() => {
     const search = new URLSearchParams(window.location.search)
@@ -162,6 +185,7 @@ export function ClientPage() {
       try {
         const raw = bridge.getPermissionStatus()
         setPermissions(JSON.parse(raw) as PermissionState)
+        setOnboardingDone(bridge.isOnboardingDone())
       } catch {
         // The permissions are not known.
       }
@@ -216,6 +240,60 @@ export function ClientPage() {
     const timer = window.setInterval(loadState, 4000)
     return () => window.clearInterval(timer)
   }, [loadState])
+
+  // The permissions of the device are asked one by one, the permissions that
+  // the device does not have are skipped.
+  const onboardingSteps = useMemo(() => {
+    if (!bridge || !permissions) {
+      return []
+    }
+    const steps: {
+      key: string
+      icon: typeof Bell
+      title: string
+      action: () => void
+    }[] = []
+    if (!permissions.notifications) {
+      steps.push({
+        key: 'notifications',
+        icon: Bell,
+        title: t('byog.client_permission_notifications'),
+        action: () => bridge.requestNotificationPermission(),
+      })
+    }
+    if (!permissions.battery) {
+      steps.push({
+        key: 'battery',
+        icon: Battery,
+        title: t('byog.client_permission_battery'),
+        action: () => bridge.requestBatteryOptimization(),
+      })
+    }
+    if (permissions.autostart_supported && !permissions.autostart) {
+      steps.push({
+        key: 'autostart',
+        icon: Zap,
+        title: t('byog.client_permission_autostart'),
+        action: () => bridge.openAutoStartSettings(),
+      })
+    }
+    if (permissions.bgactivity_supported && !permissions.bgactivity) {
+      steps.push({
+        key: 'background',
+        icon: Activity,
+        title: t('byog.client_permission_background'),
+        action: () => bridge.openBackgroundActivitySettings(),
+      })
+    }
+    return steps
+  }, [bridge, permissions, t])
+
+  const finishOnboarding = () => {
+    if (bridge) {
+      bridge.completeOnboarding()
+    }
+    setOnboardingDone(true)
+  }
 
   const pair = async () => {
     setBusy(true)
@@ -337,7 +415,8 @@ export function ClientPage() {
     await i18n.changeLanguage(value)
   }
 
-  const statusLabel = () => {    if (!state) {
+  const statusLabel = () => {
+    if (!state) {
       return t('byog.client_offline')
     }
     if (state.status === 'online') {
@@ -349,14 +428,81 @@ export function ClientPage() {
     return state.status
   }
 
+  // The permissions of the device are asked before the client is used.
+  if (bridge && !onboardingDone && onboardingSteps.length > 0) {
+    const step = onboardingSteps[Math.min(onboardingStep, onboardingSteps.length - 1)]
+    const Icon = step.icon
+    return (
+      <div className='bg-white text-slate-900 flex h-screen w-full items-center justify-center p-6'>
+        <Card className='w-full max-w-md'>
+          <CardHeader>
+            <CardTitle className='flex items-center gap-2'>
+              <Icon className='h-5 w-5' />
+              {step.title}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className='grid gap-4'>
+            <p className='text-slate-600 text-sm'>
+              {t('byog.client_onboarding_description')}
+            </p>
+            <div className='text-slate-500 flex items-center gap-2 text-xs'>
+              {onboardingSteps.map((item, index) => (
+                <span
+                  key={item.key}
+                  className={`h-2 w-8 rounded-full ${
+                    index <= onboardingStep ? 'bg-blue-500' : 'bg-slate-200'
+                  }`}
+                />
+              ))}
+            </div>
+            <div className='flex gap-2'>
+              <Button
+                variant='outline'
+                onClick={() => {
+                  step.action()
+                  setOnboardingStep((value) => value + 1)
+                }}
+              >
+                {t('byog.client_onboarding_grant')}
+              </Button>
+              <Button
+                onClick={() => {
+                  setOnboardingStep((value) => value + 1)
+                  if (onboardingStep + 1 >= onboardingSteps.length) {
+                    finishOnboarding()
+                  }
+                }}
+              >
+                {t('byog.client_onboarding_continue')}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   const pages = bridge
     ? [...PAGES, { key: 'permissions' as PageKey, icon: Zap }]
     : PAGES
 
   return (
-    <div className='bg-background flex h-screen w-full overflow-hidden text-left'>
-      <aside className='bg-card flex w-52 shrink-0 flex-col gap-1 border-r p-3'>
-        <div className='text-primary mb-2 px-3 text-lg font-bold'>
+    <div className='bg-white text-slate-900 flex h-screen w-full overflow-hidden text-left'>
+      {updateVersion && (
+        <div className='flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm'>
+          <span className='flex-1'>
+            {t('byog.client_update_available', { version: updateVersion })}
+          </span>
+          <Button
+            size='sm'
+            onClick={() => bridge?.installDownloadedUpdate()}
+          >
+            {t('byog.client_update_install')}
+          </Button>
+        </div>
+      )}
+      <aside className='flex w-52 shrink-0 flex-col gap-1 border-r border-slate-200 bg-slate-50 p-3'>
+        <div className='text-blue-600 mb-2 px-3 text-lg font-bold'>
           {t('byog.client_title')}
         </div>
         {pages.map((item) => {
@@ -369,8 +515,8 @@ export function ClientPage() {
               onClick={() => setPage(item.key)}
               className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
                 active
-                  ? 'bg-primary/10 text-primary font-semibold'
-                  : 'text-muted-foreground hover:bg-muted'
+                  ? 'bg-blue-50 text-blue-600 font-semibold'
+                  : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
               <Icon className='h-4 w-4' />
@@ -380,7 +526,7 @@ export function ClientPage() {
             </button>
           )
         })}
-        <div className='mt-auto px-3 text-xs text-muted-foreground'>
+        <div className='text-slate-500 mt-auto px-3 text-xs'>
           {state?.device_name || nodeId || '-'}
         </div>
       </aside>
@@ -406,30 +552,30 @@ export function ClientPage() {
             </CardHeader>
             <CardContent className='grid gap-3'>
               <div className='flex items-center gap-2 text-sm'>
-                <Server className='text-muted-foreground h-4 w-4' />
-                <span className='text-muted-foreground w-24'>
+                <Server className='text-slate-400 h-4 w-4' />
+                <span className='text-slate-500 w-24'>
                   {t('byog.client_server')}
                 </span>
                 <span className='truncate'>{serverUrl || window.location.origin}</span>
               </div>
               <div className='flex items-center gap-2 text-sm'>
-                <Cpu className='text-muted-foreground h-4 w-4' />
-                <span className='text-muted-foreground w-24'>
+                <Cpu className='text-slate-400 h-4 w-4' />
+                <span className='text-slate-500 w-24'>
                   {t('byog.client_model')}
                 </span>
                 <span className='truncate'>{state?.models || '-'}</span>
               </div>
               <div className='flex items-center gap-2 text-sm'>
-                <Gauge className='text-muted-foreground h-4 w-4' />
-                <span className='text-muted-foreground w-24'>
+                <Gauge className='text-slate-400 h-4 w-4' />
+                <span className='text-slate-500 w-24'>
                   {t('byog.client_speed')}
                 </span>
                 <span>{(state?.current_tps ?? 0).toFixed(1)}</span>
               </div>
               {state && state.download_progress > 0 && (
-                <div className='bg-muted h-2 w-full overflow-hidden rounded-full'>
+                <div className='bg-slate-200 h-2 w-full overflow-hidden rounded-full'>
                   <div
-                    className='bg-primary h-full'
+                    className='h-full rounded-full bg-blue-500'
                     style={{ width: `${state.download_progress}%` }}
                   />
                 </div>
@@ -444,7 +590,7 @@ export function ClientPage() {
               <CardTitle>{t('byog.client_pairing')}</CardTitle>
             </CardHeader>
             <CardContent className='grid gap-3'>
-              <p className='text-muted-foreground text-sm'>
+              <p className='text-slate-600 text-sm'>
                 {t('byog.enter_pairing_code_instructions')}
               </p>
               <div className='flex gap-2'>
@@ -469,7 +615,7 @@ export function ClientPage() {
             </CardHeader>
             <CardContent className='grid gap-3 text-sm'>
               <div className='flex gap-2'>
-                <span className='text-muted-foreground w-24'>
+                <span className='text-slate-500 w-24'>
                   {t('byog.client_server')}
                 </span>
                 <span className='truncate'>
@@ -477,14 +623,14 @@ export function ClientPage() {
                 </span>
               </div>
               <div className='flex gap-2'>
-                <span className='text-muted-foreground w-24'>
+                <span className='text-slate-500 w-24'>
                   {t('byog.client_node')}
                 </span>
                 <span className='truncate'>{nodeId || '-'}</span>
               </div>
               {language && (
                 <div className='flex gap-2'>
-                  <span className='text-muted-foreground w-24'>
+                  <span className='text-slate-500 w-24'>
                     {t('byog.client_language')}
                   </span>
                   <span className='truncate'>{language}</span>
@@ -492,13 +638,13 @@ export function ClientPage() {
               )}
               {localApi && (
                 <div className='flex items-center gap-2'>
-                  <span className='text-muted-foreground w-24'>
+                  <span className='text-slate-500 w-24'>
                     {t('byog.client_language')}
                   </span>
                   <select
                     value={language}
                     onChange={changeLanguage}
-                    className='border-input bg-background h-9 rounded-md border px-3 text-sm'
+                    className='border-slate-200 bg-white h-9 rounded-md border px-3 text-sm'
                   >
                     {LANGUAGES.map((code) => (
                       <option key={code} value={code}>
@@ -528,7 +674,7 @@ export function ClientPage() {
                 {t('byog.client_run_test')}
               </Button>
               {answer && (
-                <pre className='bg-muted max-h-64 overflow-auto rounded-lg p-3 text-sm whitespace-pre-wrap'>
+                <pre className='bg-slate-100 max-h-64 overflow-auto rounded-lg p-3 text-sm whitespace-pre-wrap'>
                   {answer}
                 </pre>
               )}
@@ -544,7 +690,7 @@ export function ClientPage() {
             </CardHeader>
             <CardContent className='grid gap-3'>
               <div className='flex items-center gap-3 text-sm'>
-                <Bell className='text-muted-foreground h-4 w-4' />
+                <Bell className='text-slate-400 h-4 w-4' />
                 <span className='flex-1'>{t('byog.client_permission_notifications')}</span>
                 <Badge
                   variant={
@@ -565,7 +711,7 @@ export function ClientPage() {
                 )}
               </div>
               <div className='flex items-center gap-3 text-sm'>
-                <Battery className='text-muted-foreground h-4 w-4' />
+                <Battery className='text-slate-400 h-4 w-4' />
                 <span className='flex-1'>{t('byog.client_permission_battery')}</span>
                 <Badge variant={permissions?.battery ? 'default' : 'secondary'}>
                   {permissions?.battery
@@ -583,7 +729,7 @@ export function ClientPage() {
               </div>
               {permissions?.autostart_supported && (
                 <div className='flex items-center gap-3 text-sm'>
-                  <Zap className='text-muted-foreground h-4 w-4' />
+                  <Zap className='text-slate-400 h-4 w-4' />
                   <span className='flex-1'>
                     {t('byog.client_permission_autostart')}
                   </span>
@@ -603,7 +749,7 @@ export function ClientPage() {
               )}
               {permissions?.bgactivity_supported && (
                 <div className='flex items-center gap-3 text-sm'>
-                  <Activity className='text-muted-foreground h-4 w-4' />
+                  <Activity className='text-slate-400 h-4 w-4' />
                   <span className='flex-1'>
                     {t('byog.client_permission_background')}
                   </span>
@@ -622,6 +768,12 @@ export function ClientPage() {
                   >
                     {t('byog.client_permission_open')}
                   </Button>
+                </div>
+              )}
+              {onboardingDone && (
+                <div className='text-slate-500 flex items-center gap-2 text-xs'>
+                  <CheckCircle2 className='h-4 w-4' />
+                  {t('byog.client_onboarding_description')}
                 </div>
               )}
             </CardContent>

@@ -6720,7 +6720,13 @@
     "byog.client_permission_needed": "Nécessaire",
     "byog.client_permission_grant": "Accorder",
     "byog.client_permission_open": "Ouvrir",
-    "byog.client_language": "Langue"
+    "byog.client_language": "Langue",
+    "byog.enter_pairing_code_instructions": "Saisissez le code d'appairage, votre appareil se connecte à l'installation.",
+    "byog.client_onboarding_description": "L'application a besoin de ces autorisations pour fonctionner. Nous les demandons une par une.",
+    "byog.client_onboarding_grant": "Accorder l'autorisation",
+    "byog.client_onboarding_continue": "Continuer",
+    "byog.client_update_available": "Une nouvelle version de l'application est prête ({{version}}).",
+    "byog.client_update_install": "Mettre à jour"
   },
   "URL to your logo image (used in header, footer, etc.)": "URL de l'image de votre logo (utilisé dans l'en-tête, le pied de page, etc.)",
   "Direct link to browser tab icon. If empty, uses Logo URL.": "Lien direct vers l'icône d'onglet du navigateur. Si vide, utilise l'URL du logo.",

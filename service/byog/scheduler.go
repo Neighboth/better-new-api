@@ -40,7 +40,11 @@ func (s *Scheduler) EvaluateNodeModelAssignment(node *model.ByogNode) ([]string,
 		}
 
 		// 2. Physical RAM Check (Strictly Physical - Ignoring Swap/ZRAM!)
-		if node.PhysicalRamMB < rule.MinPhysicalRamMB {
+		//
+		// The user gives a part of the memory of the device to the network, the
+		// models are assigned with the memory that is given and not with the
+		// whole memory of the device.
+		if availableRamMB(node) < rule.MinPhysicalRamMB {
 			continue
 		}
 
@@ -79,6 +83,25 @@ func (s *Scheduler) EvaluateNodeModelAssignment(node *model.ByogNode) ([]string,
 	return assignedList, nil
 }
 
+// availableRamMB returns the memory that the node can use for the models.
+//
+// The user gives a part of the memory of the device to the network, the models
+// are assigned with the memory that is given and not with the whole memory of
+// the device. The swap and the zram of the device are never counted.
+func availableRamMB(node *model.ByogNode) int {
+	if node == nil {
+		return 0
+	}
+	available := node.PhysicalRamMB
+	if node.AllocatedRamGB > 0 {
+		allocated := node.AllocatedRamGB * 1024
+		if allocated < available {
+			available = allocated
+		}
+	}
+	return available
+}
+
 // Section 6.1 Strict Mobile Safety & Tiering Engine
 func (s *Scheduler) IsModelSafeForMobile(node *model.ByogNode, modelId string) bool {
 	modelDef, err := model.GetByogModelByModelId(modelId)
@@ -91,7 +114,7 @@ func (s *Scheduler) IsModelSafeForMobile(node *model.ByogNode, modelId string) b
 		return true
 	}
 
-	physicalRamMB := node.PhysicalRamMB // Safely ignores ZRAM / Swap
+	physicalRamMB := availableRamMB(node) // Safely ignores ZRAM / Swap
 	paramSize := strings.ToUpper(strings.TrimSpace(modelDef.ParamSize))
 
 	// Entry level: 3GB - 4GB Physical RAM -> max 0.5B

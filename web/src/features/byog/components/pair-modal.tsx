@@ -21,7 +21,6 @@ import {
   Check,
   Copy,
   Download,
-  Link2,
   KeyRound,
   Laptop,
   Monitor,
@@ -31,7 +30,7 @@ import {
   Smartphone,
 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -66,7 +65,7 @@ export function PairModal({ onPaired }: PairModalProps) {
   const [isLoadingCode, setIsLoadingCode] = useState(false)
   const initialNodeCountRef = useRef<number>(-1)
 
-  const fetchSessionCode = async () => {
+  const fetchSessionCode = useCallback(async () => {
     setIsLoadingCode(true)
     try {
       const data = await getUserPairingCode()
@@ -79,7 +78,7 @@ export function PairModal({ onPaired }: PairModalProps) {
     } finally {
       setIsLoadingCode(false)
     }
-  }
+  }, [t])
 
   useEffect(() => {
     if (!open) {
@@ -114,13 +113,13 @@ export function PairModal({ onPaired }: PairModalProps) {
         // Ignore background polling errors
       }
     }, 2500)
-
     return () => clearInterval(interval)
-  }, [open])
+  }, [fetchSessionCode, onPaired, open, t])
 
-  const handleDownload = (platform: string, arch: string, shortcut = false) => {
-    const suffix = shortcut ? '?shortcut=1' : ''
-    const downloadUrl = `/api/v1/worker/download/${platform}/${arch}${suffix}`
+  // The client of the installation is downloaded as a program, the name, the
+  // icon and the address of the installation are written into it.
+  const handleDownload = (platform: string, arch: string) => {
+    const downloadUrl = `/api/v1/worker/download/${platform}/${arch}`
     const a = document.createElement('a')
     a.href = downloadUrl
     a.rel = 'noopener'
@@ -263,17 +262,6 @@ export function PairModal({ onPaired }: PairModalProps) {
                   </div>
                 </div>
                 <div className='flex items-center gap-1.5'>
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    onClick={() => handleDownload('windows', 'amd64', true)}
-                    title={t(
-                      'byog.download_windows_shortcut',
-                      'Download the shortcut (.lnk)'
-                    )}
-                  >
-                    <Link2 className='h-3.5 w-3.5' />
-                  </Button>
                   <Button
                     size='sm'
                     variant='outline'

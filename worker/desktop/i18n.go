@@ -115,6 +115,9 @@ var clientTexts = map[string]map[string]string{
 // clientLanguage is the language of the interface of the client.
 var clientLanguage = "tr"
 
+// clientLanguages are the languages of the installation.
+var clientLanguages = []string{"tr", "en", "zh_CN", "zh_TW", "fr", "ru", "ja", "vi"}
+
 // clientText returns the text of the interface in the language of the user.
 //
 // The text of English is used when the language of the user has no text.

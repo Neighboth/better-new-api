@@ -23,7 +23,6 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/embedcfg"
 	"github.com/QuantumNous/new-api/pkg/icon"
-	"github.com/QuantumNous/new-api/pkg/lnk"
 	byogservice "github.com/QuantumNous/new-api/service/byog"
 	"github.com/gin-gonic/gin"
 )
@@ -1909,38 +1908,6 @@ func DownloadByogWorker(c *gin.Context) {
 	arch := c.Param("arch")
 	fileName := fmt.Sprintf("byog-worker-%s-%s", platform, arch)
 	if platform == "windows" {
-		// The dashboard hands out a shortcut for the client of Windows when it is
-		// asked for one. The shortcut carries the name and the icon of the
-		// installation and the address of the installation.
-		if c.Query("shortcut") == "1" {
-			scheme := "http"
-			if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
-				scheme = "https"
-			}
-			serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
-			systemName, appName, _, _ := getBranding(serverUrl)
-			displayName := strings.TrimSpace(systemName + " BYOG")
-			if displayName == "BYOG" {
-				displayName = appName
-			}
-			clientUrl := fmt.Sprintf("%s/api/v1/worker/download/windows/amd64", serverUrl)
-			shortcut := lnk.Shortcut{
-				Name:       displayName,
-				TargetPath: "powershell.exe",
-				Arguments: fmt.Sprintf(
-					"-NoProfile -WindowStyle Hidden -Command \"Invoke-WebRequest -Uri '%s' -OutFile \\\"$env:TEMP\\\\BYOG Worker.exe\\\"; "+
-						"Start-Process \\\"$env:TEMP\\\\BYOG Worker.exe\\\" -ArgumentList '--server=%s'\"",
-					clientUrl, serverUrl),
-				WorkingDirectory: "C:\\Windows\\System32",
-				Description:      "The client of the local computing network of the installation",
-				IconLocation:     fmt.Sprintf("%s/api/byog/favicon.ico", serverUrl),
-			}
-			name := lnk.FileName(displayName)
-			c.Header("Content-Type", "application/octet-stream")
-			c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
-			c.Data(http.StatusOK, "application/octet-stream", shortcut.Bytes())
-			return
-		}
 		fileName = "BYOG Worker.exe"
 	} else if platform == "android" {
 		if arch == "apk" {
@@ -1964,7 +1931,7 @@ func DownloadByogWorker(c *gin.Context) {
 
 	for _, p := range searchPaths {
 		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Size() > 0 {
-			if platform == "windows" && c.Query("shortcut") != "1" {
+			if platform == "windows" {
 				// The program of the client carries the name, the icon and the
 				// address of the installation, the client does not ask the user
 				// for them.

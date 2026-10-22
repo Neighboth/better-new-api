@@ -260,7 +260,7 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 					Where("node_id = ?", session.NodeId).
 					Updates(map[string]interface{}{
 						"total_tokens_processed": gormExpr("total_tokens_processed + ?", totalTokensGenerated),
-						"total_earned_credits":  gormExpr("total_earned_credits + ?", float64(tokensToCredit)*0.000001),
+						"total_earned_credits":   gormExpr("total_earned_credits + ?", float64(tokensToCredit)*0.000001),
 					})
 
 				// Charge customer:

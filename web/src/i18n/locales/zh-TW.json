@@ -6720,7 +6720,13 @@
     "byog.client_permission_needed": "需要授權",
     "byog.client_permission_grant": "授權",
     "byog.client_permission_open": "開啟",
-    "byog.client_language": "語言"
+    "byog.client_language": "語言",
+    "byog.enter_pairing_code_instructions": "輸入配對碼，您的裝置即可連線到安裝。",
+    "byog.client_onboarding_description": "應用程式需要這些權限才能正常運作，我們會逐一要求。",
+    "byog.client_onboarding_grant": "授予權限",
+    "byog.client_onboarding_continue": "繼續",
+    "byog.client_update_available": "應用程式有新版本可用（{{version}}）。",
+    "byog.client_update_install": "更新"
   },
   "URL to your logo image (used in header, footer, etc.)": "網站 Logo 圖片 URL（用於頁眉、頁尾等）",
   "Direct link to browser tab icon. If empty, uses Logo URL.": "瀏覽器標籤頁圖示直鏈。留空則使用 Logo URL。",

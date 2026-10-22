@@ -6720,7 +6720,13 @@
     "byog.client_permission_needed": "Cần cấp",
     "byog.client_permission_grant": "Cấp",
     "byog.client_permission_open": "Mở",
-    "byog.client_language": "Ngôn ngữ"
+    "byog.client_language": "Ngôn ngữ",
+    "byog.enter_pairing_code_instructions": "Nhập mã ghép nối, thiết bị của bạn sẽ kết nối với hệ thống.",
+    "byog.client_onboarding_description": "Ứng dụng cần các quyền này để hoạt động tốt. Chúng tôi sẽ hỏi từng quyền một.",
+    "byog.client_onboarding_grant": "Cấp quyền",
+    "byog.client_onboarding_continue": "Tiếp tục",
+    "byog.client_update_available": "Đã có phiên bản mới của ứng dụng ({{version}}).",
+    "byog.client_update_install": "Cập nhật"
   },
   "URL to your logo image (used in header, footer, etc.)": "URL hình ảnh logo của bạn (dùng trong đầu trang, chân trang, v.v.)",
   "Direct link to browser tab icon. If empty, uses Logo URL.": "Liên kết trực tiếp đến biểu tượng thẻ trình duyệt. Nếu để trống, sẽ dùng URL Logo.",

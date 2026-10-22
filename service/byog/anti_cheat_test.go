@@ -34,7 +34,7 @@ func TestCountersStayReadableAfterAnInference(t *testing.T) {
 		Where("node_id = ?", node.NodeId).
 		Updates(map[string]interface{}{
 			"total_tokens_processed": gormExpr("total_tokens_processed + ?", 14),
-			"total_earned_credits":  gormExpr("total_earned_credits + ?", 0.000014),
+			"total_earned_credits":   gormExpr("total_earned_credits + ?", 0.000014),
 		}).Error)
 
 	updated, err := model.GetByogNodeByNodeId(node.NodeId)
@@ -54,8 +54,8 @@ func TestReputationStaysANumber(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogSetting{}))
 
 	node := &model.ByogNode{
-		NodeId:         "node-reputation",
-		Status:         "online",
+		NodeId:          "node-reputation",
+		Status:          "online",
 		ReputationScore: 50,
 	}
 	require.NoError(t, db.Create(node).Error)

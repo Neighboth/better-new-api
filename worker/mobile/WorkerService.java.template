@@ -926,6 +926,14 @@ public class WorkerService extends Service {
                             long lastHeartbeatTime = 0;
 
                             while ((nRead = is.read(buffer)) != -1) {
+                                // The transfer stops at the size of the model. A server
+                                // that sends more does not fill the disk of the device
+                                // and the progress of the download does not pass the
+                                // size of the model.
+                                if (totalBytes > 0 && currentBytes + nRead > totalBytes) {
+                                    nRead = (int) (totalBytes - currentBytes);
+                                    if (nRead <= 0) break;
+                                }
                                 fos.write(buffer, 0, nRead);
                                 currentBytes += nRead;
                                 downloadCurrentBytes = currentBytes;

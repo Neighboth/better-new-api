@@ -62,6 +62,15 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string) {
 	address := "http://" + listener.Addr().String()
 	fmt.Println("The interface of the client:", address)
 
+	// The page of the client of the installation lives on the site, it uses the
+	// theme of the site and it follows the changes of it. The server of the
+	// state of the client gives the state of the client to the page.
+	bridge, err := startLocalBridge()
+	if err != nil {
+		fmt.Println("The server of the state of the client could not be started:", err)
+		return
+	}
+
 	go func() {
 		if config.PairingCode != "" {
 			if _, err := registerWorker(); err != nil {
@@ -74,18 +83,62 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string) {
 
 	go openInterface(address)
 
-	server := &http.Server{Handler: interfaceHandler()}
+	server := &http.Server{Handler: interfaceHandler(bridge)}
 	_ = server.Serve(listener)
 }
 
 // interfaceHandler builds the handler of the page of the client.
-func interfaceHandler() http.Handler {
+//
+// The page of the client of the installation is on the site. The page of the
+// client sends the user there, the state of the client comes from the server
+// of the computer.
+func interfaceHandler(bridge *localBridge) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
 		syncStatus()
 		status := readStatus()
+		State.Mu.Lock()
+		language := State.Config.Language
+		accepted := State.Config.LegalAccepted
+		State.Mu.Unlock()
+		// The page of the client of the installation is on the site. The
+		// language and the policies of the installation are asked first, the
+		// client is used after that.
+		if language != "" && accepted {
+			if page := bridge.pageAddress(status.ServerUrl); page != "" {
+				http.Redirect(writer, request, page, http.StatusSeeOther)
+				return
+			}
+		}
 		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = interfaceTemplate.Execute(writer, status)
+		_ = interfaceTemplate.Execute(writer, setupPage{
+			AppStatus:   status,
+			Language:    language,
+			Accepted:    accepted,
+			Languages:   clientLanguages,
+			TextSetup:   clientText("setup"),
+			TextLang:    clientText("language"),
+			TextPrivacy: clientText("privacy"),
+			TextTerms:   clientText("terms"),
+			TextAccept:  clientText("accept_privacy"),
+			TextTermsA:  clientText("accept_terms"),
+			TextCont:    clientText("continue"),
+		})
+	})
+	mux.HandleFunc("/setup", func(writer http.ResponseWriter, request *http.Request) {
+		language := strings.TrimSpace(request.FormValue("language"))
+		if language != "" {
+			clientLanguage = language
+			State.Mu.Lock()
+			State.Config.Language = language
+			State.Mu.Unlock()
+		}
+		accepted := request.FormValue("privacy") != "" && request.FormValue("terms") != ""
+		State.Mu.Lock()
+		State.Config.LegalAccepted = accepted
+		State.Mu.Unlock()
+		saveConfig(State.Config)
+		http.Redirect(writer, request, "/", http.StatusSeeOther)
 	})
 	mux.HandleFunc("/pair", func(writer http.ResponseWriter, request *http.Request) {
 		code := strings.TrimSpace(request.FormValue("code"))
@@ -111,6 +164,21 @@ func interfaceHandler() http.Handler {
 		http.Redirect(writer, request, "/", http.StatusSeeOther)
 	})
 	return mux
+}
+
+// setupPage is the state of the first start of the client.
+type setupPage struct {
+	AppStatus
+	Language    string
+	Accepted    bool
+	Languages   []string
+	TextSetup   string
+	TextLang    string
+	TextPrivacy string
+	TextTerms   string
+	TextAccept  string
+	TextTermsA  string
+	TextCont    string
 }
 
 // interfaceTemplate is the page of the client.
@@ -144,6 +212,20 @@ var interfaceTemplate = template.Must(template.New("interface").Parse(`<!doctype
     {{if eq .ModelStatus "downloading"}}<div class="row"><span>İndirme</span><span class="busy">{{.DownloadedMB}} / {{.TotalMB}} MB</span></div>{{end}}
     {{if .LastError}}<div class="row"><span>Hata</span><span class="bad">{{.LastError}}</span></div>{{end}}
   </div>
+  {{if not .Accepted}}
+  <div class="card">
+    <strong>{{.TextSetup}}</strong>
+    <form method="post" action="/setup">
+      <p style="color:#9fb0d0;font-size:13px;margin:10px 0">{{.TextLang}}</p>
+      <select name="language" style="width:100%;padding:10px;border-radius:8px;background:#0a1330;border:1px solid #2a3b66;color:#e6edf7;margin-bottom:12px">
+        {{range .Languages}}<option value="{{.}}" {{if eq . $.Language}}selected{{end}}>{{.}}</option>{{end}}
+      </select>
+      <label style="display:block;font-size:13px;margin-bottom:8px"><input type="checkbox" name="privacy" {{if .Accepted}}checked{{end}}> {{.TextAccept}}</label>
+      <label style="display:block;font-size:13px;margin-bottom:12px"><input type="checkbox" name="terms" {{if .Accepted}}checked{{end}}> {{.TextTermsA}}</label>
+      <button type="submit">{{.TextCont}}</button>
+    </form>
+  </div>
+  {{end}}
   <div class="card">
     <strong>Eşleştirme kodu</strong>
     <form method="post" action="/pair">

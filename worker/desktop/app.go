@@ -185,6 +185,11 @@ func applyConfig(config Config) {
 	State.Config = config
 	State.Mu.Unlock()
 
+	if config.Language != "" {
+		// The text of the interface follows the language of the user.
+		clientLanguage = config.Language
+	}
+
 	updateStatus(func(status *AppStatus) {
 		status.ServerUrl = config.ServerUrl
 		status.NodeId = config.NodeId

@@ -6720,7 +6720,13 @@
     "byog.client_permission_needed": "必要",
     "byog.client_permission_grant": "許可する",
     "byog.client_permission_open": "開く",
-    "byog.client_language": "言語"
+    "byog.client_language": "言語",
+    "byog.enter_pairing_code_instructions": "ペアリングコードを入力すると、デバイスがインストールに接続されます。",
+    "byog.client_onboarding_description": "アプリケーションの動作にはこれらの権限が必要です。一つずつ確認します。",
+    "byog.client_onboarding_grant": "権限を許可",
+    "byog.client_onboarding_continue": "続ける",
+    "byog.client_update_available": "アプリの新しいバージョン ({{version}}) が利用可能です。",
+    "byog.client_update_install": "更新"
   },
   "URL to your logo image (used in header, footer, etc.)": "ロゴ画像のURL（ヘッダー、フッターなどで使用）",
   "Direct link to browser tab icon. If empty, uses Logo URL.": "ブラウザタブ用アイコンの直リンク。空の場合はLogo URLが使用されます。",

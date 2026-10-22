@@ -6720,7 +6720,13 @@
     "byog.client_permission_needed": "Требуется",
     "byog.client_permission_grant": "Выдать",
     "byog.client_permission_open": "Открыть",
-    "byog.client_language": "Язык"
+    "byog.client_language": "Язык",
+    "byog.enter_pairing_code_instructions": "Введите код сопряжения, устройство подключится к установке.",
+    "byog.client_onboarding_description": "Приложению нужны эти разрешения для работы. Мы запрашиваем их по одному.",
+    "byog.client_onboarding_grant": "Разрешить",
+    "byog.client_onboarding_continue": "Продолжить",
+    "byog.client_update_available": "Доступна новая версия приложения ({{version}}).",
+    "byog.client_update_install": "Обновить"
   },
   "URL to your logo image (used in header, footer, etc.)": "URL-адрес изображения вашего логотипа (используется в шапке, подвале и т.д.)",
   "Direct link to browser tab icon. If empty, uses Logo URL.": "Прямая ссылка на иконку вкладки браузера. Если пусто, используется URL логотипа.",

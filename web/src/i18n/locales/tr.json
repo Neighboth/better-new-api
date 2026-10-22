@@ -6720,7 +6720,13 @@
     "byog.client_permission_needed": "Gerekli",
     "byog.client_permission_grant": "Ver",
     "byog.client_permission_open": "Aç",
-    "byog.client_language": "Dil"
+    "byog.client_language": "Dil",
+    "byog.enter_pairing_code_instructions": "Eşleştirme kodunu girin, cihazınız kuruluma bağlansın.",
+    "byog.client_onboarding_description": "Uygulamanın düzgün çalışması için bu izinler gerekiyor. İzinleri tek tek isteyeceğiz.",
+    "byog.client_onboarding_grant": "İzni ver",
+    "byog.client_onboarding_continue": "Devam et",
+    "byog.client_update_available": "Uygulamanın yeni sürümü hazır ({{version}}).",
+    "byog.client_update_install": "Güncelle"
   },
   "URL to your logo image (used in header, footer, etc.)": "Logo görselinizin URL'si (üst bar, altbilgi vb. yerlerde kullanılır)",
   "Direct link to browser tab icon. If empty, uses Logo URL.": "Tarayıcı sekmesi simgesine doğrudan bağlantı. Boş bırakılırsa Logo URL'si kullanılır.",

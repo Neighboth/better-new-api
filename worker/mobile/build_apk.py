@@ -1365,7 +1365,14 @@ else:
 # ApkConfigReader.java
 apk_config_reader_content = '''package org.byog.worker;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.RandomAccessFile;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -1530,6 +1537,131 @@ public class MainActivity extends Activity {
     }
 
     /**
+     * Checks the update of the application when the application is opened.
+     *
+     * The worker of the installation is not always running, the update of the
+     * application has to be shown to the user in any case.
+     */
+    private void checkUpdateFromUi() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+                    String base = WorkerService.stringPref(sp, "server_url", "");
+                    if (base == null || base.trim().isEmpty()) return;
+                    while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+                    URL u = new URL(base + "/api/v1/worker/version");
+                    HttpURLConnection conn = (HttpURLConnection) u.openConnection();
+                    conn.setConnectTimeout(8000);
+                    conn.setReadTimeout(8000);
+                    if (conn.getResponseCode() == 200) {
+                        BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                        StringBuilder sb = new StringBuilder();
+                        String line;
+                        while ((line = br.readLine()) != null) sb.append(line);
+                        br.close();
+                        JSONObject vObj = new JSONObject(sb.toString());
+                        String latestVer = vObj.optString("version", "");
+                        if (!latestVer.isEmpty() && isNewerVersion(latestVer, appVersionName())) {
+                            JSONObject dlObj = vObj.optJSONObject("downloads");
+                            String apkRel = dlObj != null ? dlObj.optString("android_apk", "") : "";
+                            if (!apkRel.isEmpty()) {
+                                String apkUrl = apkRel.startsWith("http") ? apkRel : (base + apkRel);
+                                downloadUpdateInBackground(apkUrl);
+                                showUpdatePrompt(latestVer);
+                            }
+                        }
+                    }
+                    conn.disconnect();
+                } catch (Exception ignored) {}
+            }
+        }).start();
+    }
+
+    /**
+     * The version of the application that is installed on the device.
+     */
+    private String appVersionName() {
+        try {
+            android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            if (info.versionName != null && !info.versionName.isEmpty()) return info.versionName;
+            return String.valueOf(info.versionCode);
+        } catch (Exception ignored) {
+            return "0";
+        }
+    }
+
+    /**
+     * Downloads the update of the application in the background.
+     */
+    private void downloadUpdateInBackground(final String apkUrl) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    File cacheApk = new File(getCacheDir(), "byog-update.apk");
+                    URL u = new URL(apkUrl);
+                    HttpURLConnection conn = (HttpURLConnection) u.openConnection();
+                    conn.setConnectTimeout(10000);
+                    conn.setReadTimeout(60000);
+                    if (conn.getResponseCode() != 200) {
+                        conn.disconnect();
+                        return;
+                    }
+                    InputStream is = conn.getInputStream();
+                    FileOutputStream fos = new FileOutputStream(cacheApk);
+                    byte[] buf = new byte[65536];
+                    int n;
+                    while ((n = is.read(buf)) != -1) {
+                        fos.write(buf, 0, n);
+                    }
+                    fos.flush();
+                    fos.close();
+                    is.close();
+                    conn.disconnect();
+                } catch (Exception ignored) {}
+            }
+        }).start();
+    }
+
+    /**
+     * Shows the update of the application in the page of the client.
+     */
+    private void showUpdatePrompt(final String version) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (webView != null) {
+                    webView.evaluateJavascript("window.showUpdatePrompt('" + version + "')", null);
+                }
+            }
+        });
+    }
+
+    /**
+     * Compares two versions of the application.
+     */
+    private static boolean isNewerVersion(String latest, String current) {
+        if (latest == null || latest.isEmpty() || current == null || current.isEmpty()) return false;
+        if (latest.equals(current)) return false;
+        try {
+            String[] lParts = latest.replace("v", "").split("[.]");
+            String[] cParts = current.replace("v", "").split("[.]");
+            int len = Math.max(lParts.length, cParts.length);
+            for (int i = 0; i < len; i++) {
+                int lVal = i < lParts.length ? Integer.parseInt(lParts[i].replaceAll("[^0-9]", "")) : 0;
+                int cVal = i < cParts.length ? Integer.parseInt(cParts[i].replaceAll("[^0-9]", "")) : 0;
+                if (lVal > cVal) return true;
+                if (lVal < cVal) return false;
+            }
+        } catch (Exception e) {
+            return latest.compareTo(current) > 0;
+        }
+        return false;
+    }
+
+    /**
      * The address of the page of the client.
      *
      * The page is on the site, it uses the theme of the site and it follows the
@@ -1602,6 +1734,7 @@ public class MainActivity extends Activity {
 
         webView.addJavascriptInterface(new WebAppInterface(), "AndroidBridge");
         webView.loadUrl(clientPageUrl());
+        checkUpdateFromUi();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             try {
@@ -2185,6 +2318,27 @@ public class MainActivity extends Activity {
                 obj.put("bgactivity_supported", hasBackgroundActivityScreen());
             } catch (Exception ignored) {}
             return obj.toString();
+        }
+
+        /**
+         * Reports whether the permissions of the device are already asked.
+         *
+         * The permissions are asked one by one at the first start of the
+         * application, the page of the client shows them as a list of steps.
+         */
+        @JavascriptInterface
+        public boolean isOnboardingDone() {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            return WorkerService.boolPref(sp, "onboarding_done", false);
+        }
+
+        /**
+         * Keeps the state of the permissions that are asked.
+         */
+        @JavascriptInterface
+        public void completeOnboarding() {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            sp.edit().putBoolean("onboarding_done", true).apply();
         }
 
         @JavascriptInterface
