@@ -1889,6 +1889,16 @@ func embedByogClient(program []byte, c *gin.Context) ([]byte, error) {
 	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
 	systemName, appName, faviconUrl, faviconBase64 := getBranding(serverUrl)
 
+	// The icon of the installation is written into the program, the program
+	// carries the name and the icon of the installation.
+	if iconData := decodeFaviconIcon(faviconBase64); len(iconData) > 0 && len(iconData) <= 14026 {
+		if patched, err := embedcfg.PatchIcon(program, iconData); err == nil {
+			program = patched
+		} else {
+			common.SysError(fmt.Sprintf("[BYOG] icon patch failed: %v", err))
+		}
+	}
+
 	settings, err := json.Marshal(map[string]string{
 		"server_url":     serverUrl,
 		"system_name":    systemName,
@@ -1900,6 +1910,29 @@ func embedByogClient(program []byte, c *gin.Context) ([]byte, error) {
 		return nil, err
 	}
 	return embedcfg.Append(program, settings), nil
+}
+
+// decodeFaviconIcon reads the icon of the installation from the branding.
+//
+// The icon is a picture in the format of PNG, the program carries it in its
+// resource of the icons.
+func decodeFaviconIcon(faviconBase64 string) []byte {
+	if faviconBase64 == "" {
+		return nil
+	}
+	data := faviconBase64
+	if idx := strings.Index(data, ","); idx != -1 {
+		data = data[idx+1:]
+	}
+	raw, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return nil
+	}
+	// Only PNG pictures are written into the icon of the program.
+	if len(raw) < 8 || string(raw[1:4]) != "PNG" {
+		return nil
+	}
+	return raw
 }
 
 // DownloadByogWorker serves worker release binary or APK if present, or redirects to configured external download URL
