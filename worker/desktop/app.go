@@ -169,7 +169,46 @@ func loadConfig() Config {
 	if data, err := os.ReadFile(configPath()); err == nil {
 		_ = json.Unmarshal(data, &config)
 	}
+	if config.Language == "" {
+		// The installer of the client asks the language of the user, the page
+		// of the first start shows the same language.
+		config.Language = installerLanguage()
+	}
 	return config
+}
+
+// installerLanguage returns the language that the installer of the client
+// chose.
+//
+// The installation writes the language into a small file, the language of the
+// user is known before the page of the first start is shown.
+func installerLanguage() string {
+	if root := os.Getenv("BYOG_STORAGE_DIR"); root != "" {
+		// The installation of the system writes the file into the folder of
+		// the user, a custom folder is not written by it.
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".byog", "installer.json"))
+	if err != nil {
+		return ""
+	}
+	var payload struct {
+		Language string `json:"language"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return ""
+	}
+	language := strings.TrimSpace(payload.Language)
+	for _, code := range clientLanguages {
+		if code == language {
+			return language
+		}
+	}
+	return ""
 }
 
 // saveConfig writes the configuration of the worker to the disk.

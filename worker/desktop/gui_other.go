@@ -10,14 +10,12 @@ package main
 
 import (
 	"fmt"
-	"html/template"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/worker/desktop/installer"
@@ -81,161 +79,22 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string) {
 		startBackgroundTasks()
 	}()
 
-	go openInterface(address)
+	go openInterface(bridge.address + "/")
 
 	server := &http.Server{Handler: interfaceHandler(bridge)}
 	_ = server.Serve(listener)
 }
 
-// interfaceHandler builds the handler of the page of the client.
+// interfaceHandler sends the page of the client to the server of the state.
 //
-// The page of the client of the installation is on the site. The page of the
-// client sends the user there, the state of the client comes from the server
-// of the computer.
+// The page of the first start and the page of the installation are served by
+// the server of the state. The server of the page stays for the addresses that
+// are already known to the user.
 func interfaceHandler(bridge *localBridge) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
-		syncStatus()
-		status := readStatus()
-		State.Mu.Lock()
-		language := State.Config.Language
-		accepted := State.Config.LegalAccepted
-		State.Mu.Unlock()
-		// The page of the client of the installation is on the site. The
-		// language and the policies of the installation are asked first, the
-		// client is used after that.
-		if language != "" && accepted {
-			if page := bridge.pageAddress(status.ServerUrl); page != "" {
-				http.Redirect(writer, request, page, http.StatusSeeOther)
-				return
-			}
-		}
-		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = interfaceTemplate.Execute(writer, setupPage{
-			AppStatus:   status,
-			Language:    language,
-			Accepted:    accepted,
-			Languages:   clientLanguages,
-			TextSetup:   clientText("setup"),
-			TextLang:    clientText("language"),
-			TextPrivacy: clientText("privacy"),
-			TextTerms:   clientText("terms"),
-			TextAccept:  clientText("accept_privacy"),
-			TextTermsA:  clientText("accept_terms"),
-			TextCont:    clientText("continue"),
-		})
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, bridge.address+"/", http.StatusSeeOther)
 	})
-	mux.HandleFunc("/setup", func(writer http.ResponseWriter, request *http.Request) {
-		language := strings.TrimSpace(request.FormValue("language"))
-		if language != "" {
-			clientLanguage = language
-			State.Mu.Lock()
-			State.Config.Language = language
-			State.Mu.Unlock()
-		}
-		accepted := request.FormValue("privacy") != "" && request.FormValue("terms") != ""
-		State.Mu.Lock()
-		State.Config.LegalAccepted = accepted
-		State.Mu.Unlock()
-		saveConfig(State.Config)
-		http.Redirect(writer, request, "/", http.StatusSeeOther)
-	})
-	mux.HandleFunc("/pair", func(writer http.ResponseWriter, request *http.Request) {
-		code := strings.TrimSpace(request.FormValue("code"))
-		server := strings.TrimSpace(request.FormValue("server"))
-		if server != "" {
-			State.Mu.Lock()
-			State.Config.ServerUrl = server
-			State.Mu.Unlock()
-		}
-		if code != "" {
-			State.Mu.Lock()
-			State.Config.PairingCode = strings.ToUpper(code)
-			State.Mu.Unlock()
-			saveConfig(State.Config)
-			go func() {
-				if _, err := registerWorker(); err != nil {
-					updateStatus(func(status *AppStatus) { status.LastError = err.Error() })
-					return
-				}
-				startTunnel()
-			}()
-		}
-		http.Redirect(writer, request, "/", http.StatusSeeOther)
-	})
-	return mux
 }
-
-// setupPage is the state of the first start of the client.
-type setupPage struct {
-	AppStatus
-	Language    string
-	Accepted    bool
-	Languages   []string
-	TextSetup   string
-	TextLang    string
-	TextPrivacy string
-	TextTerms   string
-	TextAccept  string
-	TextTermsA  string
-	TextCont    string
-}
-
-// interfaceTemplate is the page of the client.
-var interfaceTemplate = template.Must(template.New("interface").Parse(`<!doctype html>
-<html lang="tr">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BYOG Worker</title>
-<style>
-  body { font-family: system-ui, sans-serif; background: #020817; color: #e6edf7; margin: 0; padding: 32px; }
-  main { max-width: 620px; margin: 0 auto; }
-  h1 { font-size: 22px; margin: 0 0 24px; }
-  .card { background: #0d1730; border: 1px solid #1e2d52; border-radius: 14px; padding: 20px; margin-bottom: 16px; }
-  .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #16224a; }
-  .row:last-child { border-bottom: none; }
-  .ok { color: #35d07f; } .bad { color: #ff7b72; } .busy { color: #f2cc60; }
-  input { background: #0a1330; border: 1px solid #2a3b66; color: #e6edf7; border-radius: 8px; padding: 10px; width: 100%; box-sizing: border-box; }
-  button { background: #2f6df6; border: none; color: white; border-radius: 8px; padding: 11px 18px; cursor: pointer; }
-  form { display: flex; gap: 10px; margin-top: 10px; }
-</style>
-</head>
-<body>
-<main>
-  <h1>{{.AppName}}</h1>
-  <div class="card">
-    <div class="row"><span>Durum</span><span>{{if .Connected}}<span class="ok">Çevrimiçi</span>{{else}}<span class="bad">Bağlı değil</span>{{end}}</span></div>
-    <div class="row"><span>Sunucu</span><span>{{.ServerUrl}}</span></div>
-    <div class="row"><span>Cihaz</span><span>{{.DeviceName}}</span></div>
-    <div class="row"><span>Model</span><span>{{if .ModelName}}{{.ModelName}}{{else}}{{.ModelStatus}}{{end}}</span></div>
-    {{if eq .ModelStatus "downloading"}}<div class="row"><span>İndirme</span><span class="busy">{{.DownloadedMB}} / {{.TotalMB}} MB</span></div>{{end}}
-    {{if .LastError}}<div class="row"><span>Hata</span><span class="bad">{{.LastError}}</span></div>{{end}}
-  </div>
-  {{if not .Accepted}}
-  <div class="card">
-    <strong>{{.TextSetup}}</strong>
-    <form method="post" action="/setup">
-      <p style="color:#9fb0d0;font-size:13px;margin:10px 0">{{.TextLang}}</p>
-      <select name="language" style="width:100%;padding:10px;border-radius:8px;background:#0a1330;border:1px solid #2a3b66;color:#e6edf7;margin-bottom:12px">
-        {{range .Languages}}<option value="{{.}}" {{if eq . $.Language}}selected{{end}}>{{.}}</option>{{end}}
-      </select>
-      <label style="display:block;font-size:13px;margin-bottom:8px"><input type="checkbox" name="privacy" {{if .Accepted}}checked{{end}}> {{.TextAccept}}</label>
-      <label style="display:block;font-size:13px;margin-bottom:12px"><input type="checkbox" name="terms" {{if .Accepted}}checked{{end}}> {{.TextTermsA}}</label>
-      <button type="submit">{{.TextCont}}</button>
-    </form>
-  </div>
-  {{end}}
-  <div class="card">
-    <strong>Eşleştirme kodu</strong>
-    <form method="post" action="/pair">
-      <input name="code" placeholder="XXXX-XXXX-XXXX-XXXX" value="{{.PairingCode}}">
-      <button type="submit">Bağlan</button>
-    </form>
-  </div>
-</main>
-</body>
-</html>`))
 
 // openInterface opens the page of the client.
 func openInterface(address string) {

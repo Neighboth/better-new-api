@@ -60,7 +60,6 @@ func Install(displayName string, version string) error {
 
 	writeUninstallEntry(displayName, version, executable, icon)
 	writeAppPathsEntry(executable)
-	writeStartMenuShortcut(executable, icon)
 	writeStartupEntry(displayName, executable)
 	return nil
 }
@@ -242,27 +241,4 @@ func writeAppPathsEntry(executable string) {
 // removeRegistryKey removes a key of the registry of the user.
 func removeRegistryKey(path string) {
 	_ = registry.DeleteKey(registry.CURRENT_USER, path)
-}
-
-// writeStartMenuShortcut writes the shortcut of the client in the start menu.
-//
-// The shortcut shows the client in the search of the system, it is the way the
-// user starts the client. The system writes the file, it knows the way to the
-// program of the shortcut.
-func writeStartMenuShortcut(executable string, icon string) {
-	shortcut := ShortcutPath()
-	if err := os.MkdirAll(filepath.Dir(shortcut), 0755); err != nil {
-		return
-	}
-	script := fmt.Sprintf(
-		"$shell = New-Object -ComObject WScript.Shell; "+
-			"$shortcut = $shell.CreateShortcut(%q); "+
-			"$shortcut.TargetPath = %q; "+
-			"$shortcut.WorkingDirectory = %q; "+
-			"$shortcut.IconLocation = %q; "+
-			"$shortcut.Description = %q; "+
-			"$shortcut.Save()",
-		shortcut, executable, Directory(), icon, "BYOG Worker")
-	command := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
-	_ = command.Run()
 }

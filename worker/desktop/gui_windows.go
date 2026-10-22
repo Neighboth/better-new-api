@@ -19,7 +19,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -290,6 +289,11 @@ type guiWindow struct {
 	// bridge is the server that gives the state of the client to the page of
 	// the installation.
 	bridge *localBridge
+	// embedFailed tells that the window of WebView2 could not be started on
+	// the computer, the page is opened with the browser of the system.
+	embedFailed bool
+	// embedCmd is the process of the window of WebView2.
+	embedCmd *exec.Cmd
 }
 
 var (
@@ -334,10 +338,7 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string) {
 		config.HWID = generateHWID()
 	}
 	// The language of the user and the policies of the installation are asked
-	// before the client is used.
-	if !runSetup(&config) {
-		return
-	}
+	// on the page of the client, the page is shown before the client is used.
 	saveConfig(config)
 
 	applyConfig(config)
@@ -541,7 +542,7 @@ func (w *guiWindow) create() {
 	window, _, _ := procCreateWindowEx.Call(
 		0,
 		uintptr(unsafe.Pointer(w.className)),
-		uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("BYOG"))),
+		uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(windowTitle()))),
 		wsOverlappedWindow|wsCaption|wsSysMenu|wsMinimizeBox|wsClipChildren,
 		uintptr(cwUseDefault),
 		uintptr(cwUseDefault),
@@ -1035,15 +1036,24 @@ func speedDescription(status AppStatus) string {
 
 // changeLanguage asks the language of the user again.
 //
-// The language of the user is used by the texts of the interface and it is kept
-// for the next start of the client.
+// The page of the first start is opened again, the language of the user is used
+// by the texts of the interface and it is kept for the next start of the client.
 func (w *guiWindow) changeLanguage() {
-	config := loadConfig()
-	if !runSetup(&config) {
+	if w.bridge == nil {
 		return
 	}
-	saveConfig(config)
-	w.invalidate()
+	page := w.bridge.address + "/?reset=1"
+	for _, browser := range clientBrowsers() {
+		if _, err := os.Stat(browser); err != nil {
+			continue
+		}
+		command := exec.Command(browser, "--app="+page, "--window-size=1100,760")
+		command.Dir = filepath.Dir(browser)
+		if command.Start() == nil {
+			return
+		}
+	}
+	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", page).Start()
 }
 
 // connect pairs the client with the coordinator.
@@ -1094,8 +1104,9 @@ func (w *guiWindow) openPanel() {
 // openClientPage opens the page of the client of the installation.
 //
 // The page is shown in a window of the browser without the bars of it, the
-// window fills itself and it follows the theme of the site. The answer of the
-// browser tells whether the page could be opened.
+// window fills itself and it follows the theme of the site. The server of the
+// state shows the page of the first start before the page of the installation
+// is opened. The answer of the browser tells whether the page could be opened.
 func (w *guiWindow) openClientPage() bool {
 	status := readStatus()
 	target := strings.TrimRight(status.ServerUrl, "/")
@@ -1105,19 +1116,53 @@ func (w *guiWindow) openClientPage() bool {
 	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
 		target = "http://" + target
 	}
+
+	// The server of the state shows the page of the first start and it sends
+	// the user to the page of the installation after the language and the
+	// policies are accepted. The page of the installation asks the state of the
+	// client from the same server.
 	page := target + "/client"
-	if status.NodeId != "" {
-		page += "?node=" + neturl.QueryEscape(status.NodeId)
-	}
-	// The page of the client asks the state of the client from the server of
-	// the computer of the user, it knows the pairing code and the model.
 	if w.bridge != nil {
-		page = w.bridge.pageAddress(status.ServerUrl)
-		if page == "" {
-			page = target + "/client"
-		}
+		page = w.bridge.address + "/"
 	}
 
+	// The window of the client shows the page without the bars of a browser.
+	// The window runs in a process of its own, a runtime of WebView2 that is
+	// not complete on the computer cannot stop the worker.
+	if !w.embedFailed {
+		if command, done, ok := startClientWindow(page, windowTitle(), applicationIconPath()); ok {
+			w.embedCmd = command
+			started := time.Now()
+			go func() {
+				<-done
+				w.mutex.Lock()
+				if w.embedCmd == command {
+					w.embedCmd = nil
+				}
+				early := time.Since(started) < 8*time.Second
+				w.mutex.Unlock()
+				if early {
+					// The window ended at the start, the runtime of WebView2
+					// is not on the computer. The page is opened with the
+					// browser of the system.
+					w.mutex.Lock()
+					w.embedFailed = true
+					w.mutex.Unlock()
+					openClientBrowser(page)
+				}
+			}()
+			return true
+		}
+		w.embedFailed = true
+	}
+
+	openClientBrowser(page)
+	return true
+}
+
+// openClientBrowser shows the page of the client with the browser of the
+// system.
+func openClientBrowser(page string) {
 	for _, browser := range clientBrowsers() {
 		if _, err := os.Stat(browser); err != nil {
 			continue
@@ -1125,11 +1170,42 @@ func (w *guiWindow) openClientPage() bool {
 		command := exec.Command(browser, "--app="+page, "--window-size=1100,760")
 		command.Dir = filepath.Dir(browser)
 		if command.Start() == nil {
-			return true
+			return
 		}
 	}
 	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", page).Start()
-	return true
+}
+
+// startClientWindow starts the window of the client.
+//
+// The process of the window is the program of the client itself. The answer
+// tells whether the window is still open after the start, a runtime of WebView2
+// that is not complete ends the process at once.
+func startClientWindow(page string, title string, iconPath string) (*exec.Cmd, <-chan struct{}, bool) {
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, nil, false
+	}
+	arguments := []string{"--webview-helper", "--webview-url", page, "--webview-title", title}
+	if iconPath != "" {
+		arguments = append(arguments, "--webview-icon", iconPath)
+	}
+	command := exec.Command(executable, arguments...)
+	command.Dir = filepath.Dir(executable)
+	if err := command.Start(); err != nil {
+		return nil, nil, false
+	}
+	done := make(chan struct{})
+	go func() {
+		_ = command.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil, nil, false
+	case <-time.After(1600 * time.Millisecond):
+		return command, done, true
+	}
 }
 
 // clientBrowsers returns the browsers of the computer.
@@ -1165,21 +1241,31 @@ func (w *guiWindow) openSiteSettings() {
 
 // closeApp closes the window of the client.
 //
-// The worker keeps serving the tasks of the coordinator, the window of the
-// client stays closed until the client is started again.
+// The worker keeps serving the tasks of the coordinator, the icon of the client
+// stays in the notification area until the client is started again.
 func (w *guiWindow) closeApp() {
-	w.removeTrayIcon()
+	closeWebViewWindow()
 	procShowWindow.Call(w.window, swHide)
 }
 
 // quit ends the client.
 func (w *guiWindow) quit() {
+	closeWebViewWindow()
 	w.removeTrayIcon()
 	os.Exit(0)
 }
 
 // show brings the window of the client to the front.
 func (w *guiWindow) show() {
+	if showWebViewWindow() {
+		return
+	}
+	w.mutex.Lock()
+	missing := w.embedCmd == nil
+	w.mutex.Unlock()
+	if missing && w.openClientPage() {
+		return
+	}
 	procShowWindow.Call(w.window, swShow)
 	procUpdateWindow.Call(w.window)
 	w.invalidate()
@@ -1195,7 +1281,7 @@ func (w *guiWindow) addTrayIcon() {
 		CallbackMessage: wmTray,
 		Icon:            w.icon,
 	}
-	tip, _ := syscall.UTF16FromString("BYOG")
+	tip, _ := syscall.UTF16FromString(windowTitle())
 	copy(data.Tip[:], tip)
 	procShellNotifyIcon.Call(uintptr(iconAdd), uintptr(unsafe.Pointer(&data)))
 	w.trayAdded = true

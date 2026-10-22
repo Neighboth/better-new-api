@@ -6,6 +6,7 @@ import zipfile
 import json
 import argparse
 import urllib.request
+import re
 import io
 
 BUILD_TOOLS = r"C:\Users\simse\AppData\Local\Android\Sdk\build-tools\37.0.0"
@@ -30,6 +31,28 @@ parser.add_argument("--sql-dsn", type=str, default="", help="Database DSN (SQLit
 args, _ = parser.parse_known_args()
 
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def worker_version_of_source():
+    """Returns the version of the client of the installation.
+
+    The application of Android follows the version of the client of Windows,
+    the update check of the application compares the version of the server with
+    the version of the application.
+    """
+    try:
+        with open(os.path.join(repo_root, "worker", "desktop", "main.go"), "r", encoding="utf-8") as source:
+            match = re.search(r'WorkerVersion\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"', source.read())
+        if match:
+            return match.group(1)
+    except OSError:
+        pass
+    return "1.9.0"
+
+
+worker_version = worker_version_of_source()
+version_parts = [int(part) for part in worker_version.split(".")]
+worker_version_code = version_parts[0] * 10000 + version_parts[1] * 100 + version_parts[2]
 
 system_name = args.system_name or os.environ.get("SYSTEM_NAME", "")
 favicon_url = args.favicon or os.environ.get("FAVICON_URL", "") or os.environ.get("FAVICON", "")
@@ -444,8 +467,8 @@ except Exception as e:
 manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.byog.worker"
-    android:versionCode="6"
-    android:versionName="1.8.0">
+    android:versionCode="{worker_version_code}"
+    android:versionName="{worker_version}">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
 
@@ -1476,11 +1499,26 @@ import java.nio.charset.StandardCharsets;
 
 public class MainActivity extends Activity {
     private WebView webView;
+    private WebAppInterface appInterface;
     private static final int REQ_QR_SCAN = 1001;
     private static final int REQ_POST_NOTIFS = 1002;
     private static final int REQ_CAMERA_PERM = 1003;
     private long lastPausedAt = 0;
     private JSONObject latestWorkerState = new JSONObject();
+    // The update of the application is downloaded before it is installed. The
+    // file of the update is written into a temporary file and it is renamed
+    // when the answer of the installation is complete, a part of the file
+    // cannot be installed.
+    private volatile boolean updateDownloading = false;
+    private volatile boolean updateDownloaded = false;
+    // updateVersion is the version of the file that is in the cache.
+    private volatile String updateVersion = "";
+    // pendingUpdateInstall is set when the user asks for the installation
+    // before the file of the update is ready.
+    private volatile boolean pendingUpdateInstall = false;
+    // pendingInstallPermission is set when the user leaves the application for
+    // the permission of the unknown applications.
+    private volatile boolean pendingInstallPermission = false;
 
     private BroadcastReceiver stateReceiver = new BroadcastReceiver() {
         @Override
@@ -1568,7 +1606,7 @@ public class MainActivity extends Activity {
                             String apkRel = dlObj != null ? dlObj.optString("android_apk", "") : "";
                             if (!apkRel.isEmpty()) {
                                 String apkUrl = apkRel.startsWith("http") ? apkRel : (base + apkRel);
-                                downloadUpdateInBackground(apkUrl);
+                                downloadUpdateInBackground(latestVer, apkUrl);
                                 showUpdatePrompt(latestVer);
                             }
                         }
@@ -1595,12 +1633,24 @@ public class MainActivity extends Activity {
     /**
      * Downloads the update of the application in the background.
      */
-    private void downloadUpdateInBackground(final String apkUrl) {
+    private void downloadUpdateInBackground(final String version, final String apkUrl) {
+        if (updateDownloading || updateDownloaded) return;
+        updateDownloading = true;
         new Thread(new Runnable() {
             @Override
             public void run() {
+                File target = new File(getCacheDir(), "byog-update.apk");
+                File partial = new File(getCacheDir(), "byog-update.apk.part");
                 try {
-                    File cacheApk = new File(getCacheDir(), "byog-update.apk");
+                    if (target.exists() && target.length() > 0 && version.equals(updateVersion)) {
+                        updateDownloaded = true;
+                        return;
+                    }
+                    // The file of an older version is not used, the update
+                    // would install the old version again.
+                    if (target.exists()) target.delete();
+                    updateVersion = "";
+                    if (partial.exists()) partial.delete();
                     URL u = new URL(apkUrl);
                     HttpURLConnection conn = (HttpURLConnection) u.openConnection();
                     conn.setConnectTimeout(10000);
@@ -1609,18 +1659,42 @@ public class MainActivity extends Activity {
                         conn.disconnect();
                         return;
                     }
+                    long expected = conn.getContentLength();
                     InputStream is = conn.getInputStream();
-                    FileOutputStream fos = new FileOutputStream(cacheApk);
+                    FileOutputStream fos = new FileOutputStream(partial);
                     byte[] buf = new byte[65536];
                     int n;
+                    long total = 0;
                     while ((n = is.read(buf)) != -1) {
                         fos.write(buf, 0, n);
+                        total += n;
                     }
                     fos.flush();
                     fos.close();
                     is.close();
                     conn.disconnect();
-                } catch (Exception ignored) {}
+                    if (total <= 0 || (expected > 0 && total != expected)) {
+                        partial.delete();
+                        return;
+                    }
+                    if (target.exists()) target.delete();
+                    if (!partial.renameTo(target)) return;
+                    updateVersion = version;
+                    updateDownloaded = true;
+                    if (pendingUpdateInstall) {
+                        pendingUpdateInstall = false;
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                appInterface.installDownloadedUpdate();
+                            }
+                        });
+                    }
+                } catch (Exception ignored) {
+                    if (partial.exists()) partial.delete();
+                } finally {
+                    updateDownloading = false;
+                }
             }
         }).start();
     }
@@ -1732,7 +1806,8 @@ public class MainActivity extends Activity {
         webView.setWebChromeClient(new WebChromeClient());
         webView.setBackgroundColor(0xFF020817);
 
-        webView.addJavascriptInterface(new WebAppInterface(), "AndroidBridge");
+        appInterface = new WebAppInterface();
+        webView.addJavascriptInterface(appInterface, "AndroidBridge");
         webView.loadUrl(clientPageUrl());
         checkUpdateFromUi();
 
@@ -1770,6 +1845,14 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        // The user comes back from the permission of the unknown applications,
+        // the installation of the update is started again.
+        if (pendingInstallPermission) {
+            pendingInstallPermission = false;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && getPackageManager().canRequestPackageInstalls() && appInterface != null) {
+                appInterface.installDownloadedUpdate();
+            }
+        }
         if (webView != null) {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
             boolean isBgRestricted = false;
@@ -2382,12 +2465,19 @@ public class MainActivity extends Activity {
         public void installDownloadedUpdate() {
             try {
                 File apkFile = new File(getCacheDir(), "byog-update.apk");
-                if (!apkFile.exists()) {
+                if (!apkFile.exists() || apkFile.length() == 0) {
+                    if (updateDownloading) {
+                        pendingUpdateInstall = true;
+                        Toast.makeText(MainActivity.this, "Güncelleme indiriliyor, tamamlanınca kurulum açılacak.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
                     Toast.makeText(MainActivity.this, "Güncelleme dosyası bulunamadı veya henüz indiriliyor.", Toast.LENGTH_SHORT).show();
                     return;
                 }
+                updateDownloaded = true;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     if (!getPackageManager().canRequestPackageInstalls()) {
+                        pendingInstallPermission = true;
                         Intent permIntent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES);
                         permIntent.setData(Uri.parse("package:" + getPackageName()));
                         permIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -2396,6 +2486,7 @@ public class MainActivity extends Activity {
                         return;
                     }
                 }
+                pendingInstallPermission = false;
                 Uri contentUri = Uri.parse("content://org.byog.worker.fileprovider/" + apkFile.getName());
                 Intent installIntent = new Intent(Intent.ACTION_VIEW);
                 installIntent.setDataAndType(contentUri, "application/vnd.android.package-archive");
@@ -3041,7 +3132,7 @@ with open(os.path.join(src_dir, "QRScanActivity.java"), "w", encoding="utf-8") a
 # WorkerService.java (Real hardware specs, assigned model downloading & running status simulation, foreground notification)
 worker_service_template_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'WorkerService.java.template')
 with open(worker_service_template_path, 'r', encoding='utf-8') as f:
-    worker_service_content = f.read().replace('{app_name}', app_name)
+    worker_service_content = f.read().replace('{app_name}', app_name).replace('{app_version}', worker_version)
 with open(os.path.join(src_dir, 'WorkerService.java'), 'w', encoding='utf-8') as f:
     f.write(worker_service_content)
 

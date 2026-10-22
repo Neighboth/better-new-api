@@ -16,6 +16,39 @@ func isFullscreenGameRunning() bool {
 	return false
 }
 
+// systemLanguage returns the language of the system of the user.
+//
+// The language decides the texts of the page of the first start and the texts
+// of the interface of the client.
+func systemLanguage() string {
+	for _, name := range []string{"LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"} {
+		value := strings.TrimSpace(os.Getenv(name))
+		if value == "" {
+			continue
+		}
+		value = strings.ToLower(strings.Split(value, ".")[0])
+		switch {
+		case strings.HasPrefix(value, "tr"):
+			return "tr"
+		case strings.HasPrefix(value, "zh_tw"), strings.HasPrefix(value, "zh_hk"), strings.HasPrefix(value, "zh_hant"):
+			return "zh_TW"
+		case strings.HasPrefix(value, "zh"):
+			return "zh_CN"
+		case strings.HasPrefix(value, "fr"):
+			return "fr"
+		case strings.HasPrefix(value, "ru"):
+			return "ru"
+		case strings.HasPrefix(value, "ja"):
+			return "ja"
+		case strings.HasPrefix(value, "vi"):
+			return "vi"
+		case strings.HasPrefix(value, "en"):
+			return "en"
+		}
+	}
+	return "en"
+}
+
 // physicalRamMB returns the physical memory of the computer in megabytes.
 //
 // The value decides which models the installation assigns to the node, a value
@@ -39,3 +72,12 @@ func physicalRamMB() int {
 	}
 	return 8192
 }
+
+// acquireSingleInstance tells whether this process is the first client of the
+// user.
+func acquireSingleInstance() bool {
+	return true
+}
+
+// showRunningInstance brings the window of the client that runs to the front.
+func showRunningInstance() {}

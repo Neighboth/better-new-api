@@ -325,11 +325,8 @@ func (w *guiWindow) paintTest(dc uintptr, details [4]string, result string) {
 // The title is the name of the installation with the name of the client.
 func windowTitle() string {
 	status := readStatus()
-	if status.SystemName != "" {
-		return status.SystemName + " BYOG"
+	if title := installationDisplayName(status.AppName, status.SystemName); title != "" {
+		return title
 	}
-	if status.AppName != "" && status.AppName != "BYOG Worker" {
-		return status.AppName
-	}
-	return "BYOG"
+	return "BYOG Worker"
 }

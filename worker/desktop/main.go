@@ -834,7 +834,18 @@ func main() {
 	serverFlag := flag.String("server", "", "Server URL (e.g. https://your-server.com or http://localhost:3000)")
 	codeFlag := flag.String("code", "", "Pairing code from web dashboard")
 	deviceFlag := flag.String("device", "", "Custom device name")
+	webViewHelperFlag := flag.Bool("webview-helper", false, "Show the page of the client in the window of the client")
+	webViewUrlFlag := flag.String("webview-url", "", "The page of the window of the client")
+	webViewTitleFlag := flag.String("webview-title", "", "The name of the window of the client")
+	webViewIconFlag := flag.String("webview-icon", "", "The icon of the window of the client")
 	flag.Parse()
+
+	// The window of the client runs in a process of its own. The runtime of
+	// WebView2 of the computer cannot stop the worker, the worker uses the
+	// browser of the system when the window cannot be opened.
+	if *webViewHelperFlag {
+		os.Exit(runWebViewHelper(*webViewUrlFlag, *webViewTitleFlag, *webViewIconFlag))
+	}
 
 	if *installFlag {
 		installApp()
@@ -848,6 +859,14 @@ func main() {
 
 	// The file of the installation installs the client and starts it.
 	if installIfNeeded() {
+		return
+	}
+
+	// The client stays in the notification area after its window is closed.
+	// Starting the file again shows the window of the client that runs, a
+	// second worker would serve the tasks of the computer twice.
+	if !acquireSingleInstance() {
+		showRunningInstance()
 		return
 	}
 

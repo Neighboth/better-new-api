@@ -394,7 +394,7 @@ func GetByogStatus(c *gin.Context) {
 	}
 
 	hasWin := hasLocalWorkerBinary("windows", "amd64")
-	hasLin := hasLocalWorkerBinary("linux", "amd64")
+	hasLin := hasLocalWorkerBinary("linux", "amd64") || hasLocalWorkerBinary("linux", "arm64") || hasLocalWorkerBinary("linux", "arm")
 	hasDar := hasLocalWorkerBinary("darwin", "arm64")
 	hasAnd := hasLocalWorkerBinary("android", "apk")
 
@@ -1829,6 +1829,8 @@ func GetByogBootstrap(c *gin.Context) {
 func GetByogWorkerVersion(c *gin.Context) {
 	winUrl := "/api/v1/worker/download/windows/amd64"
 	linUrl := "/api/v1/worker/download/linux/amd64"
+	linArm64Url := "/api/v1/worker/download/linux/arm64"
+	linArmUrl := "/api/v1/worker/download/linux/arm"
 	darUrl := "/api/v1/worker/download/darwin/arm64"
 	apkUrl := "/api/v1/worker/download/android/apk"
 
@@ -1839,6 +1841,8 @@ func GetByogWorkerVersion(c *gin.Context) {
 		"downloads": gin.H{
 			"windows_amd64": winUrl,
 			"linux_amd64":   linUrl,
+			"linux_arm64":   linArm64Url,
+			"linux_arm":     linArmUrl,
 			"darwin_arm64":  darUrl,
 			"android_apk":   apkUrl,
 		},

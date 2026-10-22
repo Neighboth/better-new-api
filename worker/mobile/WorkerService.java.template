@@ -2253,7 +2253,7 @@ public class WorkerService extends Service {
                         br.close();
                         JSONObject vObj = new JSONObject(sb.toString());
                         String latestVer = vObj.optString("version", "");
-                        if (!latestVer.isEmpty() && isNewerVersion(latestVer, "1.8.0")) {
+                        if (!latestVer.isEmpty() && isNewerVersion(latestVer, "{app_version}")) {
                             JSONObject dlObj = vObj.optJSONObject("downloads");
                             String apkRel = dlObj != null ? dlObj.optString("android_apk", "") : "";
                             if (!apkRel.isEmpty()) {
@@ -2287,26 +2287,41 @@ public class WorkerService extends Service {
     }
 
     private void downloadAndNotifyUpdate(String version, String apkUrl) {
+        File target = new File(getCacheDir(), "byog-update.apk");
+        File partial = new File(getCacheDir(), "byog-update.apk.part");
         try {
-            File cacheApk = new File(getCacheDir(), "byog-update.apk");
             URL u = new URL(apkUrl);
             HttpURLConnection conn = (HttpURLConnection) u.openConnection();
             conn.setConnectTimeout(10000);
             conn.setReadTimeout(60000);
             if (conn.getResponseCode() == 200) {
+                long expected = conn.getContentLength();
+                if (partial.exists()) partial.delete();
                 InputStream is = conn.getInputStream();
-                FileOutputStream fos = new FileOutputStream(cacheApk);
-                byte[] buf = new byte[8192];
+                FileOutputStream fos = new FileOutputStream(partial);
+                byte[] buf = new byte[65536];
                 int n;
+                long total = 0;
                 while ((n = is.read(buf)) != -1) {
                     fos.write(buf, 0, n);
+                    total += n;
                 }
                 fos.close();
                 is.close();
+                if (total <= 0 || (expected > 0 && total != expected)) {
+                    partial.delete();
+                    conn.disconnect();
+                    return;
+                }
+                if (target.exists()) target.delete();
+                if (!partial.renameTo(target)) {
+                    conn.disconnect();
+                    return;
+                }
 
                 Intent uIntent = new Intent("org.byog.worker.UPDATE_AVAILABLE");
                 uIntent.putExtra("version", version);
-                uIntent.putExtra("apk_path", cacheApk.getAbsolutePath());
+                uIntent.putExtra("apk_path", target.getAbsolutePath());
                 uIntent.setPackage(getPackageName());
                 sendBroadcast(uIntent);
 
