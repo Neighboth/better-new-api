@@ -1881,7 +1881,7 @@ func GetByogWorkerVersion(c *gin.Context) {
 	apkUrl := "/api/v1/worker/download/android/apk"
 
 	c.JSON(http.StatusOK, gin.H{
-		"version":      "1.9.0",
+		"version":      "1.9.1",
 		"min_version":  "1.0.0",
 		"release_date": time.Now().Format("2006-01-02"),
 		"downloads": gin.H{

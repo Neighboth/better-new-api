@@ -11,7 +11,7 @@
 ; installed, the same policy of the page of the first start.
 
 #define MyAppName "BYOG Worker"
-#define MyAppVersion "1.9.0"
+#define MyAppVersion "1.9.1"
 #define MyAppPublisher "BYOG"
 #define MyAppExeName "BYOG Worker.exe"
 

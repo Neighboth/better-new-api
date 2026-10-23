@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	WorkerVersion       = "1.9.0"
+	WorkerVersion       = "1.9.1"
 	DefaultServerUrl    = "http://localhost:3000"
 	DefaultChunkSize    = 4194304 // 4 MB
 	ParallelConnections = 16
