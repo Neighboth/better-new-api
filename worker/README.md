@@ -8,8 +8,8 @@ device and it takes the tasks of the coordinator.
 
 | Dosya | Sistem | Arayüz |
 | --- | --- | --- |
-| `BYOG Worker.exe` | Windows | Kendi penceresi (WebView2), bildirim alanında simge |
-| `BYOG Worker Kurulumu.exe` | Windows | Inno Setup ile kurulum programı (isteğe bağlı) |
+| `BYOG Worker.exe` | Windows | Inno Setup kurulum programı (panodan indirilen dosya) |
+| `BYOG Worker Kurulumu.exe` | Windows | Inno Setup derlemesinin kaynak dosyası |
 | `byog-worker-linux-amd64` | Linux (x86-64) | Tarayıcıda açılan sayfa |
 | `byog-worker-linux-arm64` | Linux (ARM64, Raspberry Pi 4/5) | Tarayıcıda açılan sayfa |
 | `byog-worker-linux-arm` | Linux (ARMv7) | Tarayıcıda açılan sayfa |
@@ -19,29 +19,35 @@ device and it takes the tasks of the coordinator.
 
 ## The installation on Windows
 
-The dashboard hands out one file, `BYOG Worker.exe`. The name, the address of the
-installation, the favicon and the icon are written into the file when it is
-downloaded, the client does not ask the user for them.
+The dashboard hands out one file, `BYOG Worker.exe`; it is the installer of Inno
+Setup. The name, the address of the installation, the favicon and the icon are
+written into the installer when it is downloaded, the installer and the client
+do not ask the user for them.
 
-1. The file installs itself on the first start into
-   `%LOCALAPPDATA%\Programs\<sunucu adı> BYOG Worker`.
-2. It writes the entry of the control panel, the entry of `App Paths` and the
-   entry that starts the client with the system.
-3. It does not write a shortcut. The client is started by opening the file in
-   the installation folder (or from the notification area when it runs).
-4. The first start shows the branded page of the installation: the language and
-   the policies of the installation. The page follows the theme of the system.
-5. The page of the client is shown in a window of WebView2. The window runs in a
-   process of its own, a runtime of WebView2 that is not complete on the computer
-   cannot stop the worker; the page is opened with Edge or Chrome then.
+1. The installer offers the language and the directory of the installation, the
+   default directory is `%LOCALAPPDATA%\Programs\<sunucu adı> BYOG Worker`.
+2. It shows the policies of the installation and requires the acceptance before
+   the client is installed.
+3. It writes the language and the acceptance into `~/.byog/config.json`, the
+   client starts with the same language and it does not show the page of the
+   first start again.
+4. It writes the settings of the installation at the end of the installed
+   `BYOG Worker.exe`, the client reads the name, the address, the favicon and
+   the icon from its own file.
+5. It writes the entry of the control panel, the entry of `App Paths` and the
+   entry that starts the client with the session of the user. It does not write
+   a shortcut on the desktop or in the menu of the programs.
+6. The page of the client is shown in a window of WebView2. The window runs in
+   a process of its own. When the runtime of WebView2 cannot be started, the
+   window of the program shows the state of the worker; the client never opens
+   a browser.
+
+The program of the client is still served without `?format=installer` for the
+self-updater of the installed clients. The dashboard asks for the installer with
+`?format=installer`; the response keeps the file name `BYOG Worker.exe`.
 
 The remove entry is
 `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{5B4C0A1E-6C1B-4C0E-9E4F-7A3D2B5C8E11}_is1`.
-
-The program of the Inno Setup installation is an alternative for the networks
-that hand out an installation program; it is not the download of the dashboard.
-The installer writes the language of the user into `~/.byog/installer.json`, the
-page of the first start uses the same language.
 
 ## The configuration of the client
 

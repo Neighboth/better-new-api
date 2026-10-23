@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"net/http"
@@ -12,8 +13,11 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/embedcfg"
+	"github.com/QuantumNous/new-api/pkg/icon"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInjectApkConfig(t *testing.T) {
@@ -44,6 +48,94 @@ func TestInjectApkConfig(t *testing.T) {
 
 	_, err = injectApkConfig([]byte("not an apk file at all"), cfgJson)
 	assert.Error(t, err)
+}
+
+// TestDownloadByogWorkerInstallerBranding protects the Windows download of the
+// dashboard: the installer of Inno Setup is served with the settings of the
+// installation at the end of its program, the setup reads them and the client
+// installed from it carries them.
+func TestDownloadByogWorkerInstallerBranding(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	installerPath := filepath.Join("..", "worker", "binaries", "BYOG Worker Kurulumu.exe")
+	if _, err := os.Stat(installerPath); err != nil {
+		t.Skipf("the installer is not built at %s, skipping", installerPath)
+	}
+
+	common.SystemName = "Installer Test"
+	common.Favicon = "/favicon.ico"
+	common.OptionMapRWMutex.Lock()
+	for _, key := range []string{"SystemName_tr", "SystemName", "SystemName_en", "general_setting.system_name"} {
+		delete(common.OptionMap, key)
+	}
+	common.OptionMapRWMutex.Unlock()
+
+	router := gin.New()
+	router.GET("/api/v1/worker/download/:platform/:arch", DownloadByogWorker)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/worker/download/windows/amd64?format=installer", nil)
+	req.Host = "installer.example.com"
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "application/octet-stream", w.Header().Get("Content-Type"))
+	require.Contains(t, w.Header().Get("Content-Disposition"), "BYOG Worker.exe")
+	require.Greater(t, w.Body.Len(), 1<<20)
+
+	settings, ok := embedcfg.Extract(w.Body.Bytes())
+	require.True(t, ok, "the installer must carry the settings of the installation")
+	var parsed map[string]string
+	require.NoError(t, json.Unmarshal(settings, &parsed))
+	require.Equal(t, "http://installer.example.com", parsed["server_url"])
+	require.Equal(t, "Installer Test", parsed["system_name"])
+	require.Equal(t, "Installer Test BYOG", parsed["app_name"])
+}
+
+// TestASCIIJSONEscapesNonASCII protects the format of the settings that the
+// installer of Windows reads: the characters outside the standard set are
+// escapes, the text of the site keeps its characters.
+func TestASCIIJSONEscapesNonASCII(t *testing.T) {
+	input := []byte(`{"system_name":"Türkçe Yapay Zeka"}`)
+	output := asciiJSON(input)
+	require.NotContains(t, string(output), "ü")
+	require.NotContains(t, string(output), "ç")
+	require.Contains(t, string(output), `\u00fc`)
+	require.Contains(t, string(output), `\u00e7`)
+
+	var parsed map[string]string
+	require.NoError(t, json.Unmarshal(output, &parsed))
+	require.Equal(t, "Türkçe Yapay Zeka", parsed["system_name"])
+}
+
+// TestSignWindowsProgramWithoutCertificate protects the download of the
+// programs of Windows on a server without a certificate: the program is served
+// unsigned instead of failing.
+func TestSignWindowsProgramWithoutCertificate(t *testing.T) {
+	t.Setenv("BYOG_SIGN_CERT", "")
+	program := []byte("MZ-program")
+	require.Equal(t, program, signWindowsProgram(program))
+}
+
+// TestIconPatchWithSiteIcon protects the icon of the installation: the default
+// favicon of the site is a file of the icons of Windows, the picture is written
+// into the resource of the program of the client.
+func TestIconPatchWithSiteIcon(t *testing.T) {
+	programPath := filepath.Join("..", "worker", "binaries", "BYOG Worker.exe")
+	program, err := os.ReadFile(programPath)
+	if err != nil {
+		t.Skipf("the client is not built at %s, skipping", programPath)
+	}
+	favicon, err := os.ReadFile(filepath.Join("..", "web", "public", "favicon.ico"))
+	require.NoError(t, err)
+
+	iconData := decodeFaviconIcon("data:image/x-icon;base64," + base64.StdEncoding.EncodeToString(favicon))
+	require.NotEmpty(t, iconData)
+	require.LessOrEqual(t, len(iconData), icon.MaxResourceSize)
+
+	patched, err := embedcfg.PatchIcon(program, iconData)
+	require.NoError(t, err)
+	require.NotEqual(t, program, patched)
+	require.Equal(t, len(program), len(patched))
 }
 
 func TestResolveNodeGeoIP(t *testing.T) {

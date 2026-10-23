@@ -7,8 +7,8 @@ package main
 // The page of the client is shown in the window of the client itself, the bars
 // of a browser are not shown. The window runs in a process of its own: a
 // runtime of WebView2 that is not complete on the computer of the user cannot
-// stop the worker. The worker uses the browser of the system when the window
-// cannot be opened.
+// stop the worker. The window of the program shows the state of the worker when
+// the window of WebView2 cannot be started.
 //
 // The program carries the runtime of the loader of WebView2, the computer of
 // the user does not have to have the package of the developer.
@@ -68,8 +68,8 @@ var (
 // runWebViewHelper shows the page of the client in the window of the client.
 //
 // The program ends with an error when the runtime of WebView2 is not on the
-// computer of the user, the worker opens the page with the browser of the
-// system then.
+// computer of the user, the window of the program shows the state of the worker
+// then.
 func runWebViewHelper(url string, title string, iconPath string) (code int) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -107,8 +107,8 @@ func runWebViewHelper(url string, title string, iconPath string) (code int) {
 
 	// The page of the client is shown when the controller of the page is
 	// ready. A runtime that does not answer would leave a window without a
-	// page, the window is closed after a time and the worker opens the page
-	// with the browser of the system.
+	// page, the window is closed after a time and the window of the program
+	// shows the state of the worker.
 	time.AfterFunc(7*time.Second, func() {
 		if !webViewReady.Load() {
 			webViewLog("the page of the client is not ready")

@@ -28,13 +28,26 @@ const (
 	publisherName = "BYOG"
 )
 
-// Directory returns the directory of the client.
+// Directory returns the default directory of the client.
 func Directory() string {
 	local := os.Getenv("LOCALAPPDATA")
 	if local == "" {
 		local = os.Getenv("USERPROFILE")
 	}
 	return filepath.Join(local, "Programs", "BYOG Worker")
+}
+
+// InstalledDirectory returns the directory of the running client.
+//
+// The installer of the system can install the client into a directory that
+// carries the name of the installation, the directory of the program is the
+// directory of the client.
+func InstalledDirectory() string {
+	executable, err := os.Executable()
+	if err != nil {
+		return Directory()
+	}
+	return filepath.Dir(executable)
 }
 
 // Executable returns the path of the program of the client.
@@ -134,7 +147,8 @@ const systemUninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\
 // is written into that entry when it is there. The client writes its own entry
 // when the installation was made by the client.
 func updateInstallationName(displayName string, version string) error {
-	if _, err := os.Stat(filepath.Join(Directory(), "unins000.exe")); err == nil {
+	installed := InstalledDirectory()
+	if _, err := os.Stat(filepath.Join(installed, "unins000.exe")); err == nil {
 		key, err := registry.OpenKey(registry.CURRENT_USER, systemUninstallKey, registry.SET_VALUE)
 		if err != nil {
 			return Install(displayName, version)
@@ -142,7 +156,7 @@ func updateInstallationName(displayName string, version string) error {
 		defer key.Close()
 		_ = key.SetStringValue("DisplayName", displayName)
 		_ = key.SetStringValue("DisplayVersion", version)
-		_ = key.SetStringValue("DisplayIcon", filepath.Join(Directory(), "byog.ico"))
+		_ = key.SetStringValue("DisplayIcon", filepath.Join(installed, "byog.ico"))
 		return nil
 	}
 	return Install(displayName, version)
@@ -189,15 +203,20 @@ func renameShortcut(displayName string) {
 // The installer of the system writes the uninstaller into the directory of the
 // client, the entries of the system are written by the client itself.
 func IsInstalled() bool {
-	if _, err := os.Stat(filepath.Join(Directory(), "unins000.exe")); err == nil {
+	installed := InstalledDirectory()
+	if _, err := os.Stat(filepath.Join(installed, "unins000.exe")); err == nil {
 		return true
 	}
-	if _, err := os.Stat(Executable()); err == nil {
-		key, err := registry.OpenKey(registry.CURRENT_USER, uninstallKey, registry.QUERY_VALUE)
-		if err == nil {
-			defer key.Close()
-			if _, _, err := key.GetIntegerValue("NoModify"); err == nil {
-				return true
+	// The client that installed itself has no uninstaller of the system, its
+	// entry in the control panel is the proof of the installation.
+	if strings.EqualFold(filepath.Clean(installed), filepath.Clean(Directory())) {
+		if _, err := os.Stat(Executable()); err == nil {
+			key, err := registry.OpenKey(registry.CURRENT_USER, uninstallKey, registry.QUERY_VALUE)
+			if err == nil {
+				defer key.Close()
+				if _, _, err := key.GetIntegerValue("NoModify"); err == nil {
+					return true
+				}
 			}
 		}
 	}

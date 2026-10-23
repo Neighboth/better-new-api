@@ -29,6 +29,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/QuantumNous/new-api/pkg/icon"
 	"github.com/QuantumNous/new-api/worker/desktop/installer"
 )
 
@@ -84,7 +85,6 @@ const (
 	commandConnect  = 103
 	commandTest     = 104
 	commandLanguage = 105
-	commandSettings = 106
 	commandClose    = 107
 
 	controlServerEdit = 201
@@ -290,10 +290,13 @@ type guiWindow struct {
 	// the installation.
 	bridge *localBridge
 	// embedFailed tells that the window of WebView2 could not be started on
-	// the computer, the page is opened with the browser of the system.
+	// the computer, the window of the program shows the state.
 	embedFailed bool
 	// embedCmd is the process of the window of WebView2.
 	embedCmd *exec.Cmd
+	// embedClosing tells that the window of WebView2 is closed by the client,
+	// the end of the process is not a failure of the runtime.
+	embedClosing bool
 }
 
 var (
@@ -833,8 +836,6 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 				}
 			case commandPanel:
 				window.openPanel()
-			case commandSettings:
-				window.openSiteSettings()
 			case commandClose:
 				window.closeApp()
 			case commandQuit:
@@ -1042,18 +1043,22 @@ func (w *guiWindow) changeLanguage() {
 	if w.bridge == nil {
 		return
 	}
-	page := w.bridge.address + "/?reset=1"
-	for _, browser := range clientBrowsers() {
-		if _, err := os.Stat(browser); err != nil {
-			continue
-		}
-		command := exec.Command(browser, "--app="+page, "--window-size=1100,760")
-		command.Dir = filepath.Dir(browser)
-		if command.Start() == nil {
-			return
-		}
+	w.mutex.Lock()
+	closing := w.embedCmd != nil
+	if closing {
+		w.embedClosing = true
 	}
-	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", page).Start()
+	w.mutex.Unlock()
+	if closing {
+		// The page of the first start is shown in the window of WebView2. The
+		// window that shows the page of the client is closed first, the class
+		// of the window names only one window.
+		closeWebViewWindow()
+		time.Sleep(250 * time.Millisecond)
+	}
+	if !w.openEmbeddedPage(w.bridge.address + "/?reset=1") {
+		w.showMessage(windowTitle(), "Dil değiştirmek için WebView2 gerekli.")
+	}
 }
 
 // connect pairs the client with the coordinator.
@@ -1088,25 +1093,20 @@ func (w *guiWindow) connect() {
 	}()
 }
 
-// openPanel opens the dashboard of the installation in the browser.
+// openPanel shows the page of the client of the installation.
+//
+// The page of the site is shown in the window of WebView2, the client never
+// opens a browser.
 func (w *guiWindow) openPanel() {
-	status := readStatus()
-	target := strings.TrimRight(status.ServerUrl, "/")
-	if target == "" {
-		return
-	}
-	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
-		target = "http://" + target
-	}
-	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", target).Start()
+	w.show()
 }
 
 // openClientPage opens the page of the client of the installation.
 //
-// The page is shown in a window of the browser without the bars of it, the
-// window fills itself and it follows the theme of the site. The server of the
-// state shows the page of the first start before the page of the installation
-// is opened. The answer of the browser tells whether the page could be opened.
+// The server of the state shows the page of the first start and it sends the
+// user to the page of the installation after the language and the policies are
+// accepted. The page of the installation asks the state of the client from the
+// same server.
 func (w *guiWindow) openClientPage() bool {
 	status := readStatus()
 	target := strings.TrimRight(status.ServerUrl, "/")
@@ -1117,63 +1117,58 @@ func (w *guiWindow) openClientPage() bool {
 		target = "http://" + target
 	}
 
-	// The server of the state shows the page of the first start and it sends
-	// the user to the page of the installation after the language and the
-	// policies are accepted. The page of the installation asks the state of the
-	// client from the same server.
 	page := target + "/client"
 	if w.bridge != nil {
 		page = w.bridge.address + "/"
 	}
-
-	// The window of the client shows the page without the bars of a browser.
-	// The window runs in a process of its own, a runtime of WebView2 that is
-	// not complete on the computer cannot stop the worker.
-	if !w.embedFailed {
-		if command, done, ok := startClientWindow(page, windowTitle(), applicationIconPath()); ok {
-			w.embedCmd = command
-			started := time.Now()
-			go func() {
-				<-done
-				w.mutex.Lock()
-				if w.embedCmd == command {
-					w.embedCmd = nil
-				}
-				early := time.Since(started) < 8*time.Second
-				w.mutex.Unlock()
-				if early {
-					// The window ended at the start, the runtime of WebView2
-					// is not on the computer. The page is opened with the
-					// browser of the system.
-					w.mutex.Lock()
-					w.embedFailed = true
-					w.mutex.Unlock()
-					openClientBrowser(page)
-				}
-			}()
-			return true
-		}
-		w.embedFailed = true
-	}
-
-	openClientBrowser(page)
-	return true
+	return w.openEmbeddedPage(page)
 }
 
-// openClientBrowser shows the page of the client with the browser of the
-// system.
-func openClientBrowser(page string) {
-	for _, browser := range clientBrowsers() {
-		if _, err := os.Stat(browser); err != nil {
-			continue
+// openEmbeddedPage shows a page of the installation in the window of WebView2.
+//
+// The window runs in a process of its own, a runtime of WebView2 that is not
+// complete on the computer cannot stop the worker. The window of the program
+// shows the state of the worker when the window of WebView2 cannot be started,
+// the client never opens a browser.
+func (w *guiWindow) openEmbeddedPage(page string) bool {
+	if w.embedFailed {
+		return false
+	}
+	command, done, ok := startClientWindow(page, windowTitle(), applicationIconPath())
+	if !ok {
+		w.embedFailed = true
+		return false
+	}
+
+	w.mutex.Lock()
+	w.embedCmd = command
+	w.embedClosing = false
+	w.mutex.Unlock()
+
+	started := time.Now()
+	go func() {
+		<-done
+		w.mutex.Lock()
+		if w.embedCmd == command {
+			w.embedCmd = nil
 		}
-		command := exec.Command(browser, "--app="+page, "--window-size=1100,760")
-		command.Dir = filepath.Dir(browser)
-		if command.Start() == nil {
+		early := time.Since(started) < 8*time.Second
+		closing := w.embedClosing
+		w.mutex.Unlock()
+		if !early || closing {
 			return
 		}
-	}
-	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", page).Start()
+		// The window ended at the start, the runtime of WebView2 is not on
+		// the computer. The window of the program shows the state of the
+		// worker.
+		w.mutex.Lock()
+		w.embedFailed = true
+		w.mutex.Unlock()
+		procShowWindow.Call(w.window, swShow)
+		procUpdateWindow.Call(w.window)
+		w.invalidate()
+	}()
+	return true
 }
 
 // startClientWindow starts the window of the client.
@@ -1208,42 +1203,14 @@ func startClientWindow(page string, title string, iconPath string) (*exec.Cmd, <
 	}
 }
 
-// clientBrowsers returns the browsers of the computer.
-//
-// The window of the browser is used without the bars of it, the page of the
-// client fills the window.
-func clientBrowsers() []string {
-	paths := make([]string, 0, 4)
-	for _, root := range []string{os.Getenv("ProgramFiles(x86)"), os.Getenv("ProgramFiles"), os.Getenv("LocalAppData")} {
-		if root == "" {
-			continue
-		}
-		paths = append(paths,
-			filepath.Join(root, "Microsoft", "Edge", "Application", "msedge.exe"),
-			filepath.Join(root, "Google", "Chrome", "Application", "chrome.exe"),
-		)
-	}
-	return paths
-}
-
-// openSiteSettings opens the settings of the installation on the site.
-func (w *guiWindow) openSiteSettings() {
-	status := readStatus()
-	target := strings.TrimRight(status.ServerUrl, "/")
-	if target == "" {
-		return
-	}
-	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
-		target = "http://" + target
-	}
-	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", target+"/console/personal").Start()
-}
-
 // closeApp closes the window of the client.
 //
 // The worker keeps serving the tasks of the coordinator, the icon of the client
 // stays in the notification area until the client is started again.
 func (w *guiWindow) closeApp() {
+	w.mutex.Lock()
+	w.embedClosing = true
+	w.mutex.Unlock()
 	closeWebViewWindow()
 	procShowWindow.Call(w.window, swHide)
 }
@@ -1316,7 +1283,6 @@ func (w *guiWindow) showTrayMenu() {
 	menu, _, _ := procCreatePopupMenu.Call()
 	procAppendMenu.Call(menu, 0, commandShow, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("show")))))
 	procAppendMenu.Call(menu, 0, commandPanel, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("go_site")))))
-	procAppendMenu.Call(menu, 0, commandSettings, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("site_settings")))))
 	procAppendMenu.Call(menu, 0, commandClose, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("close_app")))))
 
 	var point windowPoint
@@ -1332,8 +1298,8 @@ func (w *guiWindow) showTrayMenu() {
 // the icon of the dashboard of the installation.
 func applicationIconPath() string {
 	candidates := []string{
-		filepath.Join(installer.Directory(), "byog.ico"),
 		filepath.Join(storageRoot(), "byog.ico"),
+		filepath.Join(installer.InstalledDirectory(), "byog.ico"),
 	}
 	for _, candidate := range candidates {
 		if _, err := os.Stat(candidate); err == nil {
@@ -1360,10 +1326,20 @@ func writeApplicationIcon(base64Image string) {
 	if err != nil || len(data) < 8 {
 		return
 	}
-	// Only a picture in the format of PNG can be used as an icon.
-	if string(data[1:4]) != "PNG" {
+	// The icon of the site is a file of the icons of Windows or a picture of
+	// another format, the file of the icon of the client is built from it.
+	iconData := icon.FromImage(data)
+	if len(iconData) == 0 {
 		return
 	}
 	_ = os.MkdirAll(storageRoot(), 0755)
-	_ = os.WriteFile(filepath.Join(storageRoot(), "byog.ico"), buildIconFile(data), 0644)
+	_ = os.WriteFile(filepath.Join(storageRoot(), "byog.ico"), iconData, 0644)
+
+	// The entry of the client in the applications of the control panel shows
+	// the icon of the installation. The client writes the icon next to the
+	// program when the program is installed, the icon of the file of the
+	// program is written when the program is downloaded.
+	if installer.IsInstalled() {
+		_ = os.WriteFile(filepath.Join(installer.InstalledDirectory(), "byog.ico"), iconData, 0644)
+	}
 }

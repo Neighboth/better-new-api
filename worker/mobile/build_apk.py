@@ -2779,22 +2779,32 @@ public class MainActivity extends Activity {
                                     @Override
                                     public void run() {
                                         setTitle(returnedAppName);
-                                        Intent sIntent = new Intent(MainActivity.this, WorkerService.class);
-                                        sIntent.putExtra("pairing_code", cleanCode);
-                                        sIntent.putExtra("server_url", finalServerUrl);
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                            startForegroundService(sIntent);
-                                        } else {
-                                            startService(sIntent);
+                                        // Android 12+ can refuse a foreground service start
+                                        // when the activity is not in the foreground. The
+                                        // failure is retried by the watchdog and by the next
+                                        // resume, it must never take the application down.
+                                        try {
+                                            Intent sIntent = new Intent(MainActivity.this, WorkerService.class);
+                                            sIntent.putExtra("pairing_code", cleanCode);
+                                            sIntent.putExtra("server_url", finalServerUrl);
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                                startForegroundService(sIntent);
+                                            } else {
+                                                startService(sIntent);
+                                            }
+                                        } catch (Throwable ex) {
+                                            android.util.Log.w("BYOG_CONNECT", "Worker could not be started: " + ex.getMessage());
                                         }
 
                                         Toast.makeText(MainActivity.this, "Cihaz başarıyla bağlandı", Toast.LENGTH_SHORT).show();
 
                                         // The page of the client of the installation is on the
                                         // site, it uses the theme of the site.
-                                        if (webView != null) {
-                                            webView.loadUrl(clientPageUrl());
-                                        }
+                                        try {
+                                            if (webView != null) {
+                                                webView.loadUrl(clientPageUrl());
+                                            }
+                                        } catch (Throwable ignored) {}
 
                                         JSONObject state = new JSONObject();
                                         try {
@@ -2824,9 +2834,11 @@ public class MainActivity extends Activity {
                                                 sp.edit().putString("model_status", "downloading").putInt("download_progress", 0).putInt("downloaded_mb", 0).commit();
                                             }
                                         } catch (Exception ignored) {}
-                                        if (webView != null) {
-                                            webView.evaluateJavascript("window.updateState(" + state.toString() + ")", null);
-                                        }
+                                        try {
+                                            if (webView != null) {
+                                                webView.evaluateJavascript("window.updateState(" + state.toString() + ")", null);
+                                            }
+                                        } catch (Throwable ignored) {}
                                     }
                                 });
                                 return;

@@ -3,8 +3,9 @@
 # The Windows client is a program of the graphical user interface, it is shown
 # in the applications of the control panel and in the search of the system. The
 # program of the installation is built with Inno Setup, the user chooses the
-# directory of the installation and decides whether the client gets a shortcut
-# on the desktop.
+# directory of the installation. The installer does not write a shortcut on the
+# desktop or in the menu of the programs, the client is started with the session
+# of the user and it is removed with the applications of the control panel.
 
 param(
     [switch]$SkipMobile,

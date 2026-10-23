@@ -13,11 +13,14 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -1762,6 +1765,49 @@ func byogPolicy(language string) (string, string, bool) {
 	return "", "", false
 }
 
+// The titles of the policies in the languages of the installation.
+var byogSetupPolicyTitles = map[string][2]string{
+	"tr":    {"Gizlilik Politikası", "Kullanım Koşulları"},
+	"en":    {"Privacy Policy", "Terms of Service"},
+	"zh_CN": {"隐私政策", "服务条款"},
+	"zh_TW": {"隱私政策", "服務條款"},
+	"fr":    {"Politique de confidentialité", "Conditions d'utilisation"},
+	"ru":    {"Политика конфиденциальности", "Условия использования"},
+	"ja":    {"プライバシーポリシー", "利用規約"},
+	"vi":    {"Chính sách quyền riêng tư", "Điều khoản sử dụng"},
+}
+
+// GetByogSetupPolicies gives the privacy policy and the terms of service of the
+// installation as plain text.
+//
+// The program of the installation shows the policies before the client is
+// installed, the text is the same text of the page of the first start.
+func GetByogSetupPolicies(c *gin.Context) {
+	language := strings.TrimSpace(c.Query("lang"))
+	if language == "" {
+		language = "en"
+	}
+	privacy, terms, found := byogPolicy(language)
+	if !found {
+		c.String(http.StatusNotFound, "the installation has no policy")
+		return
+	}
+
+	titles, ok := byogSetupPolicyTitles[language]
+	if !ok {
+		titles = byogSetupPolicyTitles["en"]
+	}
+	parts := make([]string, 0, 4)
+	if strings.TrimSpace(privacy) != "" {
+		parts = append(parts, titles[0], privacy)
+	}
+	if strings.TrimSpace(terms) != "" {
+		parts = append(parts, titles[1], terms)
+	}
+	c.Header("Content-Type", "text/plain; charset=utf-8")
+	c.String(http.StatusOK, strings.Join(parts, "\r\n\r\n"))
+}
+
 // GetByogWorkerStatus gives the state of a client of the installation.
 //
 // The page of the client shows the state of the worker, it does not need the
@@ -1871,7 +1917,7 @@ func GetByogFaviconIcon(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "the installation has no icon"})
 		return
 	}
-	iconData := icon.FromPNG(raw)
+	iconData := icon.FromImage(raw)
 	if len(iconData) == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "the installation has no icon"})
 		return
@@ -1913,13 +1959,142 @@ func embedByogClient(program []byte, c *gin.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return embedcfg.Append(program, settings), nil
+	return embedcfg.Append(program, asciiJSON(settings)), nil
+}
+
+// asciiJSON writes the escaping of a JSON document with the characters above
+// the standard set as escapes.
+//
+// The installation of Windows reads the settings of the client with the
+// language of Pascal, the characters outside the standard set are written as
+// escapes, the settings are the same for the client and for the installer.
+func asciiJSON(data []byte) []byte {
+	var out bytes.Buffer
+	out.Grow(len(data))
+	for index := 0; index < len(data); {
+		if data[index] < utf8.RuneSelf {
+			out.WriteByte(data[index])
+			index++
+			continue
+		}
+		value, size := utf8.DecodeRune(data[index:])
+		if value == utf8.RuneError && size == 1 {
+			index++
+			continue
+		}
+		if value > 0xFFFF {
+			high, low := utf16.EncodeRune(value)
+			fmt.Fprintf(&out, `\u%04x\u%04x`, high, low)
+		} else {
+			fmt.Fprintf(&out, `\u%04x`, value)
+		}
+		index += size
+	}
+	return out.Bytes()
+}
+
+// The cache of the signed programs of Windows.
+//
+// The settings of the installation are written at the end of the program when
+// it is downloaded, the signature of the build covers the program without the
+// settings. The program is signed again on the server when the certificate of
+// the installation is on the server.
+var signedWindowsPrograms = struct {
+	sync.Mutex
+	programs map[string][]byte
+}{programs: make(map[string][]byte)}
+
+// signWindowsProgram signs a program of Windows with the certificate of the
+// installation.
+//
+// The certificate is the PKCS#12 file in BYOG_SIGN_CERT, the password is in
+// BYOG_SIGN_PASSWORD. signtool or osslsigncode is used, BYOG_SIGN_TOOL names the
+// program when it is not in the path. The program is returned unchanged when
+// the certificate or the program of the signature is not on the server.
+func signWindowsProgram(program []byte) []byte {
+	certificate := strings.TrimSpace(os.Getenv("BYOG_SIGN_CERT"))
+	if certificate == "" {
+		return program
+	}
+	sum := sha256.Sum256(program)
+	cacheKey := hex.EncodeToString(sum[:])
+	signedWindowsPrograms.Lock()
+	if cached, ok := signedWindowsPrograms.programs[cacheKey]; ok {
+		signedWindowsPrograms.Unlock()
+		return cached
+	}
+	signedWindowsPrograms.Unlock()
+
+	tool := strings.TrimSpace(os.Getenv("BYOG_SIGN_TOOL"))
+	if tool == "" {
+		if path, err := exec.LookPath("signtool"); err == nil {
+			tool = path
+		} else if path, err := exec.LookPath("osslsigncode"); err == nil {
+			tool = path
+		}
+	}
+	if tool == "" {
+		return program
+	}
+
+	directory, err := os.MkdirTemp("", "byog-sign-")
+	if err != nil {
+		return program
+	}
+	defer os.RemoveAll(directory)
+	input := filepath.Join(directory, "program.exe")
+	output := filepath.Join(directory, "signed.exe")
+	if err := os.WriteFile(input, program, 0600); err != nil {
+		return program
+	}
+
+	password := os.Getenv("BYOG_SIGN_PASSWORD")
+	var command *exec.Cmd
+	if strings.Contains(strings.ToLower(filepath.Base(tool)), "osslsigncode") {
+		arguments := []string{"sign", "-pkcs12", certificate, "-h", "sha256", "-in", input, "-out", output}
+		if password != "" {
+			arguments = append(arguments, "-pass", password)
+		}
+		command = exec.Command(tool, arguments...)
+	} else {
+		arguments := []string{"sign", "/fd", "SHA256", "/tr", "http://timestamp.digicert.com", "/td", "SHA256", "/f", certificate}
+		if password != "" {
+			arguments = append(arguments, "/p", password)
+		}
+		arguments = append(arguments, input)
+		command = exec.Command(tool, arguments...)
+	}
+	command.Stdout = io.Discard
+	command.Stderr = io.Discard
+	if err := command.Run(); err != nil {
+		common.SysError(fmt.Sprintf("[BYOG] Windows program signing failed: %v", err))
+		return program
+	}
+
+	signedPath := input
+	if strings.Contains(strings.ToLower(filepath.Base(tool)), "osslsigncode") {
+		signedPath = output
+	}
+	signed, err := os.ReadFile(signedPath)
+	if err != nil || len(signed) == 0 {
+		return program
+	}
+
+	signedWindowsPrograms.Lock()
+	if len(signedWindowsPrograms.programs) >= 4 {
+		signedWindowsPrograms.programs = make(map[string][]byte)
+	}
+	signedWindowsPrograms.programs[cacheKey] = signed
+	signedWindowsPrograms.Unlock()
+	return signed
 }
 
 // decodeFaviconIcon reads the icon of the installation from the branding.
 //
 // The icon is a picture in the format of PNG, the program carries it in its
-// resource of the icons.
+// resource of the icons. The icon of a site is also a file of the icons of
+// Windows or a picture of another format, the picture is written as PNG and it
+// is made smaller when it does not fit the resource.
 func decodeFaviconIcon(faviconBase64 string) []byte {
 	if faviconBase64 == "" {
 		return nil
@@ -1932,62 +2107,87 @@ func decodeFaviconIcon(faviconBase64 string) []byte {
 	if err != nil {
 		return nil
 	}
-	// Only PNG pictures are written into the icon of the program.
-	if len(raw) < 8 || string(raw[1:4]) != "PNG" {
-		return nil
-	}
-	return raw
+	return icon.PNG(raw, icon.MaxResourceSize)
 }
 
 // DownloadByogWorker serves worker release binary or APK if present, or redirects to configured external download URL
+//
+// The installation of Windows is the installer of Inno Setup, the user asks for
+// it with the format of the installation. The program of the client is still
+// served without the format, the self-updater of the client replaces itself with
+// the program.
 func DownloadByogWorker(c *gin.Context) {
 	platform := c.Param("platform")
 	arch := c.Param("arch")
-	fileName := fmt.Sprintf("byog-worker-%s-%s", platform, arch)
+	sourceName := fmt.Sprintf("byog-worker-%s-%s", platform, arch)
+	downloadName := sourceName
+	installer := false
 	if platform == "windows" {
-		fileName = "BYOG Worker.exe"
+		sourceName = "BYOG Worker.exe"
+		downloadName = sourceName
+		if c.Query("format") == "installer" {
+			sourceName = "BYOG Worker Kurulumu.exe"
+			installer = true
+		}
 	} else if platform == "android" {
 		if arch == "apk" {
-			fileName = "byog-worker.apk"
+			sourceName = "byog-worker.apk"
+			downloadName = sourceName
 		} else {
-			fileName = "byog-worker-android-arm64"
+			sourceName = "byog-worker-android-arm64"
+			downloadName = sourceName
 		}
 	}
 
-	searchPaths := []string{
-		filepath.Join("worker", "binaries", fileName),
-		filepath.Join("..", "worker", "binaries", fileName),
-		filepath.Join("/worker", "binaries", fileName),
-		filepath.Join("/data", "worker", "binaries", fileName),
-		filepath.Join(".", "worker", "binaries", fileName),
-	}
-	if execPath, err := os.Executable(); err == nil {
-		searchPaths = append(searchPaths, filepath.Join(filepath.Dir(execPath), "worker", "binaries", fileName))
-		searchPaths = append(searchPaths, filepath.Join(filepath.Dir(execPath), "..", "worker", "binaries", fileName))
+	// An installation that is built without the installer still works: the
+	// program of the client installs itself.
+	sourceNames := []string{sourceName}
+	if installer {
+		sourceNames = append(sourceNames, "BYOG Worker.exe")
 	}
 
-	for _, p := range searchPaths {
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Size() > 0 {
-			if platform == "windows" {
-				// The program of the client carries the name, the icon and the
-				// address of the installation, the client does not ask the user
-				// for them.
-				raw, err := os.ReadFile(p)
-				if err == nil {
-					if branded, err := embedByogClient(raw, c); err == nil {
-						raw = branded
-					} else {
-						common.SysError(fmt.Sprintf("[BYOG] client branding failed: %v", err))
-					}
-					c.Header("Content-Type", "application/octet-stream")
-					c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
-					c.Data(http.StatusOK, "application/octet-stream", raw)
-					return
-				}
+	searchDirs := []string{
+		filepath.Join("worker", "binaries"),
+		filepath.Join("..", "worker", "binaries"),
+		filepath.Join("/worker", "binaries"),
+		filepath.Join("/data", "worker", "binaries"),
+		filepath.Join(".", "worker", "binaries"),
+	}
+	if execPath, err := os.Executable(); err == nil {
+		searchDirs = append(searchDirs, filepath.Join(filepath.Dir(execPath), "worker", "binaries"))
+		searchDirs = append(searchDirs, filepath.Join(filepath.Dir(execPath), "..", "worker", "binaries"))
+	}
+
+	for _, name := range sourceNames {
+		for _, dir := range searchDirs {
+			p := filepath.Join(dir, name)
+			if fi, err := os.Stat(p); err != nil || fi.IsDir() || fi.Size() == 0 {
+				continue
 			}
-			if strings.HasSuffix(fileName, ".apk") {
+			if platform == "windows" {
+				// The program of the client and the installer carry the name,
+				// the icon and the address of the installation, the client does
+				// not ask the user for them.
+				raw, err := os.ReadFile(p)
+				if err != nil {
+					continue
+				}
+				if branded, err := embedByogClient(raw, c); err == nil {
+					// The settings of the installation are written after the
+					// signature of the build, the program is signed again when
+					// the certificate of the installation is on the server.
+					raw = signWindowsProgram(branded)
+				} else {
+					common.SysError(fmt.Sprintf("[BYOG] client branding failed: %v", err))
+				}
+				c.Header("Content-Type", "application/octet-stream")
+				c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", downloadName))
+				c.Data(http.StatusOK, "application/octet-stream", raw)
+				return
+			}
+			if platform == "android" && arch == "apk" {
 				c.Header("Content-Type", "application/vnd.android.package-archive")
-				c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+				c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", downloadName))
 				if raw, err := os.ReadFile(p); err == nil {
 					scheme := "http"
 					if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
@@ -2014,19 +2214,18 @@ func DownloadByogWorker(c *gin.Context) {
 						raw = branded
 					}
 
-					if customizedApk, err := injectApkConfig(raw, cfgPayload); err == nil {
+					if customizedApk, err := injectApkConfig(raw, asciiJSON(cfgPayload)); err == nil {
 						c.Data(http.StatusOK, "application/vnd.android.package-archive", customizedApk)
 						return
 					}
 				}
 				c.File(p)
 				return
-			} else {
-				c.Header("Content-Type", "application/octet-stream")
-				c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
-				c.File(p)
-				return
 			}
+			c.Header("Content-Type", "application/octet-stream")
+			c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", downloadName))
+			c.File(p)
+			return
 		}
 	}
 

@@ -13,23 +13,25 @@ import (
 )
 
 // The mark of the settings at the end of the program.
-var marker = []byte("\x00\x00BYOG-CFG\x00")
+const markerText = "\x00\x00BYOG-CFG\x00"
+
+var marker = []byte(markerText)
 
 // The size of the mark.
-const markerSize = 12
+const markerSize = len(markerText)
 
 // Append writes the settings into the program of the client.
 //
 // The settings are written at the end of the program, the program of Windows
 // does not mind the data that follows it.
 func Append(program []byte, settings []byte) []byte {
-	result := make([]byte, 0, len(program)+markerSize+len(settings))
+	result := make([]byte, 0, len(program)+markerSize+len(settings)+4)
 	result = append(result, program...)
 	result = append(result, marker...)
+	result = append(result, settings...)
 	length := make([]byte, 4)
 	binary.LittleEndian.PutUint32(length, uint32(len(settings)))
-	result = append(result, length...)
-	return append(result, settings...)
+	return append(result, length...)
 }
 
 // Extract reads the settings from the program of the client.

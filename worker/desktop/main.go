@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -432,6 +433,37 @@ func reportDownloadProgress(downloaded int64, total int64) {
 	State.Mu.Unlock()
 }
 
+// versionGreater reports whether a version is newer than another version.
+func versionGreater(candidate string, current string) bool {
+	parse := func(value string) []int {
+		parts := strings.Split(strings.TrimSpace(value), ".")
+		numbers := make([]int, len(parts))
+		for index, part := range parts {
+			if end := strings.IndexFunc(part, func(character rune) bool {
+				return character < '0' || character > '9'
+			}); end >= 0 {
+				part = part[:end]
+			}
+			numbers[index], _ = strconv.Atoi(part)
+		}
+		return numbers
+	}
+	left, right := parse(candidate), parse(current)
+	for index := 0; index < len(left) || index < len(right); index++ {
+		var first, second int
+		if index < len(left) {
+			first = left[index]
+		}
+		if index < len(right) {
+			second = right[index]
+		}
+		if first != second {
+			return first > second
+		}
+	}
+	return false
+}
+
 // Self-Updater Engine with Windows File-Lock Workaround (Section 5.5)
 func checkSelfUpdate() {
 	versionUrl := fmt.Sprintf("%s/api/v1/worker/version", State.Config.ServerUrl)
@@ -449,55 +481,74 @@ func checkSelfUpdate() {
 		return
 	}
 
-	if data.Version != "" && data.Version > WorkerVersion {
-		fmt.Printf("[BYOG UPDATER] New version available: %s (Current: %s). Initiating graceful update...\n", data.Version, WorkerVersion)
+	if data.Version == "" || !versionGreater(data.Version, WorkerVersion) {
+		return
+	}
+	fmt.Printf("[BYOG UPDATER] New version available: %s (Current: %s). Initiating graceful update...\n", data.Version, WorkerVersion)
 
-		// Drain existing jobs
-		for State.ActiveInferences > 0 {
-			time.Sleep(500 * time.Millisecond)
-		}
+	// Drain existing jobs
+	for State.ActiveInferences > 0 {
+		time.Sleep(500 * time.Millisecond)
+	}
 
-		currentExe, err := os.Executable()
-		if err != nil {
-			return
-		}
+	currentExe, err := os.Executable()
+	if err != nil {
+		return
+	}
 
-		// Windows File Lock Solution: Rename current executable to .old
-		oldExe := currentExe + ".old"
-		_ = os.Remove(oldExe)
-		if err := os.Rename(currentExe, oldExe); err != nil {
-			fmt.Printf("[BYOG UPDATER] Rename failed: %v\n", err)
-			return
-		}
+	downloadPath := data.Downloads[runtime.GOOS+"_"+runtime.GOARCH]
+	if downloadPath == "" {
+		return
+	}
+	if !strings.HasPrefix(downloadPath, "http") {
+		downloadPath = State.Config.ServerUrl + downloadPath
+	}
 
-		// Download new binary into currentExe path
-		downloadPath := data.Downloads["windows_amd64"]
-		if runtime.GOOS == "linux" {
-			downloadPath = data.Downloads["linux_amd64"]
-		}
-		if !strings.HasPrefix(downloadPath, "http") {
-			downloadPath = State.Config.ServerUrl + downloadPath
-		}
-
-		newFile, err := os.Create(currentExe)
-		if err != nil {
-			// Rollback rename
-			_ = os.Rename(oldExe, currentExe)
-			return
-		}
-
-		dlResp, err := http.Get(downloadPath)
-		if err == nil && dlResp.StatusCode == http.StatusOK {
-			_, _ = io.Copy(newFile, dlResp.Body)
+	// The new program is written next to the program of the client and it is
+	// checked before the program of the client is replaced. The installer of
+	// Windows is not used by the self-updater, it downloads the program of the
+	// client and keeps the branding of the installation.
+	newExe := currentExe + ".new"
+	_ = os.Remove(newExe)
+	newFile, err := os.Create(newExe)
+	if err != nil {
+		return
+	}
+	dlResp, err := http.Get(downloadPath)
+	if err != nil || dlResp.StatusCode != http.StatusOK {
+		if dlResp != nil {
 			dlResp.Body.Close()
 		}
 		newFile.Close()
-
-		// Restart with current arguments silently
-		cmd := exec.Command(currentExe, os.Args[1:]...)
-		_ = cmd.Start()
-		os.Exit(0)
+		_ = os.Remove(newExe)
+		return
 	}
+	written, copyErr := io.Copy(newFile, dlResp.Body)
+	dlResp.Body.Close()
+	newFile.Close()
+	if copyErr != nil || written < 1<<20 {
+		_ = os.Remove(newExe)
+		return
+	}
+
+	// Windows File Lock Solution: Rename current executable to .old
+	oldExe := currentExe + ".old"
+	_ = os.Remove(oldExe)
+	if err := os.Rename(currentExe, oldExe); err != nil {
+		_ = os.Remove(newExe)
+		fmt.Printf("[BYOG UPDATER] Rename failed: %v\n", err)
+		return
+	}
+	if err := os.Rename(newExe, currentExe); err != nil {
+		_ = os.Rename(oldExe, currentExe)
+		_ = os.Remove(newExe)
+		return
+	}
+
+	// Restart with current arguments silently
+	cmd := exec.Command(currentExe, os.Args[1:]...)
+	_ = cmd.Start()
+	os.Exit(0)
 }
 
 // Crash Telemetry Reporter (Section 5.6)
@@ -841,8 +892,8 @@ func main() {
 	flag.Parse()
 
 	// The window of the client runs in a process of its own. The runtime of
-	// WebView2 of the computer cannot stop the worker, the worker uses the
-	// browser of the system when the window cannot be opened.
+	// WebView2 of the computer cannot stop the worker, the window of the
+	// program shows the state of the worker when the window cannot be opened.
 	if *webViewHelperFlag {
 		os.Exit(runWebViewHelper(*webViewUrlFlag, *webViewTitleFlag, *webViewIconFlag))
 	}

@@ -119,7 +119,11 @@ export function PairModal({ onPaired }: PairModalProps) {
   // The client of the installation is downloaded as a program, the name, the
   // icon and the address of the installation are written into it.
   const handleDownload = (platform: string, arch: string) => {
-    const downloadUrl = `/api/v1/worker/download/${platform}/${arch}`
+    // Windows is served as the Inno Setup installer of the installation. The
+    // program of the client itself is still served without the format for the
+    // self-updater of the installed clients.
+    const format = platform === 'windows' ? '?format=installer' : ''
+    const downloadUrl = `/api/v1/worker/download/${platform}/${arch}${format}`
     const a = document.createElement('a')
     a.href = downloadUrl
     a.rel = 'noopener'
