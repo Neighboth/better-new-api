@@ -386,9 +386,11 @@ func SendEmailVerification(c *gin.Context) {
 	code := common.GenerateVerificationCode(6)
 	common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose)
 	lang := resolveEmailLanguage(c)
+	verifyLink := fmt.Sprintf("%s/verify-code?code=%s", strings.TrimRight(system_setting.ServerAddress, "/"), code)
 	subject, content := service.RenderEmail("verification", lang, map[string]string{
 		"code":  code,
 		"email": email,
+		"link":  verifyLink,
 	})
 	err := common.SendEmail(subject, email, content)
 	if err != nil {
@@ -462,9 +464,11 @@ func SendTestEmail(c *gin.Context) {
 	}
 	code := common.GenerateVerificationCode(6)
 	lang := resolveEmailLanguage(c)
+	verifyLink := fmt.Sprintf("%s/verify-code?code=%s", strings.TrimRight(system_setting.ServerAddress, "/"), code)
 	subject, content := service.RenderEmail("verification", lang, map[string]string{
 		"code":  code,
 		"email": email,
+		"link":  verifyLink,
 	})
 	err := common.SendEmail(subject, email, content)
 	if err != nil {

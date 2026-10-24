@@ -1,4 +1,4 @@
-package discordbot
+﻿package discordbot
 
 import (
 	"fmt"
@@ -266,10 +266,11 @@ func ownerPanelLayout(session *ownerSession, body string, actions []discordgo.Me
 	if notice != "" {
 		components = append(components, textDisplay(notice), separator())
 	}
+	headerText := fmt.Sprintf("🛡️ **Yönetici Kontrol Paneli**\n👤 **Yönetici:** `%s` (#%d) • **Rol:** `%s`\n⏳ **Oturum:** `%s` kaldı",
+		session.username, session.userID, describeRole(session.role),
+		formatDuration(time.Until(session.expiresAt)))
 	components = append(components,
-		textDisplay(fmt.Sprintf("Yonetici Paneli\n%s (#%d) - %s\nOturum %s sonra kapanir",
-			session.username, session.userID, describeRole(session.role),
-			formatDuration(time.Until(session.expiresAt)))),
+		textDisplay(headerText),
 		separator(),
 		textDisplay(body),
 		separator(),
@@ -279,8 +280,8 @@ func ownerPanelLayout(session *ownerSession, body string, actions []discordgo.Me
 		components = append(components, actionRow(actions...))
 	}
 	return append(components, actionRow(
-		secondaryButton(ownerPanelPrefix+"refresh", "Yenile"),
-		dangerButton(ownerPanelPrefix+"exit", "Cikis"),
+		secondaryButton(ownerPanelPrefix+"refresh", "🔄 Yenile"),
+		dangerButton(ownerPanelPrefix+"exit", "🚪 Çıkış"),
 	))
 }
 
@@ -329,40 +330,46 @@ func (b *Bot) renderOwnerSection(session *ownerSession) (string, []discordgo.Mes
 }
 
 func (b *Bot) renderOwnerOverview(session *ownerSession) (string, []discordgo.MessageComponent) {
-	lines := []string{"� **Genel Bakış**", "", "**Erişilebilir bölümler**"}
+	lines := []string{"📊 **Genel Bakış & Sistem Durumu**", "", "**Kullanılabilir Yönetim Bölümleri:**"}
 	for _, section := range session.availableSections() {
-		lines = append(lines, " "+section.label)
+		lines = append(lines, "  📁 "+section.label)
 	}
 
 	counts := []string{}
 	if session.can(authz.UserRead) {
 		if _, total, err := model.GetAllUsers(&common.PageInfo{Page: 1, PageSize: 1}); err == nil {
-			counts = append(counts, fmt.Sprintf(" Kullanıcı: **%d**", total))
+			counts = append(counts, fmt.Sprintf("• 👥 Kullanıcılar: **%d**", total))
+		}
+	}
+	if session.can(authz.ChannelRead) {
+		if total, err := model.CountAllChannels(); err == nil {
+			counts = append(counts, fmt.Sprintf("• ⚡ AI Kanalları: **%d**", total))
 		}
 	}
 	if session.can(authz.BlogRead) {
 		if total, err := model.GetBlogPostCount(false); err == nil {
-			counts = append(counts, fmt.Sprintf(" Blog yazısı: **%d**", total))
+			counts = append(counts, fmt.Sprintf("• 📝 Blog Yazıları: **%d**", total))
 		}
 	}
 	if session.can(authz.TicketRead) {
 		if _, total, err := model.GetAllTickets(1, 1, "", "", "", ""); err == nil {
-			counts = append(counts, fmt.Sprintf(" Talep: **%d**", total))
+			counts = append(counts, fmt.Sprintf("• 🎫 Destek Talepleri: **%d**", total))
 		}
 	}
 	if session.can(authz.RedemptionRead) {
 		if _, total, err := model.GetAllRedemptions(0, 1); err == nil {
-			counts = append(counts, fmt.Sprintf(" Kupon: **%d**", total))
+			counts = append(counts, fmt.Sprintf("• 🎟️ Hediye Kuponları: **%d**", total))
 		}
 	}
 	if len(counts) > 0 {
-		lines = append(lines, "", "**Kayıt sayıları**")
+		lines = append(lines, "", "**📈 Kayıt & Kaynak Özeti:**")
 		lines = append(lines, counts...)
 	}
 
+	lines = append(lines, "", "🟢 **Sistem Motoru:** Çalışıyor | **Veritabanı:** Bağlı")
+
 	return strings.Join(lines, "\n"), nil
 }
-
 func ownerActionSelect(section string, placeholder string, options ...discordgo.SelectMenuOption) discordgo.SelectMenu {
 	return discordgo.SelectMenu{
 		MenuType:    discordgo.StringSelectMenu,

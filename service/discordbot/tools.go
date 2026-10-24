@@ -231,6 +231,140 @@ func GetDiscordBotTools() []ToolDefinition {
 				},
 			},
 		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "add_member_role",
+				Description: "Assign a role to a server member. Requires Manage Roles permission.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"user_id": map[string]any{"type": "string", "description": "The user ID or mention (<@...>) to assign the role to"},
+						"role_id": map[string]any{"type": "string", "description": "The ID of the role to assign"},
+					},
+					"required": []string{"user_id", "role_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "remove_member_role",
+				Description: "Remove a role from a server member. Requires Manage Roles permission.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"user_id": map[string]any{"type": "string", "description": "The user ID or mention (<@...>) to remove the role from"},
+						"role_id": map[string]any{"type": "string", "description": "The ID of the role to remove"},
+					},
+					"required": []string{"user_id", "role_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "get_audit_logs",
+				Description: "View recent audit logs of the server. Requires View Audit Log permission.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"limit": map[string]any{"type": "integer", "description": "Number of audit log entries to retrieve (1-50, default 10)"},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "set_member_nickname",
+				Description: "Change a member's server nickname. Requires Manage Nicknames permission.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"user_id":  map[string]any{"type": "string", "description": "The user ID or mention (<@...>) whose nickname to change"},
+						"nickname": map[string]any{"type": "string", "description": "The new nickname for the member"},
+					},
+					"required": []string{"user_id", "nickname"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "purge_messages",
+				Description: "Bulk delete recent messages from a channel. Requires Manage Messages permission.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"channel_id": map[string]any{"type": "string", "description": "The channel ID (optional, defaults to current channel)"},
+						"count":      map[string]any{"type": "integer", "description": "Number of messages to delete (1-100)"},
+					},
+					"required": []string{"count"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "set_channel_settings",
+				Description: "Update channel settings (topic or slowmode delay). Requires Manage Channels permission.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"channel_id":       map[string]any{"type": "string", "description": "The channel ID (optional, defaults to current channel)"},
+						"topic":            map[string]any{"type": "string", "description": "The new topic/description for the channel"},
+						"slowmode_seconds": map[string]any{"type": "integer", "description": "Slowmode delay per user in seconds (0 to disable)"},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "get_guild_stats",
+				Description: "Get overall server statistics including member count, active presences, roles, channels and boost tier.",
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "get_member_info",
+				Description: "Get detailed information about a server member (join date, account creation date, roles).",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"user_id": map[string]any{"type": "string", "description": "The user ID or mention (<@...>)"},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "lock_channel",
+				Description: "Lock a channel to prevent regular members (@everyone) from sending messages. Requires Manage Channels permission.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"channel_id": map[string]any{"type": "string", "description": "The channel ID (optional, defaults to current channel)"},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "unlock_channel",
+				Description: "Unlock a channel allowing regular members (@everyone) to send messages again. Requires Manage Channels permission.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"channel_id": map[string]any{"type": "string", "description": "The channel ID (optional, defaults to current channel)"},
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -537,6 +671,192 @@ func ExecuteDiscordTool(s *discordgo.Session, m *discordgo.MessageCreate, tc Too
 			return fmt.Sprintf("Failed to unban user: %v", err)
 		}
 		return fmt.Sprintf("User %s unbanned successfully", userID)
+
+	case "add_member_role":
+		if err := checkUserPermission(s, m.GuildID, m.ChannelID, m.Author.ID, discordgo.PermissionManageRoles); err != nil {
+			return err.Error()
+		}
+		userID, _ := args["user_id"].(string)
+		roleID, _ := args["role_id"].(string)
+		userID = ParseUserID(userID)
+		if userID == "" || roleID == "" {
+			return "Missing user_id or role_id"
+		}
+		err := s.GuildMemberRoleAdd(m.GuildID, userID, roleID)
+		if err != nil {
+			return fmt.Sprintf("Failed to add role %s to member %s: %v", roleID, userID, err)
+		}
+		return fmt.Sprintf("Role %s successfully added to member %s", roleID, userID)
+
+	case "remove_member_role":
+		if err := checkUserPermission(s, m.GuildID, m.ChannelID, m.Author.ID, discordgo.PermissionManageRoles); err != nil {
+			return err.Error()
+		}
+		userID, _ := args["user_id"].(string)
+		roleID, _ := args["role_id"].(string)
+		userID = ParseUserID(userID)
+		if userID == "" || roleID == "" {
+			return "Missing user_id or role_id"
+		}
+		err := s.GuildMemberRoleRemove(m.GuildID, userID, roleID)
+		if err != nil {
+			return fmt.Sprintf("Failed to remove role %s from member %s: %v", roleID, userID, err)
+		}
+		return fmt.Sprintf("Role %s successfully removed from member %s", roleID, userID)
+
+	case "get_audit_logs":
+		if err := checkUserPermission(s, m.GuildID, m.ChannelID, m.Author.ID, discordgo.PermissionViewAuditLogs); err != nil {
+			return err.Error()
+		}
+		limitFloat, _ := args["limit"].(float64)
+		limit := int(limitFloat)
+		if limit <= 0 || limit > 50 {
+			limit = 10
+		}
+		audit, err := s.GuildAuditLog(m.GuildID, "", "", 0, limit)
+		if err != nil {
+			return fmt.Sprintf("Failed to fetch audit logs: %v", err)
+		}
+		var lines []string
+		lines = append(lines, fmt.Sprintf("📋 **Recent Audit Logs (Total %d):**", len(audit.AuditLogEntries)))
+		for _, entry := range audit.AuditLogEntries {
+			user := entry.UserID
+			for _, u := range audit.Users {
+				if u.ID == entry.UserID {
+					user = u.Username
+					break
+				}
+			}
+			reason := entry.Reason
+			if reason == "" {
+				reason = "No reason specified"
+			}
+			lines = append(lines, fmt.Sprintf("• Action %d by **%s** (Target: `%s`, Reason: *%s*)", entry.ActionType, user, entry.TargetID, reason))
+		}
+		return strings.Join(lines, "\n")
+
+	case "set_member_nickname":
+		if err := checkUserPermission(s, m.GuildID, m.ChannelID, m.Author.ID, discordgo.PermissionManageNicknames); err != nil {
+			return err.Error()
+		}
+		userID, _ := args["user_id"].(string)
+		nick, _ := args["nickname"].(string)
+		userID = ParseUserID(userID)
+		if userID == "" {
+			return "Missing user_id"
+		}
+		err := s.GuildMemberNickname(m.GuildID, userID, nick)
+		if err != nil {
+			return fmt.Sprintf("Failed to set nickname: %v", err)
+		}
+		return fmt.Sprintf("Nickname for user %s set to '%s'", userID, nick)
+
+	case "purge_messages":
+		if err := checkUserPermission(s, m.GuildID, m.ChannelID, m.Author.ID, discordgo.PermissionManageMessages); err != nil {
+			return err.Error()
+		}
+		countFloat, _ := args["count"].(float64)
+		count := int(countFloat)
+		if count <= 0 {
+			count = 10
+		}
+		if count > 100 {
+			count = 100
+		}
+		targetChannel, _ := args["channel_id"].(string)
+		if targetChannel == "" {
+			targetChannel = m.ChannelID
+		}
+		messages, err := s.ChannelMessages(targetChannel, count, "", "", "")
+		if err != nil {
+			return fmt.Sprintf("Failed to fetch messages: %v", err)
+		}
+		var ids []string
+		for _, msg := range messages {
+			ids = append(ids, msg.ID)
+		}
+		if len(ids) == 0 {
+			return "No messages to delete"
+		}
+		err = s.ChannelMessagesBulkDelete(targetChannel, ids)
+		if err != nil {
+			return fmt.Sprintf("Failed to bulk delete messages: %v", err)
+		}
+		return fmt.Sprintf("Successfully deleted %d messages from channel %s", len(ids), targetChannel)
+
+	case "set_channel_settings":
+		if err := checkUserPermission(s, m.GuildID, m.ChannelID, m.Author.ID, discordgo.PermissionManageChannels); err != nil {
+			return err.Error()
+		}
+		chID, _ := args["channel_id"].(string)
+		if chID == "" {
+			chID = m.ChannelID
+		}
+		edit := &discordgo.ChannelEdit{}
+		if topic, ok := args["topic"].(string); ok {
+			edit.Topic = topic
+		}
+		if sm, ok := args["slowmode_seconds"].(float64); ok {
+			smInt := int(sm)
+			edit.RateLimitPerUser = &smInt
+		}
+		_, err := s.ChannelEdit(chID, edit)
+		if err != nil {
+			return fmt.Sprintf("Failed to update channel settings: %v", err)
+		}
+		return fmt.Sprintf("Channel %s settings updated successfully", chID)
+
+	case "get_guild_stats":
+		guild, err := s.GuildWithCounts(m.GuildID)
+		if err != nil {
+			return fmt.Sprintf("Failed to get guild stats: %v", err)
+		}
+		channels, _ := s.GuildChannels(m.GuildID)
+		roles, _ := s.GuildRoles(m.GuildID)
+		return fmt.Sprintf("📊 **Server Statistics: %s**\n• Guild ID: `%s`\n• Total Members: **%d**\n• Online Members: **%d**\n• Channels Count: **%d**\n• Roles Count: **%d**\n• Nitro Boost Tier: **Tier %d** (%d boosts)",
+			guild.Name, guild.ID, guild.ApproximateMemberCount, guild.ApproximatePresenceCount, len(channels), len(roles), guild.PremiumTier, guild.PremiumSubscriptionCount)
+
+	case "get_member_info":
+		userID, _ := args["user_id"].(string)
+		userID = ParseUserID(userID)
+		if userID == "" {
+			userID = m.Author.ID
+		}
+		mem, err := s.GuildMember(m.GuildID, userID)
+		if err != nil {
+			return fmt.Sprintf("Failed to get member info: %v", err)
+		}
+		joinedAt := mem.JoinedAt.Format("2006-01-02 15:04:05")
+		return fmt.Sprintf("👤 **Member Profile:**\n• Username: `%s#%s` (Nick: **%s**)\n• User ID: `%s`\n• Joined Server: **%s**\n• Roles Assigned: **%d**",
+			mem.User.Username, mem.User.Discriminator, mem.Nick, mem.User.ID, joinedAt, len(mem.Roles))
+
+	case "lock_channel":
+		if err := checkUserPermission(s, m.GuildID, m.ChannelID, m.Author.ID, discordgo.PermissionManageChannels); err != nil {
+			return err.Error()
+		}
+		targetChannel, _ := args["channel_id"].(string)
+		if targetChannel == "" {
+			targetChannel = m.ChannelID
+		}
+		err := s.ChannelPermissionSet(targetChannel, m.GuildID, discordgo.PermissionOverwriteTypeRole, 0, discordgo.PermissionSendMessages)
+		if err != nil {
+			return fmt.Sprintf("Failed to lock channel: %v", err)
+		}
+		return fmt.Sprintf("🔒 Channel %s has been locked (SendMessages denied for @everyone)", targetChannel)
+
+	case "unlock_channel":
+		if err := checkUserPermission(s, m.GuildID, m.ChannelID, m.Author.ID, discordgo.PermissionManageChannels); err != nil {
+			return err.Error()
+		}
+		targetChannel, _ := args["channel_id"].(string)
+		if targetChannel == "" {
+			targetChannel = m.ChannelID
+		}
+		err := s.ChannelPermissionDelete(targetChannel, m.GuildID)
+		if err != nil {
+			return fmt.Sprintf("Failed to unlock channel: %v", err)
+		}
+		return fmt.Sprintf("🔓 Channel %s has been unlocked (@everyone permission restored)", targetChannel)
 
 	default:
 		return fmt.Sprintf("Unknown Discord tool: %s", name)
