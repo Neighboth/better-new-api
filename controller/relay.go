@@ -246,6 +246,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		retryParam.IgnoredChannelIds = append(retryParam.IgnoredChannelIds, channel.Id)
 		addUsedChannel(c, channel.Id)
 		if billingErr := service.PrepareTieredBillingForSelectedGroup(c, relayInfo); billingErr != nil {
+			logger.LogWarn(c, fmt.Sprintf("prepare billing failed for model %s: %s", relayInfo.OriginModelName, billingErr.Error()))
+			if advanceFallbackModel(c, relayInfo, retryParam, fbState, billingErr.Error()) {
+				continue
+			}
 			newAPIError = billingErr
 			break
 		}
@@ -305,6 +309,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			continue
 		}
 		if _, specificChannel := c.Get("specific_channel_id"); !specificChannel {
+			if newAPIError != nil && newAPIError.StatusCode == http.StatusBadRequest && relayInfo.RelayMode == relayconstant.RelayModeChatCompletions {
+				if tryCrossModalityFallback(c, relayInfo) {
+					newAPIError = nil
+					return
+				}
+			}
 			if !advanceFallbackModel(c, relayInfo, retryParam, fbState, newAPIError.Error()) {
 				break
 			}
@@ -332,8 +342,52 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 }
 
+func isUpstreamRetryable400(apiErr *types.NewAPIError) bool {
+	if apiErr == nil || apiErr.StatusCode != http.StatusBadRequest {
+		return false
+	}
+	switch apiErr.GetErrorCode() {
+	case types.ErrorCodeReadRequestBodyFailed,
+		types.ErrorCodeBadRequestBody,
+		types.ErrorCodeConvertRequestFailed,
+		types.ErrorCodeCountTokenFailed,
+		types.ErrorCodeAccessDenied,
+		types.ErrorCodeInvalidRequest,
+		types.ErrorCodeSensitiveWordsDetected,
+		types.ErrorCodeModelPriceError,
+		types.ErrorCodeInsufficientUserQuota,
+		types.ErrorCodePreConsumeTokenQuotaFailed,
+		types.ErrorCodeGenRelayInfoFailed,
+		types.ErrorCodeInvalidApiType:
+		return false
+	}
+	msg := strings.ToLower(apiErr.Error())
+	if strings.Contains(msg, "context") ||
+		strings.Contains(msg, "token") ||
+		strings.Contains(msg, "model") ||
+		strings.Contains(msg, "not supported") ||
+		strings.Contains(msg, "unsupported") ||
+		strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "quota") ||
+		strings.Contains(msg, "rate") ||
+		strings.Contains(msg, "overloaded") ||
+		strings.Contains(msg, "capacity") ||
+		strings.Contains(msg, "does not exist") ||
+		strings.Contains(msg, "invalid_parameter") ||
+		strings.Contains(msg, "upstream") {
+		return true
+	}
+	if apiErr.GetErrorCode() == types.ErrorCodeBadResponseStatusCode {
+		return true
+	}
+	return false
+}
+
 func isUserFacingNoRetryError(apiErr *types.NewAPIError) bool {
 	if apiErr == nil {
+		return false
+	}
+	if isUpstreamRetryable400(apiErr) {
 		return false
 	}
 	if apiErr.StatusCode == http.StatusBadRequest {
@@ -369,6 +423,9 @@ func shouldRetryOtherChannel(c *gin.Context, apiErr *types.NewAPIError) bool {
 		return false
 	}
 	if apiErr.StatusCode == http.StatusBadRequest {
+		if isUpstreamRetryable400(apiErr) {
+			return true
+		}
 		return false
 	}
 	if isUserFacingNoRetryError(apiErr) {

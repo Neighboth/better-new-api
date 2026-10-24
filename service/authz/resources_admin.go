@@ -8,6 +8,7 @@ const (
 	ResourceSubscription  = "subscription"
 	ResourceSystemSetting = "system_setting"
 	ResourceTicket        = "ticket"
+	ResourceByog          = "byog"
 
 	ActionDelete = "delete"
 )
@@ -35,6 +36,9 @@ var (
 	TicketRead   = Permission{Resource: ResourceTicket, Action: ActionRead}
 	TicketWrite  = Permission{Resource: ResourceTicket, Action: ActionWrite}
 	TicketDelete = Permission{Resource: ResourceTicket, Action: ActionDelete}
+
+	ByogRead  = Permission{Resource: ResourceByog, Action: ActionRead}
+	ByogWrite = Permission{Resource: ResourceByog, Action: ActionWrite}
 )
 
 func init() {
@@ -179,6 +183,25 @@ func init() {
 				LabelKey:       "Delete tickets",
 				DescriptionKey: "Permanently delete closed tickets and transcripts.",
 				DefaultRoles:   []string{BuiltInRoleRoot},
+			},
+		},
+	})
+
+	RegisterResource(ResourceDefinition{
+		Resource: ResourceByog,
+		LabelKey: "BYOG Management",
+		Actions: []ActionDefinition{
+			{
+				Action:         ActionRead,
+				LabelKey:       "Read BYOG",
+				DescriptionKey: "View BYOG nodes, rules, claims, and settings.",
+				DefaultRoles:   []string{BuiltInRoleAdmin},
+			},
+			{
+				Action:         ActionWrite,
+				LabelKey:       "Manage BYOG",
+				DescriptionKey: "Manage BYOG nodes, approve claims, update rules and settings.",
+				DefaultRoles:   []string{BuiltInRoleAdmin},
 			},
 		},
 	})

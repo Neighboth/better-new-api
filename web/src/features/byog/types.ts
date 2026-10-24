@@ -59,6 +59,13 @@ export interface ByogNode {
   allocated_disk_gb: number
   total_disk_gb?: number
   free_disk_gb?: number
+  disks?: Array<{
+    drive: string
+    label: string
+    total_gb: number
+    free_gb: number
+    allocated_gb?: number
+  }>
   allocated_vram_gb: number
   allocated_ram_gb: number
   allocated_cores: number

@@ -64,6 +64,12 @@ func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 	// set Content-Length header manually BEFORE calling WriteHeader
 	c.Writer.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
 
+	if c != nil {
+		if reqModel := c.GetString("client_requested_model"); reqModel != "" {
+			c.Writer.Header().Set("openai-model", reqModel)
+		}
+	}
+
 	// Write header with status code (this sends the headers)
 	if src != nil {
 		c.Writer.WriteHeader(src.StatusCode)

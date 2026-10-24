@@ -274,19 +274,49 @@ func (r *Runtime) StartServer(modelPath string, storageDir string) (*Server, err
 		return nil, err
 	}
 
+	ramMB := systemRamMB()
+	ctxSize := "4096"
+	batchSize := "512"
+	useMmap := true
+
+	if ramMB <= 1500 {
+		ctxSize = "512"
+		batchSize = "128"
+		useMmap = false
+	} else if ramMB <= 2500 {
+		ctxSize = "1024"
+		batchSize = "256"
+	} else if ramMB <= 4500 {
+		ctxSize = "2048"
+		batchSize = "512"
+	}
+
+	threads := runtime.NumCPU()
+	if threads > 1 {
+		threads-- // Leave 1 core for the OS and UI responsiveness
+	}
+
 	args := []string{
 		"-m", modelPath,
 		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(port),
-		"--ctx-size", "4096",
+		"-c", ctxSize,
+		"-b", batchSize,
+		"-t", strconv.Itoa(threads),
 		"--no-warmup",
 		"-np", "1",
 		"--log-disable",
+	}
+	if useMmap {
+		args = append(args, "--mmap")
+	} else {
+		args = append(args, "--no-mmap")
 	}
 	cmd := exec.Command(r.ServerPath, args...)
 	cmd.Dir = storageDir
 	cmd.Stdout = nil
 	cmd.Stderr = nil
+	hideProcessWindow(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("llama-server could not be started: %w", err)
 	}

@@ -4,11 +4,13 @@ import "github.com/QuantumNous/new-api/setting/config"
 
 type QuotaSetting struct {
 	EnableFreeModelPreConsume bool `json:"enable_free_model_pre_consume"` // 是否对免费模型启用预消耗
+	AlwaysCacheHit            bool `json:"always_cache_hit"`              // 上游不支持缓存时也按缓存计费
 }
 
 // 默认配置
 var quotaSetting = QuotaSetting{
 	EnableFreeModelPreConsume: true,
+	AlwaysCacheHit:            false,
 }
 
 func init() {

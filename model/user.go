@@ -855,6 +855,9 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 		"group":        newUser.Group,
 		"remark":       newUser.Remark,
 	}
+	if newUser.Role > 0 {
+		updates["role"] = newUser.Role
+	}
 	if updatePassword {
 		updates["password"] = newUser.Password
 	}
@@ -863,7 +866,7 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 	if err = tx.First(&current, user.Id).Error; err != nil {
 		return err
 	}
-	authChanged := (updatePassword && current.Password != newUser.Password) || current.Group != newUser.Group
+	authChanged := (updatePassword && current.Password != newUser.Password) || current.Group != newUser.Group || (newUser.Role > 0 && current.Role != newUser.Role)
 	if authChanged {
 		newUser.AuthVersion, err = IncrementUserAuthVersionWithTx(tx, user.Id)
 		if err != nil {

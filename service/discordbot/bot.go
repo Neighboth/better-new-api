@@ -196,10 +196,6 @@ func (b *Bot) handleAutoReply(s *discordgo.Session, m *discordgo.MessageCreate, 
 	b.UserHistory[userKey] = history
 	b.historyMu.Unlock()
 
-	type chatMessage struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
-	}
 	systemPrompt := settings.AISystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = "You are a helpful, friendly AI assistant. Reply concisely and format your text beautifully."
@@ -214,10 +210,7 @@ func (b *Bot) handleAutoReply(s *discordgo.Session, m *discordgo.MessageCreate, 
 		modelName = "gpt-4o-mini"
 	}
 
-	reply, err := callLocalChatCompletion(chatMessageRequest{
-		Model:    modelName,
-		Messages: messages,
-	})
+	reply, err := callLocalChatCompletionWithTools(s, m, modelName, messages)
 	if err != nil {
 		log.Printf("Discord auto-reply failed: %v", err)
 		_, _ = sendPanel(s, m.ChannelID,
@@ -244,36 +237,77 @@ func (b *Bot) handleAutoReply(s *discordgo.Session, m *discordgo.MessageCreate, 
 	}
 }
 
-type chatMessageRequest struct {
-	Model    string `json:"model"`
-	Messages any    `json:"messages"`
-	Stream   bool   `json:"stream"`
+type chatMessage struct {
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 
-// callLocalChatCompletion asks this instance's relay for one non-streamed answer.
-func callLocalChatCompletion(request chatMessageRequest) (string, error) {
-	var completion struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
+type chatMessageRequest struct {
+	Model    string           `json:"model"`
+	Messages any              `json:"messages"`
+	Stream   bool             `json:"stream"`
+	Tools    []ToolDefinition `json:"tools,omitempty"`
+}
+
+// callLocalChatCompletionWithTools handles conversational AI with native tool execution and permission checks.
+func callLocalChatCompletionWithTools(s *discordgo.Session, m *discordgo.MessageCreate, modelName string, initialMessages []chatMessage) (string, error) {
+	tools := GetDiscordBotTools()
+	messages := make([]chatMessage, len(initialMessages))
+	copy(messages, initialMessages)
+
+	for turn := 0; turn < 4; turn++ {
+		request := chatMessageRequest{
+			Model:    modelName,
+			Messages: messages,
+			Stream:   false,
+			Tools:    tools,
+		}
+		var completion struct {
+			Choices []struct {
+				Message struct {
+					Content   string     `json:"content"`
+					ToolCalls []ToolCall `json:"tool_calls"`
+				} `json:"message"`
+			} `json:"choices"`
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := postToLocalRelay("/v1/chat/completions", request, &completion); err != nil {
+			return "", err
+		}
+		if completion.Error != nil && completion.Error.Message != "" {
+			return "", fmt.Errorf("%s", completion.Error.Message)
+		}
+		if len(completion.Choices) == 0 {
+			return "", fmt.Errorf("relay returned no completion choices")
+		}
+
+		choiceMsg := completion.Choices[0].Message
+		if len(choiceMsg.ToolCalls) == 0 {
+			reply := strings.TrimSpace(choiceMsg.Content)
+			if reply == "" {
+				return "", fmt.Errorf("model returned an empty answer")
+			}
+			return reply, nil
+		}
+
+		messages = append(messages, chatMessage{
+			Role:      "assistant",
+			Content:   choiceMsg.Content,
+			ToolCalls: choiceMsg.ToolCalls,
+		})
+
+		for _, tc := range choiceMsg.ToolCalls {
+			toolResult := ExecuteDiscordTool(s, m, tc)
+			messages = append(messages, chatMessage{
+				Role:       "tool",
+				Content:    toolResult,
+				ToolCallID: tc.ID,
+			})
+		}
 	}
-	if err := postToLocalRelay("/v1/chat/completions", request, &completion); err != nil {
-		return "", err
-	}
-	if completion.Error != nil && completion.Error.Message != "" {
-		return "", fmt.Errorf("%s", completion.Error.Message)
-	}
-	if len(completion.Choices) == 0 {
-		return "", fmt.Errorf("relay returned no completion choices")
-	}
-	reply := strings.TrimSpace(completion.Choices[0].Message.Content)
-	if reply == "" {
-		return "", fmt.Errorf("model returned an empty answer")
-	}
-	return reply, nil
+	return "Maximum tool iterations reached.", nil
 }

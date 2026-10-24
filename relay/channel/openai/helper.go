@@ -40,6 +40,14 @@ func handleClaudeFormat(c *gin.Context, data string, info *relaycommon.RelayInfo
 		return err
 	}
 
+	targetModel := info.RequestedModelName
+	if targetModel == "" && c != nil {
+		targetModel = c.GetString("client_requested_model")
+	}
+	if targetModel != "" {
+		streamResponse.Model = targetModel
+	}
+
 	if streamResponse.Usage != nil {
 		info.ClaudeConvertInfo.Usage = streamResponse.Usage
 	}
@@ -62,6 +70,14 @@ func handleGeminiFormat(c *gin.Context, data string, info *relaycommon.RelayInfo
 	if err := common.Unmarshal(common.StringToByteSlice(data), &streamResponse); err != nil {
 		logger.LogError(c, "failed to unmarshal stream response: "+err.Error())
 		return err
+	}
+
+	targetModel := info.RequestedModelName
+	if targetModel == "" && c != nil {
+		targetModel = c.GetString("client_requested_model")
+	}
+	if targetModel != "" {
+		streamResponse.Model = targetModel
 	}
 
 	result, err := relayconvert.ConvertStreamResponse(c, info, types.RelayFormatGemini, &streamResponse)
@@ -162,6 +178,14 @@ func handleLastResponse(lastStreamData string, responseId *string, createAt *int
 func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStreamData string,
 	responseId string, createAt int64, model string, systemFingerprint string,
 	usage *dto.Usage, containStreamUsage bool) {
+
+	targetModel := info.RequestedModelName
+	if targetModel == "" && c != nil {
+		targetModel = c.GetString("client_requested_model")
+	}
+	if targetModel != "" {
+		model = targetModel
+	}
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:

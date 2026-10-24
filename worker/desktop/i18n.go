@@ -19,7 +19,7 @@ var clientTexts = map[string]map[string]string{
 		"setup_policy_site": "Politikaların tamamı şu adreste yayınlanır:",
 		"show":              "Client'i Göster", "go_site": "Siteye git", "site_settings": "Ayarlar (Site)", "close_app": "Kapat",
 		"change_language": "Dili değiştir",
-		"menu_status":     "Durum", "menu_settings": "Ayarlar",
+		"menu_status":     "Durum", "menu_pair": "Eşleştirme", "menu_settings": "Ayarlar",
 	},
 	"en": {
 		"setup": "Setup", "language": "Language", "privacy": "Privacy policy",
@@ -34,7 +34,7 @@ var clientTexts = map[string]map[string]string{
 		"setup_policy_site": "The full policies are published at:",
 		"show":              "Show client", "go_site": "Go to site", "site_settings": "Settings (Site)", "close_app": "Close",
 		"change_language": "Change language",
-		"menu_status":     "Status", "menu_settings": "Settings",
+		"menu_status":     "Status", "menu_pair": "Pairing", "menu_settings": "Settings",
 	},
 	"zh_CN": {
 		"setup": "安装", "language": "语言", "privacy": "隐私政策",
@@ -49,7 +49,7 @@ var clientTexts = map[string]map[string]string{
 		"setup_policy_site": "完整政策发布于：",
 		"show":              "显示客户端", "go_site": "前往网站", "site_settings": "设置（网站）", "close_app": "关闭",
 		"change_language": "更改语言",
-		"menu_status":     "状态", "menu_settings": "设置",
+		"menu_status":     "状态", "menu_pair": "配对", "menu_settings": "设置",
 	},
 	"zh_TW": {
 		"setup": "安裝", "language": "語言", "privacy": "隱私政策",
@@ -64,7 +64,7 @@ var clientTexts = map[string]map[string]string{
 		"setup_policy_site": "完整政策發布於：",
 		"show":              "顯示用戶端", "go_site": "前往網站", "site_settings": "設定（網站）", "close_app": "關閉",
 		"change_language": "更改語言",
-		"menu_status":     "狀態", "menu_settings": "設定",
+		"menu_status":     "狀態", "menu_pair": "配對", "menu_settings": "設定",
 	},
 	"fr": {
 		"setup": "Installation", "language": "Langue", "privacy": "Politique de confidentialité",
@@ -79,7 +79,7 @@ var clientTexts = map[string]map[string]string{
 		"setup_policy_site": "Les politiques complètes sont publiées sur :",
 		"show":              "Afficher le client", "go_site": "Aller sur le site", "site_settings": "Paramètres (Site)", "close_app": "Fermer",
 		"change_language": "Changer de langue",
-		"menu_status":     "État", "menu_settings": "Paramètres",
+		"menu_status":     "État", "menu_pair": "Appairage", "menu_settings": "Paramètres",
 	},
 	"ru": {
 		"setup": "Установка", "language": "Язык", "privacy": "Политика конфиденциальности",
@@ -94,7 +94,7 @@ var clientTexts = map[string]map[string]string{
 		"setup_policy_site": "Полные условия опубликованы по адресу:",
 		"show":              "Показать клиент", "go_site": "Перейти на сайт", "site_settings": "Настройки (сайт)", "close_app": "Закрыть",
 		"change_language": "Сменить язык",
-		"menu_status":     "Состояние", "menu_settings": "Настройки",
+		"menu_status":     "Состояние", "menu_pair": "Сопряжение", "menu_settings": "Настройки",
 	},
 	"ja": {
 		"setup": "セットアップ", "language": "言語", "privacy": "プライバシーポリシー",
@@ -109,7 +109,7 @@ var clientTexts = map[string]map[string]string{
 		"setup_policy_site": "完全なポリシーは次に公開されています:",
 		"show":              "クライアントを表示", "go_site": "サイトへ移動", "site_settings": "設定（サイト）", "close_app": "閉じる",
 		"change_language": "言語を変更",
-		"menu_status":     "状態", "menu_settings": "設定",
+		"menu_status":     "状態", "menu_pair": "ペアリング", "menu_settings": "設定",
 	},
 	"vi": {
 		"setup": "Cài đặt", "language": "Ngôn ngữ", "privacy": "Chính sách bảo mật",
@@ -124,7 +124,7 @@ var clientTexts = map[string]map[string]string{
 		"setup_policy_site": "Toàn bộ chính sách được công bố tại:",
 		"show":              "Hiện ứng dụng", "go_site": "Đến trang web", "site_settings": "Cài đặt (Trang web)", "close_app": "Đóng",
 		"change_language": "Đổi ngôn ngữ",
-		"menu_status":     "Trạng thái", "menu_settings": "Cài đặt",
+		"menu_status":     "Trạng thái", "menu_pair": "Ghép nối", "menu_settings": "Cài đặt",
 	},
 }
 

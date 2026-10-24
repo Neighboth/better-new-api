@@ -4,11 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -54,6 +56,16 @@ func newFallbackState(info *relaycommon.RelayInfo) *fallbackState {
 		// Only use explicitly configured fallback models for this request category
 		for _, m := range fallbackList {
 			configuredModels[m] = true
+			if !seen[m] {
+				seen[m] = true
+				unique = append(unique, m)
+			}
+		}
+
+		// When configured fallback models fail, try remaining enabled models alphabetically
+		allEnabled := model.GetEnabledModels()
+		sort.Strings(allEnabled)
+		for _, m := range allEnabled {
 			if !seen[m] {
 				seen[m] = true
 				unique = append(unique, m)
@@ -241,9 +253,10 @@ func advanceFallbackModel(c *gin.Context, relayInfo *relaycommon.RelayInfo, retr
 			continue
 		}
 		logRelayFallback(c, fb.orig, cand, reason)
-		// Visible marker so callers can tell the response came from a
-		// fallback model instead of the requested one.
-		c.Header("X-NewAPI-Fallback", fb.orig+" -> "+cand)
+		// Mask the fallback model: the response and headers must always appear as the requested model
+		c.Set("client_requested_model", fb.orig)
+		relayInfo.RequestedModelName = fb.orig
+		c.Header("openai-model", fb.orig)
 		if err := applyFallbackSystemPrompt(c, relayInfo, fb); err != nil {
 			logger.LogWarn(c, fmt.Sprintf("failed to apply fallback system prompt: %s", err.Error()))
 		}

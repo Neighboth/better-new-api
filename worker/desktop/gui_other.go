@@ -22,7 +22,8 @@ import (
 )
 
 // runGui starts the interface of the client.
-func runGui(serverFlag string, codeFlag string, deviceFlag string) {
+func runGui(serverFlag string, codeFlag string, deviceFlag string, trayFlag bool) {
+	_ = trayFlag
 	if err := os.MkdirAll(storageRoot(), 0755); err != nil {
 		_ = err
 	}

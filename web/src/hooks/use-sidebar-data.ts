@@ -236,7 +236,10 @@ export function useSidebarData(): SidebarData {
                 url: '/byog-admin/nodes' as const,
                 activeUrls: ['/byog-admin'],
                 icon: Network,
-                requiredRole: ROLE.ADMIN,
+                requiredPermission: {
+                  resource: ADMIN_PERMISSION_RESOURCES.BYOG,
+                  action: 'read',
+                },
               },
             ]
           : []),

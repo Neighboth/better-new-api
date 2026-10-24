@@ -273,6 +273,22 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.CompletionTokens = usage.CompletionTokens
 	summary.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	summary.CacheTokens = usage.PromptTokensDetails.CachedTokens
+	if summary.CacheTokens == 0 && operation_setting.GetQuotaSetting().AlwaysCacheHit {
+		if summary.PromptTokens >= 1024 {
+			cacheTokens := summary.PromptTokens - 256
+			if cacheTokens < 1024 {
+				cacheTokens = 1024
+			}
+			if cacheTokens > summary.PromptTokens {
+				cacheTokens = summary.PromptTokens
+			}
+			summary.CacheTokens = cacheTokens
+			usage.PromptTokensDetails.CachedTokens = cacheTokens
+		}
+	}
+	if summary.CacheTokens > 0 && summary.CacheRatio == 0 {
+		summary.CacheRatio = 0.5
+	}
 	summary.CacheCreationTokens = usage.PromptTokensDetails.CacheCreationTokensTotal()
 	summary.CacheCreationTokens5m = usage.ClaudeCacheCreation5mTokens
 	summary.CacheCreationTokens1h = usage.ClaudeCacheCreation1hTokens

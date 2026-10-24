@@ -230,11 +230,18 @@ func applyConfig(config Config) {
 	}
 
 	updateStatus(func(status *AppStatus) {
+		if config.AppName != "" {
+			status.AppName = config.AppName
+		}
+		if config.SystemName != "" {
+			status.SystemName = config.SystemName
+		}
 		status.ServerUrl = config.ServerUrl
 		status.NodeId = config.NodeId
 		status.DeviceName = config.DeviceName
 		status.PairingCode = config.PairingCode
 		status.HasCode = config.PairingCode != ""
+		status.Paired = config.PairingCode != ""
 	})
 }
 
@@ -444,6 +451,29 @@ func startBackgroundTasks() {
 		defer ticker.Stop()
 		for range ticker.C {
 			checkSelfUpdate()
+		}
+	}()
+
+	// The coordinator is asked for the assignment of the models again. A model
+	// that the administrator assigns after the first registration of the client
+	// would otherwise never reach the device. The registration is idempotent,
+	// the node is found by the hardware id.
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			State.Mu.Lock()
+			registered := State.Config.NodeId != "" && State.Config.PairingCode != ""
+			State.Mu.Unlock()
+			if !registered {
+				continue
+			}
+			if _, err := registerWorker(); err != nil {
+				// The tunnel of the client reports the connection state. A
+				// failed refresh must not replace the message of the page with
+				// a stale error.
+				continue
+			}
 		}
 	}()
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -14,15 +15,27 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
+type aiToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
 type aiMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string       `json:"role"`
+	Content    string       `json:"content"`
+	ToolCalls  []aiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string       `json:"tool_call_id,omitempty"`
 }
 
 type aiRequest struct {
-	Model    string      `json:"model"`
-	Messages []aiMessage `json:"messages"`
-	Stream   bool        `json:"stream"`
+	Model    string           `json:"model"`
+	Messages []aiMessage      `json:"messages"`
+	Stream   bool             `json:"stream"`
+	Tools    []ToolDefinition `json:"tools,omitempty"`
 }
 
 func InvokeAiAssistant(ticketId int) {
@@ -54,17 +67,7 @@ func InvokeAiAssistant(ticketId int) {
 		})
 	}
 
-	reqBody := aiRequest{
-		Model:    setting.AiAssistantModel,
-		Messages: chatMessages,
-		Stream:   false,
-	}
-
-	jsonBody, err := common.Marshal(reqBody)
-	if err != nil {
-		common.SysError("failed to marshal AI request: " + err.Error())
-		return
-	}
+	tools := GetLiveSupportTools()
 
 	port := os.Getenv("PORT")
 	if port == "" && common.Port != nil {
@@ -74,12 +77,6 @@ func InvokeAiAssistant(ticketId int) {
 		port = "3000"
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%s/v1/chat/completions", port)
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		common.SysError("failed to create AI request: " + err.Error())
-		return
-	}
 
 	// Find a usable token to make the API call. Prefer an enabled,
 	// unexpired root token with quota instead of the first row.
@@ -106,43 +103,91 @@ func InvokeAiAssistant(ticketId int) {
 		return
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	if rootToken != "" {
-		req.Header.Set("Authorization", "Bearer "+rootToken)
-	}
-
 	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		common.SysError(fmt.Sprintf("ticket #%d: failed to call AI: %s", ticketId, err.Error()))
+	var replyContent string
+
+	for turn := 0; turn < 4; turn++ {
+		reqBody := aiRequest{
+			Model:    setting.AiAssistantModel,
+			Messages: chatMessages,
+			Stream:   false,
+			Tools:    tools,
+		}
+
+		jsonBody, err := common.Marshal(reqBody)
+		if err != nil {
+			common.SysError("failed to marshal AI request: " + err.Error())
+			return
+		}
+
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+		if err != nil {
+			common.SysError("failed to create AI request: " + err.Error())
+			return
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+rootToken)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			common.SysError(fmt.Sprintf("ticket #%d: failed to call AI: %s", ticketId, err.Error()))
+			return
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			common.SysError(fmt.Sprintf("ticket #%d: AI returned status %d for model %s", ticketId, resp.StatusCode, setting.AiAssistantModel))
+			return
+		}
+
+		var resData struct {
+			Choices []struct {
+				Message struct {
+					Content   string       `json:"content"`
+					ToolCalls []aiToolCall `json:"tool_calls"`
+				} `json:"message"`
+			} `json:"choices"`
+		}
+
+		if err := common.DecodeJson(resp.Body, &resData); err != nil {
+			resp.Body.Close()
+			common.SysError("failed to decode AI response: " + err.Error())
+			return
+		}
+		resp.Body.Close()
+
+		if len(resData.Choices) == 0 {
+			common.SysError(fmt.Sprintf("ticket #%d: AI returned no choices for model %s", ticketId, setting.AiAssistantModel))
+			return
+		}
+
+		choiceMsg := resData.Choices[0].Message
+		if len(choiceMsg.ToolCalls) == 0 {
+			replyContent = choiceMsg.Content
+			break
+		}
+
+		// Tool calls returned by model
+		chatMessages = append(chatMessages, aiMessage{
+			Role:      "assistant",
+			Content:   choiceMsg.Content,
+			ToolCalls: choiceMsg.ToolCalls,
+		})
+
+		for _, tc := range choiceMsg.ToolCalls {
+			toolResult := ExecuteLiveSupportTool(tc.Function.Name)
+			chatMessages = append(chatMessages, aiMessage{
+				Role:       "tool",
+				Content:    toolResult,
+				ToolCallID: tc.ID,
+			})
+		}
+	}
+
+	if strings.TrimSpace(replyContent) == "" {
 		return
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		common.SysError(fmt.Sprintf("ticket #%d: AI returned status %d for model %s", ticketId, resp.StatusCode, setting.AiAssistantModel))
-		return
-	}
-
-	var resData struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-
-	if err := common.DecodeJson(resp.Body, &resData); err != nil {
-		common.SysError("failed to decode AI response: " + err.Error())
-		return
-	}
-
-	if len(resData.Choices) == 0 {
-		common.SysError(fmt.Sprintf("ticket #%d: AI returned no choices for model %s", ticketId, setting.AiAssistantModel))
-		return
-	}
-
-	replyContent := resData.Choices[0].Message.Content
 
 	// Add AI reply to ticket (acting as admin)
 	msg, err := model.AddTicketMessage(ticketId, 0, true, replyContent, "")

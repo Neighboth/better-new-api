@@ -4,11 +4,28 @@ package main
 
 import (
 	"errors"
+	"os/exec"
+	"strings"
 	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+// hideProcessWindow starts a child process without a console window.
+//
+// The client is a program of the graphical interface, a console window of a
+// child process would appear next to the window of the client and the user
+// would see a terminal that does not belong to the application.
+func hideProcessWindow(command *exec.Cmd) {
+	if command == nil {
+		return
+	}
+	command.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+	}
+}
 
 func checkDebuggerPresent() bool {
 	kernel32 := syscall.NewLazyDLL("kernel32.dll")
@@ -142,3 +159,69 @@ func showRunningInstance() {
 	}
 	procWebViewPostMessage.Call(window, 0x0111, commandShow, 0) // WM_COMMAND
 }
+
+type DiskPartitionInfo struct {
+	Drive       string `json:"drive"`
+	Label       string `json:"label"`
+	TotalGB     int    `json:"total_gb"`
+	FreeGB      int    `json:"free_gb"`
+	AllocatedGB int    `json:"allocated_gb"`
+}
+
+func openBrowser(url string) {
+	shell32 := syscall.NewLazyDLL("shell32.dll")
+	shellExecute := shell32.NewProc("ShellExecuteW")
+	verb, _ := syscall.UTF16PtrFromString("open")
+	target, _ := syscall.UTF16PtrFromString(url)
+	shellExecute.Call(0, uintptr(unsafe.Pointer(verb)), uintptr(unsafe.Pointer(target)), 0, 0, 1)
+}
+
+func getFixedDiskPartitions() []DiskPartitionInfo {
+	kernel32 := syscall.NewLazyDLL("kernel32.dll")
+	getLogicalDriveStrings := kernel32.NewProc("GetLogicalDriveStringsW")
+	getDriveType := kernel32.NewProc("GetDriveTypeW")
+	getDiskFreeSpaceEx := kernel32.NewProc("GetDiskFreeSpaceExW")
+
+	buf := make([]uint16, 512)
+	n, _, _ := getLogicalDriveStrings.Call(uintptr(len(buf)), uintptr(unsafe.Pointer(&buf[0])))
+	if n == 0 {
+		return nil
+	}
+
+	var partitions []DiskPartitionInfo
+	var current []uint16
+	for _, ch := range buf[:n] {
+		if ch == 0 {
+			if len(current) > 0 {
+				driveStr := syscall.UTF16ToString(current)
+				drivePtr := uintptr(unsafe.Pointer(&current[0]))
+				driveType, _, _ := getDriveType.Call(drivePtr)
+				// DRIVE_FIXED = 3 (strictly exclude removable USB drives DRIVE_REMOVABLE = 2, CDROM = 5, NETWORK = 4)
+				if driveType == 3 {
+					var freeBytesAvail, totalBytes, totalFreeBytes int64
+					ret, _, _ := getDiskFreeSpaceEx.Call(
+						drivePtr,
+						uintptr(unsafe.Pointer(&freeBytesAvail)),
+						uintptr(unsafe.Pointer(&totalBytes)),
+						uintptr(unsafe.Pointer(&totalFreeBytes)),
+					)
+					if ret != 0 {
+						totalGB := int(totalBytes / (1024 * 1024 * 1024))
+						freeGB := int(freeBytesAvail / (1024 * 1024 * 1024))
+						partitions = append(partitions, DiskPartitionInfo{
+							Drive:   driveStr,
+							Label:   "Yerel Disk (" + strings.TrimSuffix(driveStr, `\`) + ")",
+							TotalGB: totalGB,
+							FreeGB:  freeGB,
+						})
+					}
+				}
+				current = nil
+			}
+		} else {
+			current = append(current, ch)
+		}
+	}
+	return partitions
+}
+

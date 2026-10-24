@@ -4,9 +4,15 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 )
+
+// hideProcessWindow is a no-op outside Windows.
+func hideProcessWindow(command *exec.Cmd) {
+	_ = command
+}
 
 func checkDebuggerPresent() bool {
 	return false
@@ -81,3 +87,28 @@ func acquireSingleInstance() bool {
 
 // showRunningInstance brings the window of the client that runs to the front.
 func showRunningInstance() {}
+
+type DiskPartitionInfo struct {
+	Drive       string `json:"drive"`
+	Label       string `json:"label"`
+	TotalGB     int    `json:"total_gb"`
+	FreeGB      int    `json:"free_gb"`
+	AllocatedGB int    `json:"allocated_gb"`
+}
+
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	cmd = exec.Command("xdg-open", url)
+	_ = cmd.Start()
+}
+
+func getFixedDiskPartitions() []DiskPartitionInfo {
+	return []DiskPartitionInfo{
+		{
+			Drive:   "/",
+			Label:   "Root Partition",
+			TotalGB: 100,
+			FreeGB:  50,
+		},
+	}
+}

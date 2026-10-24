@@ -106,6 +106,9 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 			// message_start, 获取usage
 			if claudeResponse.Message != nil {
 				info.UpstreamModelName = claudeResponse.Message.Model
+				if targetModel := info.RequestedModelName; targetModel != "" {
+					claudeResponse.Message.Model = targetModel
+				}
 			}
 		} else if claudeResponse.Type == "message_delta" {
 			// 确保 message_delta 的 usage 包含完整的 input_tokens 和 cache 相关字段
@@ -118,6 +121,9 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		helper.ClaudeChunkData(c, claudeResponse, data)
 	} else if info.RelayFormat == types.RelayFormatOpenAI {
 		response := StreamResponseClaude2OpenAI(&claudeResponse)
+		if targetModel := info.RequestedModelName; targetModel != "" && response != nil {
+			response.Model = targetModel
+		}
 
 		if !FormatClaudeResponseInfo(&claudeResponse, response, claudeInfo) {
 			return nil
@@ -242,12 +248,24 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
 		openaiResponse := ResponseClaude2OpenAI(&claudeResponse)
+		if targetModel := info.RequestedModelName; targetModel != "" && openaiResponse != nil {
+			openaiResponse.Model = targetModel
+		}
 		openaiResponse.Usage = buildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage)
 		responseData, err = common.Marshal(openaiResponse)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
 	case types.RelayFormatClaude:
+		if targetModel := info.RequestedModelName; targetModel != "" {
+			var m map[string]any
+			if err := common.Unmarshal(data, &m); err == nil {
+				m["model"] = targetModel
+				if marshaled, err := common.Marshal(m); err == nil {
+					data = marshaled
+				}
+			}
+		}
 		responseData = data
 	}
 

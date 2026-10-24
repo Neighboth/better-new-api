@@ -56,6 +56,9 @@ func SetEventStreamHeaders(c *gin.Context) {
 	c.Writer.Header().Set("Connection", "keep-alive")
 	c.Writer.Header().Set("Transfer-Encoding", "chunked")
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	if reqModel := c.GetString("client_requested_model"); reqModel != "" {
+		c.Writer.Header().Set("openai-model", reqModel)
+	}
 }
 
 func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {

@@ -25,13 +25,32 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 		return nil
 	}
 
+	targetModel := info.RequestedModelName
+	if targetModel == "" && c != nil {
+		targetModel = c.GetString("client_requested_model")
+	}
+
 	if !forceFormat && !thinkToContent {
+		if targetModel != "" && strings.Contains(data, `"model"`) {
+			var streamMap map[string]interface{}
+			if err := common.UnmarshalJsonStr(data, &streamMap); err == nil {
+				if m, ok := streamMap["model"].(string); ok && m != targetModel {
+					streamMap["model"] = targetModel
+					if updated, err := common.Marshal(streamMap); err == nil {
+						data = string(updated)
+					}
+				}
+			}
+		}
 		return helper.StringData(c, data)
 	}
 
 	var lastStreamResponse dto.ChatCompletionsStreamResponse
 	if err := common.UnmarshalJsonStr(data, &lastStreamResponse); err != nil {
 		return err
+	}
+	if targetModel != "" {
+		lastStreamResponse.Model = targetModel
 	}
 
 	if !thinkToContent {
@@ -289,6 +308,21 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 
 	applyUsagePostProcessing(info, &simpleResponse.Usage, responseBody)
+
+	targetModel := info.RequestedModelName
+	if targetModel == "" && c != nil {
+		targetModel = c.GetString("client_requested_model")
+	}
+	if targetModel != "" {
+		simpleResponse.Model = targetModel
+		var bodyMap map[string]interface{}
+		if err := common.Unmarshal(responseBody, &bodyMap); err == nil {
+			bodyMap["model"] = targetModel
+			if marshaled, err := common.Marshal(bodyMap); err == nil {
+				responseBody = marshaled
+			}
+		}
+	}
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:

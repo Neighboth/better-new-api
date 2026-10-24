@@ -80,6 +80,15 @@ var State = &WorkerState{
 	ModelStatus:     "ready",
 }
 
+// The download of a model is started by the registration of the client. The
+// coordinator is asked again while the client runs, a model that is assigned
+// after the first registration has to be fetched as well. The mutex keeps one
+// transfer of a model, a repeated assignment does not start the file twice.
+var (
+	modelDownloadMutex sync.Mutex
+	modelDownloads     = map[string]bool{}
+)
+
 // defaultIconPNG is the icon of the client, it is the picture of the logo of
 // the installation.
 //
@@ -212,9 +221,12 @@ func (w *progressWriter) Write(data []byte) (int, error) {
 // The download reports the transferred amount so that the panel can show the real
 // progress of the model that is currently fetched.
 func downloadModelIDM(url string, targetPath string, fileSize int64) error {
+	if fileSize <= 0 {
+		return fmt.Errorf("the size of the model is not known")
+	}
 	partSize := fileSize / int64(ParallelConnections)
 	if partSize <= 0 {
-		partSize = fileSize
+		return fmt.Errorf("the model is too small for a parallel download")
 	}
 	var wg sync.WaitGroup
 	errs := make([]error, ParallelConnections)
@@ -314,10 +326,13 @@ func downloadModelIDM(url string, targetPath string, fileSize int64) error {
 	for i := 0; i < ParallelConnections; i++ {
 		partFile := fmt.Sprintf("%s.part%d", targetPath, i)
 		pData, err := os.ReadFile(partFile)
-		if err == nil {
-			_, _ = finalFile.Write(pData)
-			_ = os.Remove(partFile)
+		if err != nil {
+			return fmt.Errorf("the part %d of the model could not be read: %w", i, err)
 		}
+		if _, err := finalFile.Write(pData); err != nil {
+			return err
+		}
+		_ = os.Remove(partFile)
 	}
 
 	// A model that is not complete can not be used for an inference.
@@ -339,45 +354,125 @@ func downloadModelIDM(url string, targetPath string, fileSize int64) error {
 // downloadAssignedModel downloads a model into the storage directory of the worker and
 // keeps the installed model list in sync.
 func downloadAssignedModel(modelId string, downloadUrl string, fileSize int64) {
-	if modelId == "" || downloadUrl == "" {
+	if modelId == "" {
 		return
 	}
+
+	// A registration is repeated while the client runs. Only one transfer of a
+	// model may run at the same time.
+	modelDownloadMutex.Lock()
+	if modelDownloads[modelId] {
+		modelDownloadMutex.Unlock()
+		return
+	}
+	modelDownloads[modelId] = true
+	modelDownloadMutex.Unlock()
+	defer func() {
+		modelDownloadMutex.Lock()
+		delete(modelDownloads, modelId)
+		modelDownloadMutex.Unlock()
+	}()
+
 	targetPath := filepath.Join(State.Config.StorageDir, modelId+".gguf")
 	_ = os.MkdirAll(State.Config.StorageDir, 0755)
 
 	if info, err := os.Stat(targetPath); err == nil && info.Size() > 10*1024*1024 {
 		State.Mu.Lock()
 		State.InstalledModels[modelId] = true
+		if State.ActiveVramModel == "" {
+			State.ActiveVramModel = modelId
+		}
+		State.ModelStatus = "ready"
+		State.DownloadProgress = 100
+		State.DownloadedMB = int(info.Size() / (1024 * 1024))
+		State.TotalMB = State.DownloadedMB
 		State.Mu.Unlock()
 		return
 	}
 
-	// The coordinator keeps the model in a cache and serves it with the support of
-	// range requests, the parallel download works against it as well.
-	if server := strings.TrimSuffix(State.Config.ServerUrl, "/"); server != "" && modelId != "" {
-		downloadUrl = server + "/api/v1/worker/models/" + url.PathEscape(modelId) + "/file"
+	State.Mu.Lock()
+	State.ModelStatus = "downloading"
+	State.DownloadedMB = 0
+	State.DownloadProgress = 0
+	if fileSize > 0 {
+		State.TotalMB = int(fileSize / (1024 * 1024))
+	}
+	State.Mu.Unlock()
+
+	// The coordinator caches the model and gives it to every worker of the
+	// installation. When the coordinator does not know the model, the model
+	// host of the assignment is used directly.
+	primary := ""
+	if server := strings.TrimRight(State.Config.ServerUrl, "/"); server != "" {
+		primary = server + "/api/v1/worker/models/" + url.PathEscape(modelId) + "/file"
+	}
+	if primary == "" {
+		primary = downloadUrl
 	}
 
-	if err := downloadModelIDM(downloadUrl, targetPath, fileSize); err != nil {
-		fmt.Printf("[BYOG IDM] Download of %s failed: %v\n", modelId, err)
-		// The server does not give the pieces of the file, the file is
-		// downloaded with a single connection.
-		if singleErr := downloadModelSingle(downloadUrl, targetPath, fileSize); singleErr != nil {
-			fmt.Printf("[BYOG IDM] Download of %s failed: %v\n", modelId, singleErr)
-			return
+	failed := primary == ""
+	var lastErr error
+	if primary != "" {
+		if err := downloadModelIDM(primary, targetPath, fileSize); err != nil {
+			fmt.Printf("[BYOG IDM] Download of %s failed: %v\n", modelId, err)
+			cleanupModelParts(targetPath)
+			// The server does not give the pieces of the file, the file is
+			// downloaded with a single connection.
+			if singleErr := downloadModelSingle(primary, targetPath, fileSize); singleErr != nil {
+				lastErr = singleErr
+				fmt.Printf("[BYOG IDM] Download of %s failed: %v\n", modelId, singleErr)
+				failed = true
+			} else {
+				failed = false
+			}
 		}
 	}
+	if failed && downloadUrl != "" && downloadUrl != primary {
+		fmt.Printf("[BYOG IDM] Download of %s is retried from the model host\n", modelId)
+		cleanupModelParts(targetPath)
+		if err := downloadModelSingle(downloadUrl, targetPath, fileSize); err != nil {
+			lastErr = err
+			fmt.Printf("[BYOG IDM] Download of %s from the model host failed: %v\n", modelId, err)
+		} else {
+			failed = false
+		}
+	}
+	if failed {
+		State.Mu.Lock()
+		State.ModelStatus = "error"
+		State.Mu.Unlock()
+		if lastErr != nil {
+			fmt.Printf("[BYOG IDM] The model %s could not be downloaded: %v\n", modelId, lastErr)
+		}
+		return
+	}
+
+	info, err := os.Stat(targetPath)
 	State.Mu.Lock()
 	State.InstalledModels[modelId] = true
+	State.ActiveVramModel = modelId
 	State.ModelStatus = "ready"
 	State.DownloadProgress = 100
+	if err == nil {
+		State.DownloadedMB = int(info.Size() / (1024 * 1024))
+		State.TotalMB = State.DownloadedMB
+	}
 	State.Mu.Unlock()
+}
+
+// cleanupModelParts removes the parts of a failed parallel download.
+func cleanupModelParts(targetPath string) {
+	_ = os.Remove(targetPath + ".part")
+	for index := 0; index < ParallelConnections; index++ {
+		_ = os.Remove(fmt.Sprintf("%s.part%d", targetPath, index))
+	}
 }
 
 // downloadModelSingle downloads a model with a single connection.
 //
-// The server of the coordinator does not always give the pieces of the file
-// with the range requests, the file is downloaded as a whole then.
+// The coordinator does not always give the pieces of the file with the range
+// requests, the file is downloaded as a whole then. The size of the response is
+// used when the size of the assignment is not known or out of date.
 func downloadModelSingle(downloadUrl string, targetPath string, fileSize int64) error {
 	request, err := http.NewRequest("GET", downloadUrl, nil)
 	if err != nil {
@@ -400,21 +495,49 @@ func downloadModelSingle(downloadUrl string, targetPath string, fileSize int64) 
 	}
 	defer out.Close()
 
+	total := fileSize
+	if response.ContentLength > 0 {
+		total = response.ContentLength
+	}
 	var downloaded int64
 	var mutex sync.Mutex
 	writer := &progressWriter{writer: out, counter: &downloaded, mutex: &mutex}
-	if _, err := io.Copy(writer, response.Body); err != nil {
+
+	progressDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-progressDone:
+				return
+			case <-ticker.C:
+				mutex.Lock()
+				current := downloaded
+				mutex.Unlock()
+				reportDownloadProgress(current, total)
+			}
+		}
+	}()
+	_, copyErr := io.Copy(writer, response.Body)
+	close(progressDone)
+	if copyErr != nil {
+		return copyErr
+	}
+	info, err := out.Stat()
+	if err != nil {
 		return err
 	}
-	if fileSize > 0 {
-		info, err := out.Stat()
-		if err != nil {
-			return err
-		}
-		if info.Size() != fileSize {
-			return fmt.Errorf("the model file is incomplete: %d of %d bytes", info.Size(), fileSize)
-		}
+	if info.Size() <= 10*1024*1024 {
+		return fmt.Errorf("the model file is too small: %d bytes", info.Size())
 	}
+	if response.ContentLength > 0 && info.Size() != response.ContentLength {
+		return fmt.Errorf("the model file is incomplete: %d of %d bytes", info.Size(), response.ContentLength)
+	}
+	if response.ContentLength <= 0 && fileSize > 0 && info.Size() != fileSize {
+		return fmt.Errorf("the model file is incomplete: %d of %d bytes", info.Size(), fileSize)
+	}
+	reportDownloadProgress(info.Size(), info.Size())
 	return os.Rename(partFile, targetPath)
 }
 
@@ -547,6 +670,7 @@ func checkSelfUpdate() {
 
 	// Restart with current arguments silently
 	cmd := exec.Command(currentExe, os.Args[1:]...)
+	hideProcessWindow(cmd)
 	_ = cmd.Start()
 	os.Exit(0)
 }
@@ -885,6 +1009,7 @@ func main() {
 	serverFlag := flag.String("server", "", "Server URL (e.g. https://your-server.com or http://localhost:3000)")
 	codeFlag := flag.String("code", "", "Pairing code from web dashboard")
 	deviceFlag := flag.String("device", "", "Custom device name")
+	trayFlag := flag.Bool("tray", false, "Start minimized to system tray")
 	webViewHelperFlag := flag.Bool("webview-helper", false, "Show the page of the client in the window of the client")
 	webViewUrlFlag := flag.String("webview-url", "", "The page of the window of the client")
 	webViewTitleFlag := flag.String("webview-title", "", "The name of the window of the client")
@@ -926,7 +1051,7 @@ func main() {
 		return
 	}
 
-	runGui(*serverFlag, *codeFlag, *deviceFlag)
+	runGui(*serverFlag, *codeFlag, *deviceFlag, *trayFlag)
 }
 
 // installIfNeeded installs the client when it is started outside of the program

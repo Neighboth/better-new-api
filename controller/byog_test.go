@@ -79,7 +79,7 @@ func TestDownloadByogWorkerInstallerBranding(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, "application/octet-stream", w.Header().Get("Content-Type"))
-	require.Contains(t, w.Header().Get("Content-Disposition"), "BYOG Worker.exe")
+	require.Contains(t, w.Header().Get("Content-Disposition"), "Setup.exe")
 	require.Greater(t, w.Body.Len(), 1<<20)
 
 	settings, ok := embedcfg.Extract(w.Body.Bytes())
@@ -174,7 +174,7 @@ func TestDownloadByogWorkerEndpoints(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "application/vnd.android.package-archive", w.Header().Get("Content-Type"))
-	assert.Contains(t, w.Header().Get("Content-Disposition"), "byog-worker.apk")
+	assert.Contains(t, w.Header().Get("Content-Disposition"), ".apk")
 	assert.Greater(t, w.Body.Len(), 10000)
 
 	// 2. Test Windows AMD64
@@ -204,7 +204,7 @@ func TestDownloadByogWorkerEndpoints(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "application/octet-stream", w.Header().Get("Content-Type"))
-	assert.Contains(t, w.Header().Get("Content-Disposition"), "byog-worker-linux-amd64")
+	assert.Contains(t, w.Header().Get("Content-Disposition"), "linux-amd64")
 
 	// 5. Test Darwin ARM64
 	req, _ = http.NewRequest(http.MethodGet, "/api/byog/worker/download/darwin/arm64", nil)
@@ -212,7 +212,7 @@ func TestDownloadByogWorkerEndpoints(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "application/octet-stream", w.Header().Get("Content-Type"))
-	assert.Contains(t, w.Header().Get("Content-Disposition"), "byog-worker-darwin-arm64")
+	assert.Contains(t, w.Header().Get("Content-Disposition"), "darwin-arm64")
 
 	// 5. Test Nonexistent Platform
 	req, _ = http.NewRequest(http.MethodGet, "/api/byog/worker/download/solaris/sparc", nil)

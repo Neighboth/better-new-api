@@ -89,7 +89,7 @@ func writeStartupEntry(displayName string, executable string) {
 		return
 	}
 	defer key.Close()
-	_ = key.SetStringValue(displayName, "\""+executable+"\"")
+	_ = key.SetStringValue(displayName, "\""+executable+"\" --tray")
 }
 
 // Uninstall removes the entries of the client from the system.
@@ -135,6 +135,35 @@ func UpdateBranding(displayName string, version string) error {
 	}
 	renameShortcut(displayName)
 	return nil
+}
+
+// UpdateUninstallerLanguage syncs the language of the Inno Setup uninstaller and registry.
+func UpdateUninstallerLanguage(lang string) {
+	innoLang := "english"
+	switch lang {
+	case "tr":
+		innoLang = "turkish"
+	case "zh_CN":
+		innoLang = "zhcn"
+	case "zh_TW":
+		innoLang = "zhtw"
+	case "fr":
+		innoLang = "french"
+	case "ru":
+		innoLang = "russian"
+	case "ja":
+		innoLang = "japanese"
+	case "vi":
+		innoLang = "vietnamese"
+	}
+	if key, err := registry.OpenKey(registry.CURRENT_USER, uninstallKey, registry.SET_VALUE); err == nil {
+		_ = key.SetStringValue("Inno Setup: Selected Language", innoLang)
+		key.Close()
+	}
+	if key, _, err := registry.CreateKey(registry.CURRENT_USER, `Software\BYOG Worker`, registry.SET_VALUE); err == nil {
+		_ = key.SetStringValue("Language", lang)
+		key.Close()
+	}
 }
 
 // The key of the installer of the system.

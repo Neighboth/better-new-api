@@ -38,9 +38,15 @@ const (
 	webViewWindowTitle = "BYOG Worker"
 
 	webViewMessageSize    = 0x0005
-	webViewMessageClose   = 0x0010
+	webViewMessageClose   = 0x8001 // WM_APP+1, the client closes the window
 	webViewMessageDestroy = 0x0002
 	webViewMessageSetIcon = 0x0080
+	wmSetText             = 0x000C
+	wmSysCommand          = 0x0112
+	scClose               = 0xF060
+	wsMaximizeBox         = 0x00010000
+	wsMaximize            = 0x01000000
+	swMaximize            = 3
 )
 
 var (
@@ -50,6 +56,7 @@ var (
 	procWebViewSetForeground  = user32.NewProc("SetForegroundWindow")
 	procWebViewPostMessage    = user32.NewProc("PostMessageW")
 	procWebViewGetClientRect  = user32.NewProc("GetClientRect")
+	procWebViewSystemInfo     = user32.NewProc("SystemParametersInfoW")
 	procWebViewCoInitializeEx = ole32.NewProc("CoInitializeEx")
 	procWebViewCoUninitialize = ole32.NewProc("CoUninitialize")
 	procRegOpenKeyEx          = advapi32.NewProc("RegOpenKeyExW")
@@ -80,8 +87,16 @@ func runWebViewHelper(url string, title string, iconPath string) (code int) {
 		}
 	}()
 
+	// A fatal error of the runtime of the page is written into the log of the
+	// client, the window of the page has no terminal of its own.
+	redirectOutputToLog()
+
 	webViewUrl = url
 	webViewLog("start " + url)
+
+	// The window of the page uses the real pixels of the screen. Without the
+	// awareness the system scales the window and the page does not fill it.
+	enableDpiAwareness()
 
 	// The thread of the window is a thread of COM, the runtime of WebView2
 	// lives on it.
@@ -109,7 +124,7 @@ func runWebViewHelper(url string, title string, iconPath string) (code int) {
 	// ready. A runtime that does not answer would leave a window without a
 	// page, the window is closed after a time and the window of the program
 	// shows the state of the worker.
-	time.AfterFunc(7*time.Second, func() {
+	time.AfterFunc(15*time.Second, func() {
 		if !webViewReady.Load() {
 			webViewLog("the page of the client is not ready")
 			procWebViewPostMessage.Call(webViewWindow, webViewMessageClose, 0, 0)
@@ -125,13 +140,33 @@ func runWebViewHelper(url string, title string, iconPath string) (code int) {
 func createWebViewWindow(title string, iconPath string) uintptr {
 	className, _ := syscall.UTF16PtrFromString(webViewWindowClass)
 	instance, _, _ := kernel32.NewProc("GetModuleHandleW").Call(0)
+	brush, _, _ := procGetSysColorBrush.Call(uintptr(colorWindow))
 	class := windowClassEx{
-		Size:      uint32(unsafe.Sizeof(windowClassEx{})),
-		Style:     0x0003 | 0x0008 | 0x0002, // CS_HREDRAW, CS_VREDRAW, CS_DBLCLKS
-		WndProc:   syscall.NewCallback(webViewWindowProcedure),
-		Instance:  instance,
-		ClassName: className,
+		Size:       uint32(unsafe.Sizeof(windowClassEx{})),
+		Style:      0x0003 | 0x0008 | 0x0002, // CS_HREDRAW, CS_VREDRAW, CS_DBLCLKS
+		WndProc:    syscall.NewCallback(webViewWindowProcedure),
+		Instance:   instance,
+		Background: brush,
+		ClassName:  className,
 	}
+
+	// The window is placed in the work area of the screen and it takes most of
+	// it. The page of the client is a full application, a small window would
+	// hide the content.
+	x, y := uintptr(0x80000000), uintptr(0x80000000)
+	width, height := uintptr(1100), uintptr(760)
+	var workArea clientRect
+	if result, _, _ := procWebViewSystemInfo.Call(0x0030, 0, uintptr(unsafe.Pointer(&workArea)), 0); result != 0 {
+		availableWidth := workArea.Right - workArea.Left
+		availableHeight := workArea.Bottom - workArea.Top
+		if availableWidth > 640 && availableHeight > 480 {
+			width = uintptr(availableWidth - 80)
+			height = uintptr(availableHeight - 80)
+			x = uintptr(workArea.Left + 40)
+			y = uintptr(workArea.Top + 40)
+		}
+	}
+
 	procRegisterClassEx.Call(uintptr(unsafe.Pointer(&class)))
 
 	titlePtr, _ := syscall.UTF16PtrFromString(title)
@@ -139,10 +174,8 @@ func createWebViewWindow(title string, iconPath string) uintptr {
 		0,
 		uintptr(unsafe.Pointer(className)),
 		uintptr(unsafe.Pointer(titlePtr)),
-		wsOverlappedWindow|wsCaption|wsSysMenu|wsMinimizeBox|wsClipChildren,
-		0x80000000, // CW_USEDEFAULT
-		0x80000000,
-		1100, 760,
+		wsOverlappedWindow|wsCaption|wsSysMenu|wsMinimizeBox|wsMaximizeBox|wsClipChildren|wsMaximize,
+		uintptr(x), uintptr(y), uintptr(width), uintptr(height),
 		0, 0, instance, 0,
 	)
 	if webViewWindow == 0 {
@@ -168,13 +201,44 @@ func createWebViewWindow(title string, iconPath string) uintptr {
 // webViewWindowProcedure is the procedure of the window of the client.
 func webViewWindowProcedure(hwnd uintptr, message uint32, wParam uintptr, lParam uintptr) uintptr {
 	switch message {
-	case webViewMessageSize:
+	case webViewMessageSize, 0x0003, 0x0047, 0x0232: // WM_SIZE, WM_MOVE, WM_WINDOWPOSCHANGED, WM_EXITSIZEMOVE
+		resizeWebView()
+		return 0
+	case 0x02E0: // WM_DPICHANGED
+		if lParam != 0 {
+			rect := (*struct{ Left, Top, Right, Bottom int32 })(unsafe.Pointer(lParam))
+			procSetWindowPos.Call(hwnd, 0,
+				uintptr(rect.Left), uintptr(rect.Top),
+				uintptr(rect.Right-rect.Left), uintptr(rect.Bottom-rect.Top),
+				0x0004) // SWP_NOZORDER
+		}
 		resizeWebView()
 		return 0
 	case webViewMessageClose:
+		webViewLog("the window of the page is closed by the client")
 		procDestroyWindow.Call(hwnd)
 		return 0
+	case wmSetText:
+		// The title of the window is the name of the installation. After the
+		// page is shown, the page cannot replace it with the title of the
+		// document.
+		if webViewReady.Load() {
+			return 0
+		}
+	case wmClose:
+		// A close message that the client did not send is not obeyed. The page
+		// of the client is the window of the application, a message of the
+		// system or of the page must not close it.
+		webViewLog("the window of the page received WM_CLOSE")
+		return 0
+	case wmSysCommand:
+		if wParam == scClose {
+			webViewLog("the window of the page is closed by the user")
+			procDestroyWindow.Call(hwnd)
+			return 0
+		}
 	case webViewMessageDestroy:
+		webViewLog("the window of the page is destroyed")
 		procPostQuitMessage.Call(0)
 		return 0
 	}
@@ -188,6 +252,7 @@ func webViewMessageLoop() {
 	for {
 		result, _, _ := procGetMessage.Call(uintptr(unsafe.Pointer(&message)), 0, 0, 0)
 		if int32(result) <= 0 {
+			webViewLog(fmt.Sprintf("the message loop of the page ended: %d", int32(result)))
 			return
 		}
 		procTranslateMessage.Call(uintptr(unsafe.Pointer(&message)))
@@ -300,13 +365,18 @@ func systemThemeIsDark() bool {
 
 // resizeWebView gives the page the size of the window.
 func resizeWebView() {
+	webViewLog(fmt.Sprintf("resize called controller=%d window=%d", webViewController, webViewWindow))
 	if webViewController == 0 || webViewWindow == 0 {
 		return
 	}
 	var rect struct{ Left, Top, Right, Bottom int32 }
 	procWebViewGetClientRect.Call(webViewWindow, uintptr(unsafe.Pointer(&rect)))
-	bounds := struct{ Left, Top, Right, Bottom int32 }{0, 0, rect.Right - rect.Left, rect.Bottom - rect.Top}
+	width := rect.Right - rect.Left
+	height := rect.Bottom - rect.Top
+	webViewLog(fmt.Sprintf("resize %dx%d", width, height))
+	bounds := struct{ Left, Top, Right, Bottom int32 }{0, 0, width, height}
 	callWebViewMethod(webViewController, 6, uintptr(unsafe.Pointer(&bounds))) // put_Bounds
+	callWebViewMethod(webViewController, 23)                                  // NotifyParentWindowPositionChanged
 }
 
 // callWebViewMethod calls a method of an interface of COM.
@@ -328,13 +398,7 @@ func callWebViewMethod(object uintptr, index int, args ...uintptr) uintptr {
 // environment of WebView2.
 func newWebViewEnvironmentHandler() uintptr {
 	handler := &webViewHandler{
-		QueryInterface: syscall.NewCallback(func(self uintptr, riid uintptr, object uintptr) uintptr {
-			*(*uintptr)(unsafe.Pointer(object)) = self
-			return 0
-		}),
-		AddRef:  syscall.NewCallback(func(self uintptr) uintptr { return 1 }),
-		Release: syscall.NewCallback(func(self uintptr) uintptr { return 1 }),
-		Invoke: syscall.NewCallback(func(self uintptr, result uintptr, environment uintptr) uintptr {
+		invoke: func(self uintptr, result uintptr, environment uintptr) uintptr {
 			if int32(result) < 0 || environment == 0 {
 				webViewLog("the environment of WebView2 is not ready")
 				procPostQuitMessage.Call(3)
@@ -344,9 +408,16 @@ func newWebViewEnvironmentHandler() uintptr {
 			// CreateCoreWebView2Controller(environment, window, handler)
 			callWebViewMethod(environment, 3, webViewWindow, newWebViewControllerHandler())
 			return 0
-		}),
+		},
+	}
+	handler.vtbl = &webViewVtbl{
+		QueryInterface: syscall.NewCallback(webViewQueryInterface),
+		AddRef:         syscall.NewCallback(webViewAddRef),
+		Release:        syscall.NewCallback(webViewRelease),
+		Invoke:         syscall.NewCallback(webViewInvoke),
 	}
 	webViewHandlers = append(webViewHandlers, handler)
+	webViewHandlers = append(webViewHandlers, handler.vtbl)
 	return uintptr(unsafe.Pointer(handler))
 }
 
@@ -354,57 +425,149 @@ func newWebViewEnvironmentHandler() uintptr {
 // of the page.
 func newWebViewControllerHandler() uintptr {
 	handler := &webViewHandler{
-		QueryInterface: syscall.NewCallback(func(self uintptr, riid uintptr, object uintptr) uintptr {
-			*(*uintptr)(unsafe.Pointer(object)) = self
-			return 0
-		}),
-		AddRef:  syscall.NewCallback(func(self uintptr) uintptr { return 1 }),
-		Release: syscall.NewCallback(func(self uintptr) uintptr { return 1 }),
-		Invoke: syscall.NewCallback(func(self uintptr, result uintptr, controller uintptr) uintptr {
+		invoke: func(self uintptr, result uintptr, controller uintptr) uintptr {
 			if int32(result) < 0 || controller == 0 {
 				webViewLog("the controller of the page is not ready")
 				procPostQuitMessage.Call(3)
 				return 0
 			}
+			// The controller is owned by the answer of WebView2. The window
+			// keeps it after the handler returns, so the reference of the
+			// answer is taken before the object is stored.
+			callWebViewMethod(controller, 1) // AddRef
 			webViewController = controller
 			resizeWebView()
 			callWebViewMethod(controller, 4, 1) // put_IsVisible
-			procShowWindow.Call(webViewWindow, swShow)
+			procShowWindow.Call(webViewWindow, swMaximize)
+			// The window is shown with the flag as well. A window that is
+			// created while the process of the page starts can stay hidden
+			// when only ShowWindow is used.
+			procSetWindowPos.Call(webViewWindow, 0, 0, 0, 0, 0, 0x0001|0x0002|0x0040) // SWP_NOSIZE | SWP_NOMOVE | SWP_SHOWWINDOW
+			webViewLog("the window of the page is shown")
 			procUpdateWindow.Call(webViewWindow)
-			webViewReady.Store(true)
+			// The window is shown before the page is loaded. The size of the
+			// page is set again when the system has placed the window. The
+			// message is posted to the thread of COM, the methods of WebView2
+			// are not called from a timer thread.
+			time.AfterFunc(250*time.Millisecond, func() {
+				procWebViewPostMessage.Call(webViewWindow, webViewMessageSize, 0, 0)
+			})
 
 			var page uintptr
 			callWebViewMethod(controller, 25, uintptr(unsafe.Pointer(&page))) // get_CoreWebView2
 			if page == 0 {
+				webViewLog("the page of the client is not available")
 				procWebViewPostMessage.Call(webViewWindow, webViewMessageClose, 0, 0)
 				return 0
 			}
+			webViewLog("the page of the client is available")
 			var settings uintptr
 			callWebViewMethod(page, 3, uintptr(unsafe.Pointer(&settings))) // get_Settings
 			if settings != 0 {
-				callWebViewMethod(settings, 10, 0) // put_IsStatusBarEnabled
+				callWebViewMethod(settings, 10, 0) // put_AreDefaultContextMenusEnabled
 				callWebViewMethod(settings, 12, 0) // put_AreDevToolsEnabled
-				callWebViewMethod(settings, 14, 0) // put_AreDefaultContextMenusEnabled
-				callWebViewMethod(settings, 18, 1) // put_IsZoomControlEnabled
+				callWebViewMethod(settings, 14, 0) // put_IsStatusBarEnabled
+				callWebViewMethod(settings, 26, 1) // put_IsZoomControlEnabled
 			}
+			webViewLog("the settings of the page are ready")
+
+			// The page is ready when the navigation completed, not when the
+			// controller was created. A page that cannot be loaded closes the
+			// window so that the window of the program shows the state of the
+			// worker instead of a blank page.
+			navHandler := newWebViewNavigationHandler()
+			var token int64
+			handlerResult := callWebViewMethod(page, 15, navHandler, uintptr(unsafe.Pointer(&token))) // add_NavigationCompleted
+			webViewLog(fmt.Sprintf("the navigation handler is ready: %#x", handlerResult))
+
 			target, err := syscall.UTF16PtrFromString(webViewUrl)
 			if err == nil {
-				callWebViewMethod(page, 5, uintptr(unsafe.Pointer(target))) // Navigate
+				handlerResult = callWebViewMethod(page, 5, uintptr(unsafe.Pointer(target))) // Navigate
+				webViewLog(fmt.Sprintf("the page of the client is started: %#x", handlerResult))
 				runtime.KeepAlive(target)
 			}
 			return 0
-		}),
+		},
+	}
+	handler.vtbl = &webViewVtbl{
+		QueryInterface: syscall.NewCallback(webViewQueryInterface),
+		AddRef:         syscall.NewCallback(webViewAddRef),
+		Release:        syscall.NewCallback(webViewRelease),
+		Invoke:         syscall.NewCallback(webViewInvoke),
 	}
 	webViewHandlers = append(webViewHandlers, handler)
+	webViewHandlers = append(webViewHandlers, handler.vtbl)
 	return uintptr(unsafe.Pointer(handler))
 }
 
-// webViewHandler is the object of the answers of WebView2.
-type webViewHandler struct {
+// newWebViewNavigationHandler returns the object that receives the result of
+// the page navigation.
+func newWebViewNavigationHandler() uintptr {
+	handler := &webViewHandler{
+		invoke: func(self uintptr, sender uintptr, args uintptr) uintptr {
+			var success int32
+			callWebViewMethod(args, 3, uintptr(unsafe.Pointer(&success))) // get_IsSuccess
+			if success == 0 {
+				webViewLog("the page of the client could not be loaded")
+				procWebViewPostMessage.Call(webViewWindow, webViewMessageClose, 0, 0)
+				return 0
+			}
+			webViewReady.Store(true)
+			webViewLog("the page of the client is shown")
+			resizeWebView()
+			return 0
+		},
+	}
+	handler.vtbl = &webViewVtbl{
+		QueryInterface: syscall.NewCallback(webViewQueryInterface),
+		AddRef:         syscall.NewCallback(webViewAddRef),
+		Release:        syscall.NewCallback(webViewRelease),
+		Invoke:         syscall.NewCallback(webViewInvoke),
+	}
+	webViewHandlers = append(webViewHandlers, handler)
+	webViewHandlers = append(webViewHandlers, handler.vtbl)
+	return uintptr(unsafe.Pointer(handler))
+}
+
+// webViewVtbl holds the functions of a COM object of WebView2.
+type webViewVtbl struct {
 	QueryInterface uintptr
 	AddRef         uintptr
 	Release        uintptr
 	Invoke         uintptr
+}
+
+// webViewHandler is the object of the answers of WebView2.
+type webViewHandler struct {
+	vtbl   *webViewVtbl
+	invoke func(self, result, object uintptr) uintptr
+}
+
+// webViewQueryInterface answers the interface of a COM object of WebView2.
+func webViewQueryInterface(self uintptr, riid uintptr, object uintptr) uintptr {
+	if object != 0 {
+		*(*uintptr)(unsafe.Pointer(object)) = self
+	}
+	return 0
+}
+
+// webViewAddRef keeps a COM object of WebView2 alive.
+func webViewAddRef(self uintptr) uintptr {
+	return 1
+}
+
+// webViewRelease releases a COM object of WebView2.
+func webViewRelease(self uintptr) uintptr {
+	return 1
+}
+
+// webViewInvoke calls the function of a COM object of WebView2.
+func webViewInvoke(self uintptr, result uintptr, object uintptr) uintptr {
+	handler := (*webViewHandler)(unsafe.Pointer(self))
+	if handler != nil && handler.invoke != nil {
+		return handler.invoke(self, result, object)
+	}
+	return 0
 }
 
 // showWebViewWindow brings the window of the client to the front.
@@ -415,7 +578,7 @@ func showWebViewWindow() bool {
 	if window == 0 {
 		return false
 	}
-	procShowWindow.Call(window, 9) // SW_RESTORE
+	procShowWindow.Call(window, swMaximize)
 	procWebViewSetForeground.Call(window)
 	return true
 }

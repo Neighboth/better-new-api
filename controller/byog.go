@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"mime"
 	"net/http"
 	"os"
 	"os/exec"
@@ -1690,21 +1691,24 @@ func ReportByogWorkerCrash(c *gin.Context) {
 
 func hasLocalWorkerBinary(platform, arch string) bool {
 	fileName := fmt.Sprintf("byog-worker-%s-%s", platform, arch)
+	fileNames := []string{fileName}
 	if platform == "windows" {
 		fileName += ".exe"
+		fileNames = []string{fileName, "BYOG Worker.exe", "BYOG Worker Kurulumu.exe"}
 	} else if platform == "android" && arch == "apk" {
-		fileName = "byog-worker.apk"
+		fileNames = []string{"byog-worker.apk"}
 	}
 
-	searchPaths := []string{
-		filepath.Join("worker", "binaries", fileName),
-		filepath.Join("/worker", "binaries", fileName),
-		filepath.Join("/data", "worker", "binaries", fileName),
-	}
-
-	for _, p := range searchPaths {
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Size() > 0 {
-			return true
+	for _, name := range fileNames {
+		searchPaths := []string{
+			filepath.Join("worker", "binaries", name),
+			filepath.Join("/worker", "binaries", name),
+			filepath.Join("/data", "worker", "binaries", name),
+		}
+		for _, p := range searchPaths {
+			if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Size() > 0 {
+				return true
+			}
 		}
 	}
 	return false
@@ -2110,6 +2114,37 @@ func decodeFaviconIcon(faviconBase64 string) []byte {
 	return icon.PNG(raw, icon.MaxResourceSize)
 }
 
+// byogDisplayName is the name of the installation in the applications of the
+// control panel. The name of the site comes first, the name of the client
+// follows it.
+func byogDisplayName(systemName string) string {
+	name := strings.TrimSpace(systemName)
+	if name == "" || name == "New API" {
+		return "BYOG Worker"
+	}
+	if strings.HasSuffix(strings.ToLower(name), "byog worker") {
+		return name
+	}
+	return name + " BYOG Worker"
+}
+
+// byogDownloadFileName makes the name of a download safe for the header and the
+// file system. The name of the site is written by the administrator.
+func byogDownloadFileName(name string) string {
+	var builder strings.Builder
+	for _, character := range name {
+		if character < 32 || strings.ContainsRune(`/\:*?"<>|`, character) {
+			continue
+		}
+		builder.WriteRune(character)
+	}
+	result := strings.TrimSpace(builder.String())
+	if result == "" {
+		return "BYOG Worker"
+	}
+	return result
+}
+
 // DownloadByogWorker serves worker release binary or APK if present, or redirects to configured external download URL
 //
 // The installation of Windows is the installer of Inno Setup, the user asks for
@@ -2119,23 +2154,31 @@ func decodeFaviconIcon(faviconBase64 string) []byte {
 func DownloadByogWorker(c *gin.Context) {
 	platform := c.Param("platform")
 	arch := c.Param("arch")
+	scheme := "http"
+	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+	systemName, _, _, _ := getBranding(serverUrl)
+	displayName := byogDisplayName(systemName)
 	sourceName := fmt.Sprintf("byog-worker-%s-%s", platform, arch)
-	downloadName := sourceName
+	downloadName := byogDownloadFileName(displayName + "-" + platform + "-" + arch)
 	installer := false
 	if platform == "windows" {
 		sourceName = "BYOG Worker.exe"
-		downloadName = sourceName
+		downloadName = byogDownloadFileName(displayName + ".exe")
 		if c.Query("format") == "installer" {
 			sourceName = "BYOG Worker Kurulumu.exe"
+			downloadName = byogDownloadFileName(displayName + " Setup.exe")
 			installer = true
 		}
 	} else if platform == "android" {
 		if arch == "apk" {
 			sourceName = "byog-worker.apk"
-			downloadName = sourceName
+			downloadName = byogDownloadFileName(displayName + ".apk")
 		} else {
 			sourceName = "byog-worker-android-arm64"
-			downloadName = sourceName
+			downloadName = byogDownloadFileName(displayName + "-android-arm64")
 		}
 	}
 
@@ -2181,21 +2224,15 @@ func DownloadByogWorker(c *gin.Context) {
 					common.SysError(fmt.Sprintf("[BYOG] client branding failed: %v", err))
 				}
 				c.Header("Content-Type", "application/octet-stream")
-				c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", downloadName))
+				c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": downloadName}))
 				c.Data(http.StatusOK, "application/octet-stream", raw)
 				return
 			}
 			if platform == "android" && arch == "apk" {
 				c.Header("Content-Type", "application/vnd.android.package-archive")
-				c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", downloadName))
+				c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": downloadName}))
 				if raw, err := os.ReadFile(p); err == nil {
-					scheme := "http"
-					if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
-						scheme = "https"
-					}
-					serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
-
-					systemName, appName, faviconUrl, faviconBase64 := getBranding(serverUrl)
+					_, appName, faviconUrl, faviconBase64 := getBranding(serverUrl)
 
 					cfgPayload, _ := json.Marshal(map[string]string{
 						"server_url":     serverUrl,
@@ -2223,7 +2260,7 @@ func DownloadByogWorker(c *gin.Context) {
 				return
 			}
 			c.Header("Content-Type", "application/octet-stream")
-			c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", downloadName))
+			c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": downloadName}))
 			c.File(p)
 			return
 		}

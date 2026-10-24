@@ -64,6 +64,7 @@ const (
 	esAutoHScroll   = 0x0080
 	swShow          = 5
 	swHide          = 0
+	swRestore       = 9
 	colorWindow     = 5
 	imageIcon       = 1
 	lrLoadFromFile  = 0x0010
@@ -126,6 +127,7 @@ var (
 	procDestroyMenu                 = user32.NewProc("DestroyMenu")
 	procGetCursorPos                = user32.NewProc("GetCursorPos")
 	procSetForeground               = user32.NewProc("SetForegroundWindow")
+	procPostMessage                 = user32.NewProc("PostMessageW")
 	procDestroyWindow               = user32.NewProc("DestroyWindow")
 	procGetDC                       = user32.NewProc("GetDC")
 	procReleaseDC                   = user32.NewProc("ReleaseDC")
@@ -161,6 +163,7 @@ var (
 	procCreateSolidBrush       = gdi32.NewProc("CreateSolidBrush")
 	procCreatePen              = gdi32.NewProc("CreatePen")
 	procCreateFont             = gdi32.NewProc("CreateFontW")
+	procStretchBlt             = gdi32.NewProc("StretchBlt")
 )
 
 // The structures of the system.
@@ -275,6 +278,7 @@ type guiWindow struct {
 
 	statusText  string
 	statusState int
+	trayMode    bool
 	details     [4]string
 	// page is the page of the menu that is shown.
 	page int
@@ -305,7 +309,14 @@ var (
 )
 
 // runGui starts the graphical interface of the client.
-func runGui(serverFlag string, codeFlag string, deviceFlag string) {
+func runGui(serverFlag string, codeFlag string, deviceFlag string, trayFlag bool) {
+	// The window belongs to the thread that creates it. The loop of the
+	// messages of the window has to run on the same thread, otherwise the
+	// system sends the messages to a thread that does not read them and the
+	// window does not answer.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	_ = os.MkdirAll(storageRoot(), 0755)
 	redirectOutputToLog()
 
@@ -352,7 +363,7 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string) {
 		updateInstallationBranding(config.AppName, config.SystemName, config.FaviconBase64)
 	}
 
-	window := &guiWindow{statusState: stateOffline, statusText: clientText("connecting"), hovered: -1}
+	window := &guiWindow{statusState: stateOffline, statusText: clientText("connecting"), hovered: -1, trayMode: trayFlag}
 	window.create()
 
 	// The worker starts in the background, the window shows its state.
@@ -418,6 +429,9 @@ func (w *guiWindow) watchWorker() {
 		case status.LastError != "":
 			connection = status.LastError
 			state = stateError
+		case status.ModelStatus == "error":
+			connection = "Model indirilemedi"
+			state = stateError
 		case status.ModelStatus == "downloading":
 			connection = "Model indiriliyor"
 			state = stateDownloading
@@ -433,7 +447,11 @@ func (w *guiWindow) watchWorker() {
 		w.lastConnected = status.Connected
 		w.progress = status.Progress
 		w.progressSet = status.ModelStatus == "downloading"
-		w.details = [4]string{status.ServerUrl, status.NodeId, modelDescription(status), speedDescription(status)}
+		device := status.DeviceName
+		if device == "" {
+			device = status.NodeId
+		}
+		w.details = [4]string{status.ServerUrl, device, modelDescription(status), speedDescription(status)}
 		w.mutex.Unlock()
 
 		if changed {
@@ -461,12 +479,12 @@ func redirectOutputToLog() {
 // Without the awareness of the resolution, the system scales the window of the
 // client and the text of the window is blurred.
 func enableDpiAwareness() {
-	// PER_MONITOR_AWARE_V2
-	if result, _, _ := procSetProcessDpiAwareContextV2.Call(uintptr(0xFFFFFFFC)); result != 0 {
+	// PER_MONITOR_AWARE_V2 = -4
+	if result, _, _ := procSetProcessDpiAwareContextV2.Call(^uintptr(3)); result != 0 {
 		return
 	}
-	// PER_MONITOR_AWARE
-	if result, _, _ := procSetProcessDpiAwareContext1.Call(uintptr(0xFFFFFFFD)); result != 0 {
+	// PER_MONITOR_AWARE = -3
+	if result, _, _ := procSetProcessDpiAwareContext1.Call(^uintptr(2)); result != 0 {
 		return
 	}
 	procSetProcessDPIAware.Call()
@@ -575,15 +593,18 @@ func (w *guiWindow) create() {
 	w.layout()
 	w.addTrayIcon()
 	procSetTimer.Call(w.window, 1, 1000, 0)
-	procShowWindow.Call(w.window, swShow)
-	procUpdateWindow.Call(w.window)
 	w.startBridge()
 
 	// The page of the client of the installation is the interface of the
 	// client, it uses the theme of the site. The window of the program stays
-	// as the fallback of it.
-	if w.openClientPage() {
-		procShowWindow.Call(w.window, swHide)
+	// as the fallback of it, it is shown only when the page cannot be opened.
+	procShowWindow.Call(w.window, swHide)
+	if !w.trayMode {
+		if !w.openClientPage() {
+			procShowWindow.Call(w.window, swRestore)
+			procSetForeground.Call(w.window)
+			procUpdateWindow.Call(w.window)
+		}
 	}
 }
 
@@ -714,7 +735,7 @@ func setText(window uintptr, text string) {
 func (w *guiWindow) fillFields() {
 	status := readStatus()
 	setText(w.serverEdit, status.ServerUrl)
-	if status.Paired {
+	if status.PairingCode != "" {
 		setText(w.pairEdit, status.PairingCode)
 	} else {
 		setText(w.pairEdit, "")
@@ -781,6 +802,9 @@ func modelDescription(status AppStatus) string {
 	if status.ModelStatus == "downloading" {
 		return fmt.Sprintf("indiriliyor (%d / %d MB)", status.DownloadedMB, status.TotalMB)
 	}
+	if status.ModelStatus == "error" {
+		return "model indirilemedi"
+	}
 	if status.TotalTokens > 0 {
 		return fmt.Sprintf("%d token işlendi", status.TotalTokens)
 	}
@@ -828,12 +852,8 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 	case wmCommand:
 		if window != nil {
 			switch wparam & 0xFFFF {
-			case controlPairEdit:
-				window.connect()
 			case commandShow:
-				if !window.openClientPage() {
-					window.show()
-				}
+				window.show()
 			case commandPanel:
 				window.openPanel()
 			case commandClose:
@@ -971,12 +991,16 @@ func (w *guiWindow) click(lparam uintptr) {
 // runCommand runs the command of a button of the window.
 func (w *guiWindow) runCommand(command int) {
 	switch command {
+	case commandShow:
+		w.show()
 	case commandConnect:
 		w.connect()
 	case commandTest:
 		w.testModel()
 	case commandPanel:
 		w.openPanel()
+	case commandClose:
+		w.quit()
 	case commandQuit:
 		w.quit()
 	}
@@ -1011,7 +1035,7 @@ func (w *guiWindow) testModel() {
 		if speed <= 0 && elapsed.Seconds() > 0 {
 			speed = float64(result.TotalTokens) / elapsed.Seconds()
 		}
-		answer := fmt.Sprintf("%s\n\nSüre: %s\nToken: %d\nHız: %.1f token/s",
+		answer := fmt.Sprintf("%s\nSüre: %s  Token: %d  Hız: %.1f token/s",
 			strings.TrimSpace(result.Text), elapsed.Round(time.Millisecond), result.TotalTokens, speed)
 		w.mutex.Lock()
 		w.testResult = answer
@@ -1054,7 +1078,18 @@ func (w *guiWindow) changeLanguage() {
 		// window that shows the page of the client is closed first, the class
 		// of the window names only one window.
 		closeWebViewWindow()
-		time.Sleep(250 * time.Millisecond)
+		// The runtime of WebView2 locks the directory of the page while the
+		// process lives. A new process cannot start before the old one ends,
+		// therefore the end of the process is waited for.
+		for attempt := 0; attempt < 50; attempt++ {
+			w.mutex.Lock()
+			ended := w.embedCmd == nil
+			w.mutex.Unlock()
+			if ended {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 	if !w.openEmbeddedPage(w.bridge.address + "/?reset=1") {
 		w.showMessage(windowTitle(), "Dil değiştirmek için WebView2 gerekli.")
@@ -1093,12 +1128,13 @@ func (w *guiWindow) connect() {
 	}()
 }
 
-// openPanel shows the page of the client of the installation.
-//
-// The page of the site is shown in the window of WebView2, the client never
-// opens a browser.
+// openPanel opens the website directly in the default system browser.
 func (w *guiWindow) openPanel() {
-	w.show()
+	serverUrl := State.Config.ServerUrl
+	if serverUrl == "" {
+		serverUrl = DefaultServerUrl
+	}
+	openBrowser(serverUrl)
 }
 
 // openClientPage opens the page of the client of the installation.
@@ -1145,26 +1181,25 @@ func (w *guiWindow) openEmbeddedPage(page string) bool {
 	w.embedClosing = false
 	w.mutex.Unlock()
 
-	started := time.Now()
 	go func() {
 		<-done
 		w.mutex.Lock()
 		if w.embedCmd == command {
 			w.embedCmd = nil
 		}
-		early := time.Since(started) < 8*time.Second
 		closing := w.embedClosing
 		w.mutex.Unlock()
-		if !early || closing {
+		if closing {
 			return
 		}
-		// The window ended at the start, the runtime of WebView2 is not on
-		// the computer. The window of the program shows the state of the
-		// worker.
+		// The window ended before the client page was shown. The runtime of
+		// WebView2 is not on the computer or the page could not be loaded. The
+		// window of the program shows the state of the worker.
 		w.mutex.Lock()
 		w.embedFailed = true
 		w.mutex.Unlock()
-		procShowWindow.Call(w.window, swShow)
+		procShowWindow.Call(w.window, swRestore)
+		procSetForeground.Call(w.window)
 		procUpdateWindow.Call(w.window)
 		w.invalidate()
 	}()
@@ -1187,12 +1222,14 @@ func startClientWindow(page string, title string, iconPath string) (*exec.Cmd, <
 	}
 	command := exec.Command(executable, arguments...)
 	command.Dir = filepath.Dir(executable)
+	hideProcessWindow(command)
 	if err := command.Start(); err != nil {
 		return nil, nil, false
 	}
 	done := make(chan struct{})
 	go func() {
-		_ = command.Wait()
+		err := command.Wait()
+		webViewLog(fmt.Sprintf("the process of the page ended: %v", err))
 		close(done)
 	}()
 	select {
@@ -1225,15 +1262,27 @@ func (w *guiWindow) quit() {
 // show brings the window of the client to the front.
 func (w *guiWindow) show() {
 	if showWebViewWindow() {
+		procShowWindow.Call(w.window, swHide)
 		return
 	}
 	w.mutex.Lock()
 	missing := w.embedCmd == nil
+	// The user asks for the window again, a failed attempt of the page is
+	// retried with a fresh process of WebView2.
+	w.embedFailed = false
 	w.mutex.Unlock()
 	if missing && w.openClientPage() {
+		procShowWindow.Call(w.window, swHide)
 		return
 	}
-	procShowWindow.Call(w.window, swShow)
+	if !missing {
+		// The window of the page is starting. The window of the state is not
+		// shown beside it; the worker shows it when the page cannot start.
+		procShowWindow.Call(w.window, swHide)
+		return
+	}
+	procShowWindow.Call(w.window, swRestore)
+	procSetForeground.Call(w.window)
 	procUpdateWindow.Call(w.window)
 	w.invalidate()
 }
@@ -1287,9 +1336,28 @@ func (w *guiWindow) showTrayMenu() {
 
 	var point windowPoint
 	procGetCursorPos.Call(uintptr(unsafe.Pointer(&point)))
-	procSetForeground.Call(w.window)
-	procTrackPopupMenu.Call(menu, 0, uintptr(point.X), uintptr(point.Y), 0, w.window, 0)
+	// A tray menu has to belong to the foreground window of the process,
+	// otherwise the system closes it at once and the menu never appears. The
+	// window of the client page is visible; the hidden window of the program
+	// is used when the page is not shown.
+	foreground := w.window
+	className, _ := syscall.UTF16PtrFromString(webViewWindowClass)
+	if webview, _, _ := procWebViewFindWindow.Call(uintptr(unsafe.Pointer(className)), 0); webview != 0 {
+		foreground = webview
+	}
+	runtime.KeepAlive(className)
+	procSetForeground.Call(foreground)
+	command, _, _ := procTrackPopupMenu.Call(
+		menu,
+		0x0002|0x0100|0x0080, // TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY
+		uintptr(point.X), uintptr(point.Y),
+		0, w.window, 0,
+	)
+	procPostMessage.Call(w.window, 0, 0, 0) // WM_NULL
 	procDestroyMenu.Call(menu)
+	if command != 0 {
+		w.runCommand(int(command))
+	}
 }
 
 // applicationIconPath returns the path of the icon of the client.

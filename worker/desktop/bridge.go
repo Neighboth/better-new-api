@@ -10,8 +10,11 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/QuantumNous/new-api/worker/desktop/installer"
 )
 
 // localBridge gives the state of the client to the page of the client.
@@ -40,8 +43,11 @@ type bridgeState struct {
 	ModelStatus      string  `json:"model_status"`
 	DownloadProgress int     `json:"download_progress"`
 	CurrentTps       float64 `json:"current_tps"`
-	TotalTokens      int64   `json:"total_tokens"`
-	LastError        string  `json:"last_error"`
+	TotalTokens      int64               `json:"total_tokens"`
+	LastError        string              `json:"last_error"`
+	Disks            []DiskPartitionInfo `json:"disks"`
+	PhysicalRamMB    int                 `json:"physical_ram_mb"`
+	CpuCores         int                 `json:"cpu_cores"`
 }
 
 // startLocalBridge starts the server of the state of the client.
@@ -113,6 +119,9 @@ func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Requ
 		CurrentTps:       status.CurrentTps,
 		TotalTokens:      status.TotalTokens,
 		LastError:        status.LastError,
+		Disks:            getFixedDiskPartitions(),
+		PhysicalRamMB:    physicalRamMB(),
+		CpuCores:         runtime.NumCPU(),
 	})
 }
 
@@ -211,6 +220,7 @@ func (b *localBridge) handleSettings(writer http.ResponseWriter, request *http.R
 	}
 	if payload.Language != "" {
 		State.Config.Language = payload.Language
+		installer.UpdateUninstallerLanguage(payload.Language)
 	}
 	State.Mu.Unlock()
 	saveConfig(State.Config)

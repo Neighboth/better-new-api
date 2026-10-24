@@ -1,4 +1,4 @@
-﻿; The installation of the client of the local computing network.
+; The installation of the client of the local computing network.
 ;
 ; The installer is built with Inno Setup, the standard tool of Windows. The
 ; dashboard downloads the installer with the name, the icon and the address of
@@ -43,7 +43,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
 RestartApplications=no
-ShowLanguageDialog=yes
+ShowLanguageDialog=no
 ChangesAssociations=no
 DisableWelcomePage=no
 UsePreviousAppDir=yes
@@ -65,54 +65,71 @@ turkish.PolicyPageDescription=Kurulumun gizlilik politikasını ve kullanım ko�
 turkish.PolicyAccept=Gizlilik politikasını ve kullanım koşullarını okudum, kabul ediyorum.
 turkish.PolicyAcceptRequired=Kuruluma devam etmek için politikaları kabul edin.
 turkish.PolicyMissing=Politikalar sunucudan alınamadı. Politikaları şu adreste bulabilirsiniz:
+turkish.PolicyLoading=Politikalar yükleniyor...
+turkish.DownloadingClient=İstemci indiriliyor...
 
 english.PolicyPageTitle=Privacy and Terms
 english.PolicyPageDescription=Read the privacy policy and the terms of service of the installation.
 english.PolicyAccept=I have read and accept the privacy policy and the terms of service.
 english.PolicyAcceptRequired=Accept the policies to continue the installation.
 english.PolicyMissing=The policies could not be read from the server. You can find them at:
+english.PolicyLoading=Loading policies...
+english.DownloadingClient=Downloading client...
 
 french.PolicyPageTitle=Confidentialité et conditions
 french.PolicyPageDescription=Lisez la politique de confidentialité et les conditions d'utilisation de l'installation.
 french.PolicyAccept=J'ai lu et j'accepte la politique de confidentialité et les conditions d'utilisation.
 french.PolicyAcceptRequired=Acceptez les conditions pour poursuivre l'installation.
 french.PolicyMissing=Les conditions n'ont pas pu être lues depuis le serveur. Vous pouvez les trouver à l'adresse :
+french.PolicyLoading=Chargement des conditions...
+french.DownloadingClient=Téléchargement du client...
 
 russian.PolicyPageTitle=Конфиденциальность и условия
 russian.PolicyPageDescription=Прочитайте политику конфиденциальности и условия использования установки.
 russian.PolicyAccept=Я прочитал(а) и принимаю политику конфиденциальности и условия использования.
 russian.PolicyAcceptRequired=Примите условия, чтобы продолжить установку.
 russian.PolicyMissing=Не удалось получить условия с сервера. Их можно найти по адресу:
+russian.PolicyLoading=Загрузка условий...
+russian.DownloadingClient=Загрузка клиента...
 
 japanese.PolicyPageTitle=プライバシーと利用規約
 japanese.PolicyPageDescription=インストールのプライバシーポリシーと利用規約をお読みください。
 japanese.PolicyAccept=プライバシーポリシーと利用規約を読み、同意します。
 japanese.PolicyAcceptRequired=インストールを続けるには規約に同意してください。
 japanese.PolicyMissing=サーバーから規約を取得できませんでした。次のアドレスで確認できます:
+japanese.PolicyLoading=規約を読み込んでいます...
+japanese.DownloadingClient=クライアントをダウンロードしています...
 
 zhcn.PolicyPageTitle=隐私与条款
 zhcn.PolicyPageDescription=请阅读本安装的隐私政策和服务条款。
 zhcn.PolicyAccept=我已阅读并同意隐私政策和服务条款。
 zhcn.PolicyAcceptRequired=请同意条款以继续安装。
 zhcn.PolicyMissing=无法从服务器读取条款。您可以在以下地址查看：
+zhcn.PolicyLoading=正在加载条款...
+zhcn.DownloadingClient=正在下载客户端...
 
 zhtw.PolicyPageTitle=隱私權與條款
 zhtw.PolicyPageDescription=請閱讀本安裝的隱私權政策與服務條款。
 zhtw.PolicyAccept=我已閱讀並同意隱私權政策與服務條款。
 zhtw.PolicyAcceptRequired=請同意條款以繼續安裝。
 zhtw.PolicyMissing=無法從伺服器讀取條款。您可以在以下網址查看：
+zhtw.PolicyLoading=正在載入條款...
+zhtw.DownloadingClient=正在下載用戶端...
 
 vietnamese.PolicyPageTitle=Quyền riêng tư và điều khoản
 vietnamese.PolicyPageDescription=Hãy đọc chính sách quyền riêng tư và điều khoản sử dụng của bản cài đặt.
 vietnamese.PolicyAccept=Tôi đã đọc và đồng ý với chính sách quyền riêng tư và điều khoản sử dụng.
 vietnamese.PolicyAcceptRequired=Hãy đồng ý với các điều khoản để tiếp tục cài đặt.
 vietnamese.PolicyMissing=Không thể đọc điều khoản từ máy chủ. Bạn có thể xem tại:
+vietnamese.PolicyLoading=Đang tải điều khoản...
+vietnamese.DownloadingClient=Đang tải ứng dụng...
 [Files]
 Source: "..\binaries\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{tmp}\byog-worker-branded.exe"; DestDir: "{app}"; DestName: "{#MyAppExeName}"; Flags: external ignoreversion; Check: IsBrandedClientDownloaded
 Source: "..\desktop\assets\byog.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{code:GetDisplayName}"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{code:GetDisplayName}"; ValueData: """{app}\{#MyAppExeName}"" --tray"; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,BYOG Worker}"; Flags: nowait postinstall skipifsilent
@@ -121,6 +138,246 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,BYOG Worker}"
 Type: filesandordirs; Name: "{app}"
 
 [Code]
+#include "flags_base64.iss"
+
+function GetUserDefaultUILanguage(): Word; external 'GetUserDefaultUILanguage@kernel32.dll stdcall';
+
+function B64CharVal(C: Char): Integer;
+begin
+  if (C >= 'A') and (C <= 'Z') then
+    Result := Ord(C) - Ord('A')
+  else if (C >= 'a') and (C <= 'z') then
+    Result := Ord(C) - Ord('a') + 26
+  else if (C >= '0') and (C <= '9') then
+    Result := Ord(C) - Ord('0') + 52
+  else if C = '+' then
+    Result := 62
+  else if C = '/' then
+    Result := 63
+  else
+    Result := -1;
+end;
+
+procedure DecodeB64ToFile(const S: String; const OutFile: String);
+var
+  Stream: TFileStream;
+  I, Len, V1, V2, V3, V4: Integer;
+  B: AnsiString;
+begin
+  Stream := TFileStream.Create(OutFile, fmCreate);
+  try
+    I := 1;
+    Len := Length(S);
+    SetLength(B, 1);
+    while I <= Len - 3 do
+    begin
+      V1 := B64CharVal(S[I]);
+      V2 := B64CharVal(S[I+1]);
+      V3 := B64CharVal(S[I+2]);
+      V4 := B64CharVal(S[I+3]);
+      
+      if (V1 < 0) or (V2 < 0) then
+        Break;
+        
+      B[1] := Chr((V1 shl 2) or (V2 shr 4));
+      Stream.WriteBuffer(B, 1);
+      
+      if S[I+2] <> '=' then
+      begin
+        B[1] := Chr(((V2 and 15) shl 4) or (V3 shr 2));
+        Stream.WriteBuffer(B, 1);
+      end;
+      
+      if S[I+3] <> '=' then
+      begin
+        B[1] := Chr(((V3 and 3) shl 6) or V4);
+        Stream.WriteBuffer(B, 1);
+      end;
+      
+      I := I + 4;
+    end;
+  finally
+    Stream.Free;
+  end;
+end;
+
+function DetectDefaultLanguage(): String;
+var
+  LangID, Primary: Word;
+begin
+  LangID := GetUserDefaultUILanguage();
+  Primary := LangID and $3FF;
+  case Primary of
+    $1F: Result := 'turkish';
+    $0C: Result := 'french';
+    $19: Result := 'russian';
+    $11: Result := 'japanese';
+    $2A: Result := 'vietnamese';
+    $04:
+      begin
+        if LangID = $0804 then
+          Result := 'zhcn'
+        else if (LangID = $0404) or (LangID = $0C04) then
+          Result := 'zhtw'
+        else
+          Result := 'zhcn';
+      end;
+    $09: Result := 'english';
+  else
+    Result := 'english';
+  end;
+end;
+
+function ShowCustomLanguageDialog(): Boolean;
+var
+  LangForm: TSetupForm;
+  HeaderLabel: TLabel;
+  Radios: array of TRadioButton;
+  Flags: array of TBitmapImage;
+  OkButton, CancelButton: TNewButton;
+  LangKeys: array of String;
+  LangNames: array of String;
+  DefaultLang, ChosenLang: String;
+  TempFiles: array of String;
+  I, YPos, ErrorCode: Integer;
+  HasChecked: Boolean;
+  CmdLine, P: String;
+begin
+  Result := False;
+  DefaultLang := DetectDefaultLanguage();
+  
+  SetArrayLength(LangKeys, 8);
+  SetArrayLength(LangNames, 8);
+  SetArrayLength(Radios, 8);
+  SetArrayLength(Flags, 8);
+  SetArrayLength(TempFiles, 8);
+  
+  LangKeys[0] := 'turkish';    LangNames[0] := 'Türkçe';
+  LangKeys[1] := 'english';    LangNames[1] := 'English';
+  LangKeys[2] := 'zhcn';       LangNames[2] := '简体中文 (Simplified Chinese)';
+  LangKeys[3] := 'zhtw';       LangNames[3] := '繁體中文 (Traditional Chinese)';
+  LangKeys[4] := 'french';     LangNames[4] := 'Français (French)';
+  LangKeys[5] := 'russian';    LangNames[5] := 'Русский (Russian)';
+  LangKeys[6] := 'japanese';   LangNames[6] := '日本語 (Japanese)';
+  LangKeys[7] := 'vietnamese'; LangNames[7] := 'Tiếng Việt (Vietnamese)';
+
+  for I := 0 to 7 do
+    TempFiles[I] := ExpandConstant('{tmp}\flag_' + LangKeys[I] + '.bmp');
+    
+  DecodeB64ToFile(FlagB64_tr(), TempFiles[0]);
+  DecodeB64ToFile(FlagB64_en(), TempFiles[1]);
+  DecodeB64ToFile(FlagB64_zh(), TempFiles[2]);
+  DecodeB64ToFile(FlagB64_tw(), TempFiles[3]);
+  DecodeB64ToFile(FlagB64_fr(), TempFiles[4]);
+  DecodeB64ToFile(FlagB64_ru(), TempFiles[5]);
+  DecodeB64ToFile(FlagB64_ja(), TempFiles[6]);
+  DecodeB64ToFile(FlagB64_vi(), TempFiles[7]);
+
+  LangForm := TSetupForm.Create(nil);
+  try
+    LangForm.ClientWidth := ScaleX(450);
+    LangForm.ClientHeight := ScaleY(440);
+    LangForm.Position := poScreenCenter;
+    LangForm.Caption := 'Select Language / Dil Seçimi';
+    LangForm.BorderStyle := bsDialog;
+
+    HeaderLabel := TLabel.Create(LangForm);
+    HeaderLabel.Parent := LangForm;
+    HeaderLabel.Left := ScaleX(24);
+    HeaderLabel.Top := ScaleY(16);
+    HeaderLabel.Width := ScaleX(402);
+    HeaderLabel.Font.Size := 9;
+    HeaderLabel.Font.Style := [fsBold];
+    HeaderLabel.Caption := 'Please select your preferred language / Lütfen bir dil seçin:';
+
+    HasChecked := False;
+    for I := 0 to 7 do
+    begin
+      YPos := ScaleY(48 + I * 42);
+      
+      Flags[I] := TBitmapImage.Create(LangForm);
+      Flags[I].Parent := LangForm;
+      Flags[I].Left := ScaleX(28);
+      Flags[I].Top := YPos + ScaleY(2);
+      Flags[I].Width := ScaleX(32);
+      Flags[I].Height := ScaleY(20);
+      Flags[I].Stretch := True;
+      try
+        Flags[I].Bitmap.LoadFromFile(TempFiles[I]);
+      except
+      end;
+
+      Radios[I] := TRadioButton.Create(LangForm);
+      Radios[I].Parent := LangForm;
+      Radios[I].Left := ScaleX(72);
+      Radios[I].Top := YPos + ScaleY(2);
+      Radios[I].Width := ScaleX(350);
+      Radios[I].Height := ScaleY(22);
+      Radios[I].Caption := LangNames[I];
+      if LangKeys[I] = DefaultLang then
+      begin
+        Radios[I].Checked := True;
+        HasChecked := True;
+      end;
+    end;
+
+    if not HasChecked then
+      Radios[1].Checked := True; // English fallback if system language not in list
+
+    OkButton := TNewButton.Create(LangForm);
+    OkButton.Parent := LangForm;
+    OkButton.Left := ScaleX(230);
+    OkButton.Top := ScaleY(394);
+    OkButton.Width := ScaleX(100);
+    OkButton.Height := ScaleY(30);
+    OkButton.Caption := 'OK / Devam';
+    OkButton.ModalResult := mrOk;
+    OkButton.Default := True;
+
+    CancelButton := TNewButton.Create(LangForm);
+    CancelButton.Parent := LangForm;
+    CancelButton.Left := ScaleX(340);
+    CancelButton.Top := ScaleY(394);
+    CancelButton.Width := ScaleX(95);
+    CancelButton.Height := ScaleY(30);
+    CancelButton.Caption := 'Cancel / İptal';
+    CancelButton.ModalResult := mrCancel;
+
+    if LangForm.ShowModal = mrOk then
+    begin
+      ChosenLang := 'english';
+      for I := 0 to 7 do
+      begin
+        if Radios[I].Checked then
+        begin
+          ChosenLang := LangKeys[I];
+          Break;
+        end;
+      end;
+
+      CmdLine := '/LANG=' + ChosenLang + ' /LANGSELECTED=1';
+      for I := 1 to ParamCount do
+      begin
+        P := ParamStr(I);
+        if (CompareText(Copy(P, 1, 6), '/LANG=') <> 0) and
+           (CompareText(P, '/LANGSELECTED=1') <> 0) and
+           (CompareText(P, '/LANGSELECTED') <> 0) then
+          CmdLine := CmdLine + ' ' + AddQuotes(P);
+      end;
+
+      ShellExec('open', ExpandConstant('{srcexe}'), CmdLine, '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
+      Result := False; // Terminates initial selector cleanly
+    end
+    else
+    begin
+      Result := False; // User cancelled
+    end;
+  finally
+    LangForm.Free;
+    for I := 0 to 7 do
+      DeleteFile(TempFiles[I]);
+  end;
+end;
 var
   BrandingLoaded: Boolean;
   BrandServerUrl: String;
@@ -130,6 +387,9 @@ var
   PolicyPage: TWizardPage;
   PolicyMemo: TNewMemo;
   PolicyAccept: TNewCheckBox;
+  PoliciesLoaded: Boolean;
+  DownloadPage: TDownloadWizardPage;
+  BrandedClientDownloaded: Boolean;
 
 // installerLanguage returns the language of the client that belongs to the
 // language of the installation.
@@ -358,7 +618,11 @@ begin
     request.SetTimeouts(2000, 2000, 4000, 4000);
     request.Send;
     if request.Status = 200 then
+    begin
       Result := request.ResponseText;
+      StringChangeEx(Result, #13#10, #10, True);
+      StringChangeEx(Result, #10, #13#10, True);
+    end;
   except
     Result := '';
   end;
@@ -442,10 +706,14 @@ begin
 end;
 
 procedure InitializeWizard();
-var
-  policies: String;
 begin
-  policies := ReadPolicies();
+  PoliciesLoaded := False;
+  BrandedClientDownloaded := False;
+  DownloadPage := CreateDownloadPage(SetupMessage(msgWizardPreparing),
+    ExpandConstant('{cm:DownloadingClient}'), nil);
+  if BrandServerUrl <> '' then
+    DownloadPage.Add(BrandServerUrl + '/api/v1/worker/download/windows/amd64',
+      'byog-worker-branded.exe', '');
 
   PolicyPage := CreateCustomPage(wpSelectDir,
     ExpandConstant('{cm:PolicyPageTitle}'),
@@ -459,10 +727,7 @@ begin
   PolicyMemo.Height := PolicyPage.SurfaceHeight - ScaleY(40);
   PolicyMemo.ScrollBars := ssVertical;
   PolicyMemo.ReadOnly := True;
-  if policies <> '' then
-    PolicyMemo.Text := policies
-  else
-    PolicyMemo.Text := ExpandConstant('{cm:PolicyMissing}') + #13#10#13#10 + BrandServerUrl;
+  PolicyMemo.Text := ExpandConstant('{cm:PolicyLoading}');
 
   PolicyAccept := TNewCheckBox.Create(PolicyPage);
   PolicyAccept.Parent := PolicyPage.Surface;
@@ -472,12 +737,59 @@ begin
   PolicyAccept.Caption := ExpandConstant('{cm:PolicyAccept}');
 end;
 
-function InitializeSetup(): Boolean;
+// The policies are read when the page is shown. Reading them while the wizard is
+// still being prepared keeps the wizard hidden on a slow or unreachable server.
+procedure CurPageChanged(CurPageID: Integer);
+var
+  policies: String;
 begin
+  if (not PoliciesLoaded) and (PolicyPage <> nil) and (CurPageID = PolicyPage.ID) then
+  begin
+    PoliciesLoaded := True;
+    policies := ReadPolicies();
+    if policies <> '' then
+      PolicyMemo.Text := policies
+    else
+      PolicyMemo.Text := ExpandConstant('{cm:PolicyMissing}') + #13#10#13#10 + BrandServerUrl;
+  end;
+end;
+
+function InitializeSetup(): Boolean;
+var
+  I: Integer;
+  AlreadySelected: Boolean;
+begin
+  AlreadySelected := False;
+  for I := 1 to ParamCount do
+  begin
+    if (CompareText(Copy(ParamStr(I), 1, 6), '/LANG=') = 0) or
+       (CompareText(ParamStr(I), '/LANGSELECTED=1') = 0) or
+       (CompareText(ParamStr(I), '/LANGSELECTED') = 0) or
+       (CompareText(Copy(ParamStr(I), 1, 5), '/SL5=') = 0) then
+    begin
+      AlreadySelected := True;
+      Break;
+    end;
+  end;
+
+  if WizardSilent() then
+    AlreadySelected := True;
+
+  if not AlreadySelected then
+  begin
+    Result := ShowCustomLanguageDialog();
+    Exit;
+  end;
+
   BrandingLoaded := LoadBranding();
   Log('BYOG branding: ' + IntToStr(Ord(BrandingLoaded)) + ' | ' +
     BrandSystemName + ' | ' + BrandServerUrl);
   Result := True;
+end;
+
+function IsBrandedClientDownloaded(): Boolean;
+begin
+  Result := BrandedClientDownloaded;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -489,6 +801,23 @@ begin
     begin
       MsgBox(ExpandConstant('{cm:PolicyAcceptRequired}'), mbError, MB_OK);
       Result := False;
+      Exit;
+    end;
+    if (BrandServerUrl <> '') and (not BrandedClientDownloaded) then
+    begin
+      DownloadPage.Show;
+      try
+        try
+          DownloadPage.Download;
+          BrandedClientDownloaded := True;
+          Log('BYOG branded client downloaded');
+        except
+          BrandedClientDownloaded := False;
+          Log('BYOG branded client download failed: ' + GetExceptionMessage);
+        end;
+      finally
+        DownloadPage.Hide;
+      end;
     end;
   end;
 end;
@@ -498,11 +827,12 @@ begin
   if CurStep = ssPostInstall then
   begin
     writeInstallerLanguage();
-    if BrandingLoaded then
+    if BrandingLoaded and (not BrandedClientDownloaded) then
       AppendBrandingToClient();
     WriteClientConfig();
   end;
 end;
+
 
 
 
