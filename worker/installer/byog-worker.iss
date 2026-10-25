@@ -36,14 +36,15 @@ OutputBaseFilename={#MyAppName} Kurulumu
 SetupIconFile=..\desktop\assets\byog.ico
 UninstallDisplayIcon={app}\byog.ico
 UninstallDisplayName={code:GetDisplayName}
-Compression=lzma2/max
-SolidCompression=yes
+Compression=lzma2/normal
+SolidCompression=no
 WizardStyle=modern
+WizardSmallImageFile=..\desktop\assets\wizard_small.bmp
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-CloseApplications=yes
+CloseApplications=no
 RestartApplications=no
-ShowLanguageDialog=yes
+ShowLanguageDialog=no
 ChangesAssociations=no
 DisableWelcomePage=no
 UsePreviousAppDir=yes
@@ -125,8 +126,10 @@ vietnamese.PolicyLoading=Đang tải điều khoản...
 vietnamese.DownloadingClient=Đang tải ứng dụng...
 [Files]
 Source: "..\binaries\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{tmp}\byog-worker-branded.exe"; DestDir: "{app}"; DestName: "{#MyAppExeName}"; Flags: external ignoreversion; Check: IsBrandedClientDownloaded
 Source: "..\desktop\assets\byog.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\desktop\assets\byog.ico"; Flags: dontcopy
+Source: "..\desktop\assets\logo.png"; Flags: dontcopy
+Source: "..\desktop\assets\wizard_small.bmp"; Flags: dontcopy
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{code:GetDisplayName}"; ValueData: """{app}\{#MyAppExeName}"" --tray"; Flags: uninsdeletevalue
@@ -150,8 +153,6 @@ var
   PolicyMemo: TNewMemo;
   PolicyAccept: TNewCheckBox;
   PoliciesLoaded: Boolean;
-  DownloadPage: TDownloadWizardPage;
-  BrandedClientDownloaded: Boolean;
 
 function LoadBranding(): Boolean; forward;
 function B64CharVal(C: Char): Integer;
@@ -214,6 +215,9 @@ begin
 end;
 
 function EnsureBrandIcon(): String; forward;
+function EnsureBrandLogo(): String; forward;
+function EnsureBrandLogoBmp(): String; forward;
+function ShowCustomLanguageDialog(): Boolean; forward;
 
 const
   WM_SETICON = $0080;
@@ -239,6 +243,253 @@ begin
     if hIconSmall <> 0 then
       SendMessageW(WindowHandle, WM_SETICON, ICON_SMALL, hIconSmall);
   except
+  end;
+end;
+
+var
+  LangDialogForm: TSetupForm;
+  LangDialogLogo: TBitmapImage;
+  LangDialogHeader: TLabel;
+  LangDialogPrompt: TLabel;
+  LangDialogCombo: TNewComboBox;
+  LangDialogOkBtn: TNewButton;
+  LangDialogCancelBtn: TNewButton;
+  LangDialogKeys: array of String;
+
+function GetUserDefaultUILanguage(): Word; external 'GetUserDefaultUILanguage@kernel32.dll stdcall';
+
+function DetectDefaultLanguage(): String;
+var
+  LangID, Primary: Word;
+begin
+  LangID := GetUserDefaultUILanguage();
+  Primary := LangID and $3FF;
+  case Primary of
+    $1F: Result := 'turkish';
+    $0C: Result := 'french';
+    $19: Result := 'russian';
+    $11: Result := 'japanese';
+    $2A: Result := 'vietnamese';
+    $04:
+      begin
+        if LangID = $0804 then
+          Result := 'zhcn'
+        else if (LangID = $0404) or (LangID = $0C04) then
+          Result := 'zhtw'
+        else
+          Result := 'zhcn';
+      end;
+    $09: Result := 'english';
+  else
+    Result := 'english';
+  end;
+end;
+
+procedure UpdateLanguageDialogText(const LangKey: String);
+begin
+  if LangKey = 'turkish' then
+  begin
+    LangDialogForm.Caption := 'Kurulum Dili Seçimi';
+    LangDialogHeader.Caption := 'Kurulum Dilini Belirleyin';
+    LangDialogPrompt.Caption := 'Lütfen kurulum sırasında kullanılacak dili seçin:';
+    LangDialogOkBtn.Caption := 'Devam Et';
+    LangDialogCancelBtn.Caption := 'İptal';
+  end
+  else if LangKey = 'french' then
+  begin
+    LangDialogForm.Caption := 'Sélection de la langue';
+    LangDialogHeader.Caption := 'Définir la langue d''installation';
+    LangDialogPrompt.Caption := 'Veuillez sélectionner la langue à utiliser :';
+    LangDialogOkBtn.Caption := 'Continuer';
+    LangDialogCancelBtn.Caption := 'Annuler';
+  end
+  else if LangKey = 'russian' then
+  begin
+    LangDialogForm.Caption := 'Выбор языка';
+    LangDialogHeader.Caption := 'Язык установки';
+    LangDialogPrompt.Caption := 'Пожалуйста, выберите язык установки:';
+    LangDialogOkBtn.Caption := 'Продолжить';
+    LangDialogCancelBtn.Caption := 'Отмена';
+  end
+  else if LangKey = 'japanese' then
+  begin
+    LangDialogForm.Caption := '言語の選択';
+    LangDialogHeader.Caption := 'セットアップ言語の選択';
+    LangDialogPrompt.Caption := 'インストール中に使用する言語を選択してください:';
+    LangDialogOkBtn.Caption := '次へ';
+    LangDialogCancelBtn.Caption := 'キャンセル';
+  end
+  else if LangKey = 'zhcn' then
+  begin
+    LangDialogForm.Caption := '语言选择';
+    LangDialogHeader.Caption := '设置安装语言';
+    LangDialogPrompt.Caption := '请选择在安装期间使用的语言：';
+    LangDialogOkBtn.Caption := '继续';
+    LangDialogCancelBtn.Caption := '取消';
+  end
+  else if LangKey = 'zhtw' then
+  begin
+    LangDialogForm.Caption := '語言選擇';
+    LangDialogHeader.Caption := '設定安裝語言';
+    LangDialogPrompt.Caption := '請選擇在安裝期間使用的語言：';
+    LangDialogOkBtn.Caption := '繼續';
+    LangDialogCancelBtn.Caption := '取消';
+  end
+  else if LangKey = 'vietnamese' then
+  begin
+    LangDialogForm.Caption := 'Chọn ngôn ngữ';
+    LangDialogHeader.Caption := 'Cài đặt ngôn ngữ';
+    LangDialogPrompt.Caption := 'Vui lòng chọn ngôn ngữ sử dụng khi cài đặt:';
+    LangDialogOkBtn.Caption := 'Tiếp tục';
+    LangDialogCancelBtn.Caption := 'Hủy';
+  end
+  else
+  begin
+    LangDialogForm.Caption := 'Select Setup Language';
+    LangDialogHeader.Caption := 'Select Setup Language';
+    LangDialogPrompt.Caption := 'Please select the language to use during installation:';
+    LangDialogOkBtn.Caption := 'Continue';
+    LangDialogCancelBtn.Caption := 'Cancel';
+  end;
+end;
+
+procedure OnLanguageComboChange(Sender: TObject);
+var
+  Idx: Integer;
+begin
+  Idx := LangDialogCombo.ItemIndex;
+  if (Idx >= 0) and (Idx < GetArrayLength(LangDialogKeys)) then
+    UpdateLanguageDialogText(LangDialogKeys[Idx]);
+end;
+
+function ShowCustomLanguageDialog(): Boolean;
+var
+  DefaultLang, ChosenLang, IcoPath, BmpPath, P, CmdLine: String;
+  I, ErrorCode: Integer;
+begin
+  Result := False;
+  DefaultLang := DetectDefaultLanguage();
+
+  SetArrayLength(LangDialogKeys, 8);
+  LangDialogKeys[0] := 'turkish';
+  LangDialogKeys[1] := 'english';
+  LangDialogKeys[2] := 'zhcn';
+  LangDialogKeys[3] := 'zhtw';
+  LangDialogKeys[4] := 'french';
+  LangDialogKeys[5] := 'russian';
+  LangDialogKeys[6] := 'japanese';
+  LangDialogKeys[7] := 'vietnamese';
+
+  LangDialogForm := CreateCustomForm(ScaleX(400), ScaleY(165), False, True);
+  try
+    IcoPath := EnsureBrandIcon();
+    ApplyWindowIcon(LangDialogForm.Handle, IcoPath);
+    LangDialogForm.ClientWidth := ScaleX(400);
+    LangDialogForm.ClientHeight := ScaleY(165);
+    LangDialogForm.Position := poScreenCenter;
+    LangDialogForm.BorderStyle := bsDialog;
+
+    LangDialogLogo := TBitmapImage.Create(LangDialogForm);
+    LangDialogLogo.Parent := LangDialogForm;
+    LangDialogLogo.Left := ScaleX(18);
+    LangDialogLogo.Top := ScaleY(18);
+    LangDialogLogo.Width := ScaleX(48);
+    LangDialogLogo.Height := ScaleY(48);
+    LangDialogLogo.Stretch := True;
+    BmpPath := EnsureBrandLogoBmp();
+    if FileExists(BmpPath) then
+    begin
+      try
+        LangDialogLogo.Bitmap.LoadFromFile(BmpPath);
+      except
+      end;
+    end;
+
+    LangDialogHeader := TLabel.Create(LangDialogForm);
+    LangDialogHeader.Parent := LangDialogForm;
+    LangDialogHeader.Left := ScaleX(80);
+    LangDialogHeader.Top := ScaleY(16);
+    LangDialogHeader.Width := ScaleX(300);
+    LangDialogHeader.Font.Size := 10;
+    LangDialogHeader.Font.Style := [fsBold];
+
+    LangDialogPrompt := TLabel.Create(LangDialogForm);
+    LangDialogPrompt.Parent := LangDialogForm;
+    LangDialogPrompt.Left := ScaleX(80);
+    LangDialogPrompt.Top := ScaleY(40);
+    LangDialogPrompt.Width := ScaleX(300);
+    LangDialogPrompt.Font.Size := 8;
+
+    LangDialogCombo := TNewComboBox.Create(LangDialogForm);
+    LangDialogCombo.Parent := LangDialogForm;
+    LangDialogCombo.Left := ScaleX(80);
+    LangDialogCombo.Top := ScaleY(66);
+    LangDialogCombo.Width := ScaleX(300);
+    LangDialogCombo.Height := ScaleY(24);
+    LangDialogCombo.Style := csDropDownList;
+
+    LangDialogCombo.Items.Add('Türkçe');
+    LangDialogCombo.Items.Add('English');
+    LangDialogCombo.Items.Add('简体中文 (Simplified Chinese)');
+    LangDialogCombo.Items.Add('繁體中文 (Traditional Chinese)');
+    LangDialogCombo.Items.Add('Français (French)');
+    LangDialogCombo.Items.Add('Русский (Russian)');
+    LangDialogCombo.Items.Add('日本語 (Japanese)');
+    LangDialogCombo.Items.Add('Tiếng Việt (Vietnamese)');
+
+    LangDialogCombo.ItemIndex := 1;
+    for I := 0 to 7 do
+    begin
+      if LangDialogKeys[I] = DefaultLang then
+      begin
+        LangDialogCombo.ItemIndex := I;
+        Break;
+      end;
+    end;
+
+    LangDialogOkBtn := TNewButton.Create(LangDialogForm);
+    LangDialogOkBtn.Parent := LangDialogForm;
+    LangDialogOkBtn.Left := ScaleX(190);
+    LangDialogOkBtn.Top := ScaleY(115);
+    LangDialogOkBtn.Width := ScaleX(95);
+    LangDialogOkBtn.Height := ScaleY(28);
+    LangDialogOkBtn.ModalResult := mrOk;
+    LangDialogOkBtn.Default := True;
+
+    LangDialogCancelBtn := TNewButton.Create(LangDialogForm);
+    LangDialogCancelBtn.Parent := LangDialogForm;
+    LangDialogCancelBtn.Left := ScaleX(295);
+    LangDialogCancelBtn.Top := ScaleY(115);
+    LangDialogCancelBtn.Width := ScaleX(85);
+    LangDialogCancelBtn.Height := ScaleY(28);
+    LangDialogCancelBtn.ModalResult := mrCancel;
+
+    LangDialogCombo.OnChange := @OnLanguageComboChange;
+    OnLanguageComboChange(LangDialogCombo);
+
+    if LangDialogForm.ShowModal = mrOk then
+    begin
+      ChosenLang := LangDialogKeys[LangDialogCombo.ItemIndex];
+      CmdLine := '/LANG=' + ChosenLang + ' /LANGSELECTED=1';
+      for I := 1 to ParamCount do
+      begin
+        P := ParamStr(I);
+        if (CompareText(Copy(P, 1, 6), '/LANG=') <> 0) and
+           (CompareText(P, '/LANGSELECTED=1') <> 0) and
+           (CompareText(P, '/LANGSELECTED') <> 0) then
+          CmdLine := CmdLine + ' ' + AddQuotes(P);
+      end;
+
+      if not Exec(ExpandConstant('{srcexe}'), CmdLine, '', SW_SHOWNORMAL, ewNoWait, ErrorCode) then
+        ShellExec('open', ExpandConstant('{srcexe}'), CmdLine, '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
+      Result := False;
+    end
+    else
+    begin
+      Result := False;
+    end;
+  finally
+    LangDialogForm.Free;
   end;
 end;
 
@@ -423,17 +674,61 @@ begin
       Result := icoPath;
       Exit;
     end;
-  end
-  else if BrandFaviconBase64 <> '' then
+  end;
+  icoPath := ExpandConstant('{tmp}\byog.ico');
+  if not FileExists(icoPath) then
   begin
-    DecodeB64ToFile(BrandFaviconBase64, icoPath);
-    if FileExists(icoPath) then
+    try
+      ExtractTemporaryFile('byog.ico');
+    except
+    end;
+  end;
+  Result := icoPath;
+end;
+
+function EnsureBrandLogo(): String;
+var
+  logoPath: String;
+begin
+  logoPath := ExpandConstant('{tmp}\brand_logo.png');
+  if FileExists(logoPath) then
+  begin
+    Result := logoPath;
+    Exit;
+  end;
+  if BrandFaviconBase64 <> '' then
+  begin
+    DecodeB64ToFile(BrandFaviconBase64, logoPath);
+    if FileExists(logoPath) then
     begin
-      Result := icoPath;
+      Result := logoPath;
       Exit;
     end;
   end;
-  Result := '';
+  logoPath := ExpandConstant('{tmp}\logo.png');
+  if not FileExists(logoPath) then
+  begin
+    try
+      ExtractTemporaryFile('logo.png');
+    except
+    end;
+  end;
+  Result := logoPath;
+end;
+
+function EnsureBrandLogoBmp(): String;
+var
+  bmpPath: String;
+begin
+  bmpPath := ExpandConstant('{tmp}\wizard_small.bmp');
+  if not FileExists(bmpPath) then
+  begin
+    try
+      ExtractTemporaryFile('wizard_small.bmp');
+    except
+    end;
+  end;
+  Result := bmpPath;
 end;
 
 // GetDisplayName returns the name of the installation in the applications of
@@ -499,7 +794,7 @@ begin
   try
     request := CreateOleObject('WinHttp.WinHttpRequest.5.1');
     request.Open('GET', address, False);
-    request.SetTimeouts(2000, 2000, 4000, 4000);
+    request.SetTimeouts(1000, 1000, 1000, 1000);
     request.Send;
     if request.Status = 200 then
     begin
@@ -591,17 +886,22 @@ end;
 
 procedure InitializeWizard();
 var
-  icoPath: String;
+  icoPath, bmpPath: String;
 begin
   icoPath := EnsureBrandIcon();
   ApplyWindowIcon(WizardForm.Handle, icoPath);
+
+  bmpPath := EnsureBrandLogoBmp();
+  if FileExists(bmpPath) then
+  begin
+    try
+      WizardForm.WizardSmallBitmapImage.Bitmap.LoadFromFile(bmpPath);
+      WizardForm.WizardSmallBitmapImage.Stretch := True;
+    except
+    end;
+  end;
+
   PoliciesLoaded := False;
-  BrandedClientDownloaded := False;
-  DownloadPage := CreateDownloadPage(SetupMessage(msgWizardPreparing),
-    ExpandConstant('{cm:DownloadingClient}'), nil);
-  if BrandServerUrl <> '' then
-    DownloadPage.Add(BrandServerUrl + '/api/v1/worker/download/windows/amd64',
-      'byog-worker-branded.exe', '');
 
   PolicyPage := CreateCustomPage(wpSelectDir,
     ExpandConstant('{cm:PolicyPageTitle}'),
@@ -643,16 +943,37 @@ begin
 end;
 
 function InitializeSetup(): Boolean;
+var
+  I: Integer;
+  AlreadySelected: Boolean;
 begin
   BrandingLoaded := LoadBranding();
   Log('BYOG branding: ' + IntToStr(Ord(BrandingLoaded)) + ' | ' +
     BrandSystemName + ' | ' + BrandServerUrl);
-  Result := True;
-end;
 
-function IsBrandedClientDownloaded(): Boolean;
-begin
-  Result := BrandedClientDownloaded;
+  AlreadySelected := False;
+  for I := 1 to ParamCount do
+  begin
+    if (CompareText(Copy(ParamStr(I), 1, 6), '/LANG=') = 0) or
+       (CompareText(ParamStr(I), '/LANGSELECTED=1') = 0) or
+       (CompareText(ParamStr(I), '/LANGSELECTED') = 0) or
+       (CompareText(Copy(ParamStr(I), 1, 5), '/SL5=') = 0) then
+    begin
+      AlreadySelected := True;
+      Break;
+    end;
+  end;
+
+  if WizardSilent() then
+    AlreadySelected := True;
+
+  if not AlreadySelected then
+  begin
+    Result := ShowCustomLanguageDialog();
+    Exit;
+  end;
+
+  Result := True;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -666,22 +987,6 @@ begin
       Result := False;
       Exit;
     end;
-    if (BrandServerUrl <> '') and (not BrandedClientDownloaded) then
-    begin
-      DownloadPage.Show;
-      try
-        try
-          DownloadPage.Download;
-          BrandedClientDownloaded := True;
-          Log('BYOG branded client downloaded');
-        except
-          BrandedClientDownloaded := False;
-          Log('BYOG branded client download failed: ' + GetExceptionMessage);
-        end;
-      finally
-        DownloadPage.Hide;
-      end;
-    end;
   end;
 end;
 
@@ -692,7 +997,7 @@ begin
     writeInstallerLanguage();
     if FileExists(ExpandConstant('{tmp}\brand_icon.ico')) then
       CopyFile(ExpandConstant('{tmp}\brand_icon.ico'), ExpandConstant('{app}\byog.ico'), False);
-    if BrandingLoaded and (not BrandedClientDownloaded) then
+    if BrandingLoaded then
       AppendBrandingToClient();
     WriteClientConfig();
   end;
