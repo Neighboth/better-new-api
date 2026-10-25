@@ -327,7 +327,7 @@ func (s *ModelStore) streamModelToWorker(c *gin.Context, modelId string, modelDe
 		s.finishDownload(modelId, err)
 		return
 	}
-	if err := os.Rename(target+".part", target); err != nil {
+	if err := renameWithRetry(target+".part", target); err != nil {
 		s.finishDownload(modelId, err)
 		return
 	}
@@ -398,7 +398,7 @@ func (s *ModelStore) downloadModel(modelId string, modelDef *model.ByogModel, ta
 		s.finishDownload(modelId, err)
 		return
 	}
-	if err := os.Rename(target+".part", target); err != nil {
+	if err := renameWithRetry(target+".part", target); err != nil {
 		s.finishDownload(modelId, err)
 		return
 	}
@@ -433,7 +433,15 @@ func (s *ModelStore) finishDownload(modelId string, failure error) {
 
 // serveModelFile serves a cached model file with the support of range requests.
 func serveModelFile(c *gin.Context, path string, size int64) {
-	file, err := os.Open(path)
+	file, err := openFileWithRetry(path)
+	if err != nil && os.IsNotExist(err) && strings.HasSuffix(path, ".part") {
+		finalPath := strings.TrimSuffix(path, ".part")
+		if info, statErr := os.Stat(finalPath); statErr == nil && info.Size() > 0 {
+			path = finalPath
+			size = info.Size()
+			file, err = openFileWithRetry(path)
+		}
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
@@ -521,4 +529,31 @@ var upstreamClient = &http.Client{
 		}
 		return nil
 	},
+}
+
+// renameWithRetry renames a file, retrying on transient Windows file lock errors.
+func renameWithRetry(src, dst string) error {
+	var err error
+	for attempt := 0; attempt < 20; attempt++ {
+		err = os.Rename(src, dst)
+		if err == nil {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return err
+}
+
+// openFileWithRetry opens a file for reading, retrying on transient Windows file lock errors.
+func openFileWithRetry(path string) (*os.File, error) {
+	var file *os.File
+	var err error
+	for attempt := 0; attempt < 20; attempt++ {
+		file, err = os.Open(path)
+		if err == nil {
+			return file, nil
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	return nil, err
 }

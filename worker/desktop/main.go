@@ -1033,6 +1033,11 @@ func main() {
 		return
 	}
 
+	if *consoleFlag {
+		runConsole(*serverFlag, *codeFlag, *deviceFlag)
+		return
+	}
+
 	// The file of the installation installs the client and starts it.
 	if installIfNeeded() {
 		return
@@ -1043,11 +1048,6 @@ func main() {
 	// second worker would serve the tasks of the computer twice.
 	if !acquireSingleInstance() {
 		showRunningInstance()
-		return
-	}
-
-	if *consoleFlag {
-		runConsole(*serverFlag, *codeFlag, *deviceFlag)
 		return
 	}
 
