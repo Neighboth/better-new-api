@@ -28,7 +28,7 @@ VersionInfoCompany={#MyAppPublisher}
 DefaultDirName={code:GetDefaultDir}
 DefaultGroupName={#MyAppName}
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
+PrivilegesRequiredOverridesAllowed=commandline
 DisableProgramGroupPage=yes
 DisableDirPage=no
 OutputDir=..\binaries
@@ -43,7 +43,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
 RestartApplications=no
-ShowLanguageDialog=no
+ShowLanguageDialog=yes
 ChangesAssociations=no
 DisableWelcomePage=no
 UsePreviousAppDir=yes
@@ -154,38 +154,6 @@ var
   BrandedClientDownloaded: Boolean;
 
 function LoadBranding(): Boolean; forward;
-function EnsureBrandIcon(): String; forward;
-
-#include "flags_base64.iss"
-
-const
-  WM_SETICON = $0080;
-  ICON_SMALL = 0;
-  ICON_BIG = 1;
-  IMAGE_ICON = 1;
-  LR_LOADFROMFILE = $0010;
-
-function GetUserDefaultUILanguage(): Word; external 'GetUserDefaultUILanguage@kernel32.dll stdcall';
-function LoadImageW(hInst: THandle; ImageName: String; ImageType: UINT; X, Y: Integer; Flags: UINT): THandle; external 'LoadImageW@user32.dll stdcall';
-function SendMessageW(hWnd: HWND; Msg: UINT; wParam: Longint; lParam: Longint): Longint; external 'SendMessageW@user32.dll stdcall';
-
-procedure ApplyWindowIcon(const WindowHandle: HWND; const IcoFile: String);
-var
-  hIconBig, hIconSmall: THandle;
-begin
-  if (IcoFile = '') or (not FileExists(IcoFile)) then
-    Exit;
-  try
-    hIconBig := LoadImageW(0, IcoFile, IMAGE_ICON, ScaleX(32), ScaleY(32), LR_LOADFROMFILE);
-    hIconSmall := LoadImageW(0, IcoFile, IMAGE_ICON, ScaleX(16), ScaleY(16), LR_LOADFROMFILE);
-    if hIconBig <> 0 then
-      SendMessageW(WindowHandle, WM_SETICON, ICON_BIG, hIconBig);
-    if hIconSmall <> 0 then
-      SendMessageW(WindowHandle, WM_SETICON, ICON_SMALL, hIconSmall);
-  except
-  end;
-end;
-
 function B64CharVal(C: Char): Integer;
 begin
   if (C >= 'A') and (C <= 'Z') then
@@ -245,183 +213,32 @@ begin
   end;
 end;
 
-function DetectDefaultLanguage(): String;
+function EnsureBrandIcon(): String; forward;
+
+const
+  WM_SETICON = $0080;
+  ICON_SMALL = 0;
+  ICON_BIG = 1;
+  IMAGE_ICON = 1;
+  LR_LOADFROMFILE = $0010;
+
+function LoadImageW(hInst: THandle; ImageName: String; ImageType: UINT; X, Y: Integer; Flags: UINT): THandle; external 'LoadImageW@user32.dll stdcall';
+function SendMessageW(hWnd: HWND; Msg: UINT; wParam: Longint; lParam: Longint): Longint; external 'SendMessageW@user32.dll stdcall';
+
+procedure ApplyWindowIcon(const WindowHandle: HWND; const IcoFile: String);
 var
-  LangID, Primary: Word;
+  hIconBig, hIconSmall: THandle;
 begin
-  LangID := GetUserDefaultUILanguage();
-  Primary := LangID and $3FF;
-  case Primary of
-    $1F: Result := 'turkish';
-    $0C: Result := 'french';
-    $19: Result := 'russian';
-    $11: Result := 'japanese';
-    $2A: Result := 'vietnamese';
-    $04:
-      begin
-        if LangID = $0804 then
-          Result := 'zhcn'
-        else if (LangID = $0404) or (LangID = $0C04) then
-          Result := 'zhtw'
-        else
-          Result := 'zhcn';
-      end;
-    $09: Result := 'english';
-  else
-    Result := 'english';
-  end;
-end;
-
-function ShowCustomLanguageDialog(): Boolean;
-var
-  LangForm: TSetupForm;
-  HeaderLabel: TLabel;
-  Radios: array of TRadioButton;
-  Flags: array of TBitmapImage;
-  OkButton, CancelButton: TNewButton;
-  LangKeys: array of String;
-  LangNames: array of String;
-  DefaultLang, ChosenLang: String;
-  TempFiles: array of String;
-  I, YPos, ErrorCode: Integer;
-  HasChecked: Boolean;
-  CmdLine, P, IcoPath: String;
-begin
-  Result := False;
-  DefaultLang := DetectDefaultLanguage();
-  
-  SetArrayLength(LangKeys, 8);
-  SetArrayLength(LangNames, 8);
-  SetArrayLength(Radios, 8);
-  SetArrayLength(Flags, 8);
-  SetArrayLength(TempFiles, 8);
-  
-  LangKeys[0] := 'turkish';    LangNames[0] := 'Türkçe';
-  LangKeys[1] := 'english';    LangNames[1] := 'English';
-  LangKeys[2] := 'zhcn';       LangNames[2] := '简体中文 (Simplified Chinese)';
-  LangKeys[3] := 'zhtw';       LangNames[3] := '繁體中文 (Traditional Chinese)';
-  LangKeys[4] := 'french';     LangNames[4] := 'Français (French)';
-  LangKeys[5] := 'russian';    LangNames[5] := 'Русский (Russian)';
-  LangKeys[6] := 'japanese';   LangNames[6] := '日本語 (Japanese)';
-  LangKeys[7] := 'vietnamese'; LangNames[7] := 'Tiếng Việt (Vietnamese)';
-
-  for I := 0 to 7 do
-    TempFiles[I] := ExpandConstant('{tmp}\flag_' + LangKeys[I] + '.bmp');
-    
-  DecodeB64ToFile(FlagB64_tr(), TempFiles[0]);
-  DecodeB64ToFile(FlagB64_en(), TempFiles[1]);
-  DecodeB64ToFile(FlagB64_zh(), TempFiles[2]);
-  DecodeB64ToFile(FlagB64_tw(), TempFiles[3]);
-  DecodeB64ToFile(FlagB64_fr(), TempFiles[4]);
-  DecodeB64ToFile(FlagB64_ru(), TempFiles[5]);
-  DecodeB64ToFile(FlagB64_ja(), TempFiles[6]);
-  DecodeB64ToFile(FlagB64_vi(), TempFiles[7]);
-
-  LangForm := CreateCustomForm(ScaleX(450), ScaleY(440), False, True);
+  if (IcoFile = '') or (not FileExists(IcoFile)) then
+    Exit;
   try
-    IcoPath := EnsureBrandIcon();
-    ApplyWindowIcon(LangForm.Handle, IcoPath);
-    LangForm.ClientWidth := ScaleX(450);
-    LangForm.ClientHeight := ScaleY(440);
-    LangForm.Position := poScreenCenter;
-    LangForm.Caption := 'Select Language / Dil Seçimi';
-    LangForm.BorderStyle := bsDialog;
-
-    HeaderLabel := TLabel.Create(LangForm);
-    HeaderLabel.Parent := LangForm;
-    HeaderLabel.Left := ScaleX(24);
-    HeaderLabel.Top := ScaleY(16);
-    HeaderLabel.Width := ScaleX(402);
-    HeaderLabel.Font.Size := 9;
-    HeaderLabel.Font.Style := [fsBold];
-    HeaderLabel.Caption := 'Please select your preferred language / Lütfen bir dil seçin:';
-
-    HasChecked := False;
-    for I := 0 to 7 do
-    begin
-      YPos := ScaleY(48 + I * 42);
-      
-      Flags[I] := TBitmapImage.Create(LangForm);
-      Flags[I].Parent := LangForm;
-      Flags[I].Left := ScaleX(28);
-      Flags[I].Top := YPos + ScaleY(2);
-      Flags[I].Width := ScaleX(32);
-      Flags[I].Height := ScaleY(20);
-      Flags[I].Stretch := True;
-      try
-        Flags[I].Bitmap.LoadFromFile(TempFiles[I]);
-      except
-      end;
-
-      Radios[I] := TRadioButton.Create(LangForm);
-      Radios[I].Parent := LangForm;
-      Radios[I].Left := ScaleX(72);
-      Radios[I].Top := YPos + ScaleY(2);
-      Radios[I].Width := ScaleX(350);
-      Radios[I].Height := ScaleY(22);
-      Radios[I].Caption := LangNames[I];
-      if LangKeys[I] = DefaultLang then
-      begin
-        Radios[I].Checked := True;
-        HasChecked := True;
-      end;
-    end;
-
-    if not HasChecked then
-      Radios[1].Checked := True; // English fallback if system language not in list
-
-    OkButton := TNewButton.Create(LangForm);
-    OkButton.Parent := LangForm;
-    OkButton.Left := ScaleX(230);
-    OkButton.Top := ScaleY(394);
-    OkButton.Width := ScaleX(100);
-    OkButton.Height := ScaleY(30);
-    OkButton.Caption := 'OK / Devam';
-    OkButton.ModalResult := mrOk;
-    OkButton.Default := True;
-
-    CancelButton := TNewButton.Create(LangForm);
-    CancelButton.Parent := LangForm;
-    CancelButton.Left := ScaleX(340);
-    CancelButton.Top := ScaleY(394);
-    CancelButton.Width := ScaleX(95);
-    CancelButton.Height := ScaleY(30);
-    CancelButton.Caption := 'Cancel / İptal';
-    CancelButton.ModalResult := mrCancel;
-
-    if LangForm.ShowModal = mrOk then
-    begin
-      ChosenLang := 'english';
-      for I := 0 to 7 do
-      begin
-        if Radios[I].Checked then
-        begin
-          ChosenLang := LangKeys[I];
-          Break;
-        end;
-      end;
-
-      CmdLine := '/LANG=' + ChosenLang + ' /LANGSELECTED=1';
-      for I := 1 to ParamCount do
-      begin
-        P := ParamStr(I);
-        if (CompareText(Copy(P, 1, 6), '/LANG=') <> 0) and
-           (CompareText(P, '/LANGSELECTED=1') <> 0) and
-           (CompareText(P, '/LANGSELECTED') <> 0) then
-          CmdLine := CmdLine + ' ' + AddQuotes(P);
-      end;
-
-      ShellExec('open', ExpandConstant('{srcexe}'), CmdLine, '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
-      Result := False; // Terminates initial selector cleanly
-    end
-    else
-    begin
-      Result := False; // User cancelled
-    end;
-  finally
-    LangForm.Free;
-    for I := 0 to 7 do
-      DeleteFile(TempFiles[I]);
+    hIconBig := LoadImageW(0, IcoFile, IMAGE_ICON, ScaleX(32), ScaleY(32), LR_LOADFROMFILE);
+    hIconSmall := LoadImageW(0, IcoFile, IMAGE_ICON, ScaleX(16), ScaleY(16), LR_LOADFROMFILE);
+    if hIconBig <> 0 then
+      SendMessageW(WindowHandle, WM_SETICON, ICON_BIG, hIconBig);
+    if hIconSmall <> 0 then
+      SendMessageW(WindowHandle, WM_SETICON, ICON_SMALL, hIconSmall);
+  except
   end;
 end;
 
@@ -826,36 +643,10 @@ begin
 end;
 
 function InitializeSetup(): Boolean;
-var
-  I: Integer;
-  AlreadySelected: Boolean;
 begin
   BrandingLoaded := LoadBranding();
   Log('BYOG branding: ' + IntToStr(Ord(BrandingLoaded)) + ' | ' +
     BrandSystemName + ' | ' + BrandServerUrl);
-
-  AlreadySelected := False;
-  for I := 1 to ParamCount do
-  begin
-    if (CompareText(Copy(ParamStr(I), 1, 6), '/LANG=') = 0) or
-       (CompareText(ParamStr(I), '/LANGSELECTED=1') = 0) or
-       (CompareText(ParamStr(I), '/LANGSELECTED') = 0) or
-       (CompareText(Copy(ParamStr(I), 1, 5), '/SL5=') = 0) then
-    begin
-      AlreadySelected := True;
-      Break;
-    end;
-  end;
-
-  if WizardSilent() then
-    AlreadySelected := True;
-
-  if not AlreadySelected then
-  begin
-    Result := ShowCustomLanguageDialog();
-    Exit;
-  end;
-
   Result := True;
 end;
 
@@ -900,7 +691,7 @@ begin
   begin
     writeInstallerLanguage();
     if FileExists(ExpandConstant('{tmp}\brand_icon.ico')) then
-      FileCopy(ExpandConstant('{tmp}\brand_icon.ico'), ExpandConstant('{app}\byog.ico'), False);
+      CopyFile(ExpandConstant('{tmp}\brand_icon.ico'), ExpandConstant('{app}\byog.ico'), False);
     if BrandingLoaded and (not BrandedClientDownloaded) then
       AppendBrandingToClient();
     WriteClientConfig();
