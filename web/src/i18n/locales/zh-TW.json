@@ -6733,5 +6733,7 @@
   "Header Logo Height (px)": "頁眉 Logo 高度 (px)",
   "Set height of the header logo in pixels (e.g., 24-60px for wider logos)": "設定頁眉 Logo 的像素高度（例如較寬的 Logo 可設為 24-60px）",
   "Hide Site Name in Header": "在頁眉中隱藏網站名稱",
-  "Show only logo in header without site name text": "頁眉僅顯示 Logo，不顯示網站名稱文字"
+  "Show only logo in header without site name text": "頁眉僅顯示 Logo，不顯示網站名稱文字",
+  "Always Cache Hit": "一律按快取命中計費",
+  "When enabled, even if the upstream channel does not support caching, the system charges the discounted cache rate for cacheable prompts.": "啟用後，即使上游渠道不支援快取，系統也會對可快取的提示詞按優惠的快取費率計費。"
 }

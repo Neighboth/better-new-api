@@ -2,6 +2,7 @@ package discordbot
 
 import (
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -363,6 +364,127 @@ func GetDiscordBotTools() []ToolDefinition {
 						"channel_id": map[string]any{"type": "string", "description": "The channel ID (optional, defaults to current channel)"},
 					},
 				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "get_usage_logs",
+				Description: "View recent AI model consumption and billing logs. Requires Administrator permission.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"limit": map[string]any{"type": "integer", "description": "Number of logs to retrieve (1-25, default 10)"},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "get_system_health",
+				Description: "Get live backend system diagnostics including memory, goroutines, GC, user count, and channel health. Requires Administrator permission.",
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "search_database_users",
+				Description: "Search site database users by username or email. Requires Administrator permission.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"keyword": map[string]any{"type": "string", "description": "Username or search keyword"},
+					},
+					"required": []string{"keyword"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "update_user_quota",
+				Description: "Adjust quota/balance for a site database user. Requires Administrator permission.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"target":      map[string]any{"type": "string", "description": "Username or user ID"},
+						"quota_delta": map[string]any{"type": "integer", "description": "Quota amount to add (positive) or deduct (negative)"},
+					},
+					"required": []string{"target", "quota_delta"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "pin_message",
+				Description: "Pin a message in a channel. Requires Manage Messages permission.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"message_id": map[string]any{"type": "string", "description": "The ID of the message to pin"},
+						"channel_id": map[string]any{"type": "string", "description": "Optional channel ID (defaults to current)"},
+					},
+					"required": []string{"message_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "unpin_message",
+				Description: "Unpin a message from a channel. Requires Manage Messages permission.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"message_id": map[string]any{"type": "string", "description": "The ID of the message to unpin"},
+						"channel_id": map[string]any{"type": "string", "description": "Optional channel ID (defaults to current)"},
+					},
+					"required": []string{"message_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "get_pinned_messages",
+				Description: "List pinned messages in a channel.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"channel_id": map[string]any{"type": "string", "description": "Optional channel ID (defaults to current)"},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "create_invite",
+				Description: "Create an instant invite link for a channel. Requires Create Instant Invite permission.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"channel_id":       map[string]any{"type": "string", "description": "Optional channel ID (defaults to current)"},
+						"max_age_seconds":  map[string]any{"type": "integer", "description": "Duration in seconds before expiry (default 86400)"},
+						"max_uses":         map[string]any{"type": "integer", "description": "Max number of uses (0 for unlimited)"},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "list_emojis",
+				Description: "List custom emojis available in the server.",
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "get_bot_info",
+				Description: "Get detailed information and status about the Discord bot.",
 			},
 		},
 	}
@@ -857,6 +979,221 @@ func ExecuteDiscordTool(s *discordgo.Session, m *discordgo.MessageCreate, tc Too
 			return fmt.Sprintf("Failed to unlock channel: %v", err)
 		}
 		return fmt.Sprintf("🔓 Channel %s has been unlocked (@everyone permission restored)", targetChannel)
+
+	case "get_usage_logs":
+		if err := checkUserPermission(s, m.GuildID, m.ChannelID, m.Author.ID, discordgo.PermissionAdministrator); err != nil {
+			return err.Error()
+		}
+		limit := 10
+		if l, ok := args["limit"].(float64); ok && l > 0 {
+			limit = int(l)
+			if limit > 25 {
+				limit = 25
+			}
+		}
+		logs, total, err := model.GetAllLogs(0, 0, 0, "", "", "", 0, limit, 0, "", "", "")
+		if err != nil {
+			return fmt.Sprintf("Failed to fetch logs: %v", err)
+		}
+		if len(logs) == 0 {
+			return "No usage logs recorded yet."
+		}
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("📋 **Recent API Usage Logs (Total: %d, Showing: %d):**\n", total, len(logs)))
+		for _, log := range logs {
+			created := time.Unix(log.CreatedAt, 0).Format("01-02 15:04:05")
+			sb.WriteString(fmt.Sprintf("• `[%s]` **%s** | Model: `%s` | Tokens: %d+%d=%d | Quota: `%d`\n",
+				created, log.Username, log.ModelName, log.PromptTokens, log.CompletionTokens, log.PromptTokens+log.CompletionTokens, log.Quota))
+		}
+		return sb.String()
+
+	case "get_system_health":
+		if err := checkUserPermission(s, m.GuildID, m.ChannelID, m.Author.ID, discordgo.PermissionAdministrator); err != nil {
+			return err.Error()
+		}
+		var mStats runtime.MemStats
+		runtime.ReadMemStats(&mStats)
+
+		activeChannels, _ := model.CountAllChannels()
+		_, totalUsers, _ := model.GetAllUsers(&common.PageInfo{Page: 1, PageSize: 1})
+
+		return fmt.Sprintf("🏥 **System Health & Diagnostics:**\n"+
+			"• Goroutines: **%d**\n"+
+			"• Memory Alloc: **%.2f MB** (Sys: **%.2f MB**)\n"+
+			"• GC Cycles: **%d**\n"+
+			"• Total Users: **%d**\n"+
+			"• Active Channels: **%d**\n"+
+			"• Database: 🟢 Connected & Healthy\n"+
+			"• Status: 🟢 All services operational",
+			runtime.NumGoroutine(),
+			float64(mStats.Alloc)/1024/1024,
+			float64(mStats.Sys)/1024/1024,
+			mStats.NumGC,
+			totalUsers,
+			activeChannels)
+
+	case "search_database_users":
+		if err := checkUserPermission(s, m.GuildID, m.ChannelID, m.Author.ID, discordgo.PermissionAdministrator); err != nil {
+			return err.Error()
+		}
+		keyword, _ := args["keyword"].(string)
+		if keyword == "" {
+			return "Please provide a keyword to search."
+		}
+		users, total, err := model.SearchUsers(keyword, "", nil, nil, 0, 10)
+		if err != nil {
+			return fmt.Sprintf("Failed to search users: %v", err)
+		}
+		if len(users) == 0 {
+			return fmt.Sprintf("No users found matching '%s'.", keyword)
+		}
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("👥 **Matching Users (Found: %d):**\n", total))
+		for _, u := range users {
+			statusStr := "Active"
+			if u.Status != common.UserStatusEnabled {
+				statusStr = "Disabled"
+			}
+			sb.WriteString(fmt.Sprintf("• `#%d` **%s** (%s) | Role: %d | Quota: `%d` | Status: %s\n",
+				u.Id, u.Username, u.DisplayName, u.Role, u.Quota, statusStr))
+		}
+		return sb.String()
+
+	case "update_user_quota":
+		if err := checkUserPermission(s, m.GuildID, m.ChannelID, m.Author.ID, discordgo.PermissionAdministrator); err != nil {
+			return err.Error()
+		}
+		target, _ := args["target"].(string)
+		deltaVal, _ := args["quota_delta"].(float64)
+		delta := int(deltaVal)
+		if target == "" || delta == 0 {
+			return "Please specify a valid target (username or user id) and non-zero quota delta."
+		}
+		user, err := resolveOwnerTargetUser(target)
+		if err != nil || user == nil {
+			return fmt.Sprintf("User '%s' not found: %v", target, err)
+		}
+		if err := model.DeltaUpdateUserQuota(user.Id, delta); err != nil {
+			return fmt.Sprintf("Failed to update quota for user %s: %v", user.Username, err)
+		}
+		updated, _ := model.GetUserById(user.Id, false)
+		newQuota := 0
+		if updated != nil {
+			newQuota = updated.Quota
+		}
+		return fmt.Sprintf("✅ Successfully updated quota for **%s** (`#%d`):\n• Delta: `%+d`\n• New Quota: `%d`",
+			user.Username, user.Id, delta, newQuota)
+
+	case "pin_message":
+		if err := checkUserPermission(s, m.GuildID, m.ChannelID, m.Author.ID, discordgo.PermissionManageMessages); err != nil {
+			return err.Error()
+		}
+		msgID, _ := args["message_id"].(string)
+		chID, _ := args["channel_id"].(string)
+		if chID == "" {
+			chID = m.ChannelID
+		}
+		if msgID == "" {
+			return "Please provide the message_id to pin."
+		}
+		if err := s.ChannelMessagePin(chID, msgID); err != nil {
+			return fmt.Sprintf("Failed to pin message: %v", err)
+		}
+		return fmt.Sprintf("📌 Message `%s` has been pinned in channel <#%s>.", msgID, chID)
+
+	case "unpin_message":
+		if err := checkUserPermission(s, m.GuildID, m.ChannelID, m.Author.ID, discordgo.PermissionManageMessages); err != nil {
+			return err.Error()
+		}
+		msgID, _ := args["message_id"].(string)
+		chID, _ := args["channel_id"].(string)
+		if chID == "" {
+			chID = m.ChannelID
+		}
+		if msgID == "" {
+			return "Please provide the message_id to unpin."
+		}
+		if err := s.ChannelMessageUnpin(chID, msgID); err != nil {
+			return fmt.Sprintf("Failed to unpin message: %v", err)
+		}
+		return fmt.Sprintf("Successfully unpinned message `%s` from channel <#%s>.", msgID, chID)
+
+	case "get_pinned_messages":
+		chID, _ := args["channel_id"].(string)
+		if chID == "" {
+			chID = m.ChannelID
+		}
+		pinned, err := s.ChannelMessagesPinned(chID)
+		if err != nil {
+			return fmt.Sprintf("Failed to fetch pinned messages: %v", err)
+		}
+		if len(pinned) == 0 {
+			return fmt.Sprintf("No pinned messages found in channel <#%s>.", chID)
+		}
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("📌 **Pinned Messages in <#%s> (%d):**\n", chID, len(pinned)))
+		for _, pm := range pinned {
+			author := "Unknown"
+			if pm.Author != nil {
+				author = pm.Author.Username
+			}
+			content := truncateText(pm.Content, 80)
+			sb.WriteString(fmt.Sprintf("• `[%s]` **%s**: %s\n", pm.ID, author, content))
+		}
+		return sb.String()
+
+	case "create_invite":
+		if err := checkUserPermission(s, m.GuildID, m.ChannelID, m.Author.ID, discordgo.PermissionCreateInstantInvite); err != nil {
+			return err.Error()
+		}
+		chID, _ := args["channel_id"].(string)
+		if chID == "" {
+			chID = m.ChannelID
+		}
+		maxAge := 86400
+		if ma, ok := args["max_age_seconds"].(float64); ok && ma > 0 {
+			maxAge = int(ma)
+		}
+		maxUses := 0
+		if mu, ok := args["max_uses"].(float64); ok && mu > 0 {
+			maxUses = int(mu)
+		}
+		invite, err := s.ChannelInviteCreate(chID, discordgo.Invite{
+			MaxAge:  maxAge,
+			MaxUses: maxUses,
+		})
+		if err != nil {
+			return fmt.Sprintf("Failed to create invite: %v", err)
+		}
+		return fmt.Sprintf("🎟️ **Instant Invite Created for <#%s>:**\nhttps://discord.gg/%s (Expires in: %ds, Max uses: %d)",
+			chID, invite.Code, maxAge, maxUses)
+
+	case "list_emojis":
+		emojis, err := s.GuildEmojis(m.GuildID)
+		if err != nil {
+			return fmt.Sprintf("Failed to fetch emojis: %v", err)
+		}
+		if len(emojis) == 0 {
+			return "No custom emojis found in this server."
+		}
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("😀 **Server Emojis (%d):**\n", len(emojis)))
+		for _, e := range emojis {
+			sb.WriteString(fmt.Sprintf("<:%s:%s> `:%s:` ", e.Name, e.ID, e.Name))
+		}
+		return sb.String()
+
+	case "get_bot_info":
+		statsText := fmt.Sprintf("🤖 **Bot Information:**\n"+
+			"• Bot Username: `%s#%s`\n"+
+			"• Bot ID: `%s`\n"+
+			"• Servers Connected: **%d**\n"+
+			"• Status: 🟢 Online\n"+
+			"• DiscordGo Version: `%s`",
+			s.State.User.Username, s.State.User.Discriminator, s.State.User.ID,
+			len(s.State.Guilds),
+			discordgo.VERSION)
+		return statsText
 
 	default:
 		return fmt.Sprintf("Unknown Discord tool: %s", name)

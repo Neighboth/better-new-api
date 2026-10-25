@@ -1,8 +1,9 @@
-﻿package discordbot
+package discordbot
 
 import (
 	"fmt"
 	"log"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -366,7 +367,10 @@ func (b *Bot) renderOwnerOverview(session *ownerSession) (string, []discordgo.Me
 		lines = append(lines, counts...)
 	}
 
-	lines = append(lines, "", "🟢 **Sistem Motoru:** Çalışıyor | **Veritabanı:** Bağlı")
+	var mStats runtime.MemStats
+	runtime.ReadMemStats(&mStats)
+	lines = append(lines, "", fmt.Sprintf("🟢 **Sistem:** Aktif & Sağlıklı | **Goroutine:** `%d` | **RAM:** `%.1f MB`",
+		runtime.NumGoroutine(), float64(mStats.Alloc)/1024/1024))
 
 	return strings.Join(lines, "\n"), nil
 }

@@ -62,11 +62,20 @@ func dangerButton(customID, label string) discordgo.Button {
 	return discordgo.Button{Style: discordgo.DangerButton, Label: label, CustomID: customID}
 }
 
-// sendPanel posts a Components V2 message built from a single container.
+// sendPanel posts a message built from components with Components V2 priority and universal V1 fallback.
 func sendPanel(s *discordgo.Session, channelID string, components ...discordgo.MessageComponent) (*discordgo.Message, error) {
-	return s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+	msg, err := s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
 		Components: []discordgo.MessageComponent{container(components...)},
 		Flags:      discordgo.MessageFlagsIsComponentsV2,
+	})
+	if err == nil {
+		return msg, nil
+	}
+	// Fallback to standard Embed + ActionRows:
+	embed, rows := extractV1(components)
+	return s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+		Embeds:     []*discordgo.MessageEmbed{embed},
+		Components: rows,
 	})
 }
 
@@ -78,30 +87,152 @@ func editPanel(s *discordgo.Session, i *discordgo.InteractionCreate, components 
 		Components: &[]discordgo.MessageComponent{container(components...)},
 		Flags:      discordgo.MessageFlagsIsComponentsV2,
 	})
+	if err == nil {
+		return nil
+	}
+	embed, rows := extractV1(components)
+	_, err = s.ChannelMessageEditComplex(&discordgo.MessageEdit{
+		ID:         i.Message.ID,
+		Channel:    i.ChannelID,
+		Embeds:     &[]*discordgo.MessageEmbed{embed},
+		Components: &rows,
+	})
 	return err
 }
 
 // replyPanel answers a component interaction by editing the message it belongs
 // to, which keeps one panel instead of stacking a new message per click.
 func replyPanel(s *discordgo.Session, i *discordgo.InteractionCreate, components ...discordgo.MessageComponent) error {
-	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{
 			Components: []discordgo.MessageComponent{container(components...)},
 			Flags:      discordgo.MessageFlagsIsComponentsV2,
 		},
 	})
+	if err == nil {
+		return nil
+	}
+	// Fallback to standard V1 update:
+	embed, rows := extractV1(components)
+	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseUpdateMessage,
+		Data: &discordgo.InteractionResponseData{
+			Embeds:     []*discordgo.MessageEmbed{embed},
+			Components: rows,
+		},
+	})
+	if err == nil {
+		return nil
+	}
+	// If update message fails (e.g. from modal submit), respond with channel message:
+	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds:     []*discordgo.MessageEmbed{embed},
+			Components: rows,
+			Flags:      discordgo.MessageFlagsEphemeral,
+		},
+	})
 }
 
-// respondPanel sends a new Components V2 message in reply to an interaction.
+// respondPanel sends a new message in reply to an interaction.
 func respondPanel(s *discordgo.Session, i *discordgo.InteractionCreate, components ...discordgo.MessageComponent) error {
-	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Components: []discordgo.MessageComponent{container(components...)},
 			Flags:      discordgo.MessageFlagsIsComponentsV2 | discordgo.MessageFlagsEphemeral,
 		},
 	})
+	if err == nil {
+		return nil
+	}
+	// Fallback to standard V1 message:
+	embed, rows := extractV1(components)
+	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds:     []*discordgo.MessageEmbed{embed},
+			Components: rows,
+			Flags:      discordgo.MessageFlagsEphemeral,
+		},
+	})
+}
+
+func extractV1(components []discordgo.MessageComponent) (*discordgo.MessageEmbed, []discordgo.MessageComponent) {
+	var sb strings.Builder
+	var rows []discordgo.MessageComponent
+	color := 0x5865F2
+	if CurrentSettings.EmbedColor > 0 {
+		color = CurrentSettings.EmbedColor
+	}
+
+	var walk func(c discordgo.MessageComponent)
+	walk = func(c discordgo.MessageComponent) {
+		if c == nil {
+			return
+		}
+		switch val := c.(type) {
+		case discordgo.Container:
+			if val.AccentColor != nil && *val.AccentColor > 0 {
+				color = *val.AccentColor
+			}
+			for _, inner := range val.Components {
+				walk(inner)
+			}
+		case *discordgo.Container:
+			if val != nil {
+				if val.AccentColor != nil && *val.AccentColor > 0 {
+					color = *val.AccentColor
+				}
+				for _, inner := range val.Components {
+					walk(inner)
+				}
+			}
+		case discordgo.TextDisplay:
+			if sb.Len() > 0 {
+				sb.WriteString("\n\n")
+			}
+			sb.WriteString(val.Content)
+		case *discordgo.TextDisplay:
+			if val != nil {
+				if sb.Len() > 0 {
+					sb.WriteString("\n\n")
+				}
+				sb.WriteString(val.Content)
+			}
+		case discordgo.Separator:
+			if sb.Len() > 0 {
+				sb.WriteString("\n\n───\n")
+			}
+		case *discordgo.Separator:
+			if sb.Len() > 0 {
+				sb.WriteString("\n\n───\n")
+			}
+		case discordgo.ActionsRow:
+			rows = append(rows, val)
+		case *discordgo.ActionsRow:
+			if val != nil {
+				rows = append(rows, *val)
+			}
+		}
+	}
+
+	for _, c := range components {
+		walk(c)
+	}
+
+	desc := sb.String()
+	if len(desc) > 4096 {
+		desc = desc[:4093] + "…"
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Description: desc,
+		Color:       color,
+	}
+	return embed, rows
 }
 
 // openModal asks the user for input. Modals are the only Components V2

@@ -141,6 +141,8 @@ func (b *Bot) Stop() {
 func (b *Bot) ready(s *discordgo.Session, event *discordgo.Ready) {
 	log.Printf("Discord bot logged in as %s (id %s)", s.State.User.Username, s.State.User.ID)
 
+	b.registerSlashCommands(s)
+
 	settings := currentSettings()
 	statusText := settings.Status
 	if settings.RPCEnabled && settings.RPCDetails != "" {
@@ -151,6 +153,52 @@ func (b *Bot) ready(s *discordgo.Session, event *discordgo.Ready) {
 	}
 	if err := s.UpdateGameStatus(0, statusText); err != nil {
 		log.Printf("Discord bot could not update its status: %v", err)
+	}
+}
+
+func (b *Bot) registerSlashCommands(s *discordgo.Session) {
+	commands := []*discordgo.ApplicationCommand{
+		{
+			Name:        "help",
+			Description: "Bot komutlarını ve yeteneklerini gösterir",
+		},
+		{
+			Name:        "reset",
+			Description: "Bu kanaldaki sohbet hafızasını sıfırlar",
+		},
+		{
+			Name:        "models",
+			Description: "Kullanılabilir AI modellerini listeler",
+		},
+		{
+			Name:        "imagine",
+			Description: "Yapay zeka ile görsel üretir",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "prompt",
+					Description: "Görsel açıklaması",
+					Required:    true,
+				},
+			},
+		},
+		{
+			Name:        "stats",
+			Description: "Sunucu ve sistem istatistiklerini gösterir",
+		},
+		{
+			Name:        "ping",
+			Description: "Bot gecikmesini ölçer",
+		},
+		{
+			Name:        "owner",
+			Description: "Yönetici kontrol panelini açar (DM)",
+		},
+	}
+	if _, err := s.ApplicationCommandBulkOverwrite(s.State.User.ID, "", commands); err != nil {
+		log.Printf("Discord slash command registration failed: %v", err)
+	} else {
+		log.Printf("Discord slash commands registered successfully (%d commands)", len(commands))
 	}
 }
 
@@ -253,11 +301,13 @@ type chatMessageRequest struct {
 
 // callLocalChatCompletionWithTools handles conversational AI with native tool execution and permission checks.
 func callLocalChatCompletionWithTools(s *discordgo.Session, m *discordgo.MessageCreate, modelName string, initialMessages []chatMessage) (string, error) {
+	_ = s.ChannelTyping(m.ChannelID)
 	tools := GetDiscordBotTools()
 	messages := make([]chatMessage, len(initialMessages))
 	copy(messages, initialMessages)
 
 	for turn := 0; turn < 4; turn++ {
+		_ = s.ChannelTyping(m.ChannelID)
 		request := chatMessageRequest{
 			Model:    modelName,
 			Messages: messages,

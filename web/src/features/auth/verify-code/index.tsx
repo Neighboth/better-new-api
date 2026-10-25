@@ -17,8 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useState } from 'react'
-import { Link } from '@tanstack/react-router'
-import { Check, Copy, KeyRound, ArrowLeft } from 'lucide-react'
+import { Check, Copy, KeyRound } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -27,7 +26,13 @@ import { AuthLayout } from '../auth-layout'
 export function VerifyCodePage() {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
-  const [code, setCode] = useState('')
+  const [code, setCode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      return (params.get('code') || '').trim()
+    }
+    return ''
+  })
 
   useEffect(() => {
     // Add noindex meta tag to prevent search engines from indexing verification codes
@@ -41,10 +46,12 @@ export function VerifyCodePage() {
     }
     meta.setAttribute('content', 'noindex, nofollow')
 
-    // Read code from URL search parameters (?code=XXXXXX)
+    // Also update code if location search changes
     const params = new URLSearchParams(window.location.search)
     const urlCode = params.get('code') || ''
-    setCode(urlCode.trim())
+    if (urlCode) {
+      setCode(urlCode.trim())
+    }
 
     return () => {
       if (created && meta && meta.parentNode) {
@@ -122,16 +129,6 @@ export function VerifyCodePage() {
               </p>
             </div>
           )}
-        </div>
-
-        <div className='text-center sm:text-left'>
-          <Link
-            to='/'
-            className='inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors'
-          >
-            <ArrowLeft className='w-4 h-4' />
-            <span>{t('Ana Sayfaya Dön')}</span>
-          </Link>
         </div>
       </div>
     </AuthLayout>

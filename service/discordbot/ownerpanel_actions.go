@@ -186,9 +186,16 @@ func (b *Bot) handleOwnerPanelModal(s *discordgo.Session, i *discordgo.Interacti
 
 	body, actions := b.renderOwnerSection(session)
 	if err := replyPanel(s, i, ownerPanelLayout(session, body, actions, notice)...); err != nil {
-		// A modal response can only update the originating message; when that is
-		// impossible fall back to a fresh panel so the user still sees the result.
-		b.sendOwnerMessage(s, i.ChannelID, ownerPanelLayout(session, body, actions, notice)...)
+		if ackErr := respondPanel(s, i, ownerPanelLayout(session, body, actions, notice)...); ackErr != nil {
+			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: notice,
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+			b.sendOwnerMessage(s, i.ChannelID, ownerPanelLayout(session, body, actions, notice)...)
+		}
 	}
 }
 

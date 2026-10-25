@@ -183,10 +183,13 @@ func findUserByDiscordID(discordUserID string) (*model.User, error) {
 	return &user, nil
 }
 
-// HandleInteraction routes component and modal interactions. Non owner-panel
+// HandleInteraction routes slash commands, component and modal interactions. Non owner-panel
 // interactions fall back to the legacy model selector.
 func (b *Bot) HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	switch i.Type {
+	case discordgo.InteractionApplicationCommand:
+		b.handleApplicationCommand(s, i)
+		return
 	case discordgo.InteractionMessageComponent:
 		data := i.MessageComponentData()
 		if strings.HasPrefix(data.CustomID, ownerPanelPrefix) {
@@ -196,10 +199,129 @@ func (b *Bot) HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		b.handleLegacyComponent(s, i, data)
 	case discordgo.InteractionModalSubmit:
 		data := i.ModalSubmitData()
-		if strings.HasPrefix(data.CustomID, ownerPanelPrefix) {
+		if strings.HasPrefix(data.CustomID, ownerModalPrefix) {
 			b.handleOwnerPanelModal(s, i, data)
 			return
 		}
+	}
+}
+
+func (b *Bot) handleApplicationCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	data := i.ApplicationCommandData()
+	settings := currentSettings()
+
+	switch strings.ToLower(data.Name) {
+	case "help":
+		lines := []string{
+			fmt.Sprintf("**%s - Komut Listesi**", settings.BotName),
+			"",
+			"`/help` - Bu yardım panelini gösterir",
+			"`/reset` - Bu kanaldaki sohbet hafızasını sıfırlar",
+			"`/models` - Kullanılabilir AI modellerini listeler",
+			"`/imagine <prompt>` - Yapay zeka ile görsel üretir",
+			"`/stats` - Sunucu ve bot istatistiklerini gösterir",
+			"`/ping` - Bot yanıt süresini ölçer",
+			"`/owner` - Yönetici kontrol panelini açar (DM)",
+		}
+		_ = respondPanel(s, i, textDisplay(strings.Join(lines, "\n")))
+
+	case "reset":
+		userID := interactionUserID(i)
+		b.historyMu.Lock()
+		delete(b.UserHistory, userID+"@"+i.ChannelID)
+		b.historyMu.Unlock()
+		_ = respondPanel(s, i, textDisplay("Sohbet hafızası sıfırlandı.\nYeni bir konuşmaya başlayabiliriz."))
+
+	case "models":
+		names, err := b.fetchAvailableModels()
+		if err != nil {
+			_ = respondPanel(s, i, textDisplay("Modeller alınamadı:\n"+err.Error()))
+			return
+		}
+		_ = respondPanel(s, i,
+			textDisplay(fmt.Sprintf("Kullanılabilir Modeller (%d)", len(names))),
+			separator(),
+			textDisplay(bulletList(names, "_Etkin model yok._")),
+		)
+
+	case "stats":
+		guildName := "DM"
+		memberCount := 0
+		if i.GuildID != "" {
+			if guild, err := s.GuildWithCounts(i.GuildID); err == nil {
+				guildName = guild.Name
+				memberCount = guild.ApproximateMemberCount
+			}
+		}
+		statsText := fmt.Sprintf("📊 **Bot & Sunucu İstatistikleri**\n• Bot: `%s`\n• Konum: **%s** (Üye: %d)\n• Durum: 🟢 Çalışıyor\n• Modeller: `/models` ile listelenebilir",
+			settings.BotName, guildName, memberCount)
+		_ = respondPanel(s, i, textDisplay(statsText))
+
+	case "ping":
+		heartbeat := s.HeartbeatLatency().Milliseconds()
+		_ = respondPanel(s, i, textDisplay(fmt.Sprintf("🏓 **Pong!** Bot gecikmesi: `%dms`", heartbeat)))
+
+	case "imagine":
+		prompt := ""
+		for _, opt := range data.Options {
+			if opt.Name == "prompt" {
+				prompt = opt.StringValue()
+			}
+		}
+		if prompt == "" {
+			_ = respondPanel(s, i, textDisplay("Lütfen üretmek istediğiniz görsel için bir açıklama (prompt) girin."))
+			return
+		}
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		})
+		go func() {
+			var request struct {
+				Prompt string `json:"prompt"`
+				Model  string `json:"model"`
+			}
+			request.Prompt = prompt
+			request.Model = settings.AutoReplyModel
+			if request.Model == "" {
+				request.Model = "dall-e-3"
+			}
+			var response struct {
+				Data []struct {
+					URL string `json:"url"`
+				} `json:"data"`
+				Error *struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := postToLocalRelay("/v1/images/generations", request, &response); err != nil {
+				_, _ = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+					Content: "❌ Görsel üretilemedi: " + err.Error(),
+				})
+				return
+			}
+			if response.Error != nil && response.Error.Message != "" {
+				_, _ = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+					Content: "❌ Hata: " + response.Error.Message,
+				})
+				return
+			}
+			if len(response.Data) == 0 || response.Data[0].URL == "" {
+				_, _ = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+					Content: "❌ Görsel bağlantısı alınamadı.",
+				})
+				return
+			}
+			imageURL := response.Data[0].URL
+			_, _ = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+				Content: fmt.Sprintf("🎨 **Prompt:** %s\n%s", prompt, imageURL),
+			})
+		}()
+
+	case "owner", "panel", "admin":
+		_ = respondPanel(s, i, textDisplay("🛡️ **Yönetici Paneli**\nYönetici kontrol panelini kullanmak için lütfen bota doğrudan özel mesaj (DM) üzerinden `!owner` yazın."))
+
+	default:
+		_ = respondPanel(s, i, textDisplay("Bilinmeyen komut."))
 	}
 }
 

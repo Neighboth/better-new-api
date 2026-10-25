@@ -420,6 +420,7 @@ export type BillingSettings = {
   DocsLink_ja: string
   DocsLink_vi: string
   'quota_setting.enable_free_model_pre_consume': boolean
+  'quota_setting.always_cache_hit': boolean
   QuotaPerUnit: number
   USDExchangeRate: number
   'general_setting.quota_display_type': string

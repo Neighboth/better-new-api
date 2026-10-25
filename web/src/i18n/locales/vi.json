@@ -6733,5 +6733,7 @@
   "Header Logo Height (px)": "Chiều cao Logo đầu trang (px)",
   "Set height of the header logo in pixels (e.g., 24-60px for wider logos)": "Đặt chiều cao của logo đầu trang tính bằng pixel (ví dụ: 24-60px cho logo rộng hơn)",
   "Hide Site Name in Header": "Ẩn tên trang web ở đầu trang",
-  "Show only logo in header without site name text": "Chỉ hiển thị logo ở đầu trang mà không kèm chữ tên trang web"
+  "Show only logo in header without site name text": "Chỉ hiển thị logo ở đầu trang mà không kèm chữ tên trang web",
+  "Always Cache Hit": "Luôn tính phí trúng bộ nhớ cache",
+  "When enabled, even if the upstream channel does not support caching, the system charges the discounted cache rate for cacheable prompts.": "Khi được bật, ngay cả khi kênh ngược dòng không hỗ trợ lưu vào bộ nhớ cache, hệ thống vẫn tính mức phí bộ nhớ cache chiết khấu cho các lời nhắc có thể lưu vào bộ nhớ cache."
 }

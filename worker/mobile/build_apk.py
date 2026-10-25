@@ -540,7 +540,6 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
             android:name=".WorkerService"
             android:exported="false"
             android:stopWithTask="false"
-            android:process=":worker"
             android:foregroundServiceType="dataSync" />
         <receiver
             android:name=".BootReceiver"
@@ -1481,10 +1480,17 @@ import android.util.Base64;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
+import android.webkit.WebViewClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.SslErrorHandler;
+import android.net.http.SslError;
+import android.annotation.TargetApi;
+import android.content.res.Configuration;
 import android.webkit.WebView;
 import android.widget.Toast;
 
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -1804,7 +1810,40 @@ public class MainActivity extends Activity {
             ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
         webView.setWebChromeClient(new WebChromeClient());
-        webView.setBackgroundColor(0xFF020817);
+        webView.setBackgroundColor(0x00000000);
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                if (url != null && (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file:///"))) {
+                    view.loadUrl(url);
+                    return true;
+                }
+                return false;
+            }
+
+            @TargetApi(Build.VERSION_CODES.N)
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if (request != null && request.getUrl() != null) {
+                    String url = request.getUrl().toString();
+                    if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file:///")) {
+                        view.loadUrl(url);
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                handler.proceed();
+            }
+
+            @Override
+            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                android.util.Log.w("BYOG_WEBVIEW", "Error " + errorCode + ": " + description + " for " + failingUrl);
+            }
+        });
 
         appInterface = new WebAppInterface();
         webView.addJavascriptInterface(appInterface, "AndroidBridge");
@@ -2008,6 +2047,11 @@ public class MainActivity extends Activity {
      * reboot with its own receiver when it is missing.
      */
     public boolean hasAutoStartScreen() {
+        String mfr = Build.MANUFACTURER != null ? Build.MANUFACTURER.toLowerCase() : "";
+        String brand = Build.BRAND != null ? Build.BRAND.toLowerCase() : "";
+        if (mfr.contains("honor") || brand.contains("honor") || mfr.contains("huawei") || brand.contains("huawei")) {
+            return true;
+        }
         for (Intent action : autoStartActions()) {
             if (canLaunch(action)) {
                 return true;
@@ -2051,6 +2095,9 @@ public class MainActivity extends Activity {
 
     private Intent[] autoStartActions() {
         return new Intent[] {
+            new Intent("com.hihonor.systemmanager.action.BOOTSTART"),
+            new Intent("com.hihonor.systemmanager.action.STARTUP_APP_CONTROL"),
+            new Intent("huawei.intent.action.HSM_BOOTAPP_MANAGER"),
             new Intent("miui.intent.action.OP_AUTO_START"),
             new Intent("huawei.intent.action.HSM_STARTUPAPP_MANAGER"),
             new Intent("com.iqoo.secure.BGSTARTUPMANAGER"),
@@ -2078,7 +2125,11 @@ public class MainActivity extends Activity {
             componentIntent("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerUsageModelActivity"),
             componentIntent("com.oplus.battery", "com.oplus.startupapp.view.StartupAppListActivity"),
             // HONOR and HUAWEI
+            componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.optimize.bootstart.BootStartActivity"),
             componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+            componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.appcontrol.activity.StartupAppControlActivity"),
+            componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.optimize.process.StartupAppControlActivity"),
+            componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.power.ui.PowerManagementActivity"),
             componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.appcontrol.activity.StartupAppControlActivity"),
             componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.optimize.process.ProtectActivity"),
             componentIntent("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
@@ -2892,8 +2943,31 @@ public class MainActivity extends Activity {
                         state.put("permissions_done", true);
                     } catch (Exception ignored) {}
                     webView.evaluateJavascript("window.updateState(" + state.toString() + ")", null);
+                    if (webView != null) {
+                        webView.loadUrl(clientPageUrl());
+                    }
                 }
             });
+        }
+
+        @JavascriptInterface
+        public void unpair() {
+            disconnect();
+        }
+
+        @JavascriptInterface
+        public void openQRScanner() {
+            scanQrCode();
+        }
+
+        @JavascriptInterface
+        public boolean isSystemDarkMode() {
+            try {
+                int nightMode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+                return nightMode == Configuration.UI_MODE_NIGHT_YES;
+            } catch (Throwable ignored) {
+                return false;
+            }
         }
 
         /**
@@ -2950,6 +3024,52 @@ public class MainActivity extends Activity {
                 state.put("favicon_base64", faviconBase64);
                 state.put("battery_level", WorkerService.intPref(sp, "battery_percent", 100));
                 state.put("battery_temp", (float) sp.getFloat("battery_temp", 31.0f));
+
+                // Real RAM & CPU cores
+                try {
+                    ActivityManager actMgr = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+                    if (actMgr != null) {
+                        ActivityManager.MemoryInfo memInfo = new ActivityManager.MemoryInfo();
+                        actMgr.getMemoryInfo(memInfo);
+                        int totalRamMB = (int) (memInfo.totalMem / (1024L * 1024L));
+                        state.put("physical_ram_mb", totalRamMB);
+                    }
+                } catch (Throwable ignored) {}
+                state.put("cpu_cores", Runtime.getRuntime().availableProcessors());
+
+                // Real Storage & Multi-disk partitions
+                try {
+                    File dataDir = Environment.getDataDirectory();
+                    StatFs stat = new StatFs(dataDir.getPath());
+                    long blockSize = stat.getBlockSizeLong();
+                    long totalGB = (stat.getBlockCountLong() * blockSize) / (1024L * 1024L * 1024L);
+                    long freeGB = (stat.getAvailableBlocksLong() * blockSize) / (1024L * 1024L * 1024L);
+                    JSONArray disksArr = new JSONArray();
+                    JSONObject mainDisk = new JSONObject();
+                    mainDisk.put("drive", dataDir.getPath());
+                    mainDisk.put("label", "Dahili Depolama");
+                    mainDisk.put("total_gb", (int) totalGB);
+                    mainDisk.put("free_gb", (int) freeGB);
+                    disksArr.put(mainDisk);
+
+                    File[] extDirs = getExternalFilesDirs(null);
+                    if (extDirs != null && extDirs.length > 1 && extDirs[1] != null) {
+                        StatFs sdStat = new StatFs(extDirs[1].getPath());
+                        long sdTotal = (sdStat.getBlockCountLong() * sdStat.getBlockSizeLong()) / (1024L * 1024L * 1024L);
+                        long sdFree = (sdStat.getAvailableBlocksLong() * sdStat.getBlockSizeLong()) / (1024L * 1024L * 1024L);
+                        if (sdTotal > 0) {
+                            JSONObject sdDisk = new JSONObject();
+                            sdDisk.put("drive", extDirs[1].getPath());
+                            sdDisk.put("label", "SD Kart");
+                            sdDisk.put("total_gb", (int) sdTotal);
+                            sdDisk.put("free_gb", (int) sdFree);
+                            disksArr.put(sdDisk);
+                        }
+                    }
+                    state.put("disks", disksArr);
+                    state.put("total_disk_gb", (int) totalGB);
+                    state.put("free_disk_gb", (int) freeGB);
+                } catch (Throwable ignored) {}
                 String assignedModel = WorkerService.stringPref(sp, "assigned_model", "qwen-2.5-0.5b-instruct");
                 File mf = new File(getFilesDir(), assignedModel + ".gguf");
                 boolean modelOnDisk = mf.exists() && mf.length() > 10 * 1024 * 1024;

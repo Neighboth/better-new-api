@@ -6733,5 +6733,7 @@
   "Header Logo Height (px)": "页眉 Logo 高度 (px)",
   "Set height of the header logo in pixels (e.g., 24-60px for wider logos)": "设置页眉 Logo 的像素高度（例如较宽的 Logo 可设为 24-60px）",
   "Hide Site Name in Header": "在页眉中隐藏站点名称",
-  "Show only logo in header without site name text": "页眉仅显示 Logo，不显示站点名称文字"
+  "Show only logo in header without site name text": "页眉仅显示 Logo，不显示站点名称文字",
+  "Always Cache Hit": "总是按缓存命中计费",
+  "When enabled, even if the upstream channel does not support caching, the system charges the discounted cache rate for cacheable prompts.": "启用后，即使上游渠道不支持缓存，系统也会对可缓存的提示词按优惠的缓存费率计费。"
 }

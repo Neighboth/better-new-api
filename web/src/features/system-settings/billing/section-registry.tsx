@@ -71,6 +71,8 @@ const BILLING_SECTIONS = [
           quota_setting: {
             enable_free_model_pre_consume:
               settings['quota_setting.enable_free_model_pre_consume'],
+            always_cache_hit:
+              settings['quota_setting.always_cache_hit'] ?? false,
           },
         }}
         complianceConfirmed={

@@ -40,6 +40,7 @@ const defaultBillingSettings: BillingSettings = {
   DocsLink_ja: '',
   DocsLink_vi: '',
   'quota_setting.enable_free_model_pre_consume': true,
+  'quota_setting.always_cache_hit': false,
   QuotaPerUnit: 500000,
   USDExchangeRate: 7,
   'general_setting.quota_display_type': 'USD',

@@ -44,14 +44,16 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
                 Merhaba,<br>
                 <strong>{{system_name}}</strong> hesabınız için e-posta doğrulama talebinde bulundunuz. Aşağıdaki tek kullanımlık doğrulama kodunu kullanarak işleminizi tamamlayabilirsiniz.
               </p>
-              <div style="text-align: center; margin: 28px 0;">
+              <div style="text-align: center; margin: 28px 0 20px 0;">
                 <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
                   Doğrulama Kodunu Görüntüle
                 </a>
               </div>
-              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 24px;">
-                <span style="font-size: 13px; color: #64748b; display: block; margin-bottom: 6px;">veya doğrudan doğrulama kodunuz:</span>
-                <span style="font-size: 28px; font-weight: 800; letter-spacing: 6px; color: #1d4ed8; font-family: monospace;">{{code}}</span>
+              <div style="margin: 0 0 24px 0; text-align: center;">
+                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
+                  Buton çalışmıyor mu? Aşağıdaki bağlantıyı doğrudan tarayıcınıza kopyalayabilirsiniz:<br>
+                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
+                </p>
               </div>
               <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
                 ⏱️ Bu kod <strong>{{valid_minutes}} dakika</strong> boyunca geçerlidir.
@@ -384,14 +386,16 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
                 Hello,<br>
                 You requested a verification code for your <strong>{{system_name}}</strong> account. Use the one-time code below to complete your verification.
               </p>
-              <div style="text-align: center; margin: 28px 0;">
+              <div style="text-align: center; margin: 28px 0 20px 0;">
                 <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                  Doğrulama Kodunu Görüntüle
+                  View Verification Code
                 </a>
               </div>
-              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 24px;">
-                <span style="font-size: 13px; color: #64748b; display: block; margin-bottom: 6px;">veya doğrudan doğrulama kodunuz:</span>
-                <span style="font-size: 28px; font-weight: 800; letter-spacing: 6px; color: #1d4ed8; font-family: monospace;">{{code}}</span>
+              <div style="margin: 0 0 24px 0; text-align: center;">
+                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
+                  Button not working? Copy and paste the following link directly into your browser:<br>
+                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
+                </p>
               </div>
               <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
                 ⏱️ This code is valid for <strong>{{valid_minutes}} minutes</strong>.
@@ -724,14 +728,16 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
                 您好，<br>
                 您正在进行 <strong>{{system_name}}</strong> 账号的邮箱验证，请在验证页面输入以下验证码：
               </p>
-              <div style="text-align: center; margin: 28px 0;">
+              <div style="text-align: center; margin: 28px 0 20px 0;">
                 <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                  Doğrulama Kodunu Görüntüle
+                  查看验证码
                 </a>
               </div>
-              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 24px;">
-                <span style="font-size: 13px; color: #64748b; display: block; margin-bottom: 6px;">veya doğrudan doğrulama kodunuz:</span>
-                <span style="font-size: 28px; font-weight: 800; letter-spacing: 6px; color: #1d4ed8; font-family: monospace;">{{code}}</span>
+              <div style="margin: 0 0 24px 0; text-align: center;">
+                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
+                  如果按钮无法点击，请将以下链接直接复制到浏览器地址栏：<br>
+                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
+                </p>
               </div>
               <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
                 ⏱️ 验证码有效期为 <strong>{{valid_minutes}} 分钟</strong>。
@@ -836,14 +842,16 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
                 您好，<br>
                 您正在進行 <strong>{{system_name}}</strong> 帳號的信箱驗證，請在驗證頁面輸入以下驗證碼：
               </p>
-              <div style="text-align: center; margin: 28px 0;">
+              <div style="text-align: center; margin: 28px 0 20px 0;">
                 <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                  Doğrulama Kodunu Görüntüle
+                  查看驗證碼
                 </a>
               </div>
-              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 24px;">
-                <span style="font-size: 13px; color: #64748b; display: block; margin-bottom: 6px;">veya doğrudan doğrulama kodunuz:</span>
-                <span style="font-size: 28px; font-weight: 800; letter-spacing: 6px; color: #1d4ed8; font-family: monospace;">{{code}}</span>
+              <div style="margin: 0 0 24px 0; text-align: center;">
+                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
+                  如果按鈕無法點擊，請將以下連結直接複製到瀏覽器網址列：<br>
+                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
+                </p>
               </div>
               <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
                 ⏱️ 驗證碼有效期限為 <strong>{{valid_minutes}} 分鐘</strong>。
@@ -948,14 +956,16 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
                 Bonjour,<br>
                 Vous avez demandé un code de vérification pour votre compte <strong>{{system_name}}</strong>. Utilisez le code unique ci-dessous :
               </p>
-              <div style="text-align: center; margin: 28px 0;">
+              <div style="text-align: center; margin: 28px 0 20px 0;">
                 <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                  Doğrulama Kodunu Görüntüle
+                  Afficher le code de vérification
                 </a>
               </div>
-              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 24px;">
-                <span style="font-size: 13px; color: #64748b; display: block; margin-bottom: 6px;">veya doğrudan doğrulama kodunuz:</span>
-                <span style="font-size: 28px; font-weight: 800; letter-spacing: 6px; color: #1d4ed8; font-family: monospace;">{{code}}</span>
+              <div style="margin: 0 0 24px 0; text-align: center;">
+                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
+                  Le bouton ne fonctionne pas ? Copiez et collez le lien suivant directement dans votre navigateur :<br>
+                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
+                </p>
               </div>
               <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
                 ⏱️ Ce code est valable pendant <strong>{{valid_minutes}} minutes</strong>.
@@ -1060,14 +1070,16 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
                 Здравствуйте,<br>
                 Вы запросили код подтверждения для аккаунта <strong>{{system_name}}</strong>. Введите одноразовый код:
               </p>
-              <div style="text-align: center; margin: 28px 0;">
+              <div style="text-align: center; margin: 28px 0 20px 0;">
                 <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                  Doğrulama Kodunu Görüntüle
+                  Посмотреть код подтверждения
                 </a>
               </div>
-              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 24px;">
-                <span style="font-size: 13px; color: #64748b; display: block; margin-bottom: 6px;">veya doğrudan doğrulama kodunuz:</span>
-                <span style="font-size: 28px; font-weight: 800; letter-spacing: 6px; color: #1d4ed8; font-family: monospace;">{{code}}</span>
+              <div style="margin: 0 0 24px 0; text-align: center;">
+                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
+                  Кнопка не работает? Скопируйте и вставьте следующую ссылку прямо в браузер:<br>
+                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
+                </p>
               </div>
               <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
                 ⏱️ Код действителен в течение <strong>{{valid_minutes}} минут</strong>.
@@ -1172,14 +1184,16 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
                 こんにちは、<br>
                 <strong>{{system_name}}</strong> アカウントの認証リクエストを受け付けました。以下の認証コードを入力してください：
               </p>
-              <div style="text-align: center; margin: 28px 0;">
+              <div style="text-align: center; margin: 28px 0 20px 0;">
                 <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                  Doğrulama Kodunu Görüntüle
+                  認証コードを確認する
                 </a>
               </div>
-              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 24px;">
-                <span style="font-size: 13px; color: #64748b; display: block; margin-bottom: 6px;">veya doğrudan doğrulama kodunuz:</span>
-                <span style="font-size: 28px; font-weight: 800; letter-spacing: 6px; color: #1d4ed8; font-family: monospace;">{{code}}</span>
+              <div style="margin: 0 0 24px 0; text-align: center;">
+                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
+                  ボタンが機能しない場合は、次のリンクをブラウザに直接コピー＆ペーストしてください：<br>
+                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
+                </p>
               </div>
               <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
                 ⏱️ この認証コードの有効期限は <strong>{{valid_minutes}} 分間</strong> です。
@@ -1284,14 +1298,16 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
                 Xin chào,<br>
                 Bạn đã yêu cầu mã xác thực cho tài khoản <strong>{{system_name}}</strong>. Vui lòng nhập mã bên dưới:
               </p>
-              <div style="text-align: center; margin: 28px 0;">
+              <div style="text-align: center; margin: 28px 0 20px 0;">
                 <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                  Doğrulama Kodunu Görüntüle
+                  Xem mã xác minh
                 </a>
               </div>
-              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 24px;">
-                <span style="font-size: 13px; color: #64748b; display: block; margin-bottom: 6px;">veya doğrudan doğrulama kodunuz:</span>
-                <span style="font-size: 28px; font-weight: 800; letter-spacing: 6px; color: #1d4ed8; font-family: monospace;">{{code}}</span>
+              <div style="margin: 0 0 24px 0; text-align: center;">
+                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
+                  Nút không hoạt động? Sao chép và dán liên kết sau trực tiếp vào trình duyệt của bạn:<br>
+                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
+                </p>
               </div>
               <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
                 ⏱️ Mã này có hiệu lực trong vòng <strong>{{valid_minutes}} phút</strong>.
