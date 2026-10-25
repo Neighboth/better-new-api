@@ -1953,12 +1953,31 @@ func embedByogClient(program []byte, c *gin.Context) ([]byte, error) {
 		}
 	}
 
-	settings, err := json.Marshal(map[string]string{
-		"server_url":     serverUrl,
-		"system_name":    systemName,
-		"app_name":       appName,
-		"favicon":        faviconUrl,
-		"favicon_base64": faviconBase64,
+	var faviconIcoBase64 string
+	if iconBytes := decodeFaviconRaw(faviconBase64); len(iconBytes) > 0 {
+		if ico := icon.FromImage(iconBytes); len(ico) > 0 {
+			faviconIcoBase64 = base64.StdEncoding.EncodeToString(ico)
+		}
+	}
+	if faviconIcoBase64 == "" {
+		for _, p := range []string{
+			filepath.Join("worker", "desktop", "assets", "byog.ico"),
+			filepath.Join("..", "worker", "desktop", "assets", "byog.ico"),
+		} {
+			if defaultIco, err := os.ReadFile(p); err == nil && len(defaultIco) > 0 {
+				faviconIcoBase64 = base64.StdEncoding.EncodeToString(defaultIco)
+				break
+			}
+		}
+	}
+
+	settings, err := common.Marshal(map[string]string{
+		"server_url":         serverUrl,
+		"system_name":        systemName,
+		"app_name":           appName,
+		"favicon":            faviconUrl,
+		"favicon_base64":     faviconBase64,
+		"favicon_ico_base64": faviconIcoBase64,
 	})
 	if err != nil {
 		return nil, err
@@ -2099,7 +2118,7 @@ func signWindowsProgram(program []byte) []byte {
 // resource of the icons. The icon of a site is also a file of the icons of
 // Windows or a picture of another format, the picture is written as PNG and it
 // is made smaller when it does not fit the resource.
-func decodeFaviconIcon(faviconBase64 string) []byte {
+func decodeFaviconRaw(faviconBase64 string) []byte {
 	if faviconBase64 == "" {
 		return nil
 	}
@@ -2109,6 +2128,14 @@ func decodeFaviconIcon(faviconBase64 string) []byte {
 	}
 	raw, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+func decodeFaviconIcon(faviconBase64 string) []byte {
+	raw := decodeFaviconRaw(faviconBase64)
+	if len(raw) == 0 {
 		return nil
 	}
 	return icon.PNG(raw, icon.MaxResourceSize)

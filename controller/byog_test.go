@@ -138,6 +138,38 @@ func TestIconPatchWithSiteIcon(t *testing.T) {
 	require.Equal(t, len(program), len(patched))
 }
 
+func TestInstallerAndWorkerWithPNGFavicon(t *testing.T) {
+	pngPath := filepath.Join("..", "web", "public", "logo.png")
+	pngBytes, err := os.ReadFile(pngPath)
+	require.NoError(t, err)
+
+	b64PNG := "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngBytes)
+
+	// 1. Verify decodeFaviconIcon converts PNG to fit within PE icon resource limit
+	iconData := decodeFaviconIcon(b64PNG)
+	require.NotEmpty(t, iconData)
+	require.LessOrEqual(t, len(iconData), icon.MaxResourceSize)
+
+	// 2. Verify icon.FromImage converts raw PNG into a valid Windows ICO format
+	rawPNG := decodeFaviconRaw(b64PNG)
+	require.NotEmpty(t, rawPNG)
+	icoData := icon.FromImage(rawPNG)
+	require.NotEmpty(t, icoData)
+	require.True(t, len(icoData) >= 22)
+	require.Equal(t, byte(0), icoData[0])
+	require.Equal(t, byte(0), icoData[1])
+	require.Equal(t, byte(1), icoData[2]) // IMAGE_ICON
+	require.Equal(t, byte(0), icoData[3])
+
+	// 3. Test PatchIcon on BYOG Worker.exe using the PNG-derived icon
+	workerPath := filepath.Join("..", "worker", "binaries", "BYOG Worker.exe")
+	if workerBinary, err := os.ReadFile(workerPath); err == nil {
+		patched, err := embedcfg.PatchIcon(workerBinary, iconData)
+		require.NoError(t, err)
+		require.Equal(t, len(workerBinary), len(patched))
+	}
+}
+
 func TestResolveNodeGeoIP(t *testing.T) {
 	// Private / local IPs must fallback safely to Turkey / Istanbul rather than (0, 0)
 	country, city, lat, lon := resolveNodeGeoIP("127.0.0.1")

@@ -27,7 +27,7 @@ import {
   ChevronRight,
   Cpu,
   Gauge,
-  HardDrive,
+  Link2,
   LogOut,
   Play,
   QrCode,
@@ -54,6 +54,21 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarRail,
+  SidebarTrigger,
+} from '@/components/ui/sidebar'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { cn } from '@/lib/utils'
 
@@ -133,7 +148,13 @@ type PageKey = (typeof PAGES)[number]['key']
 export function ClientPage() {
   const { t, i18n } = useTranslation()
   const { logo: systemLogo, systemName } = useSystemConfig()
-  const [page, setPage] = useState<PageKey>('status')
+  const [page, setPage] = useState<PageKey>(() => {
+    if (typeof window !== 'undefined') {
+      const tab = new URLSearchParams(window.location.search).get('tab')
+      if (tab === 'resources' || tab === 'test') return tab
+    }
+    return 'status'
+  })
   const [nodeId, setNodeId] = useState('')
   const [state, setState] = useState<WorkerState | null>(null)
   const [permissions, setPermissions] = useState<PermissionState | null>(null)
@@ -144,10 +165,20 @@ export function ClientPage() {
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [onboardingDone, setOnboardingDone] = useState(true)
+  const [onboardingDone, setOnboardingDone] = useState(() => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('onboarding') === '1') {
+      return false
+    }
+    return true
+  })
   const [onboardingStep, setOnboardingStep] = useState(0)
   const [updateVersion, setUpdateVersion] = useState('')
-  const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false)
+  const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(() => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('disconnect') === '1') {
+      return true
+    }
+    return false
+  })
 
   // Resource allocations
   const [vramGB, setVramGB] = useState(4)
@@ -200,6 +231,9 @@ export function ClientPage() {
     setServerUrl(window.location.origin)
     setLocalApi(search.get('local') ?? '')
     setLocalToken(search.get('token') ?? '')
+    if (search.get('onboarding') === '1') {
+      setOnboardingDone(false)
+    }
   }, [])
 
   const loadState = useCallback(async () => {
@@ -481,7 +515,7 @@ export function ClientPage() {
     cpu_temp: 40,
     gpu_temp: 42,
     battery_temp: 30,
-  }
+  } as unknown as ByogNode
 
   // Determine paired status
   const isPaired = Boolean((nodeId && state?.status === 'online') || (bridge ? (state?.status === 'online' && nodeId) : nodeId))
@@ -504,7 +538,8 @@ export function ClientPage() {
   }, [state?.favicon, state?.favicon_base64, systemLogo])
 
   // --- VIEW 1: Onboarding / Permissions (Mobile only, shown sequentially before pairing) ---
-  if (bridge && !onboardingDone) {
+  const isTestingOnboarding = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('onboarding') === '1'
+  if ((bridge && !onboardingDone) || (isTestingOnboarding && !onboardingDone)) {
     const handleNextStep = () => {
       if (onboardingStep === 0) {
         setOnboardingStep(1)
@@ -512,36 +547,36 @@ export function ClientPage() {
         if (permissions?.autostart_supported) {
           setOnboardingStep(2)
         } else {
-          bridge.completeOnboarding()
+          bridge?.completeOnboarding()
           setOnboardingDone(true)
         }
       } else {
-        bridge.completeOnboarding()
+        bridge?.completeOnboarding()
         setOnboardingDone(true)
       }
     }
 
     return (
       <div className='flex h-screen w-full flex-col bg-background text-foreground antialiased'>
-        <header className='flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4'>
-          <div className='flex items-center gap-2.5 font-bold text-foreground'>
-            <img
-              src={brandLogo}
-              alt='Logo'
-              className='h-8 w-8 rounded-lg object-contain'
-              onError={(e) => {
-                ;(e.currentTarget as HTMLElement).style.display = 'none'
-              }}
-            />
-            <span className='text-sm sm:text-base font-semibold tracking-tight'>
-              {state?.device_name || systemName || 'BYOG Worker'}
-            </span>
-          </div>
-          <div className='flex items-center gap-2'>
-            <LanguageSwitcher />
-            <ThemeSwitch />
-          </div>
-        </header>
+      <header className='flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4'>
+        <div className='flex items-center gap-2 min-w-0'>
+          <img
+            src={brandLogo}
+            alt='Logo'
+            className='h-7 w-7 rounded-lg object-contain shrink-0'
+            onError={(e) => {
+              ;(e.currentTarget as HTMLElement).style.display = 'none'
+            }}
+          />
+          <span className='text-sm font-semibold tracking-tight truncate max-w-[160px] sm:max-w-none'>
+            {state?.device_name || systemName || 'BYOG Worker'}
+          </span>
+        </div>
+        <div className='flex items-center gap-1.5 shrink-0'>
+          <LanguageSwitcher />
+          <ThemeSwitch />
+        </div>
+      </header>
 
         <div className='flex flex-1 items-center justify-center p-4 sm:p-6'>
           <Card className='w-full max-w-lg border-border/80 shadow-lg'>
@@ -581,7 +616,7 @@ export function ClientPage() {
                     </div>
                   </div>
 
-                  <div className='pt-2 flex items-center justify-between'>
+                  <div className='pt-2 flex flex-wrap items-center justify-between gap-2'>
                     {permissions?.notifications ? (
                       <Badge variant='outline' className='text-emerald-500 border-emerald-500/30 gap-1.5 py-1 px-3'>
                         <CheckCircle2 className='size-4' /> {t('byog.granted', 'İzin Verildi')}
@@ -590,7 +625,7 @@ export function ClientPage() {
                       <Button
                         size='sm'
                         onClick={() => {
-                          bridge.requestNotificationPermission()
+                          bridge?.requestNotificationPermission()
                           setTimeout(() => void loadState(), 1500)
                         }}
                       >
@@ -598,7 +633,7 @@ export function ClientPage() {
                       </Button>
                     )}
 
-                    <Button onClick={handleNextStep} disabled={!permissions?.notifications}>
+                    <Button onClick={handleNextStep} disabled={!permissions?.notifications && !isTestingOnboarding}>
                       {t('byog.continue', 'Devam Et')} <ChevronRight className='size-4 ml-1' />
                     </Button>
                   </div>
@@ -625,7 +660,7 @@ export function ClientPage() {
                     </div>
                   </div>
 
-                  <div className='pt-2 flex items-center justify-between'>
+                  <div className='pt-2 flex flex-wrap items-center justify-between gap-2'>
                     {permissions?.battery ? (
                       <Badge variant='outline' className='text-emerald-500 border-emerald-500/30 gap-1.5 py-1 px-3'>
                         <CheckCircle2 className='size-4' /> {t('byog.granted', 'İzin Verildi')}
@@ -634,7 +669,7 @@ export function ClientPage() {
                       <Button
                         size='sm'
                         onClick={() => {
-                          bridge.requestBatteryOptimization()
+                          bridge?.requestBatteryOptimization()
                           setTimeout(() => void loadState(), 1500)
                         }}
                       >
@@ -642,7 +677,7 @@ export function ClientPage() {
                       </Button>
                     )}
 
-                    <Button onClick={handleNextStep} disabled={!permissions?.battery}>
+                    <Button onClick={handleNextStep} disabled={!permissions?.battery && !isTestingOnboarding}>
                       {t('byog.continue', 'Devam Et')} <ChevronRight className='size-4 ml-1' />
                     </Button>
                   </div>
@@ -650,7 +685,7 @@ export function ClientPage() {
               )}
 
               {/* Step 2: Autostart (Honor Pad 10 / MagicOS / MIUI / ColorOS) */}
-              {onboardingStep === 2 && permissions?.autostart_supported && (
+              {onboardingStep === 2 && (permissions?.autostart_supported || isTestingOnboarding) && (
                 <div className='space-y-4 rounded-xl border border-border/60 bg-muted/40 p-5'>
                   <div className='flex items-center gap-3'>
                     <div className='flex size-10 items-center justify-center rounded-xl bg-indigo-500/15 text-indigo-500'>
@@ -673,7 +708,7 @@ export function ClientPage() {
                     <Button
                       size='sm'
                       variant='outline'
-                      onClick={() => bridge.openAutoStartSettings()}
+                      onClick={() => bridge?.openAutoStartSettings()}
                     >
                       {t('byog.open_settings', 'Ayarları Aç')}
                     </Button>
@@ -695,25 +730,25 @@ export function ClientPage() {
   if (!isPaired) {
     return (
       <div className='flex h-screen w-full flex-col bg-background text-foreground antialiased'>
-        <header className='flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4'>
-          <div className='flex items-center gap-2.5 font-bold text-foreground'>
-            <img
-              src={brandLogo}
-              alt='Logo'
-              className='h-8 w-8 rounded-lg object-contain'
-              onError={(e) => {
-                ;(e.currentTarget as HTMLElement).style.display = 'none'
-              }}
-            />
-            <span className='text-sm sm:text-base font-semibold tracking-tight'>
-              {state?.device_name || systemName || 'BYOG Worker'}
-            </span>
-          </div>
-          <div className='flex items-center gap-2'>
-            <LanguageSwitcher />
-            <ThemeSwitch />
-          </div>
-        </header>
+      <header className='flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4'>
+        <div className='flex items-center gap-2 min-w-0'>
+          <img
+            src={brandLogo}
+            alt='Logo'
+            className='h-7 w-7 rounded-lg object-contain shrink-0'
+            onError={(e) => {
+              ;(e.currentTarget as HTMLElement).style.display = 'none'
+            }}
+          />
+          <span className='text-sm font-semibold tracking-tight truncate max-w-[160px] sm:max-w-none'>
+            {state?.device_name || systemName || 'BYOG Worker'}
+          </span>
+        </div>
+        <div className='flex items-center gap-1.5 shrink-0'>
+          <LanguageSwitcher />
+          <ThemeSwitch />
+        </div>
+      </header>
 
         <div className='flex flex-1 items-center justify-center p-4 sm:p-6'>
           <Card className='w-full max-w-md border-border/80 shadow-xl'>
@@ -751,7 +786,7 @@ export function ClientPage() {
                   value={code}
                   onChange={(event) => setCode(event.target.value.toUpperCase())}
                   placeholder={t('byog.enter_pairing_code_label', 'EŞLEŞTİRME KODU')}
-                  className='h-11 font-mono uppercase tracking-widest text-center text-lg font-bold'
+                  className='h-11 font-mono uppercase tracking-widest text-center text-sm sm:text-lg font-bold min-w-0 flex-1'
                   maxLength={12}
                   disabled={busy}
                 />
@@ -786,72 +821,80 @@ export function ClientPage() {
 
   // --- VIEW 3: Main Application Screen (Paired) ---
   return (
-    <div className='flex h-screen w-full flex-col bg-background text-foreground antialiased selection:bg-primary/20'>
+    <SidebarProvider defaultOpen={true} className='flex-col h-screen w-full bg-background text-foreground antialiased selection:bg-primary/20'>
       {/* Top Header */}
       <header className='flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4'>
-        <div className='flex items-center gap-3'>
-          <div className='flex items-center gap-2.5 font-bold text-foreground'>
+        <div className='flex items-center gap-2 min-w-0'>
+          <SidebarTrigger variant='ghost' className='size-8 md:hidden shrink-0' />
+          <div className='flex items-center gap-2 font-bold text-foreground min-w-0'>
             <img
               src={brandLogo}
               alt='Logo'
-              className='h-8 w-8 rounded-lg object-contain'
+              className='h-7 w-7 rounded-lg object-contain shrink-0'
               onError={(e) => {
                 ;(e.currentTarget as HTMLElement).style.display = 'none'
               }}
             />
-            <span className='text-sm sm:text-base font-semibold tracking-tight'>
+            <span className='text-sm font-semibold tracking-tight truncate max-w-[120px] sm:max-w-none'>
               {state?.device_name || systemName || 'BYOG Worker'}
             </span>
           </div>
           <Badge
             variant={state?.status === 'online' ? 'default' : 'secondary'}
-            className='text-[11px] font-semibold'
+            className='text-[10px] font-semibold hidden sm:inline-flex shrink-0'
           >
             {statusLabel()}
           </Badge>
         </div>
 
-        <div className='flex items-center gap-2'>
+        <div className='flex items-center gap-1.5 shrink-0'>
           <LanguageSwitcher />
           <ThemeSwitch />
         </div>
       </header>
 
       {/* Main Container: Left Sidebar + Content */}
-      <div className='flex min-h-0 flex-1 overflow-hidden'>
-        {/* Left Sidebar: Strictly 3 navigation items + Red Disconnect Button */}
-        <aside className='flex w-56 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground p-3 gap-1'>
-          <div className='px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground'>
-            {t('byog.client_navigation', 'Menü')}
-          </div>
+      <div className='flex min-h-0 w-full flex-1 overflow-hidden'>
+        <Sidebar collapsible='icon' className='top-14 h-[calc(100vh-3.5rem)] border-r border-border'>
+          <SidebarContent className='py-2'>
+            <SidebarGroup>
+              <SidebarGroupLabel className='px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground'>
+                {t('byog.client_navigation', 'Menü')}
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {PAGES.map((item) => {
+                    const Icon = item.icon
+                    const active = page === item.key
+                    return (
+                      <SidebarMenuItem key={item.key}>
+                        <SidebarMenuButton
+                          isActive={active}
+                          onClick={() => setPage(item.key)}
+                          tooltip={t(item.labelKey, item.fallback)}
+                          className={cn(
+                            'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors cursor-pointer',
+                            active
+                              ? 'bg-sidebar-accent text-sidebar-accent-foreground font-semibold shadow-xs'
+                              : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
+                          )}
+                        >
+                          <Icon className={cn('h-4 w-4', active ? 'text-primary' : 'text-muted-foreground')} />
+                          <span>{t(item.labelKey, item.fallback)}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
 
-          {PAGES.map((item) => {
-            const Icon = item.icon
-            const active = page === item.key
-            return (
-              <button
-                key={item.key}
-                type='button'
-                onClick={() => setPage(item.key)}
-                className={cn(
-                  'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors text-left',
-                  active
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground font-semibold shadow-xs'
-                    : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
-                )}
-              >
-                <Icon className={cn('h-4 w-4', active ? 'text-primary' : 'text-muted-foreground')} />
-                <span>{t(item.labelKey, item.fallback)}</span>
-              </button>
-            )
-          })}
-
-          {/* Bottom section with Disconnect Button and device info */}
-          <div className='mt-auto flex flex-col gap-2 pt-3 border-t border-border/50'>
+          <SidebarFooter className='p-3 border-t border-border/50'>
             <button
               type='button'
               onClick={() => setDisconnectDialogOpen(true)}
-              className='flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors text-left'
+              className='flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors text-left cursor-pointer'
             >
               <LogOut className='size-4' />
               <span>{t('byog.disconnect_device', 'Bağlantıyı Kes')}</span>
@@ -861,11 +904,12 @@ export function ClientPage() {
               <div className='font-mono font-medium truncate'>{state?.device_name || nodeId || 'BYOG Worker'}</div>
               <div className='text-[10px] opacity-70'>v1.9.2 • Local Node</div>
             </div>
-          </div>
-        </aside>
+          </SidebarFooter>
+          <SidebarRail />
+        </Sidebar>
 
         {/* Content Area */}
-        <main className='flex-1 overflow-y-auto bg-background p-6'>
+        <SidebarInset className='flex-1 overflow-y-auto bg-background p-4 sm:p-6'>
           {updateVersion && (
             <div className='mb-4 flex items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/10 px-4 py-2.5 text-sm'>
               <span>{t('byog.client_update_available', { version: updateVersion })}</span>
@@ -897,41 +941,41 @@ export function ClientPage() {
                   </CardDescription>
                 </CardHeader>
 
-                <CardContent className='grid gap-4 text-sm'>
-                  <div className='flex items-center gap-3'>
+                <CardContent className='grid gap-4 text-sm overflow-hidden'>
+                  <div className='flex items-center gap-3 min-w-0'>
                     <Server className='text-muted-foreground h-4 w-4 shrink-0' />
-                    <span className='text-muted-foreground w-36'>{t('byog.client_node_name', 'Node Adı')}:</span>
-                    <span className='font-mono font-semibold truncate'>
+                    <span className='text-muted-foreground w-24 sm:w-36 shrink-0'>{t('byog.client_node_name', 'Node Adı')}:</span>
+                    <span className='font-mono font-semibold truncate min-w-0 flex-1'>
                       {state?.device_name || nodeId || 'BYOG Worker'}
                     </span>
                   </div>
 
-                  <div className='flex items-center gap-3'>
+                  <div className='flex items-center gap-3 min-w-0'>
                     <Link2 className='text-muted-foreground h-4 w-4 shrink-0' />
-                    <span className='text-muted-foreground w-36'>{t('byog.client_server', 'URL')}:</span>
-                    <span className='font-mono truncate'>{serverUrl || window.location.origin}</span>
+                    <span className='text-muted-foreground w-24 sm:w-36 shrink-0'>{t('byog.client_server', 'URL')}:</span>
+                    <span className='font-mono truncate min-w-0 flex-1'>{serverUrl || window.location.origin}</span>
                   </div>
 
-                  <div className='flex items-center gap-3'>
+                  <div className='flex items-center gap-3 min-w-0'>
                     <Cpu className='text-muted-foreground h-4 w-4 shrink-0' />
-                    <span className='text-muted-foreground w-36'>{t('byog.installed_models', 'Modeller')}:</span>
-                    <span className='font-mono truncate font-medium'>
+                    <span className='text-muted-foreground w-24 sm:w-36 shrink-0'>{t('byog.installed_models', 'Modeller')}:</span>
+                    <span className='font-mono truncate font-medium min-w-0 flex-1'>
                       {state?.models || state?.assigned_model || '—'}
                     </span>
                   </div>
 
-                  <div className='flex items-center gap-3'>
+                  <div className='flex items-center gap-3 min-w-0'>
                     <Gauge className='text-muted-foreground h-4 w-4 shrink-0' />
-                    <span className='text-muted-foreground w-36'>{t('byog.client_speed', 'TPS')}:</span>
-                    <span className='font-mono font-bold text-primary'>
+                    <span className='text-muted-foreground w-24 sm:w-36 shrink-0'>{t('byog.client_speed', 'TPS')}:</span>
+                    <span className='font-mono font-bold text-primary truncate min-w-0 flex-1'>
                       {(state?.current_tps ?? 0).toFixed(1)} tps
                     </span>
                   </div>
 
-                  <div className='flex items-center gap-3'>
+                  <div className='flex items-center gap-3 min-w-0'>
                     <Activity className='text-muted-foreground h-4 w-4 shrink-0' />
-                    <span className='text-muted-foreground w-36'>{t('byog.client_ttft', 'TTFT')}:</span>
-                    <span className='font-mono font-semibold'>
+                    <span className='text-muted-foreground w-24 sm:w-36 shrink-0'>{t('byog.client_ttft', 'TTFT')}:</span>
+                    <span className='font-mono font-semibold truncate min-w-0 flex-1'>
                       {state?.last_ttft_ms ? `${state.last_ttft_ms} ms` : '—'}
                     </span>
                   </div>
@@ -1025,7 +1069,7 @@ export function ClientPage() {
               </CardContent>
             </Card>
           )}
-        </main>
+        </SidebarInset>
       </div>
 
       {/* Disconnect Confirmation Dialog */}
@@ -1055,6 +1099,6 @@ export function ClientPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </SidebarProvider>
   )
 }

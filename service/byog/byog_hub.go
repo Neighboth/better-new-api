@@ -157,12 +157,14 @@ func (h *Hub) Register(session *NodeSession) {
 	h.sessions.Store(session.NodeId, session)
 	// Update Node Status in DB
 	common.SysLog(fmt.Sprintf("[BYOG] Node connected: %s (User: %d)", session.NodeId, session.UserId))
-	_ = model.DB.Model(&model.ByogNode{}).
-		Where("node_id = ?", session.NodeId).
-		Updates(map[string]interface{}{
-			"status":            "online",
-			"last_heartbeat_at": time.Now().Unix(),
-		})
+	if model.DB != nil {
+		_ = model.DB.Model(&model.ByogNode{}).
+			Where("node_id = ?", session.NodeId).
+			Updates(map[string]interface{}{
+				"status":            "online",
+				"last_heartbeat_at": time.Now().Unix(),
+			})
+	}
 }
 
 func (h *Hub) Unregister(nodeId string) {
@@ -174,11 +176,13 @@ func (h *Hub) Unregister(nodeId string) {
 		}
 		session.Mu.Unlock()
 		common.SysLog(fmt.Sprintf("[BYOG] Node disconnected: %s", nodeId))
-		_ = model.DB.Model(&model.ByogNode{}).
-			Where("node_id = ?", nodeId).
-			Updates(map[string]interface{}{
-				"status": "offline",
-			})
+		if model.DB != nil {
+			_ = model.DB.Model(&model.ByogNode{}).
+				Where("node_id = ?", nodeId).
+				Updates(map[string]interface{}{
+					"status": "offline",
+				})
+		}
 	}
 }
 

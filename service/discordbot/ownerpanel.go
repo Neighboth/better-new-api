@@ -133,7 +133,13 @@ func (b *Bot) handleOwnerPanelCommand(s *discordgo.Session, m *discordgo.Message
 		return
 	}
 
-	// Every invocation re-authenticates, so a stale DM session cannot be reused.
+	session := b.sessionFor(m.Author.ID)
+	if session != nil {
+		body, actions := b.renderOwnerSection(session)
+		b.sendOwnerMessage(s, m.ChannelID, ownerPanelLayout(session, body, actions, "👋 Oturumunuz aktif.")...)
+		return
+	}
+
 	b.ownerMu.Lock()
 	delete(b.ownerSessions, m.Author.ID)
 	b.ownerAuth[m.Author.ID] = &ownerAuthRequest{
@@ -144,14 +150,15 @@ func (b *Bot) handleOwnerPanelCommand(s *discordgo.Session, m *discordgo.Message
 	b.ownerMu.Unlock()
 
 	b.sendOwnerMessage(s, m.ChannelID,
-		textDisplay(fmt.Sprintf(" **Yönetici doğrulaması**\nHesap: %s (`#%d`)\nRol: %s",
+		textDisplay(fmt.Sprintf("🛡️ **Yönetici Doğrulaması**\nHesap: `%s` (`#%d`)\nRol: %s",
 			account.Username, account.Id, describeRole(account.Role))),
 		separator(),
 		textDisplay(fmt.Sprintf(
-			"Site şifrenizi bu DM'e **%s** içinde yazın.\n"+
-				"Gönderdiğiniz mesaj anında silinir ve şifre hiçbir yerde saklanmaz.\n"+
-				"En fazla %d deneme hakkınız var.",
+			"Güvenliğiniz için site şifrenizi aşağıdaki butona tıklayarak açılan form penceresinden girin.\n"+
+				"Şifreniz sohbette görünmez ve kaydedilmez.\n"+
+				"Oturum süresi: **%s** | Kalan hak: %d deneme",
 			formatDuration(ownerAuthTTL), ownerMaxAuthAttempts)),
+		actionRow(primaryButton(ownerPanelPrefix+"auth:prompt", "🔑 Şifre ile Giriş Yap")),
 	)
 }
 
@@ -278,7 +285,34 @@ func ownerPanelLayout(session *ownerSession, body string, actions []discordgo.Me
 		actionRow(ownerSectionSelect(session)),
 	)
 	if len(actions) > 0 {
-		components = append(components, actionRow(actions...))
+		var currentButtons []discordgo.MessageComponent
+		flushButtons := func() {
+			if len(currentButtons) > 0 {
+				components = append(components, actionRow(currentButtons...))
+				currentButtons = nil
+			}
+		}
+		for _, act := range actions {
+			switch val := act.(type) {
+			case discordgo.SelectMenu, *discordgo.SelectMenu:
+				flushButtons()
+				components = append(components, actionRow(val))
+			case discordgo.ActionsRow:
+				flushButtons()
+				components = append(components, val)
+			case *discordgo.ActionsRow:
+				if val != nil {
+					flushButtons()
+					components = append(components, *val)
+				}
+			default:
+				currentButtons = append(currentButtons, act)
+				if len(currentButtons) == 5 {
+					flushButtons()
+				}
+			}
+		}
+		flushButtons()
 	}
 	return append(components, actionRow(
 		secondaryButton(ownerPanelPrefix+"refresh", "🔄 Yenile"),
@@ -495,6 +529,7 @@ func (b *Bot) renderOwnerCoupons(session *ownerSession) (string, []discordgo.Mes
 	actions := []discordgo.MessageComponent{}
 	if session.can(authz.RedemptionWrite) {
 		actions = append(actions, ownerActionSelect(ownerSectionCoupons, "Kupon islemi secin",
+			discordgo.SelectMenuOption{Label: "Kupon olustur", Value: "coupon:create"},
 			discordgo.SelectMenuOption{Label: "Kupon sil", Value: "coupon:delete"},
 		))
 	}
@@ -537,6 +572,20 @@ func paginationActions(session *ownerSession, total int64) []discordgo.MessageCo
 
 // handleOwnerPanelComponent routes a button or select-menu click.
 func (b *Bot) handleOwnerPanelComponent(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.MessageComponentInteractionData) {
+	if data.CustomID == ownerPanelPrefix+"auth:prompt" {
+		b.ownerMu.Lock()
+		req, exists := b.ownerAuth[interactionUserID(i)]
+		b.ownerMu.Unlock()
+		if !exists || time.Now().After(req.expiresAt) {
+			_ = respondPanel(s, i, textDisplay("⚠️ Doğrulama süresi doldu. Lütfen `!owner` komutunu tekrar çalıştırın."))
+			return
+		}
+		safeOpenModal(s, i, ownerModalPrefix+"auth", "Yönetici Girişi",
+			textInput("password", "Site Şifreniz", "Yönetici şifrenizi girin", true, discordgo.TextInputShort),
+		)
+		return
+	}
+
 	session := b.sessionFor(interactionUserID(i))
 	if session == nil {
 		_ = respondPanel(s, i, textDisplay("Oturum kapandi. DM'den komutu yeniden calistirin."))

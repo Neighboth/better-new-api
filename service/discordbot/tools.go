@@ -20,7 +20,7 @@ type ToolDefinition struct {
 type FunctionSpec struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
-	Parameters  map[string]any `json:"parameters,omitempty"`
+	Parameters  map[string]any `json:"parameters"`
 }
 
 type ToolCall struct {
@@ -34,7 +34,7 @@ type ToolCall struct {
 
 // GetDiscordBotTools returns all tools available to the Discord bot assistant.
 func GetDiscordBotTools() []ToolDefinition {
-	return []ToolDefinition{
+	tools := []ToolDefinition{
 		{
 			Type: "function",
 			Function: FunctionSpec{
@@ -488,6 +488,15 @@ func GetDiscordBotTools() []ToolDefinition {
 			},
 		},
 	}
+	for i := range tools {
+		if tools[i].Function.Parameters == nil {
+			tools[i].Function.Parameters = map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			}
+		}
+	}
+	return tools
 }
 
 // checkUserPermission strictly verifies that the user invoking the AI has native Discord permissions.

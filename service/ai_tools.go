@@ -16,11 +16,11 @@ type ToolDefinition struct {
 type FunctionSpec struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
-	Parameters  map[string]any `json:"parameters,omitempty"`
+	Parameters  map[string]any `json:"parameters"`
 }
 
 func GetLiveSupportTools() []ToolDefinition {
-	return []ToolDefinition{
+	tools := []ToolDefinition{
 		{
 			Type: "function",
 			Function: FunctionSpec{
@@ -43,6 +43,15 @@ func GetLiveSupportTools() []ToolDefinition {
 			},
 		},
 	}
+	for i := range tools {
+		if tools[i].Function.Parameters == nil {
+			tools[i].Function.Parameters = map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			}
+		}
+	}
+	return tools
 }
 
 func ExecuteLiveSupportTool(name string) string {

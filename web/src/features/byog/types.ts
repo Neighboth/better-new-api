@@ -27,6 +27,7 @@ export interface ByogNode {
   arch: string
   hwid: string
   cpu_model: string
+  cpu_cores?: number
   gpu_model: string
   npu_model: string
   physical_ram_mb: number

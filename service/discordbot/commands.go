@@ -1,10 +1,15 @@
 package discordbot
 
 import (
+	"bytes"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/bwmarrin/discordgo"
@@ -109,6 +114,7 @@ func (b *Bot) sendModelsPanel(s *discordgo.Session, channelID string) {
 type imageGenerationResponse struct {
 	Data []struct {
 		URL           string `json:"url"`
+		B64JSON       string `json:"b64_json"`
 		RevisedPrompt string `json:"revised_prompt"`
 	} `json:"data"`
 	Error *struct {
@@ -152,15 +158,63 @@ func (b *Bot) generateImage(s *discordgo.Session, m *discordgo.MessageCreate, pr
 		reply("Gorsel uretilemedi:\n" + response.Error.Message)
 		return
 	}
-	if len(response.Data) == 0 || response.Data[0].URL == "" {
+	if len(response.Data) == 0 || (response.Data[0].URL == "" && response.Data[0].B64JSON == "") {
 		reply("Gorsel uretilemedi:\nSaglayici gorsel dondurmedi.")
 		return
 	}
 
-	_, _ = sendPanel(s, m.ChannelID,
-		textDisplay("Gorsel hazir:\n`"+truncateText(prompt, 200)+"`"),
-		discordgo.MediaGallery{Items: []discordgo.MediaGalleryItem{{Media: discordgo.UnfurledMediaItem{URL: response.Data[0].URL}}}},
-	)
+	rawImg := response.Data[0].B64JSON
+	url := response.Data[0].URL
+
+	var imgBytes []byte
+	if rawImg != "" {
+		imgBytes, _ = base64.StdEncoding.DecodeString(rawImg)
+	} else if strings.HasPrefix(url, "data:image/") {
+		if comma := strings.Index(url, ","); comma != -1 {
+			imgBytes, _ = base64.StdEncoding.DecodeString(url[comma+1:])
+		}
+	} else if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
+		client := http.Client{Timeout: 12 * time.Second}
+		if resp, err := client.Get(url); err == nil && resp.StatusCode == http.StatusOK {
+			defer resp.Body.Close()
+			imgBytes, _ = io.ReadAll(resp.Body)
+		}
+	}
+
+	ref := &discordgo.MessageReference{
+		MessageID: m.ID,
+		ChannelID: m.ChannelID,
+		GuildID:   m.GuildID,
+	}
+
+	if len(imgBytes) > 0 {
+		_, _ = s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
+			Content: fmt.Sprintf("🎨 **Görsel hazır:**\n`%s`", truncateText(prompt, 200)),
+			Files: []*discordgo.File{
+				{
+					Name:        "image.png",
+					ContentType: "image/png",
+					Reader:      bytes.NewReader(imgBytes),
+				},
+			},
+			Reference: ref,
+		})
+		return
+	}
+
+	// Fallback to Embed with Image URL
+	embed := &discordgo.MessageEmbed{
+		Title:       "🎨 Görsel Hazır",
+		Description: fmt.Sprintf("`%s`", truncateText(prompt, 200)),
+		Color:       0x5865F2,
+		Image: &discordgo.MessageEmbedImage{
+			URL: url,
+		},
+	}
+	_, _ = s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
+		Embeds:    []*discordgo.MessageEmbed{embed},
+		Reference: ref,
+	})
 }
 
 // userIsLinked reports whether a Discord account is bound to a site user.
@@ -288,13 +342,17 @@ func (b *Bot) handleApplicationCommand(s *discordgo.Session, i *discordgo.Intera
 				Model  string `json:"model"`
 			}
 			request.Prompt = prompt
-			request.Model = settings.AutoReplyModel
+			request.Model = settings.ImageModel
+			if request.Model == "" {
+				request.Model = settings.AutoReplyModel
+			}
 			if request.Model == "" {
 				request.Model = "dall-e-3"
 			}
 			var response struct {
 				Data []struct {
-					URL string `json:"url"`
+					URL     string `json:"url"`
+					B64JSON string `json:"b64_json"`
 				} `json:"data"`
 				Error *struct {
 					Message string `json:"message"`
@@ -312,15 +370,53 @@ func (b *Bot) handleApplicationCommand(s *discordgo.Session, i *discordgo.Intera
 				})
 				return
 			}
-			if len(response.Data) == 0 || response.Data[0].URL == "" {
+			if len(response.Data) == 0 || (response.Data[0].URL == "" && response.Data[0].B64JSON == "") {
 				_, _ = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 					Content: "❌ Görsel bağlantısı alınamadı.",
 				})
 				return
 			}
+			rawImg := response.Data[0].B64JSON
 			imageURL := response.Data[0].URL
+
+			var imgBytes []byte
+			if rawImg != "" {
+				imgBytes, _ = base64.StdEncoding.DecodeString(rawImg)
+			} else if strings.HasPrefix(imageURL, "data:image/") {
+				if comma := strings.Index(imageURL, ","); comma != -1 {
+					imgBytes, _ = base64.StdEncoding.DecodeString(imageURL[comma+1:])
+				}
+			} else if strings.HasPrefix(imageURL, "http://") || strings.HasPrefix(imageURL, "https://") {
+				client := http.Client{Timeout: 12 * time.Second}
+				if resp, err := client.Get(imageURL); err == nil && resp.StatusCode == http.StatusOK {
+					defer resp.Body.Close()
+					imgBytes, _ = io.ReadAll(resp.Body)
+				}
+			}
+
+			if len(imgBytes) > 0 {
+				_, _ = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+					Content: fmt.Sprintf("🎨 **Prompt:** %s", prompt),
+					Files: []*discordgo.File{
+						{
+							Name:        "image.png",
+							ContentType: "image/png",
+							Reader:      bytes.NewReader(imgBytes),
+						},
+					},
+				})
+				return
+			}
+
 			_, _ = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-				Content: fmt.Sprintf("🎨 **Prompt:** %s\n%s", prompt, imageURL),
+				Content: fmt.Sprintf("🎨 **Prompt:** %s", prompt),
+				Embeds: []*discordgo.MessageEmbed{
+					{
+						Title: "Görsel",
+						Color: 0x5865F2,
+						Image: &discordgo.MessageEmbedImage{URL: imageURL},
+					},
+				},
 			})
 		}()
 

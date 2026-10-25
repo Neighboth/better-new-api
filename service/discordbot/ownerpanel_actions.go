@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -140,7 +141,7 @@ func (b *Bot) handleOwnerTicketAction(s *discordgo.Session, i *discordgo.Interac
 }
 
 func (b *Bot) handleOwnerCouponAction(s *discordgo.Session, i *discordgo.InteractionCreate, session *ownerSession, parts []string) {
-	if len(parts) < 2 || parts[1] != "delete" {
+	if len(parts) < 2 {
 		_ = respondPanel(s, i, textDisplay("Geçersiz işlem parametresi."))
 		return
 	}
@@ -148,10 +149,20 @@ func (b *Bot) handleOwnerCouponAction(s *discordgo.Session, i *discordgo.Interac
 		b.denyOwnerAction(s, i)
 		return
 	}
-	safeOpenModal(s, i, ownerModalPrefix+"coupon_delete", "Kuponu sil",
-		textInput("id", "Kupon id", "1", true, discordgo.TextInputShort),
-		textInput("confirm", "Onay için SİL yazın", "SİL", true, discordgo.TextInputShort),
-	)
+	switch parts[1] {
+	case "create":
+		safeOpenModal(s, i, ownerModalPrefix+"coupon_create", "Kupon oluştur",
+			textInput("name", "Kupon Adı / Açıklama", "Promosyon Kuponu", true, discordgo.TextInputShort),
+			textInput("quota", "Bakiye Miktarı (quota, boş = 500000)", "500000", false, discordgo.TextInputShort),
+		)
+	case "delete":
+		safeOpenModal(s, i, ownerModalPrefix+"coupon_delete", "Kuponu sil",
+			textInput("id", "Kupon id", "1", true, discordgo.TextInputShort),
+			textInput("confirm", "Onay için SİL yazın", "SİL", true, discordgo.TextInputShort),
+		)
+	default:
+		_ = respondPanel(s, i, textDisplay("Geçersiz kupon işlemi."))
+	}
 }
 
 func (b *Bot) denyOwnerAction(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -160,6 +171,65 @@ func (b *Bot) denyOwnerAction(s *discordgo.Session, i *discordgo.InteractionCrea
 
 // handleOwnerPanelModal runs the action a modal collected input for.
 func (b *Bot) handleOwnerPanelModal(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.ModalSubmitInteractionData) {
+	actionName := strings.TrimPrefix(data.CustomID, ownerModalPrefix)
+	if actionName == "auth" {
+		userID := interactionUserID(i)
+		b.ownerMu.Lock()
+		req, exists := b.ownerAuth[userID]
+		b.ownerMu.Unlock()
+		if !exists || time.Now().After(req.expiresAt) {
+			_ = respondPanel(s, i, textDisplay("⚠️ Doğrulama süresi doldu. Lütfen `!owner` komutunu tekrar çalıştırın."))
+			return
+		}
+
+		account, err := model.GetUserById(req.userID, true)
+		if err != nil || account.Status != common.UserStatusEnabled {
+			_ = respondPanel(s, i, textDisplay("❌ Hesap bulunamadı veya devre dışı."))
+			return
+		}
+
+		pwd := strings.TrimSpace(modalValue(data, "password"))
+		if !common.ValidatePasswordAndHash(pwd, account.Password) {
+			req.attempts++
+			if req.attempts >= ownerMaxAuthAttempts {
+				b.ownerMu.Lock()
+				delete(b.ownerAuth, userID)
+				b.ownerMu.Unlock()
+				_ = respondPanel(s, i, textDisplay(fmt.Sprintf("❌ **%d hatalı deneme.** Güvenlik nedeniyle oturum kilitlendi. Lütfen komutu yeniden çalıştırın.", req.attempts)))
+				return
+			}
+			req.expiresAt = time.Now().Add(ownerAuthTTL)
+			b.ownerMu.Lock()
+			b.ownerAuth[userID] = req
+			b.ownerMu.Unlock()
+
+			_ = respondPanel(s, i,
+				textDisplay(fmt.Sprintf("❌ **Şifre hatalı.** Kalan hak: %d", ownerMaxAuthAttempts-req.attempts)),
+				actionRow(primaryButton(ownerPanelPrefix+"auth:prompt", "🔑 Tekrar Dene")),
+			)
+			return
+		}
+
+		b.ownerMu.Lock()
+		delete(b.ownerAuth, userID)
+		session := &ownerSession{
+			userID:      account.Id,
+			username:    account.Username,
+			displayName: account.DisplayName,
+			role:        account.Role,
+			permissions: authz.Capabilities(account.Id, account.Role),
+			section:     ownerSectionOverview,
+			page:        1,
+		}
+		session.touch()
+		b.ownerSessions[userID] = session
+		b.ownerMu.Unlock()
+
+		body, actions := b.renderOwnerSection(session)
+		_ = replyPanel(s, i, ownerPanelLayout(session, body, actions, "✅ Giriş başarılı! Hoş geldiniz.")...)
+		return
+	}
+
 	session := b.sessionFor(interactionUserID(i))
 	if session == nil {
 		_ = respondPanel(s, i, textDisplay(" **Oturum kapandı.** DM'den komutu yeniden çalıştırın."))
@@ -167,7 +237,7 @@ func (b *Bot) handleOwnerPanelModal(s *discordgo.Session, i *discordgo.Interacti
 	}
 
 	var notice string
-	switch strings.TrimPrefix(data.CustomID, ownerModalPrefix) {
+	switch actionName {
 	case "user_create":
 		notice = b.runOwnerUserCreate(session, data)
 	case "user_quota":
@@ -188,6 +258,8 @@ func (b *Bot) handleOwnerPanelModal(s *discordgo.Session, i *discordgo.Interacti
 		notice = b.runOwnerTicketStatus(session, data)
 	case "ticket_delete":
 		notice = b.runOwnerTicketDelete(session, data)
+	case "coupon_create":
+		notice = b.runOwnerCouponCreate(session, data)
 	case "coupon_delete":
 		notice = b.runOwnerCouponDelete(session, data)
 	default:
@@ -462,6 +534,34 @@ func (b *Bot) runOwnerCouponDelete(session *ownerSession, data discordgo.ModalSu
 		return " **Kupon silinemedi**\n" + err.Error()
 	}
 	return fmt.Sprintf(" Kupon `#%d` silindi.", id)
+}
+
+func (b *Bot) runOwnerCouponCreate(session *ownerSession, data discordgo.ModalSubmitInteractionData) string {
+	if !session.can(authz.RedemptionWrite) {
+		return "⚠️ Yetki yok."
+	}
+	name := strings.TrimSpace(modalValue(data, "name"))
+	if name == "" {
+		name = "Discord Kupon"
+	}
+	quota := 500000
+	if qStr := strings.TrimSpace(modalValue(data, "quota")); qStr != "" {
+		if parsed, err := strconv.Atoi(qStr); err == nil && parsed > 0 {
+			quota = parsed
+		}
+	}
+	redemption := &model.Redemption{
+		UserId:      session.userID,
+		Name:        name,
+		Key:         common.GetUUID(),
+		Status:      common.RedemptionCodeStatusEnabled,
+		Quota:       quota,
+		CreatedTime: time.Now().Unix(),
+	}
+	if err := redemption.Insert(); err != nil {
+		return "⚠️ Kupon oluşturulamadı: " + err.Error()
+	}
+	return fmt.Sprintf("✅ **Kupon oluşturuldu!**\n🎟️ Kod: `%s`\n💰 Değer: `%s`", redemption.Key, logger.FormatQuota(redemption.Quota))
 }
 
 // resolveOwnerTargetUser accepts either a numeric user id or a username.

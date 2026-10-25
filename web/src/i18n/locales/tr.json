@@ -6733,7 +6733,7 @@
     "Set height of the header logo in pixels (e.g., 24-60px for wider logos)": "Üst barda logoyla piksel cinsinden yükseklik ayarlayın (örn. geniş logolar için 24-60px)",
     "Hide Site Name in Header": "Üst Barda Site Adını Gizle",
     "Show only logo in header without site name text": "Üst barda site adı metni olmadan sadece logoyu göster",
-    "Always Cache Hit": "Her Zaman Önbellek İsabeti (Always Cache Hit)",
+    "Always Cache Hit": "Her Zaman Önbellek İsabeti",
     "When enabled, even if the upstream channel does not support caching, the system charges the discounted cache rate for cacheable prompts.": "Etkinleştirildiğinde, yukarı akış kanalı önbelleğe almayı desteklemese bile sistem önbelleklenebilir istekler için indirimli önbellek ücretini uygular."
   }
 }

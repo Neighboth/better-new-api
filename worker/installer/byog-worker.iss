@@ -138,9 +138,53 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,BYOG Worker}"
 Type: filesandordirs; Name: "{app}"
 
 [Code]
+var
+  BrandingLoaded: Boolean;
+  BrandServerUrl: String;
+  BrandSystemName: String;
+  BrandAppName: String;
+  BrandFavicon: String;
+  BrandFaviconBase64: String;
+  BrandFaviconIcoBase64: String;
+  PolicyPage: TWizardPage;
+  PolicyMemo: TNewMemo;
+  PolicyAccept: TNewCheckBox;
+  PoliciesLoaded: Boolean;
+  DownloadPage: TDownloadWizardPage;
+  BrandedClientDownloaded: Boolean;
+
+function LoadBranding(): Boolean; forward;
+function EnsureBrandIcon(): String; forward;
+
 #include "flags_base64.iss"
 
+const
+  WM_SETICON = $0080;
+  ICON_SMALL = 0;
+  ICON_BIG = 1;
+  IMAGE_ICON = 1;
+  LR_LOADFROMFILE = $0010;
+
 function GetUserDefaultUILanguage(): Word; external 'GetUserDefaultUILanguage@kernel32.dll stdcall';
+function LoadImageW(hInst: THandle; ImageName: String; ImageType: UINT; X, Y: Integer; Flags: UINT): THandle; external 'LoadImageW@user32.dll stdcall';
+function SendMessageW(hWnd: HWND; Msg: UINT; wParam: Longint; lParam: Longint): Longint; external 'SendMessageW@user32.dll stdcall';
+
+procedure ApplyWindowIcon(const WindowHandle: HWND; const IcoFile: String);
+var
+  hIconBig, hIconSmall: THandle;
+begin
+  if (IcoFile = '') or (not FileExists(IcoFile)) then
+    Exit;
+  try
+    hIconBig := LoadImageW(0, IcoFile, IMAGE_ICON, ScaleX(32), ScaleY(32), LR_LOADFROMFILE);
+    hIconSmall := LoadImageW(0, IcoFile, IMAGE_ICON, ScaleX(16), ScaleY(16), LR_LOADFROMFILE);
+    if hIconBig <> 0 then
+      SendMessageW(WindowHandle, WM_SETICON, ICON_BIG, hIconBig);
+    if hIconSmall <> 0 then
+      SendMessageW(WindowHandle, WM_SETICON, ICON_SMALL, hIconSmall);
+  except
+  end;
+end;
 
 function B64CharVal(C: Char): Integer;
 begin
@@ -241,7 +285,7 @@ var
   TempFiles: array of String;
   I, YPos, ErrorCode: Integer;
   HasChecked: Boolean;
-  CmdLine, P: String;
+  CmdLine, P, IcoPath: String;
 begin
   Result := False;
   DefaultLang := DetectDefaultLanguage();
@@ -273,8 +317,10 @@ begin
   DecodeB64ToFile(FlagB64_ja(), TempFiles[6]);
   DecodeB64ToFile(FlagB64_vi(), TempFiles[7]);
 
-  LangForm := TSetupForm.Create(nil);
+  LangForm := CreateCustomForm(ScaleX(450), ScaleY(440), False, True);
   try
+    IcoPath := EnsureBrandIcon();
+    ApplyWindowIcon(LangForm.Handle, IcoPath);
     LangForm.ClientWidth := ScaleX(450);
     LangForm.ClientHeight := ScaleY(440);
     LangForm.Position := poScreenCenter;
@@ -378,18 +424,6 @@ begin
       DeleteFile(TempFiles[I]);
   end;
 end;
-var
-  BrandingLoaded: Boolean;
-  BrandServerUrl: String;
-  BrandSystemName: String;
-  BrandAppName: String;
-  BrandFavicon: String;
-  PolicyPage: TWizardPage;
-  PolicyMemo: TNewMemo;
-  PolicyAccept: TNewCheckBox;
-  PoliciesLoaded: Boolean;
-  DownloadPage: TDownloadWizardPage;
-  BrandedClientDownloaded: Boolean;
 
 // installerLanguage returns the language of the client that belongs to the
 // language of the installation.
@@ -543,6 +577,8 @@ begin
       BrandSystemName := JsonText(document, 'system_name');
       BrandAppName := JsonText(document, 'app_name');
       BrandFavicon := JsonText(document, 'favicon');
+      BrandFaviconBase64 := JsonText(document, 'favicon_base64');
+      BrandFaviconIcoBase64 := JsonText(document, 'favicon_ico_base64');
       Result := (BrandServerUrl <> '') or (BrandSystemName <> '');
     finally
       stream.Free;
@@ -550,6 +586,37 @@ begin
   except
     Result := False;
   end;
+end;
+
+function EnsureBrandIcon(): String;
+var
+  icoPath: String;
+begin
+  icoPath := ExpandConstant('{tmp}\brand_icon.ico');
+  if FileExists(icoPath) then
+  begin
+    Result := icoPath;
+    Exit;
+  end;
+  if BrandFaviconIcoBase64 <> '' then
+  begin
+    DecodeB64ToFile(BrandFaviconIcoBase64, icoPath);
+    if FileExists(icoPath) then
+    begin
+      Result := icoPath;
+      Exit;
+    end;
+  end
+  else if BrandFaviconBase64 <> '' then
+  begin
+    DecodeB64ToFile(BrandFaviconBase64, icoPath);
+    if FileExists(icoPath) then
+    begin
+      Result := icoPath;
+      Exit;
+    end;
+  end;
+  Result := '';
 end;
 
 // GetDisplayName returns the name of the installation in the applications of
@@ -706,7 +773,11 @@ begin
 end;
 
 procedure InitializeWizard();
+var
+  icoPath: String;
 begin
+  icoPath := EnsureBrandIcon();
+  ApplyWindowIcon(WizardForm.Handle, icoPath);
   PoliciesLoaded := False;
   BrandedClientDownloaded := False;
   DownloadPage := CreateDownloadPage(SetupMessage(msgWizardPreparing),
@@ -759,6 +830,10 @@ var
   I: Integer;
   AlreadySelected: Boolean;
 begin
+  BrandingLoaded := LoadBranding();
+  Log('BYOG branding: ' + IntToStr(Ord(BrandingLoaded)) + ' | ' +
+    BrandSystemName + ' | ' + BrandServerUrl);
+
   AlreadySelected := False;
   for I := 1 to ParamCount do
   begin
@@ -781,9 +856,6 @@ begin
     Exit;
   end;
 
-  BrandingLoaded := LoadBranding();
-  Log('BYOG branding: ' + IntToStr(Ord(BrandingLoaded)) + ' | ' +
-    BrandSystemName + ' | ' + BrandServerUrl);
   Result := True;
 end;
 
@@ -827,6 +899,8 @@ begin
   if CurStep = ssPostInstall then
   begin
     writeInstallerLanguage();
+    if FileExists(ExpandConstant('{tmp}\brand_icon.ico')) then
+      FileCopy(ExpandConstant('{tmp}\brand_icon.ico'), ExpandConstant('{app}\byog.ico'), False);
     if BrandingLoaded and (not BrandedClientDownloaded) then
       AppendBrandingToClient();
     WriteClientConfig();
