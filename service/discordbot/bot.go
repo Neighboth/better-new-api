@@ -259,9 +259,14 @@ func (b *Bot) handleAutoReply(s *discordgo.Session, m *discordgo.MessageCreate, 
 	}
 
 	reply, err := callLocalChatCompletionWithTools(s, m, modelName, messages)
+	ref := &discordgo.MessageReference{
+		MessageID: m.ID,
+		ChannelID: m.ChannelID,
+		GuildID:   m.GuildID,
+	}
 	if err != nil {
 		log.Printf("Discord auto-reply failed: %v", err)
-		_, _ = sendPanel(s, m.ChannelID,
+		_, _ = sendPanelReply(s, m.ChannelID, ref,
 			textDisplay(" **Yanıt üretilemedi**\n"+err.Error()),
 		)
 		return
@@ -276,7 +281,7 @@ func (b *Bot) handleAutoReply(s *discordgo.Session, m *discordgo.MessageCreate, 
 	})
 	b.historyMu.Unlock()
 
-	if _, err := sendPanel(s, m.ChannelID,
+	if _, err := sendPanelReply(s, m.ChannelID, ref,
 		textDisplay(reply),
 		separator(),
 		textDisplay(fmt.Sprintf("_%s  %s_", settings.BotName, modelName)),

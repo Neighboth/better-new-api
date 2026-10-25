@@ -6726,14 +6726,14 @@
     "byog.client_onboarding_grant": "Разрешить",
     "byog.client_onboarding_continue": "Продолжить",
     "byog.client_update_available": "Доступна новая версия приложения ({{version}}).",
-    "byog.client_update_install": "Обновить"
-  },
-  "URL to your logo image (used in header, footer, etc.)": "URL-адрес изображения вашего логотипа (используется в шапке, подвале и т.д.)",
-  "Direct link to browser tab icon. If empty, uses Logo URL.": "Прямая ссылка на иконку вкладки браузера. Если пусто, используется URL логотипа.",
-  "Header Logo Height (px)": "Высота логотипа в шапке (px)",
-  "Set height of the header logo in pixels (e.g., 24-60px for wider logos)": "Задайте высоту логотипа в шапке в пикселях (например, 24-60px для широких логотипов)",
-  "Hide Site Name in Header": "Скрыть название сайта в шапке",
-  "Show only logo in header without site name text": "Показывать в шапке только логотип без текста названия сайта",
-  "Always Cache Hit": "Всегда списывать по тарифу кэша",
-  "When enabled, even if the upstream channel does not support caching, the system charges the discounted cache rate for cacheable prompts.": "Если включено, даже если вышестоящий канал не поддерживает кэширование, система применяет сниженный тариф кэша для кэшируемых запросов."
+    "byog.client_update_install": "Обновить",
+    "URL to your logo image (used in header, footer, etc.)": "URL-адрес изображения вашего логотипа (используется в шапке, подвале и т.д.)",
+    "Direct link to browser tab icon. If empty, uses Logo URL.": "Прямая ссылка на иконку вкладки браузера. Если пусто, используется URL логотипа.",
+    "Header Logo Height (px)": "Высота логотипа в шапке (px)",
+    "Set height of the header logo in pixels (e.g., 24-60px for wider logos)": "Задайте высоту логотипа в шапке в пикселях (например, 24-60px для широких логотипов)",
+    "Hide Site Name in Header": "Скрыть название сайта в шапке",
+    "Show only logo in header without site name text": "Показывать в шапке только логотип без текста названия сайта",
+    "Always Cache Hit": "Всегда списывать по тарифу кэша",
+    "When enabled, even if the upstream channel does not support caching, the system charges the discounted cache rate for cacheable prompts.": "Если включено, даже если вышестоящий канал не поддерживает кэширование, система применяет сниженный тариф кэша для кэшируемых запросов."
+  }
 }

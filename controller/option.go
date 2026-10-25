@@ -13,7 +13,6 @@ import (
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/service/discordbot"
 	"github.com/QuantumNous/new-api/setting"
-	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -452,9 +451,6 @@ func UpdateOption(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
-	}
-	if strings.HasPrefix(option.Key, "relay_fallback_setting.") || strings.HasPrefix(option.Key, "checkin_setting.") || strings.HasPrefix(option.Key, "ticket_setting.") || strings.HasPrefix(option.Key, "byog_setting.") || strings.HasPrefix(option.Key, "quota_setting.") {
-		_ = config.GlobalConfig.LoadFromDB(common.OptionMap)
 	}
 	if strings.HasPrefix(option.Key, "byog_setting.") {
 		val := option.Value.(string) == "true"

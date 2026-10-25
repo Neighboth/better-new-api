@@ -6726,14 +6726,14 @@
     "byog.client_onboarding_grant": "権限を許可",
     "byog.client_onboarding_continue": "続ける",
     "byog.client_update_available": "アプリの新しいバージョン ({{version}}) が利用可能です。",
-    "byog.client_update_install": "更新"
-  },
-  "URL to your logo image (used in header, footer, etc.)": "ロゴ画像のURL（ヘッダー、フッターなどで使用）",
-  "Direct link to browser tab icon. If empty, uses Logo URL.": "ブラウザタブ用アイコンの直リンク。空の場合はLogo URLが使用されます。",
-  "Header Logo Height (px)": "ヘッダーロゴの高さ (px)",
-  "Set height of the header logo in pixels (e.g., 24-60px for wider logos)": "ヘッダーロゴの高さをピクセル単位で設定（横幅の広いロゴの場合は24〜60pxなど）",
-  "Hide Site Name in Header": "ヘッダーでサイト名を非表示",
-  "Show only logo in header without site name text": "ヘッダーにサイト名テキストを表示せずロゴのみを表示",
-  "Always Cache Hit": "常にキャッシュヒットとして請求",
-  "When enabled, even if the upstream channel does not support caching, the system charges the discounted cache rate for cacheable prompts.": "有効にすると、上流チャネルがキャッシュをサポートしていなくても、キャッシュ可能なプロンプトに対して割引キャッシュレートで課金されます。"
+    "byog.client_update_install": "更新",
+    "URL to your logo image (used in header, footer, etc.)": "ロゴ画像のURL（ヘッダー、フッターなどで使用）",
+    "Direct link to browser tab icon. If empty, uses Logo URL.": "ブラウザタブ用アイコンの直リンク。空の場合はLogo URLが使用されます。",
+    "Header Logo Height (px)": "ヘッダーロゴの高さ (px)",
+    "Set height of the header logo in pixels (e.g., 24-60px for wider logos)": "ヘッダーロゴの高さをピクセル単位で設定（横幅の広いロゴの場合は24〜60pxなど）",
+    "Hide Site Name in Header": "ヘッダーでサイト名を非表示",
+    "Show only logo in header without site name text": "ヘッダーにサイト名テキストを表示せずロゴのみを表示",
+    "Always Cache Hit": "常にキャッシュヒットとして請求",
+    "When enabled, even if the upstream channel does not support caching, the system charges the discounted cache rate for cacheable prompts.": "有効にすると、上流チャネルがキャッシュをサポートしていなくても、キャッシュ可能なプロンプトに対して割引キャッシュレートで課金されます。"
+  }
 }

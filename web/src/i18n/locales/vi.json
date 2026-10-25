@@ -6726,14 +6726,14 @@
     "byog.client_onboarding_grant": "Cấp quyền",
     "byog.client_onboarding_continue": "Tiếp tục",
     "byog.client_update_available": "Đã có phiên bản mới của ứng dụng ({{version}}).",
-    "byog.client_update_install": "Cập nhật"
-  },
-  "URL to your logo image (used in header, footer, etc.)": "URL hình ảnh logo của bạn (dùng trong đầu trang, chân trang, v.v.)",
-  "Direct link to browser tab icon. If empty, uses Logo URL.": "Liên kết trực tiếp đến biểu tượng thẻ trình duyệt. Nếu để trống, sẽ dùng URL Logo.",
-  "Header Logo Height (px)": "Chiều cao Logo đầu trang (px)",
-  "Set height of the header logo in pixels (e.g., 24-60px for wider logos)": "Đặt chiều cao của logo đầu trang tính bằng pixel (ví dụ: 24-60px cho logo rộng hơn)",
-  "Hide Site Name in Header": "Ẩn tên trang web ở đầu trang",
-  "Show only logo in header without site name text": "Chỉ hiển thị logo ở đầu trang mà không kèm chữ tên trang web",
-  "Always Cache Hit": "Luôn tính phí trúng bộ nhớ cache",
-  "When enabled, even if the upstream channel does not support caching, the system charges the discounted cache rate for cacheable prompts.": "Khi được bật, ngay cả khi kênh ngược dòng không hỗ trợ lưu vào bộ nhớ cache, hệ thống vẫn tính mức phí bộ nhớ cache chiết khấu cho các lời nhắc có thể lưu vào bộ nhớ cache."
+    "byog.client_update_install": "Cập nhật",
+    "URL to your logo image (used in header, footer, etc.)": "URL hình ảnh logo của bạn (dùng trong đầu trang, chân trang, v.v.)",
+    "Direct link to browser tab icon. If empty, uses Logo URL.": "Liên kết trực tiếp đến biểu tượng thẻ trình duyệt. Nếu để trống, sẽ dùng URL Logo.",
+    "Header Logo Height (px)": "Chiều cao Logo đầu trang (px)",
+    "Set height of the header logo in pixels (e.g., 24-60px for wider logos)": "Đặt chiều cao của logo đầu trang tính bằng pixel (ví dụ: 24-60px cho logo rộng hơn)",
+    "Hide Site Name in Header": "Ẩn tên trang web ở đầu trang",
+    "Show only logo in header without site name text": "Chỉ hiển thị logo ở đầu trang mà không kèm chữ tên trang web",
+    "Always Cache Hit": "Luôn tính phí trúng bộ nhớ cache",
+    "When enabled, even if the upstream channel does not support caching, the system charges the discounted cache rate for cacheable prompts.": "Khi được bật, ngay cả khi kênh ngược dòng không hỗ trợ lưu vào bộ nhớ cache, hệ thống vẫn tính mức phí bộ nhớ cache chiết khấu cho các lời nhắc có thể lưu vào bộ nhớ cache."
+  }
 }

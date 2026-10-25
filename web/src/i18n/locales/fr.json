@@ -6726,14 +6726,14 @@
     "byog.client_onboarding_grant": "Accorder l'autorisation",
     "byog.client_onboarding_continue": "Continuer",
     "byog.client_update_available": "Une nouvelle version de l'application est prête ({{version}}).",
-    "byog.client_update_install": "Mettre à jour"
-  },
-  "URL to your logo image (used in header, footer, etc.)": "URL de l'image de votre logo (utilisé dans l'en-tête, le pied de page, etc.)",
-  "Direct link to browser tab icon. If empty, uses Logo URL.": "Lien direct vers l'icône d'onglet du navigateur. Si vide, utilise l'URL du logo.",
-  "Header Logo Height (px)": "Hauteur du logo d'en-tête (px)",
-  "Set height of the header logo in pixels (e.g., 24-60px for wider logos)": "Définir la hauteur du logo d'en-tête en pixels (ex. 24-60px pour les logos plus larges)",
-  "Hide Site Name in Header": "Masquer le nom du site dans l'en-tête",
-  "Show only logo in header without site name text": "Afficher uniquement le logo dans l'en-tête sans le texte du nom du site",
-  "Always Cache Hit": "Toujours facturer comme succès de cache",
-  "When enabled, even if the upstream channel does not support caching, the system charges the discounted cache rate for cacheable prompts.": "Lorsqu'elle est activée, même si le canal en amont ne prend pas en charge la mise en cache, le système facture le tarif réduit de cache pour les requêtes pouvant être mises en cache."
+    "byog.client_update_install": "Mettre à jour",
+    "URL to your logo image (used in header, footer, etc.)": "URL de l'image de votre logo (utilisé dans l'en-tête, le pied de page, etc.)",
+    "Direct link to browser tab icon. If empty, uses Logo URL.": "Lien direct vers l'icône d'onglet du navigateur. Si vide, utilise l'URL du logo.",
+    "Header Logo Height (px)": "Hauteur du logo d'en-tête (px)",
+    "Set height of the header logo in pixels (e.g., 24-60px for wider logos)": "Définir la hauteur du logo d'en-tête en pixels (ex. 24-60px pour les logos plus larges)",
+    "Hide Site Name in Header": "Masquer le nom du site dans l'en-tête",
+    "Show only logo in header without site name text": "Afficher uniquement le logo dans l'en-tête sans le texte du nom du site",
+    "Always Cache Hit": "Toujours facturer comme succès de cache",
+    "When enabled, even if the upstream channel does not support caching, the system charges the discounted cache rate for cacheable prompts.": "Lorsqu'elle est activée, même si le canal en amont ne prend pas en charge la mise en cache, le système facture le tarif réduit de cache pour les requêtes pouvant être mises en cache."
+  }
 }

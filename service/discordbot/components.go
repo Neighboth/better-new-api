@@ -28,8 +28,14 @@ func accentColor() *int {
 	return &color
 }
 
+func sanitizeMentions(text string) string {
+	text = strings.ReplaceAll(text, "@everyone", "@\u200beveryone")
+	text = strings.ReplaceAll(text, "@here", "@\u200bhere")
+	return text
+}
+
 func textDisplay(content string) discordgo.TextDisplay {
-	return discordgo.TextDisplay{Content: truncateText(content, textDisplayLimit)}
+	return discordgo.TextDisplay{Content: truncateText(sanitizeMentions(content), textDisplayLimit)}
 }
 
 func separator() discordgo.Separator {
@@ -64,9 +70,20 @@ func dangerButton(customID, label string) discordgo.Button {
 
 // sendPanel posts a message built from components with Components V2 priority and universal V1 fallback.
 func sendPanel(s *discordgo.Session, channelID string, components ...discordgo.MessageComponent) (*discordgo.Message, error) {
+	return sendPanelReply(s, channelID, nil, components...)
+}
+
+// sendPanelReply posts a message or reply with sanitized mentions and V1 fallback.
+func sendPanelReply(s *discordgo.Session, channelID string, ref *discordgo.MessageReference, components ...discordgo.MessageComponent) (*discordgo.Message, error) {
+	allowedMentions := &discordgo.MessageAllowedMentions{
+		Parse:       []discordgo.AllowedMentionType{}, // Never allow AI or bot to ping @everyone, @here, or @roles
+		RepliedUser: true,
+	}
 	msg, err := s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
-		Components: []discordgo.MessageComponent{container(components...)},
-		Flags:      discordgo.MessageFlagsIsComponentsV2,
+		Components:      []discordgo.MessageComponent{container(components...)},
+		Flags:           discordgo.MessageFlagsIsComponentsV2,
+		Reference:       ref,
+		AllowedMentions: allowedMentions,
 	})
 	if err == nil {
 		return msg, nil
@@ -74,8 +91,10 @@ func sendPanel(s *discordgo.Session, channelID string, components ...discordgo.M
 	// Fallback to standard Embed + ActionRows:
 	embed, rows := extractV1(components)
 	return s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
-		Embeds:     []*discordgo.MessageEmbed{embed},
-		Components: rows,
+		Embeds:          []*discordgo.MessageEmbed{embed},
+		Components:      rows,
+		Reference:       ref,
+		AllowedMentions: allowedMentions,
 	})
 }
 
@@ -250,6 +269,13 @@ func openModal(s *discordgo.Session, i *discordgo.InteractionCreate, customID, t
 			Components: rows,
 		},
 	})
+}
+
+// safeOpenModal wraps openModal to ensure an error response is always returned to Discord if the modal cannot be opened.
+func safeOpenModal(s *discordgo.Session, i *discordgo.InteractionCreate, customID, title string, inputs ...discordgo.TextInput) {
+	if err := openModal(s, i, customID, title, inputs...); err != nil {
+		_ = respondPanel(s, i, textDisplay("⚠️ Form penceresi açılamadı: "+err.Error()))
+	}
 }
 
 func textInput(customID, label, placeholder string, required bool, style discordgo.TextInputStyle) discordgo.TextInput {

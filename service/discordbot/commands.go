@@ -203,6 +203,13 @@ func (b *Bot) HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 			b.handleOwnerPanelModal(s, i, data)
 			return
 		}
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseDeferredMessageUpdate,
+		})
+	default:
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseDeferredMessageUpdate,
+		})
 	}
 }
 
@@ -327,6 +334,9 @@ func (b *Bot) handleApplicationCommand(s *discordgo.Session, i *discordgo.Intera
 
 func (b *Bot) handleLegacyComponent(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.MessageComponentInteractionData) {
 	if data.CustomID != "model_select" || len(data.Values) == 0 {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseDeferredMessageUpdate,
+		})
 		return
 	}
 	names, err := b.fetchAvailableModels()

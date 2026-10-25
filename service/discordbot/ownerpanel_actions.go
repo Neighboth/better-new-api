@@ -20,6 +20,7 @@ const ownerModalPrefix = ownerPanelPrefix + "modal:"
 
 func (b *Bot) handleOwnerUserAction(s *discordgo.Session, i *discordgo.InteractionCreate, session *ownerSession, parts []string) {
 	if len(parts) < 2 {
+		_ = respondPanel(s, i, textDisplay("Geçersiz işlem parametresi."))
 		return
 	}
 	switch parts[1] {
@@ -28,7 +29,7 @@ func (b *Bot) handleOwnerUserAction(s *discordgo.Session, i *discordgo.Interacti
 			b.denyOwnerAction(s, i)
 			return
 		}
-		_ = openModal(s, i, ownerModalPrefix+"user_create", "Kullanıcı oluştur",
+		safeOpenModal(s, i, ownerModalPrefix+"user_create", "Kullanıcı oluştur",
 			textInput("username", "Kullanıcı adı", "ornek_kullanici", true, discordgo.TextInputShort),
 			textInput("display_name", "Görünen ad", "Örnek Kullanıcı", false, discordgo.TextInputShort),
 			textInput("password", "Şifre", "en az 8 karakter", true, discordgo.TextInputShort),
@@ -39,7 +40,7 @@ func (b *Bot) handleOwnerUserAction(s *discordgo.Session, i *discordgo.Interacti
 			b.denyOwnerAction(s, i)
 			return
 		}
-		_ = openModal(s, i, ownerModalPrefix+"user_quota", "Bakiye güncelle",
+		safeOpenModal(s, i, ownerModalPrefix+"user_quota", "Bakiye güncelle",
 			textInput("target", "Kullanıcı (id veya kullanıcı adı)", "42", true, discordgo.TextInputShort),
 			textInput("delta", "Değişim (negatif düşürür)", "-5000", true, discordgo.TextInputShort),
 		)
@@ -48,7 +49,7 @@ func (b *Bot) handleOwnerUserAction(s *discordgo.Session, i *discordgo.Interacti
 			b.denyOwnerAction(s, i)
 			return
 		}
-		_ = openModal(s, i, ownerModalPrefix+"user_status", "Durum değiştir",
+		safeOpenModal(s, i, ownerModalPrefix+"user_status", "Durum değiştir",
 			textInput("target", "Kullanıcı (id veya kullanıcı adı)", "42", true, discordgo.TextInputShort),
 			textInput("status", "Durum (aktif / pasif)", "aktif", true, discordgo.TextInputShort),
 		)
@@ -57,10 +58,12 @@ func (b *Bot) handleOwnerUserAction(s *discordgo.Session, i *discordgo.Interacti
 			b.denyOwnerAction(s, i)
 			return
 		}
-		_ = openModal(s, i, ownerModalPrefix+"user_delete", "Kullanıcı sil",
+		safeOpenModal(s, i, ownerModalPrefix+"user_delete", "Kullanıcı sil",
 			textInput("target", "Kullanıcı (id veya kullanıcı adı)", "42", true, discordgo.TextInputShort),
 			textInput("confirm", "Onay için SİL yazın", "SİL", true, discordgo.TextInputShort),
 		)
+	default:
+		_ = respondPanel(s, i, textDisplay("Bilinmeyen kullanıcı işlemi."))
 	}
 }
 
@@ -70,33 +73,37 @@ func (b *Bot) handleOwnerBlogAction(s *discordgo.Session, i *discordgo.Interacti
 		return
 	}
 	if len(parts) < 2 {
+		_ = respondPanel(s, i, textDisplay("Geçersiz işlem parametresi."))
 		return
 	}
 	switch parts[1] {
 	case "create":
-		_ = openModal(s, i, ownerModalPrefix+"blog_create", "Blog yazısı ekle",
+		safeOpenModal(s, i, ownerModalPrefix+"blog_create", "Blog yazısı ekle",
 			textInput("title", "Başlık", "Duyuru", true, discordgo.TextInputShort),
 			textInput("summary", "Özet", "", false, discordgo.TextInputShort),
 			textInput("content", "İçerik (markdown)", "", true, discordgo.TextInputParagraph),
 			textInput("published", "Yayınla (evet/hayır)", "hayır", false, discordgo.TextInputShort),
 		)
 	case "edit":
-		_ = openModal(s, i, ownerModalPrefix+"blog_edit", "Blog yazısını düzenle",
+		safeOpenModal(s, i, ownerModalPrefix+"blog_edit", "Blog yazısını düzenle",
 			textInput("id", "Yazı id", "1", true, discordgo.TextInputShort),
 			textInput("title", "Yeni başlık (boş = değişmez)", "", false, discordgo.TextInputShort),
 			textInput("content", "Yeni içerik (boş = değişmez)", "", false, discordgo.TextInputParagraph),
 			textInput("published", "Yayın durumu (evet/hayır/boş)", "", false, discordgo.TextInputShort),
 		)
 	case "delete":
-		_ = openModal(s, i, ownerModalPrefix+"blog_delete", "Blog yazısını sil",
+		safeOpenModal(s, i, ownerModalPrefix+"blog_delete", "Blog yazısını sil",
 			textInput("id", "Yazı id", "1", true, discordgo.TextInputShort),
 			textInput("confirm", "Onay için SİL yazın", "SİL", true, discordgo.TextInputShort),
 		)
+	default:
+		_ = respondPanel(s, i, textDisplay("Bilinmeyen blog işlemi."))
 	}
 }
 
 func (b *Bot) handleOwnerTicketAction(s *discordgo.Session, i *discordgo.InteractionCreate, session *ownerSession, parts []string) {
 	if len(parts) < 2 {
+		_ = respondPanel(s, i, textDisplay("Geçersiz işlem parametresi."))
 		return
 	}
 	switch parts[1] {
@@ -105,7 +112,7 @@ func (b *Bot) handleOwnerTicketAction(s *discordgo.Session, i *discordgo.Interac
 			b.denyOwnerAction(s, i)
 			return
 		}
-		_ = openModal(s, i, ownerModalPrefix+"ticket_reply", "Talebi yanıtla",
+		safeOpenModal(s, i, ownerModalPrefix+"ticket_reply", "Talebi yanıtla",
 			textInput("id", "Talep id", "1", true, discordgo.TextInputShort),
 			textInput("message", "Yanıt", "", true, discordgo.TextInputParagraph),
 		)
@@ -114,7 +121,7 @@ func (b *Bot) handleOwnerTicketAction(s *discordgo.Session, i *discordgo.Interac
 			b.denyOwnerAction(s, i)
 			return
 		}
-		_ = openModal(s, i, ownerModalPrefix+"ticket_status", "Talep durumu",
+		safeOpenModal(s, i, ownerModalPrefix+"ticket_status", "Talep durumu",
 			textInput("id", "Talep id", "1", true, discordgo.TextInputShort),
 			textInput("status", "Durum (open / answered / closed)", "closed", true, discordgo.TextInputShort),
 		)
@@ -123,22 +130,25 @@ func (b *Bot) handleOwnerTicketAction(s *discordgo.Session, i *discordgo.Interac
 			b.denyOwnerAction(s, i)
 			return
 		}
-		_ = openModal(s, i, ownerModalPrefix+"ticket_delete", "Talebi sil",
+		safeOpenModal(s, i, ownerModalPrefix+"ticket_delete", "Talebi sil",
 			textInput("id", "Talep id", "1", true, discordgo.TextInputShort),
 			textInput("confirm", "Onay için SİL yazın", "SİL", true, discordgo.TextInputShort),
 		)
+	default:
+		_ = respondPanel(s, i, textDisplay("Bilinmeyen talep işlemi."))
 	}
 }
 
 func (b *Bot) handleOwnerCouponAction(s *discordgo.Session, i *discordgo.InteractionCreate, session *ownerSession, parts []string) {
 	if len(parts) < 2 || parts[1] != "delete" {
+		_ = respondPanel(s, i, textDisplay("Geçersiz işlem parametresi."))
 		return
 	}
 	if !session.can(authz.RedemptionWrite) {
 		b.denyOwnerAction(s, i)
 		return
 	}
-	_ = openModal(s, i, ownerModalPrefix+"coupon_delete", "Kuponu sil",
+	safeOpenModal(s, i, ownerModalPrefix+"coupon_delete", "Kuponu sil",
 		textInput("id", "Kupon id", "1", true, discordgo.TextInputShort),
 		textInput("confirm", "Onay için SİL yazın", "SİL", true, discordgo.TextInputShort),
 	)
