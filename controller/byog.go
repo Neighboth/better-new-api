@@ -204,22 +204,31 @@ func getFaviconBase64(faviconUrl string) string {
 		}
 	}
 
-	// 3. Only if it's default favicon or no custom image was found, fall back to web/public assets
-	if cleanPath == "favicon.ico" || cleanPath == "logo.png" || cleanPath == "" {
-		fallbackPaths := []string{
-			filepath.Join("web", "public", "favicon.ico"),
-			filepath.Join("..", "web", "public", "favicon.ico"),
-			filepath.Join("web", "public", "logo.png"),
-			filepath.Join("..", "web", "public", "logo.png"),
+	// Also check database managed_files table for uploaded custom logo/favicon
+	if model.DB != nil {
+		var mf model.ManagedFile
+		if err := model.DB.Where("is_dir = 0 AND (path LIKE '%logo%' OR path LIKE '%favicon%' OR name LIKE '%logo%' OR name LIKE '%favicon%')").Order("id DESC").First(&mf).Error; err == nil && len(mf.Content) > 0 {
+			mime := http.DetectContentType(mf.Content)
+			return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(mf.Content))
 		}
-		for _, p := range fallbackPaths {
-			if b, err := os.ReadFile(p); err == nil && len(b) > 0 {
-				mime := "image/png"
-				if strings.HasSuffix(strings.ToLower(p), ".ico") {
-					mime = "image/x-icon"
-				}
-				return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(b))
+	}
+
+	// 3. Fall back to site logo or favicon assets (preferring site logo.png)
+	fallbackPaths := []string{
+		filepath.Join("web", "public", "logo.png"),
+		filepath.Join("..", "web", "public", "logo.png"),
+		filepath.Join("worker", "desktop", "assets", "logo.png"),
+		filepath.Join("..", "worker", "desktop", "assets", "logo.png"),
+		filepath.Join("web", "public", "favicon.ico"),
+		filepath.Join("..", "web", "public", "favicon.ico"),
+	}
+	for _, p := range fallbackPaths {
+		if b, err := os.ReadFile(p); err == nil && len(b) > 0 {
+			mime := "image/png"
+			if strings.HasSuffix(strings.ToLower(p), ".ico") {
+				mime = "image/x-icon"
 			}
+			return fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(b))
 		}
 	}
 
@@ -316,7 +325,7 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 	}
 
 	if faviconUrl == "" {
-		faviconUrl = "/favicon.ico"
+		faviconUrl = "/logo.png"
 	}
 	if strings.HasPrefix(faviconUrl, "/") && serverUrl != "" {
 		faviconUrl = fmt.Sprintf("%s%s", strings.TrimRight(serverUrl, "/"), faviconUrl)
@@ -1980,7 +1989,11 @@ func embedByogClient(program []byte, c *gin.Context) ([]byte, error) {
 
 	var faviconBmpBase64 string
 	if iconBytes := decodeFaviconRaw(faviconBase64); len(iconBytes) > 0 {
-		if img, _, err := image.Decode(bytes.NewReader(iconBytes)); err == nil {
+		pngBytes := icon.PNG(iconBytes, 256*1024)
+		if len(pngBytes) == 0 {
+			pngBytes = iconBytes
+		}
+		if img, _, err := image.Decode(bytes.NewReader(pngBytes)); err == nil {
 			var buf bytes.Buffer
 			if err := bmp.Encode(&buf, img); err == nil && buf.Len() > 0 {
 				faviconBmpBase64 = base64.StdEncoding.EncodeToString(buf.Bytes())

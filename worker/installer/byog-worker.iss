@@ -455,18 +455,30 @@ begin
     if LangDialogForm.ShowModal = mrOk then
     begin
       ChosenLang := LangDialogKeys[LangDialogCombo.ItemIndex];
+      // If the selected language matches the current ActiveLanguage, continue immediately without relaunch
+      if CompareText(ChosenLang, ActiveLanguage) = 0 then
+      begin
+        Result := True;
+        Exit;
+      end;
+
+      // Only relaunch if the user explicitly chose a different language
       CmdLine := '/LANG=' + ChosenLang + ' /LANGSELECTED=1';
       for I := 1 to ParamCount do
       begin
         P := ParamStr(I);
+        // Exclude all Inno internal parameters (/SL5, /SPAWNWND, /RESTARTEXITCODE, etc.) and prior lang flags
         if (CompareText(Copy(P, 1, 6), '/LANG=') <> 0) and
            (CompareText(P, '/LANGSELECTED=1') <> 0) and
-           (CompareText(P, '/LANGSELECTED') <> 0) then
+           (CompareText(P, '/LANGSELECTED') <> 0) and
+           (CompareText(Copy(P, 1, 5), '/SL5=') <> 0) and
+           (CompareText(Copy(P, 1, 10), '/SPAWNWND=') <> 0) and
+           (CompareText(Copy(P, 1, 17), '/RESTARTEXITCODE=') <> 0) then
           CmdLine := CmdLine + ' ' + AddQuotes(P);
       end;
 
-      if not Exec(ExpandConstant('{srcexe}'), CmdLine, '', SW_SHOWNORMAL, ewNoWait, ErrorCode) then
-        ShellExec('open', ExpandConstant('{srcexe}'), CmdLine, '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
+      if not ShellExec('open', ExpandConstant('{srcexe}'), CmdLine, '', SW_SHOWNORMAL, ewNoWait, ErrorCode) then
+        Exec(ExpandConstant('{srcexe}'), CmdLine, '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
       Result := False;
     end
     else

@@ -62,7 +62,38 @@ public class WorkerService extends Service {
     private static final String CHANNEL_ID = "byog_worker_channel";
     private static final int NOTIF_ID = 1001;
     /** Minimum size (bytes) a GGUF file must reach before it is treated as a usable model. */
-    private static final long MIN_MODEL_BYTES = 10L * 1024 * 1024;
+    private static final long MIN_MODEL_BYTES = 200L * 1024 * 1024;
+
+    public static boolean isTurkish() {
+        try {
+            return "tr".equalsIgnoreCase(java.util.Locale.getDefault().getLanguage());
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static long getExpectedMinBytes(String modelName) {
+        if (modelName == null) return 250L * 1024L * 1024L;
+        String lower = modelName.toLowerCase();
+        if (lower.contains("0.5b") || lower.contains("0.6b")) return 260L * 1024L * 1024L;
+        if (lower.contains("1.5b") || lower.contains("1.7b") || lower.contains("2b") || lower.contains("3b") || lower.contains("4b")) return 700L * 1024L * 1024L;
+        if (lower.contains("7b") || lower.contains("8b")) return 2800L * 1024L * 1024L;
+        return 250L * 1024L * 1024L;
+    }
+
+    public static boolean isValidGGUFFile(File f, String modelName) {
+        if (f == null || !f.exists()) return false;
+        long len = f.length();
+        if (len < getExpectedMinBytes(modelName)) return false;
+        try (java.io.FileInputStream fis = new java.io.FileInputStream(f)) {
+            byte[] magic = new byte[4];
+            int n = fis.read(magic);
+            if (n == 4 && magic[0] == 'G' && magic[1] == 'G' && magic[2] == 'U' && magic[3] == 'F') {
+                return true;
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
     private PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
     private volatile boolean isRunning = false;
@@ -198,11 +229,11 @@ public class WorkerService extends Service {
         } catch (Exception ignored) {}
 
         File actualFile = new File(getFilesDir(), currentAssignedModel + ".gguf");
-        if (!actualFile.exists() || actualFile.length() < 10L * 1024 * 1024) {
+        if (!actualFile.exists() || !isValidGGUFFile(actualFile, currentAssignedModel)) {
             File sd = new File("/sdcard", currentAssignedModel + ".gguf");
-            if (sd.exists() && sd.length() >= 10L * 1024 * 1024) actualFile = sd;
+            if (sd.exists() && isValidGGUFFile(sd, currentAssignedModel)) actualFile = sd;
         }
-        boolean modelFileOnDisk = actualFile.exists() && actualFile.length() > MIN_MODEL_BYTES;
+        boolean modelFileOnDisk = isValidGGUFFile(actualFile, currentAssignedModel);
         if (!modelFileOnDisk) {
             installedModelsList.remove(currentAssignedModel);
         }
@@ -216,7 +247,10 @@ public class WorkerService extends Service {
             }
             currentModelStatus = "downloading";
             currentLiveTps = 0.0f;
-            initialMsg = currentAssignedModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + computeDownloadPercent() + ")";
+            int pct = computeDownloadPercent();
+            initialMsg = isTurkish()
+                ? currentAssignedModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")"
+                : "Downloading " + currentAssignedModel + "... (" + downloadedMB + " MB / " + totalMB + " MB - " + pct + "%)";
         } else {
             currentModelStatus = "ready";
             currentLiveTps = 0.0f;
@@ -224,7 +258,11 @@ public class WorkerService extends Service {
                 activeVramModel = installedModelsList.get(0);
             }
             String readyModel = installedModelsList.isEmpty() ? currentAssignedModel : installedModelsList.get(0);
-            initialMsg = (!activeVramModel.isEmpty() ? activeVramModel + " hazır (VRAM'de)" : readyModel + " hazır (Beklemede)");
+            if (isTurkish()) {
+                initialMsg = (!activeVramModel.isEmpty() ? activeVramModel + " hazır (VRAM'de)" : readyModel + " hazır (Beklemede)");
+            } else {
+                initialMsg = (!activeVramModel.isEmpty() ? activeVramModel + " ready (in VRAM)" : readyModel + " ready (Idle)");
+            }
         }
 
         sp.edit()
@@ -668,11 +706,11 @@ public class WorkerService extends Service {
                 checkAndTriggerModelDownloads();
             } else {
                 File mf = new File(getFilesDir(), currentAssignedModel + ".gguf");
-                if (!mf.exists() || mf.length() < 10L * 1024 * 1024) {
+                if (!mf.exists() || !isValidGGUFFile(mf, currentAssignedModel)) {
                     File sd = new File("/sdcard", currentAssignedModel + ".gguf");
-                    if (sd.exists() && sd.length() >= 10L * 1024 * 1024) mf = sd;
+                    if (sd.exists() && isValidGGUFFile(sd, currentAssignedModel)) mf = sd;
                 }
-                if (mf.exists() && mf.length() > MIN_MODEL_BYTES) {
+                if (isValidGGUFFile(mf, currentAssignedModel)) {
                     currentModelStatus = "ready";
                     if (!activeVramModel.isEmpty()) {
                         statusMsg = activeVramModel + " hazır (VRAM'de)";
@@ -827,7 +865,7 @@ public class WorkerService extends Service {
 
         final String targetModel = downloadQueueList.get(0);
         final File destFile = LocalNeuralEngine.resolveModelFile(getFilesDir(), targetModel);
-        if (destFile.exists() && destFile.length() > MIN_MODEL_BYTES) {
+        if (isValidGGUFFile(destFile, targetModel)) {
             // Already completely downloaded on disk
             finalizeModelDownloaded(targetModel);
             return;
@@ -868,7 +906,7 @@ public class WorkerService extends Service {
                     List<String> candidateUrls = buildDownloadCandidates(targetModel);
 
                     File destFile = LocalNeuralEngine.resolveModelFile(getFilesDir(), targetModel);
-                    if (destFile.exists() && destFile.length() > MIN_MODEL_BYTES) {
+                    if (isValidGGUFFile(destFile, targetModel)) {
                         finalizeModelDownloaded(targetModel);
                         isModelDownloading = false;
                         return;
@@ -938,9 +976,9 @@ public class WorkerService extends Service {
                                 append = false;
                                 existingLen = 0;
                             } else if (code == 416) {
-                                // Range Not Satisfiable: file might already be complete or corrupted part
-                                if (partFile.exists() && partFile.length() > MIN_MODEL_BYTES) {
-                                    if (partFile.renameTo(destFile) || destFile.exists()) {
+                                // Range Not Satisfiable: only mark complete if partFile is actually a full, valid GGUF file
+                                if (isValidGGUFFile(partFile, targetModel)) {
+                                    if (partFile.renameTo(destFile) || isValidGGUFFile(destFile, targetModel)) {
                                         finalizeModelDownloaded(targetModel);
                                         downloadSucceeded = true;
                                         break;
@@ -956,11 +994,19 @@ public class WorkerService extends Service {
                                 continue;
                             }
 
+                            int expMinMB = (int)(getExpectedMinBytes(targetModel) / (1024 * 1024));
                             if (totalBytes > 0) {
-                                downloadTotalBytes = totalBytes;
-                                totalMB = (int) (totalBytes / (1024 * 1024));
-                                if (totalMB <= 0) totalMB = 1;
+                                if (totalBytes >= getExpectedMinBytes(targetModel)) {
+                                    downloadTotalBytes = totalBytes;
+                                    totalMB = (int) (totalBytes / (1024 * 1024));
+                                } else {
+                                    // Total bytes is suspiciously small (e.g. error page returned with 200 OK)
+                                    android.util.Log.w("BYOG_DOWNLOAD", "Suspicious small Content-Length: " + totalBytes);
+                                    totalMB = getModelSizeMB(targetModel);
+                                    downloadTotalBytes = (long)totalMB * 1024L * 1024L;
+                                }
                             }
+                            if (totalMB < expMinMB) totalMB = getModelSizeMB(targetModel);
                             downloadCurrentBytes = existingLen;
                             downloadedMB = (int) (existingLen / (1024 * 1024));
 
@@ -1016,10 +1062,16 @@ public class WorkerService extends Service {
                                 continue;
                             }
 
-                            if (partFile.renameTo(destFile) || destFile.exists()) {
-                                finalizeModelDownloaded(targetModel);
-                                downloadSucceeded = true;
-                                break;
+                            if (isValidGGUFFile(partFile, targetModel)) {
+                                if (partFile.renameTo(destFile) || isValidGGUFFile(destFile, targetModel)) {
+                                    finalizeModelDownloaded(targetModel);
+                                    downloadSucceeded = true;
+                                    break;
+                                }
+                            } else {
+                                lastError = "Model dosyası eksik veya geçersiz (boyut: " + (currentBytes / (1024 * 1024)) + " MB)";
+                                android.util.Log.e("BYOG_DOWNLOAD", lastError);
+                                continue;
                             }
                         } catch (Exception connEx) {
                             lastError = connEx.getMessage() != null ? connEx.getMessage() : connEx.toString();

@@ -1187,9 +1187,10 @@ html_content = f'''<!DOCTYPE html>
           document.getElementById('unpaired-view').classList.add('hidden');
           document.getElementById('paired-view').classList.remove('hidden');
           
+          const isTr = (navigator.language || 'en').toLowerCase().startsWith('tr');
           const badge = document.getElementById('status-badge');
           badge.className = 'badge badge-green';
-          badge.innerHTML = '<div class="dot dot-green"></div><span>Aktif & Bağlı</span>';
+          badge.innerHTML = '<div class="dot dot-green"></div><span>' + (isTr ? 'Aktif & Bağlı' : 'Active & Connected') + '</span>';
 
           if (s.server_url) {{
             try {{
@@ -1271,24 +1272,25 @@ html_content = f'''<!DOCTYPE html>
             }}
           }}
           if (s.model_status) {{
+            const isTr = (navigator.language || 'en').toLowerCase().startsWith('tr');
             const mBadge = document.getElementById('stat-model-badge');
             if (s.model_status === 'ready') {{
               if (s.active_vram_model && s.active_vram_model.length > 0) {{
                 mBadge.className = 'badge badge-green';
-                mBadge.innerText = 'Hazır (VRAM)';
+                mBadge.innerText = isTr ? 'Hazır (VRAM)' : 'Ready (VRAM)';
               }} else {{
                 mBadge.className = 'badge badge-green';
-                mBadge.innerText = 'Hazır (Beklemede)';
+                mBadge.innerText = isTr ? 'Hazır (Beklemede)' : 'Ready (Idle)';
               }}
             }} else if (s.model_status === 'running') {{
               mBadge.className = 'badge badge-green animate-pulse';
-              mBadge.innerText = 'Çalışıyor...';
+              mBadge.innerText = isTr ? 'Çalışıyor...' : 'Inferencing...';
             }} else if (s.model_status === 'downloading') {{
               mBadge.className = 'badge badge-amber animate-pulse';
-              mBadge.innerText = 'İndiriliyor...';
+              mBadge.innerText = isTr ? 'İndiriliyor...' : 'Downloading...';
             }} else {{
               mBadge.className = 'badge badge-amber';
-              mBadge.innerText = 'Beklemede';
+              mBadge.innerText = isTr ? 'Beklemede' : 'Idle';
             }}
           }}
         }} else {{
@@ -1301,9 +1303,10 @@ html_content = f'''<!DOCTYPE html>
             document.getElementById('unpaired-view').classList.add('hidden');
           }}
 
+          const isTr = (navigator.language || 'en').toLowerCase().startsWith('tr');
           const badge = document.getElementById('status-badge');
           badge.className = 'badge badge-amber';
-          badge.innerHTML = '<div class="dot dot-amber"></div><span>Eşleştirme Bekleniyor</span>';
+          badge.innerHTML = '<div class="dot dot-amber"></div><span>' + (isTr ? 'Eşleştirme Bekleniyor' : 'Waiting for Pairing') + '</span>';
         }}
       }} catch(e) {{}}
     }};
@@ -3079,18 +3082,18 @@ public class MainActivity extends Activity {
                                             state.put("assigned_model", finalAssignedModel);
 
                                             File mf = new File(getFilesDir(), finalAssignedModel + ".gguf");
-                                            if (!mf.exists() || mf.length() < 10L * 1024 * 1024) {
+                                            if (!mf.exists() || !WorkerService.isValidGGUFFile(mf, finalAssignedModel)) {
                                                 File sd = new File("/sdcard", finalAssignedModel + ".gguf");
-                                                if (sd.exists() && sd.length() >= 10L * 1024 * 1024) mf = sd;
+                                                if (sd.exists() && WorkerService.isValidGGUFFile(sd, finalAssignedModel)) mf = sd;
                                             }
-                                            boolean modelExists = mf.exists() && mf.length() > 50 * 1024 * 1024;
+                                            boolean modelExists = WorkerService.isValidGGUFFile(mf, finalAssignedModel);
                                             if (modelExists) {
                                                 state.put("model_status", "ready");
-                                                state.put("model_status_desc", finalAssignedModel + " hazır (Beklemede)");
+                                                state.put("model_status_desc", WorkerService.isTurkish() ? finalAssignedModel + " hazır (Beklemede)" : finalAssignedModel + " ready (Idle)");
                                                 sp.edit().putString("model_status", "ready").commit();
                                             } else {
                                                 state.put("model_status", "downloading");
-                                                state.put("model_status_desc", finalAssignedModel + " indiriliyor (%0)...");
+                                                state.put("model_status_desc", WorkerService.isTurkish() ? finalAssignedModel + " indiriliyor (%0)..." : "Downloading " + finalAssignedModel + " (0%)...");
                                                 state.put("download_progress", 0);
                                                 state.put("downloaded_mb", 0);
                                                 sp.edit().putString("model_status", "downloading").putInt("download_progress", 0).putInt("downloaded_mb", 0).commit();
@@ -3283,11 +3286,21 @@ public class MainActivity extends Activity {
                 } catch (Throwable ignored) {}
                 String assignedModel = WorkerService.stringPref(sp, "assigned_model", "qwen-2.5-0.5b-instruct");
                 File mf = new File(getFilesDir(), assignedModel + ".gguf");
-                boolean modelOnDisk = mf.exists() && mf.length() > 10 * 1024 * 1024;
+                if (!mf.exists() || !WorkerService.isValidGGUFFile(mf, assignedModel)) {
+                    File sd = new File("/sdcard", assignedModel + ".gguf");
+                    if (sd.exists() && WorkerService.isValidGGUFFile(sd, assignedModel)) mf = sd;
+                }
+                boolean modelOnDisk = WorkerService.isValidGGUFFile(mf, assignedModel);
                 String defaultStatus = modelOnDisk ? "ready" : "downloading";
                 int dMB = WorkerService.intPref(sp, "downloaded_mb", 0);
                 int tMB = WorkerService.intPref(sp, "total_mb", 380);
-                String defaultDesc = modelOnDisk ? (assignedModel + " hazır (Beklemede)") : (assignedModel + " indiriliyor... (" + dMB + " MB / " + tMB + " MB)");
+                if (tMB < 200) tMB = 380;
+                String defaultDesc;
+                if (WorkerService.isTurkish()) {
+                    defaultDesc = modelOnDisk ? (assignedModel + " hazır (Beklemede)") : (assignedModel + " indiriliyor... (" + dMB + " MB / " + tMB + " MB)");
+                } else {
+                    defaultDesc = modelOnDisk ? (assignedModel + " ready (Idle)") : ("Downloading " + assignedModel + "... (" + dMB + " MB / " + tMB + " MB)");
+                }
 
                 state.put("assigned_model", assignedModel);
                 state.put("model_status", modelOnDisk ? WorkerService.stringPref(sp, "model_status", defaultStatus) : "downloading");

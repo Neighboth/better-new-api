@@ -22,7 +22,7 @@ import de.kherud.llama.Pair;
  */
 public class LocalNeuralEngine {
     private static final String TAG = "BYOG_ENGINE";
-    private static final long MIN_MODEL_BYTES = 10L * 1024 * 1024;
+    private static final long MIN_MODEL_BYTES = 200L * 1024 * 1024;
 
     private static final Object MODEL_LOCK = new Object();
     private static LlamaModel cachedModel = null;
