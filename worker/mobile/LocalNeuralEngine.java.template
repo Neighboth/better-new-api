@@ -28,6 +28,27 @@ public class LocalNeuralEngine {
     private static LlamaModel cachedModel = null;
     private static String cachedModelKey = null;
 
+    static {
+        try {
+            android.system.Os.setenv("OMP_NUM_THREADS", "1", true);
+        } catch (Throwable ignored) {}
+        try {
+            System.loadLibrary("c++_shared");
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to load c++_shared: " + t.getMessage());
+        }
+        try {
+            System.loadLibrary("omp");
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to load omp: " + t.getMessage());
+        }
+        try {
+            System.loadLibrary("jllama");
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to load jllama: " + t.getMessage());
+        }
+    }
+
     private final String modelId;
     private final File modelFile;
 
@@ -70,9 +91,49 @@ public class LocalNeuralEngine {
         }
     }
 
+    public static File resolveModelFile(File modelDir, String modelId) {
+        File primary = new File(modelDir, modelId + ".gguf");
+        if (primary.exists() && primary.length() >= MIN_MODEL_BYTES) return primary;
+
+        File[] candidates = new File[] {
+            new File("/sdcard/Android/data/org.byog.worker/files", modelId + ".gguf"),
+            new File("/storage/emulated/0/Android/data/org.byog.worker/files", modelId + ".gguf"),
+            new File("/sdcard/Download", modelId + ".gguf"),
+            new File("/sdcard", modelId + ".gguf"),
+            new File("/storage/emulated/0", modelId + ".gguf")
+        };
+
+        for (File cand : candidates) {
+            if (cand.exists() && cand.length() >= MIN_MODEL_BYTES) {
+                try {
+                    if (modelDir != null && (modelDir.exists() || modelDir.mkdirs())) {
+                        Log.i(TAG, "Importing model into internal storage: " + cand.getAbsolutePath() + " -> " + primary.getAbsolutePath());
+                        java.io.FileInputStream in = new java.io.FileInputStream(cand);
+                        java.io.FileOutputStream out = new java.io.FileOutputStream(primary);
+                        byte[] buf = new byte[2 * 1024 * 1024];
+                        int r;
+                        while ((r = in.read(buf)) > 0) {
+                            out.write(buf, 0, r);
+                        }
+                        in.close();
+                        out.close();
+                        if (primary.exists() && primary.length() >= MIN_MODEL_BYTES) {
+                            Log.i(TAG, "Model successfully copied to internal storage: " + primary.length() + " bytes");
+                            return primary;
+                        }
+                    }
+                } catch (Throwable t) {
+                    Log.w(TAG, "Could not copy model file to internal storage: " + t.getMessage());
+                }
+                return cand;
+            }
+        }
+        return primary;
+    }
+
     public LocalNeuralEngine(String modelId, File modelDir) {
         this.modelId = modelId;
-        this.modelFile = new File(modelDir, modelId + ".gguf");
+        this.modelFile = resolveModelFile(modelDir, modelId);
     }
 
     private static String modelKey(File file) {
@@ -118,15 +179,15 @@ public class LocalNeuralEngine {
                 cachedModelKey = null;
             }
 
-            int cores = Runtime.getRuntime().availableProcessors();
-            int threads = Math.max(2, Math.min(6, cores - 1));
+            // Single thread ensures 100% stability under ARM translation without OpenMP futex issues
+            int threads = 1;
 
             ModelParameters params = new ModelParameters()
                     .setModel(file.getAbsolutePath())
                     .setThreads(threads)
                     .setThreadsBatch(threads)
-                    .setCtxSize(contextSizeForDevice())
-                    .setBatchSize(256)
+                    .setCtxSize(1024)
+                    .setBatchSize(128)
                     .setGpuLayers(0)
                     .skipWarmup()
                     .disablePerf();
@@ -158,21 +219,28 @@ public class LocalNeuralEngine {
      * family instead of relying on a hard coded template.
      */
     private InferenceParameters buildParameters(String prompt, int maxTokens, float temperature, float topP, String[] stop) {
-        InferenceParameters params = new InferenceParameters("");
-        List<Pair<String, String>> messages = new ArrayList<>();
-        messages.add(new Pair<>("user", prompt));
-        params.setMessages(null, messages);
-        params.setUseChatTemplate(true);
-        params.setNPredict(maxTokens);
-        params.setTemperature(temperature);
+        String formatted;
+        if (modelId != null && modelId.toLowerCase().contains("qwen")) {
+            formatted = "<|im_start|>system\nYou are a helpful AI assistant. Always respond concisely in the user's language.<|im_end|>\n<|im_start|>user\n" + prompt + "<|im_end|>\n<|im_start|>assistant\n";
+        } else {
+            formatted = prompt;
+        }
+
+        InferenceParameters params = new InferenceParameters(formatted);
+        params.setNPredict(maxTokens > 0 ? maxTokens : 64);
+        params.setTemperature(temperature > 0 ? temperature : 0.7f);
         params.setTopP(topP > 0 ? topP : 0.92f);
-        params.setRepeatPenalty(1.08f);
-        if (stop != null && stop.length > 0) {
-            try {
-                params.setStopStrings(stop);
-            } catch (Throwable ignored) {
+        params.setRepeatPenalty(1.1f);
+
+        List<String> stopList = new ArrayList<>();
+        stopList.add("<|im_end|>");
+        stopList.add("<|endoftext|>");
+        if (stop != null) {
+            for (String s : stop) {
+                if (s != null && !s.isEmpty()) stopList.add(s);
             }
         }
+        params.setStopStrings(stopList.toArray(new String[0]));
         return params;
     }
 
@@ -255,6 +323,17 @@ public class LocalNeuralEngine {
         GenerationState state = new GenerationState();
 
         try {
+            if (System.getProperty("de.kherud.llama.lib.path") != null) {
+                File nativeLib = new File(System.getProperty("de.kherud.llama.lib.path"), "libjllama.so");
+                if (nativeLib.exists()) {
+                    try {
+                        System.load(nativeLib.getAbsolutePath());
+                    } catch (Throwable ignored) {}
+                }
+            }
+            try {
+                System.loadLibrary("jllama");
+            } catch (Throwable ignored) {}
             LlamaModel model = acquireModel(modelFile);
 
             try {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"os"
 	"strings"
 	"time"
 
@@ -26,24 +27,26 @@ func (ac *AntiCheatManager) ValidateHWID(hwid string, osName string, deviceType 
 		return false, fmt.Sprintf("HWID is banned: %s (Code: %s)", banRecord.BanReason, banRecord.ViolationCode)
 	}
 
-	hwidLower := strings.ToLower(hwid)
-	// 2. VM / Emulator signatures check
-	vmSignatures := []string{
-		"qemu", "virtualbox", "vbox", "vmware", "bluestacks", "ldplayer",
-		"nox", "genymotion", "memu", "andy", "goldfish", "ranchu",
-	}
-
-	for _, sig := range vmSignatures {
-		if strings.Contains(hwidLower, sig) {
-			return false, fmt.Sprintf("Virtualized or emulator environment detected: %s", sig)
+	if !common.DebugEnabled && os.Getenv("BYOG_ALLOW_EMULATOR") != "true" {
+		hwidLower := strings.ToLower(hwid)
+		// 2. VM / Emulator signatures check
+		vmSignatures := []string{
+			"qemu", "virtualbox", "vbox", "vmware", "bluestacks", "ldplayer",
+			"nox", "genymotion", "memu", "andy", "goldfish", "ranchu",
 		}
-	}
 
-	// 3. Inspect CPU / Motherboard strings for hypervisor indicators
-	if cpuModel, ok := specs["cpu_model"].(string); ok {
-		cpuLower := strings.ToLower(cpuModel)
-		if strings.Contains(cpuLower, "qemu") || strings.Contains(cpuLower, "kvm") || strings.Contains(cpuLower, "virtual") {
-			return false, "Hypervisor or container CPU detected"
+		for _, sig := range vmSignatures {
+			if strings.Contains(hwidLower, sig) {
+				return false, fmt.Sprintf("Virtualized or emulator environment detected: %s", sig)
+			}
+		}
+
+		// 3. Inspect CPU / Motherboard strings for hypervisor indicators
+		if cpuModel, ok := specs["cpu_model"].(string); ok {
+			cpuLower := strings.ToLower(cpuModel)
+			if strings.Contains(cpuLower, "qemu") || strings.Contains(cpuLower, "kvm") || strings.Contains(cpuLower, "virtual") {
+				return false, "Hypervisor or container CPU detected"
+			}
 		}
 	}
 

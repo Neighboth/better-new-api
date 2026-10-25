@@ -473,6 +473,9 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -526,6 +529,7 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true"
+        android:requestLegacyExternalStorage="true"
         android:largeHeap="true"
         android:hardwareAccelerated="true">
         <provider
@@ -750,6 +754,10 @@ html_content = f'''<!DOCTYPE html>
         <button class="btn-icon" onclick="pasteCode()" title="Yapıştır">
           <svg viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
         </button>
+      </div>
+
+      <div class="input-group" id="group-server-url" style="margin-top: 10px;">
+        <input id="input-server-url" type="text" class="input-text" placeholder="Sunucu Adresi (örn. http://10.0.2.2:3001)">
       </div>
 
       <button id="btn-connect" class="btn btn-secondary" onclick="connectManual()">
@@ -1107,12 +1115,14 @@ html_content = f'''<!DOCTYPE html>
 
     function connectManual() {{
       const code = document.getElementById('input-code').value.trim().toUpperCase();
+      const srvEl = document.getElementById('input-server-url');
+      const serverUrl = srvEl ? srvEl.value.trim() : "";
       if (!code) {{
         showToast("Lütfen eşleştirme kodunu girin");
         return;
       }}
       if (window.AndroidBridge && window.AndroidBridge.connect) {{
-        window.AndroidBridge.connect(code, "");
+        window.AndroidBridge.connect(code, serverUrl);
       }}
     }}
 
@@ -1828,10 +1838,13 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 if (url != null && (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file:///"))) {
-                    view.loadUrl(url);
-                    return true;
+                    return false;
                 }
-                return false;
+                try {
+                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    startActivity(intent);
+                } catch (Exception ignored) {}
+                return true;
             }
 
             @TargetApi(Build.VERSION_CODES.N)
@@ -1840,9 +1853,13 @@ public class MainActivity extends Activity {
                 if (request != null && request.getUrl() != null) {
                     String url = request.getUrl().toString();
                     if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file:///")) {
-                        view.loadUrl(url);
-                        return true;
+                        return false;
                     }
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW, request.getUrl());
+                        startActivity(intent);
+                    } catch (Exception ignored) {}
+                    return true;
                 }
                 return false;
             }
@@ -1930,11 +1947,7 @@ public class MainActivity extends Activity {
                 try {
                     Intent sIntent = new Intent(this, WorkerService.class);
                     sIntent.putExtra("action", "refresh_state");
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(sIntent);
-                    } else {
-                        startService(sIntent);
-                    }
+                    startService(sIntent);
                 } catch (Exception ignored) {}
             }
 
@@ -2748,7 +2761,7 @@ public class MainActivity extends Activity {
                         model = WorkerService.stringPref(sp, "assigned_model", "qwen-2.5-0.5b-instruct");
                     } catch (Exception ignored) {}
 
-                    File mf = new File(getFilesDir(), model + ".gguf");
+                    File mf = LocalNeuralEngine.resolveModelFile(getFilesDir(), model);
                     if (!mf.exists() || mf.length() < 10 * 1024 * 1024) {
                         final String errMsg = "Model dosyası (" + model + ".gguf) henüz indirilmedi veya eksik! Lütfen model indirmesi tamamlandıktan sonra test edin.";
                         runOnUiThread(new Runnable() {
@@ -2825,12 +2838,12 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void connect(final String rawPairingCode, String rawServerUrl) {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            if (rawServerUrl == null || rawServerUrl.trim().isEmpty()) {
+            if (rawServerUrl != null && !rawServerUrl.trim().isEmpty()) {
+                sp.edit().putString("server_url", rawServerUrl.trim()).apply();
+            } else {
                 rawServerUrl = WorkerService.stringPref(sp, "server_url", "");
             }
-            while (rawServerUrl.endsWith("/")) {
-                rawServerUrl = rawServerUrl.substring(0, rawServerUrl.length() - 1);
-            }
+            rawServerUrl = WorkerService.normalizeServerUrl(rawServerUrl);
             final String finalServerUrl = rawServerUrl;
             final String cleanCode = rawPairingCode != null ? rawPairingCode.trim().toUpperCase() : "";
 
@@ -3043,7 +3056,11 @@ public class MainActivity extends Activity {
                                         // site, it uses the theme of the site.
                                         try {
                                             if (webView != null) {
-                                                webView.loadUrl(clientPageUrl());
+                                                String curUrl = webView.getUrl();
+                                                String targetUrl = clientPageUrl();
+                                                if (curUrl == null || curUrl.startsWith("file://")) {
+                                                    webView.loadUrl(targetUrl);
+                                                }
                                             }
                                         } catch (Throwable ignored) {}
 
@@ -3062,6 +3079,10 @@ public class MainActivity extends Activity {
                                             state.put("assigned_model", finalAssignedModel);
 
                                             File mf = new File(getFilesDir(), finalAssignedModel + ".gguf");
+                                            if (!mf.exists() || mf.length() < 10L * 1024 * 1024) {
+                                                File sd = new File("/sdcard", finalAssignedModel + ".gguf");
+                                                if (sd.exists() && sd.length() >= 10L * 1024 * 1024) mf = sd;
+                                            }
                                             boolean modelExists = mf.exists() && mf.length() > 50 * 1024 * 1024;
                                             if (modelExists) {
                                                 state.put("model_status", "ready");
@@ -3646,6 +3667,15 @@ with zipfile.ZipFile(unaligned_apk, "a", compression=zipfile.ZIP_DEFLATED) as zf
                 zinfo = zipfile.ZipInfo("lib/arm64-v8a/libjllama.so")
                 zinfo.compress_type = zipfile.ZIP_STORED
                 zf.writestr(zinfo, so_data)
+
+    mobile_dir = os.path.dirname(os.path.abspath(__file__))
+    for lib_name in ["libc++_shared.so", "libomp.so"]:
+        lib_p = os.path.join(mobile_dir, lib_name)
+        if os.path.exists(lib_p):
+            with open(lib_p, "rb") as lf:
+                zinfo = zipfile.ZipInfo(f"lib/arm64-v8a/{lib_name}")
+                zinfo.compress_type = zipfile.ZIP_STORED
+                zf.writestr(zinfo, lf.read())
 
 # 9. Zipalign
 # The uncompressed native libraries are aligned to a sixteen kilobyte page boundary, the

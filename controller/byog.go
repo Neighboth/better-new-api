@@ -9,6 +9,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
+	"golang.org/x/image/bmp"
 	"io"
 	"math"
 	"mime"
@@ -52,6 +56,9 @@ func resolveNodeGeoIP(ip string) (country, city string, lat, lon float64) {
 
 	client := &http.Client{Timeout: 3 * time.Second}
 	isLocal := ip == "" || strings.HasPrefix(ip, "127.") || strings.HasPrefix(ip, "192.168.") || strings.HasPrefix(ip, "10.") || strings.HasPrefix(ip, "::1") || strings.HasPrefix(ip, "172.16.") || strings.HasPrefix(ip, "172.17.") || strings.HasPrefix(ip, "172.18.") || strings.HasPrefix(ip, "172.19.") || strings.HasPrefix(ip, "172.20.") || strings.HasPrefix(ip, "172.21.") || strings.HasPrefix(ip, "172.22.") || strings.HasPrefix(ip, "172.23.") || strings.HasPrefix(ip, "172.24.") || strings.HasPrefix(ip, "172.25.") || strings.HasPrefix(ip, "172.26.") || strings.HasPrefix(ip, "172.27.") || strings.HasPrefix(ip, "172.28.") || strings.HasPrefix(ip, "172.29.") || strings.HasPrefix(ip, "172.30.") || strings.HasPrefix(ip, "172.31.")
+	if isLocal {
+		return
+	}
 
 	queryUrl := "http://ip-api.com/json/" + ip + "?fields=status,country,city,lat,lon"
 	if isLocal {
@@ -1971,6 +1978,27 @@ func embedByogClient(program []byte, c *gin.Context) ([]byte, error) {
 		}
 	}
 
+	var faviconBmpBase64 string
+	if iconBytes := decodeFaviconRaw(faviconBase64); len(iconBytes) > 0 {
+		if img, _, err := image.Decode(bytes.NewReader(iconBytes)); err == nil {
+			var buf bytes.Buffer
+			if err := bmp.Encode(&buf, img); err == nil && buf.Len() > 0 {
+				faviconBmpBase64 = base64.StdEncoding.EncodeToString(buf.Bytes())
+			}
+		}
+	}
+	if faviconBmpBase64 == "" {
+		for _, p := range []string{
+			filepath.Join("worker", "desktop", "assets", "wizard_small.bmp"),
+			filepath.Join("..", "worker", "desktop", "assets", "wizard_small.bmp"),
+		} {
+			if defaultBmp, err := os.ReadFile(p); err == nil && len(defaultBmp) > 0 {
+				faviconBmpBase64 = base64.StdEncoding.EncodeToString(defaultBmp)
+				break
+			}
+		}
+	}
+
 	settings, err := common.Marshal(map[string]string{
 		"server_url":         serverUrl,
 		"system_name":        systemName,
@@ -1978,6 +2006,7 @@ func embedByogClient(program []byte, c *gin.Context) ([]byte, error) {
 		"favicon":            faviconUrl,
 		"favicon_base64":     faviconBase64,
 		"favicon_ico_base64": faviconIcoBase64,
+		"favicon_bmp_base64": faviconBmpBase64,
 	})
 	if err != nil {
 		return nil, err

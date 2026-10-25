@@ -149,68 +149,53 @@ var
   BrandFavicon: String;
   BrandFaviconBase64: String;
   BrandFaviconIcoBase64: String;
+  BrandFaviconBmpBase64: String;
   PolicyPage: TWizardPage;
   PolicyMemo: TNewMemo;
   PolicyAccept: TNewCheckBox;
   PoliciesLoaded: Boolean;
 
+const
+  CRYPT_STRING_BASE64_ANY = $00000006;
+
+function CryptStringToBinary(
+  pszString: String;
+  cchString: DWORD;
+  dwFlags: DWORD;
+  pbBinary: AnsiString;
+  var pcbBinary: DWORD;
+  pdwSkip: DWORD;
+  pdwFlags: DWORD
+): BOOL;
+external 'CryptStringToBinaryW@crypt32.dll stdcall';
+
 function LoadBranding(): Boolean; forward;
-function B64CharVal(C: Char): Integer;
-begin
-  if (C >= 'A') and (C <= 'Z') then
-    Result := Ord(C) - Ord('A')
-  else if (C >= 'a') and (C <= 'z') then
-    Result := Ord(C) - Ord('a') + 26
-  else if (C >= '0') and (C <= '9') then
-    Result := Ord(C) - Ord('0') + 52
-  else if C = '+' then
-    Result := 62
-  else if C = '/' then
-    Result := 63
-  else
-    Result := -1;
-end;
 
 procedure DecodeB64ToFile(const S: String; const OutFile: String);
 var
-  Stream: TFileStream;
-  I, Len, V1, V2, V3, V4: Integer;
-  B: AnsiString;
+  CleanS: String;
+  CommaPos: Integer;
+  OutLen: DWORD;
+  Buffer: AnsiString;
 begin
-  Stream := TFileStream.Create(OutFile, fmCreate);
-  try
-    I := 1;
-    Len := Length(S);
-    SetLength(B, 1);
-    while I <= Len - 3 do
-    begin
-      V1 := B64CharVal(S[I]);
-      V2 := B64CharVal(S[I+1]);
-      V3 := B64CharVal(S[I+2]);
-      V4 := B64CharVal(S[I+3]);
-      
-      if (V1 < 0) or (V2 < 0) then
-        Break;
-        
-      B[1] := Chr((V1 shl 2) or (V2 shr 4));
-      Stream.WriteBuffer(B, 1);
-      
-      if S[I+2] <> '=' then
-      begin
-        B[1] := Chr(((V2 and 15) shl 4) or (V3 shr 2));
-        Stream.WriteBuffer(B, 1);
-      end;
-      
-      if S[I+3] <> '=' then
-      begin
-        B[1] := Chr(((V3 and 3) shl 6) or V4);
-        Stream.WriteBuffer(B, 1);
-      end;
-      
-      I := I + 4;
-    end;
-  finally
-    Stream.Free;
+  CleanS := S;
+  CommaPos := Pos(',', CleanS);
+  if CommaPos > 0 then
+    CleanS := Copy(CleanS, CommaPos + 1, Length(CleanS) - CommaPos);
+  CleanS := Trim(CleanS);
+  if CleanS = '' then
+    Exit;
+
+  OutLen := 0;
+  if not CryptStringToBinary(CleanS, Length(CleanS), CRYPT_STRING_BASE64_ANY, '', OutLen, 0, 0) then
+    Exit;
+  if OutLen = 0 then
+    Exit;
+
+  SetLength(Buffer, OutLen);
+  if CryptStringToBinary(CleanS, Length(CleanS), CRYPT_STRING_BASE64_ANY, Buffer, OutLen, 0, 0) then
+  begin
+    SaveStringToFile(OutFile, Buffer, False);
   end;
 end;
 
@@ -647,6 +632,7 @@ begin
       BrandFavicon := JsonText(document, 'favicon');
       BrandFaviconBase64 := JsonText(document, 'favicon_base64');
       BrandFaviconIcoBase64 := JsonText(document, 'favicon_ico_base64');
+      BrandFaviconBmpBase64 := JsonText(document, 'favicon_bmp_base64');
       Result := (BrandServerUrl <> '') or (BrandSystemName <> '');
     finally
       stream.Free;
@@ -720,6 +706,21 @@ function EnsureBrandLogoBmp(): String;
 var
   bmpPath: String;
 begin
+  bmpPath := ExpandConstant('{tmp}\brand_logo.bmp');
+  if FileExists(bmpPath) then
+  begin
+    Result := bmpPath;
+    Exit;
+  end;
+  if BrandFaviconBmpBase64 <> '' then
+  begin
+    DecodeB64ToFile(BrandFaviconBmpBase64, bmpPath);
+    if FileExists(bmpPath) then
+    begin
+      Result := bmpPath;
+      Exit;
+    end;
+  end;
   bmpPath := ExpandConstant('{tmp}\wizard_small.bmp');
   if not FileExists(bmpPath) then
   begin
@@ -956,8 +957,7 @@ begin
   begin
     if (CompareText(Copy(ParamStr(I), 1, 6), '/LANG=') = 0) or
        (CompareText(ParamStr(I), '/LANGSELECTED=1') = 0) or
-       (CompareText(ParamStr(I), '/LANGSELECTED') = 0) or
-       (CompareText(Copy(ParamStr(I), 1, 5), '/SL5=') = 0) then
+       (CompareText(ParamStr(I), '/LANGSELECTED') = 0) then
     begin
       AlreadySelected := True;
       Break;

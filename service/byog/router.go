@@ -152,15 +152,28 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 		return fmt.Errorf("node not found: %s", session.NodeId)
 	}
 
-	// Concurrency limiter check (Section 3.7)
+	// Concurrency limiter check (Section 3.7) with queuing
 	queue := r.getNodeQueue(session.NodeId, node.DeviceType)
-	queue.Lock.Lock()
-	if queue.ActiveCount >= queue.MaxCapacity {
+	waitDeadline := time.Now().Add(120 * time.Second)
+	acquired := false
+	for time.Now().Before(waitDeadline) {
+		queue.Lock.Lock()
+		if queue.ActiveCount < queue.MaxCapacity {
+			atomic.AddInt32(&queue.ActiveCount, 1)
+			queue.Lock.Unlock()
+			acquired = true
+			break
+		}
 		queue.Lock.Unlock()
-		return fmt.Errorf("node concurrency capacity reached, queueing or switching to alternate node")
+		select {
+		case <-c.Request.Context().Done():
+			return fmt.Errorf("client disconnected while queued")
+		case <-time.After(200 * time.Millisecond):
+		}
 	}
-	atomic.AddInt32(&queue.ActiveCount, 1)
-	queue.Lock.Unlock()
+	if !acquired {
+		return fmt.Errorf("node concurrency capacity reached, worker busy")
+	}
 
 	defer func() {
 		queue.Lock.Lock()
@@ -202,7 +215,7 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 		c.Header("Content-Type", "application/json")
 	}
 
-	timeoutTicker := time.NewTicker(60 * time.Second)
+	timeoutTicker := time.NewTicker(180 * time.Second)
 	defer timeoutTicker.Stop()
 
 	var totalTokensGenerated int
@@ -217,6 +230,7 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 
 			switch frame.Type {
 			case MsgTypeInferenceChunk:
+				timeoutTicker.Reset(60 * time.Second)
 				var chunk ChunkPayload
 				if err := json.Unmarshal(frame.Payload, &chunk); err == nil {
 					totalTokensGenerated++

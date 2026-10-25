@@ -102,6 +102,12 @@ public class WorkerService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        try {
+            if (getApplicationInfo() != null && getApplicationInfo().nativeLibraryDir != null) {
+                System.setProperty("de.kherud.llama.lib.path", getApplicationInfo().nativeLibraryDir);
+                android.util.Log.i("BYOG_NATIVE", "Set de.kherud.llama.lib.path to " + getApplicationInfo().nativeLibraryDir);
+            }
+        } catch (Throwable ignored) {}
         installWorkerCrashHandler();
         createNotificationChannel();
         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
@@ -123,6 +129,16 @@ public class WorkerService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         try {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            String appName = sp != null ? stringPref(sp, "app_name", "{app_name}") : "{app_name}";
+            Notification notification = buildNotification(appName, "BYOG Servisi aktif...");
+            try {
+                if (Build.VERSION.SDK_INT >= 29) {
+                    startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                } else {
+                    startForeground(NOTIF_ID, notification);
+                }
+            } catch (Throwable ignored) {}
             return runWorker(intent, flags, startId);
         } catch (Throwable failure) {
             reportCrash("ERR_WORKER_START", describe(failure), "");
@@ -182,6 +198,10 @@ public class WorkerService extends Service {
         } catch (Exception ignored) {}
 
         File actualFile = new File(getFilesDir(), currentAssignedModel + ".gguf");
+        if (!actualFile.exists() || actualFile.length() < 10L * 1024 * 1024) {
+            File sd = new File("/sdcard", currentAssignedModel + ".gguf");
+            if (sd.exists() && sd.length() >= 10L * 1024 * 1024) actualFile = sd;
+        }
         boolean modelFileOnDisk = actualFile.exists() && actualFile.length() > MIN_MODEL_BYTES;
         if (!modelFileOnDisk) {
             installedModelsList.remove(currentAssignedModel);
@@ -304,10 +324,34 @@ public class WorkerService extends Service {
     /**
      * Reads a text of the settings, a value of another type is ignored.
      */
+    public static String normalizeServerUrl(String url) {
+        if (url == null) return "";
+        url = url.trim();
+        while (url.endsWith("/")) url = url.substring(0, url.length() - 1);
+        boolean isEmu = Build.FINGERPRINT.startsWith("generic")
+            || Build.FINGERPRINT.startsWith("unknown")
+            || Build.MODEL.contains("google_sdk")
+            || Build.MODEL.contains("Emulator")
+            || Build.MODEL.contains("Android SDK built for x86")
+            || Build.HARDWARE.contains("goldfish")
+            || Build.HARDWARE.contains("ranchu");
+        if (isEmu) {
+            url = url.replace("://10.0.2.2", "://127.0.0.1").replace("://localhost", "://127.0.0.1");
+        }
+        return url;
+    }
+
+    /**
+     * Reads a text of the settings, a value of another type is ignored.
+     */
     public static String stringPref(SharedPreferences sp, String key, String fallback) {
         if (sp == null) return fallback;
         try {
-            return sp.getString(key, fallback);
+            String val = sp.getString(key, fallback);
+            if ("server_url".equals(key) && val != null) {
+                return normalizeServerUrl(val);
+            }
+            return val;
         } catch (ClassCastException e) {
             return fallback;
         }
@@ -624,6 +668,10 @@ public class WorkerService extends Service {
                 checkAndTriggerModelDownloads();
             } else {
                 File mf = new File(getFilesDir(), currentAssignedModel + ".gguf");
+                if (!mf.exists() || mf.length() < 10L * 1024 * 1024) {
+                    File sd = new File("/sdcard", currentAssignedModel + ".gguf");
+                    if (sd.exists() && sd.length() >= 10L * 1024 * 1024) mf = sd;
+                }
                 if (mf.exists() && mf.length() > MIN_MODEL_BYTES) {
                     currentModelStatus = "ready";
                     if (!activeVramModel.isEmpty()) {
@@ -778,7 +826,7 @@ public class WorkerService extends Service {
         if (isModelDownloading || downloadQueueList.isEmpty()) return;
 
         final String targetModel = downloadQueueList.get(0);
-        final File destFile = new File(getFilesDir(), targetModel + ".gguf");
+        final File destFile = LocalNeuralEngine.resolveModelFile(getFilesDir(), targetModel);
         if (destFile.exists() && destFile.length() > MIN_MODEL_BYTES) {
             // Already completely downloaded on disk
             finalizeModelDownloaded(targetModel);
@@ -819,7 +867,7 @@ public class WorkerService extends Service {
                 try {
                     List<String> candidateUrls = buildDownloadCandidates(targetModel);
 
-                    File destFile = new File(getFilesDir(), targetModel + ".gguf");
+                    File destFile = LocalNeuralEngine.resolveModelFile(getFilesDir(), targetModel);
                     if (destFile.exists() && destFile.length() > MIN_MODEL_BYTES) {
                         finalizeModelDownloaded(targetModel);
                         isModelDownloading = false;
@@ -1412,7 +1460,7 @@ public class WorkerService extends Service {
                     socket = new Socket();
                     socket.connect(new InetSocketAddress(host, port), 10000);
                 }
-                socket.setSoTimeout(60000);
+                socket.setSoTimeout(0);
                 in = new BufferedInputStream(socket.getInputStream());
                 out = new BufferedOutputStream(socket.getOutputStream());
 
@@ -1499,15 +1547,19 @@ public class WorkerService extends Service {
                     }
 
                     if (opcode == 8) { // CLOSE
+                        android.util.Log.i("BYOG_TUNNEL", "Received CLOSE opcode 8");
                         break;
                     } else if (opcode == 9) { // PING
                         sendPong(payload);
                     } else if (opcode == 1) { // TEXT
                         String msg = new String(payload, "UTF-8");
+                        android.util.Log.i("BYOG_TUNNEL", "Received text msg (" + msg.length() + " chars): " + (msg.length() < 200 ? msg : msg.substring(0, 200)));
                         handleTunnelMessage(msg);
                     }
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception ex) {
+                android.util.Log.e("BYOG_TUNNEL", "Tunnel read loop exception: " + ex.getMessage(), ex);
+            }
             finally {
                 close();
             }
@@ -1630,6 +1682,7 @@ public class WorkerService extends Service {
             JSONObject frame = new JSONObject(msg);
             String type = frame.optString("type");
             String id = frame.optString("id");
+            android.util.Log.i("BYOG_TUNNEL", "Processing frame type=" + type + " id=" + id);
 
             if ("ping".equals(type)) {
                 JSONObject ack = new JSONObject();
@@ -1930,7 +1983,9 @@ public class WorkerService extends Service {
         } catch (Exception ignored) {}
     }
 
-    private void executeInference(final String id, final JSONObject payload) {        new Thread(new Runnable() {
+    private void executeInference(final String id, final JSONObject payload) {
+        android.util.Log.i("BYOG_INFERENCE", "executeInference called for id=" + id);
+        new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
@@ -1975,7 +2030,7 @@ public class WorkerService extends Service {
                     } catch (Exception ignored) {}
 
                     // Immediately trigger HTTP sync to server coordinator
-                    doHttpHeartbeatAndSync(runningDesc);
+                    new Thread(new Runnable() { @Override public void run() { doHttpHeartbeatAndSync(runningDesc); } }).start();
 
                     String userPrompt = "";
                     if (payload != null) {
