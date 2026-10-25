@@ -209,33 +209,6 @@ export function ClientPage() {
     }
   }, [i18n, localApi, localToken])
 
-  useEffect(() => {
-    const target = window as unknown as Record<string, unknown>
-    target.showUpdatePrompt = (version: string) => setUpdateVersion(version)
-    target.handleScannedQr = (qrText: string) => {
-      if (qrText) {
-        setCode(qrText.trim().toUpperCase())
-      }
-    }
-    return () => {
-      delete target.showUpdatePrompt
-      delete target.handleScannedQr
-    }
-  }, [])
-
-  useEffect(() => {
-    const search = new URLSearchParams(window.location.search)
-    const fromQuery = search.get('node') ?? ''
-    const stored = window.localStorage.getItem('byog_node_id') ?? ''
-    setNodeId(fromQuery || stored)
-    setServerUrl(window.location.origin)
-    setLocalApi(search.get('local') ?? '')
-    setLocalToken(search.get('token') ?? '')
-    if (search.get('onboarding') === '1') {
-      setOnboardingDone(false)
-    }
-  }, [])
-
   const loadState = useCallback(async () => {
     if (bridge) {
       try {
@@ -321,6 +294,44 @@ export function ClientPage() {
   }, [bridge, localApi, localToken, nodeId])
 
   useEffect(() => {
+    const target = window as unknown as Record<string, unknown>
+    target.showUpdatePrompt = (version: string) => setUpdateVersion(version)
+    target.handleScannedQr = (qrText: string) => {
+      if (qrText) {
+        setCode(qrText.trim().toUpperCase())
+      }
+    }
+    target.onPairSuccess = () => {
+      setBusy(false)
+      setMessage(t('byog.client_paired', 'Cihaz başarıyla eşleştirildi'))
+      void loadState()
+    }
+    target.onPairError = (errMsg?: string) => {
+      setBusy(false)
+      setMessage(errMsg || t('byog.client_pair_failed', 'Eşleştirme başarısız oldu'))
+    }
+    return () => {
+      delete target.showUpdatePrompt
+      delete target.handleScannedQr
+      delete target.onPairSuccess
+      delete target.onPairError
+    }
+  }, [t, loadState])
+
+  useEffect(() => {
+    const search = new URLSearchParams(window.location.search)
+    const fromQuery = search.get('node') ?? ''
+    const stored = window.localStorage.getItem('byog_node_id') ?? ''
+    setNodeId(fromQuery || stored)
+    setServerUrl(window.location.origin)
+    setLocalApi(search.get('local') ?? '')
+    setLocalToken(search.get('token') ?? '')
+    if (search.get('onboarding') === '1') {
+      setOnboardingDone(false)
+    }
+  }, [])
+
+  useEffect(() => {
     void loadState()
     const timer = setInterval(() => void loadState(), 4000)
     return () => clearInterval(timer)
@@ -339,8 +350,9 @@ export function ClientPage() {
     try {
       if (bridge) {
         bridge.connect(code.trim(), serverUrl || window.location.origin)
-        setMessage(t('byog.client_paired', 'Cihaz başarıyla eşleştirildi'))
-        setTimeout(() => void loadState(), 1000)
+        setTimeout(() => {
+          setBusy(false)
+        }, 8000)
         return
       }
       if (localApi) {
@@ -378,7 +390,9 @@ export function ClientPage() {
     } catch {
       setMessage(t('byog.client_pair_failed', 'Eşleştirme başarısız oldu'))
     } finally {
-      setBusy(false)
+      if (!bridge) {
+        setBusy(false)
+      }
     }
   }
 
@@ -684,8 +698,8 @@ export function ClientPage() {
                 </div>
               )}
 
-              {/* Step 2: Autostart (Honor Pad 10 / MagicOS / MIUI / ColorOS) */}
-              {onboardingStep === 2 && (permissions?.autostart_supported || isTestingOnboarding) && (
+              {/* Step 2: Autostart (Xiaomi / HyperOS, Huawei, Honor, Samsung, Oppo, Vivo, Transsion, etc.) */}
+              {onboardingStep === 2 && (
                 <div className='space-y-4 rounded-xl border border-border/60 bg-muted/40 p-5'>
                   <div className='flex items-center gap-3'>
                     <div className='flex size-10 items-center justify-center rounded-xl bg-indigo-500/15 text-indigo-500'>
@@ -693,22 +707,25 @@ export function ClientPage() {
                     </div>
                     <div>
                       <h4 className='font-semibold text-foreground'>
-                        {t('byog.perm_autostart_title', '3. Otomatik Başlatma İzni')}
+                        {t('byog.perm_autostart_title', '3. Otomatik Başlatma & Arka Plan')}
                       </h4>
                       <p className='text-xs text-muted-foreground'>
                         {t(
                           'byog.perm_autostart_desc',
-                          'Cihaz yeniden başlatıldığında düğümün arka planda otomatik olarak ayağa kalkması için sistem yöneticisinden otomatik başlatmayı açın.'
+                          'Cihaz yeniden başlatıldığında veya ekran kapandığında düğümün arka planda kesintisiz çalışabilmesi için üreticinizin sistem yöneticisinden Otomatik Başlatma veya Kısıtlanmamış Pil kullanımını açın.'
                         )}
                       </p>
                     </div>
                   </div>
 
-                  <div className='pt-2 flex items-center justify-between'>
+                  <div className='pt-2 flex flex-wrap items-center justify-between gap-2'>
                     <Button
                       size='sm'
                       variant='outline'
-                      onClick={() => bridge?.openAutoStartSettings()}
+                      onClick={() => {
+                        bridge?.openAutoStartSettings()
+                        setTimeout(() => void loadState(), 1500)
+                      }}
                     >
                       {t('byog.open_settings', 'Ayarları Aç')}
                     </Button>
@@ -762,7 +779,7 @@ export function ClientPage() {
               <CardDescription className='text-sm sm:text-base'>
                 {t(
                   'byog.enter_pairing_code_instructions',
-                  'Web konsolundan aldığınız 6 haneli eşleştirme kodunu girin veya kamerayı açarak QR kodu taratın.'
+                  'Web konsolundan aldığınız eşleştirme kodunu (XXXX-XXXX-XXXX-XXXX) girin veya kamerayı açarak QR kodu taratın.'
                 )}
               </CardDescription>
             </CardHeader>
@@ -784,10 +801,17 @@ export function ClientPage() {
 
                 <Input
                   value={code}
-                  onChange={(event) => setCode(event.target.value.toUpperCase())}
-                  placeholder={t('byog.enter_pairing_code_label', 'EŞLEŞTİRME KODU')}
-                  className='h-11 font-mono uppercase tracking-widest text-center text-sm sm:text-lg font-bold min-w-0 flex-1'
-                  maxLength={12}
+                  onChange={(event) => {
+                    let val = event.target.value.toUpperCase().replaceAll(/[^A-Z0-9-]/g, '')
+                    const raw = val.replaceAll('-', '')
+                    if (raw.length === 16 && !val.includes('-')) {
+                      val = raw.match(/.{1,4}/g)?.join('-') ?? val
+                    }
+                    setCode(val)
+                  }}
+                  placeholder={t('byog.enter_pairing_code_label', 'EŞLEŞTİRME KODU (XXXX-XXXX-XXXX-XXXX)')}
+                  className='h-11 font-mono uppercase tracking-widest text-center text-sm sm:text-base font-bold min-w-0 flex-1'
+                  maxLength={32}
                   disabled={busy}
                 />
 

@@ -485,6 +485,7 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
     <uses-permission android:name="android.permission.QUICKBOOT_POWERON" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
@@ -500,11 +501,23 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
         <package android:name="com.hihonor.systemmanager" />
         <package android:name="com.huawei.systemmanager" />
         <package android:name="com.miui.securitycenter" />
+        <package android:name="com.miui.powerkeeper" />
         <package android:name="com.vivo.permissionmanager" />
+        <package android:name="com.vivo.abe" />
         <package android:name="com.iqoo.secure" />
         <package android:name="com.samsung.android.lool" />
         <package android:name="com.samsung.android.sm" />
+        <package android:name="com.samsung.android.sm_cn" />
         <package android:name="com.transsion.phonemaster" />
+        <package android:name="com.transsion.phonemanager" />
+        <package android:name="com.asus.mobilemanager" />
+        <package android:name="com.oneplus.security" />
+        <package android:name="com.meizu.safe" />
+        <package android:name="com.zte.heartyservice" />
+        <package android:name="com.itel.autobootmanager" />
+        <package android:name="com.oppo.safe" />
+        <package android:name="com.coloros.safe" />
+        <package android:name="com.oplus.battery" />
     </queries>
 
     <application
@@ -733,7 +746,7 @@ html_content = f'''<!DOCTYPE html>
       </div>
 
       <div class="input-group">
-        <input id="input-code" type="text" class="input-text" placeholder="UB55-SV5S-DZ79-MVHX" maxlength="24">
+        <input id="input-code" type="text" class="input-text" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="32">
         <button class="btn-icon" onclick="pasteCode()" title="Yapıştır">
           <svg viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
         </button>
@@ -1957,12 +1970,6 @@ public class MainActivity extends Activity {
         if (intent == null) return false;
         try {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            if (intent.getComponent() != null) {
-                PackageManager pm = getPackageManager();
-                if (pm == null || pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY) == null) {
-                    return false;
-                }
-            }
             startActivity(intent);
             return true;
         } catch (Throwable ignored) {
@@ -2022,23 +2029,210 @@ public class MainActivity extends Activity {
     public void openAutoStartSettings() {
         lastPausedAt = 0;
 
-        Toast.makeText(this, "Otomatik başlatma ekranında uygulamayı etkinleştirin.", Toast.LENGTH_LONG).show();
+        String mfr = Build.MANUFACTURER != null ? Build.MANUFACTURER.toLowerCase() : "";
+        String brand = Build.BRAND != null ? Build.BRAND.toLowerCase() : "";
 
-        for (Intent action : autoStartActions()) {
-            if (launch(action)) {
+        // Brand-specific user guidance toast
+        String brandGuide;
+        if (mfr.contains("xiaomi") || brand.contains("xiaomi") || mfr.contains("redmi") || brand.contains("redmi") || mfr.contains("poco") || brand.contains("poco")) {
+            brandGuide = "Xiaomi / HyperOS: BYOG için 'Otomatik Başlatma'yı açın ve Pil Tasarrufu'nda 'Kısıtlama Yok' seçin.";
+        } else if (mfr.contains("samsung") || brand.contains("samsung")) {
+            brandGuide = "Samsung: 'Asla uyku moduna alınmayan uygulamalar' listesine BYOG'u ekleyin ve Arka Plan kullanımını açın.";
+        } else if (mfr.contains("huawei") || brand.contains("huawei") || mfr.contains("honor") || brand.contains("honor")) {
+            brandGuide = "Huawei / Honor: Başlangıç yöneticisinde 'Elle Yönet' seçip Otomatik Başlatma ve Arka Planda Çalışma'yı açın.";
+        } else if (mfr.contains("oppo") || brand.contains("oppo") || mfr.contains("realme") || brand.contains("realme") || mfr.contains("oneplus") || brand.contains("oneplus")) {
+            brandGuide = "Oppo / Realme / OnePlus: Otomatik Başlatma listesinde BYOG'u etkinleştirin ve 'Arka plan aktivitesine izin ver' seçeneğini açın.";
+        } else if (mfr.contains("vivo") || brand.contains("vivo") || mfr.contains("iqoo") || brand.contains("iqoo")) {
+            brandGuide = "Vivo / iQOO: 'Otomatik Başlatma' ve 'Arka Planda Yüksek Güç Tüketimi' izinlerini verin.";
+        } else if (mfr.contains("transsion") || brand.contains("transsion") || mfr.contains("tecno") || brand.contains("tecno") || mfr.contains("infinix") || brand.contains("infinix") || mfr.contains("itel") || brand.contains("itel")) {
+            brandGuide = "Phone Master: 'Otomatik Başlatma Yönetimi'nde BYOG uygulamasını etkinleştirin.";
+        } else if (mfr.contains("asus") || brand.contains("asus")) {
+            brandGuide = "Asus: Mobile Manager > Otomatik Başlatma Yöneticisi'nde BYOG'u açın.";
+        } else {
+            brandGuide = "Lütfen açılan ayarlar sayfasında BYOG için Otomatik Başlatma veya Kısıtlanmamış Pil kullanımını etkinleştirin.";
+        }
+        Toast.makeText(this, brandGuide, Toast.LENGTH_LONG).show();
+
+        for (Intent intent : getPrioritizedAutoStartIntents(mfr, brand)) {
+            if (launch(intent)) {
                 markAutoStartPending();
                 return;
             }
+        }
+
+        // Generic Android 12+ per-app battery settings
+        Intent appBattery = new Intent("android.settings.APP_BATTERY_SETTINGS");
+        appBattery.setData(Uri.parse("package:" + getPackageName()));
+        appBattery.putExtra("package", getPackageName());
+        appBattery.putExtra("package_name", getPackageName());
+        appBattery.putExtra(Intent.EXTRA_PACKAGE_NAME, getPackageName());
+        if (launch(appBattery)) {
+            markAutoStartPending();
+            return;
+        }
+
+        // Request ignore battery optimizations prompt
+        try {
+            Intent reqOpt = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            reqOpt.setData(Uri.parse("package:" + getPackageName()));
+            if (launch(reqOpt)) {
+                markAutoStartPending();
+                return;
+            }
+        } catch (Throwable ignored) {}
+
+        // Standard ignore battery optimizations list
+        try {
+            Intent ignoreOpt = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+            if (launch(ignoreOpt)) {
+                markAutoStartPending();
+                return;
+            }
+        } catch (Throwable ignored) {}
+
+        // Application Details Settings fallback
+        Intent details = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+        details.setData(Uri.parse("package:" + getPackageName()));
+        if (launch(details)) {
+            markAutoStartPending();
+            return;
+        }
+
+        Toast.makeText(this, "Otomatik başlatma ekranı açılamadı. Ayarlar > Uygulamalar > BYOG > Pil bölümünden ayarlayabilirsiniz.", Toast.LENGTH_LONG).show();
+    }
+
+    private Intent[] getPrioritizedAutoStartIntents(String mfr, String brand) {
+        java.util.ArrayList<Intent> list = new java.util.ArrayList<Intent>();
+
+        boolean isXiaomi = mfr.contains("xiaomi") || brand.contains("xiaomi") || mfr.contains("redmi") || brand.contains("redmi") || mfr.contains("poco") || brand.contains("poco");
+        boolean isHuaweiHonor = mfr.contains("huawei") || brand.contains("huawei") || mfr.contains("honor") || brand.contains("honor");
+        boolean isSamsung = mfr.contains("samsung") || brand.contains("samsung");
+        boolean isOppoFamily = mfr.contains("oppo") || brand.contains("oppo") || mfr.contains("realme") || brand.contains("realme") || mfr.contains("oneplus") || brand.contains("oneplus");
+        boolean isVivo = mfr.contains("vivo") || brand.contains("vivo") || mfr.contains("iqoo") || brand.contains("iqoo");
+        boolean isTranssion = mfr.contains("transsion") || brand.contains("transsion") || mfr.contains("tecno") || brand.contains("tecno") || mfr.contains("infinix") || brand.contains("infinix") || mfr.contains("itel") || brand.contains("itel");
+        boolean isAsus = mfr.contains("asus") || brand.contains("asus");
+
+        if (isXiaomi) {
+            addXiaomiAutoStart(list);
+        } else if (isHuaweiHonor) {
+            addHuaweiHonorAutoStart(list);
+        } else if (isSamsung) {
+            addSamsungAutoStart(list);
+        } else if (isOppoFamily) {
+            addOppoAutoStart(list);
+        } else if (isVivo) {
+            addVivoAutoStart(list);
+        } else if (isTranssion) {
+            addTranssionAutoStart(list);
+        } else if (isAsus) {
+            addAsusAutoStart(list);
+        }
+
+        for (Intent action : autoStartActions()) {
+            list.add(action);
         }
 
         for (Intent component : autoStartComponents()) {
-            if (launch(component)) {
-                markAutoStartPending();
-                return;
-            }
+            list.add(component);
         }
 
-        Toast.makeText(this, "Otomatik başlatma ekranı bulunamadı. Ayarlar > Uygulamalar > BYOG > Pil kullanımı bölümünden açabilirsiniz.", Toast.LENGTH_LONG).show();
+        if (!isXiaomi) addXiaomiAutoStart(list);
+        if (!isHuaweiHonor) addHuaweiHonorAutoStart(list);
+        if (!isSamsung) addSamsungAutoStart(list);
+        if (!isOppoFamily) addOppoAutoStart(list);
+        if (!isVivo) addVivoAutoStart(list);
+        if (!isTranssion) addTranssionAutoStart(list);
+        if (!isAsus) addAsusAutoStart(list);
+
+        return list.toArray(new Intent[list.size()]);
+    }
+
+    private void addXiaomiAutoStart(java.util.List<Intent> list) {
+        list.add(componentIntent("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"));
+        Intent permEd = componentIntent("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity");
+        permEd.putExtra("extra_pkgname", getPackageName());
+        list.add(permEd);
+        list.add(perAppPowerIntent("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsConfigActivity"));
+        list.add(perAppPowerIntent("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsContainerManagementActivity"));
+        list.add(new Intent("miui.intent.action.OP_AUTO_START"));
+        list.add(new Intent("miui.intent.action.POWER_HIDE_MODE_APP_LIST"));
+    }
+
+    private void addHuaweiHonorAutoStart(java.util.List<Intent> list) {
+        list.add(componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity"));
+        list.add(componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.optimize.bootstart.BootStartActivity"));
+        list.add(componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.appcontrol.activity.StartupAppControlActivity"));
+        list.add(componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.optimize.process.StartupAppControlActivity"));
+        list.add(componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.power.ui.PowerManagementActivity"));
+        list.add(componentIntent("com.hihonor.systemmanager", "com.hihonor.systemmanager.power.ui.DetailOfSoftConsumptionActivity"));
+        list.add(componentIntent("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"));
+        list.add(componentIntent("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.bootstart.BootStartActivity"));
+        list.add(componentIntent("com.huawei.systemmanager", "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity"));
+        list.add(componentIntent("com.huawei.systemmanager", "com.huawei.systemmanager.power.ui.HwPowerManagerActivity"));
+        list.add(componentIntent("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity"));
+        list.add(new Intent("com.hihonor.systemmanager.action.BOOTSTART"));
+        list.add(new Intent("com.hihonor.systemmanager.action.STARTUP_APP_CONTROL"));
+        list.add(new Intent("huawei.intent.action.HSM_BOOTAPP_MANAGER"));
+        list.add(new Intent("huawei.intent.action.HSM_STARTUPAPP_MANAGER"));
+    }
+
+    private void addSamsungAutoStart(java.util.List<Intent> list) {
+        Intent s1 = componentIntent("com.samsung.android.lool", "com.samsung.android.sm.battery.ui.usage.CheckableAppListActivity");
+        s1.putExtra("type", 3);
+        s1.putExtra("package", getPackageName());
+        list.add(s1);
+        Intent s2 = componentIntent("com.samsung.android.sm", "com.samsung.android.sm.battery.ui.usage.CheckableAppListActivity");
+        s2.putExtra("type", 3);
+        s2.putExtra("package", getPackageName());
+        list.add(s2);
+        list.add(componentIntent("com.samsung.android.lool", "com.samsung.android.sm.battery.ui.BatteryActivity"));
+        list.add(componentIntent("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity"));
+        list.add(componentIntent("com.samsung.android.sm", "com.samsung.android.sm.ui.battery.BatteryActivity"));
+        list.add(componentIntent("com.samsung.android.sm_cn", "com.samsung.android.sm.ui.ram.AutoRunActivity"));
+        Intent s3 = componentIntent("com.samsung.android.lool", "com.samsung.android.sm.battery.ui.usage.AppBatteryUsageActivity");
+        s3.putExtra("package", getPackageName());
+        list.add(s3);
+        list.add(componentIntent("com.samsung.android.sm", "com.samsung.android.sm.ui.cstyle.SmartManagerActivity"));
+    }
+
+    private void addOppoAutoStart(java.util.List<Intent> list) {
+        list.add(componentIntent("com.oplus.safecenter", "com.oplus.safecenter.startupapp.StartupAppListActivity"));
+        list.add(componentIntent("com.oplus.safecenter", "com.oplus.safecenter.permission.startup.StartupAppListActivity"));
+        list.add(componentIntent("com.oplus.safecenter", "com.oplus.safecenter.permission.startupapp.StartupAppListActivity"));
+        list.add(componentIntent("com.oplus.safecenter", "com.oplus.safecenter.permission.topactivity.PermissionTopActivity"));
+        list.add(componentIntent("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity"));
+        list.add(componentIntent("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"));
+        list.add(componentIntent("com.coloros.safecenter", "com.coloros.safecenter.permission.startupapp.StartupAppListActivity"));
+        list.add(componentIntent("com.coloros.safecenter", "com.coloros.safecenter.permission.startupmanager.StartupAppListActivity"));
+        list.add(componentIntent("com.coloros.safecenter", "com.coloros.privacypermissionsentry.PermissionTopActivity"));
+        list.add(perAppPowerIntent("com.oplus.battery", "com.oplus.powermanager.fuelgaue.PowerControlActivity"));
+        list.add(perAppPowerIntent("com.oplus.battery", "com.oplus.battery.AppBatteryUseDetailActivity"));
+        list.add(perAppPowerIntent("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerControlActivity"));
+        list.add(perAppPowerIntent("com.coloros.safecenter", "com.coloros.powermanager.fuelgaue.PowerControlActivity"));
+        list.add(componentIntent("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity"));
+        list.add(componentIntent("com.coloros.safe", "com.coloros.safe.permission.startup.StartupAppListActivity"));
+        list.add(componentIntent("com.oneplus.security", "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity"));
+    }
+
+    private void addVivoAutoStart(java.util.List<Intent> list) {
+        list.add(componentIntent("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"));
+        list.add(componentIntent("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.BgStartUpManager"));
+        list.add(componentIntent("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.PurviewTabActivity"));
+        list.add(componentIntent("com.iqoo.secure", "com.iqoo.secure.MainGuideActivity"));
+        list.add(perAppPowerIntent("com.vivo.abe", "com.vivo.applicationbehaviorengine.ui.ExcessivePowerManagerActivity"));
+        list.add(new Intent("com.iqoo.secure.BGSTARTUPMANAGER"));
+    }
+
+    private void addTranssionAutoStart(java.util.List<Intent> list) {
+        list.add(componentIntent("com.transsion.phonemaster", "com.cyin.himgr.autostart.AutoStartActivity"));
+        list.add(componentIntent("com.transsion.phonemanager", "com.itel.autobootmanager.activity.AutoBootMgrActivity"));
+        list.add(componentIntent("com.transsion.phonemaster", "com.transsion.phonemaster.autostart.AutoStartActivity"));
+        list.add(new Intent("com.cyin.himgr.applicationmanager.view.activities.AUTO_START_ACTIVITY"));
+    }
+
+    private void addAsusAutoStart(java.util.List<Intent> list) {
+        list.add(componentIntent("com.asus.mobilemanager", "com.asus.mobilemanager.autostart.AutoStartActivity"));
+        list.add(componentIntent("com.asus.mobilemanager", "com.asus.mobilemanager.entry.FunctionActivity"));
     }
 
     /**
@@ -2047,22 +2241,7 @@ public class MainActivity extends Activity {
      * reboot with its own receiver when it is missing.
      */
     public boolean hasAutoStartScreen() {
-        String mfr = Build.MANUFACTURER != null ? Build.MANUFACTURER.toLowerCase() : "";
-        String brand = Build.BRAND != null ? Build.BRAND.toLowerCase() : "";
-        if (mfr.contains("honor") || brand.contains("honor") || mfr.contains("huawei") || brand.contains("huawei")) {
-            return true;
-        }
-        for (Intent action : autoStartActions()) {
-            if (canLaunch(action)) {
-                return true;
-            }
-        }
-        for (Intent component : autoStartComponents()) {
-            if (canLaunch(component)) {
-                return true;
-            }
-        }
-        return false;
+        return true;
     }
 
     /**
@@ -2086,8 +2265,11 @@ public class MainActivity extends Activity {
      * Tells whether the system of the device can open the given screen.
      */
     private boolean canLaunch(Intent intent) {
+        if (intent == null) return false;
         try {
-            return intent.resolveActivity(getPackageManager()) != null;
+            PackageManager pm = getPackageManager();
+            if (pm == null) return false;
+            return pm.resolveActivity(intent, 0) != null;
         } catch (Exception ignored) {
             return false;
         }
@@ -2656,7 +2838,11 @@ public class MainActivity extends Activity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        Toast.makeText(MainActivity.this, "Lütfen sunucu adresini içeren QR kodu tarayın veya sunucudan indirilmiş APK kullanın", Toast.LENGTH_LONG).show();
+                        String msg = "Lütfen sunucu adresini içeren QR kodu tarayın veya sunucudan indirilmiş APK kullanın";
+                        if (webView != null) {
+                            webView.evaluateJavascript("window.setConnectingState(false); if (window.onPairError) window.onPairError(" + org.json.JSONObject.quote(msg) + ");", null);
+                        }
+                        Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
                     }
                 });
                 return;
@@ -2666,7 +2852,11 @@ public class MainActivity extends Activity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        Toast.makeText(MainActivity.this, "Lütfen eşleştirme kodunu girin", Toast.LENGTH_SHORT).show();
+                        String msg = "Lütfen eşleştirme kodunu girin";
+                        if (webView != null) {
+                            webView.evaluateJavascript("window.setConnectingState(false); if (window.onPairError) window.onPairError(" + org.json.JSONObject.quote(msg) + ");", null);
+                        }
+                        Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show();
                     }
                 });
                 return;
@@ -2887,7 +3077,7 @@ public class MainActivity extends Activity {
                                         } catch (Exception ignored) {}
                                         try {
                                             if (webView != null) {
-                                                webView.evaluateJavascript("window.updateState(" + state.toString() + ")", null);
+                                                webView.evaluateJavascript("window.updateState(" + state.toString() + "); if (window.onPairSuccess) window.onPairSuccess();", null);
                                             }
                                         } catch (Throwable ignored) {}
                                     }
@@ -2901,19 +3091,19 @@ public class MainActivity extends Activity {
                             @Override
                             public void run() {
                                 if (webView != null) {
-                                    webView.evaluateJavascript("window.setConnectingState(false)", null);
+                                    webView.evaluateJavascript("window.setConnectingState(false); if (window.onPairError) window.onPairError(" + org.json.JSONObject.quote(finalErr) + ");", null);
                                 }
                                 Toast.makeText(MainActivity.this, finalErr, Toast.LENGTH_LONG).show();
                             }
                         });
 
                     } catch (Exception e) {
-                        final String exMsg = e.getMessage();
+                        final String exMsg = e.getMessage() != null ? e.getMessage() : "Bilinmeyen hata";
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
                                 if (webView != null) {
-                                    webView.evaluateJavascript("window.setConnectingState(false)", null);
+                                    webView.evaluateJavascript("window.setConnectingState(false); if (window.onPairError) window.onPairError(" + org.json.JSONObject.quote("Bağlantı hatası: " + exMsg) + ");", null);
                                 }
                                 Toast.makeText(MainActivity.this, "Bağlantı hatası: " + exMsg, Toast.LENGTH_LONG).show();
                             }
@@ -3512,6 +3702,11 @@ subprocess.check_call([
 print(f"Signing key exported for the server: {SIGNING_KEY_PEM}")
 
 # 11. Apksigner sign (v1 + v2 + v3)
+if os.path.exists(OUTPUT_APK):
+    try:
+        os.remove(OUTPUT_APK)
+    except OSError:
+        pass
 subprocess.check_call([
     APKSIGNER, "sign",
     "--ks", RELEASE_KEYSTORE,
