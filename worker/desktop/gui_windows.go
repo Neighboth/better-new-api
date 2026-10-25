@@ -1187,21 +1187,9 @@ func (w *guiWindow) openEmbeddedPage(page string) bool {
 		if w.embedCmd == command {
 			w.embedCmd = nil
 		}
-		closing := w.embedClosing
 		w.mutex.Unlock()
-		if closing {
-			return
-		}
-		// The window ended before the client page was shown. The runtime of
-		// WebView2 is not on the computer or the page could not be loaded. The
-		// window of the program shows the state of the worker.
-		w.mutex.Lock()
-		w.embedFailed = true
-		w.mutex.Unlock()
-		procShowWindow.Call(w.window, swRestore)
-		procSetForeground.Call(w.window)
-		procUpdateWindow.Call(w.window)
-		w.invalidate()
+		// When the WebView window is closed (e.g. by pressing X), the worker keeps
+		// running in the system tray. Never restore or pop up the legacy fallback window.
 	}()
 	return true
 }
@@ -1266,25 +1254,12 @@ func (w *guiWindow) show() {
 		return
 	}
 	w.mutex.Lock()
-	missing := w.embedCmd == nil
-	// The user asks for the window again, a failed attempt of the page is
-	// retried with a fresh process of WebView2.
 	w.embedFailed = false
 	w.mutex.Unlock()
-	if missing && w.openClientPage() {
+	if w.openClientPage() {
 		procShowWindow.Call(w.window, swHide)
 		return
 	}
-	if !missing {
-		// The window of the page is starting. The window of the state is not
-		// shown beside it; the worker shows it when the page cannot start.
-		procShowWindow.Call(w.window, swHide)
-		return
-	}
-	procShowWindow.Call(w.window, swRestore)
-	procSetForeground.Call(w.window)
-	procUpdateWindow.Call(w.window)
-	w.invalidate()
 }
 
 // addTrayIcon shows the client in the notification area of the system.

@@ -573,10 +573,11 @@ public class WorkerService extends Service {
 
     private int getModelSizeMB(String modelName) {
         String lower = modelName.toLowerCase();
-        if (lower.contains("0.5b")) return 380;
-        if (lower.contains("1.5b") || lower.contains("2b") || lower.contains("3b")) return 1150;
-        if (lower.contains("7b") || lower.contains("8b")) return 4600;
-        return 500;
+        if (lower.contains("0.5b") || lower.contains("0.6b")) return 468;
+        if (lower.contains("1.5b") || lower.contains("1.7b")) return 1065;
+        if (lower.contains("2b") || lower.contains("3b")) return 1994;
+        if (lower.contains("7b") || lower.contains("8b")) return 4466;
+        return 468;
     }
 
     /**
@@ -806,27 +807,6 @@ public class WorkerService extends Service {
     private List<String> buildDownloadCandidates(String model) {
         List<String> urls = new ArrayList<>();
 
-        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-        String serverUrl = stringPref(sp, "server_url", "");
-        while (serverUrl.endsWith("/")) {
-            serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
-        }
-        if (!serverUrl.isEmpty() && !model.isEmpty()) {
-            try {
-                urls.add(serverUrl + "/api/v1/worker/models/" + URLEncoder.encode(model, "UTF-8") + "/file");
-            } catch (Exception ignored) {}
-        }
-
-        String serverGiven = modelDownloadUrls.get(model);
-        if (serverGiven != null && !serverGiven.isEmpty()) {
-            if (serverGiven.startsWith("/") && !serverUrl.isEmpty()) {
-                serverGiven = serverUrl + serverGiven;
-            }
-            if (!urls.contains(serverGiven)) {
-                urls.add(serverGiven);
-            }
-        }
-
         String repo = null;
         String file = null;
         String lower = model.toLowerCase();
@@ -856,6 +836,21 @@ public class WorkerService extends Service {
         if (repo != null && file != null) {
             urls.add("https://huggingface.co/" + repo + "/resolve/main/" + file);
             urls.add("https://hf-mirror.com/" + repo + "/resolve/main/" + file);
+        }
+
+        String serverGiven = modelDownloadUrls.get(model);
+        if (serverGiven != null && !serverGiven.isEmpty()) {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            String serverUrl = stringPref(sp, "server_url", "");
+            while (serverUrl.endsWith("/")) {
+                serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
+            }
+            if (serverGiven.startsWith("/") && !serverUrl.isEmpty()) {
+                serverGiven = serverUrl + serverGiven;
+            }
+            if (!urls.contains(serverGiven)) {
+                urls.add(serverGiven);
+            }
         }
         return urls;
     }

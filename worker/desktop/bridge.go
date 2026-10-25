@@ -48,6 +48,7 @@ type bridgeState struct {
 	Disks            []DiskPartitionInfo `json:"disks"`
 	PhysicalRamMB    int                 `json:"physical_ram_mb"`
 	CpuCores         int                 `json:"cpu_cores"`
+	FaviconBase64    string              `json:"favicon_base64,omitempty"`
 }
 
 // startLocalBridge starts the server of the state of the client.
@@ -102,6 +103,7 @@ func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Requ
 	State.Mu.Lock()
 	language := State.Config.Language
 	serverUrl := State.Config.ServerUrl
+	faviconBase64 := State.Config.FaviconBase64
 	State.Mu.Unlock()
 	writeBridgeJSON(writer, bridgeState{
 		NodeId:           status.NodeId,
@@ -109,6 +111,7 @@ func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Requ
 		ServerUrl:        serverUrl,
 		AppName:          status.AppName,
 		SystemName:       status.SystemName,
+		FaviconBase64:    faviconBase64,
 		Language:         language,
 		PairingCode:      status.PairingCode,
 		Paired:           status.Paired,

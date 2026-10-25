@@ -99,6 +99,33 @@ interface WorkerState {
   cpu_cores?: number
   favicon?: string
   favicon_base64?: string
+  system_name?: string
+  app_name?: string
+}
+
+function formatPairingCode(val: string): string {
+  const cleaned = val.toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (cleaned.length === 16) {
+    return cleaned.match(/.{1,4}/g)?.join('-') ?? cleaned
+  }
+  return val.toUpperCase().replace(/[^A-Z0-9-]/g, '')
+}
+
+function extractPairingCode(text: string): string {
+  if (!text) return ''
+  const trimmed = text.trim()
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>
+      const rawCode = String(parsed.pairing_code ?? parsed.pairingCode ?? parsed.code ?? '')
+      if (rawCode) {
+        return formatPairingCode(rawCode)
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return formatPairingCode(trimmed)
 }
 
 interface PermissionState {
@@ -147,7 +174,7 @@ type PageKey = (typeof PAGES)[number]['key']
 
 export function ClientPage() {
   const { t, i18n } = useTranslation()
-  const { logo: systemLogo, systemName } = useSystemConfig()
+  const { logo: systemLogo, favicon: systemFavicon, systemName } = useSystemConfig()
   const [page, setPage] = useState<PageKey>(() => {
     if (typeof window !== 'undefined') {
       const tab = new URLSearchParams(window.location.search).get('tab')
@@ -223,7 +250,9 @@ export function ClientPage() {
         const isPaired = Boolean(initial.is_paired && initial.node_id)
         setState({
           node_id: String(initial.node_id ?? ''),
-          device_name: String(initial.app_name ?? ''),
+          device_name: String(initial.device_name ?? initial.app_name ?? ''),
+          system_name: String(initial.system_name ?? ''),
+          app_name: String(initial.app_name ?? ''),
           status: isPaired ? 'online' : 'offline',
           model_status: String(initial.model_status ?? ''),
           download_status: String(initial.model_status ?? ''),
@@ -263,6 +292,8 @@ export function ClientPage() {
         setState({
           node_id: String(payload.node_id ?? ''),
           device_name: String(payload.device_name ?? payload.app_name ?? ''),
+          system_name: String(payload.system_name ?? ''),
+          app_name: String(payload.app_name ?? ''),
           status: payload.connected ? 'online' : 'offline',
           model_status: String(payload.model_status ?? ''),
           download_status: String(payload.model_status ?? ''),
@@ -272,6 +303,7 @@ export function ClientPage() {
           disks: payload.disks as WorkerState['disks'],
           physical_ram_mb: payload.physical_ram_mb as number,
           cpu_cores: payload.cpu_cores as number,
+          favicon_base64: (payload.favicon_base64 as string) || undefined,
         })
       } catch {
         // ignore
@@ -298,7 +330,7 @@ export function ClientPage() {
     target.showUpdatePrompt = (version: string) => setUpdateVersion(version)
     target.handleScannedQr = (qrText: string) => {
       if (qrText) {
-        setCode(qrText.trim().toUpperCase())
+        setCode(extractPairingCode(qrText))
       }
     }
     target.onPairSuccess = () => {
@@ -545,11 +577,14 @@ export function ClientPage() {
     if (state?.favicon) {
       return state.favicon
     }
+    if (systemFavicon) {
+      return systemFavicon
+    }
     if (systemLogo) {
       return systemLogo
     }
     return '/logo.png'
-  }, [state?.favicon, state?.favicon_base64, systemLogo])
+  }, [state?.favicon, state?.favicon_base64, systemFavicon, systemLogo])
 
   // --- VIEW 1: Onboarding / Permissions (Mobile only, shown sequentially before pairing) ---
   const isTestingOnboarding = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('onboarding') === '1'
@@ -583,7 +618,7 @@ export function ClientPage() {
             }}
           />
           <span className='text-sm font-semibold tracking-tight truncate max-w-[160px] sm:max-w-none'>
-            {state?.device_name || systemName || 'BYOG Worker'}
+            {systemName || state?.system_name || state?.app_name || 'BYOG Worker'}
           </span>
         </div>
         <div className='flex items-center gap-1.5 shrink-0'>
@@ -758,7 +793,7 @@ export function ClientPage() {
             }}
           />
           <span className='text-sm font-semibold tracking-tight truncate max-w-[160px] sm:max-w-none'>
-            {state?.device_name || systemName || 'BYOG Worker'}
+            {systemName || state?.system_name || state?.app_name || 'BYOG Worker'}
           </span>
         </div>
         <div className='flex items-center gap-1.5 shrink-0'>
@@ -802,7 +837,12 @@ export function ClientPage() {
                 <Input
                   value={code}
                   onChange={(event) => {
-                    let val = event.target.value.toUpperCase().replaceAll(/[^A-Z0-9-]/g, '')
+                    const rawInput = event.target.value
+                    if (rawInput.trim().startsWith('{') && rawInput.includes('pairing_code')) {
+                      setCode(extractPairingCode(rawInput))
+                      return
+                    }
+                    let val = rawInput.toUpperCase().replaceAll(/[^A-Z0-9-]/g, '')
                     const raw = val.replaceAll('-', '')
                     if (raw.length === 16 && !val.includes('-')) {
                       val = raw.match(/.{1,4}/g)?.join('-') ?? val
@@ -860,7 +900,7 @@ export function ClientPage() {
               }}
             />
             <span className='text-sm font-semibold tracking-tight truncate max-w-[120px] sm:max-w-none'>
-              {state?.device_name || systemName || 'BYOG Worker'}
+              {systemName || state?.system_name || state?.app_name || 'BYOG Worker'}
             </span>
           </div>
           <Badge

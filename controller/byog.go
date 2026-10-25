@@ -1753,14 +1753,18 @@ var byogLanguages = []struct {
 // whether there is a policy at all.
 func byogPolicy(language string) (string, string, bool) {
 	read := func(name string, lang string) string {
-		if lang == "" {
-			return ""
+		if lang != "" {
+			if v := common.OptionMap[name+"_"+lang]; v != "" {
+				return v
+			}
 		}
-		value := common.OptionMap[name+"_"+lang]
-		if value == "" {
-			return ""
+		if v := common.OptionMap[name]; v != "" {
+			return v
 		}
-		return value
+		if v := common.OptionMap["general_setting."+strings.ToLower(name)]; v != "" {
+			return v
+		}
+		return ""
 	}
 
 	privacy := read("PrivacyPolicy", language)
@@ -1775,14 +1779,29 @@ func byogPolicy(language string) (string, string, bool) {
 			return privacy, terms, true
 		}
 	}
-	for _, item := range byogLanguages {
-		privacy = read("PrivacyPolicy", item.Code)
-		terms = read("TermsOfService", item.Code)
-		if privacy != "" || terms != "" {
-			return privacy, terms, true
-		}
+
+	// Standard default BYOG node policies if no custom policy is entered in system options
+	langLower := strings.ToLower(language)
+	if strings.HasPrefix(langLower, "tr") {
+		privacy = "Bu BYOG (Bring Your Own GPU/CPU) istemcisi, dağıtık yapay zeka çıkarım ağına donanım kaynağı sağlamak amacıyla çalışır.\r\n\r\n" +
+			"1. İstemci cihazınızda depolanan kişisel verilere, dosyalara veya tarayıcı geçmişine asla erişmez ve bunları toplamaz.\r\n" +
+			"2. Yalnızca ağ tarafından iletilen açık kaynaklı model tensörlerini ve şifrelenmiş çıkarım promptlarını geçici olarak belleğe (RAM/VRAM) yükler ve işler.\r\n" +
+			"3. Donanım telemetrisi (GPU/CPU modeli, bellek kullanımı, sıcaklık ve hız) yalnızca görev dağıtımı ve adil ödül hesaplaması amacıyla kullanılır."
+		terms = "1. Düğüm Katılımı: Cihazınızı ağa bağlayarak boşta olan donanım kaynaklarınızı yapay zeka hesaplama görevleri için tahsis etmeyi kabul edersiniz.\r\n\r\n" +
+			"2. Ödül Sistemi: Üretilen geçerli token ve hesaplama işleri karşılığında platform token'ları kazanırsınız. Hileli veya manipüle edilmiş çıkarım sonuçları tespit edilen cihazlar sistemden men edilir.\r\n" +
+			"3. Donanım Güvenliği: Sistem termal koruma mekanizmaları içerir ancak cihazınızın genel soğutma ve güç stabilitesinden siz sorumlusunuz."
+		return privacy, terms, true
 	}
-	return "", "", false
+
+	// Default English
+	privacy = "This BYOG (Bring Your Own GPU/CPU) worker operates solely to provide hardware compute resources to the decentralized AI inference network.\r\n\r\n" +
+		"1. The client never accesses, reads, or collects personal files, documents, browsing history, or private data stored on your device.\r\n" +
+		"2. It only loads and processes public open-source model weights and encrypted inference prompts temporarily in RAM/VRAM.\r\n" +
+		"3. Telemetry data (GPU/CPU model, memory usage, temperature, and speed) is used strictly for workload scheduling and fair reward calculation."
+	terms = "1. Node Participation: By linking your device, you agree to allocate idle hardware compute power for authorized AI inference tasks.\r\n\r\n" +
+		"2. Reward System: Valid token generation earns platform rewards. Tampered, fraudulent, or manipulated inference outputs will result in node disqualification.\r\n" +
+		"3. Hardware Safety: The daemon incorporates thermal limits; however, you are responsible for device ventilation and operating stability."
+	return privacy, terms, true
 }
 
 // The titles of the policies in the languages of the installation.

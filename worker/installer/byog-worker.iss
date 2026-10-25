@@ -28,7 +28,6 @@ VersionInfoCompany={#MyAppPublisher}
 DefaultDirName={code:GetDefaultDir}
 DefaultGroupName={#MyAppName}
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=commandline
 DisableProgramGroupPage=yes
 DisableDirPage=no
 OutputDir=..\binaries
@@ -36,7 +35,7 @@ OutputBaseFilename={#MyAppName} Kurulumu
 SetupIconFile=..\desktop\assets\byog.ico
 UninstallDisplayIcon={app}\byog.ico
 UninstallDisplayName={code:GetDisplayName}
-Compression=lzma2/normal
+Compression=lzma2/fast
 SolidCompression=no
 WizardStyle=modern
 WizardSmallImageFile=..\desktop\assets\wizard_small.bmp
@@ -210,13 +209,16 @@ const
   ICON_BIG = 1;
   IMAGE_ICON = 1;
   LR_LOADFROMFILE = $0010;
+  GW_OWNER = 4;
 
 function LoadImageW(hInst: THandle; ImageName: String; ImageType: UINT; X, Y: Integer; Flags: UINT): THandle; external 'LoadImageW@user32.dll stdcall';
 function SendMessageW(hWnd: HWND; Msg: UINT; wParam: Longint; lParam: Longint): Longint; external 'SendMessageW@user32.dll stdcall';
+function GetWindow(hWnd: HWND; uCmd: UINT): HWND; external 'GetWindow@user32.dll stdcall';
 
 procedure ApplyWindowIcon(const WindowHandle: HWND; const IcoFile: String);
 var
   hIconBig, hIconSmall: THandle;
+  hOwner: HWND;
 begin
   if (IcoFile = '') or (not FileExists(IcoFile)) then
     Exit;
@@ -224,9 +226,19 @@ begin
     hIconBig := LoadImageW(0, IcoFile, IMAGE_ICON, ScaleX(32), ScaleY(32), LR_LOADFROMFILE);
     hIconSmall := LoadImageW(0, IcoFile, IMAGE_ICON, ScaleX(16), ScaleY(16), LR_LOADFROMFILE);
     if hIconBig <> 0 then
+    begin
       SendMessageW(WindowHandle, WM_SETICON, ICON_BIG, hIconBig);
+      hOwner := GetWindow(WindowHandle, GW_OWNER);
+      if hOwner <> 0 then
+        SendMessageW(hOwner, WM_SETICON, ICON_BIG, hIconBig);
+    end;
     if hIconSmall <> 0 then
+    begin
       SendMessageW(WindowHandle, WM_SETICON, ICON_SMALL, hIconSmall);
+      hOwner := GetWindow(WindowHandle, GW_OWNER);
+      if hOwner <> 0 then
+        SendMessageW(hOwner, WM_SETICON, ICON_SMALL, hIconSmall);
+    end;
   except
   end;
 end;
@@ -807,7 +819,7 @@ begin
   try
     request := CreateOleObject('WinHttp.WinHttpRequest.5.1');
     request.Open('GET', address, False);
-    request.SetTimeouts(1000, 1000, 1000, 1000);
+    request.SetTimeouts(2000, 3000, 3000, 4000);
     request.Send;
     if request.Status = 200 then
     begin
@@ -942,7 +954,7 @@ end;
 // still being prepared keeps the wizard hidden on a slow or unreachable server.
 procedure CurPageChanged(CurPageID: Integer);
 var
-  policies: String;
+  policies, fallbackUrl: String;
 begin
   if (not PoliciesLoaded) and (PolicyPage <> nil) and (CurPageID = PolicyPage.ID) then
   begin
@@ -951,7 +963,14 @@ begin
     if policies <> '' then
       PolicyMemo.Text := policies
     else
-      PolicyMemo.Text := ExpandConstant('{cm:PolicyMissing}') + #13#10#13#10 + BrandServerUrl;
+    begin
+      fallbackUrl := BrandServerUrl;
+      while (Length(fallbackUrl) > 0) and (fallbackUrl[Length(fallbackUrl)] = '/') do
+        SetLength(fallbackUrl, Length(fallbackUrl) - 1);
+      if fallbackUrl <> '' then
+        fallbackUrl := fallbackUrl + '/privacy';
+      PolicyMemo.Text := ExpandConstant('{cm:PolicyMissing}') + #13#10#13#10 + fallbackUrl;
+    end;
   end;
 end;
 
