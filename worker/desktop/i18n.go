@@ -1,5 +1,7 @@
 package main
 
+import "strings"
+
 // The texts of the interface of the client.
 //
 // The client asks the language at the first start, the text of the interface
@@ -128,6 +130,31 @@ var clientTexts = map[string]map[string]string{
 	},
 }
 
+// normalizeLanguageCode maps various language names and locale strings to supported keys.
+func normalizeLanguageCode(language string) string {
+	lower := strings.ToLower(strings.TrimSpace(language))
+	switch lower {
+	case "turkish", "tr", "tr-tr", "tr_tr":
+		return "tr"
+	case "english", "en", "en-us", "en_us", "en-gb", "en_gb":
+		return "en"
+	case "zhcn", "zh-cn", "zh_cn", "zh", "chinese", "simplified_chinese":
+		return "zh_CN"
+	case "zhtw", "zh-tw", "zh_tw", "traditional_chinese":
+		return "zh_TW"
+	case "french", "fr", "fr-fr", "fr_fr":
+		return "fr"
+	case "russian", "ru", "ru-ru", "ru_ru":
+		return "ru"
+	case "japanese", "ja", "ja-jp", "ja_jp":
+		return "ja"
+	case "vietnamese", "vi", "vi-vn", "vi_vn":
+		return "vi"
+	default:
+		return language
+	}
+}
+
 // clientLanguage is the language of the interface of the client.
 var clientLanguage = "tr"
 
@@ -146,6 +173,7 @@ func clientText(key string) string {
 // The text of English is used when the language has no text, the key itself is
 // used when English has no text either.
 func clientTextIn(language string, key string) string {
+	language = normalizeLanguageCode(language)
 	if texts, ok := clientTexts[language]; ok {
 		if value, ok := texts[key]; ok && value != "" {
 			return value

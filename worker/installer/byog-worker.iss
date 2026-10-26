@@ -135,7 +135,7 @@ Name: "{autoprograms}\{code:GetDisplayName}"; Filename: "{app}\{#MyAppExeName}";
 Name: "{autodesktop}\{code:GetDisplayName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\byog.ico"
 
 [Registry]
-Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{code:GetDisplayName}"; ValueData: """{app}\{#MyAppExeName}"" --tray"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{code:GetDisplayName}"; ValueData: """{app}\{#MyAppExeName}"" --tray"; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,BYOG Worker}"; Flags: nowait postinstall skipifsilent
@@ -217,12 +217,16 @@ const
   GA_ROOTOWNER = 3;
   GCL_HICON = -14;
   GCL_HICONSM = -34;
+  GWL_EXSTYLE = -20;
+  WS_EX_APPWINDOW = $00040000;
 
 function LoadImageW(hInst: THandle; ImageName: String; ImageType: UINT; X, Y: Integer; Flags: UINT): THandle; external 'LoadImageW@user32.dll stdcall';
 function SendMessageW(hWnd: HWND; Msg: UINT; wParam: Longint; lParam: Longint): Longint; external 'SendMessageW@user32.dll stdcall';
 function GetWindow(hWnd: HWND; uCmd: UINT): HWND; external 'GetWindow@user32.dll stdcall';
 function GetAncestor(hWnd: HWND; gaFlags: UINT): HWND; external 'GetAncestor@user32.dll stdcall';
 function SetClassLongW(hWnd: HWND; nIndex: Integer; dwNewLong: Longint): Longint; external 'SetClassLongW@user32.dll stdcall';
+function GetWindowLongW(hWnd: HWND; nIndex: Integer): Longint; external 'GetWindowLongW@user32.dll stdcall';
+function SetWindowLongW(hWnd: HWND; nIndex: Integer; dwNewLong: Longint): Longint; external 'SetWindowLongW@user32.dll stdcall';
 
 procedure ApplyWindowIcon(const WindowHandle: HWND; const IcoFile: String);
 var
@@ -402,12 +406,18 @@ begin
 
   LangDialogForm := CreateCustomForm(ScaleX(400), ScaleY(165), False, True);
   try
-    IcoPath := EnsureBrandIcon();
-    ApplyWindowIcon(LangDialogForm.Handle, IcoPath);
     LangDialogForm.ClientWidth := ScaleX(400);
     LangDialogForm.ClientHeight := ScaleY(165);
     LangDialogForm.Position := poScreenCenter;
     LangDialogForm.BorderStyle := bsDialog;
+
+    try
+      SetWindowLongW(LangDialogForm.Handle, GWL_EXSTYLE, GetWindowLongW(LangDialogForm.Handle, GWL_EXSTYLE) or WS_EX_APPWINDOW);
+    except
+    end;
+
+    IcoPath := EnsureBrandIcon();
+    ApplyWindowIcon(LangDialogForm.Handle, IcoPath);
 
     LangDialogLogo := TBitmapImage.Create(LangDialogForm);
     LangDialogLogo.Parent := LangDialogForm;
@@ -487,6 +497,7 @@ begin
     LangDialogCombo.OnChange := @OnLanguageComboChange;
     OnLanguageComboChange(LangDialogCombo);
 
+    ApplyWindowIcon(LangDialogForm.Handle, IcoPath);
     if LangDialogForm.ShowModal = mrOk then
     begin
       ChosenLang := LangDialogKeys[LangDialogCombo.ItemIndex];
@@ -1150,14 +1161,25 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  icoPath, bmpPath: String;
 begin
   if CurStep = ssPostInstall then
   begin
     writeInstallerLanguage();
-    if FileExists(ExpandConstant('{tmp}\brand_icon.ico')) then
-      CopyFile(ExpandConstant('{tmp}\brand_icon.ico'), ExpandConstant('{app}\byog.ico'), False);
-    if FileExists(ExpandConstant('{tmp}\brand_logo.bmp')) then
-      CopyFile(ExpandConstant('{tmp}\brand_logo.bmp'), ExpandConstant('{app}\brand_logo.bmp'), False);
+
+    icoPath := ExpandConstant('{app}\byog.ico');
+    if BrandFaviconIcoBase64 <> '' then
+      DecodeB64ToFile(BrandFaviconIcoBase64, icoPath)
+    else if FileExists(ExpandConstant('{tmp}\brand_icon.ico')) then
+      CopyFile(ExpandConstant('{tmp}\brand_icon.ico'), icoPath, False);
+
+    bmpPath := ExpandConstant('{app}\brand_logo.bmp');
+    if BrandFaviconBmpBase64 <> '' then
+      DecodeB64ToFile(BrandFaviconBmpBase64, bmpPath)
+    else if FileExists(ExpandConstant('{tmp}\brand_logo.bmp')) then
+      CopyFile(ExpandConstant('{tmp}\brand_logo.bmp'), bmpPath, False);
+
     if BrandingLoaded then
       AppendBrandingToClient();
     WriteClientConfig();
@@ -1178,6 +1200,21 @@ begin
     try
       UninstallProgressForm.WizardSmallBitmapImage.Bitmap.LoadFromFile(bmpPath);
       UninstallProgressForm.WizardSmallBitmapImage.Stretch := True;
+    except
+    end;
+  end;
+end;
+
+function InitializeUninstall(): Boolean;
+var
+  icoPath: String;
+begin
+  Result := True;
+  icoPath := ExpandConstant('{app}\byog.ico');
+  if FileExists(icoPath) then
+  begin
+    try
+      ApplyWindowIcon(UninstallProgressForm.Handle, icoPath);
     except
     end;
   end;

@@ -87,7 +87,17 @@ var State = &WorkerState{
 var (
 	modelDownloadMutex sync.Mutex
 	modelDownloads     = map[string]bool{}
+	wsWriteMu          sync.Mutex
 )
+
+func sendWsFrame(conn *websocket.Conn, v interface{}) error {
+	wsWriteMu.Lock()
+	defer wsWriteMu.Unlock()
+	if conn == nil {
+		return errors.New("nil conn")
+	}
+	return conn.WriteJSON(v)
+}
 
 // defaultIconPNG is the icon of the client, it is the picture of the logo of
 // the installation.
@@ -938,7 +948,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 						}
 					}
 
-					// True on-device inference with the llama.cpp runtime
+					fmt.Printf("[INFERENCE] Request %s: model=%s, prompt=%q, maxTokens=%d\n", infReq.RequestId, infReq.ModelId, userPrompt, infReq.MaxTokens)
 					engine := NewLocalTransformerEngine(infReq.ModelId, State.Config.StorageDir)
 					result, err := engine.GenerateStream(
 						context.Background(),
@@ -946,16 +956,17 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 						infReq.MaxTokens,
 						infReq.Temperature,
 						func(piece string, tokenId int) bool {
-							_ = conn.WriteJSON(inferenceChunkFrame(infReq.RequestId, piece, tokenId, false))
+							_ = sendWsFrame(conn, inferenceChunkFrame(infReq.RequestId, piece, tokenId, false))
 							return true
 						},
 					)
 					if err != nil {
+						fmt.Printf("[INFERENCE] Error for %s: %v\n", infReq.RequestId, err)
 						errorPayload, _ := json.Marshal(map[string]interface{}{
 							"request_id": infReq.RequestId,
 							"error":      err.Error(),
 						})
-						_ = conn.WriteJSON(map[string]interface{}{
+						_ = sendWsFrame(conn, map[string]interface{}{
 							"type":    "inference_error",
 							"id":      infReq.RequestId,
 							"payload": json.RawMessage(errorPayload),
@@ -967,19 +978,20 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 						return
 					}
 
+					fmt.Printf("[INFERENCE] Success for %s: tokens=%d, tps=%.2f\n", infReq.RequestId, result.TotalTokens, result.Tps)
 					finalPayload, _ := json.Marshal(map[string]interface{}{
 						"request_id": infReq.RequestId,
 						"content":    "",
 						"token_id":   1000 + result.TotalTokens,
 						"is_final":   true,
 					})
-					_ = conn.WriteJSON(map[string]interface{}{
+					_ = sendWsFrame(conn, map[string]interface{}{
 						"type":    "inference_chunk",
 						"id":      infReq.RequestId,
 						"payload": json.RawMessage(finalPayload),
 					})
 
-					_ = conn.WriteJSON(inferenceDoneFrame(infReq.RequestId, result))
+					_ = sendWsFrame(conn, inferenceDoneFrame(infReq.RequestId, result))
 
 					// Post-inference VRAM policy:
 					// If hot-start disabled, purge model from VRAM immediately!
@@ -1016,6 +1028,14 @@ func main() {
 	webViewIconFlag := flag.String("webview-icon", "", "The icon of the window of the client")
 	flag.Parse()
 
+	if !*consoleFlag {
+		detachConsole()
+	}
+
+	_ = os.MkdirAll(storageRoot(), 0755)
+	redirectOutputToLog()
+	fmt.Printf("[MAIN] Starting BYOG Worker v%s, args=%v\n", WorkerVersion, os.Args)
+
 	// The window of the client runs in a process of its own. The runtime of
 	// WebView2 of the computer cannot stop the worker, the window of the
 	// program shows the state of the worker when the window cannot be opened.
@@ -1040,16 +1060,23 @@ func main() {
 
 	// The file of the installation installs the client and starts it.
 	if installIfNeeded() {
+		fmt.Println("[MAIN] Installed and launched, exiting launcher instance")
 		return
 	}
 
 	// The client stays in the notification area after its window is closed.
 	// Starting the file again shows the window of the client that runs, a
 	// second worker would serve the tasks of the computer twice.
+	// If started in tray mode (e.g. at system boot/restart), do not bring the
+	// running window to front; exit silently.
 	if !acquireSingleInstance() {
-		showRunningInstance()
+		fmt.Printf("[MAIN] Single instance already running (trayFlag=%v)\n", *trayFlag)
+		if !*trayFlag {
+			showRunningInstance()
+		}
 		return
 	}
+	fmt.Printf("[MAIN] Single instance acquired, entering runGui (trayFlag=%v)\n", *trayFlag)
 
 	runGui(*serverFlag, *codeFlag, *deviceFlag, *trayFlag)
 }
@@ -1106,6 +1133,7 @@ func installApp() {
 
 	command := exec.Command(target)
 	command.Dir = directory
+	hideProcessWindow(command)
 	_ = command.Start()
 }
 

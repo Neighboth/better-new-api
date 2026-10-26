@@ -143,6 +143,17 @@ func fitPNG(picture image.Image, maxBytes int) []byte {
 	if height > side {
 		side = height
 	}
+
+	// Fast pre-scaling for large images to prevent expensive bicubic convolution
+	if side > 512 {
+		fastCanvas := image.NewNRGBA(image.Rect(0, 0, 512, 512))
+		xdraw.ApproxBiLinear.Scale(fastCanvas, fastCanvas.Bounds(), picture, bounds, xdraw.Src, nil)
+		picture = fastCanvas
+		bounds = fastCanvas.Bounds()
+		width, height = 512, 512
+		side = 512
+	}
+
 	canvas := image.NewNRGBA(image.Rect(0, 0, side, side))
 	offsetX := (side - width) / 2
 	offsetY := (side - height) / 2

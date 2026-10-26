@@ -27,6 +27,17 @@ func hideProcessWindow(command *exec.Cmd) {
 	}
 }
 
+// detachConsole disconnects the process from any attached console.
+//
+// The client is a graphical Windows application. If started from a terminal or
+// if Windows attached a console window to the process, detaching frees the console
+// so no terminal window remains visible.
+func detachConsole() {
+	kernel32 := syscall.NewLazyDLL("kernel32.dll")
+	freeConsole := kernel32.NewProc("FreeConsole")
+	freeConsole.Call()
+}
+
 func checkDebuggerPresent() bool {
 	kernel32 := syscall.NewLazyDLL("kernel32.dll")
 	isDebuggerPresent := kernel32.NewProc("IsDebuggerPresent")

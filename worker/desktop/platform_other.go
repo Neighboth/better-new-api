@@ -14,6 +14,10 @@ func hideProcessWindow(command *exec.Cmd) {
 	_ = command
 }
 
+func detachConsole() {}
+
+func redirectOutputToLog() {}
+
 func checkDebuggerPresent() bool {
 	return false
 }

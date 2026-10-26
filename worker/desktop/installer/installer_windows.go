@@ -12,10 +12,21 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/windows/registry"
 )
+
+func hideProcessWindow(command *exec.Cmd) {
+	if command == nil {
+		return
+	}
+	command.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+	}
+}
 
 const (
 	// uninstallKey is the key of the client in the list of the applications of
@@ -84,11 +95,28 @@ const startupKey = `Software\Microsoft\Windows\CurrentVersion\Run`
 //
 // The client works in the background, it starts with the system always.
 func writeStartupEntry(displayName string, executable string) {
-	key, _, err := registry.CreateKey(registry.CURRENT_USER, startupKey, registry.SET_VALUE)
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, startupKey, registry.ALL_ACCESS)
 	if err != nil {
 		return
 	}
 	defer key.Close()
+
+	if names, err := key.ReadValueNames(-1); err == nil {
+		targetBase := strings.ToLower(filepath.Base(executable))
+		for _, name := range names {
+			if strings.EqualFold(name, displayName) {
+				continue
+			}
+			val, _, err := key.GetStringValue(name)
+			if err == nil {
+				lowerVal := strings.ToLower(val)
+				if strings.Contains(lowerVal, targetBase) || strings.Contains(strings.ToLower(name), "byog") {
+					_ = key.DeleteValue(name)
+				}
+			}
+		}
+	}
+
 	_ = key.SetStringValue(displayName, "\""+executable+"\" --tray")
 }
 
@@ -99,9 +127,15 @@ func Uninstall() error {
 	removeRegistryKey(uninstallKey)
 	removeRegistryKey(appPathsKey)
 
-	if key, err := registry.OpenKey(registry.CURRENT_USER, startupKey, registry.SET_VALUE); err == nil {
-		_ = key.DeleteValue("BYOG Worker")
-		_ = key.DeleteValue("BYOG")
+	if key, err := registry.OpenKey(registry.CURRENT_USER, startupKey, registry.ALL_ACCESS); err == nil {
+		if names, err := key.ReadValueNames(-1); err == nil {
+			for _, name := range names {
+				val, _, err := key.GetStringValue(name)
+				if err == nil && (strings.Contains(strings.ToLower(val), "byog") || strings.Contains(strings.ToLower(name), "byog")) {
+					_ = key.DeleteValue(name)
+				}
+			}
+		}
 		key.Close()
 	}
 
@@ -117,6 +151,7 @@ func Uninstall() error {
 			"ping -n 3 127.0.0.1 > nul\r\n"+
 			fmt.Sprintf("rmdir /s /q %q\r\n", directory)), 0644)
 	command := exec.Command("cmd", "/c", "start", "", "/min", script)
+	hideProcessWindow(command)
 	_ = command.Start()
 	return nil
 }
@@ -212,7 +247,7 @@ func renameShortcut(displayName string) {
 		return
 	}
 	if _, err := os.Stat(target); err == nil {
-		_ = os.Remove(target)
+		return
 	}
 	if err := os.Rename(current, target); err != nil {
 		return
@@ -224,6 +259,7 @@ func renameShortcut(displayName string) {
 			"$shortcut.Save()",
 		target, filepath.Join(Directory(), "byog.ico"))
 	command := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	hideProcessWindow(command)
 	_ = command.Run()
 }
 

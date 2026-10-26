@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -138,6 +139,7 @@ var (
 	procSetWindowPos                = user32.NewProc("SetWindowPos")
 	procSetCursor                   = user32.NewProc("SetCursor")
 	procTrackMouseEvent             = user32.NewProc("TrackMouseEvent")
+	procGetModuleHandle             = kernel32.NewProc("GetModuleHandleW")
 	procSetProcessDpiAwareContext   = user32.NewProc("SetProcessDpiAwarenessContext")
 	procSetProcessDPIAware          = user32.NewProc("SetProcessDPIAware")
 	procGetDeviceCaps               = gdi32.NewProc("GetDeviceCaps")
@@ -359,12 +361,26 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string, trayFlag bool
 
 	// The entries of the system carry the name and the icon of the installation
 	// from the first start.
+	fmt.Println("[GUI] Before updateInstallationBranding")
+	if os.Stdout != nil { _ = os.Stdout.Sync() }
 	if config.SystemName != "" || config.AppName != "" {
-		updateInstallationBranding(config.AppName, config.SystemName, config.FaviconBase64)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("[GUI] updateInstallationBranding panic: %v\n", r)
+					if os.Stdout != nil { _ = os.Stdout.Sync() }
+				}
+			}()
+			updateInstallationBranding(config.AppName, config.SystemName, config.FaviconBase64)
+		}()
 	}
+	fmt.Println("[GUI] After updateInstallationBranding")
+	if os.Stdout != nil { _ = os.Stdout.Sync() }
 
+	fmt.Println("[GUI] Before window.create()")
 	window := &guiWindow{statusState: stateOffline, statusText: clientText("connecting"), hovered: -1, trayMode: trayFlag}
 	window.create()
+	fmt.Printf("[GUI] After window.create(), window=%v\n", window.window)
 
 	// The worker starts in the background, the window shows its state.
 	go func() {
@@ -384,7 +400,9 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string, trayFlag bool
 	// for the worker.
 	go window.watchWorker()
 
+	fmt.Println("[GUI] Entering messageLoop")
 	window.messageLoop()
+	fmt.Println("[GUI] Exited messageLoop")
 }
 
 // applyBranding shows the name and the icon of the installation in the window.
@@ -539,8 +557,8 @@ func systemDpi() int32 {
 // create builds the window of the client.
 func (w *guiWindow) create() {
 	enableDpiAwareness()
-	processId, _, _ := procGetCurrentProcess.Call()
-	w.instance = processId
+	instance, _, _ := procGetModuleHandle.Call(0)
+	w.instance = instance
 	w.className, _ = syscall.UTF16PtrFromString("ByogWorkerWindow")
 	w.icon = w.loadApplicationIcon()
 	w.dpi = systemDpi()
@@ -574,6 +592,7 @@ func (w *guiWindow) create() {
 		w.instance,
 		0,
 	)
+	fmt.Printf("[GUI] CreateWindowEx returned %v\n", window)
 	w.window = window
 	if window == 0 {
 		return
@@ -1365,6 +1384,22 @@ func writeApplicationIcon(base64Image string) {
 	if strings.TrimSpace(base64Image) == "" {
 		return
 	}
+	hashPath := filepath.Join(storageRoot(), "byog.ico.hash")
+	icoPath := filepath.Join(storageRoot(), "byog.ico")
+	imgHash := fmt.Sprintf("%x", sha256.Sum256([]byte(base64Image)))
+	if saved, err := os.ReadFile(hashPath); err == nil && string(saved) == imgHash {
+		if fi, err := os.Stat(icoPath); err == nil && fi.Size() > 0 {
+			if installer.IsInstalled() {
+				instIco := filepath.Join(installer.InstalledDirectory(), "byog.ico")
+				if _, err := os.Stat(instIco); err != nil {
+					data, _ := os.ReadFile(icoPath)
+					_ = os.WriteFile(instIco, data, 0644)
+				}
+			}
+			return
+		}
+	}
+
 	payload := base64Image
 	if index := strings.Index(payload, ","); index >= 0 {
 		payload = payload[index+1:]
@@ -1373,19 +1408,14 @@ func writeApplicationIcon(base64Image string) {
 	if err != nil || len(data) < 8 {
 		return
 	}
-	// The icon of the site is a file of the icons of Windows or a picture of
-	// another format, the file of the icon of the client is built from it.
 	iconData := icon.FromImage(data)
 	if len(iconData) == 0 {
 		return
 	}
 	_ = os.MkdirAll(storageRoot(), 0755)
-	_ = os.WriteFile(filepath.Join(storageRoot(), "byog.ico"), iconData, 0644)
+	_ = os.WriteFile(icoPath, iconData, 0644)
+	_ = os.WriteFile(hashPath, []byte(imgHash), 0644)
 
-	// The entry of the client in the applications of the control panel shows
-	// the icon of the installation. The client writes the icon next to the
-	// program when the program is installed, the icon of the file of the
-	// program is written when the program is downloaded.
 	if installer.IsInstalled() {
 		_ = os.WriteFile(filepath.Join(installer.InstalledDirectory(), "byog.ico"), iconData, 0644)
 	}

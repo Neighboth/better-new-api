@@ -307,23 +307,30 @@ func (r *Runtime) StartServer(modelPath string, storageDir string) (*Server, err
 		"-np", "1",
 		"--log-disable",
 	}
-	if useMmap {
-		args = append(args, "--mmap")
-	} else {
+	if !useMmap {
 		args = append(args, "--no-mmap")
 	}
+	logFile, _ := os.OpenFile(filepath.Join(storageDir, "llama_server.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	cmd := exec.Command(r.ServerPath, args...)
 	cmd.Dir = storageDir
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	if logFile != nil {
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+	}
 	hideProcessWindow(cmd)
 	if err := cmd.Start(); err != nil {
+		if logFile != nil {
+			logFile.Close()
+		}
 		return nil, fmt.Errorf("llama-server could not be started: %w", err)
 	}
 
 	process := &Server{cmd: cmd, port: port, model: modelPath, started: time.Now()}
-	if err := waitForLlamaServer(port, 90*time.Second); err != nil {
+	if err := waitForLlamaServer(cmd, port, 90*time.Second); err != nil {
 		_ = cmd.Process.Kill()
+		if logFile != nil {
+			logFile.Close()
+		}
 		return nil, err
 	}
 	return process, nil
@@ -340,10 +347,13 @@ func freeLocalPort() (int, error) {
 }
 
 // waitForLlamaServer waits until the server accepts requests.
-func waitForLlamaServer(port int, timeout time.Duration) error {
+func waitForLlamaServer(cmd *exec.Cmd, port int, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 2 * time.Second}
 	for time.Now().Before(deadline) {
+		if cmd != nil && cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+			return errors.New("llama-server process exited unexpectedly")
+		}
 		resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
 		if err == nil {
 			resp.Body.Close()
@@ -351,7 +361,7 @@ func waitForLlamaServer(port int, timeout time.Duration) error {
 				return nil
 			}
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 	}
 	return errors.New("llama-server did not become ready in time")
 }
