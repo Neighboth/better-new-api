@@ -37,6 +37,7 @@ export interface ModelCardGridProps {
   tokenUnit?: TokenUnit
   showRechargePrice?: boolean
   selectedGroup?: string
+  alwaysCacheHit?: boolean
 }
 
 export function ModelCardGrid(props: ModelCardGridProps) {
@@ -83,6 +84,7 @@ export function ModelCardGrid(props: ModelCardGridProps) {
             usdExchangeRate={props.usdExchangeRate}
             showRechargePrice={props.showRechargePrice}
             selectedGroup={props.selectedGroup}
+            alwaysCacheHit={props.alwaysCacheHit}
             perf={perfMap.get(model.model_name || '')}
             onClick={() => props.onModelClick(model.model_name || '')}
           />

@@ -30,9 +30,12 @@ func TestModelMetaQueryAndMigration(t *testing.T) {
 	}
 	require.NoError(t, db.Table("models").AutoMigrate(&OldModel{}))
 
-	// Now run AutoMigrate or migrateNewColumns
-	_ = DB.AutoMigrate(&Model{})
+	// Now run migrateNewColumns without AutoMigrate(&Model{})
 	migrateNewColumns()
+
+	// Check if deleted_at was added
+	hasDeletedAt := DB.Migrator().HasColumn(&Model{}, "deleted_at")
+	t.Logf("Has deleted_at: %v", hasDeletedAt)
 
 	// Now try SearchModels
 	models, total, err := SearchModels("", "", "", "", 0, 10)

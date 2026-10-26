@@ -1,7 +1,7 @@
 package controller
 
 import (
-	"encoding/json"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +15,15 @@ import (
 
 // GetAllModelsMeta 获取模型列表（分页）
 func GetAllModelsMeta(c *gin.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			common.SysError(fmt.Sprintf("GetAllModelsMeta panic recovered: %v", r))
+			c.JSON(200, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("internal error: %v", r),
+			})
+		}
+	}()
 
 	pageInfo := common.GetPageQuery(c)
 	status := c.Query("status")
@@ -43,6 +52,15 @@ func GetAllModelsMeta(c *gin.Context) {
 
 // SearchModelsMeta 搜索模型列表
 func SearchModelsMeta(c *gin.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			common.SysError(fmt.Sprintf("SearchModelsMeta panic recovered: %v", r))
+			c.JSON(200, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("internal error: %v", r),
+			})
+		}
+	}()
 
 	keyword := c.Query("keyword")
 	vendor := c.Query("vendor")
@@ -201,7 +219,7 @@ func enrichModels(models []*model.Model) {
 			mm := models[idx]
 			if mm.Endpoints == "" {
 				eps := model.GetModelSupportEndpointTypes(mm.ModelName)
-				if b, err := json.Marshal(eps); err == nil {
+				if b, err := common.Marshal(eps); err == nil {
 					mm.Endpoints = string(b)
 				}
 			}
@@ -291,7 +309,7 @@ func enrichModels(models []*model.Model) {
 			for et := range es {
 				eps = append(eps, et)
 			}
-			if b, err := json.Marshal(eps); err == nil {
+			if b, err := common.Marshal(eps); err == nil {
 				mm.Endpoints = string(b)
 			}
 		}

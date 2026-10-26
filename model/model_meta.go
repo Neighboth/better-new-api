@@ -1,8 +1,10 @@
 package model
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 
@@ -195,33 +197,125 @@ func GetPreferredModelOwnerChannelTypes(modelNames []string, groups []string) (m
 	return result, nil
 }
 
+var ensureModelColumnsOnce sync.Once
+
+func ensureTableColumn(tableName, colName, standardDDL, sqliteDDL string) {
+	if DB == nil {
+		return
+	}
+	if !DB.Migrator().HasTable(tableName) {
+		return
+	}
+	if DB.Migrator().HasColumn(tableName, colName) {
+		return
+	}
+	ddl := standardDDL
+	if common.UsingMainDatabase(common.DatabaseTypeSQLite) && sqliteDDL != "" {
+		ddl = sqliteDDL
+	}
+	var sql string
+	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		sql = fmt.Sprintf(`ALTER TABLE "%s" ADD COLUMN IF NOT EXISTS "%s" %s`, tableName, colName, ddl)
+	} else if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
+		sql = fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN `%s` %s", tableName, colName, ddl)
+	} else {
+		sql = fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN `%s` %s", tableName, colName, ddl)
+	}
+	_ = DB.Exec(sql).Error
+}
+
+func EnsureModelAndVendorColumns() {
+	if DB == nil {
+		return
+	}
+	_ = DB.AutoMigrate(&Model{}, &Vendor{})
+
+	// Explicitly ensure columns in models table with cross-DB SQL
+	ensureTableColumn("models", "display_name", "varchar(128) DEFAULT ''", "text DEFAULT ''")
+	ensureTableColumn("models", "tagline", "varchar(255) DEFAULT ''", "text DEFAULT ''")
+	ensureTableColumn("models", "property_boxes", "text", "text")
+	ensureTableColumn("models", "endpoints", "text", "text")
+	ensureTableColumn("models", "name_rule", "integer DEFAULT 0", "integer DEFAULT 0")
+	ensureTableColumn("models", "serverless_priority", "integer DEFAULT 0", "integer DEFAULT 0")
+	ensureTableColumn("models", "sync_official", "integer DEFAULT 1", "integer DEFAULT 1")
+	ensureTableColumn("models", "status", "integer DEFAULT 1", "integer DEFAULT 1")
+	ensureTableColumn("models", "vendor_id", "integer DEFAULT 0", "integer DEFAULT 0")
+	ensureTableColumn("models", "icon", "varchar(128) DEFAULT ''", "text DEFAULT ''")
+	ensureTableColumn("models", "tags", "varchar(255) DEFAULT ''", "text DEFAULT ''")
+	ensureTableColumn("models", "description", "text", "text")
+	ensureTableColumn("models", "created_time", "bigint DEFAULT 0", "bigint DEFAULT 0")
+	ensureTableColumn("models", "updated_time", "bigint DEFAULT 0", "bigint DEFAULT 0")
+	if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
+		ensureTableColumn("models", "deleted_at", "datetime(3) NULL", "")
+	} else if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		ensureTableColumn("models", "deleted_at", "timestamp with time zone NULL", "")
+	} else {
+		ensureTableColumn("models", "deleted_at", "datetime NULL", "")
+	}
+
+	// Explicitly ensure columns in vendors table
+	ensureTableColumn("vendors", "keywords", "text", "text")
+	ensureTableColumn("vendors", "is_builtin", "boolean DEFAULT false", "numeric DEFAULT 0")
+	ensureTableColumn("vendors", "status", "integer DEFAULT 1", "integer DEFAULT 1")
+	ensureTableColumn("vendors", "icon", "varchar(255) DEFAULT ''", "text DEFAULT ''")
+	ensureTableColumn("vendors", "description", "text", "text")
+	ensureTableColumn("vendors", "created_time", "bigint DEFAULT 0", "bigint DEFAULT 0")
+	ensureTableColumn("vendors", "updated_time", "bigint DEFAULT 0", "bigint DEFAULT 0")
+	if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
+		ensureTableColumn("vendors", "deleted_at", "datetime(3) NULL", "")
+	} else if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		ensureTableColumn("vendors", "deleted_at", "timestamp with time zone NULL", "")
+	} else {
+		ensureTableColumn("vendors", "deleted_at", "datetime NULL", "")
+	}
+}
+
 func SearchModels(keyword string, vendor string, status string, syncOfficial string, offset int, limit int) ([]*Model, int64, error) {
-	var models []*Model
-	db := DB.Model(&Model{})
-	if keyword != "" {
-		like := "%" + keyword + "%"
-		db = db.Where("model_name LIKE ? OR display_name LIKE ? OR description LIKE ? OR tags LIKE ?", like, like, like, like)
-	}
-	if vendor != "" {
-		if vid, err := strconv.Atoi(vendor); err == nil {
-			db = db.Where("models.vendor_id = ?", vid)
-		} else {
-			db = db.Joins("JOIN vendors ON vendors.id = models.vendor_id").Where("vendors.name LIKE ?", "%"+vendor+"%")
+	ensureModelColumnsOnce.Do(func() {
+		EnsureModelAndVendorColumns()
+	})
+
+	buildQuery := func() *gorm.DB {
+		db := DB.Model(&Model{})
+		if keyword != "" {
+			like := "%" + keyword + "%"
+			db = db.Where("models.model_name LIKE ? OR models.display_name LIKE ? OR models.description LIKE ? OR models.tags LIKE ?", like, like, like, like)
 		}
+		if vendor != "" {
+			if vid, err := strconv.Atoi(vendor); err == nil {
+				db = db.Where("models.vendor_id = ?", vid)
+			} else {
+				db = db.Joins("JOIN vendors ON vendors.id = models.vendor_id").Where("vendors.name LIKE ?", "%"+vendor+"%").Select("models.*")
+			}
+		}
+		if statusValue, ok := parseModelStatusFilter(status); ok {
+			db = db.Where("models.status = ?", statusValue)
+		}
+		if syncValue, ok := parseModelSyncFilter(syncOfficial); ok {
+			db = db.Where("models.sync_official = ?", syncValue)
+		}
+		return db
 	}
-	if statusValue, ok := parseModelStatusFilter(status); ok {
-		db = db.Where("models.status = ?", statusValue)
-	}
-	if syncValue, ok := parseModelSyncFilter(syncOfficial); ok {
-		db = db.Where("models.sync_official = ?", syncValue)
-	}
+
+	var models []*Model
 	var total int64
+
+	db := buildQuery()
 	countDB := db.Session(&gorm.Session{})
 	if err := countDB.Count(&total).Error; err != nil {
-		return nil, 0, err
+		EnsureModelAndVendorColumns()
+		db = buildQuery()
+		countDB = db.Session(&gorm.Session{})
+		if err := countDB.Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 	}
 	if err := db.Order("models.id DESC").Offset(offset).Limit(limit).Find(&models).Error; err != nil {
-		return nil, 0, err
+		EnsureModelAndVendorColumns()
+		db = buildQuery()
+		if err := db.Order("models.id DESC").Offset(offset).Limit(limit).Find(&models).Error; err != nil {
+			return nil, 0, err
+		}
 	}
 	return models, total, nil
 }

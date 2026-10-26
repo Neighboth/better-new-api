@@ -115,6 +115,7 @@ export function usePricingData() {
     usableGroup: data?.usable_group ?? {},
     endpointMap: data?.supported_endpoint ?? {},
     autoGroups: data?.auto_groups ?? [],
+    alwaysCacheHit: Boolean(data?.always_cache_hit),
     isLoading,
     error,
     refetch,

@@ -966,10 +966,29 @@ public class WorkerService extends Service {
 
                             if (code == 206) {
                                 append = true;
-                                totalBytes += existingLen;
+                                String cr = conn.getHeaderField("Content-Range");
+                                boolean rangeParsed = false;
+                                if (cr != null && cr.contains("/")) {
+                                    try {
+                                        String totalStr = cr.substring(cr.lastIndexOf('/') + 1).trim();
+                                        if (!totalStr.equals("*")) {
+                                            long parsedTotal = Long.parseLong(totalStr);
+                                            if (parsedTotal > 0) {
+                                                totalBytes = parsedTotal;
+                                                rangeParsed = true;
+                                            }
+                                        }
+                                    } catch (Exception ignored) {}
+                                }
+                                if (!rangeParsed && totalBytes > 0) {
+                                    totalBytes += existingLen;
+                                }
                             } else if (code == 200) {
                                 append = false;
                                 existingLen = 0;
+                                try {
+                                    if (partFile.exists()) partFile.delete();
+                                } catch (Exception ignored) {}
                             } else if (code == 416) {
                                 // Range Not Satisfiable: only mark complete if partFile is actually a full, valid GGUF file
                                 if (isValidGGUFFile(partFile, targetModel)) {
@@ -2280,56 +2299,86 @@ public class WorkerService extends Service {
     }
 
     private Notification buildNotification(String title, String content) {
-        Notification.Builder builder;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            builder = new Notification.Builder(this, CHANNEL_ID);
-        } else {
-            builder = new Notification.Builder(this);
-        }
-
-        int appIcon = android.R.drawable.stat_notify_sync;
-
-        builder.setContentTitle(title)
-               .setContentText(content)
-               .setSmallIcon(appIcon)
-               .setOngoing(true);
-
         try {
-            Intent mainIntent = new Intent(this, MainActivity.class);
-            mainIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                flags |= PendingIntent.FLAG_IMMUTABLE;
+            Notification.Builder builder;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                builder = new Notification.Builder(this, CHANNEL_ID);
+            } else {
+                builder = new Notification.Builder(this);
             }
-            PendingIntent pi = PendingIntent.getActivity(this, 0, mainIntent, flags);
-            builder.setContentIntent(pi);
-        } catch (Exception ignored) {}
 
-        try {
-            File customIcon = new File(getFilesDir(), "custom_favicon.png");
-            if (customIcon.exists()) {
-                BitmapFactory.Options opts = new BitmapFactory.Options();
-                opts.inJustDecodeBounds = true;
-                BitmapFactory.decodeFile(customIcon.getAbsolutePath(), opts);
-                int sample = 1;
-                while (opts.outWidth / (sample * 2) >= 128 && opts.outHeight / (sample * 2) >= 128) {
-                    sample *= 2;
+            int appIcon = 0;
+            try {
+                if (getApplicationInfo() != null && getApplicationInfo().icon != 0) {
+                    appIcon = getApplicationInfo().icon;
                 }
-                opts.inJustDecodeBounds = false;
-                opts.inSampleSize = sample;
-                Bitmap bm = BitmapFactory.decodeFile(customIcon.getAbsolutePath(), opts);
-                if (bm != null) {
-                    if (bm.getWidth() > 128 || bm.getHeight() > 128) {
-                        Bitmap scaled = Bitmap.createScaledBitmap(bm, 128, 128, true);
-                        builder.setLargeIcon(scaled);
-                    } else {
-                        builder.setLargeIcon(bm);
+            } catch (Throwable ignored) {}
+            if (appIcon == 0) {
+                appIcon = android.R.drawable.ic_dialog_info;
+            }
+
+            builder.setContentTitle(title != null ? title : "BYOG Worker")
+                   .setContentText(content != null ? content : "Aktif")
+                   .setSmallIcon(appIcon)
+                   .setOngoing(true);
+
+            try {
+                Intent mainIntent = new Intent(this, MainActivity.class);
+                mainIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    flags |= PendingIntent.FLAG_IMMUTABLE;
+                }
+                PendingIntent pi = PendingIntent.getActivity(this, 0, mainIntent, flags);
+                builder.setContentIntent(pi);
+            } catch (Exception ignored) {}
+
+            try {
+                File customIcon = new File(getFilesDir(), "custom_favicon.png");
+                if (customIcon.exists()) {
+                    BitmapFactory.Options opts = new BitmapFactory.Options();
+                    opts.inJustDecodeBounds = true;
+                    BitmapFactory.decodeFile(customIcon.getAbsolutePath(), opts);
+                    int sample = 1;
+                    while (opts.outWidth / (sample * 2) >= 128 && opts.outHeight / (sample * 2) >= 128) {
+                        sample *= 2;
+                    }
+                    opts.inJustDecodeBounds = false;
+                    opts.inSampleSize = sample;
+                    Bitmap bm = BitmapFactory.decodeFile(customIcon.getAbsolutePath(), opts);
+                    if (bm != null) {
+                        if (bm.getWidth() > 128 || bm.getHeight() > 128) {
+                            Bitmap scaled = Bitmap.createScaledBitmap(bm, 128, 128, true);
+                            builder.setLargeIcon(scaled);
+                        } else {
+                            builder.setLargeIcon(bm);
+                        }
                     }
                 }
-            }
-        } catch (Throwable ignored) {}
+            } catch (Throwable ignored) {}
 
-        return builder.build();
+            return builder.build();
+        } catch (Throwable fallbackErr) {
+            int fallbackIcon = android.R.drawable.ic_dialog_info;
+            try {
+                if (getApplicationInfo() != null && getApplicationInfo().icon != 0) {
+                    fallbackIcon = getApplicationInfo().icon;
+                }
+            } catch (Throwable ignored) {}
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                return new Notification.Builder(this, CHANNEL_ID)
+                        .setContentTitle("BYOG Worker")
+                        .setContentText("Aktif")
+                        .setSmallIcon(fallbackIcon)
+                        .build();
+            } else {
+                return new Notification.Builder(this)
+                        .setContentTitle("BYOG Worker")
+                        .setContentText("Aktif")
+                        .setSmallIcon(fallbackIcon)
+                        .build();
+            }
+        }
     }
 
     private void createNotificationChannel() {

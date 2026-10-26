@@ -667,12 +667,12 @@ html_content = f'''<!DOCTYPE html>
     </div>
     <div id="status-badge" class="badge badge-amber">
       <div class="dot dot-amber"></div>
-      <span id="status-text">Kurulum Bekleniyor</span>
+      <span id="status-text" data-i18n="status_pending_setup">Kurulum Bekleniyor</span>
     </div>
   </div>
 
   <!-- The notice is shown in every view, it explains a lost connection. -->
-  <div id="connection-notice" class="hidden" style="margin-bottom: 14px; padding: 10px 12px; border-radius: 10px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); color: #fbbf24; font-size: 0.8rem; line-height: 1.45;">
+  <div id="connection-notice" class="hidden" style="margin-bottom: 14px; padding: 10px 12px; border-radius: 10px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); color: #fbbf24; font-size: 0.8rem; line-height: 1.45;" data-i18n="connection_lost_notice">
     Bağlantı kesildi. Cihazınız çevrimdışı, yeniden eşleştirmek için eşleştirme kodunu girin.
   </div>
 
@@ -681,46 +681,46 @@ html_content = f'''<!DOCTYPE html>
     <div class="card">
       <div class="card-title">
         <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        <span>Gerekli Sistem İzinleri</span>
+        <span data-i18n="required_permissions">Gerekli Sistem İzinleri</span>
       </div>
-      <p class="hint-text" style="margin-bottom: 16px;">
+      <p class="hint-text" style="margin-bottom: 16px;" data-i18n="permissions_desc">
         Uygulamanın arka planda kesintisiz çalışabilmesi, yapay zeka çıkarım görevlerini yerine getirebilmesi ve sistem bildirimlerini iletebilmesi için aşağıdaki izinlerin verilmesi gerekmektedir.
       </p>
 
       <div class="perm-card" id="card-perm-notif" onclick="requestNotifPerm()">
         <div class="perm-info">
-          <span class="perm-name">1. Bildirim İzni</span>
-          <span class="perm-desc">Çıkarım ve model durumunu takip için</span>
+          <span class="perm-name" data-i18n="perm_notif_title">1. Bildirim İzni</span>
+          <span class="perm-desc" data-i18n="perm_notif_desc">Çıkarım ve model durumunu takip için</span>
         </div>
-        <span class="perm-status-badge" id="badge-perm-notif">İzin Ver</span>
+        <span class="perm-status-badge" id="badge-perm-notif" data-i18n="perm_grant">İzin Ver</span>
       </div>
 
       <div class="perm-card" id="card-perm-battery" onclick="requestBatteryPerm()">
         <div class="perm-info">
-          <span class="perm-name">2. Pil Optimizasyonunu Kapat</span>
-          <span class="perm-desc">Arka planda sistem tarafından kapatılmaması için</span>
+          <span class="perm-name" data-i18n="perm_battery_title">2. Pil Optimizasyonunu Kapat</span>
+          <span class="perm-desc" data-i18n="perm_battery_desc">Arka planda sistem tarafından kapatılmaması için</span>
         </div>
-        <span class="perm-status-badge" id="badge-perm-battery">Kapat</span>
+        <span class="perm-status-badge" id="badge-perm-battery" data-i18n="perm_disable">Kapat</span>
       </div>
 
       <div class="perm-card" id="card-perm-bgactivity" onclick="requestBackgroundActivityPerm()">
         <div class="perm-info">
-          <span class="perm-name">3. Arka Planda Çalışma İzni (ZORUNLU)</span>
-          <span class="perm-desc">Pil Kullanımı -> 'Arka plan aktivitesine izin ver' açılmalıdır</span>
+          <span class="perm-name" data-i18n="perm_bgactivity_title">3. Arka Planda Çalışma İzni (ZORUNLU)</span>
+          <span class="perm-desc" data-i18n="perm_bgactivity_desc">Pil Kullanımı -> 'Arka plan aktivitesine izin ver' açılmalıdır</span>
         </div>
-        <span class="perm-status-badge" id="badge-perm-bgactivity">İzin Ver</span>
+        <span class="perm-status-badge" id="badge-perm-bgactivity" data-i18n="perm_grant">İzin Ver</span>
       </div>
 
       <div class="perm-card" id="card-perm-autostart" onclick="requestAutoStartPerm()">
         <div class="perm-info">
-          <span class="perm-name">4. Otomatik Başlatma İzni (ZORUNLU)</span>
-          <span class="perm-desc">Cihazın 'Otomatik Başlatma' ekranında uygulama etkinleştirilmelidir</span>
+          <span class="perm-name" data-i18n="perm_autostart_title">4. Otomatik Başlatma İzni (ZORUNLU)</span>
+          <span class="perm-desc" data-i18n="perm_autostart_desc">Cihazın 'Otomatik Başlatma' ekranında uygulama etkinleştirilmelidir</span>
         </div>
-        <span class="perm-status-badge" id="badge-perm-autostart">İzin Ver</span>
+        <span class="perm-status-badge" id="badge-perm-autostart" data-i18n="perm_grant">İzin Ver</span>
       </div>
 
       <button id="btn-perm-continue" class="btn btn-primary" onclick="proceedToPairing()" style="margin-top: 14px; opacity: 0.5;" disabled>
-        <span>Eşleştirmeye Devam Et</span>
+        <span data-i18n="perm_continue">Eşleştirmeye Devam Et</span>
       </button>
     </div>
   </div>
@@ -730,23 +730,23 @@ html_content = f'''<!DOCTYPE html>
     <div class="card">
       <div class="card-title">
         <svg viewBox="0 0 24 24"><path d="M4 7V4h3M20 7V4h-3M4 17v3h3M20 17v3h-3M9 9h6v6H9z"/></svg>
-        <span>Hızlı ve Güvenli Bağlantı</span>
+        <span data-i18n="pair_title">Hızlı ve Güvenli Bağlantı</span>
       </div>
       
-      <p class="hint-text" style="margin-bottom: 14px;">
+      <p class="hint-text" style="margin-bottom: 14px;" data-i18n="pair_desc">
         Web kontrol panelinizdeki "Cihaz Bağla" penceresinde gösterilen QR kodu kameranızla okutun veya eşleştirme kodunu aşağıya girin.
       </p>
 
       <button id="btn-scan" class="btn btn-primary" onclick="startQrScan()">
         <svg viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
-        <span>QR Kod Tara</span>
+        <span data-i18n="scan_qr">QR Kod Tara</span>
       </button>
 
       <div class="divider"></div>
 
       <div class="card-title" style="margin-bottom: 6px;">
         <svg viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3"/></svg>
-        <span>Eşleştirme Kodu</span>
+        <span data-i18n="pair_code_title">Eşleştirme Kodu</span>
       </div>
 
       <div class="input-group">
@@ -853,22 +853,22 @@ html_content = f'''<!DOCTYPE html>
       <div class="modal-header">
         <div style="display:flex; align-items:center; gap:8px;">
           <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          <span style="font-weight:700; font-size:0.92rem;" id="chat-modal-title">Model Testi</span>
+          <span style="font-weight:700; font-size:0.92rem;" id="chat-modal-title" data-i18n="model_chat_title">Model Testi</span>
         </div>
         <button class="btn-close" onclick="closeModelChatModal()">✕</button>
       </div>
       <div id="chat-messages" class="chat-messages">
-        <div class="chat-bubble chat-assistant">
+        <div class="chat-bubble chat-assistant" data-i18n="chat_greeting">
           Merhaba! İndirilmiş olan modeli bu ekrandan doğrudan test edebilirsiniz. Bir soru sorun veya mesaj yazın.
         </div>
       </div>
       <div class="chat-input-bar">
-        <input id="chat-input" type="text" placeholder="Mesajınızı yazın..." onkeydown="if(event.key==='Enter') sendChatMessage()">
+        <input id="chat-input" type="text" data-i18n-ph="chat_placeholder" placeholder="Mesajınızı yazın..." onkeydown="if(event.key==='Enter') sendChatMessage()">
         <button id="btn-send-chat" onclick="sendChatMessage()">
           <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
         </button>
       </div>
-      <div id="chat-metrics" style="font-size:0.7rem; color:#64748b; font-family:monospace; margin-top:6px; text-align:center;">
+      <div id="chat-metrics" style="font-size:0.7rem; color:#64748b; font-family:monospace; margin-top:6px; text-align:center;" data-i18n="chat_ready">
         Hazır
       </div>
     </div>
@@ -880,20 +880,25 @@ html_content = f'''<!DOCTYPE html>
   <div id="update-modal" class="modal hidden">
     <div class="modal-content" style="max-width: 320px; text-align: center;">
       <div class="modal-header">
-        <span style="font-weight:700; font-size:1rem;">Yeni Sürüm Hazır</span>
+        <span style="font-weight:700; font-size:1rem;" data-i18n="update_ready_title">Yeni Sürüm Hazır</span>
         <button class="btn-close" onclick="closeUpdateModal()">✕</button>
       </div>
-      <p class="hint-text" style="margin-bottom: 16px;" id="update-desc">
+      <p class="hint-text" style="margin-bottom: 16px;" id="update-desc" data-i18n="update_desc">
         Yeni bir güncelleme indirildi. Kesintisiz çalışma için hemen yükleyebilirsiniz.
       </p>
       <button class="btn btn-primary" onclick="installUpdate()">
-        <span>Şimdi Güncelle</span>
+        <span data-i18n="update_now">Şimdi Güncelle</span>
       </button>
     </div>
   </div>
 
   <script>
     let permissionsCompleted = false;
+
+    function getLang() {{
+      const nav = (navigator.language || navigator.userLanguage || 'en').toLowerCase();
+      return nav.startsWith('tr') ? 'tr' : 'en';
+    }}
 
     function showToast(msg) {{
       const t = document.getElementById('toast');
@@ -905,17 +910,19 @@ html_content = f'''<!DOCTYPE html>
     function refreshPermissions() {{
       if (window.AndroidBridge && window.AndroidBridge.getPermissionStatus) {{
         try {{
+          const lang = getLang();
+          const dict = I18N[lang] || I18N.en;
           const p = JSON.parse(window.AndroidBridge.getPermissionStatus());
           const notifCard = document.getElementById('card-perm-notif');
           const notifBadge = document.getElementById('badge-perm-notif');
           if (p.notifications) {{
             notifCard.classList.add('granted');
             notifBadge.className = 'perm-status-badge granted';
-            notifBadge.innerText = '✓ Verildi';
+            notifBadge.innerText = dict.perm_granted;
           }} else {{
             notifCard.classList.remove('granted');
             notifBadge.className = 'perm-status-badge';
-            notifBadge.innerText = 'İzin Ver';
+            notifBadge.innerText = dict.perm_grant;
           }}
 
           const battCard = document.getElementById('card-perm-battery');
@@ -923,11 +930,11 @@ html_content = f'''<!DOCTYPE html>
           if (p.battery) {{
             battCard.classList.add('granted');
             battBadge.className = 'perm-status-badge granted';
-            battBadge.innerText = '✓ Kaldırıldı';
+            battBadge.innerText = dict.perm_disabled;
           }} else {{
             battCard.classList.remove('granted');
             battBadge.className = 'perm-status-badge';
-            battBadge.innerText = 'Kapat';
+            battBadge.innerText = dict.perm_disable;
           }}
 
           const bgCard = document.getElementById('card-perm-bgactivity');
@@ -940,12 +947,12 @@ html_content = f'''<!DOCTYPE html>
             bgCard.classList.remove('hidden');
             bgCard.classList.add('granted');
             bgBadge.className = 'perm-status-badge granted';
-            bgBadge.innerText = '✓ Verildi';
+            bgBadge.innerText = dict.perm_granted;
           }} else {{
             bgCard.classList.remove('hidden');
             bgCard.classList.remove('granted');
             bgBadge.className = 'perm-status-badge';
-            bgBadge.innerText = 'İzin Ver';
+            bgBadge.innerText = dict.perm_grant;
           }}
 
           const autoCard = document.getElementById('card-perm-autostart');
@@ -958,12 +965,12 @@ html_content = f'''<!DOCTYPE html>
             autoCard.classList.remove('hidden');
             autoCard.classList.add('granted');
             autoBadge.className = 'perm-status-badge granted';
-            autoBadge.innerText = '✓ Verildi';
+            autoBadge.innerText = dict.perm_granted;
           }} else {{
             autoCard.classList.remove('hidden');
             autoCard.classList.remove('granted');
             autoBadge.className = 'perm-status-badge';
-            autoBadge.innerText = 'İzin Ver';
+            autoBadge.innerText = dict.perm_grant;
           }}
 
           permissionsCompleted = Boolean(p.notifications && p.battery);
@@ -1115,6 +1122,27 @@ html_content = f'''<!DOCTYPE html>
 
     const I18N = {{
       tr: {{
+        status_pending_setup: "Kurulum Bekleniyor",
+        connection_lost_notice: "Bağlantı kesildi. Cihazınız çevrimdışı, yeniden eşleştirmek için eşleştirme kodunu girin.",
+        required_permissions: "Gerekli Sistem İzinleri",
+        permissions_desc: "Uygulamanın arka planda kesintisiz çalışabilmesi, yapay zeka çıkarım görevlerini yerine getirebilmesi ve sistem bildirimlerini iletebilmesi için aşağıdaki izinlerin verilmesi gerekmektedir.",
+        perm_notif_title: "1. Bildirim İzni",
+        perm_notif_desc: "Çıkarım ve model durumunu takip için",
+        perm_battery_title: "2. Pil Optimizasyonunu Kapat",
+        perm_battery_desc: "Arka planda sistem tarafından kapatılmaması için",
+        perm_bgactivity_title: "3. Arka Planda Çalışma İzni (ZORUNLU)",
+        perm_bgactivity_desc: "Pil Kullanımı -> 'Arka plan aktivitesine izin ver' açılmalıdır",
+        perm_autostart_title: "4. Otomatik Başlatma İzni (ZORUNLU)",
+        perm_autostart_desc: "Cihazın 'Otomatik Başlatma' ekranında uygulama etkinleştirilmelidir",
+        perm_grant: "İzin Ver",
+        perm_disable: "Kapat",
+        perm_granted: "✓ Verildi",
+        perm_disabled: "✓ Kaldırıldı",
+        perm_continue: "Eşleştirmeye Devam Et",
+        pair_title: "Hızlı ve Güvenli Bağlantı",
+        pair_desc: "Web kontrol panelinizdeki 'Cihaz Bağla' penceresinde gösterilen QR kodu kameranızla okutun veya eşleştirme kodunu aşağıya girin.",
+        scan_qr: "QR Kod Tara",
+        pair_code_title: "Eşleştirme Kodu",
         paste: "Yapıştır",
         server_url_ph: "Sunucu Adresi (örn. http://10.0.2.2:3001)",
         connect_device: "Cihazı Bağla",
@@ -1143,10 +1171,37 @@ html_content = f'''<!DOCTYPE html>
         model_downloading: "Model indiriliyor...",
         download_error: "İndirme hatası: ",
         model_chat_title: "Model Testi (Playground)",
+        chat_greeting: "Merhaba! İndirilmiş olan modeli bu ekrandan doğrudan test edebilirsiniz. Bir soru sorun veya mesaj yazın.",
         chat_placeholder: "Bir mesaj yazın...",
-        chat_send: "Gönder"
+        chat_send: "Gönder",
+        chat_ready: "Hazır",
+        chat_generating: "Çıkarım yapılıyor...",
+        update_ready_title: "Yeni Sürüm Hazır",
+        update_desc: "Yeni bir güncelleme indirildi. Kesintisiz çalışma için hemen yükleyebilirsiniz.",
+        update_now: "Şimdi Güncelle"
       }},
       en: {{
+        status_pending_setup: "Setup Required",
+        connection_lost_notice: "Connection lost. Your device is offline, enter the pairing code to reconnect.",
+        required_permissions: "Required System Permissions",
+        permissions_desc: "The following permissions are required for the app to run smoothly in the background, perform AI inference tasks, and deliver notifications.",
+        perm_notif_title: "1. Notification Permission",
+        perm_notif_desc: "To track inference and model download status",
+        perm_battery_title: "2. Disable Battery Optimization",
+        perm_battery_desc: "Prevents system from killing the background worker",
+        perm_bgactivity_title: "3. Background Activity Permission (REQUIRED)",
+        perm_bgactivity_desc: "Battery Usage -> 'Allow background activity' must be enabled",
+        perm_autostart_title: "4. Auto-Start Permission (REQUIRED)",
+        perm_autostart_desc: "App must be enabled in device Auto-Start settings",
+        perm_grant: "Grant",
+        perm_disable: "Disable",
+        perm_granted: "✓ Granted",
+        perm_disabled: "✓ Disabled",
+        perm_continue: "Continue to Pairing",
+        pair_title: "Fast & Secure Connection",
+        pair_desc: "Scan the QR code shown in 'Connect Device' on your web dashboard or enter the pairing code below.",
+        scan_qr: "Scan QR Code",
+        pair_code_title: "Pairing Code",
         paste: "Paste",
         server_url_ph: "Server URL (e.g. http://10.0.2.2:3001)",
         connect_device: "Connect Device",
@@ -1175,14 +1230,20 @@ html_content = f'''<!DOCTYPE html>
         model_downloading: "Downloading model...",
         download_error: "Download error: ",
         model_chat_title: "Model Test (Playground)",
+        chat_greeting: "Hello! You can test the downloaded model directly on this screen. Ask a question or type a message.",
         chat_placeholder: "Type a prompt...",
-        chat_send: "Send"
+        chat_send: "Send",
+        chat_ready: "Ready",
+        chat_generating: "Inferencing...",
+        update_ready_title: "Update Ready",
+        update_desc: "A new update has been downloaded. You can install it now for uninterrupted service.",
+        update_now: "Update Now"
       }}
     }};
 
     function applyI18n() {{
       if (typeof document === 'undefined' || !document.querySelectorAll) return;
-      const lang = (navigator.language || 'en').toLowerCase().startsWith('tr') ? 'tr' : 'en';
+      const lang = getLang();
       const dict = I18N[lang] || I18N.en;
       document.querySelectorAll('[data-i18n]').forEach(el => {{
         const key = el.getAttribute('data-i18n');
@@ -1453,7 +1514,8 @@ html_content = f'''<!DOCTYPE html>
     }}
 
     window.onPermissionRevoked = function() {{
-      showToast("Arka plan aktivite izni geri çekildi! Lütfen tekrar izin veriniz.");
+      const isTr = getLang() === 'tr';
+      showToast(isTr ? "Arka plan aktivite izni geri çekildi! Lütfen tekrar izin veriniz." : "Background activity permission revoked! Please re-grant permission.");
       document.getElementById('paired-view').classList.add('hidden');
       document.getElementById('unpaired-view').classList.add('hidden');
       document.getElementById('permissions-view').classList.remove('hidden');
@@ -1471,6 +1533,7 @@ html_content = f'''<!DOCTYPE html>
     }};
 
     window.onload = function() {{
+      applyI18n();
       refreshPermissions();
       if (window.AndroidBridge && window.AndroidBridge.getInitialState) {{
         const initStr = window.AndroidBridge.getInitialState();
@@ -1862,7 +1925,20 @@ public class MainActivity extends Activity {
      * the server is not known yet.
      */
     private String clientPageUrl() {
-        return "file:///android_asset/www/index.html";
+        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+        boolean isPaired = WorkerService.boolPref(sp, "is_paired", false);
+        String server = WorkerService.stringPref(sp, "server_url", "");
+        String nodeId = WorkerService.stringPref(sp, "node_id", "");
+        if (!isPaired || server == null || server.trim().isEmpty()) {
+            return "file:///android_asset/www/index.html";
+        }
+        while (server.endsWith("/")) server = server.substring(0, server.length() - 1);
+        String lang = WorkerService.isTurkish() ? "tr" : "en";
+        String url = server + "/client?lang=" + lang;
+        if (!nodeId.isEmpty()) {
+            url += "&node=" + Uri.encode(nodeId);
+        }
+        return url;
     }
 
     private void startInterface(Bundle savedInstanceState) {
@@ -1980,13 +2056,16 @@ public class MainActivity extends Activity {
         SharedPreferences spInit = getSharedPreferences("byog_prefs", MODE_PRIVATE);
         if (WorkerService.boolPref(spInit, "is_paired", false) && !WorkerService.stringPref(spInit, "node_id", "").isEmpty()) {
             try {
-                Intent sIntent = new Intent(this, WorkerService.class);
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(sIntent);
-                } else {
-                    startService(sIntent);
+                long lastCrash = WorkerService.longPref(spInit, "worker_last_crash_time", 0);
+                if (System.currentTimeMillis() - lastCrash > 10000L) {
+                    Intent sIntent = new Intent(this, WorkerService.class);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(sIntent);
+                    } else {
+                        startService(sIntent);
+                    }
                 }
-            } catch (Exception ignored) {}
+            } catch (Throwable ignored) {}
         }
     }
 

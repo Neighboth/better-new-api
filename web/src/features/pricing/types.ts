@@ -117,6 +117,7 @@ export type PricingData = {
   usable_group: Record<string, { desc: string; ratio: number }>
   supported_endpoint: Record<string, string>
   auto_groups: string[]
+  always_cache_hit?: boolean
 }
 
 export type TokenUnit = 'M' | 'K'

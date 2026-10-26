@@ -737,6 +737,7 @@ function PriceSection(props: {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice: boolean
+  alwaysCacheHit?: boolean
 }) {
   const { t } = useTranslation()
   const isTokenBased = isTokenBasedModel(props.model)
@@ -763,7 +764,16 @@ function PriceSection(props: {
     {
       label: t('Cached input'),
       type: 'cache',
-      available: props.model.cache_ratio != null,
+      available:
+        Boolean(props.alwaysCacheHit) ||
+        (props.model.cache_ratio != null &&
+          Number(props.model.cache_ratio) > 0 &&
+          Number(props.model.cache_ratio) < 1) ||
+        (props.model.cache_price != null &&
+          Number(props.model.cache_price) > 0) ||
+        Boolean(
+          props.model.supported_endpoint_types?.includes('caching' as any)
+        ),
     },
     {
       label: t('Cache write'),
@@ -1023,6 +1033,7 @@ function GroupPricingSection(props: {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice?: boolean
+  alwaysCacheHit?: boolean
 }) {
   const { t } = useTranslation()
   const showRechargePrice = props.showRechargePrice ?? false
@@ -1037,7 +1048,15 @@ function GroupPricingSection(props: {
 
   const extraPriceTypes = useMemo(() => {
     const types: { label: string; type: PriceType }[] = []
-    if (props.model.cache_ratio != null) {
+    if (
+      Boolean(props.alwaysCacheHit) ||
+      (props.model.cache_ratio != null &&
+        Number(props.model.cache_ratio) > 0 &&
+        Number(props.model.cache_ratio) < 1) ||
+      (props.model.cache_price != null &&
+        Number(props.model.cache_price) > 0) ||
+      Boolean(props.model.supported_endpoint_types?.includes('caching' as any))
+    ) {
       types.push({ label: t('Cache'), type: 'cache' })
     }
     if (props.model.create_cache_ratio != null) {
@@ -1300,6 +1319,7 @@ export interface ModelDetailsContentProps {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice?: boolean
+  alwaysCacheHit?: boolean
 }
 
 export function ModelDetailsContent(props: ModelDetailsContentProps) {
@@ -1342,6 +1362,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               usdExchangeRate={props.usdExchangeRate}
               tokenUnit={props.tokenUnit}
               showRechargePrice={showRechargePrice}
+              alwaysCacheHit={props.alwaysCacheHit}
             />
             {isDynamic && (
               <DynamicPricingBreakdown billingExpr={props.model.billing_expr} />
@@ -1355,6 +1376,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               usdExchangeRate={props.usdExchangeRate}
               tokenUnit={props.tokenUnit}
               showRechargePrice={showRechargePrice}
+              alwaysCacheHit={props.alwaysCacheHit}
             />
           </section>
 
@@ -1429,6 +1451,7 @@ export function ModelDetails() {
     usableGroup,
     endpointMap,
     autoGroups,
+    alwaysCacheHit,
     isLoading,
     priceRate,
     usdExchangeRate,
@@ -1511,6 +1534,7 @@ export function ModelDetails() {
           usdExchangeRate={usdExchangeRate ?? 1}
           tokenUnit={tokenUnit}
           showRechargePrice={search.rechargePrice ?? false}
+          alwaysCacheHit={alwaysCacheHit}
           endpointMap={
             (endpointMap as Record<
               string,

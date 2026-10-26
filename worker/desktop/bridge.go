@@ -92,7 +92,13 @@ func (b *localBridge) pageAddress(serverUrl string) string {
 	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
 		target = "http://" + target
 	}
-	return target + "/client?local=" + b.address + "&token=" + b.token
+	State.Mu.Lock()
+	lang := State.Config.Language
+	State.Mu.Unlock()
+	if lang == "" {
+		lang = "en"
+	}
+	return target + "/client?local=" + b.address + "&token=" + b.token + "&lang=" + lang
 }
 
 // handleState gives the state of the client to the page.

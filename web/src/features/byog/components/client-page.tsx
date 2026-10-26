@@ -237,6 +237,12 @@ export function ClientPage() {
     }
   }, [i18n, localApi, localToken])
 
+  useEffect(() => {
+    if (state?.language && state.language !== i18n.language) {
+      i18n.changeLanguage(state.language)
+    }
+  }, [state?.language, i18n])
+
   const loadState = useCallback(async () => {
     if (bridge) {
       try {

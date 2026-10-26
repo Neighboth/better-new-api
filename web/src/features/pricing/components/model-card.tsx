@@ -50,6 +50,7 @@ export interface ModelCardProps {
   showRechargePrice?: boolean
   selectedGroup?: string
   perf?: ModelPerfBadgeData
+  alwaysCacheHit?: boolean
 }
 
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
@@ -79,12 +80,13 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
 
-  // Cache price is strictly shown only when the model supports caching
+  // Cache price is shown if alwaysCacheHit is enabled or when the model explicitly supports caching
   const hasCachedPrice =
     isTokenBased &&
-    ((props.model.cache_ratio != null &&
-      Number(props.model.cache_ratio) > 0 &&
-      Number(props.model.cache_ratio) < 1) ||
+    (Boolean(props.alwaysCacheHit) ||
+      (props.model.cache_ratio != null &&
+        Number(props.model.cache_ratio) > 0 &&
+        Number(props.model.cache_ratio) < 1) ||
       (props.model.cache_price != null &&
         Number(props.model.cache_price) > 0) ||
       props.model.supported_endpoint_types?.includes('caching' as any))

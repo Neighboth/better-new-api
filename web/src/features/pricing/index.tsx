@@ -49,6 +49,7 @@ export function Pricing() {
     usableGroup,
     endpointMap,
     autoGroups,
+    alwaysCacheHit,
     isLoading,
     priceRate,
     usdExchangeRate,
@@ -131,6 +132,7 @@ export function Pricing() {
           tokenUnit={tokenUnit}
           showRechargePrice={showRechargePrice}
           selectedGroup={groupFilter}
+          alwaysCacheHit={alwaysCacheHit}
         />
       )
     }
@@ -280,6 +282,7 @@ export function Pricing() {
               usdExchangeRate={usdExchangeRate ?? 1}
               tokenUnit={tokenUnit}
               showRechargePrice={showRechargePrice}
+              alwaysCacheHit={alwaysCacheHit}
             />
           )}
         </PageTransition>
