@@ -360,6 +360,13 @@ func migrateNewColumns() {
 			}
 		}
 	}
+	if DB.Migrator().HasTable(&Model{}) {
+		for _, col := range []string{"display_name", "tagline", "property_boxes"} {
+			if !DB.Migrator().HasColumn(&Model{}, col) {
+				_ = DB.Migrator().AddColumn(&Model{}, col)
+			}
+		}
+	}
 }
 
 func migrateDBFast() error {

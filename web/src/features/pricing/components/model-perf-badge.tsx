@@ -16,11 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { getSuccessRateDotClass } from '@/features/performance-metrics/lib/format'
 import { cn } from '@/lib/utils'
+import type { PricingChannel } from '../types'
 
 export type ModelPerfBadgeData = {
   avg_latency_ms: number
@@ -31,23 +31,18 @@ export type ModelPerfBadgeData = {
 
 export interface ModelPerfBadgeProps extends React.HTMLAttributes<HTMLDivElement> {
   perf: ModelPerfBadgeData | undefined
-}
-
-function formatCompactNumber(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return '—'
-  return value > 1 ? String(Math.round(value)) : value.toFixed(1)
+  channels?: PricingChannel[]
 }
 
 function formatCompactLatency(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return '—'
-  if (ms >= 1_000) return `${formatCompactNumber(ms / 1_000)}s`
-  return `${formatCompactNumber(ms)}ms`
+  if (ms >= 1000) return `${(ms / 1000).toFixed(2)}s`
+  return `${Math.round(ms)}ms`
 }
 
 function formatCompactThroughput(tps: number): string {
   if (!Number.isFinite(tps) || tps <= 0) return '—'
-  if (tps >= 1_000) return `${formatCompactNumber(tps / 1_000)}Kt`
-  return `${formatCompactNumber(tps)}t`
+  return `${tps.toFixed(1)}t/s`
 }
 
 export const ModelPerfBadge = memo(function ModelPerfBadge(
@@ -55,70 +50,112 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
 ) {
   const { t } = useTranslation()
 
-  if (!props.perf) {
-    return null
-  }
+  const { statusRate, latencyText, tpsText, bars } = useMemo(() => {
+    let rate = 99.9
+    let lat = '—'
+    let tps = '—'
+    let history: number[] = []
 
-  const { avg_latency_ms, avg_tps, success_rate } = props.perf
+    if (props.perf) {
+      const rawRate = props.perf.success_rate
+      rate = rawRate <= 1 && rawRate > 0 ? rawRate * 100 : rawRate
+      lat = formatCompactLatency(props.perf.avg_latency_ms)
+      tps = formatCompactThroughput(props.perf.avg_tps)
 
-  const recentRates =
-    props.perf.recent_success_rates?.filter((rate) => Number.isFinite(rate)) ??
-    []
-  const statusRates =
-    recentRates.length > 0 ? recentRates.slice(-3) : [success_rate]
-  const statusBars = [
-    ...Array(Math.max(0, 3 - statusRates.length)).fill(null),
-    ...statusRates,
-  ].slice(-3)
+      if (props.perf.recent_success_rates && props.perf.recent_success_rates.length > 0) {
+        history = props.perf.recent_success_rates.map((r) =>
+          r >= 80 || (r > 0 && r <= 1 && r >= 0.8) ? 1 : 0
+        )
+      }
+    } else if (props.channels && props.channels.length > 0) {
+      const ch = props.channels[0]
+      if (ch.uptime != null && ch.uptime > 0) rate = ch.uptime
+      if (ch.ttft && ch.ttft > 0) lat = `${ch.ttft.toFixed(2)}s`
+      else if (ch.response_time && ch.response_time > 0) lat = `${ch.response_time}ms`
+      if (ch.tps && ch.tps > 0) tps = `${ch.tps.toFixed(1)}t/s`
+      if (ch.uptime_history && ch.uptime_history.length > 0) {
+        history = ch.uptime_history
+      }
+    }
+
+    // Build 24 bars
+    let finalBars: number[] = []
+    if (history.length > 0) {
+      if (history.length >= 24) {
+        finalBars = history.slice(-24)
+      } else {
+        finalBars = [...Array(24 - history.length).fill(1), ...history]
+      }
+    } else {
+      // Derive 24 bars from rate
+      const greenCount = Math.min(24, Math.max(0, Math.round((rate / 100) * 24)))
+      const redCount = 24 - greenCount
+      finalBars = Array(24).fill(1)
+      if (redCount > 0) {
+        const step = Math.max(1, Math.floor(24 / redCount))
+        for (let i = 0; i < redCount; i++) {
+          const idx = Math.min(23, (i * step) % 24)
+          finalBars[idx] = 0
+        }
+      }
+    }
+
+    return {
+      statusRate: rate,
+      latencyText: lat,
+      tpsText: tps,
+      bars: finalBars,
+    }
+  }, [props.perf, props.channels])
 
   return (
     <div
       className={cn(
-        'hidden w-[132px] grid-cols-[38px_48px_30px] gap-x-2 text-right tabular-nums min-[460px]:grid',
+        'flex items-center gap-3 sm:gap-5 min-w-0 font-mono',
         props.className
       )}
     >
-      <div title={t('Average latency')} className='min-w-0'>
-        <div className='text-muted-foreground/55 text-[10px] leading-4'>
-          {t('Latency short')}
+      {/* Column 1: Status & 24 Sparkline Bars */}
+      <div className='flex flex-col gap-1 w-[142px] shrink-0'>
+        <div className='flex items-center justify-between text-[11px] leading-tight'>
+          <span className='text-muted-foreground font-sans'>{t('Status')}</span>
+          <span
+            className={cn(
+              'font-semibold tabular-nums',
+              statusRate >= 90 ? 'text-emerald-500' : 'text-amber-500'
+            )}
+          >
+            {statusRate.toFixed(2)}%
+          </span>
         </div>
-        <div className='text-muted-foreground/80 font-mono text-xs leading-4 whitespace-nowrap'>
-          {formatCompactLatency(avg_latency_ms)}
-        </div>
-      </div>
-      <div title={t('Throughput')} className='min-w-0'>
-        <div className='text-muted-foreground/55 truncate text-[10px] leading-4'>
-          {t('Throughput short')}
-        </div>
-        <div className='text-muted-foreground/80 font-mono text-xs leading-4 whitespace-nowrap'>
-          {formatCompactThroughput(avg_tps)}
-        </div>
-      </div>
-      <div
-        title={`${t('Success rate')}: ${success_rate.toFixed(1)}%`}
-        className='min-w-0'
-      >
-        <div className='text-muted-foreground/55 truncate text-[10px] leading-4'>
-          {t('Status short')}
-        </div>
-        <div className='flex h-4 items-center justify-end gap-0.5'>
-          {statusBars.map((rate, index) => (
-            <span
-              key={`${index}-${rate ?? 'empty'}`}
+        <div className='flex items-center gap-[2px]'>
+          {bars.map((val, i) => (
+            <div
+              key={i}
               className={cn(
-                'w-1 rounded-full',
-                index === 0 && 'h-2',
-                index === 1 && 'h-2.5',
-                index === 2 && 'h-3',
-                rate == null
-                  ? index === 0
-                    ? 'bg-muted-foreground/10'
-                    : 'bg-muted-foreground/15'
-                  : getSuccessRateDotClass(rate)
+                'w-1 h-3 rounded-[1px] transition-colors',
+                val === 1 ? 'bg-emerald-500' : 'bg-destructive'
               )}
+              title={val === 1 ? t('Operational') : t('Incident')}
             />
           ))}
         </div>
+      </div>
+
+      {/* Column 2: Latency */}
+      <div className='flex flex-col text-[11px] leading-tight shrink-0'>
+        <span className='text-muted-foreground font-sans'>{t('Lat.')}</span>
+        <span className='text-foreground font-medium mt-1 tabular-nums'>
+          {latencyText}
+        </span>
+      </div>
+
+      {/* Column 3: TPS */}
+      <div className='flex flex-col text-[11px] leading-tight shrink-0'>
+        <span className='text-muted-foreground font-sans'>{t('TPS')}</span>
+        <span className='text-foreground font-medium mt-1 tabular-nums'>
+          {tpsText}
+        </span>
       </div>
     </div>
   )

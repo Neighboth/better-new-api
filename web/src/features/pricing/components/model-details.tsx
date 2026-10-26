@@ -60,6 +60,10 @@ import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
 import { CHANNEL_TYPES } from '@/features/channels/constants'
+import {
+  getChannelTypeIcon,
+  getChannelTypeLabel,
+} from '@/features/channels/lib/channel-utils'
 import { DEFAULT_TOKEN_UNIT } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
 import {
@@ -643,17 +647,26 @@ function ModelProvidersTable(props: {
           </thead>
           <tbody className='divide-y divide-border/40 font-mono'>
             {channels.map((ch) => {
-              const typeName = CHANNEL_TYPES[ch.type as keyof typeof CHANNEL_TYPES] || 'Custom'
-              const icon = getLobeIcon(typeName.toLowerCase(), 16) || getLobeIcon(ch.name.toLowerCase(), 16)
+              const iconName = getChannelTypeIcon(ch.type)
+              const icon =
+                getLobeIcon(`${iconName}.Color`, 18) ||
+                getLobeIcon(iconName, 18) ||
+                getLobeIcon(ch.name, 18)
+              const typeName = t(getChannelTypeLabel(ch.type))
               return (
                 <tr key={ch.id} className='hover:bg-muted/30 transition-colors'>
                   <td className='p-2.5 flex items-center gap-2 font-sans'>
-                    {icon || <div className='size-4 rounded-full bg-primary/20 shrink-0' />}
+                    <div className='flex size-5 shrink-0 items-center justify-center'>
+                      {icon || <div className='size-4 rounded-full bg-primary/20 shrink-0' />}
+                    </div>
                     <span className='font-semibold text-foreground truncate max-w-[140px] sm:max-w-none'>
                       {ch.name}
                     </span>
+                    <span className='text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground font-mono'>
+                      {typeName}
+                    </span>
                     {ch.group && (
-                      <span className='text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground font-mono'>
+                      <span className='text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-mono'>
                         {ch.group}
                       </span>
                     )}

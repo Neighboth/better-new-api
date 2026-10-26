@@ -273,12 +273,13 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
 
   return (
     <div
+      onClick={props.onClick}
       className={cn(
-        'group relative flex flex-col rounded-xl border p-3 transition-colors sm:p-5',
+        'group relative flex flex-col rounded-xl border p-3 transition-colors sm:p-5 cursor-pointer',
         'hover:bg-muted/20'
       )}
     >
-      {/* Header: icon + name + price + actions */}
+      {/* Header: icon + name + price */}
       <div className='flex items-start justify-between gap-2.5 sm:gap-3'>
         <div className='flex min-w-0 items-start gap-2.5 sm:gap-3'>
           <div className='bg-muted/40 flex size-9 shrink-0 items-center justify-center rounded-lg sm:size-10 sm:rounded-xl'>
@@ -307,17 +308,6 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               {priceSummary}
             </div>
           </div>
-        </div>
-
-        <div className='flex shrink-0 items-center gap-1.5'>
-          <button
-            type='button'
-            onClick={props.onClick}
-            className='text-muted-foreground hover:text-foreground hover:bg-muted inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors sm:px-2.5 sm:py-1.5'
-          >
-            {t('Details')}
-            <ChevronRight className='size-3.5' />
-          </button>
         </div>
       </div>
 
@@ -356,33 +346,46 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         </div>
       )}
 
-      {/* Footer: left metadata and right performance summary share row alignment */}
-      <div className='mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 sm:mt-4'>
-        <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1'>
-          {primaryGroup && (
-            <span className='text-muted-foreground text-sm font-medium'>
-              {primaryGroup}
-            </span>
+      {/* Groups & Endpoints row */}
+      <div className='mt-3 flex items-center justify-between text-xs text-muted-foreground font-mono'>
+        <div className='flex items-center gap-2 min-w-0'>
+          <span className='text-muted-foreground/80'>{t('Groups')}</span>
+          <span className='text-foreground font-medium'>{primaryGroup || 'default'}</span>
+          {groups.length > 1 && (
+            <span className='text-muted-foreground/60 text-[10px]'>+{groups.length - 1}</span>
           )}
           <ModelBillingModeBadge model={props.model} />
         </div>
-        <ModelPerfBadge perf={props.perf} className='row-span-2 self-start' />
+        {endpoints.length > 0 ? (
+          <div className='flex items-center gap-1.5 truncate ml-2'>
+            <span className='text-muted-foreground/80'>{t('Endpoints')}</span>
+            <span className='text-foreground font-medium truncate max-w-[150px] sm:max-w-none'>
+              {endpoints.join(', ')}
+            </span>
+          </div>
+        ) : (
+          <span className='text-muted-foreground/60 text-[11px]'>{tokenUnitLabel}</span>
+        )}
+      </div>
 
-        <div className='flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 sm:gap-x-3 sm:gap-y-1'>
-          {bottomTags.map((item) => (
-            <span key={item} className='text-muted-foreground/70 text-xs'>
-              {item}
-            </span>
-          ))}
-          <span className='text-muted-foreground/50 text-xs'>
-            {tokenUnitLabel}
-          </span>
-          {hiddenCount > 0 && (
-            <span className='text-muted-foreground/40 text-xs'>
-              +{hiddenCount}
-            </span>
-          )}
-        </div>
+      {/* Divider */}
+      <div className='border-t border-border/50 my-2.5' />
+
+      {/* Footer: OpenRouter style 24-bar sparkline + Details button */}
+      <div className='flex items-center justify-between gap-2 pt-0.5'>
+        <ModelPerfBadge perf={props.perf} channels={props.model.channels} />
+
+        <button
+          type='button'
+          onClick={(e) => {
+            e.stopPropagation()
+            props.onClick()
+          }}
+          className='text-xs font-medium text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0 ml-auto'
+        >
+          {t('Details')}
+          <ChevronRight className='size-3.5' />
+        </button>
       </div>
     </div>
   )
