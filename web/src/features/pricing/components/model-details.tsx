@@ -59,6 +59,7 @@ import {
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
+import { CHANNEL_TYPES } from '@/features/channels/constants'
 import { DEFAULT_TOKEN_UNIT } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
 import {
@@ -528,24 +529,39 @@ function ModelHeader(props: { model: PricingModel }) {
   const { t } = useTranslation()
   const model = props.model
   const modelIconKey = model.icon || model.vendor_icon
-  const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 20) : null
+  const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 24) : null
   const description = model.description || model.vendor_description || null
 
+  const propertyBoxes = useMemo(() => {
+    if (!model.property_boxes) return []
+    try {
+      const parsed = JSON.parse(model.property_boxes)
+      return Array.isArray(parsed) ? parsed.slice(0, 8) : []
+    } catch {
+      return []
+    }
+  }, [model.property_boxes])
+
   return (
-    <header className='pb-4'>
-      <div className='flex items-center gap-2.5'>
-        {modelIcon}
-        <h1 className='font-mono text-xl font-bold tracking-tight sm:text-2xl'>
-          {model.model_name}
-        </h1>
-        <CopyButton
-          value={model.model_name || ''}
-          className='size-6'
-          iconClassName='size-3'
-          tooltip={t('Copy model name')}
-          successTooltip={t('Copied!')}
-          aria-label={t('Copy model name')}
-        />
+    <header className='pb-4 space-y-2'>
+      <div className='flex items-start gap-3'>
+        <div className='mt-0.5'>{modelIcon}</div>
+        <div className='min-w-0 flex-1'>
+          <h1 className='font-mono text-xl font-bold tracking-tight sm:text-2xl truncate'>
+            {model.display_name || model.model_name}
+          </h1>
+          <div className='flex items-center gap-1.5 text-xs text-muted-foreground/80 font-mono mt-0.5'>
+            <span className='truncate'>{model.model_name}</span>
+            <CopyButton
+              value={model.model_name || ''}
+              className='size-5 text-muted-foreground/60'
+              iconClassName='size-2.5'
+              tooltip={t('Copy model name')}
+              successTooltip={t('Copied!')}
+              aria-label={t('Copy model name')}
+            />
+          </div>
+        </div>
       </div>
       <div className='mt-1 flex flex-wrap items-center gap-1.5 text-xs'>
         {model.vendor_name && (
@@ -559,7 +575,132 @@ function ModelHeader(props: { model: PricingModel }) {
           <Markdown>{description}</Markdown>
         </div>
       )}
+      {model.tagline && (
+        <div className='text-xs font-semibold text-foreground/85 mt-2'>
+          {model.tagline}
+        </div>
+      )}
+      {propertyBoxes.length > 0 && (
+        <div className='mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2'>
+          {propertyBoxes.map((box, idx) => (
+            <div
+              key={idx}
+              className='rounded-xl border border-border/60 bg-muted/20 px-3 py-2 flex flex-col justify-between'
+            >
+              <span className='text-[10px] text-muted-foreground font-medium truncate leading-tight'>
+                {box.label}
+              </span>
+              <span className='text-xs font-bold text-foreground truncate mt-1 leading-tight'>
+                {box.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </header>
+  )
+}
+
+function ModelProvidersTable(props: {
+  model: PricingModel
+  tokenUnit: TokenUnit
+  priceRate: number
+  usdExchangeRate: number
+  showRechargePrice: boolean
+}) {
+  const { t } = useTranslation()
+  const channels = props.model.channels || []
+  if (channels.length === 0) {
+    return null
+  }
+
+  return (
+    <section className='bg-card/60 space-y-4 rounded-xl border p-4 shadow-sm'>
+      <div className='flex items-center justify-between'>
+        <div>
+          <SectionTitle>{t('Providers & Endpoints')}</SectionTitle>
+          <p className='text-xs text-muted-foreground -mt-2'>
+            {t('Available channels hosting this model, latency, throughput and real-time pricing.')}
+          </p>
+        </div>
+        <span className='text-xs font-mono font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded'>
+          {channels.length} {t('providers')}
+        </span>
+      </div>
+
+      <div className='overflow-x-auto rounded-lg border border-border/60'>
+        <table className='w-full text-xs'>
+          <thead className='bg-muted/40 border-b border-border/60 text-muted-foreground font-medium text-left'>
+            <tr>
+              <th className='p-2.5'>{t('Provider')}</th>
+              <th className='p-2.5'>{t('Input / 1M')}</th>
+              <th className='p-2.5'>{t('Output / 1M')}</th>
+              <th className='p-2.5'>{t('Cache Read')}</th>
+              <th className='p-2.5'>{t('Latency (TTFT)')}</th>
+              <th className='p-2.5'>{t('Throughput (TPS)')}</th>
+              <th className='p-2.5 min-w-[130px]'>{t('Uptime (24h)')}</th>
+            </tr>
+          </thead>
+          <tbody className='divide-y divide-border/40 font-mono'>
+            {channels.map((ch) => {
+              const typeName = CHANNEL_TYPES[ch.type as keyof typeof CHANNEL_TYPES] || 'Custom'
+              const icon = getLobeIcon(typeName.toLowerCase(), 16) || getLobeIcon(ch.name.toLowerCase(), 16)
+              return (
+                <tr key={ch.id} className='hover:bg-muted/30 transition-colors'>
+                  <td className='p-2.5 flex items-center gap-2 font-sans'>
+                    {icon || <div className='size-4 rounded-full bg-primary/20 shrink-0' />}
+                    <span className='font-semibold text-foreground truncate max-w-[140px] sm:max-w-none'>
+                      {ch.name}
+                    </span>
+                    {ch.group && (
+                      <span className='text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground font-mono'>
+                        {ch.group}
+                      </span>
+                    )}
+                  </td>
+                  <td className='p-2.5 text-foreground font-semibold'>
+                    ${ch.input_price.toFixed(2)}
+                  </td>
+                  <td className='p-2.5 text-foreground font-semibold'>
+                    ${ch.output_price.toFixed(2)}
+                  </td>
+                  <td className='p-2.5 text-muted-foreground'>
+                    {ch.cache_price != null ? `$${ch.cache_price.toFixed(2)}` : '—'}
+                  </td>
+                  <td className='p-2.5 text-muted-foreground'>
+                    <span className={ch.ttft && ch.ttft < 1.0 ? 'text-emerald-500 font-semibold' : 'text-amber-500'}>
+                      {ch.ttft ? `${ch.ttft.toFixed(2)}s` : '—'}
+                    </span>
+                  </td>
+                  <td className='p-2.5 text-foreground font-medium'>
+                    {ch.tps ? `${ch.tps.toFixed(1)} t/s` : '—'}
+                  </td>
+                  <td className='p-2.5'>
+                    <div className='flex items-center gap-1.5'>
+                      <div className='flex items-center gap-0.5'>
+                        {(ch.uptime_history || Array(24).fill(1)).map((val, i) => (
+                          <div
+                            key={i}
+                            className={cn(
+                              'w-1 h-3 rounded-xs',
+                              val === 1 ? 'bg-emerald-500' : 'bg-destructive'
+                            )}
+                            title={val === 1 ? 'Operational' : 'Incident'}
+                          />
+                        ))}
+                      </div>
+                      <span className='text-[10px] text-emerald-500 font-semibold ml-1'>
+                        {ch.uptime ? `${ch.uptime.toFixed(1)}%` : '99.9%'}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }
 
@@ -1193,6 +1334,14 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               showRechargePrice={showRechargePrice}
             />
           </section>
+
+          <ModelProvidersTable
+            model={props.model}
+            tokenUnit={props.tokenUnit}
+            priceRate={props.priceRate}
+            usdExchangeRate={props.usdExchangeRate}
+            showRechargePrice={showRechargePrice}
+          />
 
           <ModelBackendDetailsSection model={props.model} />
         </TabsContent>

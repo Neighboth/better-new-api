@@ -1304,10 +1304,14 @@ func updateInstallationBranding(appName string, systemName string, faviconBase64
 
 // showTrayMenu shows the menu of the icon in the notification area.
 func (w *guiWindow) showTrayMenu() {
+	lang := State.Config.Language
+	if lang == "" {
+		lang = clientLanguage
+	}
 	menu, _, _ := procCreatePopupMenu.Call()
-	procAppendMenu.Call(menu, 0, commandShow, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("show")))))
-	procAppendMenu.Call(menu, 0, commandPanel, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("go_site")))))
-	procAppendMenu.Call(menu, 0, commandClose, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientText("close_app")))))
+	procAppendMenu.Call(menu, 0, commandShow, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientTextIn(lang, "show")))))
+	procAppendMenu.Call(menu, 0, commandPanel, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientTextIn(lang, "go_site")))))
+	procAppendMenu.Call(menu, 0, commandClose, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(clientTextIn(lang, "close_app")))))
 
 	var point windowPoint
 	procGetCursorPos.Call(uintptr(unsafe.Pointer(&point)))

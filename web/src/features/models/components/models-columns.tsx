@@ -125,13 +125,20 @@ export function useModelsColumns(vendors: Vendor[] = []): ColumnDef<Model>[] {
             <div className='flex size-5 shrink-0 items-center justify-center overflow-hidden'>
               {icon}
             </div>
-            <StatusBadge
-              label={name}
-              variant='neutral'
-              copyText={name}
-              size='sm'
-              className='-ml-1.5 font-mono'
-            />
+            <div className='flex flex-col min-w-0'>
+              {model.display_name && (
+                <span className='font-semibold text-xs text-foreground truncate leading-tight'>
+                  {model.display_name}
+                </span>
+              )}
+              <StatusBadge
+                label={name}
+                variant='neutral'
+                copyText={name}
+                size='sm'
+                className={cn('-ml-1.5 font-mono', model.display_name && 'text-[11px]')}
+              />
+            </div>
           </div>
         )
       },

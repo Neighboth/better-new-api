@@ -223,6 +223,7 @@ func (b *localBridge) handleSettings(writer http.ResponseWriter, request *http.R
 	}
 	if payload.Language != "" {
 		State.Config.Language = payload.Language
+		clientLanguage = payload.Language
 		installer.UpdateUninstallerLanguage(payload.Language)
 	}
 	State.Mu.Unlock()

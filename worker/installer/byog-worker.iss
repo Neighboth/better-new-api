@@ -27,7 +27,7 @@ VersionInfoProductName={#MyAppName}
 VersionInfoCompany={#MyAppPublisher}
 DefaultDirName={code:GetDefaultDir}
 DefaultGroupName={#MyAppName}
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 DisableProgramGroupPage=yes
 DisableDirPage=no
 OutputDir=..\binaries
@@ -130,8 +130,12 @@ Source: "..\desktop\assets\byog.ico"; Flags: dontcopy
 Source: "..\desktop\assets\logo.png"; Flags: dontcopy
 Source: "..\desktop\assets\wizard_small.bmp"; Flags: dontcopy
 
+[Icons]
+Name: "{autoprograms}\{code:GetDisplayName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\byog.ico"
+Name: "{autodesktop}\{code:GetDisplayName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\byog.ico"
+
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{code:GetDisplayName}"; ValueData: """{app}\{#MyAppExeName}"" --tray"; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{code:GetDisplayName}"; ValueData: """{app}\{#MyAppExeName}"" --tray"; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,BYOG Worker}"; Flags: nowait postinstall skipifsilent
@@ -150,7 +154,7 @@ var
   BrandFaviconIcoBase64: String;
   BrandFaviconBmpBase64: String;
   PolicyPage: TWizardPage;
-  PolicyMemo: TNewMemo;
+  PolicyViewer: TRichEditViewer;
   PolicyAccept: TNewCheckBox;
   PoliciesLoaded: Boolean;
 
@@ -210,15 +214,20 @@ const
   IMAGE_ICON = 1;
   LR_LOADFROMFILE = $0010;
   GW_OWNER = 4;
+  GA_ROOTOWNER = 3;
+  GCL_HICON = -14;
+  GCL_HICONSM = -34;
 
 function LoadImageW(hInst: THandle; ImageName: String; ImageType: UINT; X, Y: Integer; Flags: UINT): THandle; external 'LoadImageW@user32.dll stdcall';
 function SendMessageW(hWnd: HWND; Msg: UINT; wParam: Longint; lParam: Longint): Longint; external 'SendMessageW@user32.dll stdcall';
 function GetWindow(hWnd: HWND; uCmd: UINT): HWND; external 'GetWindow@user32.dll stdcall';
+function GetAncestor(hWnd: HWND; gaFlags: UINT): HWND; external 'GetAncestor@user32.dll stdcall';
+function SetClassLongW(hWnd: HWND; nIndex: Integer; dwNewLong: Longint): Longint; external 'SetClassLongW@user32.dll stdcall';
 
 procedure ApplyWindowIcon(const WindowHandle: HWND; const IcoFile: String);
 var
   hIconBig, hIconSmall: THandle;
-  hOwner: HWND;
+  hOwner, hRoot: HWND;
 begin
   if (IcoFile = '') or (not FileExists(IcoFile)) then
     Exit;
@@ -227,17 +236,31 @@ begin
     hIconSmall := LoadImageW(0, IcoFile, IMAGE_ICON, ScaleX(16), ScaleY(16), LR_LOADFROMFILE);
     if hIconBig <> 0 then
     begin
-      SendMessageW(WindowHandle, WM_SETICON, ICON_BIG, hIconBig);
-      hOwner := GetWindow(WindowHandle, GW_OWNER);
-      if hOwner <> 0 then
-        SendMessageW(hOwner, WM_SETICON, ICON_BIG, hIconBig);
+      if WindowHandle <> 0 then
+      begin
+        SendMessageW(WindowHandle, WM_SETICON, ICON_BIG, hIconBig);
+        SetClassLongW(WindowHandle, GCL_HICON, hIconBig);
+        hOwner := GetWindow(WindowHandle, GW_OWNER);
+        if hOwner <> 0 then
+          SendMessageW(hOwner, WM_SETICON, ICON_BIG, hIconBig);
+        hRoot := GetAncestor(WindowHandle, GA_ROOTOWNER);
+        if (hRoot <> 0) and (hRoot <> WindowHandle) and (hRoot <> hOwner) then
+          SendMessageW(hRoot, WM_SETICON, ICON_BIG, hIconBig);
+      end;
     end;
     if hIconSmall <> 0 then
     begin
-      SendMessageW(WindowHandle, WM_SETICON, ICON_SMALL, hIconSmall);
-      hOwner := GetWindow(WindowHandle, GW_OWNER);
-      if hOwner <> 0 then
-        SendMessageW(hOwner, WM_SETICON, ICON_SMALL, hIconSmall);
+      if WindowHandle <> 0 then
+      begin
+        SendMessageW(WindowHandle, WM_SETICON, ICON_SMALL, hIconSmall);
+        SetClassLongW(WindowHandle, GCL_HICONSM, hIconSmall);
+        hOwner := GetWindow(WindowHandle, GW_OWNER);
+        if hOwner <> 0 then
+          SendMessageW(hOwner, WM_SETICON, ICON_SMALL, hIconSmall);
+        hRoot := GetAncestor(WindowHandle, GA_ROOTOWNER);
+        if (hRoot <> 0) and (hRoot <> WindowHandle) and (hRoot <> hOwner) then
+          SendMessageW(hRoot, WM_SETICON, ICON_SMALL, hIconSmall);
+      end;
     end;
   except
   end;
@@ -529,6 +552,11 @@ function JsonUnescape(const value: String): String;
 var
   index, code, low: Integer;
 begin
+  if Pos('\', value) = 0 then
+  begin
+    Result := value;
+    Exit;
+  end;
   Result := '';
   index := 1;
   while index <= Length(value) do
@@ -647,9 +675,7 @@ begin
       stream.Seek(markerPosition + 11, soFromBeginning);
       SetLength(settings, Longint(settingsSize));
       stream.ReadBuffer(settings, Longint(settingsSize));
-      document := '';
-      for index := 1 to Length(settings) do
-        document := document + Chr(Ord(settings[index]));
+      document := String(settings);
       BrandServerUrl := JsonText(document, 'server_url');
       BrandSystemName := JsonText(document, 'system_name');
       BrandAppName := JsonText(document, 'app_name');
@@ -806,19 +832,120 @@ begin
   end;
 end;
 
+function RtfEscapeChar(C: Char): String;
+var
+  code: Integer;
+begin
+  if C = '\' then
+    Result := '\\'
+  else if C = '{' then
+    Result := '\{'
+  else if C = '}' then
+    Result := '\}'
+  else
+  begin
+    code := Ord(C);
+    if code > 127 then
+    begin
+      if code > 32767 then
+        code := code - 65536;
+      Result := '\u' + IntToStr(code) + '?';
+    end
+    else
+      Result := C;
+  end;
+end;
+
+function MarkdownToRTF(const MarkdownText: String): String;
+var
+  lines: TStringList;
+  i, j: Integer;
+  line, rtfBody, escapedLine: String;
+  inBold: Boolean;
+  isH1, isH2, isH3, isBullet: Boolean;
+begin
+  lines := TStringList.Create;
+  try
+    lines.Text := MarkdownText;
+    rtfBody := '';
+    for i := 0 to lines.Count - 1 do
+    begin
+      line := Trim(lines[i]);
+      if line = '' then
+      begin
+        rtfBody := rtfBody + '\par\line ';
+        Continue;
+      end;
+
+      isH1 := (Copy(line, 1, 2) = '# ');
+      isH2 := (Copy(line, 1, 3) = '## ');
+      isH3 := (Copy(line, 1, 4) = '### ');
+      isBullet := (Copy(line, 1, 2) = '- ') or (Copy(line, 1, 2) = '* ');
+
+      if isH1 then
+        line := Trim(Copy(line, 3, Length(line)))
+      else if isH2 then
+        line := Trim(Copy(line, 4, Length(line)))
+      else if isH3 then
+        line := Trim(Copy(line, 5, Length(line)))
+      else if isBullet then
+        line := Trim(Copy(line, 3, Length(line)));
+
+      escapedLine := '';
+      inBold := False;
+      j := 1;
+      while j <= Length(line) do
+      begin
+        if (j < Length(line)) and (line[j] = '*') and (line[j + 1] = '*') then
+        begin
+          if inBold then
+            escapedLine := escapedLine + '\b0 '
+          else
+            escapedLine := escapedLine + '\b ';
+          inBold := not inBold;
+          j := j + 2;
+          Continue;
+        end;
+        escapedLine := escapedLine + RtfEscapeChar(line[j]);
+        Inc(j);
+      end;
+      if inBold then
+        escapedLine := escapedLine + '\b0 ';
+
+      if isH1 then
+        rtfBody := rtfBody + '\par\b\fs24 ' + escapedLine + '\b0\fs18\par '
+      else if isH2 then
+        rtfBody := rtfBody + '\par\b\fs21 ' + escapedLine + '\b0\fs18\par '
+      else if isH3 then
+        rtfBody := rtfBody + '\par\b\fs19 ' + escapedLine + '\b0\fs18\par '
+      else if isBullet then
+        rtfBody := rtfBody + '\bullet  ' + escapedLine + '\par '
+      else
+        rtfBody := rtfBody + escapedLine + '\par ';
+    end;
+    Result := '{\rtf1\ansi\deff0{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}}\f0\fs18 ' + rtfBody + '}';
+  finally
+    lines.Free;
+  end;
+end;
+
 // ReadPolicies reads the policies of the installation as a text.
 function ReadPolicies(): String;
 var
   request: Variant;
-  address: String;
+  cleanUrl, address: String;
 begin
   Result := '';
   if BrandServerUrl = '' then
     Exit;
-  address := BrandServerUrl + '/api/v1/worker/setup/policies?lang=' + installerLanguage();
+  cleanUrl := BrandServerUrl;
+  while (Length(cleanUrl) > 0) and (cleanUrl[Length(cleanUrl)] = '/') do
+    SetLength(cleanUrl, Length(cleanUrl) - 1);
+  address := cleanUrl + '/api/v1/worker/setup/policies?lang=' + installerLanguage();
   try
     request := CreateOleObject('WinHttp.WinHttpRequest.5.1');
     request.Open('GET', address, False);
+    request.Option(4) := $3300; // ignore SSL certificate errors
     request.SetTimeouts(2000, 3000, 3000, 4000);
     request.Send;
     if request.Status = 200 then
@@ -932,20 +1059,21 @@ begin
     ExpandConstant('{cm:PolicyPageTitle}'),
     ExpandConstant('{cm:PolicyPageDescription}'));
 
-  PolicyMemo := TNewMemo.Create(PolicyPage);
-  PolicyMemo.Parent := PolicyPage.Surface;
-  PolicyMemo.Left := 0;
-  PolicyMemo.Top := 0;
-  PolicyMemo.Width := PolicyPage.SurfaceWidth;
-  PolicyMemo.Height := PolicyPage.SurfaceHeight - ScaleY(40);
-  PolicyMemo.ScrollBars := ssVertical;
-  PolicyMemo.ReadOnly := True;
-  PolicyMemo.Text := ExpandConstant('{cm:PolicyLoading}');
+  PolicyViewer := TRichEditViewer.Create(PolicyPage);
+  PolicyViewer.Parent := PolicyPage.Surface;
+  PolicyViewer.Left := 0;
+  PolicyViewer.Top := 0;
+  PolicyViewer.Width := PolicyPage.SurfaceWidth;
+  PolicyViewer.Height := PolicyPage.SurfaceHeight - ScaleY(40);
+  PolicyViewer.ScrollBars := ssVertical;
+  PolicyViewer.ReadOnly := True;
+  PolicyViewer.UseRichEdit := True;
+  PolicyViewer.RTFText := MarkdownToRTF(ExpandConstant('{cm:PolicyLoading}'));
 
   PolicyAccept := TNewCheckBox.Create(PolicyPage);
   PolicyAccept.Parent := PolicyPage.Surface;
   PolicyAccept.Left := 0;
-  PolicyAccept.Top := PolicyMemo.Height + ScaleY(10);
+  PolicyAccept.Top := PolicyViewer.Height + ScaleY(10);
   PolicyAccept.Width := PolicyPage.SurfaceWidth;
   PolicyAccept.Caption := ExpandConstant('{cm:PolicyAccept}');
 end;
@@ -961,15 +1089,15 @@ begin
     PoliciesLoaded := True;
     policies := ReadPolicies();
     if policies <> '' then
-      PolicyMemo.Text := policies
+      PolicyViewer.RTFText := MarkdownToRTF(policies)
     else
     begin
       fallbackUrl := BrandServerUrl;
       while (Length(fallbackUrl) > 0) and (fallbackUrl[Length(fallbackUrl)] = '/') do
         SetLength(fallbackUrl, Length(fallbackUrl) - 1);
       if fallbackUrl <> '' then
-        fallbackUrl := fallbackUrl + '/privacy';
-      PolicyMemo.Text := ExpandConstant('{cm:PolicyMissing}') + #13#10#13#10 + fallbackUrl;
+        fallbackUrl := fallbackUrl + '/privacy-policy' + #13#10 + fallbackUrl + '/user-agreement';
+      PolicyViewer.RTFText := MarkdownToRTF(ExpandConstant('{cm:PolicyMissing}') + #13#10#13#10 + fallbackUrl);
     end;
   end;
 end;
@@ -1028,9 +1156,30 @@ begin
     writeInstallerLanguage();
     if FileExists(ExpandConstant('{tmp}\brand_icon.ico')) then
       CopyFile(ExpandConstant('{tmp}\brand_icon.ico'), ExpandConstant('{app}\byog.ico'), False);
+    if FileExists(ExpandConstant('{tmp}\brand_logo.bmp')) then
+      CopyFile(ExpandConstant('{tmp}\brand_logo.bmp'), ExpandConstant('{app}\brand_logo.bmp'), False);
     if BrandingLoaded then
       AppendBrandingToClient();
     WriteClientConfig();
+  end;
+end;
+
+procedure InitializeUninstallProgressForm();
+var
+  icoPath, bmpPath: String;
+begin
+  icoPath := ExpandConstant('{app}\byog.ico');
+  if FileExists(icoPath) then
+    ApplyWindowIcon(UninstallProgressForm.Handle, icoPath);
+
+  bmpPath := ExpandConstant('{app}\brand_logo.bmp');
+  if FileExists(bmpPath) then
+  begin
+    try
+      UninstallProgressForm.WizardSmallBitmapImage.Bitmap.LoadFromFile(bmpPath);
+      UninstallProgressForm.WizardSmallBitmapImage.Stretch := True;
+    except
+    end;
   end;
 end;
 

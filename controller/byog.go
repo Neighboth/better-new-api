@@ -29,6 +29,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/QuantumNous/new-api/pkg/embedcfg"
 	"github.com/QuantumNous/new-api/pkg/icon"
 	byogservice "github.com/QuantumNous/new-api/service/byog"
@@ -1753,31 +1754,57 @@ var byogLanguages = []struct {
 // whether there is a policy at all.
 func byogPolicy(language string) (string, string, bool) {
 	read := func(name string, lang string) string {
+		common.OptionMapRWMutex.RLock()
+		defer common.OptionMapRWMutex.RUnlock()
 		if lang != "" {
-			if v := common.OptionMap[name+"_"+lang]; v != "" {
+			if v := strings.TrimSpace(common.OptionMap[name+"_"+lang]); v != "" {
 				return v
 			}
+			if (lang == "zh_CN" || lang == "zhcn") && strings.TrimSpace(common.OptionMap[name+"_zh_CN"]) != "" {
+				return strings.TrimSpace(common.OptionMap[name+"_zh_CN"])
+			}
+			if (lang == "zh_TW" || lang == "zhtw") && strings.TrimSpace(common.OptionMap[name+"_zh_TW"]) != "" {
+				return strings.TrimSpace(common.OptionMap[name+"_zh_TW"])
+			}
 		}
-		if v := common.OptionMap[name]; v != "" {
+		if v := strings.TrimSpace(common.OptionMap[name]); v != "" {
 			return v
 		}
-		if v := common.OptionMap["general_setting."+strings.ToLower(name)]; v != "" {
+		if v := strings.TrimSpace(common.OptionMap["general_setting."+strings.ToLower(name)]); v != "" {
 			return v
 		}
 		return ""
 	}
 
-	privacy := read("PrivacyPolicy", language)
-	terms := read("TermsOfService", language)
+	getLegal := func(baseKey, lang string) string {
+		v := read(baseKey, lang)
+		if v == "" && lang != "en" {
+			v = read(baseKey, "en")
+		}
+		if v == "" {
+			v = read(baseKey, "")
+		}
+		return v
+	}
+
+	privacy := getLegal("PrivacyPolicy", language)
+	if privacy == "" {
+		privacy = getLegal("legal.privacy_policy", language)
+	}
+	if privacy == "" {
+		privacy = strings.TrimSpace(system_setting.GetLegalSettings().PrivacyPolicy)
+	}
+
+	terms := getLegal("TermsOfService", language)
+	if terms == "" {
+		terms = getLegal("legal.user_agreement", language)
+	}
+	if terms == "" {
+		terms = strings.TrimSpace(system_setting.GetLegalSettings().UserAgreement)
+	}
+
 	if privacy != "" || terms != "" {
 		return privacy, terms, true
-	}
-	if language != "en" {
-		privacy = read("PrivacyPolicy", "en")
-		terms = read("TermsOfService", "en")
-		if privacy != "" || terms != "" {
-			return privacy, terms, true
-		}
 	}
 
 	// Standard default BYOG node policies if no custom policy is entered in system options

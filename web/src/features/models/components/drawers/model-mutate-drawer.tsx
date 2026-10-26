@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Loader2 } from 'lucide-react'
+import { ChevronDown, Loader2, Trash2 } from 'lucide-react'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -92,6 +92,9 @@ import type { Model } from '../../types'
 const extendedModelFormSchema = z.object({
   id: z.number().optional(),
   model_name: z.string().min(1, 'Model name is required'),
+  display_name: z.string().optional(),
+  tagline: z.string().optional(),
+  property_boxes: z.string().optional(),
   description: z.string(),
   icon: z.string(),
   tags: z.array(z.string()),
@@ -275,6 +278,7 @@ export function ModelMutateDrawer({
   const [chargeScope, setChargeScope] = useState<ChargeScope>('all')
   const [pricingSubMode, setPricingSubMode] = useState<PricingSubMode>('ratio')
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [propertyBoxes, setPropertyBoxes] = useState<Array<{ label: string; value: string }>>([])
   const [promptPrice, setPromptPrice] = useState('')
   const [completionPrice, setCompletionPrice] = useState('')
   const [oldModelName, setOldModelName] = useState<string>('')
@@ -458,9 +462,18 @@ export function ModelMutateDrawer({
       setPromptPrice(pricing.promptPrice)
       setCompletionPrice(pricing.completionPrice)
       setAdvancedOpen(pricing.advancedOpen)
+      try {
+        const pb = model.property_boxes ? JSON.parse(model.property_boxes) : []
+        setPropertyBoxes(Array.isArray(pb) ? pb.slice(0, 8) : [])
+      } catch {
+        setPropertyBoxes([])
+      }
       form.reset({
         id: model.id,
         model_name: model.model_name,
+        display_name: model.display_name || '',
+        tagline: model.tagline || '',
+        property_boxes: model.property_boxes || '',
         description: model.description || '',
         icon: model.icon || '',
         tags: parseModelTags(model.tags),
@@ -480,13 +493,18 @@ export function ModelMutateDrawer({
       setOldModelName('')
       setLoadedPricingName(modelName)
       setPricingSubMode('ratio')
+      setPropertyBoxes([])
       setPricingMode(pricing.mode)
       setChargeScope(pricing.chargeScope)
       setPromptPrice(pricing.promptPrice)
       setCompletionPrice(pricing.completionPrice)
       setAdvancedOpen(pricing.advancedOpen)
+      setPropertyBoxes([])
       form.reset({
         model_name: modelName,
+        display_name: '',
+        tagline: '',
+        property_boxes: '',
         description: '',
         icon: '',
         tags: [],
@@ -818,10 +836,30 @@ export function ModelMutateDrawer({
 
               <FormField
                 control={form.control}
+                name='display_name'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Display Name')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder={t('Claude Opus 5, GPT-4o, etc.')}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Optional friendly name shown as title on model cards')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name='model_name'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Model Name *')}</FormLabel>
+                    <FormLabel>{t('Model ID *')}</FormLabel>
                     <FormControl>
                       <Input
                         placeholder={t('gpt-4, claude-3-opus, etc.')}
@@ -829,7 +867,7 @@ export function ModelMutateDrawer({
                       />
                     </FormControl>
                     <FormDescription>
-                      {t('The unique identifier for this model')}
+                      {t('The unique API identifier for this model')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -853,6 +891,89 @@ export function ModelMutateDrawer({
                   </FormItem>
                 )}
               />
+
+              <FormField
+                control={form.control}
+                name='tagline'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Tagline / Extra Text')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder={t('Flagship model • Reasoning, Model Bakımda, etc.')}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Optional text shown on the model card below the description')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className='space-y-3 rounded-lg border p-3 bg-muted/20'>
+                <div className='flex items-center justify-between'>
+                  <div>
+                    <h4 className='text-xs font-semibold'>{t('Property Boxes (Max 8)')}</h4>
+                    <p className='text-[11px] text-muted-foreground'>{t('Custom rounded boxes (e.g. Context Window: 200K)')}</p>
+                  </div>
+                  {propertyBoxes.length < 8 && (
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      className='h-7 text-xs'
+                      onClick={() => {
+                        const updated = [...propertyBoxes, { label: '', value: '' }]
+                        setPropertyBoxes(updated)
+                        form.setValue('property_boxes', JSON.stringify(updated))
+                      }}
+                    >
+                      + {t('Add Box')}
+                    </Button>
+                  )}
+                </div>
+                {propertyBoxes.map((box, idx) => (
+                  <div key={idx} className='flex items-center gap-2'>
+                    <Input
+                      placeholder={t('Label (e.g. Context Window)')}
+                      value={box.label}
+                      className='h-8 text-xs flex-1'
+                      onChange={(e) => {
+                        const updated = [...propertyBoxes]
+                        updated[idx].label = e.target.value
+                        setPropertyBoxes(updated)
+                        form.setValue('property_boxes', JSON.stringify(updated.filter(b => b.label.trim() || b.value.trim())))
+                      }}
+                    />
+                    <Input
+                      placeholder={t('Value (e.g. 200K)')}
+                      value={box.value}
+                      className='h-8 text-xs flex-1'
+                      onChange={(e) => {
+                        const updated = [...propertyBoxes]
+                        updated[idx].value = e.target.value
+                        setPropertyBoxes(updated)
+                        form.setValue('property_boxes', JSON.stringify(updated.filter(b => b.label.trim() || b.value.trim())))
+                      }}
+                    />
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon'
+                      className='size-8 text-destructive hover:bg-destructive/10'
+                      onClick={() => {
+                        const updated = propertyBoxes.filter((_, i) => i !== idx)
+                        setPropertyBoxes(updated)
+                        form.setValue('property_boxes', JSON.stringify(updated))
+                      }}
+                    >
+                      <Trash2 className='size-3.5' />
+                    </Button>
+                  </div>
+                ))}
+              </div>
 
               <FormField
                 control={form.control}

@@ -87,6 +87,7 @@ interface WorkerState {
   node_id: string
   device_name: string
   status: string
+  paired?: boolean
   model_status: string
   download_status: string
   download_progress: number
@@ -254,6 +255,7 @@ export function ClientPage() {
           system_name: String(initial.system_name ?? ''),
           app_name: String(initial.app_name ?? ''),
           status: isPaired ? 'online' : 'offline',
+          paired: isPaired,
           model_status: String(initial.model_status ?? ''),
           download_status: String(initial.model_status ?? ''),
           download_progress: Number(initial.download_progress ?? 0),
@@ -295,6 +297,7 @@ export function ClientPage() {
           system_name: String(payload.system_name ?? ''),
           app_name: String(payload.app_name ?? ''),
           status: payload.connected ? 'online' : 'offline',
+          paired: Boolean(payload.paired),
           model_status: String(payload.model_status ?? ''),
           download_status: String(payload.model_status ?? ''),
           download_progress: Number(payload.download_progress ?? 0),
@@ -564,11 +567,14 @@ export function ClientPage() {
   } as unknown as ByogNode
 
   // Determine paired status
-  const isPaired = Boolean((nodeId && state?.status === 'online') || (bridge ? (state?.status === 'online' && nodeId) : nodeId))
+  const isPaired = Boolean(state?.paired && nodeId)
   const isModelReady = state?.model_status === 'ready' || (state && state.download_progress >= 100)
 
   // Header Brand Logo: use custom site logo/favicon or favicon_base64
   const brandLogo = useMemo(() => {
+    if (systemFavicon) {
+      return systemFavicon
+    }
     if (state?.favicon_base64) {
       return state.favicon_base64.startsWith('data:')
         ? state.favicon_base64
@@ -576,9 +582,6 @@ export function ClientPage() {
     }
     if (state?.favicon) {
       return state.favicon
-    }
-    if (systemFavicon) {
-      return systemFavicon
     }
     if (systemLogo) {
       return systemLogo
@@ -965,8 +968,8 @@ export function ClientPage() {
             </button>
 
             <div className='px-3 pt-2 text-xs text-muted-foreground border-t border-border/30'>
-              <div className='font-mono font-medium truncate'>{state?.device_name || nodeId || 'BYOG Worker'}</div>
-              <div className='text-[10px] opacity-70'>v1.9.2 • Local Node</div>
+              <div className='font-mono font-medium truncate'>{systemName || state?.system_name || state?.app_name || 'BYOG Worker'}</div>
+              <div className='text-[10px] opacity-70 font-mono truncate'>Node: {nodeId || state?.node_id || '—'}</div>
             </div>
           </SidebarFooter>
           <SidebarRail />

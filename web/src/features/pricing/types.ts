@@ -27,9 +27,28 @@ export type PricingVendor = {
   description?: string
 }
 
+export type PricingChannel = {
+  id: number
+  name: string
+  type: number
+  group: string
+  input_price: number
+  output_price: number
+  cache_price?: number
+  response_time: number
+  tps?: number
+  ttft?: number
+  uptime?: number
+  uptime_history?: number[]
+}
+
 export type PricingModel = {
   id: number
   model_name: string
+  display_name?: string
+  tagline?: string
+  property_boxes?: string
+  channels?: PricingChannel[]
   rank?: number
   description?: string
   icon?: string
