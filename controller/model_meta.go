@@ -33,11 +33,17 @@ func GetAllModelsMeta(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if modelsMeta == nil {
+		modelsMeta = []*model.Model{}
+	}
 	// 批量填充附加字段，提升列表接口性能
 	enrichModels(modelsMeta)
 
 	// 统计供应商计数（全部数据，不受分页影响）
 	vendorCounts, _ := model.GetVendorModelCounts()
+	if vendorCounts == nil {
+		vendorCounts = make(map[int64]int64)
+	}
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(modelsMeta)
@@ -73,9 +79,15 @@ func SearchModelsMeta(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if modelsMeta == nil {
+		modelsMeta = []*model.Model{}
+	}
 	// 批量填充附加字段，提升列表接口性能
 	enrichModels(modelsMeta)
 	vendorCounts, _ := model.GetVendorModelCounts()
+	if vendorCounts == nil {
+		vendorCounts = make(map[int64]int64)
+	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(modelsMeta)
 	common.ApiSuccess(c, gin.H{
@@ -193,6 +205,12 @@ func enrichModels(models []*model.Model) {
 		return
 	}
 
+	defer func() {
+		if r := recover(); r != nil {
+			common.SysError(fmt.Sprintf("enrichModels panic recovered: %v", r))
+		}
+	}()
+
 	// 1) 拆分精确与规则匹配
 	exactNames := make([]string, 0)
 	exactIdx := make(map[string][]int) // modelName -> indices in models
@@ -211,12 +229,21 @@ func enrichModels(models []*model.Model) {
 
 	// 2) 批量查询精确模型的绑定渠道
 	channelsByModel, _ := model.GetBoundChannelsByModelsMap(exactNames)
+	if channelsByModel == nil {
+		channelsByModel = make(map[string][]model.BoundChannel)
+	}
 
 	// 3) 精确模型：端点从缓存、渠道批量映射、分组/计费类型从缓存
 	for name, indices := range exactIdx {
 		chs := channelsByModel[name]
 		for _, idx := range indices {
+			if idx < 0 || idx >= len(models) {
+				continue
+			}
 			mm := models[idx]
+			if mm == nil {
+				continue
+			}
 			if mm.Endpoints == "" {
 				eps := model.GetModelSupportEndpointTypes(mm.ModelName)
 				if b, err := common.Marshal(eps); err == nil {
@@ -235,6 +262,9 @@ func enrichModels(models []*model.Model) {
 
 	// 4) 一次性读取定价缓存，内存匹配所有规则模型
 	pricings := model.GetPricing()
+	if pricings == nil {
+		pricings = []model.Pricing{}
+	}
 
 	// 为全部规则模型收集匹配名集合、端点并集、分组并集、配额集合
 	matchedNamesByIdx := make(map[int][]string)
@@ -244,7 +274,13 @@ func enrichModels(models []*model.Model) {
 
 	for _, p := range pricings {
 		for _, idx := range ruleIndices {
+			if idx < 0 || idx >= len(models) {
+				continue
+			}
 			mm := models[idx]
+			if mm == nil {
+				continue
+			}
 			var matched bool
 			switch mm.NameRule {
 			case model.NameRulePrefix:
@@ -298,10 +334,19 @@ func enrichModels(models []*model.Model) {
 		allMatched = append(allMatched, n)
 	}
 	matchedChannelsByModel, _ := model.GetBoundChannelsByModelsMap(allMatched)
+	if matchedChannelsByModel == nil {
+		matchedChannelsByModel = make(map[string][]model.BoundChannel)
+	}
 
 	// 6) 回填每个规则模型的并集信息
 	for _, idx := range ruleIndices {
+		if idx < 0 || idx >= len(models) {
+			continue
+		}
 		mm := models[idx]
+		if mm == nil {
+			continue
+		}
 
 		// 端点并集 -> 序列化
 		if es, ok := endpointSetByIdx[idx]; ok && mm.Endpoints == "" {

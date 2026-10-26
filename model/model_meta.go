@@ -93,17 +93,20 @@ func (mi *Model) Delete() error {
 }
 
 func GetVendorModelCounts() (map[int64]int64, error) {
+	m := make(map[int64]int64)
+	if DB == nil {
+		return m, nil
+	}
 	var stats []struct {
 		VendorID int64
 		Count    int64
 	}
 	if err := DB.Model(&Model{}).
-		Select("vendor_id as vendor_id, count(*) as count").
+		Select("vendor_id, count(*) as count").
 		Group("vendor_id").
 		Scan(&stats).Error; err != nil {
-		return nil, err
+		return m, nil
 	}
-	m := make(map[int64]int64, len(stats))
 	for _, s := range stats {
 		m[s.VendorID] = s.Count
 	}
@@ -197,37 +200,53 @@ func GetPreferredModelOwnerChannelTypes(modelNames []string, groups []string) (m
 	return result, nil
 }
 
-var ensureModelColumnsOnce sync.Once
+var (
+	modelColumnsEnsured bool
+	ensureModelLock     sync.Mutex
+)
 
 func ensureTableColumn(tableName, colName, standardDDL, sqliteDDL string) {
 	if DB == nil {
-		return
-	}
-	if !DB.Migrator().HasTable(tableName) {
-		return
-	}
-	if DB.Migrator().HasColumn(tableName, colName) {
 		return
 	}
 	ddl := standardDDL
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) && sqliteDDL != "" {
 		ddl = sqliteDDL
 	}
-	var sql string
+
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
-		sql = fmt.Sprintf(`ALTER TABLE "%s" ADD COLUMN IF NOT EXISTS "%s" %s`, tableName, colName, ddl)
-	} else if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
-		sql = fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN `%s` %s", tableName, colName, ddl)
-	} else {
-		sql = fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN `%s` %s", tableName, colName, ddl)
+		sql := fmt.Sprintf(`ALTER TABLE "%s" ADD COLUMN IF NOT EXISTS "%s" %s`, tableName, colName, ddl)
+		_ = DB.Exec(sql).Error
+		return
 	}
-	_ = DB.Exec(sql).Error
+
+	if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
+		var cnt int64
+		_ = DB.Raw("SELECT count(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?", tableName, colName).Scan(&cnt).Error
+		if cnt == 0 {
+			sql := fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN `%s` %s", tableName, colName, ddl)
+			_ = DB.Exec(sql).Error
+		}
+		return
+	}
+
+	// SQLite
+	if DB.Migrator().HasTable(tableName) && !DB.Migrator().HasColumn(tableName, colName) {
+		sql := fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN `%s` %s", tableName, colName, ddl)
+		_ = DB.Exec(sql).Error
+	}
 }
 
 func EnsureModelAndVendorColumns() {
 	if DB == nil {
 		return
 	}
+	ensureModelLock.Lock()
+	defer ensureModelLock.Unlock()
+	if modelColumnsEnsured {
+		return
+	}
+
 	_ = DB.AutoMigrate(&Model{}, &Vendor{})
 
 	// Explicitly ensure columns in models table with cross-DB SQL
@@ -268,55 +287,72 @@ func EnsureModelAndVendorColumns() {
 	} else {
 		ensureTableColumn("vendors", "deleted_at", "datetime NULL", "")
 	}
+
+	modelColumnsEnsured = true
 }
 
 func SearchModels(keyword string, vendor string, status string, syncOfficial string, offset int, limit int) ([]*Model, int64, error) {
-	ensureModelColumnsOnce.Do(func() {
-		EnsureModelAndVendorColumns()
-	})
-
-	buildQuery := func() *gorm.DB {
-		db := DB.Model(&Model{})
-		if keyword != "" {
-			like := "%" + keyword + "%"
-			db = db.Where("models.model_name LIKE ? OR models.display_name LIKE ? OR models.description LIKE ? OR models.tags LIKE ?", like, like, like, like)
-		}
-		if vendor != "" {
-			if vid, err := strconv.Atoi(vendor); err == nil {
-				db = db.Where("models.vendor_id = ?", vid)
-			} else {
-				db = db.Joins("JOIN vendors ON vendors.id = models.vendor_id").Where("vendors.name LIKE ?", "%"+vendor+"%").Select("models.*")
-			}
-		}
-		if statusValue, ok := parseModelStatusFilter(status); ok {
-			db = db.Where("models.status = ?", statusValue)
-		}
-		if syncValue, ok := parseModelSyncFilter(syncOfficial); ok {
-			db = db.Where("models.sync_official = ?", syncValue)
-		}
-		return db
+	if DB == nil {
+		return []*Model{}, 0, nil
 	}
 
-	var models []*Model
+	EnsureModelAndVendorColumns()
+
 	var total int64
+	var models []*Model
 
-	db := buildQuery()
-	countDB := db.Session(&gorm.Session{})
-	if err := countDB.Count(&total).Error; err != nil {
-		EnsureModelAndVendorColumns()
-		db = buildQuery()
-		countDB = db.Session(&gorm.Session{})
-		if err := countDB.Count(&total).Error; err != nil {
-			return nil, 0, err
+	// 1. Count query without SELECT column projection (MySQL-safe)
+	countDB := DB.Model(&Model{})
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		countDB = countDB.Where("models.model_name LIKE ? OR models.display_name LIKE ? OR models.description LIKE ? OR models.tags LIKE ?", like, like, like, like)
+	}
+	if vendor != "" {
+		if vid, err := strconv.Atoi(vendor); err == nil {
+			countDB = countDB.Where("models.vendor_id = ?", vid)
+		} else {
+			countDB = countDB.Joins("JOIN vendors ON vendors.id = models.vendor_id").Where("vendors.name LIKE ?", "%"+vendor+"%")
 		}
 	}
-	if err := db.Order("models.id DESC").Offset(offset).Limit(limit).Find(&models).Error; err != nil {
-		EnsureModelAndVendorColumns()
-		db = buildQuery()
-		if err := db.Order("models.id DESC").Offset(offset).Limit(limit).Find(&models).Error; err != nil {
-			return nil, 0, err
+	if statusValue, ok := parseModelStatusFilter(status); ok {
+		countDB = countDB.Where("models.status = ?", statusValue)
+	}
+	if syncValue, ok := parseModelSyncFilter(syncOfficial); ok {
+		countDB = countDB.Where("models.sync_official = ?", syncValue)
+	}
+	_ = countDB.Count(&total).Error
+
+	// 2. Data query
+	dataDB := DB.Model(&Model{})
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		dataDB = dataDB.Where("models.model_name LIKE ? OR models.display_name LIKE ? OR models.description LIKE ? OR models.tags LIKE ?", like, like, like, like)
+	}
+	if vendor != "" {
+		if vid, err := strconv.Atoi(vendor); err == nil {
+			dataDB = dataDB.Where("models.vendor_id = ?", vid)
+		} else {
+			dataDB = dataDB.Joins("JOIN vendors ON vendors.id = models.vendor_id").Where("vendors.name LIKE ?", "%"+vendor+"%").Select("models.*")
 		}
 	}
+	if statusValue, ok := parseModelStatusFilter(status); ok {
+		dataDB = dataDB.Where("models.status = ?", statusValue)
+	}
+	if syncValue, ok := parseModelSyncFilter(syncOfficial); ok {
+		dataDB = dataDB.Where("models.sync_official = ?", syncValue)
+	}
+
+	if err := dataDB.Order("models.id DESC").Offset(offset).Limit(limit).Find(&models).Error; err != nil {
+		// Fallback without table qualifier
+		if err2 := DB.Model(&Model{}).Order("id DESC").Offset(offset).Limit(limit).Find(&models).Error; err2 != nil {
+			return []*Model{}, total, err
+		}
+	}
+
+	if models == nil {
+		models = []*Model{}
+	}
+
 	return models, total, nil
 }
 

@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { ChevronRight } from 'lucide-react'
 import { memo, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -229,6 +230,102 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
     <div className={cn('flex flex-col gap-1.5 w-full', props.className)}>
       <ModelPerfStatsRow perf={props.perf} channels={props.channels} />
       <ModelPerfSparkline perf={props.perf} channels={props.channels} />
+    </div>
+  )
+})
+
+/**
+ * OpenRouter-style card telemetry footer matching Image 2:
+ * Status % with dense vertical sparkline bars directly below,
+ * Latency and TPS side-by-side, Details button on the right.
+ */
+export const ModelCardTelemetry = memo(function ModelCardTelemetry(props: {
+  perf: ModelPerfBadgeData | undefined
+  channels?: PricingChannel[]
+  onDetailsClick?: () => void
+  className?: string
+}) {
+  const { t } = useTranslation()
+  const { statusRate, latencyText, tpsText, bars } = useModelPerfData(
+    props.perf,
+    props.channels
+  )
+
+  return (
+    <div
+      className={cn(
+        'flex items-center justify-between gap-3 text-xs w-full min-w-0',
+        props.className
+      )}
+    >
+      <div className='flex items-start gap-3.5 sm:gap-5 min-w-0 font-mono'>
+        {/* Status + Vertical Sparkline Bars directly underneath */}
+        <div className='flex flex-col gap-1 shrink-0'>
+          <div className='flex items-center gap-1.5 text-[11px] leading-none'>
+            <span className='text-muted-foreground font-sans'>{t('Status')}</span>
+            <span
+              className={cn(
+                'font-semibold tabular-nums',
+                statusRate >= 99
+                  ? 'text-emerald-500'
+                  : statusRate >= 90
+                    ? 'text-amber-500'
+                    : 'text-destructive'
+              )}
+            >
+              {statusRate.toFixed(2)}%
+            </span>
+          </div>
+          <div
+            className='flex items-center gap-[1.5px] h-3.5 pt-0.5'
+            title={`${statusRate.toFixed(2)}% Uptime`}
+          >
+            {bars.map((val, i) => (
+              <div
+                key={i}
+                className={cn(
+                  'w-[2.5px] h-full rounded-[1px] transition-colors shrink-0',
+                  val === 1 ? 'bg-emerald-500' : 'bg-destructive'
+                )}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Latency */}
+        <div className='flex flex-col gap-1 shrink-0'>
+          <span className='text-[11px] text-muted-foreground font-sans leading-none'>
+            {t('Lat.')}
+          </span>
+          <span className='text-xs font-medium text-foreground tabular-nums leading-tight h-3.5 flex items-center'>
+            {latencyText}
+          </span>
+        </div>
+
+        {/* TPS */}
+        <div className='flex flex-col gap-1 shrink-0'>
+          <span className='text-[11px] text-muted-foreground font-sans leading-none'>
+            {t('TPS')}
+          </span>
+          <span className='text-xs font-medium text-foreground tabular-nums leading-tight h-3.5 flex items-center'>
+            {tpsText}
+          </span>
+        </div>
+      </div>
+
+      {props.onDetailsClick && (
+        <button
+          type='button'
+          onClick={(e) => {
+            e.stopPropagation()
+            props.onDetailsClick?.()
+          }}
+          className='text-xs font-medium text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5 transition-colors cursor-pointer shrink-0 ml-auto'
+        >
+          {t('Details')}
+          <ChevronRight className='size-3.5' />
+        </button>
+      )}
     </div>
   )
 })

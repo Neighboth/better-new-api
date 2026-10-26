@@ -42,4 +42,27 @@ func TestModelMetaQueryAndMigration(t *testing.T) {
 	require.NoError(t, err, "SearchModels should not fail")
 	_ = models
 	_ = total
+
+	// Verify GetVendorModelCounts
+	counts, err := GetVendorModelCounts()
+	require.NoError(t, err)
+	require.NotNil(t, counts)
+
+	// Test SearchModels with filters
+	testModel := &Model{
+		ModelName:     "anthropic/claude-3-5-sonnet",
+		DisplayName:   "Claude 3.5 Sonnet",
+		Tagline:       "Flagship model • Reasoning • Tool calling",
+		PropertyBoxes: `[{"label":"Context","value":"200K"}]`,
+		Status:        1,
+		SyncOfficial:  1,
+	}
+	require.NoError(t, testModel.Insert())
+
+	found, foundTotal, err := SearchModels("claude", "", "1", "1", 0, 10)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), foundTotal)
+	require.Len(t, found, 1)
+	require.Equal(t, "Claude 3.5 Sonnet", found[0].DisplayName)
+	require.Equal(t, "Flagship model • Reasoning • Tool calling", found[0].Tagline)
 }

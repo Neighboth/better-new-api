@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { ChevronRight, Copy } from 'lucide-react'
-import { memo, useMemo, type ReactNode } from 'react'
+import { memo, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Markdown } from '@/components/ui/markdown'
@@ -36,8 +36,7 @@ import { formatPrice, formatRequestPrice } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import {
-  ModelPerfStatsRow,
-  ModelPerfSparkline,
+  ModelCardTelemetry,
   type ModelPerfBadgeData,
 } from './model-perf-badge'
 
@@ -111,313 +110,284 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     copyToClipboard(props.model.model_name || '')
   }
 
-  let priceSummary: ReactNode
-  if (dynamicSummary) {
-    if (dynamicSummary.isSpecialExpression) {
-      priceSummary = (
-        <span className='min-w-0'>
-          <span className='text-amber-700 dark:text-amber-300'>
-            {t('Special billing expression')}
-          </span>
-          <code className='text-muted-foreground/70 mt-0.5 line-clamp-1 block font-mono text-[11px] break-all'>
-            {dynamicSummary.rawExpression}
-          </code>
-        </span>
-      )
-    } else if (dynamicSummary.primaryEntries.length > 0) {
-      priceSummary = (
-        <>
-          {dynamicSummary.primaryEntries.map((entry) => (
-            <span
-              key={entry.key}
-              className='text-muted-foreground whitespace-nowrap'
-            >
-              {t(entry.shortLabel)}{' '}
-              <span className='text-foreground font-mono font-semibold'>
-                {entry.formatted}
-              </span>
-            </span>
-          ))}
-        </>
-      )
-    } else {
-      priceSummary = (
-        <span className='text-muted-foreground text-sm'>
-          {t('Dynamic Pricing')}
-        </span>
-      )
-    }
-  } else if (props.model.billing_mode === 'input_only') {
-    priceSummary = (
-      <span className='text-muted-foreground whitespace-nowrap'>
-        {t('Input')}{' '}
-        <span className='text-foreground font-mono font-semibold'>
-          {formatPrice(
-            props.model,
-            'input',
-            tokenUnit,
-            showRechargePrice,
-            priceRate,
-            usdExchangeRate,
-            props.selectedGroup
-          )}
-        </span>
-      </span>
-    )
-  } else if (props.model.billing_mode === 'output_only') {
-    priceSummary = (
-      <span className='text-muted-foreground whitespace-nowrap'>
-        {t('Output')}{' '}
-        <span className='text-foreground font-mono font-semibold'>
-          {formatPrice(
-            props.model,
-            'output',
-            tokenUnit,
-            showRechargePrice,
-            priceRate,
-            usdExchangeRate,
-            props.selectedGroup
-          )}
-        </span>
-      </span>
-    )
-  } else if (props.model.billing_mode === 'duration_second') {
-    priceSummary = (
-      <span className='text-muted-foreground whitespace-nowrap'>
-        {t('Per Second')}{' '}
-        <span className='text-foreground font-mono font-semibold'>
-          {formatPrice(
-            props.model,
-            'input',
-            tokenUnit,
-            showRechargePrice,
-            priceRate,
-            usdExchangeRate,
-            props.selectedGroup
-          )}
-        </span>
-      </span>
-    )
-  } else if (props.model.billing_mode === 'characters') {
-    priceSummary = (
-      <span className='text-muted-foreground whitespace-nowrap'>
-        {t('1M Characters')}{' '}
-        <span className='text-foreground font-mono font-semibold'>
-          {formatPrice(
-            props.model,
-            'input',
-            tokenUnit,
-            showRechargePrice,
-            priceRate,
-            usdExchangeRate,
-            props.selectedGroup
-          )}
-        </span>
-      </span>
-    )
-  } else if (isTokenBased) {
-    priceSummary = (
-      <>
-        <span className='text-muted-foreground whitespace-nowrap'>
-          {t('Input')}{' '}
-          <span className='text-foreground font-mono font-semibold'>
-            {formatPrice(
-              props.model,
-              'input',
-              tokenUnit,
-              showRechargePrice,
-              priceRate,
-              usdExchangeRate,
-              props.selectedGroup
-            )}
-          </span>
-        </span>
-        <span className='text-muted-foreground whitespace-nowrap'>
-          {t('Output')}{' '}
-          <span className='text-foreground font-mono font-semibold'>
-            {formatPrice(
-              props.model,
-              'output',
-              tokenUnit,
-              showRechargePrice,
-              priceRate,
-              usdExchangeRate,
-              props.selectedGroup
-            )}
-          </span>
-        </span>
-        {hasCachedPrice && (
-          <span className='text-muted-foreground whitespace-nowrap'>
-            {t('Cache')}{' '}
-            <span className='text-foreground font-mono font-semibold'>
-              {formatPrice(
-                props.model,
-                'cache',
-                tokenUnit,
-                showRechargePrice,
-                priceRate,
-                usdExchangeRate,
-                props.selectedGroup
-              )}
-            </span>
-          </span>
-        )}
-      </>
-    )
-  } else {
-    priceSummary = (
-      <span className='text-muted-foreground whitespace-nowrap'>
-        <span className='text-foreground font-mono font-semibold'>
-          {formatRequestPrice(
-            props.model,
-            showRechargePrice,
-            priceRate,
-            usdExchangeRate,
-            props.selectedGroup
-          )}
-        </span>{' '}
-        / {t('request')}
-      </span>
-    )
-  }
+  const inputPrice = formatPrice(
+    props.model,
+    'input',
+    tokenUnit,
+    showRechargePrice,
+    priceRate,
+    usdExchangeRate,
+    props.selectedGroup
+  )
+  const outputPrice = formatPrice(
+    props.model,
+    'output',
+    tokenUnit,
+    showRechargePrice,
+    priceRate,
+    usdExchangeRate,
+    props.selectedGroup
+  )
+  const cachePrice = formatPrice(
+    props.model,
+    'cache',
+    tokenUnit,
+    showRechargePrice,
+    priceRate,
+    usdExchangeRate,
+    props.selectedGroup
+  )
+  const requestPrice = formatRequestPrice(
+    props.model,
+    showRechargePrice,
+    priceRate,
+    usdExchangeRate,
+    props.selectedGroup
+  )
 
   return (
     <div
       onClick={props.onClick}
       className={cn(
-        'group relative flex flex-col rounded-xl border p-3.5 transition-colors sm:p-5 cursor-pointer',
+        'group relative flex flex-col justify-between rounded-xl border p-3.5 transition-colors sm:p-5 cursor-pointer',
         'hover:bg-muted/20'
       )}
     >
-      {/* Header: icon + title + billing mode + id copy + price */}
-      <div className='flex items-start justify-between gap-2.5 sm:gap-3'>
-        <div className='flex min-w-0 flex-1 items-start gap-2.5 sm:gap-3'>
-          <div className='bg-muted/40 flex size-9 shrink-0 items-center justify-center rounded-lg sm:size-10 sm:rounded-xl'>
-            {modelIcon || (
-              <span className='text-muted-foreground text-sm font-bold'>
-                {initial}
+      <div>
+        {/* Header: icon + title + billing mode + id copy */}
+        <div className='flex items-start justify-between gap-2.5 sm:gap-3'>
+          <div className='flex min-w-0 flex-1 items-start gap-2.5 sm:gap-3'>
+            <div className='bg-muted/40 flex size-9 shrink-0 items-center justify-center rounded-lg sm:size-10 sm:rounded-xl'>
+              {modelIcon || (
+                <span className='text-muted-foreground text-sm font-bold'>
+                  {initial}
+                </span>
+              )}
+            </div>
+            <div className='min-w-0 flex-1'>
+              <div className='flex items-center gap-2 flex-wrap'>
+                <h3 className='text-foreground truncate font-mono text-[15px] leading-tight font-bold'>
+                  {props.model.display_name || props.model.model_name}
+                </h3>
+                <ModelBillingModeBadge
+                  model={props.model}
+                  className='shrink-0 text-[10px] py-0 px-1.5 h-4.5'
+                />
+              </div>
+              <div className='mt-1 flex items-center gap-1.5 text-xs text-muted-foreground/75 font-mono'>
+                <span className='truncate'>{props.model.model_name}</span>
+                <button
+                  type='button'
+                  onClick={handleCopy}
+                  className='text-muted-foreground/50 hover:text-foreground p-0.5 rounded transition-colors inline-flex items-center cursor-pointer shrink-0'
+                  title={t('Copy ID')}
+                >
+                  <Copy className='size-2.5' />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Tagline / Extra Text (Shown on top of description or as extra callout) */}
+        {props.model.tagline && (
+          <div className='text-xs font-semibold text-foreground/80 mt-2.5 line-clamp-1'>
+            {props.model.tagline}
+          </div>
+        )}
+
+        {/* Description */}
+        <div className='text-muted-foreground mt-2 line-clamp-2 text-[13px] leading-relaxed prose prose-xs dark:prose-invert max-w-none'>
+          {props.model.description ? (
+            <Markdown>{props.model.description}</Markdown>
+          ) : (
+            t('No description available.')
+          )}
+        </div>
+
+        {/* Property Boxes (Up to 8 custom boxes) */}
+        {propertyBoxes.length > 0 && (
+          <div className='mt-2.5 grid grid-cols-2 sm:grid-cols-4 gap-2'>
+            {propertyBoxes.map((box, idx) => (
+              <div
+                key={idx}
+                className='rounded-xl border border-border/60 bg-muted/20 px-3 py-2 flex flex-col justify-between'
+              >
+                <span className='text-[10px] text-muted-foreground font-medium truncate leading-tight'>
+                  {box.label}
+                </span>
+                <span className='text-xs font-bold text-foreground truncate mt-1 leading-tight'>
+                  {box.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Dynamic Pricing Callout (Matching Image 2) */}
+        {isDynamicPricing && (
+          <div className='text-xs font-semibold text-amber-600 dark:text-amber-400 mt-2.5'>
+            {t('Dynamic Pricing')}
+          </div>
+        )}
+
+        {/* Pricing Grid: Matching Image 2 (Dedicated Input, Output, Cache Read columns) */}
+        {isTokenBased ? (
+          hasCachedPrice ? (
+            <div className='mt-3 grid grid-cols-3 gap-2 sm:gap-4'>
+              <div className='flex flex-col gap-0.5 min-w-0'>
+                <span className='text-[11px] text-muted-foreground font-sans truncate'>
+                  {t('Input')}
+                </span>
+                <div className='flex items-baseline gap-1 font-mono truncate'>
+                  <span className='text-sm sm:text-base font-bold text-foreground'>
+                    {inputPrice}
+                  </span>
+                  <span className='text-[11px] text-muted-foreground/80 shrink-0'>
+                    / {tokenUnitLabel}
+                  </span>
+                </div>
+              </div>
+              <div className='flex flex-col gap-0.5 min-w-0'>
+                <span className='text-[11px] text-muted-foreground font-sans truncate'>
+                  {t('Output')}
+                </span>
+                <div className='flex items-baseline gap-1 font-mono truncate'>
+                  <span className='text-sm sm:text-base font-bold text-foreground'>
+                    {outputPrice}
+                  </span>
+                  <span className='text-[11px] text-muted-foreground/80 shrink-0'>
+                    / {tokenUnitLabel}
+                  </span>
+                </div>
+              </div>
+              <div className='flex flex-col gap-0.5 min-w-0'>
+                <span className='text-[11px] text-muted-foreground font-sans truncate'>
+                  {t('Cache Read')}
+                </span>
+                <div className='flex items-baseline gap-1 font-mono truncate'>
+                  <span className='text-sm sm:text-base font-bold text-foreground'>
+                    {cachePrice}
+                  </span>
+                  <span className='text-[11px] text-muted-foreground/80 shrink-0'>
+                    / {tokenUnitLabel}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className='mt-3 grid grid-cols-2 gap-2 sm:gap-4'>
+              <div className='flex flex-col gap-0.5 min-w-0'>
+                <span className='text-[11px] text-muted-foreground font-sans truncate'>
+                  {t('Input')}
+                </span>
+                <div className='flex items-baseline gap-1 font-mono truncate'>
+                  <span className='text-sm sm:text-base font-bold text-foreground'>
+                    {inputPrice}
+                  </span>
+                  <span className='text-[11px] text-muted-foreground/80 shrink-0'>
+                    / {tokenUnitLabel}
+                  </span>
+                </div>
+              </div>
+              <div className='flex flex-col gap-0.5 min-w-0'>
+                <span className='text-[11px] text-muted-foreground font-sans truncate'>
+                  {t('Output')}
+                </span>
+                <div className='flex items-baseline gap-1 font-mono truncate'>
+                  <span className='text-sm sm:text-base font-bold text-foreground'>
+                    {outputPrice}
+                  </span>
+                  <span className='text-[11px] text-muted-foreground/80 shrink-0'>
+                    / {tokenUnitLabel}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )
+        ) : props.model.billing_mode === 'input_only' ? (
+          <div className='mt-3 flex flex-col gap-0.5'>
+            <span className='text-[11px] text-muted-foreground font-sans'>
+              {t('Input')}
+            </span>
+            <div className='flex items-baseline gap-1 font-mono'>
+              <span className='text-sm sm:text-base font-bold text-foreground'>
+                {inputPrice}
+              </span>
+              <span className='text-[11px] text-muted-foreground/80'>
+                / {tokenUnitLabel}
+              </span>
+            </div>
+          </div>
+        ) : props.model.billing_mode === 'output_only' ? (
+          <div className='mt-3 flex flex-col gap-0.5'>
+            <span className='text-[11px] text-muted-foreground font-sans'>
+              {t('Output')}
+            </span>
+            <div className='flex items-baseline gap-1 font-mono'>
+              <span className='text-sm sm:text-base font-bold text-foreground'>
+                {outputPrice}
+              </span>
+              <span className='text-[11px] text-muted-foreground/80'>
+                / {tokenUnitLabel}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className='mt-3 flex flex-col gap-0.5'>
+            <span className='text-[11px] text-muted-foreground font-sans'>
+              {t('Price')}
+            </span>
+            <div className='flex items-baseline gap-1 font-mono'>
+              <span className='text-sm sm:text-base font-bold text-foreground'>
+                {requestPrice}
+              </span>
+              <span className='text-[11px] text-muted-foreground/80'>
+                / {t('request')}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Groups & Endpoints row (Matching Image 2) */}
+        <div className='mt-3 flex items-center justify-between text-xs text-muted-foreground font-mono gap-2'>
+          <div className='flex items-center gap-1.5 shrink-0'>
+            <span className='text-muted-foreground/80'>{t('Groups')}</span>
+            <span className='text-foreground font-medium'>
+              {primaryGroup || 'default'}
+            </span>
+            {groups.length > 1 && (
+              <span className='text-muted-foreground/60 text-[10px]'>
+                +{groups.length - 1}
               </span>
             )}
           </div>
-          <div className='min-w-0 flex-1'>
-            <div className='flex items-center gap-2 flex-wrap'>
-              <h3 className='text-foreground truncate font-mono text-[15px] leading-tight font-bold'>
-                {props.model.display_name || props.model.model_name}
-              </h3>
-              <ModelBillingModeBadge
-                model={props.model}
-                className='shrink-0 text-[10px] py-0 px-1.5 h-4.5'
-              />
-            </div>
-            <div className='mt-1 flex items-center gap-1.5 text-xs text-muted-foreground/75 font-mono'>
-              <span className='truncate'>{props.model.model_name}</span>
-              <button
-                type='button'
-                onClick={handleCopy}
-                className='text-muted-foreground/50 hover:text-foreground p-0.5 rounded transition-colors inline-flex items-center cursor-pointer shrink-0'
-                title={t('Copy ID')}
-              >
-                <Copy className='size-2.5' />
-              </button>
-            </div>
-            <div className='mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm sm:gap-x-3'>
-              {priceSummary}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Description */}
-      <div className='text-muted-foreground mt-2.5 line-clamp-1 flex-1 text-[13px] leading-relaxed sm:mt-3.5 sm:line-clamp-2 sm:min-h-[2.5rem] prose prose-xs dark:prose-invert max-w-none'>
-        {props.model.description ? (
-          <Markdown>{props.model.description}</Markdown>
-        ) : (
-          t('No description available.')
-        )}
-      </div>
-
-      {/* Tagline / Extra Text */}
-      {props.model.tagline && (
-        <div className='text-xs font-semibold text-foreground/80 mt-2'>
-          {props.model.tagline}
-        </div>
-      )}
-
-      {/* Property Boxes (Up to 8) */}
-      {propertyBoxes.length > 0 && (
-        <div className='mt-2.5 grid grid-cols-2 sm:grid-cols-4 gap-2'>
-          {propertyBoxes.map((box, idx) => (
-            <div
-              key={idx}
-              className='rounded-xl border border-border/60 bg-muted/20 px-3 py-2 flex flex-col justify-between'
-            >
-              <span className='text-[10px] text-muted-foreground font-medium truncate leading-tight'>
-                {box.label}
+          {endpoints.length > 0 ? (
+            <div className='flex items-center gap-1.5 min-w-0 truncate text-right'>
+              <span className='text-muted-foreground/80 shrink-0'>
+                {t('Endpoints')}
               </span>
-              <span className='text-xs font-bold text-foreground truncate mt-1 leading-tight'>
-                {box.value}
+              <span className='text-foreground font-medium truncate'>
+                {endpoints.join(', ')}
               </span>
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Groups & Endpoints row */}
-      <div className='mt-3 flex items-center justify-between text-xs text-muted-foreground font-mono gap-2'>
-        <div className='flex items-center gap-1.5 shrink-0'>
-          <span className='text-muted-foreground/80'>{t('Groups')}</span>
-          <span className='text-foreground font-medium'>
-            {primaryGroup || 'default'}
-          </span>
-          {groups.length > 1 && (
-            <span className='text-muted-foreground/60 text-[10px]'>
-              +{groups.length - 1}
+          ) : (
+            <span className='text-muted-foreground/60 text-[11px] shrink-0'>
+              {tokenUnitLabel}
             </span>
           )}
         </div>
-        {endpoints.length > 0 ? (
-          <div className='flex items-center gap-1.5 min-w-0 truncate text-right'>
-            <span className='text-muted-foreground/80 shrink-0'>
-              {t('Endpoints')}
-            </span>
-            <span className='text-foreground font-medium truncate'>
-              {endpoints.join(', ')}
-            </span>
-          </div>
-        ) : (
-          <span className='text-muted-foreground/60 text-[11px] shrink-0'>
-            {tokenUnitLabel}
-          </span>
-        )}
       </div>
 
-      {/* Divider */}
-      <div className='border-t border-border/50 my-2.5' />
+      <div>
+        {/* Divider */}
+        <div className='border-t border-border/50 my-2.5' />
 
-      {/* Footer: OpenRouter style metrics row + full-width 24 sparkline bars */}
-      <div className='flex flex-col gap-2 pt-0.5'>
-        <div className='flex items-center justify-between gap-2 min-w-0'>
-          <ModelPerfStatsRow
-            perf={props.perf}
-            channels={props.model.channels}
-          />
-
-          <button
-            type='button'
-            onClick={(e) => {
-              e.stopPropagation()
-              props.onClick()
-            }}
-            className='text-xs font-medium text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0 ml-auto'
-          >
-            {t('Details')}
-            <ChevronRight className='size-3.5' />
-          </button>
-        </div>
-
-        <ModelPerfSparkline
+        {/* Footer: OpenRouter style metrics with dense vertical bars below Status */}
+        <ModelCardTelemetry
           perf={props.perf}
           channels={props.model.channels}
+          onDetailsClick={props.onClick}
         />
       </div>
     </div>
