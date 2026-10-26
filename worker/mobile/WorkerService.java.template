@@ -150,10 +150,10 @@ public class WorkerService extends Service {
             } else {
                 startForeground(NOTIF_ID, notification);
             }
-        } catch (Exception e) {
+        } catch (Throwable e) {
             try {
                 startForeground(NOTIF_ID, notification);
-            } catch (Exception ignored) {}
+            } catch (Throwable ignored) {}
         }
     }
 
@@ -1390,7 +1390,11 @@ public class WorkerService extends Service {
                     List<String> validInstalled = new ArrayList<>();
                     for (String m : installedModelsList) {
                         File mf = new File(getFilesDir(), m + ".gguf");
-                        if (mf.exists() && mf.length() > 1024 * 1024) {
+                        if (!mf.exists() || !isValidGGUFFile(mf, m)) {
+                            File sd = new File("/sdcard", m + ".gguf");
+                            if (sd.exists() && isValidGGUFFile(sd, m)) mf = sd;
+                        }
+                        if (isValidGGUFFile(mf, m)) {
                             validInstalled.add(m);
                         }
                     }
@@ -2304,12 +2308,26 @@ public class WorkerService extends Service {
         try {
             File customIcon = new File(getFilesDir(), "custom_favicon.png");
             if (customIcon.exists()) {
-                Bitmap bm = BitmapFactory.decodeFile(customIcon.getAbsolutePath());
+                BitmapFactory.Options opts = new BitmapFactory.Options();
+                opts.inJustDecodeBounds = true;
+                BitmapFactory.decodeFile(customIcon.getAbsolutePath(), opts);
+                int sample = 1;
+                while (opts.outWidth / (sample * 2) >= 128 && opts.outHeight / (sample * 2) >= 128) {
+                    sample *= 2;
+                }
+                opts.inJustDecodeBounds = false;
+                opts.inSampleSize = sample;
+                Bitmap bm = BitmapFactory.decodeFile(customIcon.getAbsolutePath(), opts);
                 if (bm != null) {
-                    builder.setLargeIcon(bm);
+                    if (bm.getWidth() > 128 || bm.getHeight() > 128) {
+                        Bitmap scaled = Bitmap.createScaledBitmap(bm, 128, 128, true);
+                        builder.setLargeIcon(scaled);
+                    } else {
+                        builder.setLargeIcon(bm);
+                    }
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Throwable ignored) {}
 
         return builder.build();
     }

@@ -751,17 +751,17 @@ html_content = f'''<!DOCTYPE html>
 
       <div class="input-group">
         <input id="input-code" type="text" class="input-text" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="32">
-        <button class="btn-icon" onclick="pasteCode()" title="Yapıştır">
+        <button class="btn-icon" onclick="pasteCode()" data-i18n-title="paste" title="Yapıştır">
           <svg viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
         </button>
       </div>
 
       <div class="input-group" id="group-server-url" style="margin-top: 10px;">
-        <input id="input-server-url" type="text" class="input-text" placeholder="Sunucu Adresi (örn. http://10.0.2.2:3001)">
+        <input id="input-server-url" type="text" class="input-text" data-i18n-ph="server_url_ph" placeholder="Sunucu Adresi (örn. http://10.0.2.2:3001)">
       </div>
 
       <button id="btn-connect" class="btn btn-secondary" onclick="connectManual()">
-        <span>Cihazı Bağla</span>
+        <span data-i18n="connect_device">Cihazı Bağla</span>
       </button>
     </div>
   </div>
@@ -771,21 +771,21 @@ html_content = f'''<!DOCTYPE html>
     <div class="card">
       <div class="card-title">
         <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-        <span>Hesaplama Düğümü Durumu</span>
+        <span data-i18n="node_status">Hesaplama Düğümü Durumu</span>
       </div>
 
       <!-- Active Model Status Card -->
       <div class="stat-card" style="margin-bottom: 12px; border-color: rgba(59, 130, 246, 0.3);">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div class="stat-label">Aktif Model</div>
-          <span id="stat-model-badge" class="badge badge-amber" style="font-size: 0.7rem; padding: 2px 8px;">Beklemede</span>
+          <div class="stat-label" data-i18n="active_model">Aktif Model</div>
+          <span id="stat-model-badge" class="badge badge-amber" style="font-size: 0.7rem; padding: 2px 8px;" data-i18n="idle">Beklemede</span>
         </div>
         <div id="stat-model-name" class="stat-value" style="font-size: 0.95rem; font-family: monospace; margin-top: 4px;">qwen-2.5-0.5b-instruct</div>
-        <div id="stat-model-desc" class="stat-sub">Çıkarım motoru hazır</div>
+        <div id="stat-model-desc" class="stat-sub" data-i18n="engine_ready">Çıkarım motoru hazır</div>
 
         <div id="download-progress-container" class="hidden" style="margin-top: 10px;">
           <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8; margin-bottom: 4px;">
-            <span id="download-progress-text">0 MB / 380 MB</span>
+            <span id="download-progress-text">0 MB / 468 MB</span>
             <span id="download-progress-pct">%0</span>
           </div>
           <div style="background: rgba(255,255,255,0.1); border-radius: 6px; height: 8px; overflow: hidden;">
@@ -796,53 +796,53 @@ html_content = f'''<!DOCTYPE html>
         <div id="crash-text" class="hidden" style="margin-top: 8px; font-size: 0.7rem; color: #fb923c;"></div>
 
         <div id="device-details" class="hidden" style="margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);">
-          <div style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;">Cihaz Bilgileri</div>
+          <div style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;" data-i18n="device_info">Cihaz Bilgileri</div>
           <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; font-size: 0.75rem;">
-            <div><span style="color: #64748b;">Bellek</span><div id="device-ram" style="color: #e2e8f0;">-</div></div>
-            <div><span style="color: #64748b;">Çekirdek</span><div id="device-cores" style="color: #e2e8f0;">-</div></div>
-            <div><span style="color: #64748b;">Boş Alan</span><div id="device-disk" style="color: #e2e8f0;">-</div></div>
-            <div><span style="color: #64748b;">Model Dosyası</span><div id="device-model-size" style="color: #e2e8f0;">-</div></div>
+            <div><span style="color: #64748b;" data-i18n="ram">Bellek</span><div id="device-ram" style="color: #e2e8f0;">-</div></div>
+            <div><span style="color: #64748b;" data-i18n="cores">Çekirdek</span><div id="device-cores" style="color: #e2e8f0;">-</div></div>
+            <div><span style="color: #64748b;" data-i18n="free_space">Boş Alan</span><div id="device-disk" style="color: #e2e8f0;">-</div></div>
+            <div><span style="color: #64748b;" data-i18n="model_file">Model Dosyası</span><div id="device-model-size" style="color: #e2e8f0;">-</div></div>
           </div>
         </div>
 
         <button id="btn-test-model" class="btn btn-secondary" onclick="openModelChatModal()" style="margin-top: 10px; font-size: 0.85rem; padding: 9px 12px;">
           <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          <span>Modeli Test Et (Playground)</span>
+          <span data-i18n="test_model">Modeli Test Et (Playground)</span>
         </button>
       </div>
 
       <div class="grid-2">
         <div class="stat-card">
-          <div class="stat-label">Bağlı Sunucu</div>
+          <div class="stat-label" data-i18n="connected_server">Bağlı Sunucu</div>
           <div id="stat-server" class="stat-value" style="font-size: 0.85rem; word-break: break-all;">--</div>
           <div id="stat-node" class="stat-sub">Node: --</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">TPS Hızı</div>
+          <div class="stat-label" data-i18n="tps_speed">TPS Hızı</div>
           <div id="stat-tps" class="stat-value">0.0</div>
-          <div class="stat-sub">Aktif çıkarım</div>
+          <div class="stat-sub" data-i18n="active_inference">Aktif çıkarım</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Pil & Sıcaklık</div>
+          <div class="stat-label" data-i18n="battery_temp">Pil & Sıcaklık</div>
           <div id="stat-battery" class="stat-value">100% / 31&deg;C</div>
-          <div class="stat-sub">Termal koruma aktif</div>
+          <div class="stat-sub" data-i18n="thermal_protect">Termal koruma aktif</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Ağ Durumu</div>
+          <div class="stat-label" data-i18n="net_status">Ağ Durumu</div>
           <div id="stat-net" class="stat-value">WiFi</div>
-          <div class="stat-sub">Düşük gecikme</div>
+          <div class="stat-sub" data-i18n="low_latency">Düşük gecikme</div>
         </div>
       </div>
 
       <div class="divider"></div>
 
-      <p class="hint-text" style="margin-bottom: 14px;">
+      <p class="hint-text" style="margin-bottom: 14px;" data-i18n="worker_background_hint">
         Worker arka planda güvenle çalışmaktadır. Cihaz uyku moduna geçse dahi hesaplama görevleri kesintisiz devam eder.
       </p>
 
       <button class="btn btn-danger" onclick="disconnectNode()">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-        <span>Bağlantıyı Kes</span>
+        <span data-i18n="disconnect">Bağlantıyı Kes</span>
       </button>
     </div>
   </div>
@@ -1113,12 +1113,98 @@ html_content = f'''<!DOCTYPE html>
       }}
     }}
 
+    const I18N = {{
+      tr: {{
+        paste: "Yapıştır",
+        server_url_ph: "Sunucu Adresi (örn. http://10.0.2.2:3001)",
+        connect_device: "Cihazı Bağla",
+        node_status: "Hesaplama Düğümü Durumu",
+        active_model: "Aktif Model",
+        idle: "Beklemede",
+        engine_ready: "Çıkarım motoru hazır",
+        device_info: "Cihaz Bilgileri",
+        ram: "Bellek",
+        cores: "Çekirdek",
+        free_space: "Boş Alan",
+        model_file: "Model Dosyası",
+        test_model: "Modeli Test Et (Playground)",
+        connected_server: "Bağlı Sunucu",
+        tps_speed: "TPS Hızı",
+        active_inference: "Aktif çıkarım",
+        battery_temp: "Pil & Sıcaklık",
+        thermal_protect: "Termal koruma aktif",
+        net_status: "Ağ Durumu",
+        low_latency: "Düşük gecikme",
+        worker_background_hint: "Worker arka planda güvenle çalışmaktadır. Cihaz uyku moduna geçse dahi hesaplama görevleri kesintisiz devam eder.",
+        disconnect: "Bağlantıyı Kes",
+        connected: "Aktif & Bağlı",
+        connecting: "Bağlanıyor...",
+        disconnected: "Bağlantı Kesildi",
+        model_downloading: "Model indiriliyor...",
+        download_error: "İndirme hatası: ",
+        model_chat_title: "Model Testi (Playground)",
+        chat_placeholder: "Bir mesaj yazın...",
+        chat_send: "Gönder"
+      }},
+      en: {{
+        paste: "Paste",
+        server_url_ph: "Server URL (e.g. http://10.0.2.2:3001)",
+        connect_device: "Connect Device",
+        node_status: "Compute Node Status",
+        active_model: "Active Model",
+        idle: "Idle",
+        engine_ready: "Inference engine ready",
+        device_info: "Device Info",
+        ram: "Memory",
+        cores: "Cores",
+        free_space: "Free Space",
+        model_file: "Model File",
+        test_model: "Test Model (Playground)",
+        connected_server: "Connected Server",
+        tps_speed: "TPS Speed",
+        active_inference: "Active inference",
+        battery_temp: "Battery & Temp",
+        thermal_protect: "Thermal protection active",
+        net_status: "Network Status",
+        low_latency: "Low latency",
+        worker_background_hint: "Worker runs securely in the background. Compute tasks continue uninterrupted even if the screen turns off.",
+        disconnect: "Disconnect",
+        connected: "Active & Connected",
+        connecting: "Connecting...",
+        disconnected: "Disconnected",
+        model_downloading: "Downloading model...",
+        download_error: "Download error: ",
+        model_chat_title: "Model Test (Playground)",
+        chat_placeholder: "Type a prompt...",
+        chat_send: "Send"
+      }}
+    }};
+
+    function applyI18n() {{
+      if (typeof document === 'undefined' || !document.querySelectorAll) return;
+      const lang = (navigator.language || 'en').toLowerCase().startsWith('tr') ? 'tr' : 'en';
+      const dict = I18N[lang] || I18N.en;
+      document.querySelectorAll('[data-i18n]').forEach(el => {{
+        const key = el.getAttribute('data-i18n');
+        if (dict[key]) el.innerText = dict[key];
+      }});
+      document.querySelectorAll('[data-i18n-ph]').forEach(el => {{
+        const key = el.getAttribute('data-i18n-ph');
+        if (dict[key]) el.placeholder = dict[key];
+      }});
+      document.querySelectorAll('[data-i18n-title]').forEach(el => {{
+        const key = el.getAttribute('data-i18n-title');
+        if (dict[key]) el.title = dict[key];
+      }});
+    }}
+
     function connectManual() {{
+      const isTr = (navigator.language || 'en').toLowerCase().startsWith('tr');
       const code = document.getElementById('input-code').value.trim().toUpperCase();
       const srvEl = document.getElementById('input-server-url');
       const serverUrl = srvEl ? srvEl.value.trim() : "";
       if (!code) {{
-        showToast("Lütfen eşleştirme kodunu girin");
+        showToast(isTr ? "Lütfen eşleştirme kodunu girin" : "Please enter the pairing code");
         return;
       }}
       if (window.AndroidBridge && window.AndroidBridge.connect) {{
@@ -1163,6 +1249,7 @@ html_content = f'''<!DOCTYPE html>
 
     window.updateState = function(stateJson) {{
       try {{
+        applyI18n();
         const s = typeof stateJson === 'string' ? JSON.parse(stateJson) : stateJson;
         if (s.app_name) {{
           document.getElementById('app-title').innerText = s.app_name;
@@ -1173,7 +1260,7 @@ html_content = f'''<!DOCTYPE html>
         }} else if (s.favicon && s.favicon.length > 0) {{
           let fav = s.favicon;
           if (fav.startsWith('/') && s.server_url) {{
-            fav = s.server_url.replace(/\\/+$/, '') + fav;
+            fav = s.server_url.replace(/\/+$/, '') + fav;
           }}
           const img = document.getElementById('app-logo');
           img.onerror = function() {{
@@ -1204,7 +1291,7 @@ html_content = f'''<!DOCTYPE html>
             document.getElementById('stat-node').innerText = "Node: " + s.node_id.substring(0, 8);
           }}
           if (s.battery_level !== undefined) {{
-            const chg = s.is_charging ? " (Şarjda)" : "";
+            const chg = s.is_charging ? (isTr ? " (Şarjda)" : " (Charging)") : "";
             document.getElementById('stat-battery').innerHTML = s.battery_level + "%" + chg + " / " + (s.battery_temp || 31) + "&deg;C";
           }}
           if (s.current_tps !== undefined && s.current_tps !== null) {{
@@ -1227,7 +1314,7 @@ html_content = f'''<!DOCTYPE html>
             document.getElementById('download-progress-container').classList.remove('hidden');
             document.getElementById('btn-test-model').classList.add('hidden');
             const dMB = s.downloaded_mb || 0;
-            const tMB = s.total_mb || 380;
+            const tMB = s.total_mb || 468;
             const pct = progressPct || (tMB > 0 ? Math.floor((dMB / tMB) * 100) : 0);
             document.getElementById('download-progress-text').innerText = dMB + ' MB / ' + tMB + ' MB';
             document.getElementById('download-progress-pct').innerText = '%' + pct;
@@ -1239,7 +1326,7 @@ html_content = f'''<!DOCTYPE html>
           if (s.download_error && s.download_error.length > 0) {{
             const errEl = document.getElementById('download-error-text');
             if (errEl) {{
-              errEl.innerText = 'İndirme hatası: ' + s.download_error;
+              errEl.innerText = (isTr ? 'İndirme hatası: ' : 'Download error: ') + s.download_error;
               errEl.classList.remove('hidden');
             }}
           }} else {{
@@ -1249,7 +1336,7 @@ html_content = f'''<!DOCTYPE html>
           if (s.last_crash && s.last_crash.length > 0) {{
             const crashEl = document.getElementById('crash-text');
             if (crashEl) {{
-              crashEl.innerText = 'Son hata: ' + s.last_crash.split('\\n')[0];
+              crashEl.innerText = (isTr ? 'Son hata: ' : 'Last error: ') + s.last_crash.split('\\n')[0];
               crashEl.classList.remove('hidden');
             }}
           }} else {{
@@ -1264,7 +1351,7 @@ html_content = f'''<!DOCTYPE html>
               const ram = document.getElementById('device-ram');
               if (ram) ram.innerText = s.physical_ram_mb ? (s.physical_ram_mb / 1024).toFixed(1) + ' GB' : '-';
               const cores = document.getElementById('device-cores');
-              if (cores) cores.innerText = s.cpu_cores ? s.cpu_cores + ' çekirdek' : '-';
+              if (cores) cores.innerText = s.cpu_cores ? s.cpu_cores + (isTr ? ' çekirdek' : ' cores') : '-';
               const disk = document.getElementById('device-disk');
               if (disk) disk.innerText = s.free_disk_gb ? s.free_disk_gb + ' GB' : '-';
               const modelSize = document.getElementById('device-model-size');
@@ -1775,18 +1862,7 @@ public class MainActivity extends Activity {
      * the server is not known yet.
      */
     private String clientPageUrl() {
-        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-        String server = WorkerService.stringPref(sp, "server_url", "");
-        String nodeId = WorkerService.stringPref(sp, "node_id", "");
-        if (server == null || server.trim().isEmpty()) {
-            return "file:///android_asset/www/index.html";
-        }
-        while (server.endsWith("/")) server = server.substring(0, server.length() - 1);
-        String url = server + "/client";
-        if (!nodeId.isEmpty()) {
-            url += "?node=" + Uri.encode(nodeId);
-        }
-        return url;
+        return "file:///android_asset/www/index.html";
     }
 
     private void startInterface(Bundle savedInstanceState) {
@@ -2413,11 +2489,30 @@ public class MainActivity extends Activity {
             if (base64Data == null || !base64Data.contains(",")) return;
             String rawB64 = base64Data.substring(base64Data.indexOf(",") + 1);
             byte[] bytes = Base64.decode(rawB64, Base64.DEFAULT);
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
+            int sample = 1;
+            while (opts.outWidth / (sample * 2) >= 128 && opts.outHeight / (sample * 2) >= 128) {
+                sample *= 2;
+            }
+            opts.inJustDecodeBounds = false;
+            opts.inSampleSize = sample;
+            Bitmap bm = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
             File f = new File(getFilesDir(), "custom_favicon.png");
-            FileOutputStream fos = new FileOutputStream(f);
-            fos.write(bytes);
-            fos.close();
-        } catch (Exception ignored) {}
+            if (bm != null) {
+                if (bm.getWidth() > 128 || bm.getHeight() > 128) {
+                    bm = Bitmap.createScaledBitmap(bm, 128, 128, true);
+                }
+                FileOutputStream fos = new FileOutputStream(f);
+                bm.compress(Bitmap.CompressFormat.PNG, 90, fos);
+                fos.close();
+            } else {
+                FileOutputStream fos = new FileOutputStream(f);
+                fos.write(bytes);
+                fos.close();
+            }
+        } catch (Throwable ignored) {}
     }
 
 
@@ -2588,14 +2683,10 @@ public class MainActivity extends Activity {
                         conn.disconnect();
 
                         if (bytes.length > 0) {
-                            File f = new File(getFilesDir(), "custom_favicon.png");
-                            FileOutputStream fos = new FileOutputStream(f);
-                            fos.write(bytes);
-                            fos.close();
-
                             String b64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
                             String mime = faviconUrl.endsWith(".ico") ? "image/x-icon" : "image/png";
                             final String dataUri = "data:" + mime + ";base64," + b64;
+                            saveBase64ToCacheFile(dataUri);
 
                             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
                             sp.edit().putString("favicon_base64", dataUri).apply();

@@ -9,6 +9,7 @@ package main
 // client is used.
 
 import (
+	_ "embed"
 	"encoding/json"
 	"html/template"
 	"net/http"
@@ -16,6 +17,15 @@ import (
 	"sync"
 	"time"
 )
+
+//go:embed assets/marked.js
+var markedJs []byte
+
+func (b *localBridge) handleMarkedJS(writer http.ResponseWriter, request *http.Request) {
+	writer.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	writer.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = writer.Write(markedJs)
+}
 
 // setupLanguage is a language of the installation.
 type setupLanguage struct {
@@ -134,27 +144,37 @@ func setupSelected(request *http.Request, bootstrap setupBootstrap, configured s
 	return "en"
 }
 
-// setupPolicyOf returns the policies of the language.
-//
-// The policies of English are used when the language has no policies, the
-// policies of any language are used when English has no policies either.
+// setupPolicyOf returns the policies of the language with field-by-field fallback.
+// If the chosen language has an empty Privacy or Terms, it falls back to English ("en"),
+// and then to any available language.
 func setupPolicyOf(bootstrap setupBootstrap, language string) setupPolicy {
+	var result setupPolicy
+	// 1. Try selected language
 	if policy, ok := bootstrap.Policies[language]; ok {
-		if policy.Privacy != "" || policy.Terms != "" {
-			return policy
+		result.Privacy = strings.TrimSpace(policy.Privacy)
+		result.Terms = strings.TrimSpace(policy.Terms)
+	}
+	// 2. Fall back to English for missing fields
+	if enPolicy, ok := bootstrap.Policies["en"]; ok {
+		if result.Privacy == "" {
+			result.Privacy = strings.TrimSpace(enPolicy.Privacy)
+		}
+		if result.Terms == "" {
+			result.Terms = strings.TrimSpace(enPolicy.Terms)
 		}
 	}
-	if policy, ok := bootstrap.Policies["en"]; ok {
-		if policy.Privacy != "" || policy.Terms != "" {
-			return policy
+	// 3. Fall back to any language for still-missing fields
+	if result.Privacy == "" || result.Terms == "" {
+		for _, anyPolicy := range bootstrap.Policies {
+			if result.Privacy == "" && strings.TrimSpace(anyPolicy.Privacy) != "" {
+				result.Privacy = strings.TrimSpace(anyPolicy.Privacy)
+			}
+			if result.Terms == "" && strings.TrimSpace(anyPolicy.Terms) != "" {
+				result.Terms = strings.TrimSpace(anyPolicy.Terms)
+			}
 		}
 	}
-	for _, policy := range bootstrap.Policies {
-		if policy.Privacy != "" || policy.Terms != "" {
-			return policy
-		}
-	}
-	return setupPolicy{}
+	return result
 }
 
 // setupPage is the state of the page of the setup.
@@ -370,9 +390,19 @@ var setupTemplate = template.Must(template.New("setup").Parse(`<!doctype html>
   .policy summary::after { content: "›"; font-size: 18px; color: var(--muted); transform: rotate(90deg); transition: transform .15s; }
   .policy[open] summary::after { transform: rotate(-90deg); }
   .policy .text {
-    max-height: 190px; overflow: auto; padding: 0 16px 14px; font-size: 13px; line-height: 1.65;
-    color: var(--muted); white-space: pre-wrap; border-top: 1px solid var(--line); padding-top: 12px;
+    max-height: 200px; overflow: auto; padding: 0 16px 14px; font-size: 13px; line-height: 1.65;
+    color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px;
   }
+  .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { color: var(--text); margin: 12px 0 6px; font-size: 14px; font-weight: 700; }
+  .markdown-body p { margin: 6px 0; }
+  .markdown-body ul, .markdown-body ol { margin: 6px 0; padding-left: 20px; }
+  .markdown-body li { margin: 2px 0; }
+  .markdown-body a { color: var(--accent); text-decoration: underline; }
+  .markdown-body table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 12px; }
+  .markdown-body th, .markdown-body td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; }
+  .markdown-body th { background: var(--panel); color: var(--text); font-weight: 600; }
+  .markdown-body blockquote { border-left: 3px solid var(--line); margin: 8px 0; padding-left: 10px; color: var(--muted); font-style: italic; }
+  .markdown-body code { font-family: monospace; font-size: 12px; background: var(--panel); padding: 2px 4px; border-radius: 4px; }
   .checks { margin-top: 18px; display: grid; gap: 10px; }
   .check { display: flex; gap: 11px; align-items: flex-start; font-size: 13.5px; line-height: 1.5; cursor: pointer; }
   .check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); flex: 0 0 auto; }
@@ -410,11 +440,21 @@ var setupTemplate = template.Must(template.New("setup").Parse(`<!doctype html>
 
       <details class="policy" open>
         <summary>{{.TextPrivacy}}</summary>
-        {{if .Privacy}}<div class="text">{{.Privacy}}</div>{{else}}<div class="text empty">{{.TextEmpty}} {{if .ServerUrl}}<a href="{{.ServerUrl}}" target="_blank" rel="noreferrer">{{.ServerUrl}}</a>{{end}}</div>{{end}}
+        {{if .Privacy}}
+          <template class="raw-markdown">{{.Privacy}}</template>
+          <div class="text markdown-body"></div>
+        {{else}}
+          <div class="text empty">{{.TextEmpty}} {{if .ServerUrl}}<a href="{{.ServerUrl}}" target="_blank" rel="noreferrer">{{.ServerUrl}}</a>{{end}}</div>
+        {{end}}
       </details>
       <details class="policy" open>
         <summary>{{.TextTerms}}</summary>
-        {{if .Terms}}<div class="text">{{.Terms}}</div>{{else}}<div class="text empty">{{.TextEmpty}} {{if .ServerUrl}}<a href="{{.ServerUrl}}" target="_blank" rel="noreferrer">{{.ServerUrl}}</a>{{end}}</div>{{end}}
+        {{if .Terms}}
+          <template class="raw-markdown">{{.Terms}}</template>
+          <div class="text markdown-body"></div>
+        {{else}}
+          <div class="text empty">{{.TextEmpty}} {{if .ServerUrl}}<a href="{{.ServerUrl}}" target="_blank" rel="noreferrer">{{.ServerUrl}}</a>{{end}}</div>
+        {{end}}
       </details>
 
       <div class="checks">
@@ -428,5 +468,30 @@ var setupTemplate = template.Must(template.New("setup").Parse(`<!doctype html>
     </footer>
   </form>
 </main>
+<script src="/marked.js"></script>
+<script>
+  (function() {
+    document.querySelectorAll('.policy').forEach(function(p) {
+      var tmpl = p.querySelector('.raw-markdown');
+      var body = p.querySelector('.markdown-body');
+      if (tmpl && body) {
+        var raw = tmpl.innerHTML;
+        // Decode HTML entities if any
+        var txt = document.createElement('textarea');
+        txt.innerHTML = raw;
+        var decoded = txt.value;
+        try {
+          if (window.marked && typeof window.marked.parse === 'function') {
+            body.innerHTML = window.marked.parse(decoded);
+          } else {
+            body.textContent = decoded;
+          }
+        } catch (e) {
+          body.textContent = decoded;
+        }
+      }
+    });
+  })();
+</script>
 </body>
 </html>`))

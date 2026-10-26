@@ -200,7 +200,7 @@ func SearchModels(keyword string, vendor string, status string, syncOfficial str
 	db := DB.Model(&Model{})
 	if keyword != "" {
 		like := "%" + keyword + "%"
-		db = db.Where("model_name LIKE ? OR description LIKE ? OR tags LIKE ?", like, like, like)
+		db = db.Where("model_name LIKE ? OR display_name LIKE ? OR description LIKE ? OR tags LIKE ?", like, like, like, like)
 	}
 	if vendor != "" {
 		if vid, err := strconv.Atoi(vendor); err == nil {
@@ -216,7 +216,8 @@ func SearchModels(keyword string, vendor string, status string, syncOfficial str
 		db = db.Where("models.sync_official = ?", syncValue)
 	}
 	var total int64
-	if err := db.Count(&total).Error; err != nil {
+	countDB := db.Session(&gorm.Session{})
+	if err := countDB.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	if err := db.Order("models.id DESC").Offset(offset).Limit(limit).Find(&models).Error; err != nil {

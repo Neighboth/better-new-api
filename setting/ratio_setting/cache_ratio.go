@@ -1,6 +1,8 @@
 package ratio_setting
 
 import (
+	"strings"
+
 	"github.com/QuantumNous/new-api/types"
 )
 
@@ -158,18 +160,44 @@ func UpdateCreateCacheRatioByJSONString(jsonStr string) error {
 // GetCacheRatio returns the cache ratio for a model
 func GetCacheRatio(name string) (float64, bool) {
 	ratio, ok := cacheRatioMap.Get(name)
-	if !ok {
-		return 1, false // Default to 1 if not found
+	if ok {
+		return ratio, true
 	}
-	return ratio, true
+	if idx := strings.Index(name, "/"); idx != -1 {
+		shortName := name[idx+1:]
+		if r, found := cacheRatioMap.Get(shortName); found {
+			return r, true
+		}
+	}
+	lower := strings.ToLower(name)
+	if strings.Contains(lower, "deepseek") {
+		return 0.25, true
+	}
+	if strings.Contains(lower, "gpt-4o") || strings.Contains(lower, "o1") || strings.Contains(lower, "o3") {
+		return 0.5, true
+	}
+	if strings.Contains(lower, "claude") {
+		return 0.1, true
+	}
+	return 1, false // Default to 1 if not found
 }
 
 func GetCreateCacheRatio(name string) (float64, bool) {
 	ratio, ok := createCacheRatioMap.Get(name)
-	if !ok {
-		return 1.25, false // Default to 1.25 if not found
+	if ok {
+		return ratio, true
 	}
-	return ratio, true
+	if idx := strings.Index(name, "/"); idx != -1 {
+		shortName := name[idx+1:]
+		if r, found := createCacheRatioMap.Get(shortName); found {
+			return r, true
+		}
+	}
+	lower := strings.ToLower(name)
+	if strings.Contains(lower, "claude") {
+		return 1.25, true
+	}
+	return 1.25, false // Default to 1.25 if not found
 }
 
 func GetCacheRatioCopy() map[string]float64 {

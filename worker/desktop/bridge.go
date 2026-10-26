@@ -73,6 +73,7 @@ func startLocalBridge() (*localBridge, error) {
 	// The page of the first start is served by the client itself. The page of
 	// the installation is opened when the language and the policies are known.
 	mux.HandleFunc("/setup", bridge.handleSetupPage)
+	mux.HandleFunc("/marked.js", bridge.handleMarkedJS)
 	mux.HandleFunc("/", bridge.handleSetupPage)
 	bridge.server = &http.Server{Handler: withBridgeHeaders(mux)}
 	go func() {

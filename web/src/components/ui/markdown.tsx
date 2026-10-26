@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import DOMPurify from 'dompurify'
 import * as katex from 'katex'
+import 'katex/dist/contrib/mhchem.mjs'
 
 import 'katex/dist/katex.min.css'
 import { Marked, Renderer, type MarkedExtension, type Tokens } from 'marked'
@@ -119,6 +120,12 @@ const allowedTags = [
   'mtd',
   'mtext',
   'mtr',
+  'munder',
+  'munderover',
+  'mphantom',
+  'menclose',
+  'mroot',
+  'annotation',
   'path',
   'polygon',
   'rect',
@@ -185,12 +192,63 @@ function normalizeMathSource(source: string): string {
     .replace(/\\\]$/, '')
 }
 
+const KATEX_MACROS: Record<string, string> = {
+  // Number sets
+  '\\R': '\\mathbb{R}',
+  '\\N': '\\mathbb{N}',
+  '\\Z': '\\mathbb{Z}',
+  '\\Q': '\\mathbb{Q}',
+  '\\C': '\\mathbb{C}',
+  // Probability & Statistics
+  '\\E': '\\mathbb{E}',
+  '\\Var': '\\operatorname{Var}',
+  '\\Cov': '\\operatorname{Cov}',
+  '\\argmax': '\\operatorname*{arg\\,max}',
+  '\\argmin': '\\operatorname*{arg\\,min}',
+  // Linear Algebra & Operators
+  '\\tr': '\\operatorname{tr}',
+  '\\rank': '\\operatorname{rank}',
+  '\\diag': '\\operatorname{diag}',
+  '\\det': '\\operatorname{det}',
+  '\\bm': '\\boldsymbol{#1}',
+  // Calculus & Physics
+  '\\dd': '\\mathrm{d}#1',
+  '\\dv': '\\frac{\\mathrm{d}#1}{\\mathrm{d}#2}',
+  '\\pdv': '\\frac{\\partial#1}{\\partial#2}',
+  '\\grad': '\\boldsymbol{\\nabla}',
+  '\\div': '\\boldsymbol{\\nabla} \\cdot',
+  '\\curl': '\\boldsymbol{\\nabla} \\times',
+  '\\laplacian': '\\nabla^2',
+  '\\abs': '\\left|#1\\right|',
+  '\\norm': '\\left\\|#1\\right\\|',
+  '\\eval': '\\left.#1\\right|_{#2}',
+  // Quantum mechanics (Bra-Ket / Dirac notation)
+  '\\bra': '\\left\\langle#1\\right|',
+  '\\ket': '\\left|#1\\right\\rangle',
+  '\\braket': '\\left\\langle#1\\middle|#2\\right\\rangle',
+  '\\ketbra': '\\left|#1\\right\\rangle\\left\\langle#2\\right|',
+  '\\matrixel': '\\left\\langle#1\\middle|#2\\middle|#3\\right\\rangle',
+  // Common math abbreviations
+  '\\iff': '\\Longleftrightarrow',
+  '\\implies': '\\Longrightarrow',
+  '\\impliedby': '\\Longleftarrow',
+  '\\approxeq': '\\stackrel{\\approx}{\\textstyle\\sim}',
+}
+
 function renderMath(source: string, displayMode: boolean): string {
-  return katex.renderToString(normalizeMathSource(source), {
-    displayMode,
-    output: 'htmlAndMathml',
-    throwOnError: false,
-  })
+  try {
+    return katex.renderToString(normalizeMathSource(source), {
+      displayMode,
+      output: 'htmlAndMathml',
+      throwOnError: false,
+      trust: true,
+      strict: false,
+      globalGroup: true,
+      macros: KATEX_MACROS,
+    })
+  } catch {
+    return `<span class="katex-error">${DOMPurify.sanitize(source)}</span>`
+  }
 }
 
 function replaceEmojiShortcodes(value: string): string {

@@ -361,18 +361,26 @@ func migrateNewColumns() {
 		}
 	}
 	if DB.Migrator().HasTable(&Model{}) {
-		for _, col := range []string{"display_name", "tagline", "property_boxes"} {
+		for _, col := range []string{"display_name", "tagline", "property_boxes", "deleted_at", "name_rule", "serverless_priority", "endpoints", "sync_official", "status", "vendor_id"} {
 			if !DB.Migrator().HasColumn(&Model{}, col) {
 				_ = DB.Migrator().AddColumn(&Model{}, col)
 			}
 		}
 	}
+	if DB.Migrator().HasTable(&Vendor{}) {
+		for _, col := range []string{"keywords", "is_builtin", "status", "deleted_at"} {
+			if !DB.Migrator().HasColumn(&Vendor{}, col) {
+				_ = DB.Migrator().AddColumn(&Vendor{}, col)
+			}
+		}
+		// Fix Meta logo from Ollama to Meta.Color, and vendor names to international names
+		_ = DB.Model(&Vendor{}).Where("name = ? AND (icon = ? OR icon = ?)", "Meta", "Ollama", "").Updates(map[string]interface{}{"icon": "Meta.Color"}).Error
+		_ = DB.Model(&Vendor{}).Where("name = ?", "智谱").Updates(map[string]interface{}{"name": "Z.AI", "icon": "Zhipu.Color"}).Error
+		_ = DB.Model(&Vendor{}).Where("name = ?", "阿里巴巴").Updates(map[string]interface{}{"name": "Qwen", "icon": "Qwen.Color"}).Error
+	}
 }
 
 func migrateDBFast() error {
-
-	var wg sync.WaitGroup
-
 	migrations := []struct {
 		model interface{}
 		name  string
@@ -409,6 +417,20 @@ func migrateDBFast() error {
 		{&SystemTask{}, "SystemTask"},
 		{&SystemTaskLock{}, "SystemTaskLock"},
 	}
+
+	// SQLite does not support concurrent write transactions ("database is locked").
+	// Run migrations sequentially on SQLite to avoid transient lock errors.
+	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
+		for _, m := range migrations {
+			if err := DB.AutoMigrate(m.model); err != nil {
+				common.SysError(fmt.Sprintf("failed to migrate %s: %v", m.name, err))
+			}
+		}
+		migrateNewColumns()
+		return nil
+	}
+
+	var wg sync.WaitGroup
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
 
