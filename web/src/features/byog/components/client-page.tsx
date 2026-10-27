@@ -16,25 +16,30 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import jsQR from 'jsqr'
 import {
   Activity,
   AlertTriangle,
   Battery,
   Bell,
+  Camera,
   CheckCircle2,
   ChevronRight,
   Cpu,
   Gauge,
   Link2,
   LogOut,
+  Monitor,
   Play,
   QrCode,
   RefreshCw,
+  Save,
   Server,
   Sliders,
   Terminal,
+  Upload,
   Zap,
 } from 'lucide-react'
 
@@ -53,6 +58,13 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import {
   Sidebar,
@@ -69,6 +81,7 @@ import {
   SidebarRail,
   SidebarTrigger,
 } from '@/components/ui/sidebar'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { cn } from '@/lib/utils'
 
@@ -98,10 +111,19 @@ interface WorkerState {
   disks?: DiskInfo[]
   physical_ram_mb?: number
   cpu_cores?: number
+  vram_mb?: number
+  total_disk_gb?: number
+  free_disk_gb?: number
+  allocated_ram_gb?: number
+  allocated_vram_gb?: number
+  allocated_cores?: number
+  allocated_disk_gb?: number
+  hot_start_enabled?: boolean
   favicon?: string
   favicon_base64?: string
   system_name?: string
   app_name?: string
+  language?: string
 }
 
 function formatPairingCode(val: string): string {
@@ -173,6 +195,233 @@ const PAGES = [
 
 type PageKey = (typeof PAGES)[number]['key']
 
+function QrScanModal({
+  open,
+  onOpenChange,
+  onScan,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onScan: (code: string) => void
+}) {
+  const { t } = useTranslation()
+  const [activeTab, setActiveTab] = useState<'camera' | 'screen' | 'file'>('camera')
+  const [errorMsg, setErrorMsg] = useState('')
+  const [cameraActive, setCameraActive] = useState(false)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const animFrameRef = useRef<number | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  const stopStream = useCallback(() => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current)
+      animFrameRef.current = null
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
+    }
+    setCameraActive(false)
+  }, [])
+
+  useEffect(() => {
+    if (!open) {
+      stopStream()
+      setErrorMsg('')
+    }
+  }, [open, stopStream])
+
+  const scanFrame = useCallback(() => {
+    const video = videoRef.current
+    if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) {
+      animFrameRef.current = requestAnimationFrame(scanFrame)
+      return
+    }
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const qrCode = jsQR(imageData.data, canvas.width, canvas.height)
+      if (qrCode && qrCode.data) {
+        onScan(qrCode.data)
+        stopStream()
+        onOpenChange(false)
+        return
+      }
+    }
+    animFrameRef.current = requestAnimationFrame(scanFrame)
+  }, [onScan, onOpenChange, stopStream])
+
+  const startCamera = async () => {
+    stopStream()
+    setErrorMsg('')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+      })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        videoRef.current.setAttribute('playsinline', 'true')
+        await videoRef.current.play()
+        setCameraActive(true)
+        animFrameRef.current = requestAnimationFrame(scanFrame)
+      }
+    } catch {
+      setErrorMsg(t('byog.camera_permission_denied', 'Kamera açılamadı veya izin verilmedi.'))
+    }
+  }
+
+  const startScreenCapture = async () => {
+    stopStream()
+    setErrorMsg('')
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+      })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play()
+        setCameraActive(true)
+        animFrameRef.current = requestAnimationFrame(scanFrame)
+      }
+    } catch {
+      setErrorMsg(t('byog.screen_capture_denied', 'Ekran paylaşımı başlatılamadı veya iptal edildi.'))
+    }
+  }
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    setErrorMsg('')
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = img.width
+        canvas.height = img.height
+        const ctx = canvas.getContext('2d', { willReadFrequently: true })
+        if (!ctx) return
+        ctx.drawImage(img, 0, 0)
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+        const code = jsQR(imgData.data, canvas.width, canvas.height)
+        if (code && code.data) {
+          onScan(code.data)
+          onOpenChange(false)
+        } else {
+          setErrorMsg(t('byog.qr_not_found_in_image', 'Yüklenen görselde geçerli bir QR kod bulunamadı.'))
+        }
+      }
+      img.src = e.target?.result as string
+    }
+    reader.readAsDataURL(file)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className='max-w-md p-6'>
+        <DialogHeader>
+          <DialogTitle className='flex items-center gap-2 text-lg font-bold'>
+            <QrCode className='size-5 text-primary' />
+            {t('byog.qr_scan_title', 'QR Kod Okut')}
+          </DialogTitle>
+          <DialogDescription>
+            {t('byog.qr_scan_desc', 'Eşleştirme kodunu kamera, ekran yakalama veya QR resim dosyası yükleyerek okutun.')}
+          </DialogDescription>
+        </DialogHeader>
+
+        <Tabs
+          value={activeTab}
+          onValueChange={(val) => {
+            stopStream()
+            setErrorMsg('')
+            setActiveTab(val as 'camera' | 'screen' | 'file')
+          }}
+          className='w-full'
+        >
+          <TabsList className='grid grid-cols-3 w-full mb-4'>
+            <TabsTrigger value='camera' className='flex items-center gap-1.5 text-xs sm:text-sm'>
+              <Camera className='size-4' />
+              {t('byog.tab_camera', 'Kamera')}
+            </TabsTrigger>
+            <TabsTrigger value='screen' className='flex items-center gap-1.5 text-xs sm:text-sm'>
+              <Monitor className='size-4' />
+              {t('byog.tab_screen', 'Ekran')}
+            </TabsTrigger>
+            <TabsTrigger value='file' className='flex items-center gap-1.5 text-xs sm:text-sm'>
+              <Upload className='size-4' />
+              {t('byog.tab_file', 'Dosya')}
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value='camera' className='space-y-3'>
+            <div className='relative aspect-video w-full overflow-hidden rounded-xl bg-muted/60 border border-border flex items-center justify-center'>
+              <video ref={videoRef} className={cn('h-full w-full object-cover', !cameraActive && 'hidden')} />
+              {!cameraActive && (
+                <div className='text-center p-4'>
+                  <Camera className='size-10 mx-auto text-muted-foreground/60 mb-2' />
+                  <Button onClick={startCamera} size='sm'>
+                    {t('byog.start_camera', 'Kamerayı Başlat')}
+                  </Button>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value='screen' className='space-y-3'>
+            <div className='relative aspect-video w-full overflow-hidden rounded-xl bg-muted/60 border border-border flex items-center justify-center'>
+              <video ref={videoRef} className={cn('h-full w-full object-cover', !cameraActive && 'hidden')} />
+              {!cameraActive && (
+                <div className='text-center p-4'>
+                  <Monitor className='size-10 mx-auto text-muted-foreground/60 mb-2' />
+                  <Button onClick={startScreenCapture} size='sm'>
+                    {t('byog.start_screen_capture', 'Ekranı Paylaş & Tara')}
+                  </Button>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value='file' className='space-y-3'>
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className='aspect-video w-full rounded-xl border-2 border-dashed border-border hover:border-primary/50 flex flex-col items-center justify-center cursor-pointer p-4 transition-colors'
+            >
+              <Upload className='size-10 text-muted-foreground/60 mb-2' />
+              <span className='text-sm font-medium text-foreground'>
+                {t('byog.upload_qr_image', 'QR Kod Görseli Seç')}
+              </span>
+              <span className='text-xs text-muted-foreground mt-1'>PNG, JPG, WEBP</span>
+              <input
+                ref={fileInputRef}
+                type='file'
+                accept='image/*'
+                onChange={handleFileUpload}
+                className='hidden'
+              />
+            </div>
+          </TabsContent>
+        </Tabs>
+
+        {errorMsg && (
+          <div className='rounded-lg bg-destructive/10 border border-destructive/20 p-2.5 text-xs text-destructive font-medium'>
+            {errorMsg}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function ClientPage() {
   const { t, i18n } = useTranslation()
   const { logo: systemLogo, favicon: systemFavicon, systemName } = useSystemConfig()
@@ -214,10 +463,76 @@ export function ClientPage() {
   const [cores, setCores] = useState(4)
   const [diskGB, setDiskGB] = useState(20)
   const [hotStart, setHotStart] = useState(true)
+  const [qrModalOpen, setQrModalOpen] = useState(false)
+  const [savingResources, setSavingResources] = useState(false)
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState('')
+  const [allocatedInitialized, setAllocatedInitialized] = useState(false)
 
   const bridge = getBridge()
   const [localApi, setLocalApi] = useState('')
   const [localToken, setLocalToken] = useState('')
+
+  // Sync allocations from loaded worker state once
+  useEffect(() => {
+    if (!allocatedInitialized && state) {
+      if (state.allocated_ram_gb && state.allocated_ram_gb > 0) setRamGB(state.allocated_ram_gb)
+      if (state.allocated_vram_gb !== undefined && state.allocated_vram_gb >= 0) setVramGB(state.allocated_vram_gb)
+      if (state.allocated_cores && state.allocated_cores > 0) setCores(state.allocated_cores)
+      if (state.allocated_disk_gb && state.allocated_disk_gb > 0) setDiskGB(state.allocated_disk_gb)
+      if (state.hot_start_enabled !== undefined) setHotStart(state.hot_start_enabled)
+      if (state.allocated_ram_gb || state.physical_ram_mb) {
+        setAllocatedInitialized(true)
+      }
+    }
+  }, [allocatedInitialized, state])
+
+  // Save allocated resource sliders to backend & local bridge
+  const saveResourceAllocations = async () => {
+    setSavingResources(true)
+    setSaveSuccessMsg('')
+    try {
+      if (localApi) {
+        await fetch(`${localApi}/settings?token=${localToken}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            allocated_ram_gb: ramGB,
+            allocated_vram_gb: vramGB,
+            allocated_cores: cores,
+            allocated_disk_gb: diskGB,
+            hot_start_enabled: hotStart,
+          }),
+        }).catch(() => {})
+      }
+      const targetNodeId = nodeId || state?.node_id
+      if (targetNodeId) {
+        const resp = await fetch('/api/v1/worker/resources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            node_id: targetNodeId,
+            allocated_ram_gb: ramGB,
+            allocated_vram_gb: vramGB,
+            allocated_cores: cores,
+            allocated_disk_gb: diskGB,
+            hot_start_enabled: hotStart,
+          }),
+        })
+        const payload = await resp.json()
+        if (payload.success) {
+          setSaveSuccessMsg(t('byog.resources_saved', 'Kaynak ayarları başarıyla kaydedildi'))
+          setTimeout(() => setSaveSuccessMsg(''), 4000)
+          void loadState()
+        } else {
+          setMessage(payload.message || t('common.error', 'Hata oluştu'))
+        }
+      }
+    } catch (e) {
+      setMessage(String(e))
+    } finally {
+      setSavingResources(false)
+    }
+  }
 
   // Sync language changes across app, localStorage, and uninstaller registry
   useEffect(() => {
@@ -255,7 +570,8 @@ export function ClientPage() {
           setNodeId(initial.node_id)
         }
         const isPaired = Boolean(initial.is_paired && initial.node_id)
-        setState({
+        setState((prev) => ({
+          ...prev,
           node_id: String(initial.node_id ?? ''),
           device_name: String(initial.device_name ?? initial.app_name ?? ''),
           system_name: String(initial.system_name ?? ''),
@@ -273,7 +589,7 @@ export function ClientPage() {
           cpu_cores: initial.cpu_cores as number,
           favicon: initial.favicon as string,
           favicon_base64: initial.favicon_base64 as string,
-        })
+        }))
       } catch {
         // bridge fallback
       }
@@ -297,7 +613,8 @@ export function ClientPage() {
         if (typeof payload.node_id === 'string' && payload.node_id) {
           setNodeId(payload.node_id)
         }
-        setState({
+        setState((prev) => ({
+          ...prev,
           node_id: String(payload.node_id ?? ''),
           device_name: String(payload.device_name ?? payload.app_name ?? ''),
           system_name: String(payload.system_name ?? ''),
@@ -313,7 +630,7 @@ export function ClientPage() {
           physical_ram_mb: payload.physical_ram_mb as number,
           cpu_cores: payload.cpu_cores as number,
           favicon_base64: (payload.favicon_base64 as string) || undefined,
-        })
+        }))
       } catch {
         // ignore
       }
@@ -327,7 +644,13 @@ export function ClientPage() {
       const response = await fetch(`/api/v1/worker/status?node_id=${encodeURIComponent(nodeId)}`)
       const payload = await response.json()
       if (payload.success && payload.data) {
-        setState(payload.data)
+        setState((prev) => ({
+          ...prev,
+          ...payload.data,
+          status: payload.data.status === 'online' ? 'online' : 'offline',
+          paired: true,
+          models: payload.data.models || payload.data.assigned_model || prev?.models || '',
+        }))
       }
     } catch {
       // ignore
@@ -514,8 +837,11 @@ export function ClientPage() {
     if (state?.disks && state.disks.length > 0) {
       return state.disks.reduce((sum, d) => sum + (d.free_gb || 0), 0)
     }
-    return 40
-  }, [state?.disks])
+    if (state?.free_disk_gb && state.free_disk_gb > 0) {
+      return state.free_disk_gb
+    }
+    return 0
+  }, [state?.disks, state?.free_disk_gb])
 
   // Simulated node representation for ResourceSliders
   const simulatedNode: ByogNode = {
@@ -531,9 +857,11 @@ export function ClientPage() {
     cpu_model: 'Host Processor',
     gpu_model: 'Host GPU',
     npu_model: '',
-    physical_ram_mb: state?.physical_ram_mb || 16384,
+    physical_ram_mb: (state?.physical_ram_mb && state.physical_ram_mb > 0)
+      ? state.physical_ram_mb
+      : (bridge ? 4096 : 8192),
     swap_ram_mb: 2048,
-    vram_mb: 8192,
+    vram_mb: state?.vram_mb !== undefined ? state.vram_mb : (bridge ? 0 : 4096),
     shared_vram_mb: 0,
     tee_supported: true,
     tee_type: 'sgx',
@@ -552,7 +880,9 @@ export function ClientPage() {
     power_profile: 'full_power',
     schedule_config: '',
     allocated_disk_gb: diskGB,
-    total_disk_gb: state?.disks?.reduce((s, d) => s + (d.total_gb || 0), 0) || 120,
+    total_disk_gb: (state?.disks && state.disks.length > 0)
+      ? state.disks.reduce((s, d) => s + (d.total_gb || 0), 0)
+      : (state?.total_disk_gb || 0),
     free_disk_gb: totalFreeDiskGB,
     disks: state?.disks,
     allocated_vram_gb: vramGB,
@@ -830,18 +1160,22 @@ export function ClientPage() {
 
             <CardContent className='space-y-4'>
               <div className='flex items-center gap-2'>
-                {bridge && (
-                  <Button
-                    type='button'
-                    variant='outline'
-                    size='icon'
-                    onClick={() => bridge.scanQrCode()}
-                    title={t('byog.scan_qr', 'QR Kod Tara')}
-                    className='shrink-0 h-11 w-11 rounded-lg border-primary/30 text-primary hover:bg-primary/10'
-                  >
-                    <QrCode className='size-5' />
-                  </Button>
-                )}
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='icon'
+                  onClick={() => {
+                    if (bridge) {
+                      bridge.scanQrCode()
+                    } else {
+                      setQrModalOpen(true)
+                    }
+                  }}
+                  title={t('byog.scan_qr', 'QR Kod Tara')}
+                  className='shrink-0 h-11 w-11 rounded-lg border-primary/30 text-primary hover:bg-primary/10'
+                >
+                  <QrCode className='size-5' />
+                </Button>
 
                 <Input
                   value={code}
@@ -888,6 +1222,12 @@ export function ClientPage() {
             </CardContent>
           </Card>
         </div>
+
+        <QrScanModal
+          open={qrModalOpen}
+          onOpenChange={setQrModalOpen}
+          onScan={(scanned) => setCode(extractPairingCode(scanned))}
+        />
       </div>
     )
   }
@@ -1089,6 +1429,27 @@ export function ClientPage() {
                 onDiskChange={setDiskGB}
                 onHotStartChange={setHotStart}
               />
+
+              <div className='flex items-center justify-between pt-2'>
+                {saveSuccessMsg ? (
+                  <span className='text-sm text-emerald-500 font-medium flex items-center gap-1.5'>
+                    <CheckCircle2 className='size-4' /> {saveSuccessMsg}
+                  </span>
+                ) : <div />}
+
+                <Button
+                  onClick={saveResourceAllocations}
+                  disabled={savingResources}
+                  className='ml-auto font-semibold'
+                >
+                  {savingResources ? (
+                    <RefreshCw className='size-4 mr-2 animate-spin' />
+                  ) : (
+                    <Save className='size-4 mr-2' />
+                  )}
+                  {t('common.save', 'Kaydet')}
+                </Button>
+              </div>
             </div>
           )}
 

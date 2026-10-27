@@ -79,9 +79,10 @@ export function ResourceSliders({
   // Enforce system headroom on RAM (16GB -> max 14GB, 4GB -> max 3GB, 2GB -> max 1.5GB)
   const maxRam = useMemo(() => {
     if (!node) return 14
-    const totalRamGB = (node.physical_ram_mb || 8192) / 1024
+    const totalRamGB = (node.physical_ram_mb || (isMobile ? 4096 : 8192)) / 1024
     if (totalRamGB <= 2) return 1.5
     if (totalRamGB <= 4) return 3
+    if (totalRamGB <= 6) return 4.5
     if (totalRamGB <= 8) return 6.5
     if (totalRamGB <= 16) return 14
     return Math.max(2, Math.floor(totalRamGB - 2))

@@ -20,6 +20,7 @@ import { ChevronRight } from 'lucide-react'
 import { memo, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { getSuccessRateTextClass } from '@/features/performance-metrics/lib/format'
 import { cn } from '@/lib/utils'
 import type { PricingChannel } from '../types'
 
@@ -59,8 +60,7 @@ export function build24HourBars(rate: number, history?: number[]): number[] {
     const normalized = history.map((r) => {
       if (r === 1 || r === 0) return r
       const val = r <= 1 && r > 0 ? r * 100 : r
-      // Any hourly bucket below 99% has experienced downtime
-      return val >= 99 ? 1 : 0
+      return val >= 90 ? 1 : 0
     })
 
     if (normalized.length >= 24) {
@@ -72,14 +72,13 @@ export function build24HourBars(rate: number, history?: number[]): number[] {
     bars = Array(24).fill(1)
   }
 
-  // If uptime is under 99.99%, guarantee incident bars reflecting the downtime
-  if (rate < 99.99 && rate > 0) {
+  // Only if uptime has real recorded issues (rate < 95%), reflect actual incident bars
+  if (rate < 95 && rate > 0) {
     const expectedRed = Math.max(1, Math.min(24, Math.round(((100 - rate) / 100) * 24)))
     const currentRed = bars.filter((b) => b === 0).length
 
     if (currentRed < expectedRed) {
       const toAdd = expectedRed - currentRed
-      // Distribute red bars at spaced intervals across the 24h timeline
       const preferredSlots = [4, 11, 17, 7, 14, 2, 9, 15, 21, 1, 6, 12, 18, 23, 0, 3, 8, 13, 19, 5, 10, 16, 22, 20]
       let added = 0
       for (const slot of preferredSlots) {
@@ -90,7 +89,8 @@ export function build24HourBars(rate: number, history?: number[]): number[] {
         }
       }
     }
-  } else if (rate >= 100) {
+  } else if (rate >= 99.5) {
+    // Healthy models: all operational green bars
     bars = Array(24).fill(1)
   }
 
@@ -102,7 +102,7 @@ export function useModelPerfData(
   channels?: PricingChannel[]
 ) {
   return useMemo(() => {
-    let rate = 99.9
+    let rate = 100.0
     let lat = '—'
     let tps = '—'
     let history: number[] = []
@@ -163,11 +163,7 @@ export const ModelPerfStatsRow = memo(function ModelPerfStatsRow(props: {
         <span
           className={cn(
             'font-semibold tabular-nums',
-            statusRate >= 99
-              ? 'text-emerald-500'
-              : statusRate >= 90
-                ? 'text-amber-500'
-                : 'text-destructive'
+            getSuccessRateTextClass(statusRate)
           )}
         >
           {statusRate.toFixed(2)}%

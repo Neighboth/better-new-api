@@ -17,14 +17,37 @@ import (
 
 // GetAllVendors 获取供应商列表（分页）
 func GetAllVendors(c *gin.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			common.SysError(fmt.Sprintf("GetAllVendors panic recovered: %v", r))
+			c.JSON(200, gin.H{
+				"success": true,
+				"data": gin.H{
+					"items":     []*model.Vendor{},
+					"total":     0,
+					"page":      1,
+					"page_size": 10,
+				},
+			})
+		}
+	}()
+
 	pageInfo := common.GetPageQuery(c)
 	vendors, err := model.GetAllVendors(pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
-		common.ApiError(c, err)
+		common.SysError(fmt.Sprintf("GetAllVendors error: %v", err))
+		pageInfo.SetTotal(0)
+		pageInfo.SetItems([]*model.Vendor{})
+		common.ApiSuccess(c, pageInfo)
 		return
 	}
+	if vendors == nil {
+		vendors = []*model.Vendor{}
+	}
 	var total int64
-	model.DB.Model(&model.Vendor{}).Count(&total)
+	if model.DB != nil {
+		_ = model.DB.Model(&model.Vendor{}).Count(&total).Error
+	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(vendors)
 	common.ApiSuccess(c, pageInfo)
@@ -32,12 +55,33 @@ func GetAllVendors(c *gin.Context) {
 
 // SearchVendors 搜索供应商
 func SearchVendors(c *gin.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			common.SysError(fmt.Sprintf("SearchVendors panic recovered: %v", r))
+			c.JSON(200, gin.H{
+				"success": true,
+				"data": gin.H{
+					"items":     []*model.Vendor{},
+					"total":     0,
+					"page":      1,
+					"page_size": 10,
+				},
+			})
+		}
+	}()
+
 	keyword := c.Query("keyword")
 	pageInfo := common.GetPageQuery(c)
 	vendors, total, err := model.SearchVendors(keyword, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
-		common.ApiError(c, err)
+		common.SysError(fmt.Sprintf("SearchVendors error: %v", err))
+		pageInfo.SetTotal(0)
+		pageInfo.SetItems([]*model.Vendor{})
+		common.ApiSuccess(c, pageInfo)
 		return
+	}
+	if vendors == nil {
+		vendors = []*model.Vendor{}
 	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(vendors)

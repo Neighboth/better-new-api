@@ -6,37 +6,39 @@ import (
 
 // 简化的供应商映射规则
 var defaultVendorRules = map[string]string{
-	"gpt":      "OpenAI",
-	"dall-e":   "OpenAI",
-	"whisper":  "OpenAI",
-	"o1":       "OpenAI",
-	"o3":       "OpenAI",
-	"claude":   "Anthropic",
-	"gemini":   "Google",
-	"moonshot": "Moonshot",
-	"kimi":     "Moonshot",
-	"chatglm":  "Z.AI",
-	"glm-":     "Z.AI",
-	"qwen":     "Qwen",
-	"deepseek": "DeepSeek",
-	"abab":     "MiniMax",
-	"minimax":  "MiniMax",
-	"ernie":    "百度",
-	"spark":    "讯飞",
-	"hunyuan":  "腾讯",
-	"command":  "Cohere",
-	"@cf/":     "Cloudflare",
-	"360":      "360",
-	"yi":       "零一万物",
-	"jina":     "Jina",
-	"mistral":  "Mistral",
-	"grok":     "xAI",
-	"llama":    "Meta",
-	"doubao":   "字节跳动",
-	"kling":    "快手",
-	"jimeng":   "即梦",
-	"vidu":     "Vidu",
-	"google":   "Google",
+	"gpt":       "OpenAI",
+	"dall-e":    "OpenAI",
+	"whisper":   "OpenAI",
+	"o1":        "OpenAI",
+	"o3":        "OpenAI",
+	"claude":    "Anthropic",
+	"gemini":    "Google",
+	"moonshot":  "Moonshot",
+	"kimi":      "Moonshot",
+	"chatglm":   "Z.AI",
+	"glm-":      "Z.AI",
+	"qwen":      "Qwen",
+	"deepseek":  "DeepSeek",
+	"abab":      "MiniMax",
+	"minimax":   "MiniMax",
+	"ernie":     "Baidu",
+	"spark-":    "iFlytek",
+	"sparkdesk": "iFlytek",
+	"iflytek":   "iFlytek",
+	"hunyuan":   "Tencent",
+	"command":   "Cohere",
+	"@cf/":      "Cloudflare",
+	"360":       "360",
+	"yi-":       "01.AI",
+	"jina":      "Jina",
+	"mistral":   "Mistral",
+	"grok":      "xAI",
+	"llama":     "Meta",
+	"doubao":    "ByteDance",
+	"kling":     "Kuaishou",
+	"jimeng":    "Jimeng",
+	"vidu":      "Vidu",
+	"google":    "Google",
 }
 
 // 供应商默认图标映射
@@ -47,28 +49,54 @@ var defaultVendorIcons = map[string]string{
 	"Moonshot":   "Moonshot",
 	"Z.AI":       "Zhipu.Color",
 	"Qwen":       "Qwen.Color",
-	"智谱":         "Zhipu.Color",
-	"阿里巴巴":       "Qwen.Color",
 	"DeepSeek":   "DeepSeek.Color",
 	"MiniMax":    "Minimax.Color",
-	"百度":         "Wenxin.Color",
-	"讯飞":         "Spark.Color",
-	"腾讯":         "Hunyuan.Color",
+	"Baidu":      "Wenxin.Color",
+	"iFlytek":    "Spark.Color",
+	"Tencent":    "Hunyuan.Color",
 	"Cohere":     "Cohere.Color",
 	"Cloudflare": "Cloudflare.Color",
 	"360":        "Ai360.Color",
-	"零一万物":       "Yi.Color",
+	"01.AI":      "Yi.Color",
 	"Jina":       "Jina",
 	"Mistral":    "Mistral.Color",
 	"xAI":        "XAI",
 	"Meta":       "Meta.Color",
+	"ByteDance":  "Doubao.Color",
+	"Kuaishou":   "Kling.Color",
+	"Jimeng":     "Jimeng.Color",
+	"Vidu":       "Vidu",
+	"Microsoft":  "AzureAI",
+	"Azure":      "AzureAI",
+	"百度":         "Wenxin.Color",
+	"讯飞":         "Spark.Color",
+	"腾讯":         "Hunyuan.Color",
+	"零一万物":       "Yi.Color",
 	"字节跳动":       "Doubao.Color",
 	"快手":         "Kling.Color",
 	"即梦":         "Jimeng.Color",
-	"Vidu":       "Vidu",
-	"微软":         "AzureAI",
-	"Microsoft":  "AzureAI",
-	"Azure":      "AzureAI",
+	"智谱":         "Zhipu.Color",
+	"阿里巴巴":       "Qwen.Color",
+}
+
+// 明确的前缀优先匹配规则（最高优先级，防止被包含关键字误伤，例如 meta/muse-spark-open 不会被 spark 抢走）
+var vendorPrefixRules = []struct {
+	Prefix     string
+	VendorName string
+}{
+	{"meta/", "Meta"},
+	{"meta-", "Meta"},
+	{"google/", "Google"},
+	{"openai/", "OpenAI"},
+	{"anthropic/", "Anthropic"},
+	{"mistralai/", "Mistral"},
+	{"deepseek-ai/", "DeepSeek"},
+	{"qwen/", "Qwen"},
+	{"baichuan-inc/", "Baichuan"},
+	{"cohere/", "Cohere"},
+	{"iflytek/", "iFlytek"},
+	{"bytedance/", "ByteDance"},
+	{"kuaishou/", "Kuaishou"},
 }
 
 // initDefaultVendorMapping 简化的默认供应商映射
@@ -77,7 +105,22 @@ func initDefaultVendorMapping(metaMap map[string]*Model, vendorMap map[int]*Vend
 		modelName := ability.Model
 
 		modelLower := strings.ToLower(modelName)
-		vendorID := matchVendorByKeywords(modelLower, vendorMap)
+		var vendorID int
+
+		// 1. 优先检查明确的前缀规则
+		for _, rule := range vendorPrefixRules {
+			if strings.HasPrefix(modelLower, rule.Prefix) {
+				vendorID = getOrCreateVendor(rule.VendorName, vendorMap)
+				break
+			}
+		}
+
+		// 2. 检查现有供应商关键字
+		if vendorID == 0 {
+			vendorID = matchVendorByKeywords(modelLower, vendorMap)
+		}
+
+		// 3. 检查默认规则关键字
 		if vendorID == 0 {
 			for pattern, vendorName := range defaultVendorRules {
 				if strings.Contains(modelLower, pattern) {

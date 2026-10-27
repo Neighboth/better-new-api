@@ -374,9 +374,17 @@ func migrateNewColumns() {
 			}
 		}
 		// Fix Meta logo from Ollama to Meta.Color, and vendor names to international names
-		_ = DB.Model(&Vendor{}).Where("name = ? AND (icon = ? OR icon = ?)", "Meta", "Ollama", "").Updates(map[string]interface{}{"icon": "Meta.Color"}).Error
-		_ = DB.Model(&Vendor{}).Where("name = ?", "智谱").Updates(map[string]interface{}{"name": "Z.AI", "icon": "Zhipu.Color"}).Error
-		_ = DB.Model(&Vendor{}).Where("name = ?", "阿里巴巴").Updates(map[string]interface{}{"name": "Qwen", "icon": "Qwen.Color"}).Error
+		_ = DB.Model(&Vendor{}).Where("name = ? AND (icon = ? OR icon = ? OR icon IS NULL)", "Meta", "Ollama", "").Updates(map[string]interface{}{"icon": "Meta.Color"}).Error
+		_ = DB.Model(&Model{}).Where("(icon = ? OR icon = ?) AND (model_name LIKE ? OR model_name LIKE ? OR model_name LIKE ?)", "Ollama", "Ollama.Color", "%llama%", "meta/%", "meta-%").Update("icon", "Meta.Color").Error
+		_ = DB.Model(&Vendor{}).Where("name IN ?", []string{"智谱", "智谱AI", "智谱清言"}).Updates(map[string]interface{}{"name": "Z.AI", "icon": "Zhipu.Color"}).Error
+		_ = DB.Model(&Vendor{}).Where("name IN ?", []string{"阿里巴巴", "阿里", "通义千问"}).Updates(map[string]interface{}{"name": "Qwen", "icon": "Qwen.Color"}).Error
+		_ = DB.Model(&Vendor{}).Where("name IN ?", []string{"讯飞", "科大讯飞"}).Updates(map[string]interface{}{"name": "iFlytek", "icon": "Spark.Color"}).Error
+		_ = DB.Model(&Vendor{}).Where("name IN ?", []string{"快手"}).Updates(map[string]interface{}{"name": "Kuaishou", "icon": "Kling.Color"}).Error
+		_ = DB.Model(&Vendor{}).Where("name IN ?", []string{"字节跳动", "火山引擎"}).Updates(map[string]interface{}{"name": "ByteDance", "icon": "Doubao.Color"}).Error
+		_ = DB.Model(&Vendor{}).Where("name IN ?", []string{"百度", "文心一言"}).Updates(map[string]interface{}{"name": "Baidu", "icon": "Wenxin.Color"}).Error
+		_ = DB.Model(&Vendor{}).Where("name IN ?", []string{"腾讯", "腾讯混元"}).Updates(map[string]interface{}{"name": "Tencent", "icon": "Hunyuan.Color"}).Error
+		_ = DB.Model(&Vendor{}).Where("name IN ?", []string{"零一万物"}).Updates(map[string]interface{}{"name": "01.AI", "icon": "Yi.Color"}).Error
+		_ = DB.Model(&Vendor{}).Where("name IN ?", []string{"即梦"}).Updates(map[string]interface{}{"name": "Jimeng", "icon": "Jimeng.Color"}).Error
 	}
 }
 

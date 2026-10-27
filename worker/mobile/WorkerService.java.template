@@ -73,12 +73,12 @@ public class WorkerService extends Service {
     }
 
     public static long getExpectedMinBytes(String modelName) {
-        if (modelName == null) return 250L * 1024L * 1024L;
+        if (modelName == null) return 100L * 1024L * 1024L;
         String lower = modelName.toLowerCase();
-        if (lower.contains("0.5b") || lower.contains("0.6b")) return 260L * 1024L * 1024L;
-        if (lower.contains("1.5b") || lower.contains("1.7b") || lower.contains("2b") || lower.contains("3b") || lower.contains("4b")) return 700L * 1024L * 1024L;
-        if (lower.contains("7b") || lower.contains("8b")) return 2800L * 1024L * 1024L;
-        return 250L * 1024L * 1024L;
+        if (lower.contains("0.5b") || lower.contains("0.6b")) return 100L * 1024L * 1024L;
+        if (lower.contains("1.5b") || lower.contains("1.7b") || lower.contains("2b") || lower.contains("3b") || lower.contains("4b")) return 500L * 1024L * 1024L;
+        if (lower.contains("7b") || lower.contains("8b")) return 2000L * 1024L * 1024L;
+        return 100L * 1024L * 1024L;
     }
 
     public static boolean isValidGGUFFile(File f, String modelName) {
@@ -129,6 +129,8 @@ public class WorkerService extends Service {
     private volatile String downloadErrorText = "";
     private volatile long lastDownloadAttemptAt = 0;
     private static final long DOWNLOAD_RETRY_BACKOFF_MS = 15000L;
+    private Bitmap cachedLargeIcon = null;
+    private long cachedIconLastModified = 0;
 
     @Override
     public void onCreate() {
@@ -503,15 +505,75 @@ public class WorkerService extends Service {
     }
 
     /**
-     * Returns the free space of the data partition in gigabytes.
+     * Returns an array of storage disk partitions (Internal Storage + SD Card).
+     */
+    public static JSONArray getDisksArray(Context ctx) {
+        JSONArray disksArr = new JSONArray();
+        try {
+            File dataDir = Environment.getDataDirectory();
+            StatFs stat = new StatFs(dataDir.getPath());
+            long blockSize = stat.getBlockSizeLong();
+            long totalGB = (stat.getBlockCountLong() * blockSize) / (1024L * 1024L * 1024L);
+            long freeGB = (stat.getAvailableBlocksLong() * blockSize) / (1024L * 1024L * 1024L);
+            JSONObject mainDisk = new JSONObject();
+            mainDisk.put("drive", "internal");
+            mainDisk.put("label", isTurkish() ? "Dahili Depolama" : "Internal Storage");
+            mainDisk.put("total_gb", (int) Math.max(1, totalGB));
+            mainDisk.put("free_gb", (int) Math.max(0, freeGB));
+            disksArr.put(mainDisk);
+
+            if (ctx != null) {
+                File[] extDirs = ctx.getExternalFilesDirs(null);
+                if (extDirs != null && extDirs.length > 1 && extDirs[1] != null) {
+                    StatFs sdStat = new StatFs(extDirs[1].getPath());
+                    long sdTotal = (sdStat.getBlockCountLong() * sdStat.getBlockSizeLong()) / (1024L * 1024L * 1024L);
+                    long sdFree = (sdStat.getAvailableBlocksLong() * sdStat.getBlockSizeLong()) / (1024L * 1024L * 1024L);
+                    if (sdTotal > 0) {
+                        JSONObject sdDisk = new JSONObject();
+                        sdDisk.put("drive", "sdcard");
+                        sdDisk.put("label", isTurkish() ? "SD Kart" : "SD Card");
+                        sdDisk.put("total_gb", (int) sdTotal);
+                        sdDisk.put("free_gb", (int) Math.max(0, sdFree));
+                        disksArr.put(sdDisk);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        return disksArr;
+    }
+
+    /**
+     * Returns the total free space across all storage partitions in gigabytes.
      */
     private int getFreeDiskGB() {
         try {
+            JSONArray arr = getDisksArray(this);
+            int sumFree = 0;
+            for (int i = 0; i < arr.length(); i++) {
+                sumFree += arr.getJSONObject(i).optInt("free_gb", 0);
+            }
+            if (sumFree > 0) return sumFree;
             StatFs stat = new StatFs(Environment.getDataDirectory().getPath());
             long blockSize = stat.getBlockSizeLong();
             long freeBlocks = stat.getAvailableBlocksLong();
             return (int) Math.max(0, (freeBlocks * blockSize) / (1024L * 1024L * 1024L));
-        } catch (Exception ignored) {}
+        } catch (Throwable ignored) {}
+        return 0;
+    }
+
+    private int getTotalDiskGB() {
+        try {
+            JSONArray arr = getDisksArray(this);
+            int sumTotal = 0;
+            for (int i = 0; i < arr.length(); i++) {
+                sumTotal += arr.getJSONObject(i).optInt("total_gb", 0);
+            }
+            if (sumTotal > 0) return sumTotal;
+            StatFs stat = new StatFs(Environment.getDataDirectory().getPath());
+            long blockSize = stat.getBlockSizeLong();
+            long totalBlocks = stat.getBlockCountLong();
+            return (int) Math.max(0, (totalBlocks * blockSize) / (1024L * 1024L * 1024L));
+        } catch (Throwable ignored) {}
         return 0;
     }
 
@@ -762,6 +824,8 @@ public class WorkerService extends Service {
             state.put("cpu_cores", Runtime.getRuntime().availableProcessors());
             state.put("physical_ram_mb", getPhysicalRamMB());
             state.put("free_disk_gb", getFreeDiskGB());
+            state.put("total_disk_gb", getTotalDiskGB());
+            state.put("disks", getDisksArray(this));
             state.put("model_file_mb", getModelFileSizeMB(currentAssignedModel));
             state.put("assigned_model", currentAssignedModel);
             state.put("active_vram_model", activeVramModel);
@@ -1048,7 +1112,7 @@ public class WorkerService extends Service {
                                 downloadedMB = (int) (currentBytes / (1024 * 1024));
 
                                 long tick = System.currentTimeMillis();
-                                if (tick - lastBroadcastTime > 500) {
+                                if (tick - lastBroadcastTime > 1200) {
                                     lastBroadcastTime = tick;
                                     int pct = computeDownloadPercent();
                                     if (pct > 99) pct = 99;
@@ -1267,13 +1331,9 @@ public class WorkerService extends Service {
             req.put("vram_mb", 0);
             req.put("shared_vram_mb", 0);
             try {
-                File dataDir = Environment.getDataDirectory();
-                StatFs stat = new StatFs(dataDir.getPath());
-                long bs = stat.getBlockSizeLong();
-                int tGB = (int) Math.max(1, (stat.getBlockCountLong() * bs) / (1024L * 1024L * 1024L));
-                int fGB = (int) Math.max(1, (stat.getAvailableBlocksLong() * bs) / (1024L * 1024L * 1024L));
-                req.put("total_disk_gb", tGB);
-                req.put("free_disk_gb", fGB);
+                req.put("total_disk_gb", getTotalDiskGB());
+                req.put("free_disk_gb", getFreeDiskGB());
+                req.put("disks", getDisksArray(this));
             } catch (Exception ignored) {}
             req.put("battery_temp", batteryTemp);
             req.put("battery_percent", batteryPercent);
@@ -2336,23 +2396,29 @@ public class WorkerService extends Service {
             try {
                 File customIcon = new File(getFilesDir(), "custom_favicon.png");
                 if (customIcon.exists()) {
-                    BitmapFactory.Options opts = new BitmapFactory.Options();
-                    opts.inJustDecodeBounds = true;
-                    BitmapFactory.decodeFile(customIcon.getAbsolutePath(), opts);
-                    int sample = 1;
-                    while (opts.outWidth / (sample * 2) >= 128 && opts.outHeight / (sample * 2) >= 128) {
-                        sample *= 2;
-                    }
-                    opts.inJustDecodeBounds = false;
-                    opts.inSampleSize = sample;
-                    Bitmap bm = BitmapFactory.decodeFile(customIcon.getAbsolutePath(), opts);
-                    if (bm != null) {
-                        if (bm.getWidth() > 128 || bm.getHeight() > 128) {
-                            Bitmap scaled = Bitmap.createScaledBitmap(bm, 128, 128, true);
-                            builder.setLargeIcon(scaled);
-                        } else {
-                            builder.setLargeIcon(bm);
+                    long lastMod = customIcon.lastModified();
+                    if (cachedLargeIcon == null || lastMod != cachedIconLastModified) {
+                        BitmapFactory.Options opts = new BitmapFactory.Options();
+                        opts.inJustDecodeBounds = true;
+                        BitmapFactory.decodeFile(customIcon.getAbsolutePath(), opts);
+                        int sample = 1;
+                        while (opts.outWidth / (sample * 2) >= 128 && opts.outHeight / (sample * 2) >= 128) {
+                            sample *= 2;
                         }
+                        opts.inJustDecodeBounds = false;
+                        opts.inSampleSize = sample;
+                        Bitmap bm = BitmapFactory.decodeFile(customIcon.getAbsolutePath(), opts);
+                        if (bm != null) {
+                            if (bm.getWidth() > 128 || bm.getHeight() > 128) {
+                                cachedLargeIcon = Bitmap.createScaledBitmap(bm, 128, 128, true);
+                            } else {
+                                cachedLargeIcon = bm;
+                            }
+                            cachedIconLastModified = lastMod;
+                        }
+                    }
+                    if (cachedLargeIcon != null) {
+                        builder.setLargeIcon(cachedLargeIcon);
                     }
                 }
             } catch (Throwable ignored) {}

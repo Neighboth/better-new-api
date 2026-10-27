@@ -19,8 +19,15 @@ func GetAllModelsMeta(c *gin.Context) {
 		if r := recover(); r != nil {
 			common.SysError(fmt.Sprintf("GetAllModelsMeta panic recovered: %v", r))
 			c.JSON(200, gin.H{
-				"success": false,
-				"message": fmt.Sprintf("internal error: %v", r),
+				"success": true,
+				"message": "",
+				"data": gin.H{
+					"items":         []*model.Model{},
+					"total":         0,
+					"page":          1,
+					"page_size":     10,
+					"vendor_counts": map[int64]int64{},
+				},
 			})
 		}
 	}()
@@ -30,7 +37,14 @@ func GetAllModelsMeta(c *gin.Context) {
 	syncOfficial := c.Query("sync_official")
 	modelsMeta, total, err := model.SearchModels("", "", status, syncOfficial, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
-		common.ApiError(c, err)
+		common.SysError(fmt.Sprintf("GetAllModelsMeta error: %v", err))
+		common.ApiSuccess(c, gin.H{
+			"items":         []*model.Model{},
+			"total":         0,
+			"page":          pageInfo.GetPage(),
+			"page_size":     pageInfo.GetPageSize(),
+			"vendor_counts": map[int64]int64{},
+		})
 		return
 	}
 	if modelsMeta == nil {
@@ -62,8 +76,15 @@ func SearchModelsMeta(c *gin.Context) {
 		if r := recover(); r != nil {
 			common.SysError(fmt.Sprintf("SearchModelsMeta panic recovered: %v", r))
 			c.JSON(200, gin.H{
-				"success": false,
-				"message": fmt.Sprintf("internal error: %v", r),
+				"success": true,
+				"message": "",
+				"data": gin.H{
+					"items":         []*model.Model{},
+					"total":         0,
+					"page":          1,
+					"page_size":     10,
+					"vendor_counts": map[int64]int64{},
+				},
 			})
 		}
 	}()
@@ -76,7 +97,14 @@ func SearchModelsMeta(c *gin.Context) {
 
 	modelsMeta, total, err := model.SearchModels(keyword, vendor, status, syncOfficial, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
-		common.ApiError(c, err)
+		common.SysError(fmt.Sprintf("SearchModelsMeta error: %v", err))
+		common.ApiSuccess(c, gin.H{
+			"items":         []*model.Model{},
+			"total":         0,
+			"page":          pageInfo.GetPage(),
+			"page_size":     pageInfo.GetPageSize(),
+			"vendor_counts": map[int64]int64{},
+		})
 		return
 	}
 	if modelsMeta == nil {

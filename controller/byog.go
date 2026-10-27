@@ -1183,6 +1183,7 @@ func RegisterByogWorker(c *gin.Context) {
 		DownloadProgress int     `json:"download_progress"`
 		TotalDiskGB      int     `json:"total_disk_gb"`
 		FreeDiskGB       int     `json:"free_disk_gb"`
+		Disks            any     `json:"disks"`
 		CurrentTps       float64 `json:"current_tps"`
 		CurrentTtftMs    int     `json:"current_ttft_ms"`
 		TotalTokens      int64   `json:"total_tokens"`
@@ -1371,6 +1372,13 @@ func RegisterByogWorker(c *gin.Context) {
 				node.AllocatedDiskGB = node.FreeDiskGB
 			}
 		}
+		if req.Disks != nil {
+			if ds, ok := req.Disks.(string); ok && ds != "" {
+				node.Disks = ds
+			} else if b, err := json.Marshal(req.Disks); err == nil && len(b) > 2 {
+				node.Disks = string(b)
+			}
+		}
 		node.CurrentTps = req.CurrentTps
 		if node.ModelStatus == "ready" || node.ModelStatus == "idle" || node.ModelStatus == "downloading" {
 			node.CurrentTps = 0.0
@@ -1412,6 +1420,15 @@ func RegisterByogWorker(c *gin.Context) {
 			allocDisk = int(math.Min(20, math.Max(2, float64(req.FreeDiskGB)/2)))
 		}
 
+		var initialDisks string
+		if req.Disks != nil {
+			if ds, ok := req.Disks.(string); ok && ds != "" {
+				initialDisks = ds
+			} else if b, err := json.Marshal(req.Disks); err == nil && len(b) > 2 {
+				initialDisks = string(b)
+			}
+		}
+
 		node = &model.ByogNode{
 			NodeId:               nodeId,
 			UserId:               matchedUserId,
@@ -1445,6 +1462,7 @@ func RegisterByogWorker(c *gin.Context) {
 			AllocatedDiskGB:      allocDisk,
 			TotalDiskGB:          req.TotalDiskGB,
 			FreeDiskGB:           req.FreeDiskGB,
+			Disks:                initialDisks,
 			AllocatedVramGB:      allocVram,
 			AllocatedRamGB:       allocRam,
 			AllocatedCores:       allocatedCores(req.CpuCores),
@@ -1889,6 +1907,13 @@ func GetByogWorkerStatus(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "the client is not known"})
 		return
 	}
+	var disksArr []any
+	if node.Disks != "" {
+		_ = json.Unmarshal([]byte(node.Disks), &disksArr)
+	}
+	if disksArr == nil {
+		disksArr = []any{}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
@@ -1900,8 +1925,71 @@ func GetByogWorkerStatus(c *gin.Context) {
 			"download_progress": node.DownloadProgress,
 			"current_tps":       node.CurrentTps,
 			"models":            node.InstalledModels,
+			"assigned_model":    node.ActiveVramModel,
+			"physical_ram_mb":   node.PhysicalRamMB,
+			"vram_mb":           node.VramMB,
+			"cpu_cores":         node.AllocatedCores,
+			"total_disk_gb":     node.TotalDiskGB,
+			"free_disk_gb":      node.FreeDiskGB,
+			"allocated_ram_gb":  node.AllocatedRamGB,
+			"allocated_vram_gb": node.AllocatedVramGB,
+			"allocated_cores":   node.AllocatedCores,
+			"allocated_disk_gb": node.AllocatedDiskGB,
+			"hot_start_enabled": node.HotStartEnabled,
+			"disks":             disksArr,
 			"updated_at":        node.UpdatedAt,
 		},
+	})
+}
+
+// UpdateByogWorkerResources updates hardware allocations for a worker node
+func UpdateByogWorkerResources(c *gin.Context) {
+	var req struct {
+		NodeId          string `json:"node_id" binding:"required"`
+		AllocatedRamGB  int    `json:"allocated_ram_gb"`
+		AllocatedVramGB int    `json:"allocated_vram_gb"`
+		AllocatedCores  int    `json:"allocated_cores"`
+		AllocatedDiskGB int    `json:"allocated_disk_gb"`
+		HotStartEnabled *bool  `json:"hot_start_enabled"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	node, err := model.GetByogNodeByNodeId(req.NodeId)
+	if err != nil || node == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Node not found"})
+		return
+	}
+
+	if req.AllocatedRamGB > 0 {
+		node.AllocatedRamGB = req.AllocatedRamGB
+	}
+	if req.AllocatedVramGB >= 0 {
+		node.AllocatedVramGB = req.AllocatedVramGB
+	}
+	if req.AllocatedCores > 0 {
+		node.AllocatedCores = req.AllocatedCores
+	}
+	if req.AllocatedDiskGB > 0 {
+		node.AllocatedDiskGB = req.AllocatedDiskGB
+	}
+	if req.HotStartEnabled != nil {
+		node.HotStartEnabled = *req.HotStartEnabled
+	}
+	node.UpdatedAt = time.Now().Unix()
+
+	if err := model.SaveByogNode(node); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Resource allocation updated successfully",
+		"data":    node,
 	})
 }
 

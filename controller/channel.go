@@ -719,6 +719,7 @@ func AddChannel(c *gin.Context) {
 		"type":  addChannelRequest.Channel.Type,
 		"count": len(channels),
 	})
+	model.RefreshPricing()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -744,6 +745,7 @@ func DeleteChannel(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
+	model.RefreshPricing()
 	if channelLookupFailed {
 		service.ResetProxyClientCache()
 	} else {
@@ -1129,6 +1131,7 @@ func UpdateChannel(c *gin.Context) {
 	})
 	channel.Key = ""
 	clearChannelInfo(&channel.Channel)
+	model.RefreshPricing()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -1151,6 +1154,7 @@ func UpdateChannelStatus(c *gin.Context) {
 	changed := model.UpdateChannelStatus(id, "", req.Status, "manual operation")
 	if changed {
 		model.InitChannelCache()
+		model.RefreshPricing()
 	}
 	recordManageAudit(c, "channel.status_update", map[string]interface{}{
 		"id":      id,
@@ -1178,6 +1182,7 @@ func BatchUpdateChannelStatus(c *gin.Context) {
 	}
 	if changedCount > 0 {
 		model.InitChannelCache()
+		model.RefreshPricing()
 	}
 	recordManageAudit(c, "channel.status_update_batch", map[string]interface{}{
 		"count":  changedCount,

@@ -80,6 +80,22 @@ func (s *Scheduler) EvaluateNodeModelAssignment(node *model.ByogNode) ([]string,
 		}
 	}
 
+	if len(assignedList) == 0 {
+		// Guaranteed Fallback Model Assignment
+		// Ensures no connected node gets stranded without an assigned model ("atama bekleniyor")
+		isMobile := node.DeviceType == "mobile" || node.DeviceType == "tablet"
+		ramMB := availableRamMB(node)
+		if isMobile {
+			assignedList = append(assignedList, "qwen-2.5-0.5b-instruct")
+		} else {
+			if ramMB >= 4096 {
+				assignedList = append(assignedList, "qwen-2.5-1.5b-instruct", "qwen-2.5-0.5b-instruct")
+			} else {
+				assignedList = append(assignedList, "qwen-2.5-0.5b-instruct")
+			}
+		}
+	}
+
 	return assignedList, nil
 }
 

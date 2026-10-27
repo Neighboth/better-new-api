@@ -213,6 +213,7 @@ type ByogNode struct {
 	AllocatedDiskGB       int     `json:"allocated_disk_gb" gorm:"default:40"`
 	TotalDiskGB           int     `json:"total_disk_gb" gorm:"default:0"`
 	FreeDiskGB            int     `json:"free_disk_gb" gorm:"default:0"`
+	Disks                 string  `json:"disks" gorm:"type:text"` // JSON array of DiskPartitionInfo
 	AllocatedVramGB       int     `json:"allocated_vram_gb" gorm:"default:6"`
 	AllocatedRamGB        int     `json:"allocated_ram_gb" gorm:"default:8"`
 	AllocatedCores        int     `json:"allocated_cores" gorm:"default:4"`
@@ -907,6 +908,21 @@ func InitDefaultByogData() {
 				UpdatedAt:            time.Now().Unix(),
 			},
 			{
+				Name:                 "Desktop Standard CPU / Low-VRAM Rule",
+				DeviceClass:          "desktop_server",
+				MinVramMB:            0,
+				MinPhysicalRamMB:     2048, // 2GB
+				HardwareFamily:       "all",
+				MinCores:             2,
+				VectorInstructionSet: "all",
+				TargetModels:         `["qwen-2.5-1.5b-instruct","qwen-2.5-0.5b-instruct"]`,
+				TargetLoras:          `[]`,
+				Priority:             2,
+				IsEnabled:            true,
+				CreatedAt:            time.Now().Unix(),
+				UpdatedAt:            time.Now().Unix(),
+			},
+			{
 				Name:                 "Mid-Range Mobile & Laptop Rule (Safe Memory Allocation)",
 				DeviceClass:          "mobile_tablet",
 				MinVramMB:            0,
@@ -940,6 +956,26 @@ func InitDefaultByogData() {
 
 		for _, r := range defaultRules {
 			DB.Create(r)
+		}
+	} else {
+		// Ensure standard desktop rule exists in existing databases
+		var stdRule ByogAssignmentRule
+		if err := DB.Where("name = ?", "Desktop Standard CPU / Low-VRAM Rule").First(&stdRule).Error; err != nil {
+			DB.Create(&ByogAssignmentRule{
+				Name:                 "Desktop Standard CPU / Low-VRAM Rule",
+				DeviceClass:          "desktop_server",
+				MinVramMB:            0,
+				MinPhysicalRamMB:     2048,
+				HardwareFamily:       "all",
+				MinCores:             2,
+				VectorInstructionSet: "all",
+				TargetModels:         `["qwen-2.5-1.5b-instruct","qwen-2.5-0.5b-instruct"]`,
+				TargetLoras:          `[]`,
+				Priority:             5,
+				IsEnabled:            true,
+				CreatedAt:            time.Now().Unix(),
+				UpdatedAt:            time.Now().Unix(),
+			})
 		}
 	}
 }

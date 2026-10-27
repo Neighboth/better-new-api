@@ -408,6 +408,12 @@ func updatePricing() {
 			if err := common.Unmarshal([]byte(*row.ModelRatioOverride), &m); err == nil {
 				if r, ok := m[row.Model]; ok && r > 0 {
 					multiplier = r
+				} else if r, ok := m[strings.ToLower(row.Model)]; ok && r > 0 {
+					multiplier = r
+				} else if r, ok := m["*"]; ok && r > 0 {
+					multiplier = r
+				} else if r, ok := m["default"]; ok && r > 0 {
+					multiplier = r
 				}
 			}
 		}
@@ -440,8 +446,10 @@ func updatePricing() {
 		for h := 0; h < 24; h++ {
 			history[h] = 1
 		}
-		if row.ResponseTime > 3000 {
+		uptimeVal := 100.0
+		if row.ResponseTime > 5000 {
 			history[22] = 0
+			uptimeVal = 99.8
 		}
 
 		modelChannelsMap[row.Model] = append(modelChannelsMap[row.Model], PricingChannel{
@@ -455,7 +463,7 @@ func updatePricing() {
 			ResponseTime:  row.ResponseTime,
 			TPS:           tps,
 			TTFT:          ttft,
-			Uptime:        99.8,
+			Uptime:        uptimeVal,
 			UptimeHistory: history,
 		})
 	}

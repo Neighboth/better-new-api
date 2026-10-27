@@ -870,10 +870,10 @@ end;
 function MarkdownToRTF(const MarkdownText: String): String;
 var
   lines: TStringList;
-  i, j: Integer;
-  line, rtfBody, escapedLine: String;
-  inBold: Boolean;
-  isH1, isH2, isH3, isBullet: Boolean;
+  i, j, linkClose, urlClose: Integer;
+  line, rtfBody, escapedLine, linkText, linkUrl: String;
+  inBold, inCode: Boolean;
+  isH1, isH2, isH3, isBullet, isQuote, isTable: Boolean;
 begin
   lines := TStringList.Create;
   try
@@ -888,10 +888,28 @@ begin
         Continue;
       end;
 
+      // 1. Horizontal Rules (---, ***, ___)
+      if (line = '---') or (line = '***') or (line = '___') or
+         (Copy(line, 1, 3) = '---') or (Copy(line, 1, 3) = '***') then
+      begin
+        rtfBody := rtfBody + '\par\strike\fs16                                                                                \strike0\fs18\par ';
+        Continue;
+      end;
+
+      // 2. Headings & List formatting
       isH1 := (Copy(line, 1, 2) = '# ');
       isH2 := (Copy(line, 1, 3) = '## ');
       isH3 := (Copy(line, 1, 4) = '### ');
       isBullet := (Copy(line, 1, 2) = '- ') or (Copy(line, 1, 2) = '* ');
+      isQuote := (Copy(line, 1, 2) = '> ');
+      isTable := (Length(line) >= 2) and (line[1] = '|') and (line[Length(line)] = '|');
+
+      // Table divider line (e.g. |---|---|)
+      if isTable and (Pos('-', line) > 0) and (Pos('a', LowerCase(line)) = 0) and (Pos('e', LowerCase(line)) = 0) then
+      begin
+        rtfBody := rtfBody + '\strike\fs14                                                                      \strike0\fs18\par ';
+        Continue;
+      end;
 
       if isH1 then
         line := Trim(Copy(line, 3, Length(line)))
@@ -900,13 +918,17 @@ begin
       else if isH3 then
         line := Trim(Copy(line, 5, Length(line)))
       else if isBullet then
+        line := Trim(Copy(line, 3, Length(line)))
+      else if isQuote then
         line := Trim(Copy(line, 3, Length(line)));
 
       escapedLine := '';
       inBold := False;
+      inCode := False;
       j := 1;
       while j <= Length(line) do
       begin
+        // Bold: **text**
         if (j < Length(line)) and (line[j] = '*') and (line[j + 1] = '*') then
         begin
           if inBold then
@@ -917,11 +939,52 @@ begin
           j := j + 2;
           Continue;
         end;
+
+        // Inline code: `code`
+        if line[j] = '`' then
+        begin
+          if inCode then
+            escapedLine := escapedLine + '\f0\fs18 '
+          else
+            escapedLine := escapedLine + '\f1\fs16\b ';
+          inCode := not inCode;
+          Inc(j);
+          Continue;
+        end;
+
+        // Markdown Link: [text](url)
+        if line[j] = '[' then
+        begin
+          linkClose := Pos('](', Copy(line, j, Length(line) - j + 1));
+          if linkClose > 1 then
+          begin
+            linkText := Copy(line, j + 1, linkClose - 2);
+            urlClose := Pos(')', Copy(line, j + linkClose + 1, Length(line) - (j + linkClose)));
+            if urlClose > 1 then
+            begin
+              linkUrl := Copy(line, j + linkClose + 1, urlClose - 1);
+              escapedLine := escapedLine + '{\field{\*\fldinst HYPERLINK "' + linkUrl + '"}{\fldrslt{\ul ' + linkText + '\ul0}}} (' + linkUrl + ')';
+              j := j + linkClose + 1 + urlClose;
+              Continue;
+            end;
+          end;
+        end;
+
+        // Table pipes: separate columns with spaces
+        if isTable and (line[j] = '|') then
+        begin
+          escapedLine := escapedLine + '   |   ';
+          Inc(j);
+          Continue;
+        end;
+
         escapedLine := escapedLine + RtfEscapeChar(line[j]);
         Inc(j);
       end;
       if inBold then
         escapedLine := escapedLine + '\b0 ';
+      if inCode then
+        escapedLine := escapedLine + '\f0\fs18 ';
 
       if isH1 then
         rtfBody := rtfBody + '\par\b\fs24 ' + escapedLine + '\b0\fs18\par '
@@ -931,10 +994,12 @@ begin
         rtfBody := rtfBody + '\par\b\fs19 ' + escapedLine + '\b0\fs18\par '
       else if isBullet then
         rtfBody := rtfBody + '\bullet  ' + escapedLine + '\par '
+      else if isQuote then
+        rtfBody := rtfBody + '\li360\i ' + escapedLine + '\i0\li0\par '
       else
         rtfBody := rtfBody + escapedLine + '\par ';
     end;
-    Result := '{\rtf1\ansi\deff0{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}}\f0\fs18 ' + rtfBody + '}';
+    Result := '{\rtf1\ansi\deff0{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}{\f1\fnil\fcharset0 Consolas;}}\f0\fs18 ' + rtfBody + '}';
   finally
     lines.Free;
   end;
@@ -1192,7 +1257,13 @@ var
 begin
   icoPath := ExpandConstant('{app}\byog.ico');
   if FileExists(icoPath) then
+  begin
+    try
+      SetWindowLongW(UninstallProgressForm.Handle, GWL_EXSTYLE, GetWindowLongW(UninstallProgressForm.Handle, GWL_EXSTYLE) or WS_EX_APPWINDOW);
+    except
+    end;
     ApplyWindowIcon(UninstallProgressForm.Handle, icoPath);
+  end;
 
   bmpPath := ExpandConstant('{app}\brand_logo.bmp');
   if FileExists(bmpPath) then
@@ -1206,18 +1277,8 @@ begin
 end;
 
 function InitializeUninstall(): Boolean;
-var
-  icoPath: String;
 begin
   Result := True;
-  icoPath := ExpandConstant('{app}\byog.ico');
-  if FileExists(icoPath) then
-  begin
-    try
-      ApplyWindowIcon(UninstallProgressForm.Handle, icoPath);
-    except
-    end;
-  end;
 end;
 
 

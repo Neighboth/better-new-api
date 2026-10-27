@@ -692,7 +692,7 @@ function ModelProvidersTable(props: {
                   <td className='p-2.5'>
                     <div className='flex items-center gap-1.5'>
                       <div className='flex items-center gap-0.5'>
-                        {build24HourBars(ch.uptime ?? 99.9, ch.uptime_history).map((val, i) => (
+                        {build24HourBars(ch.uptime ?? 100.0, ch.uptime_history).map((val, i) => (
                           <div
                             key={i}
                             className={cn(
@@ -706,14 +706,10 @@ function ModelProvidersTable(props: {
                       <span
                         className={cn(
                           'text-[10px] font-semibold ml-1 tabular-nums',
-                          (ch.uptime ?? 99.9) >= 99
-                            ? 'text-emerald-500'
-                            : (ch.uptime ?? 99.9) >= 90
-                              ? 'text-amber-500'
-                              : 'text-destructive'
+                          getSuccessRateTextClass(ch.uptime ?? 100.0)
                         )}
                       >
-                        {ch.uptime ? `${ch.uptime.toFixed(1)}%` : '99.9%'}
+                        {ch.uptime ? `${ch.uptime.toFixed(1)}%` : '100.0%'}
                       </span>
                     </div>
                   </td>

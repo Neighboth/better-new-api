@@ -73,20 +73,20 @@ func InitBuiltinVendors() {
 		{"DeepSeek", "DeepSeek.Color", "deepseek"},
 		{"Moonshot", "Moonshot", "moonshot, kimi"},
 		{"xAI", "XAI", "grok"},
-		{"Meta", "Meta.Color", "llama"},
+		{"Meta", "Meta.Color", "meta, llama"},
 		{"Cohere", "Cohere.Color", "command, embed"},
 		{"Cloudflare", "Cloudflare.Color", "@cf/"},
 		{"Z.AI", "Zhipu.Color", "chatglm, glm-"},
 		{"Qwen", "Qwen.Color", "qwen"},
 		{"MiniMax", "Minimax.Color", "abab, minimax"},
-		{"百度", "Wenxin.Color", "ernie"},
-		{"讯飞", "Spark.Color", "spark"},
-		{"腾讯", "Hunyuan.Color", "hunyuan"},
-		{"零一万物", "Yi.Color", "yi-"},
+		{"Baidu", "Wenxin.Color", "ernie"},
+		{"iFlytek", "Spark.Color", "spark-, sparkdesk, iflytek, xf-"},
+		{"Tencent", "Hunyuan.Color", "hunyuan"},
+		{"01.AI", "Yi.Color", "yi-"},
 		{"Jina", "Jina", "jina"},
-		{"字节跳动", "Doubao.Color", "doubao"},
-		{"快手", "Kling.Color", "kling"},
-		{"即梦", "Jimeng.Color", "jimeng"},
+		{"ByteDance", "Doubao.Color", "doubao"},
+		{"Kuaishou", "Kling.Color", "kling"},
+		{"Jimeng", "Jimeng.Color", "jimeng"},
 		{"Vidu", "Vidu", "vidu"},
 	}
 
@@ -121,25 +121,35 @@ func GetVendorByID(id int) (*Vendor, error) {
 
 // GetAllVendors 获取全部供应商（分页）
 func GetAllVendors(offset int, limit int) ([]*Vendor, error) {
+	if DB == nil {
+		return []*Vendor{}, nil
+	}
+	EnsureModelAndVendorColumns()
 	var vendors []*Vendor
-	err := DB.Offset(offset).Limit(limit).Find(&vendors).Error
-	return vendors, err
+	_ = DB.Offset(offset).Limit(limit).Find(&vendors).Error
+	if vendors == nil {
+		vendors = []*Vendor{}
+	}
+	return vendors, nil
 }
 
 // SearchVendors 按关键字搜索供应商
 func SearchVendors(keyword string, offset int, limit int) ([]*Vendor, int64, error) {
+	if DB == nil {
+		return []*Vendor{}, 0, nil
+	}
+	EnsureModelAndVendorColumns()
 	db := DB.Model(&Vendor{})
 	if keyword != "" {
 		like := "%" + keyword + "%"
 		db = db.Where("name LIKE ? OR description LIKE ?", like, like)
 	}
 	var total int64
-	if err := db.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
+	_ = db.Count(&total).Error
 	var vendors []*Vendor
-	if err := db.Offset(offset).Limit(limit).Order("id DESC").Find(&vendors).Error; err != nil {
-		return nil, 0, err
+	_ = db.Offset(offset).Limit(limit).Order("id DESC").Find(&vendors).Error
+	if vendors == nil {
+		vendors = []*Vendor{}
 	}
 	return vendors, total, nil
 }

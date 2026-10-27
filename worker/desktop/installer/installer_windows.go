@@ -82,7 +82,14 @@ func Install(displayName string, version string) error {
 	executable := Executable()
 	icon := filepath.Join(Directory(), "byog.ico")
 
-	writeUninstallEntry(displayName, version, executable, icon)
+	innoUninstaller := filepath.Join(Directory(), "unins000.exe")
+	if _, err := os.Stat(innoUninstaller); err == nil {
+		// Installed via Inno Setup: remove standalone uninstall entry to prevent duplicate in Apps & Features
+		removeRegistryKey(uninstallKey)
+	} else {
+		writeUninstallEntry(displayName, version, executable, icon)
+	}
+
 	writeAppPathsEntry(executable)
 	writeStartupEntry(displayName, executable)
 	return nil

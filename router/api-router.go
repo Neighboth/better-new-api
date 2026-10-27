@@ -577,6 +577,7 @@ func SetApiRouter(router *gin.Engine) {
 			workerRoute.GET("/bootstrap", controller.GetByogBootstrap)
 			workerRoute.GET("/setup/policies", controller.GetByogSetupPolicies)
 			workerRoute.GET("/status", controller.GetByogWorkerStatus)
+			workerRoute.POST("/resources", controller.UpdateByogWorkerResources)
 		}
 		byogWorkerAlias := apiRouter.Group("/byog/worker")
 		{
@@ -585,6 +586,8 @@ func SetApiRouter(router *gin.Engine) {
 			byogWorkerAlias.GET("/download/:platform/:arch", controller.DownloadByogWorker)
 			byogWorkerAlias.GET("/models/:model_id/file", controller.ServeByogWorkerModel)
 			byogWorkerAlias.POST("/test-inference", controller.TestByogNodeInference)
+			byogWorkerAlias.GET("/status", controller.GetByogWorkerStatus)
+			byogWorkerAlias.POST("/resources", controller.UpdateByogWorkerResources)
 		}
 	}
 }

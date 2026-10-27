@@ -78,7 +78,29 @@ export function usePricingData() {
   const models = useMemo(() => {
     if (!data?.data || !data?.vendors) return []
 
-    const vendorMap = new Map(data.vendors.map((v) => [v.id, v]))
+    const VENDOR_NAME_NORM: Record<string, string> = {
+      '讯飞': 'iFlytek',
+      '科大讯飞': 'iFlytek',
+      '快手': 'Kuaishou',
+      '字节跳动': 'ByteDance',
+      '火山引擎': 'ByteDance',
+      '百度': 'Baidu',
+      '腾讯': 'Tencent',
+      '零一万物': '01.AI',
+      '即梦': 'Jimeng',
+      '智谱': 'Z.AI',
+      '智谱AI': 'Z.AI',
+      '阿里巴巴': 'Qwen',
+      '阿里': 'Qwen',
+    }
+
+    const normalizedVendors = (data.vendors || []).map((v) => ({
+      ...v,
+      name: VENDOR_NAME_NORM[v.name] || v.name,
+      icon: v.name === 'Meta' ? 'Meta.Color' : v.icon,
+    }))
+
+    const vendorMap = new Map(normalizedVendors.map((v) => [v.id, v]))
 
     const getRank = (name: string): number => {
       if (!name) return 999999
@@ -96,21 +118,59 @@ export function usePricingData() {
       const vendor = model.vendor_id
         ? vendorMap.get(model.vendor_id)
         : undefined
+
+      let modelIcon = model.icon
+      const mNameLower = model.model_name.toLowerCase()
+      const isMetaModel =
+        vendor?.name === 'Meta' ||
+        mNameLower.startsWith('meta/') ||
+        mNameLower.startsWith('meta-') ||
+        mNameLower.includes('llama')
+
+      if (isMetaModel && (!modelIcon || modelIcon === 'Ollama' || modelIcon === 'Ollama.Color')) {
+        modelIcon = 'Meta.Color'
+      }
+
       return {
         ...model,
+        icon: modelIcon,
         key: model.model_name,
         rank: getRank(model.model_name),
-        vendor_name: vendor?.name,
-        vendor_icon: vendor?.icon,
+        vendor_name: vendor ? (VENDOR_NAME_NORM[vendor.name] || vendor.name) : undefined,
+        vendor_icon: isMetaModel ? 'Meta.Color' : vendor?.icon,
         vendor_description: vendor?.description,
         group_ratio: data.group_ratio,
       }
     })
   }, [data, rankMap])
 
+  const VENDOR_NAME_NORM: Record<string, string> = {
+    '讯飞': 'iFlytek',
+    '科大讯飞': 'iFlytek',
+    '快手': 'Kuaishou',
+    '字节跳动': 'ByteDance',
+    '火山引擎': 'ByteDance',
+    '百度': 'Baidu',
+    '腾讯': 'Tencent',
+    '零一万物': '01.AI',
+    '即梦': 'Jimeng',
+    '智谱': 'Z.AI',
+    '智谱AI': 'Z.AI',
+    '阿里巴巴': 'Qwen',
+    '阿里': 'Qwen',
+  }
+
+  const vendors = useMemo(() => {
+    return (data?.vendors ?? []).map((v) => ({
+      ...v,
+      name: VENDOR_NAME_NORM[v.name] || v.name,
+      icon: v.name === 'Meta' ? 'Meta.Color' : v.icon,
+    }))
+  }, [data?.vendors])
+
   return {
     models,
-    vendors: data?.vendors ?? [],
+    vendors,
     groupRatio: data?.group_ratio ?? {},
     usableGroup: data?.usable_group ?? {},
     endpointMap: data?.supported_endpoint ?? {},

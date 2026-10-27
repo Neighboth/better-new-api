@@ -120,7 +120,7 @@ func GetAllModels(offset int, limit int) ([]*Model, error) {
 
 func GetBoundChannelsByModelsMap(modelNames []string) (map[string][]BoundChannel, error) {
 	result := make(map[string][]BoundChannel)
-	if len(modelNames) == 0 {
+	if len(modelNames) == 0 || DB == nil {
 		return result, nil
 	}
 	type row struct {
@@ -136,7 +136,7 @@ func GetBoundChannelsByModelsMap(modelNames []string) (map[string][]BoundChannel
 		Distinct().
 		Scan(&rows).Error
 	if err != nil {
-		return nil, err
+		return result, nil
 	}
 	for _, r := range rows {
 		result[r.Model] = append(result[r.Model], BoundChannel{Name: r.Name, Type: r.Type})
@@ -307,7 +307,7 @@ func SearchModels(keyword string, vendor string, status string, syncOfficial str
 		like := "%" + keyword + "%"
 		countDB = countDB.Where("models.model_name LIKE ? OR models.display_name LIKE ? OR models.description LIKE ? OR models.tags LIKE ?", like, like, like, like)
 	}
-	if vendor != "" {
+	if vendor != "" && strings.ToLower(vendor) != "all" {
 		if vid, err := strconv.Atoi(vendor); err == nil {
 			countDB = countDB.Where("models.vendor_id = ?", vid)
 		} else {
@@ -328,7 +328,7 @@ func SearchModels(keyword string, vendor string, status string, syncOfficial str
 		like := "%" + keyword + "%"
 		dataDB = dataDB.Where("models.model_name LIKE ? OR models.display_name LIKE ? OR models.description LIKE ? OR models.tags LIKE ?", like, like, like, like)
 	}
-	if vendor != "" {
+	if vendor != "" && strings.ToLower(vendor) != "all" {
 		if vid, err := strconv.Atoi(vendor); err == nil {
 			dataDB = dataDB.Where("models.vendor_id = ?", vid)
 		} else {
@@ -345,7 +345,7 @@ func SearchModels(keyword string, vendor string, status string, syncOfficial str
 	if err := dataDB.Order("models.id DESC").Offset(offset).Limit(limit).Find(&models).Error; err != nil {
 		// Fallback without table qualifier
 		if err2 := DB.Model(&Model{}).Order("id DESC").Offset(offset).Limit(limit).Find(&models).Error; err2 != nil {
-			return []*Model{}, total, err
+			return []*Model{}, 0, nil
 		}
 	}
 

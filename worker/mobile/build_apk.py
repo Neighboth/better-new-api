@@ -1926,17 +1926,24 @@ public class MainActivity extends Activity {
      */
     private String clientPageUrl() {
         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-        boolean isPaired = WorkerService.boolPref(sp, "is_paired", false);
         String server = WorkerService.stringPref(sp, "server_url", "");
-        String nodeId = WorkerService.stringPref(sp, "node_id", "");
-        if (!isPaired || server == null || server.trim().isEmpty()) {
+        String defaultServer = "{default_server_url}".trim();
+        if ((server == null || server.trim().isEmpty()) && !defaultServer.isEmpty() && !defaultServer.startsWith("{")) {
+            server = defaultServer;
+        }
+        if (server == null || server.trim().isEmpty()) {
             return "file:///android_asset/www/index.html";
         }
         while (server.endsWith("/")) server = server.substring(0, server.length() - 1);
         String lang = WorkerService.isTurkish() ? "tr" : "en";
         String url = server + "/client?lang=" + lang;
+        String nodeId = WorkerService.stringPref(sp, "node_id", "");
         if (!nodeId.isEmpty()) {
             url += "&node=" + Uri.encode(nodeId);
+        }
+        boolean onboardingDone = WorkerService.boolPref(sp, "onboarding_done", false);
+        if (!onboardingDone) {
+            url += "&onboarding=1";
         }
         return url;
     }
