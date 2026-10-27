@@ -82,8 +82,11 @@ function resolveModelProvider(modelName: string): ModelProvider | null {
   if (hasAny(['minimax', 'abab'])) {
     return { icon: 'Minimax.Color', label: 'MiniMax' }
   }
+  if (hasAny(['meta/', 'meta-', 'llama-'])) {
+    return { icon: 'Meta.Color', label: 'Meta' }
+  }
   if (hasAny(['glm-', 'chatglm', 'cogview', 'cogvideo'])) {
-    return { icon: 'Zhipu.Color', label: 'Zhipu' }
+    return { icon: 'ZAI', label: 'Z.AI' }
   }
   if (hasAny(['mimo-'])) {
     return { icon: 'XiaomiMiMo', label: 'MiMo' }
@@ -91,7 +94,7 @@ function resolveModelProvider(modelName: string): ModelProvider | null {
   if (hasAny(['ernie'])) {
     return { icon: 'Wenxin.Color', label: 'Baidu' }
   }
-  if (hasAny(['spark'])) {
+  if (hasAny(['spark-', 'sparkdesk', 'xf-'])) {
     return { icon: 'Spark.Color', label: 'iFlyTek' }
   }
   if (hasAny(['hunyuan'])) {

@@ -115,14 +115,69 @@ export function useModelPerfData(
       if (perf.recent_success_rates && perf.recent_success_rates.length > 0) {
         history = perf.recent_success_rates
       }
-    } else if (channels && channels.length > 0) {
-      const ch = channels[0]
-      if (ch.uptime != null && ch.uptime > 0) rate = ch.uptime
-      if (ch.ttft && ch.ttft > 0) lat = `${ch.ttft.toFixed(2)}s`
-      else if (ch.response_time && ch.response_time > 0) lat = `${ch.response_time}ms`
-      if (ch.tps && ch.tps > 0) tps = `${ch.tps.toFixed(1)}t/s`
-      if (ch.uptime_history && ch.uptime_history.length > 0) {
-        history = ch.uptime_history
+    }
+
+    if (channels && channels.length > 0) {
+      // Collect valid uptimes across all channels serving this model
+      const validUptimes = channels
+        .map((c) => c.uptime)
+        .filter((u): u is number => u != null && u > 0)
+
+      if (validUptimes.length > 0) {
+        const maxChannelUptime = Math.max(...validUptimes)
+        // If a healthy redundant channel exists, the model's availability reflects that channel
+        if (!perf || maxChannelUptime > rate) {
+          rate = maxChannelUptime
+        }
+      }
+
+      // Best latency and throughput across available channels
+      const validTtfts = channels
+        .map((c) => c.ttft)
+        .filter((t): t is number => t != null && t > 0)
+      const validRespTimes = channels
+        .map((c) => c.response_time)
+        .filter((r): r is number => r != null && r > 0)
+      const validTps = channels
+        .map((c) => c.tps)
+        .filter((s): s is number => s != null && s > 0)
+
+      if (lat === '—') {
+        if (validTtfts.length > 0) {
+          lat = `${Math.min(...validTtfts).toFixed(2)}s`
+        } else if (validRespTimes.length > 0) {
+          lat = `${Math.min(...validRespTimes)}ms`
+        }
+      }
+      if (tps === '—' && validTps.length > 0) {
+        tps = `${Math.max(...validTps).toFixed(1)}t/s`
+      }
+
+      // Multi-channel bar aggregation:
+      // If at least one channel is operational (1) during an hour, the model itself is operational (1).
+      // A red bar appears only if ALL channels were down simultaneously.
+      if (channels.length > 1) {
+        const channelBarsList = channels.map((ch) =>
+          build24HourBars(ch.uptime ?? 100.0, ch.uptime_history)
+        )
+        const combinedBars = Array(24).fill(0)
+        for (let i = 0; i < 24; i++) {
+          combinedBars[i] = channelBarsList.some((b) => b[i] === 1) ? 1 : 0
+        }
+        if (rate >= 99.5) {
+          combinedBars.fill(1)
+        }
+        return {
+          statusRate: rate,
+          latencyText: lat,
+          tpsText: tps,
+          bars: combinedBars,
+        }
+      } else {
+        const ch = channels[0]
+        if (!perf && ch.uptime_history && ch.uptime_history.length > 0) {
+          history = ch.uptime_history
+        }
       }
     }
 

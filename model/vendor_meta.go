@@ -76,7 +76,7 @@ func InitBuiltinVendors() {
 		{"Meta", "Meta.Color", "meta, llama"},
 		{"Cohere", "Cohere.Color", "command, embed"},
 		{"Cloudflare", "Cloudflare.Color", "@cf/"},
-		{"Z.AI", "Zhipu.Color", "chatglm, glm-"},
+		{"Z.AI", "ZAI", "chatglm, glm-"},
 		{"Qwen", "Qwen.Color", "qwen"},
 		{"MiniMax", "Minimax.Color", "abab, minimax"},
 		{"Baidu", "Wenxin.Color", "ernie"},

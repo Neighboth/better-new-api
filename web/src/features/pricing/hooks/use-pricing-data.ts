@@ -97,7 +97,12 @@ export function usePricingData() {
     const normalizedVendors = (data.vendors || []).map((v) => ({
       ...v,
       name: VENDOR_NAME_NORM[v.name] || v.name,
-      icon: v.name === 'Meta' ? 'Meta.Color' : v.icon,
+      icon:
+        v.name === 'Meta'
+          ? 'Meta.Color'
+          : v.name === 'Z.AI' || v.name === '智谱' || v.name === '智谱AI'
+            ? 'ZAI'
+            : v.icon,
     }))
 
     const vendorMap = new Map(normalizedVendors.map((v) => [v.id, v]))
@@ -131,13 +136,22 @@ export function usePricingData() {
         modelIcon = 'Meta.Color'
       }
 
+      const isZaiModel =
+        vendor?.name === 'Z.AI' ||
+        mNameLower.startsWith('glm-') ||
+        mNameLower.includes('chatglm')
+
+      if (isZaiModel && (!modelIcon || modelIcon.includes('Zhipu'))) {
+        modelIcon = 'ZAI'
+      }
+
       return {
         ...model,
         icon: modelIcon,
         key: model.model_name,
         rank: getRank(model.model_name),
         vendor_name: vendor ? (VENDOR_NAME_NORM[vendor.name] || vendor.name) : undefined,
-        vendor_icon: isMetaModel ? 'Meta.Color' : vendor?.icon,
+        vendor_icon: isMetaModel ? 'Meta.Color' : (isZaiModel ? 'ZAI' : vendor?.icon),
         vendor_description: vendor?.description,
         group_ratio: data.group_ratio,
       }
@@ -164,7 +178,12 @@ export function usePricingData() {
     return (data?.vendors ?? []).map((v) => ({
       ...v,
       name: VENDOR_NAME_NORM[v.name] || v.name,
-      icon: v.name === 'Meta' ? 'Meta.Color' : v.icon,
+      icon:
+        v.name === 'Meta'
+          ? 'Meta.Color'
+          : v.name === 'Z.AI' || v.name === '智谱' || v.name === '智谱AI'
+            ? 'ZAI'
+            : v.icon,
     }))
   }, [data?.vendors])
 

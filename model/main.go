@@ -376,7 +376,7 @@ func migrateNewColumns() {
 		// Fix Meta logo from Ollama to Meta.Color, and vendor names to international names
 		_ = DB.Model(&Vendor{}).Where("name = ? AND (icon = ? OR icon = ? OR icon IS NULL)", "Meta", "Ollama", "").Updates(map[string]interface{}{"icon": "Meta.Color"}).Error
 		_ = DB.Model(&Model{}).Where("(icon = ? OR icon = ?) AND (model_name LIKE ? OR model_name LIKE ? OR model_name LIKE ?)", "Ollama", "Ollama.Color", "%llama%", "meta/%", "meta-%").Update("icon", "Meta.Color").Error
-		_ = DB.Model(&Vendor{}).Where("name IN ?", []string{"智谱", "智谱AI", "智谱清言"}).Updates(map[string]interface{}{"name": "Z.AI", "icon": "Zhipu.Color"}).Error
+		_ = DB.Model(&Vendor{}).Where("name IN ?", []string{"智谱", "智谱AI", "智谱清言", "Z.AI"}).Updates(map[string]interface{}{"name": "Z.AI", "icon": "ZAI"}).Error
 		_ = DB.Model(&Vendor{}).Where("name IN ?", []string{"阿里巴巴", "阿里", "通义千问"}).Updates(map[string]interface{}{"name": "Qwen", "icon": "Qwen.Color"}).Error
 		_ = DB.Model(&Vendor{}).Where("name IN ?", []string{"讯飞", "科大讯飞"}).Updates(map[string]interface{}{"name": "iFlytek", "icon": "Spark.Color"}).Error
 		_ = DB.Model(&Vendor{}).Where("name IN ?", []string{"快手"}).Updates(map[string]interface{}{"name": "Kuaishou", "icon": "Kling.Color"}).Error

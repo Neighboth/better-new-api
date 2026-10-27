@@ -47,7 +47,7 @@ var defaultVendorIcons = map[string]string{
 	"Anthropic":  "Claude.Color",
 	"Google":     "Gemini.Color",
 	"Moonshot":   "Moonshot",
-	"Z.AI":       "Zhipu.Color",
+	"Z.AI":       "ZAI",
 	"Qwen":       "Qwen.Color",
 	"DeepSeek":   "DeepSeek.Color",
 	"MiniMax":    "Minimax.Color",

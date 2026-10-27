@@ -174,6 +174,8 @@ func TestByogEndToEndLifecycle(t *testing.T) {
 		} `json:"data"`
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&regResult))
+	_ = resp.Body.Close()
+	http.DefaultClient.CloseIdleConnections()
 	require.True(t, regResult.Success)
 	require.NotEmpty(t, regResult.Data.NodeId)
 	require.True(t, regResult.Data.IsPaired)
@@ -195,9 +197,12 @@ func TestByogEndToEndLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusSwitchingProtocols, wsResp.StatusCode)
 
 	// Verify session registered in GlobalHub
-	session, ok := byogservice.GlobalHub.GetSession(nodeId)
-	require.True(t, ok)
-	require.NotNil(t, session)
+	var session *byogservice.NodeSession
+	require.Eventually(t, func() bool {
+		var ok bool
+		session, ok = byogservice.GlobalHub.GetSession(nodeId)
+		return ok && session != nil
+	}, 3*time.Second, 20*time.Millisecond)
 
 	// Worker message handling loop in background
 	workerDone := make(chan struct{})
