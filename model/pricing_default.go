@@ -2,6 +2,8 @@ package model
 
 import (
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // 简化的供应商映射规则
@@ -123,7 +125,7 @@ func initDefaultVendorMapping(metaMap map[string]*Model, vendorMap map[int]*Vend
 		// 3. 检查默认规则关键字
 		if vendorID == 0 {
 			for pattern, vendorName := range defaultVendorRules {
-				if strings.Contains(modelLower, pattern) {
+				if matchesKeyword(modelLower, pattern) {
 					vendorID = getOrCreateVendor(vendorName, vendorMap)
 					break
 				}
@@ -149,6 +151,32 @@ func initDefaultVendorMapping(metaMap map[string]*Model, vendorMap map[int]*Vend
 	}
 }
 
+// matchesKeyword reports whether needle occurs in haystack at a token boundary.
+// A boundary is the start of the string or a preceding non-alphanumeric rune, so
+// short patterns such as "o1" or "kling" no longer match inside unrelated names
+// like "sao10k" or "inkling".
+func matchesKeyword(haystack, needle string) bool {
+	if needle == "" {
+		return false
+	}
+	for offset := 0; offset < len(haystack); {
+		idx := strings.Index(haystack[offset:], needle)
+		if idx < 0 {
+			return false
+		}
+		pos := offset + idx
+		if pos == 0 {
+			return true
+		}
+		prev, _ := utf8.DecodeLastRuneInString(haystack[:pos])
+		if !unicode.IsLetter(prev) && !unicode.IsDigit(prev) {
+			return true
+		}
+		offset = pos + 1
+	}
+	return false
+}
+
 func matchVendorByKeywords(modelLower string, vendorMap map[int]*Vendor) int {
 	for id, vendor := range vendorMap {
 		if vendor.Keywords == "" {
@@ -157,7 +185,7 @@ func matchVendorByKeywords(modelLower string, vendorMap map[int]*Vendor) int {
 		keywords := strings.Split(vendor.Keywords, ",")
 		for _, kw := range keywords {
 			kw = strings.TrimSpace(strings.ToLower(kw))
-			if kw != "" && strings.Contains(modelLower, kw) {
+			if kw != "" && matchesKeyword(modelLower, kw) {
 				return id
 			}
 		}
