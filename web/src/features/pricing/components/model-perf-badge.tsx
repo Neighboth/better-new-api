@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { TFunction } from 'i18next'
 import { ChevronRight } from 'lucide-react'
 import { memo, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -63,20 +64,41 @@ export const PERF_BAR_COUNT = 24
 export type { PerfBar }
 const PERF_BAR_WIDTH_SECONDS = 3600
 
+/**
+ * Colour of a bar of the strip.
+ *
+ * Two states and no third one: the hour of a model is green when none of its
+ * requests failed and red when one of them did. An hour without requests is
+ * green as well, its tooltip says that the hour carried no request.
+ */
 const BAR_CLASS: Record<UptimeLevel, string> = {
   ok: 'bg-emerald-500',
-  warn: 'bg-amber-500',
   bad: 'bg-destructive',
-  empty: 'bg-muted-foreground/25',
+}
+
+/**
+ * Tooltip of a bar of the strip.
+ *
+ * The title always carries the hour of the bar. A bar of an hour without
+ * requests says so instead of showing the 0 % of a slot that was measured on
+ * nothing, and a bar whose source carries no request count shows the rate
+ * alone rather than a count it never received.
+ */
+function barTitle(bar: PerfBar, t: TFunction): string {
+  const hour = new Date(bar.ts * 1000).toLocaleString()
+  if (bar.requests === 0) return `${hour} · ${t('No requests in this hour')}`
+  if (bar.requests === undefined) return `${hour} · ${bar.rate.toFixed(2)}%`
+  return `${hour} · ${bar.rate.toFixed(2)}% (${bar.requests})`
 }
 
 /**
  * Build the bars of the last day of a model.
  *
  * Every bar is one hour of the real timeline and its colour is the measured
- * success rate of that hour. An hour without requests is drawn as unknown: the
- * panel never puts a green bar on a slot that has no evidence and it never
- * invents red bars to reach an expected failure count.
+ * success rate of that hour: green when the requests of the hour succeeded, red
+ * when one of them failed. An hour without requests is green and the tooltip of
+ * the bar says that the hour carried no request, the panel never invents a
+ * failure to fill the strip.
  */
 export function buildPerfBars(
   perf: ModelPerfBadgeData | undefined,
@@ -84,7 +106,7 @@ export function buildPerfBars(
 ): PerfBar[] {
   if (!perf) {
     return fillBuckets(undefined, PERF_BAR_WIDTH_SECONDS, PERF_BAR_COUNT, nowMs).map(
-      (bucket) => ({ ts: bucket.ts, level: 'empty' as UptimeLevel, rate: 0, requests: 0 })
+      (bucket) => ({ ts: bucket.ts, level: 'ok' as UptimeLevel, rate: 0, requests: 0 })
     )
   }
 
@@ -255,11 +277,7 @@ export const ModelPerfSparkline = memo(function ModelPerfSparkline(props: {
             'flex-1 h-full rounded-[1px] transition-colors',
             BAR_CLASS[bar.level]
           )}
-          title={
-            bar.level === 'empty'
-              ? t('No requests in this hour')
-              : `${new Date(bar.ts * 1000).toLocaleString()} · ${bar.rate.toFixed(2)}% (${bar.requests})`
-          }
+          title={barTitle(bar, t)}
         />
       ))}
     </div>
@@ -325,11 +343,7 @@ export const ModelCardTelemetry = memo(function ModelCardTelemetry(props: {
                   'w-[2.5px] h-full rounded-[1px] transition-colors shrink-0',
                   BAR_CLASS[bar.level]
                 )}
-                title={
-                  bar.level === 'empty'
-                    ? `${new Date(bar.ts * 1000).toLocaleString()} · ${t('No requests in this hour')}`
-                    : `${new Date(bar.ts * 1000).toLocaleString()} · ${bar.rate.toFixed(2)}% (${bar.requests})`
-                }
+                title={barTitle(bar, t)}
               />
             ))}
           </div>

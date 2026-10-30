@@ -21,7 +21,6 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useThemeCustomization } from '@/context/theme-customization-provider'
-import { getSuccessRateColor } from '@/features/performance-metrics/lib/format'
 import { useThemeRadiusPx } from '@/lib/theme-radius'
 import { useChartTheme } from '@/lib/use-chart-theme'
 import { cn } from '@/lib/utils'
@@ -29,6 +28,11 @@ import { VCHART_OPTION } from '@/lib/vchart'
 
 import type { LatencyTimePoint } from '../lib/mock-stats'
 import type { UptimeDayPoint } from '../lib/uptime'
+
+// The two colours of the uptime of a day. The chart of the trend uses the raw
+// values of the series, the classes of the panel are not available there.
+const UPTIME_OK_COLOR = '#10b981'
+const UPTIME_BAD_COLOR = '#ef4444'
 
 function formatHourLabel(iso: string): string {
   const date = new Date(iso)
@@ -208,6 +212,7 @@ export function UptimeTrendChart(props: {
       uptime: toUptimeChartValue(point.uptime_pct),
       incidents: point.incidents,
       outage: point.outage_minutes,
+      requests: point.requests,
     }))
     const data =
       rawData.length === 1
@@ -233,8 +238,13 @@ export function UptimeTrendChart(props: {
           size: 5,
           stroke: '#ffffff',
           lineWidth: 1.5,
-          fill: (datum: { uptime: number }) =>
-            getSuccessRateColor(datum.uptime),
+          // Two states, the same rule as the strips of the panel: a day is
+          // green when nothing failed in it (a day without requests included)
+          // and red when a request of the day failed.
+          fill: (datum: { uptime: number; requests?: number }) =>
+            (datum.requests ?? 0) <= 0 || datum.uptime >= 99.9
+              ? UPTIME_OK_COLOR
+              : UPTIME_BAD_COLOR,
         },
       },
       tooltip: {

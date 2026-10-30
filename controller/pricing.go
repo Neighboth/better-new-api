@@ -49,7 +49,7 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string
 // the square asks for it on every page load.
 type pricingUptimeEntry struct {
 	Rate    float64
-	History []float64
+	History []*float64
 }
 
 var pricingUptimeCache = struct {
@@ -72,14 +72,18 @@ func loadPricingUptime() map[string]pricingUptimeEntry {
 	summary, err := perfmetrics.QuerySummaryAll(24, nil)
 	if err == nil {
 		for _, item := range summary.Models {
-			history := make([]float64, 0, len(item.UptimeBuckets))
-			for _, bucket := range item.UptimeBuckets {
+			// One entry per hour of the window: the slot of an hour without
+			// requests stays in the list as a nil so that every entry keeps
+			// the hour the backend measured it on. Dropping those hours would
+			// slide the traffic of the day to the newest slots of the strip
+			// and report an incident of the morning as an incident of now.
+			history := make([]*float64, len(item.UptimeBuckets))
+			for index, bucket := range item.UptimeBuckets {
 				if bucket.RequestCount == 0 {
-					// An hour without requests is not an hour of perfect
-					// service: it stays out of the history of the card.
 					continue
 				}
-				history = append(history, bucket.SuccessRate)
+				rate := bucket.SuccessRate
+				history[index] = &rate
 			}
 			models[item.ModelName] = pricingUptimeEntry{Rate: item.SuccessRate, History: history}
 		}

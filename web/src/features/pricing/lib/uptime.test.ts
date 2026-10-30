@@ -22,6 +22,7 @@ import type { UptimeBucket } from '@/features/performance-metrics/types'
 
 import {
   aggregateDailyUptime,
+  barsFromHistory,
   bucketLevel,
   buildDailyUptime,
   failedRequests,
@@ -69,14 +70,27 @@ describe('uptime of a model', () => {
     expect(uptimePercent([bucket(NOW - HOUR, 2, -5)])).toBe(100)
   })
 
-  it('draws the slot of a model by the requests of the slot', () => {
-    expect(bucketLevel(bucket(NOW, 0, 0))).toBe('empty')
+  it('draws the slot of a model green or red and never a third colour', () => {
+    // A slot without requests proves no failure: it is green, the tooltip of
+    // the bar tells that the hour carried no request.
+    expect(bucketLevel(bucket(NOW, 0, 0))).toBe('ok')
+    expect(bucketLevel(undefined)).toBe('ok')
     expect(bucketLevel(bucket(NOW, 10, 0))).toBe('ok')
-    // A slot that lost one request of a hundred is degraded, a slot that lost
-    // half of its requests is a failure of the model.
-    expect(bucketLevel(bucket(NOW, 100, 2))).toBe('warn')
+    // A slot that lost a request of a hundred is red, the strip has no yellow
+    // state between a good hour and a failed one.
+    expect(bucketLevel(bucket(NOW, 100, 1))).toBe('bad')
+    expect(bucketLevel(bucket(NOW, 100, 2))).toBe('bad')
     expect(bucketLevel(bucket(NOW, 10, 5))).toBe('bad')
-    expect(bucketLevel(undefined)).toBe('empty')
+    // The rounding of the rate of the server does not turn a perfect hour red.
+    expect(
+      bucketLevel({
+        ts: NOW,
+        duration_seconds: HOUR,
+        success_rate: 99.95,
+        request_count: 10,
+        failed_count: 0,
+      })
+    ).toBe('ok')
   })
 })
 
@@ -188,6 +202,48 @@ describe('a payload without the counter of the failures', () => {
     expect(hour.request_count).toBe(60)
     expect(hour.failed_count).toBe(3)
     expect(hour.success_rate).toBeCloseTo(95, 5)
-    expect(bucketLevel(hour)).toBe('warn')
+    expect(bucketLevel(hour)).toBe('bad')
+  })
+})
+
+describe('barsFromHistory', () => {
+  it('draws an hour without requests green and gives it no rate', () => {
+    // The history of the backend holds one entry per hour of the window and a
+    // null for the hours without requests. Those hours are green, the tooltip of
+    // their bar says that the hour carried no request.
+    const bars = barsFromHistory([null, null, 100], NOW * 1000)
+    expect(bars).toHaveLength(24)
+    expect(bars.slice(0, 21).every((bar) => bar.level === 'ok')).toBe(true)
+    expect(bars.slice(0, 21).every((bar) => bar.requests === 0)).toBe(true)
+    expect(bars[23].level).toBe('ok')
+    expect(bars[23].requests).toBeUndefined()
+  })
+
+  it('keeps the traffic of an hour on the hour that measured it', () => {
+    // The only busy hour of the day is the first one of the list. Dropping the
+    // silent hours would have slid that traffic to the newest slot of the strip
+    // and reported an incident of the morning as an incident of now.
+    const history: (number | null)[] = [0, null, null, null]
+    const bars = barsFromHistory(history, NOW * 1000)
+    expect(bars[20].level).toBe('bad')
+    expect(bars[20].requests).toBeUndefined()
+    expect(bars[21].level).toBe('ok')
+    expect(bars[22].level).toBe('ok')
+    expect(bars[23].level).toBe('ok')
+  })
+
+  it('never reads a low rate as a fraction of a perfect hour', () => {
+    // A hour that lost ninety-nine requests of a hundred reports one percent,
+    // not a fraction of one, and the strip must keep it red.
+    const bars = barsFromHistory([1], NOW * 1000)
+    expect(bars[23].level).toBe('bad')
+    expect(bars[23].rate).toBe(1)
+  })
+
+  it('draws an empty history as a green day without a measurement', () => {
+    const bars = barsFromHistory(undefined, NOW * 1000)
+    expect(bars).toHaveLength(24)
+    expect(bars.every((bar) => bar.level === 'ok')).toBe(true)
+    expect(bars.every((bar) => bar.requests === 0)).toBe(true)
   })
 })

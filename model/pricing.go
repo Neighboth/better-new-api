@@ -31,9 +31,13 @@ type PricingChannel struct {
 	// instead of a perfect score that no request has proven.
 	Uptime float64 `json:"uptime,omitempty"`
 	// UptimeHistory is the measured success rate of every hour of the last day,
-	// oldest first. The values are percentages, the empty tail of the day is
-	// omitted.
-	UptimeHistory []float64 `json:"uptime_history,omitempty"`
+	// oldest first. The values are percentages.
+	//
+	// The list holds one entry per hour of the window and the entry of an hour
+	// without requests is nil: the position of an entry is the hour of that
+	// entry, so dropping the silent hours would move the traffic of the day to
+	// the right of the strip and report an old incident as a recent one.
+	UptimeHistory []*float64 `json:"uptime_history,omitempty"`
 }
 
 type Pricing struct {

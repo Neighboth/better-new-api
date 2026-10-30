@@ -696,16 +696,15 @@ function ModelProvidersTable(props: {
                             key={bar.ts}
                             className={cn(
                               'w-1 h-3 rounded-xs transition-colors',
+                              // Two states: green when the requests of the
+                              // hour succeeded, red when one of them failed.
+                              // An hour without requests is green as well.
                               bar.level === 'ok'
                                 ? 'bg-emerald-500'
-                                : bar.level === 'warn'
-                                  ? 'bg-amber-500'
-                                  : bar.level === 'bad'
-                                    ? 'bg-destructive'
-                                    : 'bg-muted-foreground/25'
+                                : 'bg-destructive'
                             )}
                             title={
-                              bar.level === 'empty'
+                              bar.requests === 0
                                 ? t('No requests in this hour')
                                 : `${bar.rate.toFixed(2)}%`
                             }
