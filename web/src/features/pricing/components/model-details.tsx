@@ -715,10 +715,14 @@ function ModelProvidersTable(props: {
                       <span
                         className={cn(
                           'text-[10px] font-semibold ml-1 tabular-nums',
-                          getSuccessRateTextClass(ch.uptime ?? 100.0)
+                          // A channel without a measurement is not a perfect
+                          // channel: the dash says that nothing was measured.
+                          ch.uptime
+                            ? getSuccessRateTextClass(ch.uptime)
+                            : 'text-muted-foreground'
                         )}
                       >
-                        {ch.uptime ? `${ch.uptime.toFixed(1)}%` : '100.0%'}
+                        {ch.uptime ? `${ch.uptime.toFixed(2)}%` : '—'}
                       </span>
                     </div>
                   </td>

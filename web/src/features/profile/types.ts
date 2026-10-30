@@ -120,6 +120,8 @@ export interface UserSettings {
   upstream_model_update_notify_enabled?: boolean
   /** Preferred interface/API response language */
   language?: string
+  /** The user turned the announcements of the site off */
+  marketing_email_opt_out?: boolean
 }
 
 /**
@@ -148,6 +150,8 @@ export interface UpdateUserSettingsRequest {
   accept_unset_model_ratio_model?: boolean
   record_ip_log?: boolean
   upstream_model_update_notify_enabled?: boolean
+  /** The user turned the announcements of the site off */
+  marketing_email_opt_out?: boolean
 }
 
 /**

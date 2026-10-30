@@ -45,6 +45,32 @@ export type UptimeDayPoint = {
 
 const DAY_SECONDS = 86_400
 
+/**
+ * Failed requests of a slot.
+ *
+ * The backend reports the number of the requests of a slot and the number of
+ * the requests that failed, and the panel never assumes a success: a payload
+ * that carries a measured rate but not the counter of the failures is read from
+ * the rate. Reading such a payload as "no failure" would paint every model of
+ * the square green.
+ */
+export function failedRequests(bucket: UptimeBucket): number {
+  const requests = Math.max(0, bucket.request_count ?? 0)
+  if (requests === 0) return 0
+  if (
+    typeof bucket.failed_count === 'number' &&
+    Number.isFinite(bucket.failed_count)
+  ) {
+    return Math.min(requests, Math.max(0, bucket.failed_count))
+  }
+  const rate = bucket.success_rate
+  if (typeof rate === 'number' && Number.isFinite(rate)) {
+    const succeeded = (Math.min(100, Math.max(0, rate)) / 100) * requests
+    return Math.min(requests, Math.max(0, Math.round(requests - succeeded)))
+  }
+  return 0
+}
+
 /** Level of a single slot of the monitoring window. */
 export function bucketLevel(bucket: UptimeBucket | undefined): UptimeLevel {
   if (!bucket || bucket.request_count <= 0) return 'empty'
@@ -67,11 +93,7 @@ export function uptimePercent(buckets: UptimeBucket[] | undefined): number | nul
   for (const bucket of buckets) {
     if (!Number.isFinite(bucket.request_count) || bucket.request_count <= 0) continue
     requests += bucket.request_count
-    const failed = Math.min(
-      bucket.request_count,
-      Math.max(0, bucket.failed_count ?? 0)
-    )
-    succeeded += bucket.request_count - failed
+    succeeded += bucket.request_count - failedRequests(bucket)
   }
   if (requests === 0) return null
   return (succeeded / requests) * 100
@@ -94,24 +116,45 @@ export function fillBuckets(
   const slotCount = count > 0 ? count : 24
   const nowSeconds = Math.floor(nowMs / 1000)
   const last = nowSeconds - (nowSeconds % slotWidth)
-  const known = new Map<number, UptimeBucket>()
+
+  // The stored bucket of the backend can be finer than the slot of the panel
+  // (a minute of counters inside an hour of bars). Every bucket is summed into
+  // the slot that contains it: a slot is the traffic of the slot, never only
+  // the one bucket whose timestamp equals the start of the slot.
+  const known = new Map<number, { requests: number; failed: number }>()
   for (const bucket of buckets ?? []) {
     if (!Number.isFinite(bucket?.ts)) continue
-    known.set(bucket.ts - (bucket.ts % slotWidth), bucket)
+    const slot = bucket.ts - (bucket.ts % slotWidth)
+    const requests = Math.max(0, bucket.request_count ?? 0)
+    if (requests === 0) continue
+    const current = known.get(slot) ?? { requests: 0, failed: 0 }
+    current.requests += requests
+    current.failed += failedRequests(bucket)
+    known.set(slot, current)
   }
 
   const filled: UptimeBucket[] = []
   for (let index = slotCount - 1; index >= 0; index--) {
     const ts = last - index * slotWidth
-    filled.push(
-      known.get(ts) ?? {
+    const value = known.get(ts)
+    if (!value || value.requests === 0) {
+      filled.push({
         ts,
         duration_seconds: slotWidth,
         success_rate: 0,
         request_count: 0,
         failed_count: 0,
-      }
-    )
+      })
+      continue
+    }
+    const failed = Math.min(value.requests, value.failed)
+    filled.push({
+      ts,
+      duration_seconds: slotWidth,
+      success_rate: ((value.requests - failed) / value.requests) * 100,
+      request_count: value.requests,
+      failed_count: failed,
+    })
   }
   return filled
 }
@@ -146,7 +189,7 @@ export function buildDailyUptime(
     const key = localDateOf(bucket.ts)
     const current = byDate.get(key) ?? { requests: 0, failed: 0, slots: 0, failingSlots: 0 }
     const requests = Math.max(0, bucket.request_count ?? 0)
-    const failed = Math.min(requests, Math.max(0, bucket.failed_count ?? 0))
+    const failed = failedRequests(bucket)
     current.requests += requests
     current.failed += failed
     current.slots += 1

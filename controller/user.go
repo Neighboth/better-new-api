@@ -1551,8 +1551,12 @@ type UpdateUserSettingRequest struct {
 	GotifyToken                      string  `json:"gotify_token,omitempty"`
 	GotifyPriority                   int     `json:"gotify_priority,omitempty"`
 	UpstreamModelUpdateNotifyEnabled *bool   `json:"upstream_model_update_notify_enabled,omitempty"`
-	AcceptUnsetModelRatioModel       bool    `json:"accept_unset_model_ratio_model"`
-	RecordIpLog                      bool    `json:"record_ip_log"`
+	// MarketingEmailOptOut is the choice of the user about the promotional
+	// messages of the installation. A request that does not carry the field
+	// keeps the choice that the user made before.
+	MarketingEmailOptOut       *bool `json:"marketing_email_opt_out,omitempty"`
+	AcceptUnsetModelRatioModel bool  `json:"accept_unset_model_ratio_model"`
+	RecordIpLog                bool  `json:"record_ip_log"`
 }
 
 func UpdateUserSetting(c *gin.Context) {
@@ -1647,6 +1651,14 @@ func UpdateUserSetting(c *gin.Context) {
 	if user.Role >= common.RoleAdminUser && req.UpstreamModelUpdateNotifyEnabled != nil {
 		upstreamModelUpdateNotifyEnabled = *req.UpstreamModelUpdateNotifyEnabled
 	}
+	// The announcements of the installation are accepted by default. The choice
+	// of the user is kept when the page of the settings does not send it: the
+	// form of the notifications writes the whole document and a field that the
+	// form does not know would turn the announcements back on.
+	marketingEmailOptOut := existingSettings.MarketingEmailOptOut
+	if req.MarketingEmailOptOut != nil {
+		marketingEmailOptOut = *req.MarketingEmailOptOut
+	}
 
 	// 构建设置
 	settings := dto.UserSetting{
@@ -1655,6 +1667,7 @@ func UpdateUserSetting(c *gin.Context) {
 		UpstreamModelUpdateNotifyEnabled: upstreamModelUpdateNotifyEnabled,
 		AcceptUnsetRatioModel:            req.AcceptUnsetModelRatioModel,
 		RecordIpLog:                      req.RecordIpLog,
+		MarketingEmailOptOut:             marketingEmailOptOut,
 	}
 
 	// 如果是webhook类型,添加webhook相关设置

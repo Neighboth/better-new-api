@@ -303,6 +303,9 @@ type guiWindow struct {
 	// embedClosing tells that the window of WebView2 is closed by the client,
 	// the end of the process is not a failure of the runtime.
 	embedClosing bool
+	// quitRequested tells that the client is ended by the user, the window is
+	// not opened again after the loop of the messages.
+	quitRequested bool
 }
 
 var (
@@ -383,7 +386,7 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string, trayFlag bool
 	fmt.Printf("[GUI] After window.create(), window=%v\n", window.window)
 
 	// The worker starts in the background, the window shows its state.
-	go func() {
+	safeGo("bootstrap", func() {
 		if config.PairingCode != "" {
 			result, err := registerWorker()
 			if err != nil {
@@ -394,15 +397,33 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string, trayFlag bool
 			startTunnel()
 		}
 		startBackgroundTasks()
-	}()
+	})
 
 	// The state of the worker is read in the background, the window never waits
 	// for the worker.
-	go window.watchWorker()
+	safeGo("status", window.watchWorker)
 
-	fmt.Println("[GUI] Entering messageLoop")
-	window.messageLoop()
-	fmt.Println("[GUI] Exited messageLoop")
+	// The loop of the messages of the window is the life of the client. The
+	// loop ends when the window is destroyed, and the client used to end with
+	// it: a window that the system closed (a change of the resolution of the
+	// screen, the restart of the explorer of the desktop) stopped the worker of
+	// a computer that nobody was sitting at. The client only ends when the user
+	// asks it to end, otherwise the window is opened again.
+	for {
+		fmt.Println("[GUI] Entering messageLoop")
+		window.messageLoop()
+		fmt.Println("[GUI] Exited messageLoop")
+		window.mutex.Lock()
+		quitting := window.quitRequested
+		window.mutex.Unlock()
+		if quitting {
+			return
+		}
+		logLine("[RESILIENCE] the loop of the window ended, the window is opened again")
+		time.Sleep(2 * time.Second)
+		window.window = 0
+		window.create()
+	}
 }
 
 // applyBranding shows the name and the icon of the installation in the window.
@@ -1279,6 +1300,9 @@ func (w *guiWindow) closeApp() {
 
 // quit ends the client.
 func (w *guiWindow) quit() {
+	w.mutex.Lock()
+	w.quitRequested = true
+	w.mutex.Unlock()
 	closeWebViewWindow()
 	w.removeTrayIcon()
 	os.Exit(0)

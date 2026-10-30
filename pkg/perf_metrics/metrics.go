@@ -193,7 +193,7 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 			SuccessRate:        math.Round(successRate*100) / 100,
 			AvgTps:             math.Round(avgTps*100) / 100,
 			RecentSuccessRates: recentSuccessRates(modelBuckets[name], 24),
-			UptimeBuckets:      alignedUptimeBuckets(modelBuckets[name], startTs, endTs),
+			UptimeBuckets:      alignedUptimeBuckets(modelBuckets[name], startTs, endTs, hourSeconds),
 			RequestCount:       total.requestCount,
 		})
 	}
@@ -262,6 +262,13 @@ func recentSuccessRates(buckets map[int64]counters, limit int) []float64 {
 // hours and a month of days and never more than that.
 const maxUptimeBuckets = 24 * 31
 
+// hourSeconds is the slot of the timeline of the summary.
+//
+// The card of a model draws one bar per hour of the day. The setting of the
+// metrics can store a minute of counters, the answer of the summary is still a
+// day of hours: the counters of the minutes are summed into their hour.
+const hourSeconds int64 = 3600
+
 // alignedUptimeBuckets returns every slot of the monitoring window with the
 // success rate of the model, a slot without requests included.
 //
@@ -269,19 +276,57 @@ const maxUptimeBuckets = 24 * 31
 // that is running now, therefore the last slot of the answer is always the
 // current state of the model. The failures of a model appear at the time they
 // happened, the panel does not have to guess where an incident belongs.
-func alignedUptimeBuckets(buckets map[int64]counters, startTs int64, endTs int64) []UptimeBucket {
-	width := perf_metrics_setting.GetBucketSeconds()
+func alignedUptimeBuckets(buckets map[int64]counters, startTs int64, endTs int64, slotWidth int64) []UptimeBucket {
+	width := slotWidth
 	if width <= 0 {
+		// The timeline of the panel is a timeline of hours: the summary is drawn
+		// as a day of bars and the stored buckets of a finer setting are summed
+		// into the hour that contains them. A window of minutes would cover the
+		// first hours of the day only and the panel would show an empty morning
+		// for every model.
+		width = perf_metrics_setting.GetBucketSeconds()
+	}
+	if width < 3600 {
 		width = 3600
 	}
 	if endTs <= 0 {
 		endTs = time.Now().Unix()
 	}
 	starts := uptime.SlotStarts(startTs, endTs, width, maxUptimeBuckets)
+	if len(starts) == 0 {
+		return nil
+	}
+
+	// The stored buckets are aligned to the width of the setting of the moment
+	// they were written, and the setting can be finer than a slot of the answer
+	// (a minute of counters inside an hour of the timeline) or the setting can
+	// change while the installation runs. Every stored bucket is therefore
+	// summed into the slot that contains its timestamp: a slot is the sum of the
+	// requests of the slot and never only the request of the one bucket whose
+	// timestamp happens to equal the timestamp of the slot.
+	merged := make(map[int64]counters, len(starts))
+	first := starts[0]
+	last := starts[len(starts)-1]
+	for ts, value := range buckets {
+		slot := uptime.SlotStart(ts, width)
+		if slot < first || slot > last {
+			continue
+		}
+		current := merged[slot]
+		current.requestCount += value.requestCount
+		current.successCount += value.successCount
+		merged[slot] = current
+	}
+
 	result := make([]UptimeBucket, 0, len(starts))
 	for _, ts := range starts {
-		value := buckets[ts]
+		value := merged[ts]
 		failures := value.requestCount - value.successCount
+		if failures < 0 {
+			// A bucket cannot hold more successes than requests, the guard keeps
+			// a broken row from reporting a negative outage.
+			failures = 0
+		}
 		result = append(result, UptimeBucket{
 			Ts:             ts,
 			DurationSecond: width,

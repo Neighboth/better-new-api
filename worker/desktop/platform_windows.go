@@ -265,6 +265,19 @@ func acquireSingleInstance() bool {
 	return true
 }
 
+// releaseSingleInstance gives the mutex of the client back to the system.
+//
+// The self-updater starts the program of a new version before this program
+// ends: the new program asks for the mutex of the client and it would end at
+// once while this program still holds it.
+func releaseSingleInstance() {
+	if singleInstanceMutex == 0 {
+		return
+	}
+	_ = windows.CloseHandle(singleInstanceMutex)
+	singleInstanceMutex = 0
+}
+
 // showRunningInstance brings the window of the client that runs to the front.
 func showRunningInstance() {
 	user32 := syscall.NewLazyDLL("user32.dll")
@@ -359,4 +372,3 @@ func getFixedDiskPartitions() []DiskPartitionInfo {
 	}
 	return partitions
 }
-

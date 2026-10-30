@@ -312,6 +312,7 @@ func migrateDB() error {
 		&ByogNodeBan{},
 		&ByogCrashReport{},
 		&ByogP2PTracker{},
+		&MailCampaign{},
 	)
 	if err != nil {
 		return err

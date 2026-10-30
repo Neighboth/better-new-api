@@ -26,8 +26,14 @@ type PricingChannel struct {
 	ResponseTime  int      `json:"response_time"`
 	TPS           float64  `json:"tps,omitempty"`
 	TTFT          float64  `json:"ttft,omitempty"`
-	Uptime        float64  `json:"uptime,omitempty"`
-	UptimeHistory []int    `json:"uptime_history,omitempty"`
+	// Uptime is the measured uptime of the model over the last day. A model
+	// that the metrics did not measure carries no value: the panel shows a dash
+	// instead of a perfect score that no request has proven.
+	Uptime float64 `json:"uptime,omitempty"`
+	// UptimeHistory is the measured success rate of every hour of the last day,
+	// oldest first. The values are percentages, the empty tail of the day is
+	// omitted.
+	UptimeHistory []float64 `json:"uptime_history,omitempty"`
 }
 
 type Pricing struct {
@@ -436,35 +442,25 @@ func updatePricing() {
 			}
 		}
 
+		// The speed of a channel is the time the channel needed to answer and
+		// nothing else. A channel that never answered the probe carries no
+		// value: an invented latency and an invented throughput are a promise
+		// that the model does not keep.
 		ttft := float64(row.ResponseTime) / 1000.0
-		if ttft <= 0 {
-			ttft = 0.45
-		}
-		tps := 42.0 + float64(row.ChannelId%28)
-
-		history := make([]int, 24)
-		for h := 0; h < 24; h++ {
-			history[h] = 1
-		}
-		uptimeVal := 100.0
-		if row.ResponseTime > 5000 {
-			history[22] = 0
-			uptimeVal = 99.8
+		if ttft < 0 {
+			ttft = 0
 		}
 
 		modelChannelsMap[row.Model] = append(modelChannelsMap[row.Model], PricingChannel{
-			Id:            row.ChannelId,
-			Name:          row.ChannelName,
-			Type:          row.ChannelType,
-			Group:         row.Group,
-			InputPrice:    inPrice,
-			OutputPrice:   outPrice,
-			CachePrice:    cPrice,
-			ResponseTime:  row.ResponseTime,
-			TPS:           tps,
-			TTFT:          ttft,
-			Uptime:        uptimeVal,
-			UptimeHistory: history,
+			Id:           row.ChannelId,
+			Name:         row.ChannelName,
+			Type:         row.ChannelType,
+			Group:        row.Group,
+			InputPrice:   inPrice,
+			OutputPrice:  outPrice,
+			CachePrice:   cPrice,
+			ResponseTime: row.ResponseTime,
+			TTFT:         ttft,
 		})
 	}
 

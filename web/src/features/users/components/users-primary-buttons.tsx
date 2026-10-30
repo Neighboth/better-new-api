@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Plus } from 'lucide-react'
+import { Mail, Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -29,7 +29,7 @@ export function UsersPrimaryButtons() {
   const { t } = useTranslation()
   const user = useAuthStore((s) => s.auth.user)
   const canWrite = hasPermission(user, ADMIN_PERMISSION_RESOURCES.USER, 'write')
-  const { setOpen, setCurrentRow } = useUsers()
+  const { setOpen, setCurrentRow, setMailOpen, setMailUserIds } = useUsers()
 
   if (!canWrite) {
     return null
@@ -40,8 +40,19 @@ export function UsersPrimaryButtons() {
     setOpen('create')
   }
 
+  const handleMail = () => {
+    // The dialog of the mail opens without a recipient: the administrator
+    // chooses the users there or turns on every user of the site.
+    setMailUserIds([])
+    setMailOpen(true)
+  }
+
   return (
     <div className='flex gap-2'>
+      <Button size='sm' variant='outline' onClick={handleMail}>
+        <Mail className='h-4 w-4' />
+        {t('Send mail')}
+      </Button>
       <Button size='sm' onClick={handleCreate}>
         <Plus className='h-4 w-4' />
         {t('Add User')}

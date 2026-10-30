@@ -25,6 +25,7 @@ import { getSuccessRateTextClass } from '@/features/performance-metrics/lib/form
 import { cn } from '@/lib/utils'
 import type { PricingChannel } from '../types'
 import {
+  barsFromHistory,
   bucketLevel,
   fillBuckets,
   uptimePercent,
@@ -117,7 +118,14 @@ export function useModelPerfData(
     // The uptime of the model comes from the requests that the gateway served.
     // The status of a channel is a property of the channel and it never proves
     // that the requests of this model succeeded, therefore it is not used here.
-    const rate = uptimePercent(perf?.uptime_buckets)
+    //
+    // When the summary of the metrics is not loaded yet, the pricing payload of
+    // the installation carries the same measurement for the model: the number
+    // of the card is the number of the detail page and never a value that no
+    // request has proven.
+    const measuredRate = uptimePercent(perf?.uptime_buckets)
+    const channelUptime = findChannelUptime(channels)
+    const rate = measuredRate ?? channelUptime?.uptime ?? null
 
     if (channels && channels.length > 0) {
       const validTtfts = channels
@@ -146,9 +154,26 @@ export function useModelPerfData(
       statusRate: rate,
       latencyText: lat,
       tpsText: tps,
-      bars: buildPerfBars(perf),
+      bars: perf
+        ? buildPerfBars(perf)
+        : channelUptime?.uptime_history?.length
+          ? barsFromHistory(channelUptime.uptime_history)
+          : buildPerfBars(undefined),
     }
   }, [perf, channels])
+}
+
+/** The channel that carries the measured uptime of the model, if any. */
+function findChannelUptime(
+  channels: PricingChannel[] | undefined
+): PricingChannel | undefined {
+  if (!channels || channels.length === 0) return undefined
+  return channels.find(
+    (channel) =>
+      typeof channel.uptime === 'number' &&
+      Number.isFinite(channel.uptime) &&
+      channel.uptime > 0
+  )
 }
 
 function statusClass(rate: number | null): string {

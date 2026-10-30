@@ -354,7 +354,7 @@ func downloadAssignedModel(modelId string, downloadUrl string, fileSize int64) {
 // startDownloadLoop starts the queue of the downloads of the client.
 func startDownloadLoop() {
 	downloadLoopStart.Do(func() {
-		go runDownloadLoop()
+		recoverForever("download", runDownloadLoop)
 	})
 }
 
@@ -966,20 +966,73 @@ func checkSelfUpdate() {
 	_ = os.Remove(oldExe)
 	if err := os.Rename(currentExe, oldExe); err != nil {
 		_ = os.Remove(newExe)
-		fmt.Printf("[BYOG UPDATER] Rename failed: %v\n", err)
+		logLine("[BYOG UPDATER] the program of the client can not be replaced: %v", err)
 		return
 	}
 	if err := os.Rename(newExe, currentExe); err != nil {
 		_ = os.Rename(oldExe, currentExe)
 		_ = os.Remove(newExe)
+		logLine("[BYOG UPDATER] the new program can not be placed: %v", err)
 		return
 	}
 
-	// Restart with current arguments silently
-	cmd := exec.Command(currentExe, os.Args[1:]...)
-	hideProcessWindow(cmd)
-	_ = cmd.Start()
+	// The client of the new version is started before this program ends.
+	//
+	// The client used to end as soon as the file of the new program was placed,
+	// whatever the new program did: a file that the antivirus of the computer
+	// quarantined, a program that a policy of the system blocked, and the
+	// computer was left without a client until somebody noticed. The new
+	// program has to run for a few seconds before this program ends, otherwise
+	// the previous program is put back and the client keeps serving.
+	if err := startAndVerifyUpdate(currentExe, oldExe); err != nil {
+		logLine("[BYOG UPDATER] the new version did not start, the previous version is restored: %v", err)
+		_ = os.Remove(currentExe)
+		_ = os.Rename(oldExe, currentExe)
+		return
+	}
 	os.Exit(0)
+}
+
+// startAndVerifyUpdate starts the program of a new version and reports whether
+// it runs.
+//
+// The new program gets the arguments of this program and it runs for five
+// seconds. A program that ends in that time with an error did not start, the
+// caller restores the previous program. The wait happens in the loop of the
+// update of the client: the worker keeps serving the tasks of the network while
+// the new program starts.
+func startAndVerifyUpdate(executable string, previous string) error {
+	// The mutex of the client is released before the new program starts, the
+	// new program is the client of the user from now on.
+	releaseSingleInstance()
+	command := exec.Command(executable, os.Args[1:]...)
+	command.Dir = filepath.Dir(executable)
+	hideProcessWindow(command)
+	if err := command.Start(); err != nil {
+		_ = acquireSingleInstance()
+		return fmt.Errorf("the new program can not be started: %w", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- command.Wait()
+	}()
+	select {
+	case err := <-done:
+		// The program ended before the check: a working client stays in the
+		// background of the computer.
+		if err != nil {
+			return fmt.Errorf("the new program ended at once: %w", err)
+		}
+		return fmt.Errorf("the new program ended at once without an error")
+	case <-time.After(5 * time.Second):
+		// The program runs, the previous program is not needed any more and it
+		// is removed when the system releases the file.
+		go func() {
+			time.Sleep(30 * time.Second)
+			_ = os.Remove(previous)
+		}()
+		return nil
+	}
 }
 
 // Crash Telemetry Reporter (Section 5.6)

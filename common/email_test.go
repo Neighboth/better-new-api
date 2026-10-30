@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -267,6 +268,29 @@ func withSMTPSettings(t *testing.T) {
 	})
 }
 
+// mailTextBody returns the decoded parts of a message of the installation.
+//
+// The body of a message is written as a multipart document with encoded parts,
+// the reader of the test decodes the parts and returns the text of all of them.
+func mailTextBody(t *testing.T, message string) string {
+	t.Helper()
+	var decoded strings.Builder
+	for _, line := range strings.Split(message, "\r\n") {
+		if line == "" || strings.Contains(line, ":") || strings.HasPrefix(line, "--") {
+			continue
+		}
+		part, err := base64.StdEncoding.DecodeString(line)
+		if err != nil {
+			decoded.WriteString(line)
+			decoded.WriteString("\n")
+			continue
+		}
+		decoded.Write(part)
+		decoded.WriteString("\n")
+	}
+	return decoded.String()
+}
+
 func TestSendEmailUsesExplicitStartTLSWithInsecureCertificate(t *testing.T) {
 	server := newFakeSMTPServer(t)
 	defer server.close()
@@ -289,7 +313,7 @@ func TestSendEmailUsesExplicitStartTLSWithInsecureCertificate(t *testing.T) {
 	select {
 	case message := <-server.messages:
 		require.Contains(t, message, "Subject: =?UTF-8?B?")
-		require.Contains(t, message, "<p>123456</p>")
+		require.Contains(t, mailTextBody(t, message), "<p>123456</p>")
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for SMTP DATA")
 	}
@@ -343,7 +367,7 @@ func TestSendEmailDoesNotAutoUpgradeWhenStartTLSDisabled(t *testing.T) {
 
 	select {
 	case message := <-server.messages:
-		require.Contains(t, message, "<p>123456</p>")
+		require.Contains(t, mailTextBody(t, message), "<p>123456</p>")
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for SMTP DATA")
 	}
@@ -446,7 +470,7 @@ func TestSendEmailSkipsAuthWhenCredentialsAreEmpty(t *testing.T) {
 
 	select {
 	case message := <-server.messages:
-		require.Contains(t, message, "<p>123456</p>")
+		require.Contains(t, mailTextBody(t, message), "<p>123456</p>")
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for SMTP DATA")
 	}
@@ -479,7 +503,7 @@ func TestSendEmailSkipsAuthWhenCredentialsAreIncomplete(t *testing.T) {
 
 	select {
 	case message := <-server.messages:
-		require.Contains(t, message, "<p>123456</p>")
+		require.Contains(t, mailTextBody(t, message), "<p>123456</p>")
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for SMTP DATA")
 	}
