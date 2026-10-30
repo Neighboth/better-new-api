@@ -27,7 +27,6 @@ import {
 } from '@/components/ui/tooltip'
 import {
   formatUptimePct,
-  getSuccessRateDotClass,
   getSuccessRateTextClass,
 } from '@/features/performance-metrics/lib/format'
 import { cn } from '@/lib/utils'
@@ -39,8 +38,11 @@ import { aggregateDailyUptime, type UptimeDayPoint } from '../lib/uptime'
 // ---------------------------------------------------------------------------
 //
 // Compact 30-day uptime visualisation: a row of small coloured bars where:
-//   - Bar colour reflects per-day uptime (green / amber / red)
-//   - Bar height reflects severity (the worse the day, the shorter the bar)
+//   - A day is green when the requests of the day succeeded and red when one of
+//     them failed; the bar of a failed day is shorter
+//   - A day without requests is green: the model was not asked anything and
+//     nothing failed, the tooltip of the bar says that the day carried no
+//     request
 //   - Hovering a bar reveals the exact date and uptime
 //
 // Useful as a header strip ("at-a-glance" status) and as a per-row visual
@@ -56,15 +58,11 @@ type UptimeSparklineProps = {
   className?: string
 }
 
-function heightFor(uptime: number): string {
-  if (uptime >= 99.9) return 'h-full'
-  if (uptime >= 99.0) return 'h-[88%]'
-  if (uptime >= 95.0) return 'h-[72%]'
-  if (uptime >= 90.0) return 'h-[55%]'
-  return 'h-[40%]'
-}
+/** The rate from which a day is drawn green, the same rule as the hourly strip. */
+const DAY_OK_MIN = 99.9
 
 export function UptimeSparkline(props: UptimeSparklineProps) {
+  const { t } = useTranslation()
   const size = props.size ?? 'md'
   const showOverall = props.showOverall ?? true
 
@@ -77,7 +75,8 @@ export function UptimeSparkline(props: UptimeSparklineProps) {
   }
 
   // Only the days that really served requests are measured. A day without
-  // traffic is drawn as unknown, it is neither a success nor a failure.
+  // traffic is drawn green and carries no rate, it is neither a success that a
+  // request proved nor a failure that nobody measured.
   const measured = props.series.filter((day) => (day.requests ?? 0) > 0)
   const overall = aggregateDailyUptime(props.series).uptime_pct
 
@@ -94,47 +93,50 @@ export function UptimeSparkline(props: UptimeSparklineProps) {
       >
         {props.series.map((day) => {
           const unknown = (day.requests ?? 0) <= 0
+          // Two states: a day is green when nothing failed in it, red when a
+          // request of the day failed. A day without requests is green.
+          const ok = unknown || day.uptime_pct >= DAY_OK_MIN
           return (
-          <Tooltip key={day.date}>
-            <TooltipTrigger
-              render={
+            <Tooltip key={day.date}>
+              <TooltipTrigger
+                render={
+                  <div
+                    className={cn(
+                      'rounded-sm transition-opacity hover:opacity-80',
+                      barWidth,
+                      containerHeight,
+                      'flex items-end'
+                    )}
+                  />
+                }
+              >
                 <div
                   className={cn(
-                    'rounded-sm transition-opacity hover:opacity-80',
-                    barWidth,
-                    containerHeight,
-                    'flex items-end'
+                    'w-full rounded-sm',
+                    ok ? 'bg-emerald-500 h-full' : 'bg-destructive h-[55%]'
                   )}
+                  aria-hidden
                 />
-              }
-            >
-              <div
-                className={cn(
-                  'w-full rounded-sm',
-                  unknown
-                    ? 'bg-muted-foreground/25 h-[30%]'
-                    : cn(getSuccessRateDotClass(day.uptime_pct), heightFor(day.uptime_pct))
+              </TooltipTrigger>
+              <TooltipContent side='top' className='font-mono text-xs'>
+                <div className='font-medium'>{day.date}</div>
+                {unknown ? (
+                  <div className='text-muted-foreground'>
+                    {t('No requests in this day')}
+                  </div>
+                ) : (
+                  <>
+                    <div>{day.uptime_pct.toFixed(2)}%</div>
+                    <div className='text-muted-foreground'>{day.requests} requests</div>
+                    {day.outage_minutes > 0 && (
+                      <div className='text-muted-foreground'>
+                        {day.outage_minutes} min outage
+                      </div>
+                    )}
+                  </>
                 )}
-                aria-hidden
-              />
-            </TooltipTrigger>
-            <TooltipContent side='top' className='font-mono text-xs'>
-              <div className='font-medium'>{day.date}</div>
-              {unknown ? (
-                <div className='text-muted-foreground'>No requests</div>
-              ) : (
-                <>
-                  <div>{day.uptime_pct.toFixed(2)}%</div>
-                  <div className='text-muted-foreground'>{day.requests} requests</div>
-                  {day.outage_minutes > 0 && (
-                    <div className='text-muted-foreground'>
-                      {day.outage_minutes} min outage
-                    </div>
-                  )}
-                </>
-              )}
-            </TooltipContent>
-          </Tooltip>
+              </TooltipContent>
+            </Tooltip>
           )
         })}
       </div>
@@ -164,12 +166,11 @@ export function UptimeStatusRow(props: {
 }) {
   const { t } = useTranslation()
   const summary = useMemo(() => aggregateDailyUptime(props.series), [props.series])
+  // Two states, the same rule as the bars: the window is operational when none
+  // of its requests failed and it carries an outage when one of them did.
   const status = useMemo(() => {
     if (summary.days === 0) return 'unknown'
-    if (summary.uptime_pct >= 99.9) return 'operational'
-    if (summary.uptime_pct >= 99.0) return 'minor'
-    if (summary.uptime_pct >= 95.0) return 'degraded'
-    return 'major'
+    return summary.uptime_pct >= DAY_OK_MIN ? 'operational' : 'outage'
   }, [summary.uptime_pct, summary.days])
 
   const StatusIcon =
@@ -177,31 +178,21 @@ export function UptimeStatusRow(props: {
       ? Activity
       : status === 'operational'
         ? CheckCircle2
-        : status === 'minor'
-          ? Activity
-          : AlertCircle
+        : AlertCircle
 
   const statusColour =
     status === 'unknown'
       ? 'text-muted-foreground'
       : status === 'operational'
-      ? 'text-emerald-600 dark:text-emerald-400'
-      : status === 'minor'
         ? 'text-emerald-600 dark:text-emerald-400'
-        : status === 'degraded'
-          ? 'text-amber-600 dark:text-amber-400'
-          : 'text-rose-600 dark:text-rose-400'
+        : 'text-rose-600 dark:text-rose-400'
 
   const statusLabel =
     status === 'unknown'
       ? t('No requests were served in the last 30 days')
       : status === 'operational'
-      ? t('All systems operational')
-      : status === 'minor'
-        ? t('Minor blips in the last 30 days')
-        : status === 'degraded'
-          ? t('Degraded performance recently')
-          : t('Significant outages detected')
+        ? t('All systems operational')
+        : t('Requests failed in the last 30 days')
 
   return (
     <div

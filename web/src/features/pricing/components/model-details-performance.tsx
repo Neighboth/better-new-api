@@ -318,7 +318,9 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
           }
           accent={
             incidentCount > 0 ? (
-              <span className='inline-flex items-center gap-1 text-amber-600 dark:text-amber-400'>
+              // An incident is a failure of a request: it wears the colour of
+              // the failed slots of the strip, not a third amber shade.
+              <span className='inline-flex items-center gap-1 text-rose-600 dark:text-rose-400'>
                 <AlertTriangle className='size-3.5' />
                 {t('{{count}} incidents', {
                   count: incidentCount,

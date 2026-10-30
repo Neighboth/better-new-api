@@ -39,7 +39,14 @@ export type PricingChannel = {
   tps?: number
   ttft?: number
   uptime?: number
-  uptime_history?: number[]
+  /**
+   * Measured success rate of every hour of the last day, oldest first.
+   *
+   * One entry per hour of the window: the entry of an hour without requests is
+   * null and keeps its place, so the strip draws the traffic of the day on the
+   * hours that measured it instead of sliding it to the newest slots.
+   */
+  uptime_history?: (number | null)[]
 }
 
 export type PricingModel = {

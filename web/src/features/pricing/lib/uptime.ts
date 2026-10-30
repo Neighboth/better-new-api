@@ -27,12 +27,33 @@ import type { UptimeBucket } from '@/features/performance-metrics/types'
 // window together with the number of requests of the slot, therefore:
 //
 //   - the rate of a slot is the rate of the requests of that slot,
-//   - a slot without requests proves nothing and is drawn as unknown instead of
-//     being counted as a failure or as a success,
+//   - a slot without requests is drawn green, because the strip answers whether
+//     a request of the model failed and a silent hour lost no request; its
+//     tooltip names the hour as empty instead of showing a made up rate,
+//   - a slot is never counted as a failure on the strength of the silence of the
+//     installation, red comes only from a request that the slot actually lost,
 //   - the position of a failing slot on the timeline follows from its timestamp,
 //     so an incident from yesterday never appears as an incident of today.
 
-export type UptimeLevel = 'ok' | 'warn' | 'bad' | 'empty'
+/**
+ * Colour of one slot of the uptime timeline.
+ *
+ * The panel draws two states and not four: a slot where every request of the
+ * slot succeeded (or where the model served no request at all) is green and a
+ * slot that lost a request is red. A yellow state between the two of them made
+ * a reader look for a third meaning that the strip never explained.
+ */
+export type UptimeLevel = 'ok' | 'bad'
+
+/**
+ * The rate from which a slot is drawn green.
+ *
+ * The rate of a slot is the share of its requests that succeeded, therefore a
+ * slot is green when no request of it failed. The tolerance covers the rounding
+ * of the rate of the answer: 100 of 100 requests is exactly 100 percent and the
+ * value of a slot that served a lot of requests is rounded by the server.
+ */
+const UPTIME_OK_MIN = 99.9
 
 export type UptimeDayPoint = {
   /** Local date of the day, `YYYY-MM-DD`. */
@@ -71,12 +92,19 @@ export function failedRequests(bucket: UptimeBucket): number {
   return 0
 }
 
-/** Level of a single slot of the monitoring window. */
+/**
+ * Level of a single slot of the monitoring window.
+ *
+ * A slot without requests is green: the strip of a model tells whether the
+ * requests of the model failed, and an hour in which the model was not asked
+ * anything is an hour without a failure. The tooltip of the bar still says that
+ * the hour carried no request, the reader never mistakes the silence of the
+ * installation for a measurement.
+ */
 export function bucketLevel(bucket: UptimeBucket | undefined): UptimeLevel {
-  if (!bucket || bucket.request_count <= 0) return 'empty'
-  if (bucket.success_rate >= 99.9) return 'ok'
-  if (bucket.success_rate >= 95) return 'warn'
-  return 'bad'
+  if (!bucket || bucket.request_count <= 0) return 'ok'
+  if (!Number.isFinite(bucket.success_rate)) return 'bad'
+  return bucket.success_rate >= UPTIME_OK_MIN ? 'ok' : 'bad'
 }
 
 /**
@@ -252,25 +280,29 @@ export function aggregateDailyUptime(points: UptimeDayPoint[]): {
 /**
  * Bars of a channel from its hourly history.
  *
- * The history carries the last hours of the channel, oldest first, without a
- * timestamp per entry. The entries fill the most recent slots and the hours
- * that the history does not cover stay unknown.
+ * The history carries one entry per hour of the window, oldest first, and the
+ * entry of an hour without requests is null. The entries are read from the end
+ * of the list, because the last entry is the hour that just ended, and an entry
+ * without a rate is an hour that served nothing: it is drawn green and its
+ * tooltip says that the hour carried no request.
  */
 export function barsFromHistory(
-  history: number[] | undefined,
+  history: (number | null)[] | undefined,
   nowMs: number = Date.now()
 ): PerfBar[] {
   const slots = fillBuckets(undefined, 3600, 24, nowMs)
-  const values = (history ?? []).filter((value) => Number.isFinite(value))
+  const values = history ?? []
   const start = Math.max(0, slots.length - values.length)
   return slots.map((slot, index) => {
     const value = index >= start ? values[index - start] : undefined
-    if (value === undefined) {
-      return { ts: slot.ts, level: 'empty' as UptimeLevel, rate: 0, requests: 0 }
+    if (value === undefined || value === null || !Number.isFinite(value)) {
+      return { ts: slot.ts, level: 'ok' as UptimeLevel, rate: 0, requests: 0 }
     }
-    const rate = value <= 1 ? value * 100 : value
-    const level: UptimeLevel = rate >= 99.9 ? 'ok' : rate >= 95 ? 'warn' : 'bad'
-    return { ts: slot.ts, level, rate, requests: 1 }
+    // The history is a percentage, the same unit as the rate of a slot of the
+    // card. Tricking a rate of one percent into a fraction would draw an hour
+    // that lost ninety-nine requests of a hundred as a perfect hour.
+    const level: UptimeLevel = value >= UPTIME_OK_MIN ? 'ok' : 'bad'
+    return { ts: slot.ts, level, rate: value }
   })
 }
 
@@ -278,5 +310,12 @@ export type PerfBar = {
   ts: number
   level: UptimeLevel
   rate: number
-  requests: number
+  /**
+   * Number of requests of the slot, `0` for a slot that served none.
+   *
+   * Left undefined when the source of the bar carries a rate without a count,
+   * which is the case of the hourly history of a channel: the tooltip of such a
+   * bar shows the rate alone instead of inventing a request count.
+   */
+  requests?: number
 }
