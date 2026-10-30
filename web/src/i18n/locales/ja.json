@@ -6796,6 +6796,10 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "No requests in this hour": "この1時間はリクエストがありません",
+    "No requests in the last 24 hours": "直近24時間にリクエストがありません",
+    "uptime in the last 24 hours": "直近24時間の稼働率",
+    "No requests were served in the last 30 days": "直近30日間はリクエストがありません"
   }
 }

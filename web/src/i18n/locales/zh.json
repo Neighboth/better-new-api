@@ -6796,6 +6796,10 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "No requests in this hour": "这一小时没有请求",
+    "No requests in the last 24 hours": "最近 24 小时没有请求",
+    "uptime in the last 24 hours": "最近 24 小时可用率",
+    "No requests were served in the last 30 days": "最近 30 天没有处理请求"
   }
 }

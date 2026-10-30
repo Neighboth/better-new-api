@@ -67,6 +67,12 @@ type TunnelFrame struct {
 }
 
 // Telemetry Payload in Heartbeat
+//
+// The hardware of the computer is measured by the client and reported with
+// every heartbeat. The fields that the client cannot measure are pointers, a
+// value that is missing is not the same as a value of zero: a computer without
+// a dedicated graphics adapter reports zero megabytes of video memory and the
+// panel of the network shows that it has none.
 type TelemetryPayload struct {
 	CpuTemp          float64  `json:"cpu_temp"`
 	GpuTemp          float64  `json:"gpu_temp"`
@@ -88,6 +94,27 @@ type TelemetryPayload struct {
 	DownloadStatus   string   `json:"download_status,omitempty"`
 	IsGamerMode      bool     `json:"is_gamer_mode"`
 	IsThrottled      bool     `json:"is_throttled"`
+
+	// The model of the progress that the client reports.
+	DownloadModelId   string   `json:"download_model_id,omitempty"`
+	DownloadSpeedBps  float64  `json:"download_speed_bps,omitempty"`
+	EtaSeconds        int      `json:"eta_seconds,omitempty"`
+	DownloadStartedAt int64    `json:"download_started_at,omitempty"`
+	DownloadQueue     []string `json:"download_queue,omitempty"`
+
+	// The hardware of the computer.
+	CpuModel          string          `json:"cpu_model,omitempty"`
+	GpuModel          string          `json:"gpu_model,omitempty"`
+	CpuCores          *int            `json:"cpu_cores,omitempty"`
+	PhysicalRamMB     *int            `json:"physical_ram_mb,omitempty"`
+	SwapRamMB         *int            `json:"swap_ram_mb,omitempty"`
+	VramMB            *int            `json:"vram_mb,omitempty"`
+	SharedVramMB      *int            `json:"shared_vram_mb,omitempty"`
+	Disks             json.RawMessage `json:"disks,omitempty"`
+	BandwidthDownMbps *float64        `json:"bandwidth_down_mbps,omitempty"`
+	BandwidthUpMbps   *float64        `json:"bandwidth_up_mbps,omitempty"`
+	PingMs            *int            `json:"ping_ms,omitempty"`
+	HotStartEnabled   *bool           `json:"hot_start_enabled,omitempty"`
 }
 
 // Inference Request Payload
@@ -266,38 +293,118 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 			if telemetry.ModelStatus != "" {
 				node.ModelStatus = telemetry.ModelStatus
 			}
-			// The download progress is only meaningful while a model is transferred, but
-			// the total size is reported from the moment the worker starts the download.
-			if telemetry.TotalMB > 0 || telemetry.ModelStatus == "downloading" {
+			// The progress of a model is only meaningful while that model is
+			// transferred. The client downloads one model at a time, the model
+			// of the report names the transfer: the progress of a second model
+			// never continues the progress of the first one and the progress of
+			// a transfer never goes back on the panel.
+			if telemetry.DownloadModelId != "" {
+				if node.DownloadModelId != telemetry.DownloadModelId {
+					node.DownloadModelId = telemetry.DownloadModelId
+					node.DownloadProgress = 0
+					node.DownloadedMB = 0
+				}
+				// A transfer that is retried starts from the first byte, the
+				// moment of the attempt is the start of the new progress.
+				if telemetry.DownloadStartedAt > 0 && node.DownloadStartedAt != telemetry.DownloadStartedAt {
+					node.DownloadStartedAt = telemetry.DownloadStartedAt
+					node.DownloadProgress = 0
+					node.DownloadedMB = 0
+				}
 				if telemetry.TotalMB > 0 {
 					node.TotalMB = telemetry.TotalMB
 				}
-				node.DownloadedMB = telemetry.DownloadedMB
-				node.DownloadProgress = telemetry.DownloadProgress
-				if node.DownloadProgress <= 0 && node.TotalMB > 0 {
-					node.DownloadProgress = int((float64(node.DownloadedMB) / float64(node.TotalMB)) * 100)
+				if telemetry.DownloadedMB > node.DownloadedMB {
+					node.DownloadedMB = telemetry.DownloadedMB
 				}
-				if node.DownloadProgress < 0 {
-					node.DownloadProgress = 0
+				progress := telemetry.DownloadProgress
+				if progress <= 0 && node.TotalMB > 0 {
+					progress = int((float64(node.DownloadedMB) / float64(node.TotalMB)) * 100)
 				}
-				if node.DownloadProgress > 100 {
-					node.DownloadProgress = 100
+				if progress > node.DownloadProgress {
+					node.DownloadProgress = progress
 				}
+				node.DownloadSpeedBps = telemetry.DownloadSpeedBps
+				node.EtaSeconds = telemetry.EtaSeconds
+			} else if telemetry.ModelStatus == "ready" && node.DownloadModelId != "" {
+				// The model of the last transfer is complete, the panel shows
+				// the finished transfer until the next model starts.
+				node.DownloadProgress = 100
+				node.EtaSeconds = 0
+				node.DownloadSpeedBps = 0
+			}
+			if node.DownloadProgress < 0 {
+				node.DownloadProgress = 0
+			}
+			if node.DownloadProgress > 100 {
+				node.DownloadProgress = 100
 			}
 			if telemetry.DownloadStatus != "" {
 				node.DownloadStatus = telemetry.DownloadStatus
 			}
+			if len(telemetry.DownloadQueue) > 0 || telemetry.ModelStatus == "ready" {
+				if encoded, err := json.Marshal(telemetry.DownloadQueue); err == nil {
+					node.DownloadQueue = string(encoded)
+				}
+			}
 			if telemetry.ActiveVramModel != "" {
 				node.ActiveVramModel = telemetry.ActiveVramModel
+			}
+			// The hardware of the computer. The client reports the values that
+			// it measured, the coordinator stores them as they are.
+			if telemetry.CpuModel != "" {
+				node.CpuModel = telemetry.CpuModel
+			}
+			if telemetry.GpuModel != "" {
+				node.GpuModel = telemetry.GpuModel
+			}
+			if telemetry.CpuCores != nil && *telemetry.CpuCores > 0 {
+				node.CpuCores = *telemetry.CpuCores
+			}
+			if telemetry.PhysicalRamMB != nil && *telemetry.PhysicalRamMB > 0 {
+				node.PhysicalRamMB = *telemetry.PhysicalRamMB
+			}
+			if telemetry.SwapRamMB != nil && *telemetry.SwapRamMB >= 0 {
+				node.SwapRamMB = *telemetry.SwapRamMB
+			}
+			if telemetry.VramMB != nil && *telemetry.VramMB >= 0 {
+				node.VramMB = *telemetry.VramMB
+			}
+			if telemetry.SharedVramMB != nil && *telemetry.SharedVramMB >= 0 {
+				node.SharedVramMB = *telemetry.SharedVramMB
+			}
+			if telemetry.BandwidthDownMbps != nil && *telemetry.BandwidthDownMbps > 0 {
+				node.BandwidthDownMbps = *telemetry.BandwidthDownMbps
+			}
+			if telemetry.BandwidthUpMbps != nil && *telemetry.BandwidthUpMbps > 0 {
+				node.BandwidthUpMbps = *telemetry.BandwidthUpMbps
+			}
+			if telemetry.PingMs != nil && *telemetry.PingMs > 0 {
+				node.PingMs = *telemetry.PingMs
+			}
+			if telemetry.HotStartEnabled != nil {
+				node.HotStartEnabled = *telemetry.HotStartEnabled
+			}
+			if len(telemetry.Disks) > 2 {
+				var disks []map[string]interface{}
+				if err := json.Unmarshal(telemetry.Disks, &disks); err == nil && len(disks) > 0 {
+					node.Disks = string(telemetry.Disks)
+				}
 			}
 			if telemetry.TotalDiskGB > 0 {
 				node.TotalDiskGB = telemetry.TotalDiskGB
 			}
 			if telemetry.FreeDiskGB > 0 {
 				node.FreeDiskGB = telemetry.FreeDiskGB
-				if node.AllocatedDiskGB > node.FreeDiskGB {
-					node.AllocatedDiskGB = node.FreeDiskGB
-				}
+			}
+			if telemetry.PhysicalRamMB != nil && node.AllocatedRamGB > *telemetry.PhysicalRamMB/1024 {
+				node.AllocatedRamGB = *telemetry.PhysicalRamMB / 1024
+			}
+			if telemetry.VramMB != nil && node.AllocatedVramGB > *telemetry.VramMB/1024 {
+				node.AllocatedVramGB = *telemetry.VramMB / 1024
+			}
+			if node.AllocatedDiskGB > node.FreeDiskGB && node.FreeDiskGB > 0 {
+				node.AllocatedDiskGB = node.FreeDiskGB
 			}
 			node.LastHeartbeatAt = time.Now().Unix()
 			node.UpdatedAt = time.Now().Unix()
@@ -326,6 +433,15 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 				"multiplier": multiplier,
 				"bonuses":    bonusKeys,
 				"uptime":     uptimeSecs,
+				// The settings of the node belong to the installation: the
+				// window of the client and the page of the client show the same
+				// values because both read them from here.
+				"hot_start_enabled": node.HotStartEnabled,
+				"allocated_ram_gb":  node.AllocatedRamGB,
+				"allocated_vram_gb": node.AllocatedVramGB,
+				"allocated_cores":   node.AllocatedCores,
+				"allocated_disk_gb": node.AllocatedDiskGB,
+				"free_disk_gb":      node.FreeDiskGB,
 			})
 			_ = s.WriteFrame(TunnelFrame{
 				Type:    MsgTypeHeartbeatAck,

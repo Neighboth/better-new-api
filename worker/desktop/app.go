@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -40,9 +41,14 @@ type AppStatus struct {
 	DownloadedMB int
 	TotalMB      int
 	Progress     int
-	CurrentTps   float64
-	TotalTokens  int64
-	ModelName    string
+	// The speed of the transfer and the time that remains follow the bytes
+	// that arrive, the window shows them next to the progress.
+	DownloadSpeedBps float64
+	EtaSeconds       int
+	CurrentTps       float64
+	TotalTokens      int64
+	ModelName        string
+	HotStartEnabled  bool
 	PairingCode  string
 	HasCode      bool
 	LastError    string
@@ -285,6 +291,12 @@ func registerWorker() (registerResult, error) {
 		return result, fmt.Errorf("%s", result.ServerError)
 	}
 
+	// The hardware of the computer is read on the computer. A value that cannot
+	// be measured is reported as zero and not as a number that the coordinator
+	// would show in the panel of the network.
+	hardware := readHardware()
+	network, _ := readBandwidth()
+
 	body, _ := json.Marshal(map[string]interface{}{
 		"hwid":                hwid,
 		"pairing_code":        pairingCode,
@@ -292,19 +304,24 @@ func registerWorker() (registerResult, error) {
 		"arch":                runtime.GOARCH,
 		"device_name":         deviceName,
 		"device_type":         "desktop",
-		"cpu_model":           "Host CPU Architecture",
-		"cpu_cores":           runtime.NumCPU(),
-		"gpu_model":           "Dedicated GPU / Compute Engine",
-		"physical_ram_mb":     physicalRamMB(),
-		"swap_ram_mb":         2048,
-		"vram_mb":             8192,
-		"shared_vram_mb":      0,
-		"tee_supported":       true,
-		"tee_type":            "sgx",
-		"bandwidth_down_mbps": 120.0,
-		"bandwidth_up_mbps":   100.0,
-		"ping_ms":             18,
+		"cpu_model":           hardware.CpuModel,
+		"cpu_cores":           hardware.CpuCores,
+		"gpu_model":           hardware.GpuModel,
+		"physical_ram_mb":     hardware.PhysicalRamMB,
+		"swap_ram_mb":         hardware.SwapRamMB,
+		"vram_mb":             hardware.VramMB,
+		"shared_vram_mb":      hardware.SharedVramMB,
+		"tee_supported":       false,
+		"tee_type":            "none",
+		"bandwidth_down_mbps": network.DownMbps,
+		"bandwidth_up_mbps":   network.UpMbps,
+		"ping_ms":             network.PingMs,
 		"network_type":        "ethernet",
+		"total_disk_gb":       hardware.TotalDiskGB,
+		"free_disk_gb":        hardware.FreeDiskGB,
+		"disks":               json.RawMessage(hardware.disksJSON()),
+		"installed_models":    installedModelsJSON(),
+		"hot_start_enabled":   State.HotStartEnabled,
 	})
 
 	response, err := http.Post(
@@ -444,6 +461,13 @@ func startTunnel() {
 // startBackgroundTasks starts the heartbeat of the worker and the search for
 // updates.
 func startBackgroundTasks() {
+	startDownloadLoop()
+	startBandwidthLoop()
+	// The hardware of the computer is read before the first registration, the
+	// values are cached and they are refreshed while the client runs.
+	go func() {
+		_ = readHardware()
+	}()
 	go func() {
 		time.Sleep(2 * time.Second)
 		checkSelfUpdate()
@@ -486,9 +510,13 @@ func syncStatus() {
 	downloaded := State.DownloadedMB
 	total := State.TotalMB
 	progress := State.DownloadProgress
+	speed := State.DownloadSpeedBps
+	eta := State.EtaSeconds
 	tps := State.CurrentTps
 	tokens := State.TotalTokens
 	model := State.ActiveVramModel
+	downloading := State.DownloadModelId
+	hotStart := State.HotStartEnabled
 	State.Mu.Unlock()
 
 	updateStatus(func(status *AppStatus) {
@@ -497,10 +525,33 @@ func syncStatus() {
 		status.DownloadedMB = downloaded
 		status.TotalMB = total
 		status.Progress = progress
+		status.DownloadSpeedBps = speed
+		status.EtaSeconds = eta
 		status.CurrentTps = tps
 		status.TotalTokens = tokens
-		status.ModelName = model
+		status.HotStartEnabled = hotStart
+		if downloading != "" {
+			status.ModelName = downloading
+		} else {
+			status.ModelName = model
+		}
 	})
+}
+
+// installedModelsJSON returns the models of the client as a JSON array.
+func installedModelsJSON() string {
+	State.Mu.Lock()
+	models := make([]string, 0, len(State.InstalledModels))
+	for name := range State.InstalledModels {
+		models = append(models, name)
+	}
+	State.Mu.Unlock()
+	sort.Strings(models)
+	encoded, err := json.Marshal(models)
+	if err != nil {
+		return "[]"
+	}
+	return string(encoded)
 }
 
 // installationDisplayName returns the name of the installation.

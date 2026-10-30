@@ -578,6 +578,11 @@ func SetApiRouter(router *gin.Engine) {
 			workerRoute.GET("/setup/policies", controller.GetByogSetupPolicies)
 			workerRoute.GET("/status", controller.GetByogWorkerStatus)
 			workerRoute.POST("/resources", controller.UpdateByogWorkerResources)
+			// The client measures the latency and the bandwidth of its network
+			// against the installation, the panel shows the measured values.
+			workerRoute.GET("/ping", controller.PingByogWorker)
+			workerRoute.GET("/bandwidth", controller.MeasureByogWorkerBandwidth)
+			workerRoute.POST("/bandwidth", controller.MeasureByogWorkerBandwidth)
 		}
 		byogWorkerAlias := apiRouter.Group("/byog/worker")
 		{
@@ -588,6 +593,9 @@ func SetApiRouter(router *gin.Engine) {
 			byogWorkerAlias.POST("/test-inference", controller.TestByogNodeInference)
 			byogWorkerAlias.GET("/status", controller.GetByogWorkerStatus)
 			byogWorkerAlias.POST("/resources", controller.UpdateByogWorkerResources)
+			byogWorkerAlias.GET("/ping", controller.PingByogWorker)
+			byogWorkerAlias.GET("/bandwidth", controller.MeasureByogWorkerBandwidth)
+			byogWorkerAlias.POST("/bandwidth", controller.MeasureByogWorkerBandwidth)
 		}
 	}
 }

@@ -20,15 +20,25 @@ import { ChevronRight } from 'lucide-react'
 import { memo, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import type { UptimeBucket } from '@/features/performance-metrics/types'
 import { getSuccessRateTextClass } from '@/features/performance-metrics/lib/format'
 import { cn } from '@/lib/utils'
 import type { PricingChannel } from '../types'
+import {
+  bucketLevel,
+  fillBuckets,
+  uptimePercent,
+  type PerfBar,
+  type UptimeLevel,
+} from '../lib/uptime'
 
 export type ModelPerfBadgeData = {
   avg_latency_ms: number
   success_rate: number
   avg_tps: number
   recent_success_rates?: number[]
+  uptime_buckets?: UptimeBucket[]
+  request_count?: number
 }
 
 export interface ModelPerfBadgeProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -47,54 +57,48 @@ function formatCompactThroughput(tps: number): string {
   return `${tps.toFixed(1)}t/s`
 }
 
+/** Number of slots the card draws, one per hour of the day. */
+export const PERF_BAR_COUNT = 24
+export type { PerfBar }
+const PERF_BAR_WIDTH_SECONDS = 3600
+
+const BAR_CLASS: Record<UptimeLevel, string> = {
+  ok: 'bg-emerald-500',
+  warn: 'bg-amber-500',
+  bad: 'bg-destructive',
+  empty: 'bg-muted-foreground/25',
+}
+
 /**
- * Builds an array of 24 sparkline values (1 = operational, 0 = incident).
- * Ensures that if rate < 99.99, at least the mathematically expected number
- * of red incident bars are displayed, matching the user's expected uptime.
+ * Build the bars of the last day of a model.
+ *
+ * Every bar is one hour of the real timeline and its colour is the measured
+ * success rate of that hour. An hour without requests is drawn as unknown: the
+ * panel never puts a green bar on a slot that has no evidence and it never
+ * invents red bars to reach an expected failure count.
  */
-export function build24HourBars(rate: number, history?: number[]): number[] {
-  let bars: number[] = []
-
-  if (history && history.length > 0) {
-    // History contains bucket success rates (0-100 or 0-1)
-    const normalized = history.map((r) => {
-      if (r === 1 || r === 0) return r
-      const val = r <= 1 && r > 0 ? r * 100 : r
-      return val >= 90 ? 1 : 0
-    })
-
-    if (normalized.length >= 24) {
-      bars = normalized.slice(-24)
-    } else {
-      bars = [...Array(24 - normalized.length).fill(1), ...normalized]
-    }
-  } else {
-    bars = Array(24).fill(1)
+export function buildPerfBars(
+  perf: ModelPerfBadgeData | undefined,
+  nowMs: number = Date.now()
+): PerfBar[] {
+  if (!perf) {
+    return fillBuckets(undefined, PERF_BAR_WIDTH_SECONDS, PERF_BAR_COUNT, nowMs).map(
+      (bucket) => ({ ts: bucket.ts, level: 'empty' as UptimeLevel, rate: 0, requests: 0 })
+    )
   }
 
-  // Only if uptime has real recorded issues (rate < 95%), reflect actual incident bars
-  if (rate < 95 && rate > 0) {
-    const expectedRed = Math.max(1, Math.min(24, Math.round(((100 - rate) / 100) * 24)))
-    const currentRed = bars.filter((b) => b === 0).length
-
-    if (currentRed < expectedRed) {
-      const toAdd = expectedRed - currentRed
-      const preferredSlots = [4, 11, 17, 7, 14, 2, 9, 15, 21, 1, 6, 12, 18, 23, 0, 3, 8, 13, 19, 5, 10, 16, 22, 20]
-      let added = 0
-      for (const slot of preferredSlots) {
-        if (bars[slot] === 1) {
-          bars[slot] = 0
-          added++
-          if (added >= toAdd) break
-        }
-      }
-    }
-  } else if (rate >= 99.5) {
-    // Healthy models: all operational green bars
-    bars = Array(24).fill(1)
-  }
-
-  return bars
+  const buckets = fillBuckets(
+    perf.uptime_buckets,
+    PERF_BAR_WIDTH_SECONDS,
+    PERF_BAR_COUNT,
+    nowMs
+  )
+  return buckets.map((bucket) => ({
+    ts: bucket.ts,
+    level: bucketLevel(bucket),
+    rate: bucket.request_count > 0 ? bucket.success_rate : 0,
+    requests: bucket.request_count,
+  }))
 }
 
 export function useModelPerfData(
@@ -102,36 +106,20 @@ export function useModelPerfData(
   channels?: PricingChannel[]
 ) {
   return useMemo(() => {
-    let rate = 100.0
     let lat = '—'
     let tps = '—'
-    let history: number[] = []
 
     if (perf) {
-      const rawRate = perf.success_rate
-      rate = rawRate <= 1 && rawRate > 0 ? rawRate * 100 : rawRate
       lat = formatCompactLatency(perf.avg_latency_ms)
       tps = formatCompactThroughput(perf.avg_tps)
-      if (perf.recent_success_rates && perf.recent_success_rates.length > 0) {
-        history = perf.recent_success_rates
-      }
     }
 
+    // The uptime of the model comes from the requests that the gateway served.
+    // The status of a channel is a property of the channel and it never proves
+    // that the requests of this model succeeded, therefore it is not used here.
+    const rate = uptimePercent(perf?.uptime_buckets)
+
     if (channels && channels.length > 0) {
-      // Collect valid uptimes across all channels serving this model
-      const validUptimes = channels
-        .map((c) => c.uptime)
-        .filter((u): u is number => u != null && u > 0)
-
-      if (validUptimes.length > 0) {
-        const maxChannelUptime = Math.max(...validUptimes)
-        // If a healthy redundant channel exists, the model's availability reflects that channel
-        if (!perf || maxChannelUptime > rate) {
-          rate = maxChannelUptime
-        }
-      }
-
-      // Best latency and throughput across available channels
       const validTtfts = channels
         .map((c) => c.ttft)
         .filter((t): t is number => t != null && t > 0)
@@ -152,44 +140,24 @@ export function useModelPerfData(
       if (tps === '—' && validTps.length > 0) {
         tps = `${Math.max(...validTps).toFixed(1)}t/s`
       }
-
-      // Multi-channel bar aggregation:
-      // If at least one channel is operational (1) during an hour, the model itself is operational (1).
-      // A red bar appears only if ALL channels were down simultaneously.
-      if (channels.length > 1) {
-        const channelBarsList = channels.map((ch) =>
-          build24HourBars(ch.uptime ?? 100.0, ch.uptime_history)
-        )
-        const combinedBars = Array(24).fill(0)
-        for (let i = 0; i < 24; i++) {
-          combinedBars[i] = channelBarsList.some((b) => b[i] === 1) ? 1 : 0
-        }
-        if (rate >= 99.5) {
-          combinedBars.fill(1)
-        }
-        return {
-          statusRate: rate,
-          latencyText: lat,
-          tpsText: tps,
-          bars: combinedBars,
-        }
-      } else {
-        const ch = channels[0]
-        if (!perf && ch.uptime_history && ch.uptime_history.length > 0) {
-          history = ch.uptime_history
-        }
-      }
     }
-
-    const finalBars = build24HourBars(rate, history)
 
     return {
       statusRate: rate,
       latencyText: lat,
       tpsText: tps,
-      bars: finalBars,
+      bars: buildPerfBars(perf),
     }
   }, [perf, channels])
+}
+
+function statusClass(rate: number | null): string {
+  if (rate === null) return 'text-muted-foreground'
+  return getSuccessRateTextClass(rate)
+}
+
+function statusText(rate: number | null): string {
+  return rate === null ? '—' : `${rate.toFixed(2)}%`
 }
 
 /**
@@ -215,13 +183,8 @@ export const ModelPerfStatsRow = memo(function ModelPerfStatsRow(props: {
     >
       <div className='flex items-center gap-1.5 shrink-0'>
         <span className='text-muted-foreground font-sans'>{t('Status')}</span>
-        <span
-          className={cn(
-            'font-semibold tabular-nums',
-            getSuccessRateTextClass(statusRate)
-          )}
-        >
-          {statusRate.toFixed(2)}%
+        <span className={cn('font-semibold tabular-nums', statusClass(statusRate))}>
+          {statusText(statusRate)}
         </span>
       </div>
 
@@ -260,14 +223,18 @@ export const ModelPerfSparkline = memo(function ModelPerfSparkline(props: {
         props.className
       )}
     >
-      {bars.map((val, i) => (
+      {bars.map((bar) => (
         <div
-          key={i}
+          key={bar.ts}
           className={cn(
             'flex-1 h-full rounded-[1px] transition-colors',
-            val === 1 ? 'bg-emerald-500' : 'bg-destructive'
+            BAR_CLASS[bar.level]
           )}
-          title={val === 1 ? t('Operational') : t('Incident')}
+          title={
+            bar.level === 'empty'
+              ? t('No requests in this hour')
+              : `${new Date(bar.ts * 1000).toLocaleString()} · ${bar.rate.toFixed(2)}% (${bar.requests})`
+          }
         />
       ))}
     </div>
@@ -314,51 +281,49 @@ export const ModelCardTelemetry = memo(function ModelCardTelemetry(props: {
         <div className='flex flex-col gap-1 shrink-0'>
           <div className='flex items-center gap-1.5 text-[11px] leading-none'>
             <span className='text-muted-foreground font-sans'>{t('Status')}</span>
-            <span
-              className={cn(
-                'font-semibold tabular-nums',
-                statusRate >= 99
-                  ? 'text-emerald-500'
-                  : statusRate >= 90
-                    ? 'text-amber-500'
-                    : 'text-destructive'
-              )}
-            >
-              {statusRate.toFixed(2)}%
+            <span className={cn('font-semibold tabular-nums', statusClass(statusRate))}>
+              {statusText(statusRate)}
             </span>
           </div>
           <div
             className='flex items-center gap-[1.5px] h-3.5 pt-0.5'
-            title={`${statusRate.toFixed(2)}% Uptime`}
+            title={
+              statusRate === null
+                ? t('No requests in the last 24 hours')
+                : `${statusText(statusRate)} ${t('uptime in the last 24 hours')}`
+            }
           >
-            {bars.map((val, i) => (
+            {bars.map((bar) => (
               <div
-                key={i}
+                key={bar.ts}
                 className={cn(
                   'w-[2.5px] h-full rounded-[1px] transition-colors shrink-0',
-                  val === 1 ? 'bg-emerald-500' : 'bg-destructive'
+                  BAR_CLASS[bar.level]
                 )}
+                title={
+                  bar.level === 'empty'
+                    ? `${new Date(bar.ts * 1000).toLocaleString()} · ${t('No requests in this hour')}`
+                    : `${new Date(bar.ts * 1000).toLocaleString()} · ${bar.rate.toFixed(2)}% (${bar.requests})`
+                }
               />
             ))}
           </div>
         </div>
 
-        {/* Latency */}
         <div className='flex flex-col gap-1 shrink-0'>
-          <span className='text-[11px] text-muted-foreground font-sans leading-none'>
+          <span className='text-muted-foreground font-sans text-[11px] leading-none'>
             {t('Lat.')}
           </span>
-          <span className='text-xs font-medium text-foreground tabular-nums leading-tight h-3.5 flex items-center'>
+          <span className='text-foreground font-medium tabular-nums text-[11px] leading-none'>
             {latencyText}
           </span>
         </div>
 
-        {/* TPS */}
         <div className='flex flex-col gap-1 shrink-0'>
-          <span className='text-[11px] text-muted-foreground font-sans leading-none'>
+          <span className='text-muted-foreground font-sans text-[11px] leading-none'>
             {t('TPS')}
           </span>
-          <span className='text-xs font-medium text-foreground tabular-nums leading-tight h-3.5 flex items-center'>
+          <span className='text-foreground font-medium tabular-nums text-[11px] leading-none'>
             {tpsText}
           </span>
         </div>
@@ -367,14 +332,11 @@ export const ModelCardTelemetry = memo(function ModelCardTelemetry(props: {
       {props.onDetailsClick && (
         <button
           type='button'
-          onClick={(e) => {
-            e.stopPropagation()
-            props.onDetailsClick?.()
-          }}
-          className='text-xs font-medium text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5 transition-colors cursor-pointer shrink-0 ml-auto'
+          onClick={props.onDetailsClick}
+          className='text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5 text-[11px] font-medium transition-colors shrink-0'
         >
           {t('Details')}
-          <ChevronRight className='size-3.5' />
+          <ChevronRight className='h-3.5 w-3.5' />
         </button>
       )}
     </div>

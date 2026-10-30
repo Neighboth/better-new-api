@@ -3,13 +3,16 @@
 package main
 
 import (
+	"encoding/binary"
 	"errors"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 // hideProcessWindow starts a child process without a console window.
@@ -112,6 +115,127 @@ func physicalRamMB() int {
 		return 8192
 	}
 	return int(status.TotalPhys / (1024 * 1024))
+}
+
+// displayAdapterClass is the class of the display adapters in the registry.
+//
+// Every adapter the driver knows has a key with its name and the size of its
+// memory there. The number of the key is appended to the path.
+const displayAdapterClass = `SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\`
+
+// displayAdapter is one graphics adapter of the computer.
+type displayAdapter struct {
+	Name   string
+	VramMB int
+}
+
+// displayAdapters reads the graphics adapters of the computer.
+//
+// The size of the memory of an adapter is read from the key of the driver: the
+// QWORD value carries the whole size, the DWORD value of the old drivers is
+// limited to four gigabytes. An adapter without a driver is skipped, a basic
+// display adapter is not a card that can run a model.
+func displayAdapters() []displayAdapter {
+	var adapters []displayAdapter
+	for index := 0; index < 16; index++ {
+		key, err := registry.OpenKey(registry.LOCAL_MACHINE, displayAdapterClass+fmt4(index), registry.QUERY_VALUE)
+		if err != nil {
+			continue
+		}
+		name, _, _ := key.GetStringValue("DriverDesc")
+		vram := 0
+		if raw, _, err := key.GetBinaryValue("HardwareInformation.qwMemorySize"); err == nil && len(raw) >= 8 {
+			vram = int(binary.LittleEndian.Uint64(raw) / (1024 * 1024))
+		} else if value, _, err := key.GetIntegerValue("HardwareInformation.MemorySize"); err == nil {
+			vram = int(value / (1024 * 1024))
+		}
+		key.Close()
+
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		lower := strings.ToLower(name)
+		if strings.Contains(lower, "microsoft basic display") || strings.Contains(lower, "microsoft remote display") ||
+			strings.Contains(lower, "parsec") || strings.Contains(lower, "oray") {
+			continue
+		}
+		adapters = append(adapters, displayAdapter{Name: name, VramMB: vram})
+	}
+	return adapters
+}
+
+// fmt4 formats the number of the key of a display adapter with four digits.
+func fmt4(value int) string {
+	text := strconv.Itoa(value)
+	for len(text) < 4 {
+		text = "0" + text
+	}
+	return text
+}
+
+// dedicatedVRAMMB returns the video memory of the dedicated adapters in
+// megabytes.
+//
+// The value is zero when the computer has no dedicated graphics adapter. A
+// shared memory of the system is not counted here, the panel shows the shared
+// memory separately.
+func dedicatedVRAMMB() int {
+	total := 0
+	for _, adapter := range displayAdapters() {
+		total += adapter.VramMB
+	}
+	return total
+}
+
+// gpuModelName returns the name of the graphics adapter of the computer.
+func gpuModelName() string {
+	best := ""
+	bestVram := -1
+	for _, adapter := range displayAdapters() {
+		if adapter.VramMB > bestVram {
+			bestVram = adapter.VramMB
+			best = adapter.Name
+		}
+	}
+	return best
+}
+
+// cpuModelName returns the name of the processor of the computer.
+func cpuModelName() string {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, `HARDWARE\DESCRIPTION\System\CentralProcessor\0`, registry.QUERY_VALUE)
+	if err != nil {
+		return ""
+	}
+	defer key.Close()
+	name, _, err := key.GetStringValue("ProcessorNameString")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(name)
+}
+
+// swapRamMB returns the size of the page file of the system in megabytes.
+func swapRamMB() int {
+	type memoryStatusEx struct {
+		Length            uint32
+		MemoryLoad        uint32
+		TotalPhys         uint64
+		AvailablePhys     uint64
+		TotalPageFile     uint64
+		AvailablePageFile uint64
+		TotalVirtual      uint64
+		AvailableVirtual  uint64
+		AvailableExtended uint64
+	}
+	kernel32 := syscall.NewLazyDLL("kernel32.dll")
+	globalMemoryStatusEx := kernel32.NewProc("GlobalMemoryStatusEx")
+	status := memoryStatusEx{}
+	status.Length = uint32(unsafe.Sizeof(status))
+	result, _, _ := globalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&status)))
+	if result == 0 || status.TotalPageFile < status.TotalPhys {
+		return 0
+	}
+	return int((status.TotalPageFile - status.TotalPhys) / (1024 * 1024))
 }
 
 // singleInstanceMutex is the handle of the mutex that makes sure that one

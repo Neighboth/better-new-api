@@ -6796,6 +6796,10 @@
     "Zero retention": "Aucune rétention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "No requests in this hour": "Aucune requête durant cette heure",
+    "No requests in the last 24 hours": "Aucune requête ces 24 dernières heures",
+    "uptime in the last 24 hours": "de disponibilité ces 24 dernières heures",
+    "No requests were served in the last 30 days": "Aucune requête traitée ces 30 derniers jours"
   }
 }

@@ -30,6 +30,8 @@ type BucketPoint struct {
 	AvgLatencyMs int64   `json:"avg_latency_ms"`
 	SuccessRate  float64 `json:"success_rate"`
 	AvgTps       float64 `json:"avg_tps"`
+	RequestCount int64   `json:"request_count"`
+	FailedCount  int64   `json:"failed_count"`
 }
 
 type GroupResult struct {
@@ -47,13 +49,28 @@ type QueryResult struct {
 	Groups       []GroupResult `json:"groups"`
 }
 
+// UptimeBucket is the success rate of one time slot of the monitoring window.
+//
+// Every slot of the window is present in the answer, a slot without requests is
+// reported with RequestCount zero and SuccessRate zero. The position of a slot
+// on the timeline follows from Ts, therefore a client can draw the failures of a
+// model at the time they happened instead of guessing their position.
+type UptimeBucket struct {
+	Ts             int64   `json:"ts"`
+	DurationSecond int64   `json:"duration_seconds"`
+	SuccessRate    float64 `json:"success_rate"`
+	RequestCount   int64   `json:"request_count"`
+	FailedCount    int64   `json:"failed_count"`
+}
+
 type ModelSummary struct {
-	ModelName          string    `json:"model_name"`
-	AvgLatencyMs       int64     `json:"avg_latency_ms"`
-	SuccessRate        float64   `json:"success_rate"`
-	AvgTps             float64   `json:"avg_tps"`
-	RecentSuccessRates []float64 `json:"recent_success_rates,omitempty"`
-	RequestCount       int64     `json:"-"`
+	ModelName          string         `json:"model_name"`
+	AvgLatencyMs       int64          `json:"avg_latency_ms"`
+	SuccessRate        float64        `json:"success_rate"`
+	AvgTps             float64        `json:"avg_tps"`
+	RecentSuccessRates []float64      `json:"recent_success_rates,omitempty"`
+	UptimeBuckets      []UptimeBucket `json:"uptime_buckets,omitempty"`
+	RequestCount       int64          `json:"-"`
 }
 
 type SummaryAllResult struct {

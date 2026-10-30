@@ -188,6 +188,7 @@ type ByogNode struct {
 	Arch                  string  `json:"arch" gorm:"type:varchar(32)"` // amd64, arm64
 	HWID                  string  `json:"hwid" gorm:"column:hw_id;type:varchar(255);index;not null"` // Salted cryptographic HWID
 	CpuModel              string  `json:"cpu_model" gorm:"type:varchar(255)"`
+	CpuCores              int     `json:"cpu_cores" gorm:"default:0"`
 	GpuModel              string  `json:"gpu_model" gorm:"type:varchar(255)"`
 	NpuModel              string  `json:"npu_model" gorm:"type:varchar(255)"`
 	PhysicalRamMB         int     `json:"physical_ram_mb" gorm:"default:0"` // Strictly Physical RAM
@@ -250,6 +251,16 @@ type ByogNode struct {
 	DownloadedMB          int     `json:"downloaded_mb" gorm:"default:0"`
 	TotalMB               int     `json:"total_mb" gorm:"default:0"`
 	DownloadProgress      int     `json:"download_progress" gorm:"default:0"`
+	// The model of the progress above. A node downloads one model at a time,
+	// the model names the transfer that the progress belongs to so that the
+	// progress of two models is never mixed.
+	DownloadModelId       string  `json:"download_model_id" gorm:"type:varchar(128);default:''"`
+	DownloadSpeedBps      float64 `json:"download_speed_bps" gorm:"default:0"`
+	EtaSeconds            int     `json:"eta_seconds" gorm:"default:0"`
+	// The moment the current attempt of the transfer of the model started.
+	// A transfer that is retried starts from the first byte, the moment tells
+	// the panel that the progress begins again.
+	DownloadStartedAt     int64   `json:"download_started_at" gorm:"bigint;default:0"`
 	ActiveVramModel       string  `json:"active_vram_model" gorm:"type:varchar(128);default:''"`
 	LastHeartbeatAt       int64   `json:"last_heartbeat_at" gorm:"bigint"`
 	CreatedAt             int64   `json:"created_at" gorm:"bigint"`

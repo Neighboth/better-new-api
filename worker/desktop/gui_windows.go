@@ -815,19 +815,31 @@ func (w *guiWindow) readField(field uintptr) string {
 
 // modelDescription describes the model of the worker for the interface.
 func modelDescription(status AppStatus) string {
+	if status.ModelStatus == "downloading" {
+		// The model, the size that is transferred and the time that remains.
+		// The time is counted from the speed of the transfer, an hour of a
+		// download is shown as hours and minutes and not as a number of
+		// minutes.
+		name := status.ModelName
+		if name == "" {
+			name = clientText("downloading")
+		}
+		text := fmt.Sprintf("%s %d%% (%d / %d MB)", name, status.Progress, status.DownloadedMB, status.TotalMB)
+		if eta := formatRemainingTime(status.EtaSeconds); eta != "" {
+			text += fmt.Sprintf(" · %s %s", clientText("remaining"), eta)
+		}
+		return text
+	}
+	if status.ModelStatus == "error" {
+		return clientText("model_failed")
+	}
 	if status.ModelName != "" {
 		return status.ModelName
 	}
-	if status.ModelStatus == "downloading" {
-		return fmt.Sprintf("indiriliyor (%d / %d MB)", status.DownloadedMB, status.TotalMB)
-	}
-	if status.ModelStatus == "error" {
-		return "model indirilemedi"
-	}
 	if status.TotalTokens > 0 {
-		return fmt.Sprintf("%d token işlendi", status.TotalTokens)
+		return fmt.Sprintf("%d token", status.TotalTokens)
 	}
-	return "model bekleniyor"
+	return clientText("idle")
 }
 
 // wndProc handles the messages of the window of the client.
@@ -1072,10 +1084,16 @@ func (w *guiWindow) showMessage(title string, text string) {
 
 // speedDescription returns the speed of the worker for the window.
 func speedDescription(status AppStatus) string {
-	if status.CurrentTps <= 0 {
-		return clientText("idle")
+	// The download of a model is shown with the speed of the transfer, the
+	// inference of a request with the tokens of the second. A client that does
+	// nothing does not claim a speed.
+	if speed := formatTransferSpeed(status.DownloadSpeedBps); speed != "" {
+		return speed
 	}
-	return fmt.Sprintf("%.1f token/s", status.CurrentTps)
+	if status.CurrentTps > 0 {
+		return fmt.Sprintf("%.1f token/s", status.CurrentTps)
+	}
+	return clientText("idle")
 }
 
 // changeLanguage asks the language of the user again.

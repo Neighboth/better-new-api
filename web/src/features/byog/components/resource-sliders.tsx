@@ -41,10 +41,15 @@ interface ResourceSlidersProps {
   cores: number
   diskGB: number
   hotStartEnabled?: boolean
+  // The allocation of every partition of the computer. A partition that the
+  // user does not share keeps zero gigabytes, three partitions of zero and one
+  // partition of forty gigabytes are a valid allocation.
+  diskAllocations?: Record<string, number>
   onVramChange: (val: number) => void
   onRamChange: (val: number) => void
   onCoresChange: (val: number) => void
   onDiskChange: (val: number) => void
+  onDiskAllocationsChange?: (val: Record<string, number>) => void
   onHotStartChange?: (val: boolean) => void
 }
 
@@ -55,14 +60,17 @@ export function ResourceSliders({
   cores,
   diskGB,
   hotStartEnabled,
+  diskAllocations: diskAllocationsProp,
   onVramChange,
   onRamChange,
   onCoresChange,
   onDiskChange,
+  onDiskAllocationsChange,
   onHotStartChange,
 }: ResourceSlidersProps) {
   const { t } = useTranslation()
-  const [diskAllocations, setDiskAllocations] = useState<Record<string, number>>({})
+  const [localAllocations, setLocalAllocations] = useState<Record<string, number>>({})
+  const diskAllocations = diskAllocationsProp ?? localAllocations
 
   const isMobile = node?.device_type === 'mobile' || node?.device_type === 'tablet'
 
@@ -73,7 +81,7 @@ export function ResourceSliders({
       return 0
     }
     const totalVramMB = (node.vram_mb || 0) + (node.shared_vram_mb || 0)
-    return totalVramMB > 0 ? Math.max(1, Math.round(totalVramMB / 1024)) : 8
+    return totalVramMB > 0 ? Math.max(1, Math.round(totalVramMB / 1024)) : 0
   }, [node, isMobile])
 
   // Enforce system headroom on RAM (16GB -> max 14GB, 4GB -> max 3GB, 2GB -> max 1.5GB)
@@ -210,7 +218,7 @@ export function ResourceSliders({
         {/* Sliders */}
         <div className='space-y-5'>
           {/* VRAM Slider */}
-          {!isMobile ? (
+          {!isMobile && maxVram > 0 ? (
             <div className='space-y-2'>
               <div className='flex justify-between text-sm font-medium'>
                 <Label className='flex items-center gap-1.5'>
@@ -230,6 +238,22 @@ export function ResourceSliders({
                   onVramChange(Array.isArray(val) ? val[0] : (val as number))
                 }
               />
+              {node?.gpu_model ? (
+                <p className='text-muted-foreground text-[11px]'>{node.gpu_model}</p>
+              ) : null}
+            </div>
+          ) : maxVram <= 0 && !isMobile ? (
+            <div className='bg-muted/20 flex items-center justify-between rounded-lg border p-2.5 text-xs'>
+              <span className='text-muted-foreground flex items-center gap-1.5 font-medium'>
+                <Cpu className='text-primary h-3.5 w-3.5' />
+                {t('byog.vram_allocation', 'VRAM Allocation')}
+              </span>
+              <span className='text-foreground font-mono font-semibold'>
+                {t(
+                  'byog.no_dedicated_vram',
+                  'Ayrık VRAM yok — model paylaşımlı sistem belleğinde çalışır'
+                )}
+              </span>
             </div>
           ) : (
             <div className='rounded-lg border bg-muted/20 p-2.5 flex items-center justify-between text-xs'>
@@ -300,8 +324,13 @@ export function ResourceSliders({
                 </span>
               </div>
               {node.disks.map((d) => {
-                const dMax = Math.max(1, d.free_gb)
-                const currentVal = diskAllocations[d.drive] ?? Math.min(Math.max(1, d.allocated_gb || 5), dMax)
+                const dMax = Math.max(0, d.free_gb)
+                // A partition that was never shared gives nothing, the value of
+                // the record of the node is the value of the slider.
+                const currentVal = Math.min(
+                  Math.max(0, diskAllocations[d.drive] ?? d.allocated_gb ?? 0),
+                  dMax
+                )
                 return (
                   <div key={d.drive} className='space-y-1.5 border-t border-border/40 pt-2.5'>
                     <div className='flex justify-between text-xs font-medium'>
@@ -312,13 +341,18 @@ export function ResourceSliders({
                     </div>
                     <Slider
                       value={[currentVal]}
-                      min={1}
+                      min={0}
                       max={dMax}
                       step={1}
+                      disabled={dMax <= 0}
                       onValueChange={(val) => {
                         const num = Array.isArray(val) ? val[0] : (val as number)
                         const updated = { ...diskAllocations, [d.drive]: num }
-                        setDiskAllocations(updated)
+                        if (onDiskAllocationsChange) {
+                          onDiskAllocationsChange(updated)
+                        } else {
+                          setLocalAllocations(updated)
+                        }
                         const sum = Object.values(updated).reduce((a, b) => a + b, 0)
                         onDiskChange(sum)
                       }}
@@ -339,8 +373,8 @@ export function ResourceSliders({
                 </span>
               </div>
               <Slider
-                value={[Math.min(Math.max(1, diskGB), maxDisk)]}
-                min={1}
+                value={[Math.min(Math.max(0, diskGB), maxDisk)]}
+                min={0}
                 max={maxDisk}
                 step={maxDisk > 50 ? 5 : 1}
                 onValueChange={(val) =>

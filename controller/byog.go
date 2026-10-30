@@ -32,6 +32,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/QuantumNous/new-api/pkg/embedcfg"
 	"github.com/QuantumNous/new-api/pkg/icon"
+	"github.com/QuantumNous/new-api/pkg/markdownrtf"
 	byogservice "github.com/QuantumNous/new-api/service/byog"
 	"github.com/gin-gonic/gin"
 )
@@ -1187,6 +1188,7 @@ func RegisterByogWorker(c *gin.Context) {
 		CurrentTps       float64 `json:"current_tps"`
 		CurrentTtftMs    int     `json:"current_ttft_ms"`
 		TotalTokens      int64   `json:"total_tokens"`
+		HotStartEnabled  *bool   `json:"hot_start_enabled"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1373,10 +1375,17 @@ func RegisterByogWorker(c *gin.Context) {
 			}
 		}
 		if req.Disks != nil {
+			reported := ""
 			if ds, ok := req.Disks.(string); ok && ds != "" {
-				node.Disks = ds
+				reported = ds
 			} else if b, err := json.Marshal(req.Disks); err == nil && len(b) > 2 {
-				node.Disks = string(b)
+				reported = string(b)
+			}
+			if reported != "" {
+				// The allocation that the user made on the panel survives the
+				// report of the client: the client knows the free space of the
+				// partitions, the panel knows how much of it is shared.
+				node.Disks = mergeDiskAllocation(reported, node.Disks)
 			}
 		}
 		node.CurrentTps = req.CurrentTps
@@ -1415,9 +1424,11 @@ func RegisterByogWorker(c *gin.Context) {
 		if !isMobile && req.VramMB > 0 {
 			allocVram = req.VramMB / 1024
 		}
-		allocDisk := 40
+		allocDisk := 0
 		if req.FreeDiskGB > 0 {
-			allocDisk = int(math.Min(20, math.Max(2, float64(req.FreeDiskGB)/2)))
+			// The node gives a third of the free space of the computer to the
+			// cache of the models, at most forty gigabytes and at least one.
+			allocDisk = int(math.Min(40, math.Max(1, float64(req.FreeDiskGB)/3)))
 		}
 
 		var initialDisks string
@@ -1427,6 +1438,9 @@ func RegisterByogWorker(c *gin.Context) {
 			} else if b, err := json.Marshal(req.Disks); err == nil && len(b) > 2 {
 				initialDisks = string(b)
 			}
+		}
+		if initialDisks != "" {
+			initialDisks, allocDisk = distributeDiskAllocation(initialDisks, allocDisk)
 		}
 
 		node = &model.ByogNode{
@@ -1466,6 +1480,7 @@ func RegisterByogWorker(c *gin.Context) {
 			AllocatedVramGB:      allocVram,
 			AllocatedRamGB:       allocRam,
 			AllocatedCores:       allocatedCores(req.CpuCores),
+			CpuCores:             req.CpuCores,
 			WifiOnlyDownload:     true,
 			MonthlyDataLimitMB:   0,
 			RunOnlyWhileCharging: false,
@@ -1862,10 +1877,14 @@ var byogSetupPolicyTitles = map[string][2]string{
 }
 
 // GetByogSetupPolicies gives the privacy policy and the terms of service of the
-// installation as plain text.
+// installation.
 //
 // The program of the installation shows the policies before the client is
-// installed, the text is the same text of the page of the first start.
+// installed, the text is the same text of the page of the first start. The
+// administrator writes the policies in Markdown: the page of the first start
+// shows them as HTML and the page of the installer of Windows, a rich text
+// control, asks for the format `rtf` because it shows rich text and not
+// Markdown.
 func GetByogSetupPolicies(c *gin.Context) {
 	language := strings.TrimSpace(c.Query("lang"))
 	if language == "" {
@@ -1882,11 +1901,19 @@ func GetByogSetupPolicies(c *gin.Context) {
 		titles = byogSetupPolicyTitles["en"]
 	}
 	parts := make([]string, 0, 4)
+	sections := make([]string, 0, 2)
 	if strings.TrimSpace(privacy) != "" {
 		parts = append(parts, titles[0], privacy)
+		sections = append(sections, "# "+titles[0]+"\n\n"+privacy)
 	}
 	if strings.TrimSpace(terms) != "" {
 		parts = append(parts, titles[1], terms)
+		sections = append(sections, "# "+titles[1]+"\n\n"+terms)
+	}
+	if strings.EqualFold(strings.TrimSpace(c.Query("format")), "rtf") {
+		c.Header("Content-Type", "application/rtf; charset=utf-8")
+		c.String(http.StatusOK, markdownrtf.Convert(strings.Join(sections, "\n\n")))
+		return
 	}
 	c.Header("Content-Type", "text/plain; charset=utf-8")
 	c.String(http.StatusOK, strings.Join(parts, "\r\n\r\n"))
@@ -1919,38 +1946,162 @@ func GetByogWorkerStatus(c *gin.Context) {
 		"data": gin.H{
 			"node_id":           node.NodeId,
 			"device_name":       node.DeviceName,
+			"device_type":       node.DeviceType,
 			"status":            node.Status,
 			"model_status":      node.ModelStatus,
 			"download_status":   node.DownloadStatus,
 			"download_progress": node.DownloadProgress,
+			"download_model_id": node.DownloadModelId,
+			"download_speed_bps": node.DownloadSpeedBps,
+			"eta_seconds":       node.EtaSeconds,
 			"current_tps":       node.CurrentTps,
 			"models":            node.InstalledModels,
 			"assigned_model":    node.ActiveVramModel,
+			"cpu_model":         node.CpuModel,
+			"gpu_model":         node.GpuModel,
+			"cpu_cores":         node.CpuCores,
 			"physical_ram_mb":   node.PhysicalRamMB,
+			"swap_ram_mb":       node.SwapRamMB,
 			"vram_mb":           node.VramMB,
-			"cpu_cores":         node.AllocatedCores,
-			"total_disk_gb":     node.TotalDiskGB,
-			"free_disk_gb":      node.FreeDiskGB,
-			"allocated_ram_gb":  node.AllocatedRamGB,
-			"allocated_vram_gb": node.AllocatedVramGB,
-			"allocated_cores":   node.AllocatedCores,
-			"allocated_disk_gb": node.AllocatedDiskGB,
-			"hot_start_enabled": node.HotStartEnabled,
-			"disks":             disksArr,
-			"updated_at":        node.UpdatedAt,
+			"shared_vram_mb":    node.SharedVramMB,
+			"bandwidth_down_mbps": node.BandwidthDownMbps,
+			"bandwidth_up_mbps":   node.BandwidthUpMbps,
+			"ping_ms":             node.PingMs,
+			"total_disk_gb":       node.TotalDiskGB,
+			"free_disk_gb":        node.FreeDiskGB,
+			"allocated_ram_gb":    node.AllocatedRamGB,
+			"allocated_vram_gb":   node.AllocatedVramGB,
+			"allocated_cores":     node.AllocatedCores,
+			"allocated_disk_gb":   node.AllocatedDiskGB,
+			"hot_start_enabled":   node.HotStartEnabled,
+			"disks":               disksArr,
+			"updated_at":          node.UpdatedAt,
 		},
 	})
 }
 
+// mergeDiskAllocation keeps the allocation of the partitions of the panel.
+//
+// The client reports the partitions of the computer with the free space of the
+// moment, the panel keeps the part of the space that the user shares. The
+// allocation of a partition follows the report, the amount that the user set
+// stays on the partition as long as the partition exists.
+func mergeDiskAllocation(reportedJSON string, allocatedJSON string) string {
+	var reported []map[string]interface{}
+	if err := json.Unmarshal([]byte(reportedJSON), &reported); err != nil || len(reported) == 0 {
+		return reportedJSON
+	}
+	allocated := map[string]float64{}
+	if allocatedJSON != "" {
+		var stored []map[string]interface{}
+		if err := json.Unmarshal([]byte(allocatedJSON), &stored); err == nil {
+			for _, disk := range stored {
+				drive, _ := disk["drive"].(string)
+				value, _ := disk["allocated_gb"].(float64)
+				allocated[strings.ToUpper(strings.TrimSpace(drive))] = value
+			}
+		}
+	}
+	for index, disk := range reported {
+		drive, _ := disk["drive"].(string)
+		value := allocated[strings.ToUpper(strings.TrimSpace(drive))]
+		free, _ := disk["free_gb"].(float64)
+		if free > 0 && value > free {
+			value = free
+		}
+		if value < 0 {
+			value = 0
+		}
+		reported[index]["allocated_gb"] = int(value)
+	}
+	encoded, err := json.Marshal(reported)
+	if err != nil {
+		return reportedJSON
+	}
+	return string(encoded)
+}
+
+// distributeDiskAllocation shares an amount of space between the partitions of
+// a node.
+//
+// The space is taken from the partitions with the most free space first, a
+// partition never gives more than it has. The function returns the report of
+// the partitions with the allocation and the amount that was really shared.
+func distributeDiskAllocation(disksJSON string, totalGB int) (string, int) {
+	var disks []map[string]interface{}
+	if err := json.Unmarshal([]byte(disksJSON), &disks); err != nil || len(disks) == 0 {
+		return disksJSON, totalGB
+	}
+	remaining := totalGB
+	if remaining < 0 {
+		remaining = 0
+	}
+	// The partitions are filled in the order of the free space, a small
+	// partition is used before the space of a big one is taken.
+	order := make([]int, len(disks))
+	for index := range disks {
+		order[index] = index
+	}
+	for i := 0; i < len(order); i++ {
+		for j := i + 1; j < len(order); j++ {
+			left, _ := disks[order[i]]["free_gb"].(float64)
+			right, _ := disks[order[j]]["free_gb"].(float64)
+			if right < left {
+				order[i], order[j] = order[j], order[i]
+			}
+		}
+	}
+	for _, index := range order {
+		free, _ := disks[index]["free_gb"].(float64)
+		allocation := 0
+		switch {
+		case remaining <= 0:
+			allocation = 0
+		case free <= 0:
+			allocation = 0
+		case int(free) >= remaining:
+			allocation = remaining
+		default:
+			allocation = int(free)
+		}
+		if allocation > remaining {
+			allocation = remaining
+		}
+		remaining -= allocation
+		disks[index]["allocated_gb"] = allocation
+	}
+	encoded, err := json.Marshal(disks)
+	if err != nil {
+		return disksJSON, totalGB
+	}
+	shared := 0
+	for _, disk := range disks {
+		value, _ := disk["allocated_gb"].(float64)
+		shared += int(value)
+	}
+	return string(encoded), shared
+}
+
 // UpdateByogWorkerResources updates hardware allocations for a worker node
+//
+// Every value of the request is optional. The disk of the node is allocated per
+// partition: a partition that the user does not want to share keeps zero
+// gigabytes and the sum of the partitions is the allocation of the node. A
+// value of zero is a value and not a missing field, therefore the request uses
+// pointers.
 func UpdateByogWorkerResources(c *gin.Context) {
+	type diskAllocation struct {
+		Drive       string `json:"drive"`
+		AllocatedGB int    `json:"allocated_gb"`
+	}
 	var req struct {
-		NodeId          string `json:"node_id" binding:"required"`
-		AllocatedRamGB  int    `json:"allocated_ram_gb"`
-		AllocatedVramGB int    `json:"allocated_vram_gb"`
-		AllocatedCores  int    `json:"allocated_cores"`
-		AllocatedDiskGB int    `json:"allocated_disk_gb"`
-		HotStartEnabled *bool  `json:"hot_start_enabled"`
+		NodeId          string           `json:"node_id" binding:"required"`
+		AllocatedRamGB  *int             `json:"allocated_ram_gb"`
+		AllocatedVramGB *int             `json:"allocated_vram_gb"`
+		AllocatedCores  *int             `json:"allocated_cores"`
+		AllocatedDiskGB *int             `json:"allocated_disk_gb"`
+		HotStartEnabled *bool            `json:"hot_start_enabled"`
+		Disks           []diskAllocation `json:"disks"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1964,20 +2115,98 @@ func UpdateByogWorkerResources(c *gin.Context) {
 		return
 	}
 
-	if req.AllocatedRamGB > 0 {
-		node.AllocatedRamGB = req.AllocatedRamGB
+	if req.AllocatedRamGB != nil {
+		ram := *req.AllocatedRamGB
+		if ram < 0 {
+			ram = 0
+		}
+		if node.PhysicalRamMB > 0 && ram > node.PhysicalRamMB/1024 {
+			ram = node.PhysicalRamMB / 1024
+		}
+		node.AllocatedRamGB = ram
 	}
-	if req.AllocatedVramGB >= 0 {
-		node.AllocatedVramGB = req.AllocatedVramGB
+	if req.AllocatedVramGB != nil {
+		vram := *req.AllocatedVramGB
+		if vram < 0 {
+			vram = 0
+		}
+		// A computer without a dedicated adapter has no video memory to give.
+		if node.VramMB > 0 && vram > node.VramMB/1024 {
+			vram = node.VramMB / 1024
+		}
+		if node.VramMB <= 0 {
+			vram = 0
+		}
+		node.AllocatedVramGB = vram
 	}
-	if req.AllocatedCores > 0 {
-		node.AllocatedCores = req.AllocatedCores
-	}
-	if req.AllocatedDiskGB > 0 {
-		node.AllocatedDiskGB = req.AllocatedDiskGB
+	if req.AllocatedCores != nil {
+		cores := *req.AllocatedCores
+		if cores < 0 {
+			cores = 0
+		}
+		if node.CpuCores > 0 && cores > node.CpuCores {
+			cores = node.CpuCores
+		}
+		node.AllocatedCores = cores
 	}
 	if req.HotStartEnabled != nil {
 		node.HotStartEnabled = *req.HotStartEnabled
+	}
+
+	// The allocation of the disk follows the partitions of the computer. A
+	// partition can be shared completely, partly or not at all.
+	if len(req.Disks) > 0 {
+		var stored []map[string]interface{}
+		if node.Disks != "" {
+			_ = json.Unmarshal([]byte(node.Disks), &stored)
+		}
+		byDrive := make(map[string]int, len(req.Disks))
+		for _, item := range req.Disks {
+			allocation := item.AllocatedGB
+			if allocation < 0 {
+				allocation = 0
+			}
+			byDrive[strings.ToUpper(strings.TrimSpace(item.Drive))] = allocation
+		}
+		total := 0
+		for index, disk := range stored {
+			drive, _ := disk["drive"].(string)
+			free, _ := disk["free_gb"].(float64)
+			allocation, ok := byDrive[strings.ToUpper(strings.TrimSpace(drive))]
+			if !ok {
+				// A partition that the request does not name keeps its
+				// allocation of the record (zero when it was never shared).
+				if existing, ok := disk["allocated_gb"].(float64); ok {
+					allocation = int(existing)
+				}
+			}
+			if free > 0 && float64(allocation) > free {
+				allocation = int(free)
+			}
+			stored[index]["allocated_gb"] = allocation
+			total += allocation
+		}
+		if encoded, err := json.Marshal(stored); err == nil && len(stored) > 0 {
+			node.Disks = string(encoded)
+		}
+		node.AllocatedDiskGB = total
+	} else if req.AllocatedDiskGB != nil {
+		allocation := *req.AllocatedDiskGB
+		if allocation < 0 {
+			allocation = 0
+		}
+		if node.FreeDiskGB > 0 && allocation > node.FreeDiskGB {
+			allocation = node.FreeDiskGB
+		}
+		if node.Disks != "" {
+			// The partitions of the computer are reported by the client, the
+			// space of the node is shared between them.
+			if encoded, shared := distributeDiskAllocation(node.Disks, allocation); encoded != node.Disks {
+				node.Disks = encoded
+				allocation = shared
+			}
+		}
+		node.AllocatedDiskGB = allocation
 	}
 	node.UpdatedAt = time.Now().Unix()
 
@@ -1991,6 +2220,40 @@ func UpdateByogWorkerResources(c *gin.Context) {
 		"message": "Resource allocation updated successfully",
 		"data":    node,
 	})
+}
+
+// PingByogWorker answers a small request of the client.
+//
+// The client measures the latency of the coordinator with it, the window of the
+// client shows the value next to the server address.
+func PingByogWorker(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"success": true, "timestamp": time.Now().UnixMilli()})
+}
+
+// MeasureByogWorkerBandwidth measures the network of the client.
+//
+// The client downloads the payload and uploads its own bytes, the two values are
+// the bandwidth of the computer in the network of the installation. The payload
+// is a fixed pattern, it is not stored anywhere.
+func MeasureByogWorkerBandwidth(c *gin.Context) {
+	switch c.Request.Method {
+	case http.MethodPost:
+		written, _ := io.Copy(io.Discard, io.LimitReader(c.Request.Body, 64*1024*1024))
+		c.JSON(http.StatusOK, gin.H{"success": true, "received": written})
+	default:
+		size := 2 * 1024 * 1024
+		if raw := strings.TrimSpace(c.Query("bytes")); raw != "" {
+			if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+				size = parsed
+			}
+		}
+		if size > 32*1024*1024 {
+			size = 32 * 1024 * 1024
+		}
+		c.Header("Content-Type", "application/octet-stream")
+		c.Header("Cache-Control", "no-store")
+		_, _ = c.Writer.Write(bytes.Repeat([]byte{0x5A}, size))
+	}
 }
 
 // GetByogBootstrap gives the client of the installation the languages and the

@@ -22,6 +22,8 @@ export type PerformanceSeriesPoint = {
   avg_latency_ms: number
   success_rate: number
   avg_tps: number
+  request_count?: number
+  failed_count?: number
 }
 
 export type PerformanceGroup = {
@@ -43,12 +45,21 @@ export type PerformanceMetricsData = {
   }
 }
 
+export type UptimeBucket = {
+  ts: number
+  duration_seconds: number
+  success_rate: number
+  request_count: number
+  failed_count: number
+}
+
 export type PerfModelSummary = {
   model_name: string
   avg_latency_ms: number
   success_rate: number
   avg_tps: number
   recent_success_rates?: number[]
+  uptime_buckets?: UptimeBucket[]
   request_count?: number
 }
 

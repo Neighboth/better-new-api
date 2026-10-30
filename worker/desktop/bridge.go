@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
-	"runtime"
+	"sort"
 	"strings"
 	"sync"
 
@@ -47,7 +47,26 @@ type bridgeState struct {
 	LastError        string              `json:"last_error"`
 	Disks            []DiskPartitionInfo `json:"disks"`
 	PhysicalRamMB    int                 `json:"physical_ram_mb"`
+	SwapRamMB        int                 `json:"swap_ram_mb"`
 	CpuCores         int                 `json:"cpu_cores"`
+	CpuModel         string              `json:"cpu_model"`
+	GpuModel         string              `json:"gpu_model"`
+	VramMB           int                 `json:"vram_mb"`
+	SharedVramMB     int                 `json:"shared_vram_mb"`
+	TotalDiskGB      int                 `json:"total_disk_gb"`
+	FreeDiskGB       int                 `json:"free_disk_gb"`
+	BandwidthDown    float64             `json:"bandwidth_down_mbps"`
+	BandwidthUp      float64             `json:"bandwidth_up_mbps"`
+	PingMs           int                 `json:"ping_ms"`
+	DownloadModelId  string              `json:"download_model_id"`
+	DownloadedMB     int                 `json:"downloaded_mb"`
+	TotalMB          int                 `json:"total_mb"`
+	DownloadSpeedBps float64             `json:"download_speed_bps"`
+	EtaSeconds       int                 `json:"eta_seconds"`
+	DownloadQueue    []string            `json:"download_queue"`
+	InstalledModels  []string            `json:"installed_models"`
+	HotStartEnabled  bool                `json:"hot_start_enabled"`
+	AllocatedDiskGB  int                 `json:"allocated_disk_gb"`
 	FaviconBase64    string              `json:"favicon_base64,omitempty"`
 }
 
@@ -111,7 +130,17 @@ func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Requ
 	language := State.Config.Language
 	serverUrl := State.Config.ServerUrl
 	faviconBase64 := State.Config.FaviconBase64
+	allocatedDisk := State.Config.MaxDiskGB
+	hotStart := State.HotStartEnabled
+	queue := append([]string{}, State.DownloadQueue...)
+	installed := make([]string, 0, len(State.InstalledModels))
+	for name := range State.InstalledModels {
+		installed = append(installed, name)
+	}
 	State.Mu.Unlock()
+	sort.Strings(installed)
+	hardware := readHardware()
+	network, _ := readBandwidth()
 	writeBridgeJSON(writer, bridgeState{
 		NodeId:           status.NodeId,
 		DeviceName:       status.DeviceName,
@@ -129,9 +158,28 @@ func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Requ
 		CurrentTps:       status.CurrentTps,
 		TotalTokens:      status.TotalTokens,
 		LastError:        status.LastError,
-		Disks:            getFixedDiskPartitions(),
-		PhysicalRamMB:    physicalRamMB(),
-		CpuCores:         runtime.NumCPU(),
+		Disks:            hardware.Disks,
+		PhysicalRamMB:    hardware.PhysicalRamMB,
+		SwapRamMB:        hardware.SwapRamMB,
+		CpuCores:         hardware.CpuCores,
+		CpuModel:         hardware.CpuModel,
+		GpuModel:         hardware.GpuModel,
+		VramMB:           hardware.VramMB,
+		SharedVramMB:     hardware.SharedVramMB,
+		TotalDiskGB:      hardware.TotalDiskGB,
+		FreeDiskGB:       hardware.FreeDiskGB,
+		BandwidthDown:    network.DownMbps,
+		BandwidthUp:      network.UpMbps,
+		PingMs:           network.PingMs,
+		DownloadModelId:  status.ModelName,
+		DownloadedMB:     status.DownloadedMB,
+		TotalMB:          status.TotalMB,
+		DownloadSpeedBps: status.DownloadSpeedBps,
+		EtaSeconds:       status.EtaSeconds,
+		DownloadQueue:    queue,
+		InstalledModels:  installed,
+		HotStartEnabled:  hotStart,
+		AllocatedDiskGB:  allocatedDisk,
 	})
 }
 
@@ -217,13 +265,16 @@ func (b *localBridge) handleSettings(writer http.ResponseWriter, request *http.R
 		return
 	}
 	var payload struct {
-		ServerUrl string `json:"server_url"`
-		Language  string `json:"language"`
+		ServerUrl       string `json:"server_url"`
+		Language        string `json:"language"`
+		AllocatedDiskGB *int   `json:"allocated_disk_gb"`
+		HotStartEnabled *bool  `json:"hot_start_enabled"`
 	}
 	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 		writeBridgeJSON(writer, map[string]any{"success": false, "message": err.Error()})
 		return
 	}
+	changed := false
 	State.Mu.Lock()
 	if payload.ServerUrl != "" {
 		State.Config.ServerUrl = payload.ServerUrl
@@ -233,8 +284,22 @@ func (b *localBridge) handleSettings(writer http.ResponseWriter, request *http.R
 		clientLanguage = payload.Language
 		installer.UpdateUninstallerLanguage(payload.Language)
 	}
+	// The page of the client and the window of the client show the same
+	// settings. A setting that the page changes is applied by the client at
+	// once, the coordinator learns it with the next heartbeat.
+	if payload.AllocatedDiskGB != nil && *payload.AllocatedDiskGB >= 0 {
+		State.Config.MaxDiskGB = *payload.AllocatedDiskGB
+		changed = true
+	}
+	if payload.HotStartEnabled != nil {
+		State.HotStartEnabled = *payload.HotStartEnabled
+		changed = true
+	}
 	State.Mu.Unlock()
 	saveConfig(State.Config)
+	if changed {
+		triggerHeartbeat()
+	}
 	writeBridgeJSON(writer, map[string]any{"success": true})
 }
 
