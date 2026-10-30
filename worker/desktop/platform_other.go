@@ -83,6 +83,55 @@ func physicalRamMB() int {
 	return 8192
 }
 
+// dedicatedVRAMMB returns the video memory of the dedicated adapters.
+//
+// The other systems do not report the memory of the graphics adapter without a
+// driver of the vendor, the value is unknown there and it is not invented.
+func dedicatedVRAMMB() int {
+	return 0
+}
+
+// gpuModelName returns the name of the graphics adapter of the computer.
+func gpuModelName() string {
+	return ""
+}
+
+// cpuModelName returns the name of the processor of the computer.
+func cpuModelName() string {
+	if data, err := os.ReadFile("/proc/cpuinfo"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if !strings.HasPrefix(line, "model name") {
+				continue
+			}
+			if index := strings.Index(line, ":"); index >= 0 {
+				return strings.TrimSpace(line[index+1:])
+			}
+		}
+	}
+	return ""
+}
+
+// swapRamMB returns the size of the swap of the system in megabytes.
+func swapRamMB() int {
+	if data, err := os.ReadFile("/proc/meminfo"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if !strings.HasPrefix(line, "SwapTotal:") {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				break
+			}
+			value, err := strconv.Atoi(fields[1])
+			if err != nil {
+				break
+			}
+			return value / 1024
+		}
+	}
+	return 0
+}
+
 // acquireSingleInstance tells whether this process is the first client of the
 // user.
 func acquireSingleInstance() bool {

@@ -99,6 +99,7 @@ interface DiskInfo {
 interface WorkerState {
   node_id: string
   device_name: string
+  device_type?: string
   status: string
   paired?: boolean
   model_status: string
@@ -110,8 +111,21 @@ interface WorkerState {
   assigned_model?: string
   disks?: DiskInfo[]
   physical_ram_mb?: number
+  swap_ram_mb?: number
   cpu_cores?: number
+  cpu_model?: string
+  gpu_model?: string
   vram_mb?: number
+  shared_vram_mb?: number
+  bandwidth_down_mbps?: number
+  bandwidth_up_mbps?: number
+  ping_ms?: number
+  download_model_id?: string
+  downloaded_mb?: number
+  total_mb?: number
+  download_speed_bps?: number
+  eta_seconds?: number
+  download_queue?: string[]
   total_disk_gb?: number
   free_disk_gb?: number
   allocated_ram_gb?: number
@@ -124,6 +138,68 @@ interface WorkerState {
   system_name?: string
   app_name?: string
   language?: string
+}
+
+// formatRemainingTime formats a duration in seconds as `1h 2m 3s`.
+//
+// The parts that are zero are not shown, the time of a download is the time of
+// a transfer and not a number of minutes that the user has to divide.
+export function formatRemainingTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '—'
+  const total = Math.round(seconds)
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const rest = total % 60
+  const parts: string[] = []
+  if (hours > 0) parts.push(`${hours}h`)
+  if (minutes > 0 || hours > 0) parts.push(`${minutes}m`)
+  parts.push(`${rest}s`)
+  return parts.join(' ')
+}
+
+// formatTransferSpeed formats a rate in bytes per second.
+export function formatTransferSpeed(bytesPerSecond: number): string {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return ''
+  const units = ['B/s', 'KB/s', 'MB/s', 'GB/s']
+  let value = bytesPerSecond
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
+}
+
+// formatMegabytes formats a size of a model.
+export function formatMegabytes(megabytes: number | undefined): string {
+  if (!megabytes || megabytes <= 0) return '0 MB'
+  if (megabytes >= 1024) return `${(megabytes / 1024).toFixed(1)} GB`
+  return `${Math.round(megabytes)} MB`
+}
+
+// mergeDiskReports joins the partitions of the record of the node with the
+// partitions of the computer.
+//
+// The record carries the allocation that the user made, the client carries the
+// free space of the moment. A partition that the client does not report is kept
+// from the record, a partition that the client reports new has no allocation.
+function mergeDiskReports(
+  remote: DiskInfo[] | undefined,
+  local: DiskInfo[] | undefined
+): DiskInfo[] | undefined {
+  if (!remote || remote.length === 0) return local
+  if (!local || local.length === 0) return remote
+  return remote.map((disk) => {
+    const reported = local.find((item) => item.drive === disk.drive)
+    if (!reported) return disk
+    return {
+      ...disk,
+      label: reported.label || disk.label,
+      total_gb: reported.total_gb,
+      free_gb: reported.free_gb,
+      allocated_gb: disk.allocated_gb ?? 0,
+    }
+  })
 }
 
 function formatPairingCode(val: string): string {
@@ -458,11 +534,12 @@ export function ClientPage() {
   })
 
   // Resource allocations
-  const [vramGB, setVramGB] = useState(4)
-  const [ramGB, setRamGB] = useState(8)
-  const [cores, setCores] = useState(4)
-  const [diskGB, setDiskGB] = useState(20)
-  const [hotStart, setHotStart] = useState(true)
+  const [vramGB, setVramGB] = useState(0)
+  const [ramGB, setRamGB] = useState(0)
+  const [cores, setCores] = useState(0)
+  const [diskGB, setDiskGB] = useState(0)
+  const [diskAllocations, setDiskAllocations] = useState<Record<string, number>>({})
+  const [hotStart, setHotStart] = useState(false)
   const [qrModalOpen, setQrModalOpen] = useState(false)
   const [savingResources, setSavingResources] = useState(false)
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('')
@@ -475,11 +552,18 @@ export function ClientPage() {
   // Sync allocations from loaded worker state once
   useEffect(() => {
     if (!allocatedInitialized && state) {
-      if (state.allocated_ram_gb && state.allocated_ram_gb > 0) setRamGB(state.allocated_ram_gb)
-      if (state.allocated_vram_gb !== undefined && state.allocated_vram_gb >= 0) setVramGB(state.allocated_vram_gb)
-      if (state.allocated_cores && state.allocated_cores > 0) setCores(state.allocated_cores)
-      if (state.allocated_disk_gb && state.allocated_disk_gb > 0) setDiskGB(state.allocated_disk_gb)
+      if (state.allocated_ram_gb !== undefined) setRamGB(state.allocated_ram_gb)
+      if (state.allocated_vram_gb !== undefined) setVramGB(state.allocated_vram_gb)
+      if (state.allocated_cores !== undefined) setCores(state.allocated_cores)
+      if (state.allocated_disk_gb !== undefined) setDiskGB(state.allocated_disk_gb)
       if (state.hot_start_enabled !== undefined) setHotStart(state.hot_start_enabled)
+      if (state.disks && state.disks.length > 0) {
+        const allocations: Record<string, number> = {}
+        for (const disk of state.disks) {
+          allocations[disk.drive] = disk.allocated_gb ?? 0
+        }
+        setDiskAllocations(allocations)
+      }
       if (state.allocated_ram_gb || state.physical_ram_mb) {
         setAllocatedInitialized(true)
       }
@@ -501,6 +585,10 @@ export function ClientPage() {
             allocated_cores: cores,
             allocated_disk_gb: diskGB,
             hot_start_enabled: hotStart,
+            disks: Object.entries(diskAllocations).map(([drive, allocated]) => ({
+              drive,
+              allocated_gb: allocated,
+            })),
           }),
         }).catch(() => {})
       }
@@ -516,6 +604,10 @@ export function ClientPage() {
             allocated_cores: cores,
             allocated_disk_gb: diskGB,
             hot_start_enabled: hotStart,
+            disks: Object.entries(diskAllocations).map(([drive, allocated]) => ({
+              drive,
+              allocated_gb: allocated,
+            })),
           }),
         })
         const payload = await resp.json()
@@ -586,7 +678,21 @@ export function ClientPage() {
           assigned_model: String(initial.assigned_model ?? ''),
           disks: initial.disks as WorkerState['disks'],
           physical_ram_mb: initial.physical_ram_mb as number,
+          swap_ram_mb: initial.swap_ram_mb as number,
           cpu_cores: initial.cpu_cores as number,
+          cpu_model: initial.cpu_model as string,
+          gpu_model: initial.gpu_model as string,
+          vram_mb: initial.vram_mb as number,
+          shared_vram_mb: initial.shared_vram_mb as number,
+          bandwidth_down_mbps: initial.bandwidth_down_mbps as number,
+          bandwidth_up_mbps: initial.bandwidth_up_mbps as number,
+          ping_ms: initial.ping_ms as number,
+          download_model_id: initial.download_model_id as string,
+          download_speed_bps: initial.download_speed_bps as number,
+          eta_seconds: initial.eta_seconds as number,
+          download_queue: initial.download_queue as string[],
+          allocated_disk_gb: initial.allocated_disk_gb as number,
+          hot_start_enabled: initial.hot_start_enabled as boolean,
           favicon: initial.favicon as string,
           favicon_base64: initial.favicon_base64 as string,
         }))
@@ -600,10 +706,7 @@ export function ClientPage() {
       } catch {
         // ignore
       }
-      return
-    }
-
-    if (localApi) {
+    } else if (localApi) {
       try {
         const response = await fetch(`${localApi}/state?token=${localToken}`)
         const payload = (await response.json()) as Record<string, unknown>
@@ -628,34 +731,83 @@ export function ClientPage() {
           models: String(payload.model_name ?? ''),
           disks: payload.disks as WorkerState['disks'],
           physical_ram_mb: payload.physical_ram_mb as number,
+          swap_ram_mb: payload.swap_ram_mb as number,
           cpu_cores: payload.cpu_cores as number,
+          cpu_model: payload.cpu_model as string,
+          gpu_model: payload.gpu_model as string,
+          vram_mb: payload.vram_mb as number,
+          shared_vram_mb: payload.shared_vram_mb as number,
+          bandwidth_down_mbps: payload.bandwidth_down_mbps as number,
+          bandwidth_up_mbps: payload.bandwidth_up_mbps as number,
+          ping_ms: payload.ping_ms as number,
+          download_model_id: payload.download_model_id as string,
+          download_speed_bps: payload.download_speed_bps as number,
+          eta_seconds: payload.eta_seconds as number,
+          download_queue: payload.download_queue as string[],
+          allocated_disk_gb: payload.allocated_disk_gb as number,
+          hot_start_enabled: payload.hot_start_enabled as boolean,
           favicon_base64: (payload.favicon_base64 as string) || undefined,
         }))
       } catch {
         // ignore
       }
-      return
     }
 
-    if (!nodeId) {
+    // The record of the node is the source of the allocation of the resources
+    // and of the hardware that the client reported. The page reads it in every
+    // mode: a client that is opened on the site and a client that is opened on
+    // the computer show the same allocation.
+    const targetNodeId = nodeId || state?.node_id || ''
+    if (!targetNodeId) {
       return
     }
     try {
-      const response = await fetch(`/api/v1/worker/status?node_id=${encodeURIComponent(nodeId)}`)
+      const response = await fetch(
+        `/api/v1/worker/status?node_id=${encodeURIComponent(targetNodeId)}`
+      )
       const payload = await response.json()
       if (payload.success && payload.data) {
-        setState((prev) => ({
-          ...prev,
-          ...payload.data,
-          status: payload.data.status === 'online' ? 'online' : 'offline',
-          paired: true,
-          models: payload.data.models || payload.data.assigned_model || prev?.models || '',
-        }))
+        const remote = payload.data as Record<string, unknown>
+        setState((prev) => {
+          const merged = {
+            ...(prev ?? {}),
+            ...(remote as Partial<WorkerState>),
+            status: remote.status === 'online' ? 'online' : 'offline',
+            paired: true,
+            models:
+              (remote.models as string) ||
+              (remote.assigned_model as string) ||
+              prev?.models ||
+              '',
+          } as WorkerState
+          merged.disks = mergeDiskReports(
+            remote.disks as DiskInfo[] | undefined,
+            prev?.disks
+          )
+          if (prev && (localApi || bridge)) {
+            // The client of the computer is the source of the live values, the
+            // record of the node is the source of the allocation above.
+            merged.download_progress = prev.download_progress
+            merged.download_status = prev.download_status
+            merged.download_model_id = prev.download_model_id
+            merged.download_speed_bps = prev.download_speed_bps
+            merged.eta_seconds = prev.eta_seconds
+            merged.download_queue = prev.download_queue
+            if (prev.model_status) {
+              merged.model_status = prev.model_status
+            }
+            if (prev.vram_mb !== undefined) merged.vram_mb = prev.vram_mb
+            if (prev.shared_vram_mb !== undefined) merged.shared_vram_mb = prev.shared_vram_mb
+            if (prev.gpu_model) merged.gpu_model = prev.gpu_model
+            if (prev.cpu_model) merged.cpu_model = prev.cpu_model
+          }
+          return merged
+        })
       }
     } catch {
       // ignore
     }
-  }, [bridge, localApi, localToken, nodeId])
+  }, [bridge, localApi, localToken, nodeId, state?.node_id])
 
   useEffect(() => {
     const target = window as unknown as Record<string, unknown>
@@ -850,26 +1002,28 @@ export function ClientPage() {
     user_id: 1,
     pairing_code: code,
     device_name: state?.device_name || 'Worker Node',
-    device_type: bridge ? 'mobile' : 'desktop',
-    os: 'Windows / Native',
-    arch: 'x64',
-    hwid: 'hwid',
-    cpu_model: 'Host Processor',
-    gpu_model: 'Host GPU',
+    // The hardware of the computer is reported by the client. A value that the
+    // client does not report is unknown here and it is not invented: a page
+    // that shows eight gigabytes of video memory of a computer without a
+    // graphics adapter lies about the computer of the user.
+    device_type: (state?.device_type as ByogNode['device_type']) || 'desktop',
+    os: '',
+    arch: '',
+    hwid: '',
+    cpu_model: state?.cpu_model || '',
+    gpu_model: state?.gpu_model || '',
     npu_model: '',
-    physical_ram_mb: (state?.physical_ram_mb && state.physical_ram_mb > 0)
-      ? state.physical_ram_mb
-      : (bridge ? 4096 : 8192),
-    swap_ram_mb: 2048,
-    vram_mb: state?.vram_mb !== undefined ? state.vram_mb : (bridge ? 0 : 4096),
-    shared_vram_mb: 0,
-    tee_supported: true,
-    tee_type: 'sgx',
-    bandwidth_down_mbps: 100,
-    bandwidth_up_mbps: 50,
-    ping_ms: 20,
+    physical_ram_mb: state?.physical_ram_mb ?? 0,
+    swap_ram_mb: state?.swap_ram_mb ?? 0,
+    vram_mb: state?.vram_mb ?? 0,
+    shared_vram_mb: state?.shared_vram_mb ?? 0,
+    tee_supported: false,
+    tee_type: 'none',
+    bandwidth_down_mbps: state?.bandwidth_down_mbps ?? 0,
+    bandwidth_up_mbps: state?.bandwidth_up_mbps ?? 0,
+    ping_ms: state?.ping_ms ?? 0,
     network_type: 'ethernet',
-    ip_address: '127.0.0.1',
+    ip_address: '',
     ip_type: 'residential',
     country: '',
     city: '',
@@ -897,9 +1051,9 @@ export function ClientPage() {
     battery_cutoff_percent: 20,
     max_battery_temp: 45,
     battery_temp_supported: false,
-    cpu_temp: 40,
-    gpu_temp: 42,
-    battery_temp: 30,
+    cpu_temp: 0,
+    gpu_temp: 0,
+    battery_temp: 0,
   } as unknown as ByogNode
 
   // Determine paired status
@@ -1396,15 +1550,42 @@ export function ClientPage() {
                   {/* Download progress bar if downloading */}
                   {state && state.download_progress > 0 && state.download_progress < 100 && (
                     <div className='space-y-1.5 pt-3 border-t border-border/50'>
-                      <div className='flex justify-between text-xs text-muted-foreground'>
-                        <span>{t('byog.downloading_model', 'Model İndiriliyor...')}</span>
-                        <span className='font-mono font-bold text-primary'>{state.download_progress}%</span>
+                      <div className='flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground'>
+                        <span className='min-w-0 truncate'>
+                          {state.download_model_id
+                            ? t('byog.downloading_model_named', {
+                                defaultValue: '{{model}} indiriliyor...',
+                                model: state.download_model_id,
+                              })
+                            : t('byog.downloading_model', 'Model İndiriliyor...')}
+                        </span>
+                        <span className='flex items-center gap-2 font-mono'>
+                          {state.download_speed_bps ? (
+                            <span className='text-muted-foreground'>
+                              {formatTransferSpeed(state.download_speed_bps)}
+                            </span>
+                          ) : null}
+                          <span className='text-primary font-bold'>
+                            {state.download_progress}%
+                          </span>
+                        </span>
                       </div>
                       <div className='bg-muted h-2.5 w-full overflow-hidden rounded-full'>
                         <div
                           className='h-full rounded-full bg-primary transition-all duration-300'
                           style={{ width: `${state.download_progress}%` }}
                         />
+                      </div>
+                      <div className='flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground'>
+                        <span className='font-mono'>
+                          {formatMegabytes(state.downloaded_mb)} / {formatMegabytes(state.total_mb)}
+                        </span>
+                        {state.eta_seconds ? (
+                          <span className='font-mono'>
+                            {t('byog.download_remaining', 'Kalan süre')}:{' '}
+                            {formatRemainingTime(state.eta_seconds)}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   )}
@@ -1423,10 +1604,12 @@ export function ClientPage() {
                 cores={cores}
                 diskGB={diskGB}
                 hotStartEnabled={hotStart}
+                diskAllocations={diskAllocations}
                 onVramChange={setVramGB}
                 onRamChange={setRamGB}
                 onCoresChange={setCores}
                 onDiskChange={setDiskGB}
+                onDiskAllocationsChange={setDiskAllocations}
                 onHotStartChange={setHotStart}
               />
 

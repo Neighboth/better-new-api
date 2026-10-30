@@ -36,7 +36,12 @@ import {
 import type { PerformanceGroup } from '@/features/performance-metrics/types'
 import { cn } from '@/lib/utils'
 
-import { type UptimeDayPoint } from '../lib/mock-stats'
+import {
+  aggregateDailyUptime,
+  buildDailyUptime,
+  type UptimeDayPoint,
+} from '../lib/uptime'
+import type { UptimeBucket } from '@/features/performance-metrics/types'
 import type { PricingModel } from '../types'
 import { LatencyTrendChart, UptimeTrendChart } from './model-details-charts'
 import { UptimeSparkline } from './model-details-uptime-sparkline'
@@ -80,12 +85,6 @@ type PerformanceRow = {
   avg_tps: number
 }
 
-function toUptimePct(value: number): number {
-  if (!Number.isFinite(value)) return 0
-  const clamped = Math.min(100, Math.max(0, value))
-  return Math.round(clamped * 100) / 100
-}
-
 function toLatencySeries(groups: PerformanceGroup[]) {
   const byTs = new Map<number, number[]>()
   for (const group of groups) {
@@ -108,46 +107,34 @@ function toLatencySeries(groups: PerformanceGroup[]) {
     }))
 }
 
-function toUptimeSeries(groups: PerformanceGroup[]): UptimeDayPoint[] {
-  const byTs = new Map<number, { rates: number[]; incidents: number }>()
+function toUptimeBuckets(groups: PerformanceGroup[]): UptimeBucket[] {
+  const byTs = new Map<number, UptimeBucket>()
   for (const group of groups) {
     for (const point of group.series) {
-      const current = byTs.get(point.ts) ?? { rates: [], incidents: 0 }
-      if (Number.isFinite(point.success_rate)) {
-        const successRate = toUptimePct(point.success_rate)
-        current.rates.push(successRate)
-        if (successRate < 100) current.incidents += 1
+      if (!Number.isFinite(point.ts)) continue
+      const current = byTs.get(point.ts) ?? {
+        ts: point.ts,
+        duration_seconds: 0,
+        success_rate: 0,
+        request_count: 0,
+        failed_count: 0,
       }
+      const requests = Math.max(0, point.request_count ?? 0)
+      current.success_rate = point.success_rate
+      current.failed_count += Math.min(requests, Math.max(0, point.failed_count ?? 0))
+      current.request_count += requests
       byTs.set(point.ts, current)
     }
   }
-  return Array.from(byTs.entries())
-    .sort(([a], [b]) => a - b)
-    .map(([ts, value]) => {
-      const uptime =
-        value.rates.length > 0
-          ? value.rates.reduce((sum, rate) => sum + rate, 0) /
-            value.rates.length
-          : 0
-      return {
-        date: new Date(ts * 1000).toISOString(),
-        uptime_pct: toUptimePct(uptime),
-        incidents: value.incidents,
-        outage_minutes: 0,
-      }
-    })
+  return Array.from(byTs.values()).sort((a, b) => a.ts - b.ts)
+}
+
+function toUptimeSeries(groups: PerformanceGroup[]): UptimeDayPoint[] {
+  return buildDailyUptime(toUptimeBuckets(groups), 30)
 }
 
 function toGroupUptimeSeries(group: PerformanceGroup): UptimeDayPoint[] {
-  return group.series.map((point) => {
-    const successRate = toUptimePct(point.success_rate)
-    return {
-      date: new Date(point.ts * 1000).toISOString(),
-      uptime_pct: successRate,
-      incidents: successRate < 100 ? 1 : 0,
-      outage_minutes: 0,
-    }
-  })
+  return buildDailyUptime(toUptimeBuckets([group]), 30)
 }
 
 function average(
@@ -164,8 +151,8 @@ function average(
 export function ModelDetailsPerformance(props: { model: PricingModel }) {
   const { t } = useTranslation()
   const metricsQuery = useQuery({
-    queryKey: ['perf-metrics', props.model.model_name],
-    queryFn: () => getPerfMetrics(props.model.model_name, 24),
+    queryKey: ['perf-metrics', props.model.model_name, 720],
+    queryFn: () => getPerfMetrics(props.model.model_name, 720),
     staleTime: 60 * 1000,
   })
   const groups = useMemo(
@@ -209,15 +196,10 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
       ? tpsValues.reduce((sum, value) => sum + value, 0) / tpsValues.length
       : 0
   const avgLatency = average(performances, 'avg_latency_ms')
-  const successRates = performances
-    .map((perf) => perf.success_rate)
-    .filter((value) => Number.isFinite(value))
-  const successRate =
-    successRates.length > 0
-      ? successRates.reduce((sum, value) => sum + value, 0) /
-        successRates.length
-      : 0
-  const incidentCount = uptimeSeries.reduce((s, p) => s + p.incidents, 0)
+  // The success rate of the panel is the measured rate of the month, weighted
+  // with the requests of every day.
+  const monthly = aggregateDailyUptime(uptimeSeries)
+  const incidentCount = monthly.incidents
 
   return (
     <div className='flex flex-col gap-4'>
@@ -236,15 +218,21 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
         <StatCard
           icon={HeartPulse}
           label={t('Success rate')}
-          value={formatUptimePct(successRate)}
+          value={monthly.days === 0 ? '—' : formatUptimePct(monthly.uptime_pct)}
           hint={
-            incidentCount > 0
-              ? t('{{count}} incidents in the last 24 hours', {
-                  count: incidentCount,
-                })
-              : t('No incidents in the last 24 hours')
+            monthly.days === 0
+              ? t('No requests were served in the last 30 days')
+              : incidentCount > 0
+                ? t('{{count}} incidents in the last 30 days', {
+                    count: incidentCount,
+                  })
+                : t('No incidents in the last 30 days')
           }
-          valueClassName={getSuccessRateTextClass(successRate)}
+          valueClassName={
+            monthly.days === 0
+              ? 'text-muted-foreground'
+              : getSuccessRateTextClass(monthly.uptime_pct)
+          }
         />
       </div>
 

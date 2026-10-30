@@ -136,6 +136,12 @@ Name: "{autodesktop}\{code:GetDisplayName}"; Filename: "{app}\{#MyAppExeName}"; 
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{code:GetDisplayName}"; ValueData: """{app}\{#MyAppExeName}"" --tray"; Flags: uninsdeletevalue
+; The client of an older version wrote an entry of its own into the applications
+; of the control panel. The installation of the system owns the entry of the
+; client, therefore the entry of the older version is removed: an application
+; with two entries is removed twice and the second removal fails.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\BYOGWorker"; Flags: deletekey
+Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\BYOGWorker"; Flags: deletekey
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,BYOG Worker}"; Flags: nowait postinstall skipifsilent
@@ -867,145 +873,30 @@ begin
   end;
 end;
 
-function MarkdownToRTF(const MarkdownText: String): String;
+// PlainToRTF writes a plain text as a document of the format of the viewer of
+// the policies. The text of the policies of the installation is written in
+// Markdown, the text is converted on the server and the installer shows the
+// result as it is.
+function PlainToRTF(const Text: String): String;
 var
-  lines: TStringList;
-  i, j, linkClose, urlClose: Integer;
-  line, rtfBody, escapedLine, linkText, linkUrl: String;
-  inBold, inCode: Boolean;
-  isH1, isH2, isH3, isBullet, isQuote, isTable: Boolean;
+  index: Integer;
+  character: Char;
+  body: String;
 begin
-  lines := TStringList.Create;
-  try
-    lines.Text := MarkdownText;
-    rtfBody := '';
-    for i := 0 to lines.Count - 1 do
-    begin
-      line := Trim(lines[i]);
-      if line = '' then
-      begin
-        rtfBody := rtfBody + '\par\line ';
-        Continue;
-      end;
-
-      // 1. Horizontal Rules (---, ***, ___)
-      if (line = '---') or (line = '***') or (line = '___') or
-         (Copy(line, 1, 3) = '---') or (Copy(line, 1, 3) = '***') then
-      begin
-        rtfBody := rtfBody + '\par\strike\fs16                                                                                \strike0\fs18\par ';
-        Continue;
-      end;
-
-      // 2. Headings & List formatting
-      isH1 := (Copy(line, 1, 2) = '# ');
-      isH2 := (Copy(line, 1, 3) = '## ');
-      isH3 := (Copy(line, 1, 4) = '### ');
-      isBullet := (Copy(line, 1, 2) = '- ') or (Copy(line, 1, 2) = '* ');
-      isQuote := (Copy(line, 1, 2) = '> ');
-      isTable := (Length(line) >= 2) and (line[1] = '|') and (line[Length(line)] = '|');
-
-      // Table divider line (e.g. |---|---|)
-      if isTable and (Pos('-', line) > 0) and (Pos('a', LowerCase(line)) = 0) and (Pos('e', LowerCase(line)) = 0) then
-      begin
-        rtfBody := rtfBody + '\strike\fs14                                                                      \strike0\fs18\par ';
-        Continue;
-      end;
-
-      if isH1 then
-        line := Trim(Copy(line, 3, Length(line)))
-      else if isH2 then
-        line := Trim(Copy(line, 4, Length(line)))
-      else if isH3 then
-        line := Trim(Copy(line, 5, Length(line)))
-      else if isBullet then
-        line := Trim(Copy(line, 3, Length(line)))
-      else if isQuote then
-        line := Trim(Copy(line, 3, Length(line)));
-
-      escapedLine := '';
-      inBold := False;
-      inCode := False;
-      j := 1;
-      while j <= Length(line) do
-      begin
-        // Bold: **text**
-        if (j < Length(line)) and (line[j] = '*') and (line[j + 1] = '*') then
-        begin
-          if inBold then
-            escapedLine := escapedLine + '\b0 '
-          else
-            escapedLine := escapedLine + '\b ';
-          inBold := not inBold;
-          j := j + 2;
-          Continue;
-        end;
-
-        // Inline code: `code`
-        if line[j] = '`' then
-        begin
-          if inCode then
-            escapedLine := escapedLine + '\f0\fs18 '
-          else
-            escapedLine := escapedLine + '\f1\fs16\b ';
-          inCode := not inCode;
-          Inc(j);
-          Continue;
-        end;
-
-        // Markdown Link: [text](url)
-        if line[j] = '[' then
-        begin
-          linkClose := Pos('](', Copy(line, j, Length(line) - j + 1));
-          if linkClose > 1 then
-          begin
-            linkText := Copy(line, j + 1, linkClose - 2);
-            urlClose := Pos(')', Copy(line, j + linkClose + 1, Length(line) - (j + linkClose)));
-            if urlClose > 1 then
-            begin
-              linkUrl := Copy(line, j + linkClose + 1, urlClose - 1);
-              escapedLine := escapedLine + '{\field{\*\fldinst HYPERLINK "' + linkUrl + '"}{\fldrslt{\ul ' + linkText + '\ul0}}} (' + linkUrl + ')';
-              j := j + linkClose + 1 + urlClose;
-              Continue;
-            end;
-          end;
-        end;
-
-        // Table pipes: separate columns with spaces
-        if isTable and (line[j] = '|') then
-        begin
-          escapedLine := escapedLine + '   |   ';
-          Inc(j);
-          Continue;
-        end;
-
-        escapedLine := escapedLine + RtfEscapeChar(line[j]);
-        Inc(j);
-      end;
-      if inBold then
-        escapedLine := escapedLine + '\b0 ';
-      if inCode then
-        escapedLine := escapedLine + '\f0\fs18 ';
-
-      if isH1 then
-        rtfBody := rtfBody + '\par\b\fs24 ' + escapedLine + '\b0\fs18\par '
-      else if isH2 then
-        rtfBody := rtfBody + '\par\b\fs21 ' + escapedLine + '\b0\fs18\par '
-      else if isH3 then
-        rtfBody := rtfBody + '\par\b\fs19 ' + escapedLine + '\b0\fs18\par '
-      else if isBullet then
-        rtfBody := rtfBody + '\bullet  ' + escapedLine + '\par '
-      else if isQuote then
-        rtfBody := rtfBody + '\li360\i ' + escapedLine + '\i0\li0\par '
-      else
-        rtfBody := rtfBody + escapedLine + '\par ';
-    end;
-    Result := '{\rtf1\ansi\deff0{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}{\f1\fnil\fcharset0 Consolas;}}\f0\fs18 ' + rtfBody + '}';
-  finally
-    lines.Free;
+  body := '';
+  for index := 1 to Length(Text) do
+  begin
+    character := Text[index];
+    if character = #13 then
+      body := body + '\par '
+    else if character <> #10 then
+      body := body + RtfEscapeChar(character);
   end;
+  Result := '{\rtf1\ansi\deff0{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}}\f0\fs18 ' + body + '}';
 end;
 
-// ReadPolicies reads the policies of the installation as a text.
+// ReadPolicies reads the policies of the installation as a document of the
+// format of the viewer.
 function ReadPolicies(): String;
 var
   request: Variant;
@@ -1017,7 +908,7 @@ begin
   cleanUrl := BrandServerUrl;
   while (Length(cleanUrl) > 0) and (cleanUrl[Length(cleanUrl)] = '/') do
     SetLength(cleanUrl, Length(cleanUrl) - 1);
-  address := cleanUrl + '/api/v1/worker/setup/policies?lang=' + installerLanguage();
+  address := cleanUrl + '/api/v1/worker/setup/policies?format=rtf&lang=' + installerLanguage();
   try
     request := CreateOleObject('WinHttp.WinHttpRequest.5.1');
     request.Open('GET', address, False);
@@ -1144,7 +1035,7 @@ begin
   PolicyViewer.ScrollBars := ssVertical;
   PolicyViewer.ReadOnly := True;
   PolicyViewer.UseRichEdit := True;
-  PolicyViewer.RTFText := MarkdownToRTF(ExpandConstant('{cm:PolicyLoading}'));
+  PolicyViewer.RTFText := PlainToRTF(ExpandConstant('{cm:PolicyLoading}'));
 
   PolicyAccept := TNewCheckBox.Create(PolicyPage);
   PolicyAccept.Parent := PolicyPage.Surface;
@@ -1165,7 +1056,7 @@ begin
     PoliciesLoaded := True;
     policies := ReadPolicies();
     if policies <> '' then
-      PolicyViewer.RTFText := MarkdownToRTF(policies)
+      PolicyViewer.RTFText := policies
     else
     begin
       fallbackUrl := BrandServerUrl;
@@ -1173,7 +1064,7 @@ begin
         SetLength(fallbackUrl, Length(fallbackUrl) - 1);
       if fallbackUrl <> '' then
         fallbackUrl := fallbackUrl + '/privacy-policy' + #13#10 + fallbackUrl + '/user-agreement';
-      PolicyViewer.RTFText := MarkdownToRTF(ExpandConstant('{cm:PolicyMissing}') + #13#10#13#10 + fallbackUrl);
+      PolicyViewer.RTFText := PlainToRTF(ExpandConstant('{cm:PolicyMissing}') + #13#10#13#10 + fallbackUrl);
     end;
   end;
 end;

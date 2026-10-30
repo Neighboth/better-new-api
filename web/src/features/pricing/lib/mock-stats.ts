@@ -55,13 +55,6 @@ export type LatencyTimePoint = {
   ttft_ms: number
 }
 
-export type UptimeDayPoint = {
-  date: string
-  uptime_pct: number
-  incidents: number
-  outage_minutes: number
-}
-
 export type AppRanking = {
   rank: number
   name: string
@@ -379,51 +372,6 @@ export function buildLatencyTimeSeries(
 }
 
 /**
- * Build a 30-day uptime series. Returns one point per day, oldest first.
- *
- * If `group` is provided the series is anchored on that group's mean uptime,
- * otherwise it uses the per-model average. Either way the seed is derived
- * deterministically so re-renders are stable.
- */
-export function buildUptimeSeries(
-  model: PricingModel,
-  group?: string
-): UptimeDayPoint[] {
-  const performances = buildGroupPerformance(model)
-  if (performances.length === 0) return []
-
-  const target = group ? performances.find((p) => p.group === group) : null
-  const baseUptime = target
-    ? target.uptime_30d_pct
-    : performances.reduce((s, p) => s + p.uptime_30d_pct, 0) /
-      performances.length
-  const baseSeed = hashStringToSeed(`${model.model_name}:up:${group ?? '_all'}`)
-  const rand = seededRandom(baseSeed)
-
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const points: UptimeDayPoint[] = []
-
-  for (let i = 29; i >= 0; i--) {
-    const date = new Date(today.getTime() - i * 86_400_000)
-    const isoDate = date.toISOString().slice(0, 10)
-    const incidentChance = rand()
-    const incidents = incidentChance > 0.92 ? 1 : 0
-    const outageMinutes = incidents > 0 ? Math.round(rand() * 30 + 5) : 0
-    const downtimePct = (outageMinutes / 1_440) * 100
-    const dayUptime = Math.max(85, Math.min(100, baseUptime - downtimePct))
-    points.push({
-      date: isoDate,
-      uptime_pct: Math.round(dayUptime * 100) / 100,
-      incidents,
-      outage_minutes: outageMinutes,
-    })
-  }
-
-  return points
-}
-
-/**
  * Build a deterministic top-apps ranking for the model. The first three apps
  * always come from the same template list; the rest is shuffled by the seed
  * so different models surface different long tails.
@@ -460,26 +408,6 @@ export function buildAppRankings(
       initial: app.name.charAt(0).toUpperCase(),
     }
   })
-}
-
-/** Aggregate uptime over the most recent 30 days. */
-export function aggregateUptime(points: UptimeDayPoint[]): {
-  uptime_pct: number
-  incidents: number
-  outage_minutes: number
-} {
-  if (points.length === 0) {
-    return { uptime_pct: 0, incidents: 0, outage_minutes: 0 }
-  }
-  const incidents = points.reduce((s, p) => s + p.incidents, 0)
-  const outageMinutes = points.reduce((s, p) => s + p.outage_minutes, 0)
-  const totalMinutes = points.length * 1_440
-  const uptimePct = ((totalMinutes - outageMinutes) / totalMinutes) * 100
-  return {
-    incidents,
-    outage_minutes: outageMinutes,
-    uptime_pct: Math.round(uptimePct * 1000) / 1000,
-  }
 }
 
 /** Compact integer formatter for token counts in apps tab. */

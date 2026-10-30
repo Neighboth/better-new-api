@@ -6796,6 +6796,10 @@
     "Zero retention": "Sıfır saklama",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "No requests in this hour": "Bu saatte istek yok",
+    "No requests in the last 24 hours": "Son 24 saatte istek yok",
+    "uptime in the last 24 hours": "son 24 saatte çalışma oranı",
+    "No requests were served in the last 30 days": "Son 30 günde hiç istek karşılanmadı"
   }
 }

@@ -72,7 +72,21 @@ type WorkerState struct {
 	DownloadProgress int
 	HotStartEnabled  bool
 	ActiveInferences int32
-	Mu               sync.Mutex
+	// The model that is transferred now and the queue of the models that wait.
+	//
+	// The progress of the client belongs to one model: the model that is
+	// transferred. A model that ends leaves the queue and it is available for
+	// the network at once.
+	DownloadModelId  string
+	DownloadQueue    []string
+	DownloadSpeedBps float64
+	EtaSeconds       int
+	// The moment the current attempt of a transfer started. A transfer that
+	// is retried starts again from the beginning, the moment tells the
+	// coordinator that the progress of the node begins again.
+	DownloadStartedAt int64
+	DownloadError     string
+	Mu                sync.Mutex
 }
 
 var State = &WorkerState{
@@ -85,10 +99,21 @@ var State = &WorkerState{
 // after the first registration has to be fetched as well. The mutex keeps one
 // transfer of a model, a repeated assignment does not start the file twice.
 var (
-	modelDownloadMutex sync.Mutex
-	modelDownloads     = map[string]bool{}
-	wsWriteMu          sync.Mutex
+	wsWriteMu sync.Mutex
+	// heartbeatWake carries a request for an immediate heartbeat of the client.
+	heartbeatWake = make(chan struct{}, 1)
 )
+
+// triggerHeartbeat asks the heartbeat loop for an immediate report.
+//
+// A model that ends and a setting that changes have to reach the coordinator at
+// once, the panel of the network must not wait for the next tick of the loop.
+func triggerHeartbeat() {
+	select {
+	case heartbeatWake <- struct{}{}:
+	default:
+	}
+}
 
 func sendWsFrame(conn *websocket.Conn, v interface{}) error {
 	wsWriteMu.Lock()
@@ -141,6 +166,7 @@ func startHeartbeatLoop() {
 	for {
 		select {
 		case <-ticker.C:
+		case <-heartbeatWake:
 		case <-downloadTicker.C:
 			State.Mu.Lock()
 			downloading := State.ModelStatus == "downloading"
@@ -173,27 +199,53 @@ func startHeartbeatLoop() {
 			modelsList = append(modelsList, m)
 		}
 
+		// The hardware of the computer is measured here and not in the
+		// coordinator. The panel of the network shows the values that the
+		// computer reports, a value that cannot be measured stays zero.
+		hardware := readHardware()
+		network, _ := readBandwidth()
+
 		payload := map[string]interface{}{
 			// Zero means that the value cannot be measured on this machine, the
 			// platform does not award bonuses for unknown sensor values.
-			"cpu_temp":          0.0,
-			"gpu_temp":          0.0,
-			"battery_temp":      0.0,
-			"fan_speed":         0,
-			"battery_percent":   0,
-			"is_charging":       false,
-			"current_tps":       State.CurrentTps,
-			"current_ttft_ms":   State.CurrentTtftMs,
-			"total_tokens":      State.TotalTokens,
-			"installed_models":  modelsList,
-			"active_vram_model": State.ActiveVramModel,
-			"model_status":      State.ModelStatus,
-			"download_status":   State.ModelStatus,
-			"downloaded_mb":     State.DownloadedMB,
-			"total_mb":          State.TotalMB,
-			"download_progress": State.DownloadProgress,
-			"is_gamer_mode":     State.IsGamerMode,
-			"is_throttled":      State.IsThrottled,
+			"cpu_temp":            0.0,
+			"gpu_temp":            0.0,
+			"battery_temp":        0.0,
+			"fan_speed":           0,
+			"battery_percent":     0,
+			"is_charging":         false,
+			"current_tps":         State.CurrentTps,
+			"current_ttft_ms":     State.CurrentTtftMs,
+			"total_tokens":        State.TotalTokens,
+			"installed_models":    modelsList,
+			"active_vram_model":   State.ActiveVramModel,
+			"model_status":        State.ModelStatus,
+			"download_status":     State.ModelStatus,
+			"downloaded_mb":       State.DownloadedMB,
+			"total_mb":            State.TotalMB,
+			"download_progress":   State.DownloadProgress,
+			"download_model_id":   State.DownloadModelId,
+			"download_speed_bps":  State.DownloadSpeedBps,
+			"eta_seconds":         State.EtaSeconds,
+			"download_started_at": State.DownloadStartedAt,
+			"download_queue":      State.DownloadQueue,
+			"hot_start_enabled":   State.HotStartEnabled,
+			"is_gamer_mode":       State.IsGamerMode,
+			"is_throttled":        State.IsThrottled,
+
+			"physical_ram_mb":     hardware.PhysicalRamMB,
+			"swap_ram_mb":         hardware.SwapRamMB,
+			"vram_mb":             hardware.VramMB,
+			"shared_vram_mb":      hardware.SharedVramMB,
+			"cpu_model":           hardware.CpuModel,
+			"gpu_model":           hardware.GpuModel,
+			"cpu_cores":           hardware.CpuCores,
+			"disks":               json.RawMessage(hardware.disksJSON()),
+			"total_disk_gb":       hardware.TotalDiskGB,
+			"free_disk_gb":        hardware.FreeDiskGB,
+			"bandwidth_down_mbps": network.DownMbps,
+			"bandwidth_up_mbps":   network.UpMbps,
+			"ping_ms":             network.PingMs,
 		}
 
 		raw, _ := json.Marshal(payload)
@@ -226,11 +278,272 @@ func (w *progressWriter) Write(data []byte) (int, error) {
 	return written, err
 }
 
+// downloadJob is one model that the coordinator assigned to the client.
+type downloadJob struct {
+	ModelId     string
+	DownloadUrl string
+	FileSize    int64
+}
+
+// The client downloads one model at a time.
+//
+// A model that ends is available at once: the model is marked as installed
+// before the next model of the queue starts, therefore a request of the network
+// is served with the model that is finished while the next model is fetched in
+// the background.
+var (
+	downloadQueueMutex sync.Mutex
+	downloadQueue      []downloadJob
+	downloadQueueKnown = map[string]bool{}
+	downloadRunMutex   sync.Mutex
+	downloadLoopStart  sync.Once
+)
+
+// queueModelDownload adds a model of the coordinator to the queue of the client.
+//
+// A model that is already installed, already queued or already transferred is
+// not queued again: the coordinator repeats the assignment while the client
+// runs.
+func queueModelDownload(modelId string, downloadUrl string, fileSize int64) {
+	if strings.TrimSpace(modelId) == "" {
+		return
+	}
+	targetPath := filepath.Join(State.Config.StorageDir, modelId+".gguf")
+	if info, err := os.Stat(targetPath); err == nil && info.Size() > 10*1024*1024 {
+		State.Mu.Lock()
+		State.InstalledModels[modelId] = true
+		if State.ActiveVramModel == "" || State.ActiveVramModel == modelId {
+			State.ActiveVramModel = modelId
+		}
+		State.Mu.Unlock()
+		return
+	}
+
+	downloadQueueMutex.Lock()
+	if downloadQueueKnown[modelId] {
+		downloadQueueMutex.Unlock()
+		return
+	}
+	downloadQueueKnown[modelId] = true
+	downloadQueue = append(downloadQueue, downloadJob{
+		ModelId:     modelId,
+		DownloadUrl: downloadUrl,
+		FileSize:    fileSize,
+	})
+	downloadQueueMutex.Unlock()
+
+	State.Mu.Lock()
+	queued := make([]string, 0, len(downloadQueue))
+	for _, job := range downloadQueue {
+		queued = append(queued, job.ModelId)
+	}
+	State.DownloadQueue = queued
+	State.Mu.Unlock()
+
+	startDownloadLoop()
+}
+
+// downloadAssignedModel queues the model that the coordinator assigned.
+//
+// The name is kept for the callers of the client, the transfer itself is made
+// by the queue of the client.
+func downloadAssignedModel(modelId string, downloadUrl string, fileSize int64) {
+	queueModelDownload(modelId, downloadUrl, fileSize)
+}
+
+// startDownloadLoop starts the queue of the downloads of the client.
+func startDownloadLoop() {
+	downloadLoopStart.Do(func() {
+		go runDownloadLoop()
+	})
+}
+
+// runDownloadLoop transfers the models of the queue one after the other.
+func runDownloadLoop() {
+	for {
+		downloadQueueMutex.Lock()
+		if len(downloadQueue) == 0 {
+			downloadQueueMutex.Unlock()
+			time.Sleep(time.Second)
+			continue
+		}
+		job := downloadQueue[0]
+		downloadQueue = downloadQueue[1:]
+		downloadQueueMutex.Unlock()
+
+		performModelDownload(job)
+
+		downloadQueueMutex.Lock()
+		delete(downloadQueueKnown, job.ModelId)
+		queued := make([]string, 0, len(downloadQueue))
+		for _, item := range downloadQueue {
+			queued = append(queued, item.ModelId)
+		}
+		downloadQueueMutex.Unlock()
+
+		State.Mu.Lock()
+		State.DownloadQueue = queued
+		State.Mu.Unlock()
+
+		// The coordinator learns that the model is available now and not with
+		// the next heartbeat, the first token of the model must not wait.
+		triggerHeartbeat()
+	}
+}
+
+// downloadMeter measures the speed of the transfer of one model.
+//
+// The speed is the average of the transfer, the time that remains is the size
+// that is still missing divided by the speed. A transfer that stalls keeps the
+// progress of the model, the panel never shows a value that goes back.
+type downloadMeter struct {
+	modelId   string
+	total     int64
+	started   time.Time
+	lastAt    time.Time
+	lastBytes int64
+	speed     float64
+	percent   int
+	mutex     sync.Mutex
+}
+
+func newDownloadMeter(modelId string, total int64) *downloadMeter {
+	now := time.Now()
+	return &downloadMeter{
+		modelId: modelId,
+		total:   total,
+		started: now,
+		lastAt:  now,
+	}
+}
+
+// report publishes the transferred size of the model.
+func (m *downloadMeter) report(downloaded int64) {
+	m.mutex.Lock()
+	now := time.Now()
+	elapsed := now.Sub(m.lastAt).Seconds()
+	if elapsed >= 0.25 {
+		delta := downloaded - m.lastBytes
+		if delta > 0 {
+			current := float64(delta) / elapsed
+			if m.speed <= 0 {
+				m.speed = current
+			} else {
+				// The average of the last samples, a single slow sample does not
+				// move the estimate of the remaining time.
+				m.speed = m.speed*0.7 + current*0.3
+			}
+		}
+		m.lastAt = now
+		m.lastBytes = downloaded
+		if downloaded <= 0 {
+			m.lastBytes = 0
+		}
+	}
+
+	percent := 0
+	if m.total > 0 {
+		percent = int((downloaded * 100) / m.total)
+	}
+	if percent < m.percent {
+		percent = m.percent
+	}
+	if percent > 100 {
+		percent = 100
+	}
+	m.percent = percent
+
+	eta := 0
+	if m.speed > 1024 && m.total > downloaded {
+		eta = int(float64(m.total-downloaded) / m.speed)
+		if eta < 0 {
+			eta = 0
+		}
+	}
+	speed := m.speed
+	m.mutex.Unlock()
+
+	publishDownloadProgress(m.modelId, downloaded, m.total, percent, speed, eta)
+}
+
+// publishDownloadProgress publishes the progress of the running transfer.
+//
+// Only the model that is transferred now is published, the progress of a model
+// that waits in the queue is not the progress of the client.
+func publishDownloadProgress(modelId string, downloaded int64, total int64, percent int, speed float64, eta int) {
+	downloadedMB := int(downloaded / (1024 * 1024))
+	totalMB := int(total / (1024 * 1024))
+	if total > 0 && totalMB <= 0 {
+		totalMB = 1
+	}
+
+	State.Mu.Lock()
+	active := State.DownloadModelId == "" || State.DownloadModelId == modelId
+	if active {
+		State.DownloadModelId = modelId
+		State.ModelStatus = "downloading"
+		State.DownloadedMB = downloadedMB
+		if totalMB > 0 {
+			State.TotalMB = totalMB
+		}
+		State.DownloadProgress = percent
+		State.DownloadSpeedBps = speed
+		State.EtaSeconds = eta
+	}
+	State.Mu.Unlock()
+
+	if !active {
+		return
+	}
+	updateStatus(func(status *AppStatus) {
+		status.ModelStatus = "downloading"
+		status.ModelName = modelId
+		status.DownloadedMB = downloadedMB
+		status.TotalMB = totalMB
+		status.Progress = percent
+		status.DownloadSpeedBps = speed
+		status.EtaSeconds = eta
+	})
+}
+
+// finishDownload publishes the state of a model that is transferred.
+func finishDownload(modelId string, failed bool, err error) {
+	State.Mu.Lock()
+	State.DownloadModelId = ""
+	if failed {
+		State.ModelStatus = "error"
+		State.DownloadError = ""
+		if err != nil {
+			State.DownloadError = err.Error()
+		}
+	} else {
+		State.InstalledModels[modelId] = true
+		State.ActiveVramModel = modelId
+		State.ModelStatus = "ready"
+		State.DownloadProgress = 100
+		State.DownloadSpeedBps = 0
+		State.EtaSeconds = 0
+		if info, statErr := os.Stat(filepath.Join(State.Config.StorageDir, modelId+".gguf")); statErr == nil {
+			State.DownloadedMB = int(info.Size() / (1024 * 1024))
+			State.TotalMB = State.DownloadedMB
+		}
+	}
+	State.Mu.Unlock()
+	updateStatus(func(status *AppStatus) {
+		status.ModelStatus = State.ModelStatus
+		status.DownloadSpeedBps = 0
+		status.EtaSeconds = 0
+		if !failed {
+			status.Progress = 100
+		}
+	})
+}
+
 // IDM-Style 16-Channel Parallel Range Downloader (Section 2.2)
 //
 // The download reports the transferred amount so that the panel can show the real
 // progress of the model that is currently fetched.
-func downloadModelIDM(url string, targetPath string, fileSize int64) error {
+func downloadModelIDM(url string, targetPath string, fileSize int64, modelId string) error {
 	if fileSize <= 0 {
 		return fmt.Errorf("the size of the model is not known")
 	}
@@ -243,6 +556,7 @@ func downloadModelIDM(url string, targetPath string, fileSize int64) error {
 
 	var downloaded int64
 	var downloadMutex sync.Mutex
+	meter := newDownloadMeter(modelId, fileSize)
 	progressDone := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(700 * time.Millisecond)
@@ -255,7 +569,7 @@ func downloadModelIDM(url string, targetPath string, fileSize int64) error {
 				downloadMutex.Lock()
 				current := downloaded
 				downloadMutex.Unlock()
-				reportDownloadProgress(current, fileSize)
+				meter.report(current)
 			}
 		}
 	}()
@@ -356,32 +670,21 @@ func downloadModelIDM(url string, targetPath string, fileSize int64) error {
 		}
 	}
 
-	reportDownloadProgress(fileSize, fileSize)
+	meter.report(fileSize)
 	fmt.Printf("[BYOG IDM] Download and verification complete: %s\n", targetPath)
 	return nil
 }
 
-// downloadAssignedModel downloads a model into the storage directory of the worker and
-// keeps the installed model list in sync.
-func downloadAssignedModel(modelId string, downloadUrl string, fileSize int64) {
+// performModelDownload transfers a model of the queue into the storage of the
+// client.
+func performModelDownload(job downloadJob) {
+	modelId := job.ModelId
 	if modelId == "" {
 		return
 	}
 
-	// A registration is repeated while the client runs. Only one transfer of a
-	// model may run at the same time.
-	modelDownloadMutex.Lock()
-	if modelDownloads[modelId] {
-		modelDownloadMutex.Unlock()
-		return
-	}
-	modelDownloads[modelId] = true
-	modelDownloadMutex.Unlock()
-	defer func() {
-		modelDownloadMutex.Lock()
-		delete(modelDownloads, modelId)
-		modelDownloadMutex.Unlock()
-	}()
+	downloadRunMutex.Lock()
+	defer downloadRunMutex.Unlock()
 
 	targetPath := filepath.Join(State.Config.StorageDir, modelId+".gguf")
 	_ = os.MkdirAll(State.Config.StorageDir, 0755)
@@ -389,7 +692,7 @@ func downloadAssignedModel(modelId string, downloadUrl string, fileSize int64) {
 	if info, err := os.Stat(targetPath); err == nil && info.Size() > 10*1024*1024 {
 		State.Mu.Lock()
 		State.InstalledModels[modelId] = true
-		if State.ActiveVramModel == "" {
+		if State.ActiveVramModel == "" || State.ActiveVramModel == modelId {
 			State.ActiveVramModel = modelId
 		}
 		State.ModelStatus = "ready"
@@ -401,13 +704,23 @@ func downloadAssignedModel(modelId string, downloadUrl string, fileSize int64) {
 	}
 
 	State.Mu.Lock()
+	State.DownloadModelId = modelId
 	State.ModelStatus = "downloading"
 	State.DownloadedMB = 0
 	State.DownloadProgress = 0
-	if fileSize > 0 {
-		State.TotalMB = int(fileSize / (1024 * 1024))
+	State.DownloadSpeedBps = 0
+	State.EtaSeconds = 0
+	State.DownloadStartedAt = time.Now().UnixMilli()
+	if job.FileSize > 0 {
+		State.TotalMB = int(job.FileSize / (1024 * 1024))
 	}
 	State.Mu.Unlock()
+	updateStatus(func(status *AppStatus) {
+		status.ModelName = modelId
+		status.ModelStatus = "downloading"
+		status.Progress = 0
+		status.EtaSeconds = 0
+	})
 
 	// The coordinator caches the model and gives it to every worker of the
 	// installation. When the coordinator does not know the model, the model
@@ -417,18 +730,25 @@ func downloadAssignedModel(modelId string, downloadUrl string, fileSize int64) {
 		primary = server + "/api/v1/worker/models/" + url.PathEscape(modelId) + "/file"
 	}
 	if primary == "" {
-		primary = downloadUrl
+		primary = job.DownloadUrl
 	}
 
 	failed := primary == ""
 	var lastErr error
 	if primary != "" {
-		if err := downloadModelIDM(primary, targetPath, fileSize); err != nil {
+		if err := downloadModelIDM(primary, targetPath, job.FileSize, modelId); err != nil {
 			fmt.Printf("[BYOG IDM] Download of %s failed: %v\n", modelId, err)
 			cleanupModelParts(targetPath)
 			// The server does not give the pieces of the file, the file is
-			// downloaded with a single connection.
-			if singleErr := downloadModelSingle(primary, targetPath, fileSize); singleErr != nil {
+			// downloaded with a single connection. The transfer starts again
+			// from the first byte, the coordinator is told that the progress
+			// begins again.
+			State.Mu.Lock()
+			State.DownloadStartedAt = time.Now().UnixMilli()
+			State.DownloadedMB = 0
+			State.DownloadProgress = 0
+			State.Mu.Unlock()
+			if singleErr := downloadModelSingle(primary, targetPath, job.FileSize, modelId); singleErr != nil {
 				lastErr = singleErr
 				fmt.Printf("[BYOG IDM] Download of %s failed: %v\n", modelId, singleErr)
 				failed = true
@@ -437,10 +757,15 @@ func downloadAssignedModel(modelId string, downloadUrl string, fileSize int64) {
 			}
 		}
 	}
-	if failed && downloadUrl != "" && downloadUrl != primary {
+	if failed && job.DownloadUrl != "" && job.DownloadUrl != primary {
 		fmt.Printf("[BYOG IDM] Download of %s is retried from the model host\n", modelId)
 		cleanupModelParts(targetPath)
-		if err := downloadModelSingle(downloadUrl, targetPath, fileSize); err != nil {
+		State.Mu.Lock()
+		State.DownloadStartedAt = time.Now().UnixMilli()
+		State.DownloadedMB = 0
+		State.DownloadProgress = 0
+		State.Mu.Unlock()
+		if err := downloadModelSingle(job.DownloadUrl, targetPath, job.FileSize, modelId); err != nil {
 			lastErr = err
 			fmt.Printf("[BYOG IDM] Download of %s from the model host failed: %v\n", modelId, err)
 		} else {
@@ -448,26 +773,12 @@ func downloadAssignedModel(modelId string, downloadUrl string, fileSize int64) {
 		}
 	}
 	if failed {
-		State.Mu.Lock()
-		State.ModelStatus = "error"
-		State.Mu.Unlock()
-		if lastErr != nil {
-			fmt.Printf("[BYOG IDM] The model %s could not be downloaded: %v\n", modelId, lastErr)
-		}
+		fmt.Printf("[BYOG IDM] The model %s could not be downloaded: %v\n", modelId, lastErr)
+		finishDownload(modelId, true, lastErr)
 		return
 	}
 
-	info, err := os.Stat(targetPath)
-	State.Mu.Lock()
-	State.InstalledModels[modelId] = true
-	State.ActiveVramModel = modelId
-	State.ModelStatus = "ready"
-	State.DownloadProgress = 100
-	if err == nil {
-		State.DownloadedMB = int(info.Size() / (1024 * 1024))
-		State.TotalMB = State.DownloadedMB
-	}
-	State.Mu.Unlock()
+	finishDownload(modelId, false, nil)
 }
 
 // cleanupModelParts removes the parts of a failed parallel download.
@@ -483,7 +794,7 @@ func cleanupModelParts(targetPath string) {
 // The coordinator does not always give the pieces of the file with the range
 // requests, the file is downloaded as a whole then. The size of the response is
 // used when the size of the assignment is not known or out of date.
-func downloadModelSingle(downloadUrl string, targetPath string, fileSize int64) error {
+func downloadModelSingle(downloadUrl string, targetPath string, fileSize int64, modelId string) error {
 	request, err := http.NewRequest("GET", downloadUrl, nil)
 	if err != nil {
 		return err
@@ -512,6 +823,7 @@ func downloadModelSingle(downloadUrl string, targetPath string, fileSize int64) 
 	var downloaded int64
 	var mutex sync.Mutex
 	writer := &progressWriter{writer: out, counter: &downloaded, mutex: &mutex}
+	meter := newDownloadMeter(modelId, total)
 
 	progressDone := make(chan struct{})
 	go func() {
@@ -525,7 +837,7 @@ func downloadModelSingle(downloadUrl string, targetPath string, fileSize int64) 
 				mutex.Lock()
 				current := downloaded
 				mutex.Unlock()
-				reportDownloadProgress(current, total)
+				meter.report(current)
 			}
 		}
 	}()
@@ -547,23 +859,8 @@ func downloadModelSingle(downloadUrl string, targetPath string, fileSize int64) 
 	if response.ContentLength <= 0 && fileSize > 0 && info.Size() != fileSize {
 		return fmt.Errorf("the model file is incomplete: %d of %d bytes", info.Size(), fileSize)
 	}
-	reportDownloadProgress(info.Size(), info.Size())
+	meter.report(info.Size())
 	return os.Rename(partFile, targetPath)
-}
-
-// reportDownloadProgress publishes the download progress of the worker.
-func reportDownloadProgress(downloaded int64, total int64) {
-	State.Mu.Lock()
-	State.ModelStatus = "downloading"
-	State.DownloadedMB = int(downloaded / (1024 * 1024))
-	if total > 0 {
-		State.TotalMB = int(total / (1024 * 1024))
-		State.DownloadProgress = int((downloaded * 100) / total)
-	}
-	if State.DownloadProgress > 100 {
-		State.DownloadProgress = 100
-	}
-	State.Mu.Unlock()
 }
 
 // versionGreater reports whether a version is newer than another version.
@@ -813,9 +1110,52 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 				FileSize    int64  `json:"file_size"`
 			}
 			if err := json.Unmarshal(frame.Payload, &dReq); err == nil {
-				go func() {
-					downloadAssignedModel(dReq.ModelId, dReq.DownloadUrl, dReq.FileSize)
-				}()
+				queueModelDownload(dReq.ModelId, dReq.DownloadUrl, dReq.FileSize)
+			}
+
+		case "purge_model":
+			// The coordinator takes a model out of the memory of the client, the
+			// model stays on the disk and it can be used again at once.
+			var purgeReq struct {
+				ModelId string `json:"model_id"`
+			}
+			if err := json.Unmarshal(frame.Payload, &purgeReq); err == nil {
+				State.Mu.Lock()
+				if purgeReq.ModelId == "" || State.ActiveVramModel == purgeReq.ModelId {
+					State.ActiveVramModel = ""
+				}
+				State.Mu.Unlock()
+				triggerHeartbeat()
+			}
+
+		case "heartbeat_ack":
+			// The coordinator decides the settings of the node, the client shows
+			// and applies the settings of the panel. The window of the client and
+			// the page of the installation must agree on the hot start of the
+			// model and on the resources of the computer.
+			var ack struct {
+				HotStartEnabled *bool `json:"hot_start_enabled"`
+				AllocatedRamGB  *int  `json:"allocated_ram_gb"`
+				AllocatedVramGB *int  `json:"allocated_vram_gb"`
+				AllocatedCores  *int  `json:"allocated_cores"`
+				AllocatedDiskGB *int  `json:"allocated_disk_gb"`
+			}
+			if err := json.Unmarshal(frame.Payload, &ack); err == nil {
+				changed := false
+				State.Mu.Lock()
+				if ack.HotStartEnabled != nil && State.HotStartEnabled != *ack.HotStartEnabled {
+					State.HotStartEnabled = *ack.HotStartEnabled
+					changed = true
+				}
+				if ack.AllocatedDiskGB != nil && State.Config.MaxDiskGB != *ack.AllocatedDiskGB {
+					State.Config.MaxDiskGB = *ack.AllocatedDiskGB
+					changed = true
+				}
+				State.Mu.Unlock()
+				if changed {
+					saveConfig(State.Config)
+					updateStatus(func(status *AppStatus) { status.HotStartEnabled = State.HotStartEnabled })
+				}
 			}
 
 		case "byte_probe_request":

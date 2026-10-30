@@ -58,6 +58,8 @@ export type PricingModel = {
   vendor_description?: string
   quota_type: number
   model_ratio: number
+  // The price of a cached request, the models that cache keep it here.
+  cache_price?: number
   completion_ratio: number
   model_price?: number
   cache_ratio?: number | null

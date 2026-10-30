@@ -6796,6 +6796,10 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "No requests in this hour": "В этот час запросов не было",
+    "No requests in the last 24 hours": "За последние 24 часа запросов не было",
+    "uptime in the last 24 hours": "доступность за последние 24 часа",
+    "No requests were served in the last 30 days": "За последние 30 дней запросов не было"
   }
 }

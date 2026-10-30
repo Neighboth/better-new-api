@@ -6796,6 +6796,10 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "No requests in this hour": "Không có yêu cầu trong giờ này",
+    "No requests in the last 24 hours": "Không có yêu cầu trong 24 giờ qua",
+    "uptime in the last 24 hours": "thời gian hoạt động trong 24 giờ qua",
+    "No requests were served in the last 30 days": "Không có yêu cầu nào trong 30 ngày qua"
   }
 }

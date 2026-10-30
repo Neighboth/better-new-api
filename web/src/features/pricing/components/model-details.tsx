@@ -58,9 +58,8 @@ import {
 } from '@/features/performance-metrics/lib/format'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
-import { build24HourBars } from './model-perf-badge'
+import { barsFromHistory } from '../lib/uptime'
 
-import { CHANNEL_TYPES } from '@/features/channels/constants'
 import {
   getChannelTypeIcon,
   getChannelTypeLabel,
@@ -692,14 +691,24 @@ function ModelProvidersTable(props: {
                   <td className='p-2.5'>
                     <div className='flex items-center gap-1.5'>
                       <div className='flex items-center gap-0.5'>
-                        {build24HourBars(ch.uptime ?? 100.0, ch.uptime_history).map((val, i) => (
+                        {barsFromHistory(ch.uptime_history).map((bar) => (
                           <div
-                            key={i}
+                            key={bar.ts}
                             className={cn(
                               'w-1 h-3 rounded-xs transition-colors',
-                              val === 1 ? 'bg-emerald-500' : 'bg-destructive'
+                              bar.level === 'ok'
+                                ? 'bg-emerald-500'
+                                : bar.level === 'warn'
+                                  ? 'bg-amber-500'
+                                  : bar.level === 'bad'
+                                    ? 'bg-destructive'
+                                    : 'bg-muted-foreground/25'
                             )}
-                            title={val === 1 ? t('Operational') : t('Incident')}
+                            title={
+                              bar.level === 'empty'
+                                ? t('No requests in this hour')
+                                : `${bar.rate.toFixed(2)}%`
+                            }
                           />
                         ))}
                       </div>

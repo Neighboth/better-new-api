@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/uptime"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
 )
@@ -192,6 +193,7 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 			SuccessRate:        math.Round(successRate*100) / 100,
 			AvgTps:             math.Round(avgTps*100) / 100,
 			RecentSuccessRates: recentSuccessRates(modelBuckets[name], 24),
+			UptimeBuckets:      alignedUptimeBuckets(modelBuckets[name], startTs, endTs),
 			RequestCount:       total.requestCount,
 		})
 	}
@@ -254,6 +256,41 @@ func recentSuccessRates(buckets map[int64]counters, limit int) []float64 {
 		rates = append(rates, math.Round(successRate(buckets[ts])*100)/100)
 	}
 	return rates
+}
+
+// maxUptimeBuckets bounds the answer of the summary, the panel draws a day of
+// hours and a month of days and never more than that.
+const maxUptimeBuckets = 24 * 31
+
+// alignedUptimeBuckets returns every slot of the monitoring window with the
+// success rate of the model, a slot without requests included.
+//
+// The slots are aligned to the bucket of the setting and they end with the slot
+// that is running now, therefore the last slot of the answer is always the
+// current state of the model. The failures of a model appear at the time they
+// happened, the panel does not have to guess where an incident belongs.
+func alignedUptimeBuckets(buckets map[int64]counters, startTs int64, endTs int64) []UptimeBucket {
+	width := perf_metrics_setting.GetBucketSeconds()
+	if width <= 0 {
+		width = 3600
+	}
+	if endTs <= 0 {
+		endTs = time.Now().Unix()
+	}
+	starts := uptime.SlotStarts(startTs, endTs, width, maxUptimeBuckets)
+	result := make([]UptimeBucket, 0, len(starts))
+	for _, ts := range starts {
+		value := buckets[ts]
+		failures := value.requestCount - value.successCount
+		result = append(result, UptimeBucket{
+			Ts:             ts,
+			DurationSecond: width,
+			SuccessRate:    uptime.Percent(value.requestCount, failures),
+			RequestCount:   value.requestCount,
+			FailedCount:    failures,
+		})
+	}
+	return result
 }
 
 func allowedGroupSet(groups []string) map[string]struct{} {
@@ -357,6 +394,8 @@ func bucketPoint(ts int64, value counters) BucketPoint {
 		AvgLatencyMs: avg(value.totalLatencyMs, value.requestCount),
 		SuccessRate:  successRate(value),
 		AvgTps:       avgTps(value),
+		RequestCount: value.requestCount,
+		FailedCount:  value.requestCount - value.successCount,
 	}
 }
 
