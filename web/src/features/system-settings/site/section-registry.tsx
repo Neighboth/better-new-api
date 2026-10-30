@@ -115,7 +115,8 @@ const SITE_SECTIONS = [
           LLMSFullTxt: settings.LLMSFullTxt,
           GoogleAnalyticsId: settings.GoogleAnalyticsId ?? '',
           UmamiWebsiteId: settings.UmamiWebsiteId ?? '',
-          UmamiScriptUrl: settings.UmamiScriptUrl ?? 'https://analytics.umami.is/script.js',
+          UmamiScriptUrl:
+            settings.UmamiScriptUrl ?? 'https://analytics.umami.is/script.js',
           ClarityProjectId: settings.ClarityProjectId ?? '',
 
           SEOTitlePrefix_tr: settings.SEOTitlePrefix_tr ?? '',
@@ -156,6 +157,7 @@ const SITE_SECTIONS = [
         defaultValues={{
           AdsEnabled: settings.AdsEnabled,
           AdsMode: settings.AdsMode,
+          AdsSurfaces: settings.AdsSurfaces || 'blog',
           AdSenseClientId: settings.AdSenseClientId,
           AdSenseSlotId: settings.AdSenseSlotId,
           CustomAds: settings.CustomAds,

@@ -55,6 +55,17 @@ export type UptimeLevel = 'ok' | 'bad'
  */
 const UPTIME_OK_MIN = 99.9
 
+/**
+ * The rate that the square prints for a model without a measurement.
+ *
+ * A model that served no request has no failed request, therefore the square
+ * reads it as a hundred percent. A dash in the column of the status reads as
+ * "unknown" and the reader scrolls past the model; the number never claims a
+ * measurement that nobody made, the tooltip of the bar still names the hour as
+ * empty and the tooltip of the status still says that the model served nothing.
+ */
+export const NO_REQUEST_RATE = 100
+
 export type UptimeDayPoint = {
   /** Local date of the day, `YYYY-MM-DD`. */
   date: string
@@ -114,12 +125,15 @@ export function bucketLevel(bucket: UptimeBucket | undefined): UptimeLevel {
  * a model without traffic has no measured uptime and the panel shows a dash
  * instead of a made up 100%.
  */
-export function uptimePercent(buckets: UptimeBucket[] | undefined): number | null {
+export function uptimePercent(
+  buckets: UptimeBucket[] | undefined
+): number | null {
   if (!buckets || buckets.length === 0) return null
   let requests = 0
   let succeeded = 0
   for (const bucket of buckets) {
-    if (!Number.isFinite(bucket.request_count) || bucket.request_count <= 0) continue
+    if (!Number.isFinite(bucket.request_count) || bucket.request_count <= 0)
+      continue
     requests += bucket.request_count
     succeeded += bucket.request_count - failedRequests(bucket)
   }
@@ -211,11 +225,19 @@ export function buildDailyUptime(
   const today = new Date(nowMs)
   today.setHours(0, 0, 0, 0)
 
-  const byDate = new Map<string, { requests: number; failed: number; slots: number; failingSlots: number }>()
+  const byDate = new Map<
+    string,
+    { requests: number; failed: number; slots: number; failingSlots: number }
+  >()
   for (const bucket of buckets ?? []) {
     if (!Number.isFinite(bucket?.ts)) continue
     const key = localDateOf(bucket.ts)
-    const current = byDate.get(key) ?? { requests: 0, failed: 0, slots: 0, failingSlots: 0 }
+    const current = byDate.get(key) ?? {
+      requests: 0,
+      failed: 0,
+      slots: 0,
+      failingSlots: 0,
+    }
     const requests = Math.max(0, bucket.request_count ?? 0)
     const failed = failedRequests(bucket)
     current.requests += requests
@@ -231,7 +253,13 @@ export function buildDailyUptime(
     const key = localDateOf(Math.floor(day.getTime() / 1000))
     const value = byDate.get(key)
     if (!value || value.requests === 0) {
-      series.push({ date: key, uptime_pct: 0, incidents: 0, outage_minutes: 0, requests: 0 })
+      series.push({
+        date: key,
+        uptime_pct: 0,
+        incidents: 0,
+        outage_minutes: 0,
+        requests: 0,
+      })
       continue
     }
     const succeeded = value.requests - value.failed

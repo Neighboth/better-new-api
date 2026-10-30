@@ -38,8 +38,8 @@ import { StaticDataTable } from '@/components/data-table'
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { GroupBadge } from '@/components/group-badge'
 import { PublicLayout } from '@/components/layout'
-import { Markdown } from '@/components/ui/markdown'
 import { Button } from '@/components/ui/button'
+import { Markdown } from '@/components/ui/markdown'
 import {
   Sheet,
   SheetContent,
@@ -49,6 +49,10 @@ import {
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  getChannelTypeIcon,
+  getChannelTypeLabel,
+} from '@/features/channels/lib/channel-utils'
 import { getPerfMetrics } from '@/features/performance-metrics/api'
 import {
   formatLatency,
@@ -58,12 +62,7 @@ import {
 } from '@/features/performance-metrics/lib/format'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
-import { barsFromHistory } from '../lib/uptime'
 
-import {
-  getChannelTypeIcon,
-  getChannelTypeLabel,
-} from '@/features/channels/lib/channel-utils'
 import { DEFAULT_TOKEN_UNIT } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
 import {
@@ -75,6 +74,7 @@ import {
 import { parseTags } from '../lib/filters'
 import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
+import { barsFromHistory, NO_REQUEST_RATE } from '../lib/uptime'
 import type {
   ModelCapability,
   PriceType,
@@ -192,10 +192,12 @@ function OverviewSummaryGrid(props: { model: PricingModel }) {
   const successRates = groups
     .map((group) => group.success_rate)
     .filter((rate) => Number.isFinite(rate))
+  // A model that served no request has no failed request: the tile reads as a
+  // hundred percent instead of a dash that a reader takes for a broken model.
   const successRate =
     successRates.length > 0
       ? successRates.reduce((sum, rate) => sum + rate, 0) / successRates.length
-      : Number.NaN
+      : NO_REQUEST_RATE
   const tpsValues = groups
     .map((group) => group.avg_tps)
     .filter((value) => value > 0)
@@ -547,18 +549,18 @@ function ModelHeader(props: { model: PricingModel }) {
   }, [model.property_boxes])
 
   return (
-    <header className='pb-4 space-y-2'>
+    <header className='space-y-2 pb-4'>
       <div className='flex items-start gap-3'>
         <div className='mt-0.5'>{modelIcon}</div>
         <div className='min-w-0 flex-1'>
-          <h1 className='font-mono text-xl font-bold tracking-tight sm:text-2xl truncate'>
+          <h1 className='truncate font-mono text-xl font-bold tracking-tight sm:text-2xl'>
             {model.display_name || model.model_name}
           </h1>
-          <div className='flex items-center gap-1.5 text-xs text-muted-foreground/80 font-mono mt-0.5'>
+          <div className='text-muted-foreground/80 mt-0.5 flex items-center gap-1.5 font-mono text-xs'>
             <span className='truncate'>{model.model_name}</span>
             <CopyButton
               value={model.model_name || ''}
-              className='size-5 text-muted-foreground/60'
+              className='text-muted-foreground/60 size-5'
               iconClassName='size-2.5'
               tooltip={t('Copy model name')}
               successTooltip={t('Copied!')}
@@ -575,26 +577,26 @@ function ModelHeader(props: { model: PricingModel }) {
         <ModelBillingModeBadge model={model} />
       </div>
       {description && (
-        <div className='text-muted-foreground mt-2 text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none'>
+        <div className='text-muted-foreground prose prose-sm dark:prose-invert mt-2 max-w-none text-sm leading-relaxed'>
           <Markdown>{description}</Markdown>
         </div>
       )}
       {model.tagline && (
-        <div className='text-xs font-semibold text-foreground/85 mt-2'>
+        <div className='text-foreground/85 mt-2 text-xs font-semibold'>
           {model.tagline}
         </div>
       )}
       {propertyBoxes.length > 0 && (
-        <div className='mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2'>
+        <div className='mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4'>
           {propertyBoxes.map((box, idx) => (
             <div
               key={idx}
-              className='rounded-xl border border-border/60 bg-muted/20 px-3 py-2 flex flex-col justify-between'
+              className='border-border/60 bg-muted/20 flex flex-col justify-between rounded-xl border px-3 py-2'
             >
-              <span className='text-[10px] text-muted-foreground font-medium truncate leading-tight'>
+              <span className='text-muted-foreground truncate text-[10px] leading-tight font-medium'>
                 {box.label}
               </span>
-              <span className='text-xs font-bold text-foreground truncate mt-1 leading-tight'>
+              <span className='text-foreground mt-1 truncate text-xs leading-tight font-bold'>
                 {box.value}
               </span>
             </div>
@@ -623,18 +625,20 @@ function ModelProvidersTable(props: {
       <div className='flex items-center justify-between'>
         <div>
           <SectionTitle>{t('Providers & Endpoints')}</SectionTitle>
-          <p className='text-xs text-muted-foreground -mt-2'>
-            {t('Available channels hosting this model, latency, throughput and real-time pricing.')}
+          <p className='text-muted-foreground -mt-2 text-xs'>
+            {t(
+              'Available channels hosting this model, latency, throughput and real-time pricing.'
+            )}
           </p>
         </div>
-        <span className='text-xs font-mono font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded'>
+        <span className='text-muted-foreground bg-muted rounded px-2 py-0.5 font-mono text-xs font-medium'>
           {channels.length} {t('providers')}
         </span>
       </div>
 
-      <div className='overflow-x-auto rounded-lg border border-border/60'>
+      <div className='border-border/60 overflow-x-auto rounded-lg border'>
         <table className='w-full text-xs'>
-          <thead className='bg-muted/40 border-b border-border/60 text-muted-foreground font-medium text-left'>
+          <thead className='bg-muted/40 border-border/60 text-muted-foreground border-b text-left font-medium'>
             <tr>
               <th className='p-2.5'>{t('Provider')}</th>
               <th className='p-2.5'>{t('Input / 1M')}</th>
@@ -642,10 +646,10 @@ function ModelProvidersTable(props: {
               <th className='p-2.5'>{t('Cache Read')}</th>
               <th className='p-2.5'>{t('Latency (TTFT)')}</th>
               <th className='p-2.5'>{t('Throughput (TPS)')}</th>
-              <th className='p-2.5 min-w-[130px]'>{t('Uptime (24h)')}</th>
+              <th className='min-w-[130px] p-2.5'>{t('Uptime (24h)')}</th>
             </tr>
           </thead>
-          <tbody className='divide-y divide-border/40 font-mono'>
+          <tbody className='divide-border/40 divide-y font-mono'>
             {channels.map((ch) => {
               const iconName = getChannelTypeIcon(ch.type)
               const icon =
@@ -655,37 +659,47 @@ function ModelProvidersTable(props: {
               const typeName = t(getChannelTypeLabel(ch.type))
               return (
                 <tr key={ch.id} className='hover:bg-muted/30 transition-colors'>
-                  <td className='p-2.5 flex items-center gap-2 font-sans'>
+                  <td className='flex items-center gap-2 p-2.5 font-sans'>
                     <div className='flex size-5 shrink-0 items-center justify-center'>
-                      {icon || <div className='size-4 rounded-full bg-primary/20 shrink-0' />}
+                      {icon || (
+                        <div className='bg-primary/20 size-4 shrink-0 rounded-full' />
+                      )}
                     </div>
-                    <span className='font-semibold text-foreground truncate max-w-[140px] sm:max-w-none'>
+                    <span className='text-foreground max-w-[140px] truncate font-semibold sm:max-w-none'>
                       {ch.name}
                     </span>
-                    <span className='text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground font-mono'>
+                    <span className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]'>
                       {typeName}
                     </span>
                     {ch.group && (
-                      <span className='text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-mono'>
+                      <span className='bg-primary/10 text-primary rounded px-1.5 py-0.5 font-mono text-[10px]'>
                         {ch.group}
                       </span>
                     )}
                   </td>
-                  <td className='p-2.5 text-foreground font-semibold'>
+                  <td className='text-foreground p-2.5 font-semibold'>
                     ${ch.input_price.toFixed(2)}
                   </td>
-                  <td className='p-2.5 text-foreground font-semibold'>
+                  <td className='text-foreground p-2.5 font-semibold'>
                     ${ch.output_price.toFixed(2)}
                   </td>
-                  <td className='p-2.5 text-muted-foreground'>
-                    {ch.cache_price != null ? `$${ch.cache_price.toFixed(2)}` : '—'}
+                  <td className='text-muted-foreground p-2.5'>
+                    {ch.cache_price != null
+                      ? `$${ch.cache_price.toFixed(2)}`
+                      : '—'}
                   </td>
-                  <td className='p-2.5 text-muted-foreground'>
-                    <span className={ch.ttft && ch.ttft < 1.0 ? 'text-emerald-500 font-semibold' : 'text-amber-500'}>
+                  <td className='text-muted-foreground p-2.5'>
+                    <span
+                      className={
+                        ch.ttft && ch.ttft < 1.0
+                          ? 'font-semibold text-emerald-500'
+                          : 'text-amber-500'
+                      }
+                    >
                       {ch.ttft ? `${ch.ttft.toFixed(2)}s` : '—'}
                     </span>
                   </td>
-                  <td className='p-2.5 text-foreground font-medium'>
+                  <td className='text-foreground p-2.5 font-medium'>
                     {ch.tps ? `${ch.tps.toFixed(1)} t/s` : '—'}
                   </td>
                   <td className='p-2.5'>
@@ -714,14 +728,13 @@ function ModelProvidersTable(props: {
                       <span
                         className={cn(
                           'text-[10px] font-semibold ml-1 tabular-nums',
-                          // A channel without a measurement is not a perfect
-                          // channel: the dash says that nothing was measured.
-                          ch.uptime
-                            ? getSuccessRateTextClass(ch.uptime)
-                            : 'text-muted-foreground'
+                          // A channel without a measurement served nothing
+                          // and lost nothing: the square reads as a hundred
+                          // percent, the same number as the card of the model.
+                          getSuccessRateTextClass(ch.uptime ?? NO_REQUEST_RATE)
                         )}
                       >
-                        {ch.uptime ? `${ch.uptime.toFixed(2)}%` : '—'}
+                        {(ch.uptime ?? NO_REQUEST_RATE).toFixed(2)}%
                       </span>
                     </div>
                   </td>

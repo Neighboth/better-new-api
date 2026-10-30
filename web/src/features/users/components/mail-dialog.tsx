@@ -135,7 +135,10 @@ export function MailDialog({
     // The button of the header opens an empty message, the selection of the
     // table does not follow the administrator into the next message.
     setSelected([])
-    if (campaign && (campaign.status === 'done' || campaign.status === 'failed')) {
+    if (
+      campaign &&
+      (campaign.status === 'done' || campaign.status === 'failed')
+    ) {
       resetForm()
     }
   }, [open, initialUserIds, campaign, resetForm])
@@ -181,11 +184,11 @@ export function MailDialog({
   const audience = audienceQuery.data?.data
   const recipientCount = allUsers
     ? promotional
-      ? audience?.marketing ?? 0
-      : audience?.addresses ?? 0
+      ? (audience?.marketing ?? 0)
+      : (audience?.addresses ?? 0)
     : promotional
-      ? audience?.selected_marketing ?? 0
-      : audience?.selected ?? 0
+      ? (audience?.selected_marketing ?? 0)
+      : (audience?.selected ?? 0)
 
   const toggleRecipient = useCallback((user: MailRecipientOption) => {
     setSelected((current) => {
@@ -261,8 +264,7 @@ export function MailDialog({
   const results = searchQuery.data?.data?.items ?? []
   const mailStatus = statusQuery.data?.data
   const deliverability = deliverabilityQuery.data?.data
-  const finished =
-    campaign?.status === 'done' || campaign?.status === 'failed'
+  const finished = campaign?.status === 'done' || campaign?.status === 'failed'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -387,6 +389,46 @@ export function MailDialog({
                 ) : null}
               </label>
 
+              {/* The reach of the message is never a bare number: the panel
+                  names the users that the message cannot reach, so an
+                  administrator never reads a smaller number as a lost contact. */}
+              {audience ? (
+                <div className='text-muted-foreground bg-muted/40 space-y-1 rounded-lg border px-3 py-2 text-[11px]'>
+                  <div>
+                    {t('{{total}} users in the installation.', {
+                      total: audience.total,
+                    })}
+                  </div>
+                  <div>
+                    {t('{{count}} have an address and an enabled account.', {
+                      count: audience.addresses,
+                    })}
+                  </div>
+                  {audience.disabled > 0 ? (
+                    <div>
+                      {t('{{count}} disabled or banned accounts are skipped.', {
+                        count: audience.disabled,
+                      })}
+                    </div>
+                  ) : null}
+                  {audience.no_email > 0 ? (
+                    <div>
+                      {t('{{count}} accounts have no address.', {
+                        count: audience.no_email,
+                      })}
+                    </div>
+                  ) : null}
+                  {audience.opted_out > 0 ? (
+                    <div>
+                      {t(
+                        '{{count}} turned the announcements off in their profile.',
+                        { count: audience.opted_out }
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
               {!allUsers && (
                 <div className='rounded-lg border'>
                   <div className='flex items-center gap-2 border-b p-2'>
@@ -456,7 +498,9 @@ export function MailDialog({
                         size='sm'
                         className='h-6 px-2 text-[11px]'
                         disabled={page <= 1}
-                        onClick={() => setPage((current) => Math.max(1, current - 1))}
+                        onClick={() =>
+                          setPage((current) => Math.max(1, current - 1))
+                        }
                       >
                         {t('Previous')}
                       </Button>
@@ -466,7 +510,9 @@ export function MailDialog({
                         variant='ghost'
                         size='sm'
                         className='h-6 px-2 text-[11px]'
-                        disabled={(searchQuery.data?.data?.count ?? 0) < PAGE_SIZE}
+                        disabled={
+                          (searchQuery.data?.data?.count ?? 0) < PAGE_SIZE
+                        }
                         onClick={() => setPage((current) => current + 1)}
                       >
                         {t('Next')}
@@ -582,7 +628,9 @@ export function MailDialog({
                     </span>
                     <Switch
                       checked={promotional}
-                      onCheckedChange={(value: boolean) => setPromotional(value)}
+                      onCheckedChange={(value: boolean) =>
+                        setPromotional(value)
+                      }
                     />
                   </label>
 
@@ -635,7 +683,11 @@ export function MailDialog({
                                 : 'text-amber-600'
                             }
                           >
-                            {deliverability.dkim_ok ? t('ok') : t('missing')}
+                            {deliverability.dkim_ok
+                              ? deliverability.dkim_selector
+                                ? `${t('ok')} (${deliverability.dkim_selector})`
+                                : t('ok')
+                              : t('missing')}
                           </b>
                         </span>
                         <span>

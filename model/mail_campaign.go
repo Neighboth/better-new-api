@@ -178,12 +178,27 @@ func rowToRecipient(row *User) MailRecipient {
 }
 
 // MailAudience is the number of the readers of a message.
+//
+// The numbers come as a breakdown and not as a single total: an administrator
+// that reads "425 of the 680 users will receive the message" needs to know why
+// the other 255 are out, otherwise the panel looks like it lost two hundred
+// readers to a bug.
 type MailAudience struct {
+	// Total is every user of the installation.
+	Total int64 `json:"total"`
 	// Addresses is the number of the enabled users with an address.
 	Addresses int64 `json:"addresses"`
 	// Marketing is the number of those users that accept a promotional
 	// message of the installation.
 	Marketing int64 `json:"marketing"`
+	// OptedOut is the number of the users with an address that turned the
+	// announcements off in their profile.
+	OptedOut int64 `json:"opted_out"`
+	// NoEmail is the number of the enabled users without an address.
+	NoEmail int64 `json:"no_email"`
+	// Disabled is the number of the users that are not enabled (a banned or a
+	// disabled account does not receive the mail of the installation).
+	Disabled int64 `json:"disabled"`
 }
 
 // CountMailAudience counts the readers of a message.
@@ -191,17 +206,32 @@ type MailAudience struct {
 // The promotional flag of the settings of a user is read from the settings, the
 // database does not filter the documents of the users: the settings are a JSON
 // document and the filter of a document is not the same on SQLite, MySQL and
-// PostgreSQL.
+// PostgreSQL. The same pass fills the breakdown of the audience, so the page and
+// the sender always agree on the number of the readers.
 func CountMailAudience() (MailAudience, error) {
 	var rows []User
-	if err := mailRecipientQuery().Find(&rows).Error; err != nil {
+	if err := DB.Model(&User{}).
+		Select("id, status, email, setting").
+		Find(&rows).Error; err != nil {
 		return MailAudience{}, err
 	}
-	audience := MailAudience{Addresses: int64(len(rows))}
+	audience := MailAudience{Total: int64(len(rows))}
 	for index := range rows {
-		if !marketingOptOut(rows[index].Setting) {
-			audience.Marketing++
+		user := rows[index]
+		if user.Status != common.UserStatusEnabled {
+			audience.Disabled++
+			continue
 		}
+		if strings.TrimSpace(user.Email) == "" {
+			audience.NoEmail++
+			continue
+		}
+		audience.Addresses++
+		if marketingOptOut(user.Setting) {
+			audience.OptedOut++
+			continue
+		}
+		audience.Marketing++
 	}
 	return audience, nil
 }

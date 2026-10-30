@@ -21,18 +21,20 @@ import { ChevronRight } from 'lucide-react'
 import { memo, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import type { UptimeBucket } from '@/features/performance-metrics/types'
 import { getSuccessRateTextClass } from '@/features/performance-metrics/lib/format'
+import type { UptimeBucket } from '@/features/performance-metrics/types'
 import { cn } from '@/lib/utils'
-import type { PricingChannel } from '../types'
+
 import {
   barsFromHistory,
   bucketLevel,
   fillBuckets,
+  NO_REQUEST_RATE,
   uptimePercent,
   type PerfBar,
   type UptimeLevel,
 } from '../lib/uptime'
+import type { PricingChannel } from '../types'
 
 export type ModelPerfBadgeData = {
   avg_latency_ms: number
@@ -105,9 +107,17 @@ export function buildPerfBars(
   nowMs: number = Date.now()
 ): PerfBar[] {
   if (!perf) {
-    return fillBuckets(undefined, PERF_BAR_WIDTH_SECONDS, PERF_BAR_COUNT, nowMs).map(
-      (bucket) => ({ ts: bucket.ts, level: 'ok' as UptimeLevel, rate: 0, requests: 0 })
-    )
+    return fillBuckets(
+      undefined,
+      PERF_BAR_WIDTH_SECONDS,
+      PERF_BAR_COUNT,
+      nowMs
+    ).map((bucket) => ({
+      ts: bucket.ts,
+      level: 'ok' as UptimeLevel,
+      rate: 0,
+      requests: 0,
+    }))
   }
 
   const buckets = fillBuckets(
@@ -147,6 +157,8 @@ export function useModelPerfData(
     // request has proven.
     const measuredRate = uptimePercent(perf?.uptime_buckets)
     const channelUptime = findChannelUptime(channels)
+    // The channel carries the rate of the model even when every request of the
+    // window failed, a measured zero is a measurement and it stays a zero.
     const rate = measuredRate ?? channelUptime?.uptime ?? null
 
     if (channels && channels.length > 0) {
@@ -192,19 +204,16 @@ function findChannelUptime(
   if (!channels || channels.length === 0) return undefined
   return channels.find(
     (channel) =>
-      typeof channel.uptime === 'number' &&
-      Number.isFinite(channel.uptime) &&
-      channel.uptime > 0
+      typeof channel.uptime === 'number' && Number.isFinite(channel.uptime)
   )
 }
 
 function statusClass(rate: number | null): string {
-  if (rate === null) return 'text-muted-foreground'
-  return getSuccessRateTextClass(rate)
+  return getSuccessRateTextClass(rate ?? NO_REQUEST_RATE)
 }
 
 function statusText(rate: number | null): string {
-  return rate === null ? '—' : `${rate.toFixed(2)}%`
+  return `${(rate ?? NO_REQUEST_RATE).toFixed(2)}%`
 }
 
 /**
@@ -228,21 +237,23 @@ export const ModelPerfStatsRow = memo(function ModelPerfStatsRow(props: {
         props.className
       )}
     >
-      <div className='flex items-center gap-1.5 shrink-0'>
+      <div className='flex shrink-0 items-center gap-1.5'>
         <span className='text-muted-foreground font-sans'>{t('Status')}</span>
-        <span className={cn('font-semibold tabular-nums', statusClass(statusRate))}>
+        <span
+          className={cn('font-semibold tabular-nums', statusClass(statusRate))}
+        >
           {statusText(statusRate)}
         </span>
       </div>
 
-      <div className='flex items-center gap-1.5 shrink-0'>
+      <div className='flex shrink-0 items-center gap-1.5'>
         <span className='text-muted-foreground font-sans'>{t('Lat.')}</span>
         <span className='text-foreground font-medium tabular-nums'>
           {latencyText}
         </span>
       </div>
 
-      <div className='flex items-center gap-1.5 shrink-0'>
+      <div className='flex shrink-0 items-center gap-1.5'>
         <span className='text-muted-foreground font-sans'>{t('TPS')}</span>
         <span className='text-foreground font-medium tabular-nums'>
           {tpsText}
@@ -319,17 +330,24 @@ export const ModelCardTelemetry = memo(function ModelCardTelemetry(props: {
         props.className
       )}
     >
-      <div className='flex items-start gap-3.5 sm:gap-5 min-w-0 font-mono'>
+      <div className='flex min-w-0 items-start gap-3.5 font-mono sm:gap-5'>
         {/* Status + Vertical Sparkline Bars directly underneath */}
-        <div className='flex flex-col gap-1 shrink-0'>
+        <div className='flex shrink-0 flex-col gap-1'>
           <div className='flex items-center gap-1.5 text-[11px] leading-none'>
-            <span className='text-muted-foreground font-sans'>{t('Status')}</span>
-            <span className={cn('font-semibold tabular-nums', statusClass(statusRate))}>
+            <span className='text-muted-foreground font-sans'>
+              {t('Status')}
+            </span>
+            <span
+              className={cn(
+                'font-semibold tabular-nums',
+                statusClass(statusRate)
+              )}
+            >
               {statusText(statusRate)}
             </span>
           </div>
           <div
-            className='flex items-center gap-[1.5px] h-3.5 pt-0.5'
+            className='flex h-3.5 items-center gap-[1.5px] pt-0.5'
             title={
               statusRate === null
                 ? t('No requests in the last 24 hours')
@@ -349,20 +367,20 @@ export const ModelCardTelemetry = memo(function ModelCardTelemetry(props: {
           </div>
         </div>
 
-        <div className='flex flex-col gap-1 shrink-0'>
+        <div className='flex shrink-0 flex-col gap-1'>
           <span className='text-muted-foreground font-sans text-[11px] leading-none'>
             {t('Lat.')}
           </span>
-          <span className='text-foreground font-medium tabular-nums text-[11px] leading-none'>
+          <span className='text-foreground text-[11px] leading-none font-medium tabular-nums'>
             {latencyText}
           </span>
         </div>
 
-        <div className='flex flex-col gap-1 shrink-0'>
+        <div className='flex shrink-0 flex-col gap-1'>
           <span className='text-muted-foreground font-sans text-[11px] leading-none'>
             {t('TPS')}
           </span>
-          <span className='text-foreground font-medium tabular-nums text-[11px] leading-none'>
+          <span className='text-foreground text-[11px] leading-none font-medium tabular-nums'>
             {tpsText}
           </span>
         </div>
@@ -372,7 +390,7 @@ export const ModelCardTelemetry = memo(function ModelCardTelemetry(props: {
         <button
           type='button'
           onClick={props.onDetailsClick}
-          className='text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5 text-[11px] font-medium transition-colors shrink-0'
+          className='text-muted-foreground hover:text-foreground inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium transition-colors'
         >
           {t('Details')}
           <ChevronRight className='h-3.5 w-3.5' />

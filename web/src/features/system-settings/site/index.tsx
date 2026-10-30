@@ -56,6 +56,7 @@ const defaultSiteSettings: SiteSettings = {
   AdSenseSlotId: '',
   AdsEnabled: false,
   AdsMode: 'both',
+  AdsSurfaces: 'blog',
   CustomAds: '[]',
   GoogleAnalyticsId: '',
   UmamiWebsiteId: '',

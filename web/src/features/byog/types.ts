@@ -106,6 +106,12 @@ export interface ByogNode {
   last_heartbeat_at: number
   created_at: number
   updated_at: number
+
+  // Owner of the device, filled by the admin listing of the nodes. The table of
+  // the administrator names the account that paired the device next to the
+  // device itself: a node id alone does not tell whose machine is online.
+  user_name?: string
+  user_email?: string
 }
 
 export interface ByogSetting {

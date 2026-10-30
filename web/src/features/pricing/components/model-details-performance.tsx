@@ -34,14 +34,15 @@ import {
   getSuccessRateTextClass,
 } from '@/features/performance-metrics/lib/format'
 import type { PerformanceGroup } from '@/features/performance-metrics/types'
+import type { UptimeBucket } from '@/features/performance-metrics/types'
 import { cn } from '@/lib/utils'
 
 import {
   aggregateDailyUptime,
   buildDailyUptime,
+  NO_REQUEST_RATE,
   type UptimeDayPoint,
 } from '../lib/uptime'
-import type { UptimeBucket } from '@/features/performance-metrics/types'
 import type { PricingModel } from '../types'
 import { LatencyTrendChart, UptimeTrendChart } from './model-details-charts'
 import { UptimeSparkline } from './model-details-uptime-sparkline'
@@ -121,7 +122,10 @@ function toUptimeBuckets(groups: PerformanceGroup[]): UptimeBucket[] {
       }
       const requests = Math.max(0, point.request_count ?? 0)
       current.success_rate = point.success_rate
-      current.failed_count += Math.min(requests, Math.max(0, point.failed_count ?? 0))
+      current.failed_count += Math.min(
+        requests,
+        Math.max(0, point.failed_count ?? 0)
+      )
       current.request_count += requests
       byTs.set(point.ts, current)
     }
@@ -200,6 +204,10 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
   // with the requests of every day.
   const monthly = aggregateDailyUptime(uptimeSeries)
   const incidentCount = monthly.incidents
+  // A month without a request lost no request: the card reads as a hundred
+  // percent, the same number as the square of the model, and its hint says that
+  // the month served nothing instead of the dash that looked like a failure.
+  const monthlyRate = monthly.days === 0 ? NO_REQUEST_RATE : monthly.uptime_pct
 
   return (
     <div className='flex flex-col gap-4'>
@@ -218,7 +226,7 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
         <StatCard
           icon={HeartPulse}
           label={t('Success rate')}
-          value={monthly.days === 0 ? '—' : formatUptimePct(monthly.uptime_pct)}
+          value={formatUptimePct(monthlyRate)}
           hint={
             monthly.days === 0
               ? t('No requests were served in the last 30 days')
@@ -228,11 +236,7 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
                   })
                 : t('No incidents in the last 30 days')
           }
-          valueClassName={
-            monthly.days === 0
-              ? 'text-muted-foreground'
-              : getSuccessRateTextClass(monthly.uptime_pct)
-          }
+          valueClassName={getSuccessRateTextClass(monthlyRate)}
         />
       </div>
 

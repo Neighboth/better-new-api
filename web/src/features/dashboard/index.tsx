@@ -31,6 +31,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { ConsoleAds } from '@/features/ads/components/console-ads'
 import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -355,6 +356,9 @@ export function Dashboard() {
                   />
                 </Suspense>
               </FadeIn>
+              {/* The row of the ads of the console, between the counters of the
+                  section and the panels that follow them. */}
+              <ConsoleAds className='py-1' />
               {isAdmin && (
                 <FadeIn delay={0.05}>
                   <Suspense fallback={<PerformanceOverviewFallback />}>
