@@ -70,8 +70,12 @@ func GetMailAudience(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data": gin.H{
+				"total":              audience.Total,
 				"addresses":          audience.Addresses,
 				"marketing":          audience.Marketing,
+				"opted_out":          audience.OptedOut,
+				"no_email":           audience.NoEmail,
+				"disabled":           audience.Disabled,
 				"selected":           selected,
 				"selected_marketing": promotional,
 			},
@@ -81,8 +85,12 @@ func GetMailAudience(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
+			"total":     audience.Total,
 			"addresses": audience.Addresses,
 			"marketing": audience.Marketing,
+			"opted_out": audience.OptedOut,
+			"no_email":  audience.NoEmail,
+			"disabled":  audience.Disabled,
 		},
 	})
 }

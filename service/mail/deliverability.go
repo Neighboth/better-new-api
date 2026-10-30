@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"golang.org/x/net/publicsuffix"
 )
 
 // DeliverabilityReport is what the installation knows about the domain of the
@@ -20,16 +21,22 @@ type DeliverabilityReport struct {
 	// Encrypted reports whether the connection to the SMTP server is encrypted.
 	Encrypted bool `json:"encrypted"`
 	// SPF is the record that allows the server to send the mail of the domain.
-	SPF       string `json:"spf"`
-	SPFOK     bool   `json:"spf_ok"`
-	DMARC     string `json:"dmarc"`
-	DMARCOK   bool   `json:"dmarc_ok"`
-	DKIM      string `json:"dkim"`
-	DKIMOK    bool   `json:"dkim_ok"`
-	MX        string `json:"mx"`
-	MXOK      bool   `json:"mx_ok"`
-	Hints     []Hint `json:"hints"`
-	Readiness int    `json:"readiness"`
+	SPF     string `json:"spf"`
+	SPFOK   bool   `json:"spf_ok"`
+	DMARC   string `json:"dmarc"`
+	DMARCOK bool   `json:"dmarc_ok"`
+	DKIM    string `json:"dkim"`
+	DKIMOK  bool   `json:"dkim_ok"`
+	// DKIMSelector is the selector of the key that answered the lookup,
+	// empty when no selector of the domain answered. DKIMChecked lists the
+	// selectors that were tried, so the administrator sees that the panel
+	// looked for the key instead of guessing its absence.
+	DKIMSelector string   `json:"dkim_selector"`
+	DKIMChecked  []string `json:"dkim_checked"`
+	MX           string   `json:"mx"`
+	MXOK         bool     `json:"mx_ok"`
+	Hints        []Hint   `json:"hints"`
+	Readiness    int      `json:"readiness"`
 }
 
 // Hint is one advice of the report.
@@ -64,7 +71,7 @@ func CheckDeliverability() DeliverabilityReport {
 
 	report.SPF, report.SPFOK = lookupSPF(domain)
 	report.DMARC, report.DMARCOK = lookupDMARC(domain)
-	report.DKIM, report.DKIMOK = lookupDKIM(domain)
+	report.DKIM, report.DKIMSelector, report.DKIMChecked, report.DKIMOK = lookupDKIM(domain)
 	report.MX, report.MXOK = lookupMX(domain)
 
 	checks := 0
@@ -97,7 +104,7 @@ func CheckDeliverability() DeliverabilityReport {
 	if !report.DKIMOK {
 		report.Hints = append(report.Hints, Hint{
 			Level:   "warn",
-			Message: "No DKIM key was found for the domain. Set up the DKIM key that your SMTP provider gives you (a TXT record with the name <selector>._domainkey).",
+			Message: "No DKIM key answered at the common selectors of the domain and of the domain above it. A provider is free to use any selector: read the selector on the DKIM page of your mail server (Poste.io shows it next to the record) and type it into the DKIM selector field of the Email settings, the panel asks the DNS for that name as well.",
 		})
 	}
 	if !report.DMARCOK {
@@ -123,7 +130,7 @@ func CheckDeliverability() DeliverabilityReport {
 
 // lookupSPF reads the SPF record of a domain.
 func lookupSPF(domain string) (string, bool) {
-	records, err := net.LookupTXT(domain)
+	records, err := lookupTXT(domain)
 	if err != nil {
 		return "", false
 	}
@@ -138,7 +145,7 @@ func lookupSPF(domain string) (string, bool) {
 
 // lookupDMARC reads the DMARC record of a domain.
 func lookupDMARC(domain string) (string, bool) {
-	records, err := net.LookupTXT("_dmarc." + domain)
+	records, err := lookupTXT("_dmarc." + domain)
 	if err != nil {
 		return "", false
 	}
@@ -153,7 +160,7 @@ func lookupDMARC(domain string) (string, bool) {
 
 // lookupMX reads the domain that receives the answers of the readers.
 func lookupMX(domain string) (string, bool) {
-	records, err := net.LookupMX(domain)
+	records, err := lookupMXRecords(domain)
 	if err != nil || len(records) == 0 {
 		return "", false
 	}
@@ -164,26 +171,119 @@ func lookupMX(domain string) (string, bool) {
 	return strings.Join(hosts, ", "), true
 }
 
+// dkimSelectors are the selectors that the panel asks for when the
+// administrator did not name one.
+//
+// The selector of a DKIM key is chosen by the provider of the mail and the
+// standard does not publish it, so a lookup is a guess. The list holds the
+// selectors of the providers that installations usually run (Poste.io among
+// them) and the lookup ends with the selector that the administrator typed.
+var dkimSelectors = []string{
+	"default",
+	"mail",
+	"dkim",
+	"poste",
+	"smtp",
+	"email",
+	"google",
+	"selector1",
+	"selector2",
+	"k1",
+	"s1",
+	"s2",
+	"smtpapi",
+	"mta",
+	"host",
+	"postfix",
+	"key1",
+	"dkim1",
+}
+
 // lookupDKIM looks for a DKIM key of the domain.
 //
-// The selector of the key is chosen by the provider of the mail and the
-// standard does not publish it, the common selectors of the providers are
-// asked. A domain that signs with another selector is reported as unknown and
-// the administrator reads the selector of the provider.
-func lookupDKIM(domain string) (string, bool) {
-	selectors := []string{"default", "google", "selector1", "selector2", "k1", "s1", "s2", "mail", "dkim", "smtp"}
-	for _, selector := range selectors {
-		records, err := net.LookupTXT(selector + "._domainkey." + domain)
-		if err != nil {
+// The configured selector is asked first: the administrator that read the
+// selector of the provider on the page of the provider ends the guess here.
+// The common selectors of the providers are asked after it, the selectors that
+// were tried are returned with the answer so that the panel can name them.
+//
+// The domain of the sender and the domain above it are both asked, because a
+// mail server that sends from `mail.example.com` publishes the key of the
+// organization at `example.com`, and a panel that reads only the host reports a
+// signed domain as unsigned.
+func lookupDKIM(domain string) (string, string, []string, bool) {
+	selectors := make([]string, 0, len(dkimSelectors)+1)
+	configured := strings.TrimSpace(common.OptionMap["DKIMSelector"])
+	configured = strings.TrimSpace(strings.TrimSuffix(configured, "._domainkey"))
+	if configured != "" {
+		selectors = append(selectors, configured)
+	}
+	for _, selector := range dkimSelectors {
+		if selector == configured {
 			continue
 		}
-		for _, record := range records {
-			if strings.Contains(strings.ToLower(record), "v=dkim1") ||
-				strings.Contains(strings.ToLower(record), "k=rsa") ||
-				strings.Contains(strings.ToLower(record), "p=") {
-				return fmt.Sprintf("%s._domainkey", selector), true
+		selectors = append(selectors, selector)
+	}
+
+	for _, candidate := range dkimDomains(domain) {
+		for _, selector := range selectors {
+			if dkimRecord(selector, candidate) {
+				return fmt.Sprintf("%s._domainkey.%s", selector, candidate), selector, selectors, true
 			}
 		}
 	}
-	return "", false
+	return "", "", selectors, false
+}
+
+// dkimDomains returns the names that may carry the key of a domain.
+//
+// The host itself comes first; the organization above it follows when the host
+// is a subdomain and the name above it is not a public suffix, so the lookup of
+// `mail.example.co.uk` asks `example.co.uk` and never `co.uk`.
+func dkimDomains(domain string) []string {
+	parts := strings.Split(domain, ".")
+	if len(parts) < 3 {
+		return []string{domain}
+	}
+	parent := strings.Join(parts[1:], ".")
+	suffix, _ := publicsuffix.PublicSuffix(domain)
+	if parent == suffix {
+		return []string{domain}
+	}
+	return []string{domain, parent}
+}
+
+// The DNS lookups of the panel. A test swaps them for a table of the records of
+// a domain, so that the rules of the report are tested without a network.
+var (
+	lookupTXT       = net.LookupTXT
+	lookupMXRecords = net.LookupMX
+)
+
+// dkimRecord reports whether one selector of the domain publishes a key.
+//
+// A TXT record of a DKIM key carries the public key in `p=`. The record is read
+// as a key even when the `v=DKIM1` tag is missing, because some mail servers
+// publish the record without the version tag and the key itself is what the
+// receivers verify. A revoked key (`p=` with an empty value) is not a key.
+func dkimRecord(selector string, domain string) bool {
+	records, err := lookupTXT(selector + "._domainkey." + domain)
+	if err != nil {
+		return false
+	}
+	for _, record := range records {
+		lowered := strings.ToLower(record)
+		if !strings.Contains(lowered, "p=") {
+			continue
+		}
+		for _, part := range strings.Split(lowered, ";") {
+			part = strings.TrimSpace(part)
+			if !strings.HasPrefix(part, "p=") {
+				continue
+			}
+			if strings.TrimSpace(strings.TrimPrefix(part, "p=")) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }

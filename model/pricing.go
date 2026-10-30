@@ -26,10 +26,14 @@ type PricingChannel struct {
 	ResponseTime  int      `json:"response_time"`
 	TPS           float64  `json:"tps,omitempty"`
 	TTFT          float64  `json:"ttft,omitempty"`
-	// Uptime is the measured uptime of the model over the last day. A model
-	// that the metrics did not measure carries no value: the panel shows a dash
-	// instead of a perfect score that no request has proven.
-	Uptime float64 `json:"uptime,omitempty"`
+	// Uptime is the measured uptime of the model over the last day.
+	//
+	// The field is a pointer so that "the model served nothing" and "every
+	// request of the model failed" stay two different answers: an absent value
+	// means that no request measured the model (the panel reads it as a hundred
+	// percent, because no request failed) and a present zero means that the
+	// requests of the window all failed.
+	Uptime *float64 `json:"uptime,omitempty"`
 	// UptimeHistory is the measured success rate of every hour of the last day,
 	// oldest first. The values are percentages.
 	//

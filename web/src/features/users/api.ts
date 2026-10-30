@@ -226,10 +226,21 @@ export interface MailRecipientOption {
   marketing: boolean
 }
 
-/** The number of the readers of a message. */
+/**
+ * The number of the readers of a message.
+ *
+ * `total` is every user of the installation and the other numbers explain why
+ * the message reaches fewer of them: a disabled account, an account without an
+ * address and an account that turned the announcements off never receive the
+ * mail of the installation.
+ */
 export interface MailAudience {
+  total: number
   addresses: number
   marketing: number
+  opted_out: number
+  no_email: number
+  disabled: number
   selected?: number
   selected_marketing?: number
 }
@@ -259,6 +270,10 @@ export interface MailDeliverability {
   dmarc_ok: boolean
   dkim: string
   dkim_ok: boolean
+  /** Selector that answered the lookup, empty when none did. */
+  dkim_selector?: string
+  /** Every selector the panel asked the DNS for. */
+  dkim_checked?: string[]
   mx: string
   mx_ok: boolean
   hints: MailHint[]
@@ -298,9 +313,12 @@ export interface SendMailPayload {
 
 export async function getMailAudience(ids: number[] = []) {
   const params = ids.length > 0 ? { ids: ids.join(',') } : undefined
-  const res = await api.get<ApiResponse<MailAudience>>('/api/user/mail/audience', {
-    params,
-  })
+  const res = await api.get<ApiResponse<MailAudience>>(
+    '/api/user/mail/audience',
+    {
+      params,
+    }
+  )
   return res.data
 }
 

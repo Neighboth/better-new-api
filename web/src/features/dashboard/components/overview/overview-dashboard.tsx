@@ -47,6 +47,7 @@ import {
 } from '@/components/page-transition'
 import { Button } from '@/components/ui/button'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
+import { ConsoleAds } from '@/features/ads/components/console-ads'
 import { fetchTokenKey, getApiKeys } from '@/features/keys/api'
 import type { ApiKey } from '@/features/keys/types'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
@@ -750,6 +751,12 @@ export function OverviewDashboard() {
       )}
 
       <SummaryCards />
+
+      {/* The row of the ads of the console sits between the cards of the
+          overview and the panels of the work of the day: the reader meets the
+          campaign after reading the numbers and before the deep panels, and the
+          row is empty when the administrator did not write an ad for it. */}
+      <ConsoleAds />
 
       {showContentPanels && (
         <CardStaggerContainer

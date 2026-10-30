@@ -113,9 +113,10 @@ func applyPricingUptime(pricing []model.Pricing) []model.Pricing {
 			channels := make([]model.PricingChannel, len(item.Channels))
 			copy(channels, item.Channels)
 			item.Channels = channels
-			if entry, ok := uptimes[item.ModelName]; ok && entry.Rate > 0 {
+			if entry, ok := uptimes[item.ModelName]; ok {
+				rate := entry.Rate
 				for channelIndex := range channels {
-					channels[channelIndex].Uptime = entry.Rate
+					channels[channelIndex].Uptime = &rate
 					channels[channelIndex].UptimeHistory = entry.History
 				}
 			}

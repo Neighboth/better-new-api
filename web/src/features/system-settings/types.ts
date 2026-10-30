@@ -138,6 +138,8 @@ export type SiteSettings = {
   AdSenseSlotId: string
   AdsEnabled: boolean
   AdsMode: 'adsense' | 'custom' | 'both'
+  /** Surfaces that may carry ads, comma separated (`blog`, `console`). */
+  AdsSurfaces: string
   CustomAds: string
   GoogleAnalyticsId?: string
   UmamiWebsiteId?: string
@@ -542,6 +544,9 @@ export type OperationsSettings = {
   SMTPStartTLSEnabled: boolean
   SMTPInsecureSkipVerify: boolean
   SMTPForceAuthLogin: boolean
+  /** Selector of the DKIM key of the domain, empty when the provider uses a
+   * common one. The mail health panel asks the DNS for this name as well. */
+  DKIMSelector: string
   // Email verification (8 languages: tr, en, zh_CN, zh_TW, fr, ru, ja, vi)
   EmailSubject_verification_tr?: string
   EmailBody_verification_tr?: string

@@ -15,13 +15,103 @@ import (
 	"github.com/QuantumNous/new-api/model"
 )
 
+// The surfaces where an ad of the installation may appear.
+const (
+	// AdSurfaceBlog is the blog of the site: the banners above and below a
+	// post, the surface that the ads of the installation have always used.
+	AdSurfaceBlog = "blog"
+	// AdSurfaceConsole is the console of a signed-in user: the row of two ads
+	// between the cards of the dashboard.
+	AdSurfaceConsole = "console"
+)
+
 // Custom ad slots are stored in the CustomAds option as a JSON array:
-// [{"id":"sponsor-1","image":"https://...","url":"https://..."}]. IDs are
-// admin-facing only (labels in the settings UI and impression logs).
+// [{"id":"sponsor-1","image":"https://...","url":"https://...","placements":["blog","console"]}].
+// IDs are admin-facing only (labels in the settings UI and impression logs).
+//
+// Placements lists the surfaces of an ad. An ad without a placement predates
+// the field and belongs to the blog, which is where the ads of the installation
+// used to appear: an upgrade of the panel never moves an existing ad.
 type customAd struct {
-	ID    string `json:"id"`
-	Image string `json:"image"`
-	URL   string `json:"url"`
+	ID         string   `json:"id"`
+	Image      string   `json:"image"`
+	URL        string   `json:"url"`
+	Placements []string `json:"placements,omitempty"`
+}
+
+// placementsOf returns the surfaces of an ad, with the legacy default applied.
+func placementsOf(ad customAd) []string {
+	if len(ad.Placements) == 0 {
+		return []string{AdSurfaceBlog}
+	}
+	listed := make(map[string]bool, len(ad.Placements))
+	for _, surface := range ad.Placements {
+		listed[strings.ToLower(strings.TrimSpace(surface))] = true
+	}
+	// The surfaces come out in the order of the panel, so that two saves of the
+	// same ad write the same document.
+	surfaces := make([]string, 0, 2)
+	for _, surface := range []string{AdSurfaceBlog, AdSurfaceConsole} {
+		if listed[surface] {
+			surfaces = append(surfaces, surface)
+		}
+	}
+	if len(surfaces) == 0 {
+		// An ad that names no known surface is not lost, it keeps the surface
+		// that every ad of an older panel belongs to.
+		return []string{AdSurfaceBlog}
+	}
+	return surfaces
+}
+
+// adOnSurface reports whether an ad belongs to a surface.
+func adOnSurface(ad customAd, surface string) bool {
+	for _, placement := range placementsOf(ad) {
+		if placement == surface {
+			return true
+		}
+	}
+	return false
+}
+
+// adSurfaces returns the surfaces that the administrator enabled for the ads of
+// the installation.
+//
+// The option holds a comma separated list. An installation that never saved the
+// option keeps the blog only, which is what the ads of the installation did
+// before the console existed.
+func adSurfaces() []string {
+	raw := common.OptionMap["AdsSurfaces"]
+	if strings.TrimSpace(raw) == "" {
+		return []string{AdSurfaceBlog}
+	}
+	seen := make(map[string]bool, 2)
+	surfaces := make([]string, 0, 2)
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.ToLower(strings.TrimSpace(part))
+		if part != AdSurfaceBlog && part != AdSurfaceConsole {
+			continue
+		}
+		if seen[part] {
+			continue
+		}
+		seen[part] = true
+		surfaces = append(surfaces, part)
+	}
+	if len(surfaces) == 0 {
+		return []string{AdSurfaceBlog}
+	}
+	return surfaces
+}
+
+// surfaceEnabled reports whether the administrator allows ads on a surface.
+func surfaceEnabled(surface string) bool {
+	for _, enabled := range adSurfaces() {
+		if enabled == surface {
+			return true
+		}
+	}
+	return false
 }
 
 func getCustomAds() []customAd {
@@ -36,19 +126,39 @@ func getCustomAds() []customAd {
 	return ads
 }
 
-// GetAdsStatus returns the public ad configuration for blog pages.
+// GetAdsStatus returns the public ad configuration of a surface.
+//
+// The page names the surface it draws (`blog` or `console`) and receives only
+// the ads of that surface: an ad that the administrator put on the console is
+// never drawn in a post and the other way round. A request without a surface
+// reads the blog, so an old page of the site keeps working.
 func GetAdsStatus(c *gin.Context) {
+	surface := strings.ToLower(strings.TrimSpace(c.Query("surface")))
+	if surface != AdSurfaceConsole {
+		surface = AdSurfaceBlog
+	}
+	allowed := surfaceEnabled(surface)
+
 	ads := make([]gin.H, 0)
-	for _, ad := range getCustomAds() {
-		if ad.Image == "" || ad.URL == "" {
-			continue
+	if allowed {
+		for _, ad := range getCustomAds() {
+			if ad.Image == "" || ad.URL == "" || !adOnSurface(ad, surface) {
+				continue
+			}
+			ads = append(ads, gin.H{
+				"id":         ad.ID,
+				"image":      ad.Image,
+				"url":        ad.URL,
+				"placements": placementsOf(ad),
+			})
 		}
-		ads = append(ads, gin.H{"id": ad.ID, "image": ad.Image, "url": ad.URL})
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"enabled":           common.OptionMap["AdsEnabled"] == "true",
+			"enabled":           common.OptionMap["AdsEnabled"] == "true" && allowed,
+			"surface":           surface,
+			"surfaces":          adSurfaces(),
 			"mode":              common.OptionMap["AdsMode"],
 			"adsense_client_id": common.OptionMap["AdSenseClientId"],
 			"adsense_slot_id":   common.OptionMap["AdSenseSlotId"],

@@ -27,6 +27,7 @@ import * as z from 'zod'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Form,
   FormControl,
@@ -54,6 +55,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  AD_SURFACES,
+  parsePlacements,
+  parseSurfaces,
+  serializeSurfaces,
+  type AdSurface,
+} from '@/features/ads/lib/placements'
 import { api } from '@/lib/api'
 
 import {
@@ -65,11 +73,21 @@ import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 
-type CustomAdDraft = { id: string; image: string; url: string }
+type CustomAdDraft = {
+  id: string
+  image: string
+  url: string
+  /**
+   * Surfaces of the ad. An ad of an older panel carries no list and belongs to
+   * the blog, which is the surface that existed when the ad was written.
+   */
+  placements: AdSurface[]
+}
 
 const adsSchema = z.object({
   AdsEnabled: z.boolean(),
   AdsMode: z.enum(['adsense', 'custom', 'both']),
+  AdsSurfaces: z.string(),
   AdSenseClientId: z.string().optional(),
   AdSenseSlotId: z.string().optional(),
   CustomAds: z.string(),
@@ -83,14 +101,19 @@ type AdsSectionProps = {
 
 function parseCustomAds(raw: string): CustomAdDraft[] {
   try {
-    const parsed = JSON.parse(raw) as CustomAdDraft[]
+    const parsed = JSON.parse(raw) as (Partial<CustomAdDraft> & {
+      id?: string
+    })[]
     if (!Array.isArray(parsed)) return []
     return parsed
       .filter((ad) => ad && typeof ad.id === 'string')
       .map((ad) => ({
-        id: ad.id,
+        id: ad.id as string,
         image: typeof ad.image === 'string' ? ad.image : '',
         url: typeof ad.url === 'string' ? ad.url : '',
+        placements: parsePlacements(
+          (ad as { placements?: unknown }).placements
+        ),
       }))
   } catch {
     return []
@@ -121,6 +144,19 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
 
   const adsEnabled = form.watch('AdsEnabled')
   const adsMode = form.watch('AdsMode')
+  const surfaces = parseSurfaces(form.watch('AdsSurfaces') ?? 'blog')
+
+  const toggleSurface = (surface: AdSurface, enabled: boolean) => {
+    const next = new Set(surfaces)
+    if (enabled) next.add(surface)
+    else next.delete(surface)
+    // At least one surface stays on: the panel of the ads that draws nothing
+    // is a switch that an administrator flips without seeing a change.
+    if (next.size === 0) next.add('blog')
+    form.setValue('AdsSurfaces', serializeSurfaces([...next]), {
+      shouldDirty: true,
+    })
+  }
 
   const [logKeyword, setLogKeyword] = useState('')
   const [logPage, setLogPage] = useState(1)
@@ -179,12 +215,17 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
         return
       }
       ids.add(ad.id)
+      if (ad.placements.length === 0) {
+        toast.error(t('Every ad needs at least one surface'))
+        return
+      }
     }
 
     const customAdsJson = JSON.stringify(customAds)
     const entries: [keyof AdsFormValues, string][] = [
       ['AdsEnabled', String(data.AdsEnabled)],
       ['AdsMode', data.AdsMode],
+      ['AdsSurfaces', data.AdsSurfaces],
       ['AdSenseClientId', data.AdSenseClientId ?? ''],
       ['AdSenseSlotId', data.AdSenseSlotId ?? ''],
       ['CustomAds', customAdsJson],
@@ -201,17 +242,48 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
   const addCustomAd = () => {
     setCustomAds((current) => [
       ...current,
-      { id: `sponsor-ad-${current.length + 1}`, image: '', url: '' },
+      {
+        id: `sponsor-ad-${current.length + 1}`,
+        image: '',
+        url: '',
+        placements: [surfaces[0] ?? 'blog'],
+      },
     ])
   }
 
   const updateCustomAd = (
     index: number,
     field: keyof CustomAdDraft,
-    value: string
+    value: string | AdSurface[]
   ) => {
     setCustomAds((current) =>
       current.map((ad, i) => (i === index ? { ...ad, [field]: value } : ad))
+    )
+  }
+
+  /** Adds or removes one surface of one ad. */
+  const togglePlacement = (
+    index: number,
+    surface: AdSurface,
+    enabled: boolean
+  ) => {
+    setCustomAds((current) =>
+      current.map((ad, i) => {
+        if (i !== index) return ad
+        const next = new Set(ad.placements)
+        if (enabled) next.add(surface)
+        else next.delete(surface)
+        // The surfaces of the installation bound the ad: an ad that the panel
+        // keeps on a switch that is off would never draw and the administrator
+        // would look for it on a page that never receives it.
+        const allowed = AD_SURFACES.filter(
+          (item) => next.has(item) && surfaces.includes(item)
+        )
+        return {
+          ...ad,
+          placements: allowed.length > 0 ? allowed : [surfaces[0] ?? 'blog'],
+        }
+      })
     )
   }
 
@@ -262,7 +334,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                   <FormLabel>{t('Enable ads')}</FormLabel>
                   <FormDescription>
                     {t(
-                      'Show ad banners at the top and bottom of every blog post. Two slots above, two below.'
+                      'Show ads on the surfaces that are on below: the banners above and below a post of the blog and two ads between the cards of the dashboard.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>
@@ -276,6 +348,49 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
 
           {adsEnabled && (
             <>
+              <div className='space-y-3'>
+                <div>
+                  <Label className='text-base'>{t('Ad surfaces')}</Label>
+                  <FormDescription>
+                    {t(
+                      'Choose where the ads of the installation may appear. The blog draws the banners above and below a post, the console draws two ads between the cards of the dashboard. Every ad also picks its own surfaces below.'
+                    )}
+                  </FormDescription>
+                </div>
+                <div className='grid gap-2 sm:grid-cols-2'>
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Blog')}</FormLabel>
+                      <FormDescription>
+                        {t('Banners above and below the posts of the blog.')}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <Switch
+                      checked={surfaces.includes('blog')}
+                      onCheckedChange={(value: boolean) =>
+                        toggleSurface('blog', value)
+                      }
+                    />
+                  </SettingsSwitchItem>
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Console')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Two ads side by side between the cards of the dashboard.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <Switch
+                      checked={surfaces.includes('console')}
+                      onCheckedChange={(value: boolean) =>
+                        toggleSurface('console', value)
+                      }
+                    />
+                  </SettingsSwitchItem>
+                </div>
+              </div>
+
               <FormField
                 control={form.control}
                 name='AdsMode'
@@ -397,7 +512,11 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                             <Input
                               value={ad.image}
                               onChange={(event) =>
-                                updateCustomAd(index, 'image', event.target.value)
+                                updateCustomAd(
+                                  index,
+                                  'image',
+                                  event.target.value
+                                )
                               }
                               placeholder='https://example.com/banner.png or upload'
                             />
@@ -426,6 +545,48 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                             placeholder='https://example.com'
                           />
                         </div>
+                        <div>
+                          <Label className='text-xs'>
+                            {t('Where this ad appears')}
+                          </Label>
+                          <div className='mt-1.5 flex flex-wrap items-center gap-4'>
+                            {AD_SURFACES.map((surface) => {
+                              const allowed = surfaces.includes(surface)
+                              return (
+                                <label
+                                  key={surface}
+                                  className='flex items-center gap-2 text-xs'
+                                  title={
+                                    allowed
+                                      ? undefined
+                                      : t(
+                                          'Turn this surface on to place the ad there.'
+                                        )
+                                  }
+                                >
+                                  <Checkbox
+                                    checked={
+                                      allowed && ad.placements.includes(surface)
+                                    }
+                                    disabled={!allowed}
+                                    onCheckedChange={(value) =>
+                                      togglePlacement(
+                                        index,
+                                        surface,
+                                        value === true
+                                      )
+                                    }
+                                  />
+                                  <span className={allowed ? '' : 'opacity-50'}>
+                                    {surface === 'blog'
+                                      ? t('Blog')
+                                      : t('Console')}
+                                  </span>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        </div>
                       </CardContent>
                     </Card>
                   ))}
@@ -441,14 +602,23 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                       size='sm'
                       variant='outline'
                       onClick={async () => {
-                        if (!confirm(t('Are you sure you want to clear all ad stats?'))) return
+                        if (
+                          !confirm(
+                            t('Are you sure you want to clear all ad stats?')
+                          )
+                        )
+                          return
                         try {
-                          const res = await api.delete('/api/blog/manage/ads/stats/clear')
+                          const res = await api.delete(
+                            '/api/blog/manage/ads/stats/clear'
+                          )
                           if (res.data?.success) {
                             toast.success(t('Ad stats cleared successfully'))
                             statsQuery.refetch()
                           } else {
-                            toast.error(res.data?.message || t('Failed to clear stats'))
+                            toast.error(
+                              res.data?.message || t('Failed to clear stats')
+                            )
                           }
                         } catch {
                           toast.error(t('Failed to clear stats'))
@@ -464,10 +634,15 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                       variant='outline'
                       onClick={async () => {
                         try {
-                          const response = await api.get('/api/blog/manage/ads/impressions.csv', {
-                            responseType: 'blob',
-                          })
-                          const url = window.URL.createObjectURL(new Blob([response.data]))
+                          const response = await api.get(
+                            '/api/blog/manage/ads/impressions.csv',
+                            {
+                              responseType: 'blob',
+                            }
+                          )
+                          const url = window.URL.createObjectURL(
+                            new Blob([response.data])
+                          )
                           const link = document.createElement('a')
                           link.href = url
                           link.setAttribute('download', 'ad-impressions.csv')
@@ -532,17 +707,21 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                       </TableBody>
                     </Table>
 
-                    <div className='border-t pt-4 space-y-3'>
+                    <div className='space-y-3 border-t pt-4'>
                       <div className='flex items-center justify-between gap-3'>
-                        <Label className='text-sm font-semibold'>{t('Detailed Impression Logs')}</Label>
+                        <Label className='text-sm font-semibold'>
+                          {t('Detailed Impression Logs')}
+                        </Label>
                         <Input
-                          placeholder={t('Search IP, Referrer, User Agent, Username...')}
+                          placeholder={t(
+                            'Search IP, Referrer, User Agent, Username...'
+                          )}
                           value={logKeyword}
                           onChange={(e) => {
                             setLogKeyword(e.target.value)
                             setLogPage(1)
                           }}
-                          className='max-w-xs h-8 text-xs'
+                          className='h-8 max-w-xs text-xs'
                         />
                       </div>
 
@@ -560,7 +739,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                         <TableBody>
                           {stats.logs?.map((log) => (
                             <TableRow key={log.id}>
-                              <TableCell className='text-xs tabular-nums text-muted-foreground whitespace-nowrap'>
+                              <TableCell className='text-muted-foreground text-xs whitespace-nowrap tabular-nums'>
                                 {new Date(log.created_at).toLocaleString()}
                               </TableCell>
                               <TableCell className='font-mono text-xs'>
@@ -575,20 +754,31 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                                     {log.username || `User #${log.user_id}`}
                                   </span>
                                 ) : (
-                                  <span className='text-muted-foreground'>{t('Guest')}</span>
+                                  <span className='text-muted-foreground'>
+                                    {t('Guest')}
+                                  </span>
                                 )}
                               </TableCell>
-                              <TableCell className='text-xs max-w-[180px] truncate text-muted-foreground' title={log.referrer}>
+                              <TableCell
+                                className='text-muted-foreground max-w-[180px] truncate text-xs'
+                                title={log.referrer}
+                              >
                                 {log.referrer || '-'}
                               </TableCell>
-                              <TableCell className='text-xs max-w-[200px] truncate text-muted-foreground' title={log.user_agent}>
+                              <TableCell
+                                className='text-muted-foreground max-w-[200px] truncate text-xs'
+                                title={log.user_agent}
+                              >
                                 {log.user_agent || '-'}
                               </TableCell>
                             </TableRow>
                           ))}
                           {(!stats.logs || stats.logs.length === 0) && (
                             <TableRow>
-                              <TableCell colSpan={6} className='text-center text-muted-foreground py-4 text-xs'>
+                              <TableCell
+                                colSpan={6}
+                                className='text-muted-foreground py-4 text-center text-xs'
+                              >
                                 {t('No detailed logs available.')}
                               </TableCell>
                             </TableRow>
@@ -597,9 +787,10 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                       </Table>
 
                       {(stats.logs_total ?? 0) > 15 && (
-                        <div className='flex items-center justify-between text-xs text-muted-foreground pt-2'>
+                        <div className='text-muted-foreground flex items-center justify-between pt-2 text-xs'>
                           <span>
-                            {t('Page')} {logPage} / {Math.ceil((stats.logs_total ?? 0) / 15)}
+                            {t('Page')} {logPage} /{' '}
+                            {Math.ceil((stats.logs_total ?? 0) / 15)}
                           </span>
                           <div className='flex items-center gap-2'>
                             <Button
@@ -607,7 +798,9 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                               variant='outline'
                               size='sm'
                               disabled={logPage <= 1}
-                              onClick={() => setLogPage((p) => Math.max(1, p - 1))}
+                              onClick={() =>
+                                setLogPage((p) => Math.max(1, p - 1))
+                              }
                             >
                               {t('Previous')}
                             </Button>

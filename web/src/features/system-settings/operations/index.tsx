@@ -40,6 +40,7 @@ const defaultOperationsSettings: OperationsSettings = {
   SMTPStartTLSEnabled: false,
   SMTPInsecureSkipVerify: false,
   SMTPForceAuthLogin: false,
+  DKIMSelector: '',
   EmailSubject_verification_tr: '',
   EmailBody_verification_tr: '',
   EmailSubject_verification_en: '',
