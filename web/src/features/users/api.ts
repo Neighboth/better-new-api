@@ -212,3 +212,140 @@ export async function adminUnbindCustomOAuth(
   )
   return res.data
 }
+
+// ============================================================================
+// Mail of the administrator
+// ============================================================================
+
+/** A user that the selector of the mail page offers. */
+export interface MailRecipientOption {
+  id: number
+  username: string
+  display_name: string
+  email: string
+  marketing: boolean
+}
+
+/** The number of the readers of a message. */
+export interface MailAudience {
+  addresses: number
+  marketing: number
+  selected?: number
+  selected_marketing?: number
+}
+
+/** The state of the mail server of the installation. */
+export interface MailStatus {
+  configured: boolean
+  server: string
+  from: string
+  encrypted: boolean
+  sending: boolean
+}
+
+/** One advice of the deliverability report. */
+export interface MailHint {
+  level: 'ok' | 'warn' | 'bad'
+  message: string
+}
+
+/** The DNS report of the domain of the sender. */
+export interface MailDeliverability {
+  domain: string
+  encrypted: boolean
+  spf: string
+  spf_ok: boolean
+  dmarc: string
+  dmarc_ok: boolean
+  dkim: string
+  dkim_ok: boolean
+  mx: string
+  mx_ok: boolean
+  hints: MailHint[]
+  readiness: number
+}
+
+/** The progress of a campaign. */
+export interface MailCampaign {
+  id: number
+  subject: string
+  is_html: boolean
+  is_promotional: boolean
+  audience: string
+  status: 'queued' | 'running' | 'done' | 'failed'
+  total: number
+  sent: number
+  failed: number
+  skipped: number
+  created_at: number
+  started_at: number
+  ended_at: number
+  last_error: string
+  failures: string
+}
+
+/** The message of the page of the users. */
+export interface SendMailPayload {
+  subject: string
+  content: string
+  is_html: boolean
+  promotional: boolean
+  all_users: boolean
+  user_ids: number[]
+  test?: boolean
+  test_email?: string
+}
+
+export async function getMailAudience(ids: number[] = []) {
+  const params = ids.length > 0 ? { ids: ids.join(',') } : undefined
+  const res = await api.get<ApiResponse<MailAudience>>('/api/user/mail/audience', {
+    params,
+  })
+  return res.data
+}
+
+export async function searchMailRecipients(keyword: string, limit = 50) {
+  const res = await api.get<
+    ApiResponse<{ items: MailRecipientOption[]; count: number }>
+  >('/api/user/mail/recipients', { params: { keyword, limit } })
+  return res.data
+}
+
+/**
+ * The users of the given ids.
+ *
+ * The dialog of the mail of the table starts with the rows that the
+ * administrator selected and it asks the installation for those users only.
+ */
+export async function getMailRecipientsByIds(ids: number[]) {
+  const res = await api.get<
+    ApiResponse<{ items: MailRecipientOption[]; count: number }>
+  >('/api/user/mail/recipients', { params: { ids: ids.join(',') } })
+  return res.data
+}
+
+export async function getMailStatus() {
+  const res = await api.get<ApiResponse<MailStatus>>('/api/user/mail/status')
+  return res.data
+}
+
+export async function getMailDeliverability() {
+  const res = await api.get<ApiResponse<MailDeliverability>>(
+    '/api/user/mail/deliverability'
+  )
+  return res.data
+}
+
+export async function sendMail(payload: SendMailPayload) {
+  const res = await api.post<
+    ApiResponse<{ campaign_id?: number; total?: number; test?: boolean }>
+  >('/api/user/mail/send', payload)
+  return res.data
+}
+
+export async function getMailCampaign(id: number) {
+  const res = await api.get<ApiResponse<MailCampaign>>(
+    `/api/user/mail/campaigns/${id}`
+  )
+  return res.data
+}

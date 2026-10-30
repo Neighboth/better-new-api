@@ -235,11 +235,11 @@ func roundMbps(value float64) float64 {
 // startBandwidthLoop measures the network of the computer while the client
 // runs.
 func startBandwidthLoop() {
-	go func() {
+	recoverForever("bandwidth", func() {
 		time.Sleep(5 * time.Second)
 		for {
 			measureBandwidth()
 			time.Sleep(30 * time.Minute)
 		}
-	}()
+	})
 }

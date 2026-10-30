@@ -121,6 +121,12 @@ func SetApiRouter(router *gin.Engine) {
 			userRoute.GET("/iyzico/callback", controller.IyzicoCallback)
 			userRoute.POST("/shopify/webhook", anonymousRequestBodyLimit, controller.ShopifyWebhook)
 			userRoute.GET("/groups", controller.GetUserGroups)
+			// The unsubscribe of the announcements of the installation. The
+			// mailbox providers send the one click POST of RFC 8058 without a
+			// session and the reader of the message opens the link of the body
+			// before the account is signed in.
+			userRoute.GET("/unsubscribe", controller.Unsubscribe)
+			userRoute.POST("/unsubscribe", controller.Unsubscribe)
 
 			selfRoute := userRoute.Group("/")
 			selfRoute.Use(middleware.UserAuth())
@@ -202,6 +208,18 @@ func SetApiRouter(router *gin.Engine) {
 				// Admin 2FA routes
 				adminRoute.GET("/2fa/stats", middleware.RequirePermission(authz.UserRead), controller.Admin2FAStats)
 				adminRoute.DELETE("/:id/2fa", middleware.RequirePermission(authz.UserWrite), controller.AdminDisable2FA)
+
+				// Mail of the administrator. The audience and the search read
+				// the users, the message is written with the permission of the
+				// users as well: a message to the users of the installation is
+				// a change of their state.
+				adminRoute.GET("/mail/audience", middleware.RequirePermission(authz.UserRead), controller.GetMailAudience)
+				adminRoute.GET("/mail/recipients", middleware.RequirePermission(authz.UserRead), controller.SearchMailRecipients)
+				adminRoute.GET("/mail/status", middleware.RequirePermission(authz.UserRead), controller.GetMailStatus)
+				adminRoute.GET("/mail/deliverability", middleware.RequirePermission(authz.UserRead), controller.GetMailDeliverability)
+				adminRoute.GET("/mail/campaigns", middleware.RequirePermission(authz.UserRead), controller.ListMailCampaigns)
+				adminRoute.GET("/mail/campaigns/:id", middleware.RequirePermission(authz.UserRead), controller.GetMailCampaign)
+				adminRoute.POST("/mail/send", middleware.RequirePermission(authz.UserWrite), controller.SendMailCampaign)
 			}
 		}
 

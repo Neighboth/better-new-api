@@ -425,7 +425,7 @@ func registerWorker() (registerResult, error) {
 // The tunnel reconnects itself, a connection that ends is opened again.
 func startTunnel() {
 	updateStatus(func(status *AppStatus) { status.Started = true })
-	go func() {
+	recoverForever("tunnel", func() {
 		for {
 			State.Mu.Lock()
 			serverUrl := strings.TrimRight(State.Config.ServerUrl, "/")
@@ -444,18 +444,35 @@ func startTunnel() {
 					updateStatus(func(status *AppStatus) { status.Connected = true })
 					fmt.Println("[BYOG Worker] Reverse tunnel connected. Listening for inference tasks...")
 
-					go startHeartbeatLoop()
+					// The heartbeat of the client is one loop for the life of
+					// the program. A loop for every connection of the tunnel
+					// sent a heartbeat of every connection that the client had
+					// ever opened: after a night of reconnections the client
+					// held a hundred loops and the coordinator throttled the
+					// device.
+					startHeartbeatOnce()
 					handleWebSocketMessages(conn)
 
 					State.Mu.Lock()
 					State.IsConnected = false
+					State.WsConn = nil
 					State.Mu.Unlock()
 					updateStatus(func(status *AppStatus) { status.Connected = false })
 				}
 			}
 			time.Sleep(3 * time.Second)
 		}
-	}()
+	})
+}
+
+// heartbeatOnce guards the single heartbeat loop of the client.
+var heartbeatOnce sync.Once
+
+// startHeartbeatOnce starts the heartbeat of the client one time.
+func startHeartbeatOnce() {
+	heartbeatOnce.Do(func() {
+		recoverForever("heartbeat", startHeartbeatLoop)
+	})
 }
 
 // startBackgroundTasks starts the heartbeat of the worker and the search for
@@ -465,10 +482,10 @@ func startBackgroundTasks() {
 	startBandwidthLoop()
 	// The hardware of the computer is read before the first registration, the
 	// values are cached and they are refreshed while the client runs.
-	go func() {
+	safeGo("hardware", func() {
 		_ = readHardware()
-	}()
-	go func() {
+	})
+	recoverForever("self-update", func() {
 		time.Sleep(2 * time.Second)
 		checkSelfUpdate()
 		ticker := time.NewTicker(15 * time.Minute)
@@ -476,13 +493,13 @@ func startBackgroundTasks() {
 		for range ticker.C {
 			checkSelfUpdate()
 		}
-	}()
+	})
 
 	// The coordinator is asked for the assignment of the models again. A model
 	// that the administrator assigns after the first registration of the client
 	// would otherwise never reach the device. The registration is idempotent,
 	// the node is found by the hardware id.
-	go func() {
+	recoverForever("registration", func() {
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
@@ -499,7 +516,7 @@ func startBackgroundTasks() {
 				continue
 			}
 		}
-	}()
+	})
 }
 
 // syncStatus copies the state of the worker into the state of the interface.

@@ -138,6 +138,9 @@ func acquireSingleInstance() bool {
 	return true
 }
 
+// releaseSingleInstance gives the mutex of the client back to the system.
+func releaseSingleInstance() {}
+
 // showRunningInstance brings the window of the client that runs to the front.
 func showRunningInstance() {}
 

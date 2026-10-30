@@ -2,10 +2,13 @@ package controller
 
 import (
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -35,6 +38,87 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string
 		}
 	}
 	return filtered
+}
+
+// pricingUptime is the measured uptime of every model of the square.
+//
+// The uptime of a card is the uptime of the requests that the gateway served,
+// it is not the uptime of a channel probe and it is never a value of the
+// panel: a model that served no request in the window carries no entry and the
+// card shows a dash. The answer is cached for the length of the pricing cache,
+// the square asks for it on every page load.
+type pricingUptimeEntry struct {
+	Rate    float64
+	History []float64
+}
+
+var pricingUptimeCache = struct {
+	sync.Mutex
+	fetchedAt time.Time
+	models    map[string]pricingUptimeEntry
+}{}
+
+const pricingUptimeTTL = 30 * time.Second
+
+func loadPricingUptime() map[string]pricingUptimeEntry {
+	pricingUptimeCache.Lock()
+	defer pricingUptimeCache.Unlock()
+	if len(pricingUptimeCache.models) > 0 && time.Since(pricingUptimeCache.fetchedAt) < pricingUptimeTTL {
+		return pricingUptimeCache.models
+	}
+
+	models := map[string]pricingUptimeEntry{}
+	// The window of the card is the last day, the same window the card draws.
+	summary, err := perfmetrics.QuerySummaryAll(24, nil)
+	if err == nil {
+		for _, item := range summary.Models {
+			history := make([]float64, 0, len(item.UptimeBuckets))
+			for _, bucket := range item.UptimeBuckets {
+				if bucket.RequestCount == 0 {
+					// An hour without requests is not an hour of perfect
+					// service: it stays out of the history of the card.
+					continue
+				}
+				history = append(history, bucket.SuccessRate)
+			}
+			models[item.ModelName] = pricingUptimeEntry{Rate: item.SuccessRate, History: history}
+		}
+	}
+
+	pricingUptimeCache.models = models
+	pricingUptimeCache.fetchedAt = time.Now()
+	return models
+}
+
+// applyPricingUptime writes the measured uptime into the pricing payload.
+//
+// Every channel of a model serves the requests of the model, the measured
+// uptime is therefore the uptime of the model and it is written on every
+// channel of it. The number of the channel table and the number of the card are
+// the same number.
+func applyPricingUptime(pricing []model.Pricing) []model.Pricing {
+	uptimes := loadPricingUptime()
+	if len(uptimes) == 0 {
+		return pricing
+	}
+	// The channels of the cached pricing are shared by every request of the
+	// square: the payload of a request is written on a copy of them.
+	enriched := make([]model.Pricing, len(pricing))
+	for index, item := range pricing {
+		if len(item.Channels) > 0 {
+			channels := make([]model.PricingChannel, len(item.Channels))
+			copy(channels, item.Channels)
+			item.Channels = channels
+			if entry, ok := uptimes[item.ModelName]; ok && entry.Rate > 0 {
+				for channelIndex := range channels {
+					channels[channelIndex].Uptime = entry.Rate
+					channels[channelIndex].UptimeHistory = entry.History
+				}
+			}
+		}
+		enriched[index] = item
+	}
+	return enriched
 }
 
 func GetPricing(c *gin.Context) {
@@ -104,6 +188,8 @@ func GetPricing(c *gin.Context) {
 			})
 		}
 	}
+
+	pricing = applyPricingUptime(pricing)
 
 	c.JSON(200, gin.H{
 		"success":            true,

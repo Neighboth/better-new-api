@@ -2,7 +2,6 @@ package common
 
 import (
 	"crypto/tls"
-	"encoding/base64"
 	"fmt"
 	"net/smtp"
 	"slices"
@@ -75,62 +74,109 @@ func newSMTPClient(addr string) (*smtp.Client, error) {
 	return client, nil
 }
 
-func SendEmail(subject string, receiver string, content string) error {
+// MailSender is a connection to the SMTP server of the installation.
+//
+// A campaign writes many messages to one connection: the providers rate limit
+// the connections and not the messages, and every new connection of a burst is
+// a reason for the provider to slow the sender down.
+type MailSender struct {
+	client     *smtp.Client
+	sent       int
+	maxPerConn int
+}
+
+// NewMailSender opens a connection to the SMTP server and authenticates.
+func NewMailSender() (*MailSender, error) {
 	if SMTPFrom == "" { // for compatibility
 		SMTPFrom = SMTPAccount
 	}
-	id, err2 := generateMessageID()
-	if err2 != nil {
-		return err2
-	}
 	if SMTPServer == "" && SMTPAccount == "" {
-		return fmt.Errorf("SMTP 服务器未配置")
+		return nil, fmt.Errorf("SMTP 服务器未配置")
 	}
-	encodedSubject := fmt.Sprintf("=?UTF-8?B?%s?=", base64.StdEncoding.EncodeToString([]byte(subject)))
-	mail := []byte(fmt.Sprintf("To: %s\r\n"+
-		"From: %s <%s>\r\n"+
-		"Subject: %s\r\n"+
-		"Date: %s\r\n"+
-		"Message-ID: %s\r\n"+ // 添加 Message-ID 头
-		"Content-Type: text/html; charset=UTF-8\r\n\r\n%s\r\n",
-		receiver, SystemName, SMTPFrom, encodedSubject, time.Now().Format(time.RFC1123Z), id, content))
-	auth := getSMTPAuth()
 	addr := fmt.Sprintf("%s:%d", SMTPServer, SMTPPort)
-	to := strings.Split(receiver, ";")
-	var err error
 	client, err := newSMTPClient(addr)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer client.Close()
 	if shouldAuthenticateSMTP() {
-		if err = client.Auth(auth); err != nil {
-			return err
+		if err := client.Auth(getSMTPAuth()); err != nil {
+			_ = client.Close()
+			return nil, err
 		}
 	}
-	if err = client.Mail(SMTPFrom); err != nil {
-		return err
-	}
-	for _, receiver := range to {
-		if err = client.Rcpt(receiver); err != nil {
-			return err
-		}
-	}
-	w, err := client.Data()
+	return &MailSender{client: client, maxPerConn: 40}, nil
+}
+
+// Send writes one message.
+func (s *MailSender) Send(message MailMessage) error {
+	body, err := BuildMailMessage(message)
 	if err != nil {
 		return err
 	}
-	_, err = w.Write(mail)
+	if s.client == nil {
+		return fmt.Errorf("the connection to the mail server is closed")
+	}
+	from := SMTPFrom
+	if from == "" {
+		from = SMTPAccount
+	}
+	if err := s.client.Mail(from); err != nil {
+		return err
+	}
+	if err := s.client.Rcpt(message.To); err != nil {
+		return err
+	}
+	writer, err := s.client.Data()
 	if err != nil {
 		return err
 	}
-	err = w.Close()
+	if _, err := writer.Write(body); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	s.sent++
+	return nil
+}
+
+// Exhausted reports whether the connection carried as many messages as it
+// should. The providers close a connection that lives too long, the campaign
+// opens a new one then.
+func (s *MailSender) Exhausted() bool {
+	return s.maxPerConn > 0 && s.sent >= s.maxPerConn
+}
+
+// Close ends the session.
+func (s *MailSender) Close() {
+	if s.client == nil {
+		return
+	}
+	_ = s.client.Quit()
+	_ = s.client.Close()
+	s.client = nil
+}
+
+// SendEmail sends one message to one receiver.
+//
+// The text is written with the headers of the installation; the signature that
+// the callers of the older version used is kept, the message is HTML.
+func SendEmail(subject string, receiver string, content string) error {
+	sender, err := NewMailSender()
 	if err != nil {
 		return err
 	}
-	err = client.Quit()
+	defer sender.Close()
+	return sender.Send(MailMessage{To: receiver, Subject: subject, HTML: content})
+}
+
+// SendMailMessage sends one message with the headers that the caller needs.
+func SendMailMessage(message MailMessage) error {
+	sender, err := NewMailSender()
 	if err != nil {
-		SysError(fmt.Sprintf("failed to send email to %s: %v", receiver, err))
+		return err
 	}
-	return err
+	defer sender.Close()
+	return sender.Send(message)
 }

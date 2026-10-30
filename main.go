@@ -302,6 +302,13 @@ func InitResources() error {
 
 	perfmetrics.Init()
 
+	// A campaign of the mail of the installation that a restart of the service
+	// stopped in the middle is closed: the page of the users shows what left
+	// the installation instead of a campaign that runs for ever.
+	if err := model.MarkInterruptedMailCampaigns(); err != nil {
+		common.SysError("failed to close the interrupted mail campaigns: " + err.Error())
+	}
+
 	// 启动系统监控
 	common.StartSystemMonitor()
 

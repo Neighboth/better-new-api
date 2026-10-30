@@ -24,6 +24,7 @@ import {
   aggregateDailyUptime,
   bucketLevel,
   buildDailyUptime,
+  failedRequests,
   fillBuckets,
   uptimePercent,
 } from './uptime'
@@ -146,5 +147,47 @@ describe('buildDailyUptime', () => {
     expect(summary.days).toBe(2)
     expect(summary.uptime_pct).toBeCloseTo((100 / 110) * 100, 5)
     expect(summary.incidents).toBe(1)
+  })
+})
+
+describe('a payload without the counter of the failures', () => {
+  it('reads the failures from the measured rate of the slot', () => {
+    // The server measured the slot and reported the rate, the counter of the
+    // failures did not arrive. Reading the slot as "no failure" would paint the
+    // whole square green.
+    const measured: UptimeBucket = {
+      ts: NOW,
+      duration_seconds: HOUR,
+      success_rate: 97.36,
+      request_count: 100,
+    } as UptimeBucket
+    expect(failedRequests(measured)).toBe(3)
+    expect(uptimePercent([measured])).toBeCloseTo(97, 5)
+    expect(bucketLevel(fillBuckets([measured], HOUR, 24, NOW * 1000)[23])).not.toBe(
+      'ok'
+    )
+  })
+
+  it('sums the finer buckets of a slot instead of keeping one of them', () => {
+    // A minute of counters inside an hour of bars: the hour of the card is the
+    // traffic of the hour. Reading only the bucket at the top of the hour would
+    // report a perfect hour out of one good minute.
+    const top = NOW - (NOW % HOUR)
+    const minutes: UptimeBucket[] = []
+    for (let index = 0; index < 60; index++) {
+      minutes.push({
+        ts: top + index * 60,
+        duration_seconds: 60,
+        success_rate: index % 20 === 0 ? 0 : 100,
+        request_count: 1,
+        failed_count: index % 20 === 0 ? 1 : 0,
+      })
+    }
+    const filled = fillBuckets(minutes, HOUR, 24, NOW * 1000)
+    const hour = filled[filled.length - 1]
+    expect(hour.request_count).toBe(60)
+    expect(hour.failed_count).toBe(3)
+    expect(hour.success_rate).toBeCloseTo(95, 5)
+    expect(bucketLevel(hour)).toBe('warn')
   })
 })

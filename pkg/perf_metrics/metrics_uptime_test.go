@@ -25,7 +25,7 @@ func TestAlignedUptimeBucketsCoversEverySlot(t *testing.T) {
 		start + 5*hour: {requestCount: 2, successCount: 2},
 	}
 
-	got := alignedUptimeBuckets(buckets, start, end)
+	got := alignedUptimeBuckets(buckets, start, end, 0)
 	require.Len(t, got, 6)
 
 	for index, bucket := range got {
@@ -50,7 +50,7 @@ func TestAlignedUptimeBucketsCoversEverySlot(t *testing.T) {
 func TestAlignedUptimeBucketsBoundsTheWindow(t *testing.T) {
 	const hour = int64(3600)
 	start := int64(1_700_000_000)
-	got := alignedUptimeBuckets(nil, start, start+720*hour)
+	got := alignedUptimeBuckets(nil, start, start+720*hour, 0)
 
 	// A month of hours is the widest window the panel draws, the last slot is
 	// the slot that is running now.
@@ -60,5 +60,36 @@ func TestAlignedUptimeBucketsBoundsTheWindow(t *testing.T) {
 
 	// A wider window is cut to the last month instead of returning a payload
 	// that no panel can draw.
-	require.Len(t, alignedUptimeBuckets(nil, start-365*24*hour, start), maxUptimeBuckets)
+	require.Len(t, alignedUptimeBuckets(nil, start-365*24*hour, start, 0), maxUptimeBuckets)
+}
+
+// The setting of the metrics can store a minute of counters while the panel
+// draws an hour of them. A slot of the answer must be the sum of every stored
+// bucket of the slot: the bucket whose timestamp equals the start of the slot is
+// one minute of the hour and it is not the hour.
+func TestAlignedUptimeBucketsSumsTheFinerBucketsOfASlot(t *testing.T) {
+	const hour = int64(3600)
+	const minute = int64(60)
+	start := int64(1_700_000_000) - int64(1_700_000_000)%hour
+
+	buckets := map[int64]counters{}
+	// One hour of minute buckets: 60 requests, 3 of them failed, and the only
+	// bucket that starts at the top of the hour is a good minute.
+	for index := int64(0); index < 60; index++ {
+		buckets[start+index*minute] = counters{requestCount: 1, successCount: 1}
+	}
+	buckets[start] = counters{requestCount: 1, successCount: 1}
+	buckets[start+7*minute] = counters{requestCount: 1, successCount: 0}
+	buckets[start+31*minute] = counters{requestCount: 1, successCount: 0}
+	buckets[start+44*minute] = counters{requestCount: 1, successCount: 0}
+
+	got := alignedUptimeBuckets(buckets, start, start+hour, 0)
+
+	require.Len(t, got, 2)
+	// The hour carries the whole traffic of the hour, not one minute of it.
+	assert.Equal(t, int64(60), got[0].RequestCount)
+	assert.Equal(t, int64(3), got[0].FailedCount)
+	assert.Equal(t, 95.0, got[0].SuccessRate)
+	// The hour is not perfect just because the minute at its start was.
+	assert.NotEqual(t, 100.0, got[0].SuccessRate)
 }
