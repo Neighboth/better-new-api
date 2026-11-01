@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/service/byog"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -154,7 +156,30 @@ func GetPricing(c *gin.Context) {
 	byogModels, err := model.GetAllByogModels(true)
 	if err == nil && len(byogModels) > 0 {
 		byogSetting, _ := model.GetByogSetting()
+		onlineSessions := byog.GlobalHub.GetAllOnlineNodes()
+		runnableModelSet := make(map[string]bool)
+		for _, s := range onlineSessions {
+			n, err := model.GetByogNodeByNodeId(s.NodeId)
+			if err != nil || n == nil {
+				continue
+			}
+			if n.Status == "banned" || n.OperatingMode == "mode_a" {
+				continue
+			}
+			assigned, err := byog.GlobalScheduler.EvaluateNodeModelAssignment(n)
+			if err == nil {
+				for _, m := range assigned {
+					runnableModelSet[m] = true
+				}
+			}
+		}
+
 		for _, bm := range byogModels {
+			// Item 8: Only show models that connected online community nodes can actually run
+			if len(onlineSessions) == 0 || !runnableModelSet[bm.ModelId] {
+				continue
+			}
+
 			var pricePerMillion float64 = 0.40
 			if byogSetting != nil {
 				switch bm.PricingTier {
@@ -178,11 +203,16 @@ func GetPricing(c *gin.Context) {
 				epTypes = []constant.EndpointType{constant.EndpointTypeEmbeddings}
 			}
 
+			modelTags := bm.Tags
+			if strings.TrimSpace(modelTags) == "" {
+				modelTags = "byog"
+			}
+
 			pricing = append(pricing, model.Pricing{
 				ModelName:              bm.ModelId,
 				Description:            fmt.Sprintf("%s (%s BYOG Edge Compute)", bm.ModelId, bm.ParamSize),
 				Icon:                   "byog",
-				Tags:                   "byog,community,edge",
+				Tags:                   modelTags,
 				QuotaType:              0,
 				ModelRatio:             ratio,
 				ModelPrice:             pricePerMillion,

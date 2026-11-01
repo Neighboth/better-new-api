@@ -76,6 +76,7 @@ type ByogRewardItem struct {
 	Title          string `json:"title" gorm:"type:varchar(255);not null"`
 	Description    string `json:"description" gorm:"type:text"`
 	Category       string `json:"category" gorm:"type:varchar(64);default:'digital'"`
+	ImageUrl       string `json:"image_url" gorm:"type:text"`
 	RequiredTokens int64  `json:"required_tokens" gorm:"not null"` // e.g. 50,000,000 tokens
 	Stock          int    `json:"stock" gorm:"default:100"`
 	IsActive       bool   `json:"is_active" gorm:"default:true"`
@@ -136,6 +137,8 @@ type ByogModel struct {
 	ModalitiesInput        string  `json:"modalities_input" gorm:"type:varchar(255);default:'text'"` // JSON array: text, image, video, audio, document, 3d
 	ModalitiesOutput       string  `json:"modalities_output" gorm:"type:varchar(255);default:'text'"` // JSON array: text, image, video, audio, 3d
 	VisionMmprojUrl        string  `json:"vision_mmproj_url" gorm:"type:varchar(1024)"`
+	Tags                   string  `json:"tags" gorm:"type:varchar(255);default:'byog'"`
+	ContextLength          int     `json:"context_length" gorm:"default:4096"`
 	
 	// Anti-Cheat Exam / Canary Settings
 	AntiCheatLogicPrompt   string  `json:"anti_cheat_logic_prompt" gorm:"type:text"`
@@ -216,7 +219,7 @@ type ByogNode struct {
 	FreeDiskGB            int     `json:"free_disk_gb" gorm:"default:0"`
 	Disks                 string  `json:"disks" gorm:"type:text"` // JSON array of DiskPartitionInfo
 	AllocatedVramGB       int     `json:"allocated_vram_gb" gorm:"default:6"`
-	AllocatedRamGB        int     `json:"allocated_ram_gb" gorm:"default:8"`
+	AllocatedRamGB        float64 `json:"allocated_ram_gb" gorm:"type:double;default:8"`
 	AllocatedCores        int     `json:"allocated_cores" gorm:"default:4"`
 	HotStartEnabled       bool    `json:"hot_start_enabled" gorm:"default:false"`
 

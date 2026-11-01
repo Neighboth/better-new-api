@@ -756,8 +756,8 @@ html_content = f'''<!DOCTYPE html>
         </button>
       </div>
 
-      <div class="input-group" id="group-server-url" style="margin-top: 10px;">
-        <input id="input-server-url" type="text" class="input-text" data-i18n-ph="server_url_ph" placeholder="Sunucu Adresi (örn. http://10.0.2.2:3001)">
+      <div class="input-group" id="group-server-url" style="margin-top: 10px; display: none !important;">
+        <input id="input-server-url" type="hidden" class="input-text">
       </div>
 
       <button id="btn-connect" class="btn btn-secondary" onclick="connectManual()">
@@ -1083,6 +1083,9 @@ html_content = f'''<!DOCTYPE html>
         showToast("Lütfen önce tüm izinleri (Bildirim, Pil ve Otomatik Başlatma) tamamlayınız.");
         return;
       }}
+      if (window.AndroidBridge && window.AndroidBridge.completeOnboarding) {{
+        window.AndroidBridge.completeOnboarding();
+      }}
       document.getElementById('permissions-view').classList.add('hidden');
       document.getElementById('unpaired-view').classList.remove('hidden');
     }}
@@ -1263,7 +1266,10 @@ html_content = f'''<!DOCTYPE html>
       const isTr = (navigator.language || 'en').toLowerCase().startsWith('tr');
       const code = document.getElementById('input-code').value.trim().toUpperCase();
       const srvEl = document.getElementById('input-server-url');
-      const serverUrl = srvEl ? srvEl.value.trim() : "";
+      let serverUrl = srvEl && srvEl.value.trim() ? srvEl.value.trim() : "{server_url}".trim();
+      if (!serverUrl || serverUrl.startsWith("{{")) {{
+        serverUrl = window.location.origin && window.location.origin.startsWith("http") ? window.location.origin : "http://10.0.2.2:3000";
+      }}
       if (!code) {{
         showToast(isTr ? "Lütfen eşleştirme kodunu girin" : "Please enter the pairing code");
         return;
@@ -1710,13 +1716,31 @@ public class MainActivity extends Activity {
                 String stateJson = intent.getStringExtra("state");
                 if (stateJson != null) {
                     try {
-                        latestWorkerState = new JSONObject(stateJson);
+                        JSONObject update = new JSONObject(stateJson);
+                        if (latestWorkerState == null) {
+                            latestWorkerState = new JSONObject();
+                        }
+                        java.util.Iterator<String> keys = update.keys();
+                        while (keys.hasNext()) {
+                            String k = keys.next();
+                            latestWorkerState.put(k, update.get(k));
+                        }
+                        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+                        String savedNodeId = WorkerService.stringPref(sp, "node_id", "");
+                        if (!savedNodeId.isEmpty()) {
+                            latestWorkerState.put("node_id", savedNodeId);
+                            latestWorkerState.put("is_paired", true);
+                        }
+                        String savedServer = WorkerService.stringPref(sp, "server_url", "");
+                        if (!savedServer.isEmpty()) {
+                            latestWorkerState.put("server_url", savedServer);
+                        }
                     } catch (Exception ignored) {}
                     if (webView != null) {
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                webView.evaluateJavascript("window.updateState(" + stateJson + ")", null);
+                                webView.evaluateJavascript("if (window.updateState) window.updateState(" + stateJson + ")", null);
                             }
                         });
                     }
@@ -1927,12 +1951,13 @@ public class MainActivity extends Activity {
     private String clientPageUrl() {
         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
         String server = WorkerService.stringPref(sp, "server_url", "");
-        String defaultServer = "{default_server_url}".trim();
-        if ((server == null || server.trim().isEmpty()) && !defaultServer.isEmpty() && !defaultServer.startsWith("{")) {
+        String defaultServer = "{server_url}".trim();
+        if ((server == null || server.trim().isEmpty() || server.startsWith("{")) && !defaultServer.isEmpty() && !defaultServer.startsWith("{")) {
             server = defaultServer;
+            sp.edit().putString("server_url", defaultServer).apply();
         }
-        if (server == null || server.trim().isEmpty()) {
-            return "file:///android_asset/www/index.html";
+        if (server == null || server.trim().isEmpty() || server.startsWith("{")) {
+            server = "http://10.0.2.2:3000";
         }
         while (server.endsWith("/")) server = server.substring(0, server.length() - 1);
         String lang = WorkerService.isTurkish() ? "tr" : "en";
@@ -1983,7 +2008,17 @@ public class MainActivity extends Activity {
 
         webView = new WebView(this);
         setContentView(webView);
+        setupWebViewConfig();
+        checkUpdateFromUi();
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                getWindow().setSustainedPerformanceMode(true);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void setupWebViewConfig() {
         WebSettings ws = webView.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
@@ -2035,18 +2070,39 @@ public class MainActivity extends Activity {
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
                 android.util.Log.w("BYOG_WEBVIEW", "Error " + errorCode + ": " + description + " for " + failingUrl);
             }
+
+            @TargetApi(Build.VERSION_CODES.O)
+            @Override
+            public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                android.util.Log.w("BYOG_WEBVIEW", "Renderer process gone (didCrash=" + (detail != null && detail.didCrash()) + "), recovering WebView...");
+                try {
+                    if (view != null) {
+                        android.view.ViewParent vp = view.getParent();
+                        if (vp instanceof android.view.ViewGroup) {
+                            ((android.view.ViewGroup) vp).removeView(view);
+                        }
+                        view.destroy();
+                    }
+                } catch (Throwable ignored) {}
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            webView = new WebView(MainActivity.this);
+                            setContentView(webView);
+                            setupWebViewConfig();
+                        } catch (Throwable t) {
+                            android.util.Log.e("BYOG_WEBVIEW", "Failed to recreate WebView", t);
+                        }
+                    }
+                }, 500);
+                return true; // Prevents process crash
+            }
         });
 
         appInterface = new WebAppInterface();
         webView.addJavascriptInterface(appInterface, "AndroidBridge");
         webView.loadUrl(clientPageUrl());
-        checkUpdateFromUi();
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            try {
-                getWindow().setSustainedPerformanceMode(true);
-            } catch (Exception ignored) {}
-        }
 
         IntentFilter filter = new IntentFilter();
         filter.addAction("org.byog.worker.STATE_CHANGED");
@@ -3023,6 +3079,15 @@ public class MainActivity extends Activity {
             } else {
                 rawServerUrl = WorkerService.stringPref(sp, "server_url", "");
             }
+            if (rawServerUrl == null || rawServerUrl.trim().isEmpty() || rawServerUrl.startsWith("{")) {
+                String defSrv = "{server_url}".trim();
+                if (!defSrv.isEmpty() && !defSrv.startsWith("{")) {
+                    rawServerUrl = defSrv;
+                } else {
+                    rawServerUrl = "http://10.0.2.2:3000";
+                }
+                sp.edit().putString("server_url", rawServerUrl).apply();
+            }
             rawServerUrl = WorkerService.normalizeServerUrl(rawServerUrl);
             final String finalServerUrl = rawServerUrl;
             final String cleanCode = rawPairingCode != null ? rawPairingCode.trim().toUpperCase() : "";
@@ -3532,7 +3597,10 @@ public class MainActivity extends Activity {
 }
 '''
 with open(os.path.join(src_dir, "MainActivity.java"), "w", encoding="utf-8") as f:
-    f.write(main_activity_content.replace("{app_name}", app_name))
+    main_code = main_activity_content.replace("{app_name}", app_name)
+    main_code = main_code.replace("{server_url}", server_url or "http://10.0.2.2:3000")
+    main_code = main_code.replace("{system_name}", system_name or app_name)
+    f.write(main_code)
 
 # QRScanActivity.java
 qr_scan_activity_content = '''package org.byog.worker;
@@ -3691,6 +3759,8 @@ public class BootReceiver extends BroadcastReceiver {
         String action = intent != null ? intent.getAction() : "";
         if (Intent.ACTION_BOOT_COMPLETED.equals(action) ||
             "android.intent.action.QUICKBOOT_POWERON".equals(action) ||
+            "android.intent.action.LOCKED_BOOT_COMPLETED".equals(action) ||
+            "org.byog.worker.RESTART_SERVICE".equals(action) ||
             Intent.ACTION_MY_PACKAGE_REPLACED.equals(action) ||
             Intent.ACTION_USER_PRESENT.equals(action) ||
             Intent.ACTION_POWER_CONNECTED.equals(action) ||

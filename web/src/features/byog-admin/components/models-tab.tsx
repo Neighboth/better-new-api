@@ -16,7 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  Cpu,
+  Download,
+  HardDrive,
+  HelpCircle,
+  Loader2,
+  Lock,
+  Search,
+  Sparkles,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -78,6 +89,115 @@ export function ByogModelsTab() {
   const [editingLora, setEditingLora] = useState<Partial<ByogModelLora> | null>(
     null
   )
+
+  // Hugging Face Explorer State (Item 21)
+  const [hfModalOpen, setHfModalOpen] = useState(false)
+  const [hfSearchQuery, setHfSearchQuery] = useState('qwen2.5 gguf')
+  const [hfToken, setHfToken] = useState('')
+  const [hfSearching, setHfSearching] = useState(false)
+  const [hfRepos, setHfRepos] = useState<any[]>([])
+  const [hfSelectedRepo, setHfSelectedRepo] = useState<string | null>(null)
+  const [hfLoadingFiles, setHfLoadingFiles] = useState(false)
+  const [hfFiles, setHfFiles] = useState<any[]>([])
+  const [hfGatedWarning, setHfGatedWarning] = useState('')
+
+  async function searchHf(query?: string) {
+    const q = query ?? hfSearchQuery
+    setHfSearching(true)
+    setHfGatedWarning('')
+    try {
+      const resp = await fetch(
+        `/api/byog/admin/hf/search?q=${encodeURIComponent(q || 'gguf')}&token=${encodeURIComponent(hfToken)}`
+      )
+      const res = await resp.json()
+      if (res.success) {
+        setHfRepos(res.data || [])
+      } else {
+        toast.error(res.message || 'Hugging Face modelleri aranamadı')
+      }
+    } catch (e: any) {
+      toast.error(String(e))
+    } finally {
+      setHfSearching(false)
+    }
+  }
+
+  async function loadHfRepoFiles(repoId: string) {
+    setHfSelectedRepo(repoId)
+    setHfLoadingFiles(true)
+    setHfFiles([])
+    setHfGatedWarning('')
+    try {
+      const resp = await fetch(
+        `/api/byog/admin/hf/files?repo=${encodeURIComponent(repoId)}&token=${encodeURIComponent(hfToken)}`
+      )
+      const res = await resp.json()
+      if (res.gated) {
+        setHfGatedWarning(res.message)
+      } else if (res.success && res.data) {
+        setHfFiles(res.data.files || [])
+      } else {
+        toast.error(res.message || 'Repo dosyaları listelenemedi')
+      }
+    } catch (e: any) {
+      toast.error(String(e))
+    } finally {
+      setHfLoadingFiles(false)
+    }
+  }
+
+  function handleSelectHfFile(file: any) {
+    if (!editingModel) return
+    const cleanName = file.filename
+      .replace(/\.gguf$/i, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '-')
+    let vendor = 'Community'
+    if (hfSelectedRepo) {
+      const parts = hfSelectedRepo.split('/')
+      if (parts.length > 0) vendor = parts[0]
+    }
+    let paramSize = '7B'
+    const lower = file.filename.toLowerCase()
+    if (lower.includes('0.5b')) paramSize = '0.5B'
+    else if (lower.includes('1.5b')) paramSize = '1.5B'
+    else if (lower.includes('3b')) paramSize = '3B'
+    else if (lower.includes('4b')) paramSize = '4B'
+    else if (lower.includes('7b') || lower.includes('8b')) paramSize = '7B'
+    else if (lower.includes('14b')) paramSize = '14B'
+    else if (lower.includes('70b') || lower.includes('72b')) paramSize = '70B'
+
+    setEditingModel({
+      ...editingModel,
+      model_id: cleanName,
+      vendor: vendor,
+      param_size: paramSize,
+      download_url: file.download_url,
+      file_size: file.size || file.size_mb * 1024 * 1024,
+    })
+    setHfModalOpen(false)
+    toast.success(`${file.filename} bilgileri forma aktarıldı!`)
+  }
+
+  function fillRecommendedAntiCheat() {
+    if (!editingModel) return
+    setEditingModel({
+      ...editingModel,
+      anti_cheat_logic_prompt: 'What is 2+2?',
+      anti_cheat_logic_expected: '4',
+      anti_cheat_logic_temp: 0,
+      anti_cheat_logic_seed: 42,
+      anti_cheat_logic_logprob: -0.001,
+      anti_cheat_logic_tolerance: 0.01,
+      anti_cheat_sig_prompt: 'Hello world',
+      anti_cheat_sig_expected: 'Hello! How can I help you today?',
+      anti_cheat_sig_temp: 0,
+      anti_cheat_sig_seed: 8472910482910482,
+      anti_cheat_sig_logprob: -0.0124,
+      anti_cheat_sig_tolerance: 0.005,
+    })
+    toast.success('Önerilen deterministik anti-cheat değerleri dolduruldu')
+  }
 
   useEffect(() => {
     loadData()
@@ -498,7 +618,22 @@ export function ByogModelsTab() {
               </div>
 
               <div className='space-y-2 md:col-span-2'>
-                <Label>{t('byog.admin.download_url')}</Label>
+                <div className='flex items-center justify-between'>
+                  <Label>{t('byog.admin.download_url')}</Label>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='gap-1.5 text-xs text-primary h-7'
+                    onClick={() => {
+                      setHfModalOpen(true)
+                      if (hfRepos.length === 0) searchHf('qwen2.5 gguf')
+                    }}
+                  >
+                    <Search className='h-3.5 w-3.5' />
+                    Hugging Face'ten Model Ara
+                  </Button>
+                </div>
                 <Input
                   value={editingModel.download_url || ''}
                   onChange={(e) =>
@@ -555,10 +690,38 @@ export function ByogModelsTab() {
 
               {/* Anti-cheat Logic Exam */}
               <div className='bg-muted/20 space-y-4 rounded-xl border p-4 md:col-span-2'>
-                <div className='flex items-center gap-2'>
-                  <span className='text-sm font-semibold'>
-                    {t('byog.admin.anti_cheat_logic_exam_title')} ({t('Optional')})
-                  </span>
+                <div className='flex flex-wrap items-center justify-between gap-2 border-b pb-2.5'>
+                  <div className='flex items-center gap-2'>
+                    <HelpCircle className='h-4 w-4 text-primary' />
+                    <span className='text-sm font-semibold'>
+                      {t('byog.admin.anti_cheat_logic_exam_title')} ({t('Optional')})
+                    </span>
+                  </div>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='gap-1 text-xs text-primary h-7'
+                    onClick={fillRecommendedAntiCheat}
+                  >
+                    <Sparkles className='h-3.5 w-3.5 text-amber-500' />
+                    Önerilen Değerleri Uygula
+                  </Button>
+                </div>
+
+                <div className='bg-muted/40 rounded-lg p-2.5 text-xs text-muted-foreground space-y-1 border'>
+                  <p className='font-semibold text-foreground'>
+                    💡 Seed ve Logprob Değerleri Nedir, Nasıl Öğrenilir?
+                  </p>
+                  <p>
+                    Anti-cheat canaries, cihazların sahte çıktı üretmesini veya daha küçük modeller kullanmasını önlemek için deterministik (sıcaklık=0, sabit seed) testler yapar.
+                  </p>
+                  <p>
+                    • <strong>Opsiyoneldir:</strong> Boş bırakırsanız bu doğrulama atlanır ve model normal çalışmaya devam eder.
+                  </p>
+                  <p>
+                    • <strong>Öğrenme Yöntemi:</strong> Modeli llama.cpp ile test edip ilk token logprob değerini görebilirsiniz veya <em>Önerilen Değerleri Uygula</em> tuşuna basabilirsiniz.
+                  </p>
                 </div>
                 <div className='grid grid-cols-1 gap-3 md:grid-cols-2'>
                   <div className='space-y-1 md:col-span-2'>
@@ -802,6 +965,169 @@ export function ByogModelsTab() {
               {t('byog.cancel')}
             </Button>
             <Button onClick={handleSaveLora}>{t('byog.save')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Hugging Face Model Explorer Modal (Item 21) */}
+      <Dialog open={hfModalOpen} onOpenChange={setHfModalOpen}>
+        <DialogContent className='max-w-4xl max-h-[85vh] flex flex-col overflow-hidden'>
+          <DialogHeader>
+            <DialogTitle className='flex items-center gap-2'>
+              <Search className='h-5 w-5 text-primary' />
+              Hugging Face Model & Quantization Gezgini
+            </DialogTitle>
+            <DialogDescription>
+              Hugging Face üzerindeki tüm açık kaynak modelleri arayın, quantize GGUF dosyalarını inceleyin ve doğrudan ekleyin.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className='space-y-4 py-2 flex-1 overflow-y-auto'>
+            {/* Search Input & Gated Token Input */}
+            <div className='grid grid-cols-1 md:grid-cols-3 gap-2'>
+              <div className='md:col-span-2 flex gap-2'>
+                <Input
+                  value={hfSearchQuery}
+                  onChange={(e) => setHfSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && searchHf()}
+                  placeholder='Model adı arayın (örn. gemma-3, qwen2.5, llama-3)...'
+                />
+                <Button onClick={() => searchHf()} disabled={hfSearching}>
+                  {hfSearching ? <Loader2 className='h-4 w-4 animate-spin' /> : <Search className='h-4 w-4' />}
+                  Ara
+                </Button>
+              </div>
+              <div className='flex gap-1.5 items-center'>
+                <Input
+                  type='password'
+                  value={hfToken}
+                  onChange={(e) => setHfToken(e.target.value)}
+                  placeholder='HF Token (Gated modeller için)'
+                  className='text-xs'
+                />
+              </div>
+            </div>
+
+            {/* Gated warning banner */}
+            {hfGatedWarning ? (
+              <div className='bg-amber-500/10 border border-amber-500/30 text-amber-500 rounded-lg p-3 text-xs flex items-center gap-2'>
+                <Lock className='h-4 w-4 shrink-0' />
+                <span>{hfGatedWarning}</span>
+              </div>
+            ) : null}
+
+            {/* Split view: Left Repos, Right Quantized Files */}
+            <div className='grid grid-cols-1 md:grid-cols-2 gap-4 h-[420px]'>
+              {/* Repos list */}
+              <div className='border rounded-xl p-2 overflow-y-auto space-y-2'>
+                <div className='text-xs font-semibold text-muted-foreground px-1 pb-1 border-b'>
+                  Bulunan Model Repoları ({hfRepos.length})
+                </div>
+                {hfSearching ? (
+                  <div className='flex items-center justify-center h-48 text-muted-foreground text-xs gap-2'>
+                    <Loader2 className='h-4 w-4 animate-spin' /> Hugging Face taranıyor...
+                  </div>
+                ) : hfRepos.length === 0 ? (
+                  <div className='text-center text-muted-foreground text-xs py-8'>
+                    Model bulunamadı. Arama kutusuna bir model adı yazıp 'Ara' butonuna basın.
+                  </div>
+                ) : (
+                  hfRepos.map((repo) => (
+                    <div
+                      key={repo.id}
+                      onClick={() => loadHfRepoFiles(repo.id)}
+                      className={`p-2.5 rounded-lg border text-xs cursor-pointer transition-colors ${
+                        hfSelectedRepo === repo.id
+                          ? 'border-primary bg-primary/10'
+                          : 'hover:bg-muted/50 border-border'
+                      }`}
+                    >
+                      <div className='font-bold truncate text-foreground'>{repo.id}</div>
+                      <div className='flex items-center gap-3 text-muted-foreground text-[10px] mt-1'>
+                        <span>İndirme: {repo.downloads?.toLocaleString() || 0}</span>
+                        <span>Beğeni: {repo.likes?.toLocaleString() || 0}</span>
+                        {repo.gated ? (
+                          <Badge variant='outline' className='text-[9px] border-amber-500/50 text-amber-500'>
+                            Gated (Şartlı)
+                          </Badge>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Quantization Files list */}
+              <div className='border rounded-xl p-2 overflow-y-auto space-y-2'>
+                <div className='text-xs font-semibold text-muted-foreground px-1 pb-1 border-b'>
+                  {hfSelectedRepo ? `${hfSelectedRepo} Dosyaları` : 'Bir repo seçin'}
+                </div>
+
+                {hfLoadingFiles ? (
+                  <div className='flex items-center justify-center h-48 text-muted-foreground text-xs gap-2'>
+                    <Loader2 className='h-4 w-4 animate-spin' /> Dosyalar taranıyor...
+                  </div>
+                ) : !hfSelectedRepo ? (
+                  <div className='text-center text-muted-foreground text-xs py-8'>
+                    Soldaki listeden bir modele tıklayarak içindeki quantize GGUF dosyalarını görüntüleyin.
+                  </div>
+                ) : hfFiles.length === 0 ? (
+                  <div className='text-center text-muted-foreground text-xs py-8'>
+                    Bu repoda doğrudan kullanılabilir GGUF dosyası bulunamadı veya model gated token gerektiriyor.
+                  </div>
+                ) : (
+                  hfFiles.map((file, idx) => (
+                    <div
+                      key={idx}
+                      className='p-3 rounded-lg border bg-card/60 hover:border-primary/60 transition-all space-y-2 text-xs'
+                    >
+                      <div className='flex items-start justify-between gap-2'>
+                        <div className='font-mono font-bold truncate text-foreground max-w-[240px]' title={file.filename}>
+                          {file.filename}
+                        </div>
+                        <Badge variant='secondary' className='text-[10px] shrink-0 font-bold'>
+                          {file.quantization}
+                        </Badge>
+                      </div>
+
+                      <div className='flex items-center gap-3 text-[11px] text-muted-foreground'>
+                        <span>Boyut: <strong>{file.size_gb} GB</strong></span>
+                      </div>
+
+                      {/* Hardware recommendations badge */}
+                      <div className='bg-muted/40 rounded-md p-2 text-[11px] text-muted-foreground flex flex-wrap gap-2 border'>
+                        <span className='flex items-center gap-1'>
+                          <HardDrive className='h-3 w-3 text-primary' />
+                          Min RAM: <strong>{file.recommended_ram_gb} GB</strong>
+                        </span>
+                        <span className='flex items-center gap-1'>
+                          <Cpu className='h-3 w-3 text-emerald-500' />
+                          Min VRAM: <strong>{file.recommended_vram_gb} GB</strong>
+                        </span>
+                        <span className='flex items-center gap-1'>
+                          Çekirdek: <strong>{file.recommended_cores}</strong>
+                        </span>
+                      </div>
+
+                      <Button
+                        size='sm'
+                        className='w-full text-xs h-7 gap-1 mt-1'
+                        onClick={() => handleSelectHfFile(file)}
+                      >
+                        <Download className='h-3.5 w-3.5' />
+                        Bu Modeli Seç ve Ekle
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant='outline' onClick={() => setHfModalOpen(false)}>
+              Kapat
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

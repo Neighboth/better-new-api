@@ -274,21 +274,7 @@ public class WorkerService extends Service {
             .putInt("total_mb", totalMB)
             .apply();
 
-        try {
-            JSONObject s = new JSONObject();
-            s.put("is_paired", true);
-            s.put("model_status", currentModelStatus);
-            s.put("model_status_desc", initialMsg);
-            s.put("downloaded_mb", downloadedMB);
-            s.put("total_mb", totalMB);
-            s.put("download_progress", computeDownloadPercent());
-            s.put("current_tps", 0.0);
-            s.put("active_vram_model", activeVramModel);
-            Intent b = new Intent("org.byog.worker.STATE_CHANGED");
-            b.putExtra("state", s.toString());
-            b.setPackage(getPackageName());
-            sendBroadcast(b);
-        } catch (Exception ignored) {}
+        broadcastCurrentState();
 
         Notification notification = buildNotification(appName, initialMsg);
         try {
@@ -483,6 +469,14 @@ public class WorkerService extends Service {
             String lastCrash = stringPref(sp, "last_crash", "");
             if (!lastCrash.isEmpty()) state.put("last_crash", lastCrash);
 
+            state.put("physical_ram_mb", getPhysicalRamMB());
+            state.put("cpu_cores", Runtime.getRuntime().availableProcessors());
+            state.put("disks", getDisksArray(this));
+            state.put("total_disk_gb", getTotalDiskGB());
+            state.put("free_disk_gb", getFreeDiskGB());
+            state.put("vram_mb", 0);
+            state.put("shared_vram_mb", 0);
+
             Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
             bIntent.putExtra("state", state.toString());
             bIntent.setPackage(getPackageName());
@@ -524,17 +518,28 @@ public class WorkerService extends Service {
 
             if (ctx != null) {
                 File[] extDirs = ctx.getExternalFilesDirs(null);
-                if (extDirs != null && extDirs.length > 1 && extDirs[1] != null) {
-                    StatFs sdStat = new StatFs(extDirs[1].getPath());
-                    long sdTotal = (sdStat.getBlockCountLong() * sdStat.getBlockSizeLong()) / (1024L * 1024L * 1024L);
-                    long sdFree = (sdStat.getAvailableBlocksLong() * sdStat.getBlockSizeLong()) / (1024L * 1024L * 1024L);
-                    if (sdTotal > 0) {
-                        JSONObject sdDisk = new JSONObject();
-                        sdDisk.put("drive", "sdcard");
-                        sdDisk.put("label", isTurkish() ? "SD Kart" : "SD Card");
-                        sdDisk.put("total_gb", (int) sdTotal);
-                        sdDisk.put("free_gb", (int) Math.max(0, sdFree));
-                        disksArr.put(sdDisk);
+                if (extDirs != null && extDirs.length > 1) {
+                    for (int i = 1; i < extDirs.length; i++) {
+                        File dir = extDirs[i];
+                        if (dir == null) continue;
+                        String pathLower = dir.getAbsolutePath().toLowerCase();
+                        // Strictly exclude USB OTG / external flash drives
+                        if (pathLower.contains("usb") || pathLower.contains("otg") || pathLower.contains("pendrive") || pathLower.contains("flash")) {
+                            continue;
+                        }
+                        try {
+                            StatFs sdStat = new StatFs(dir.getPath());
+                            long sdTotal = (sdStat.getBlockCountLong() * sdStat.getBlockSizeLong()) / (1024L * 1024L * 1024L);
+                            long sdFree = (sdStat.getAvailableBlocksLong() * sdStat.getBlockSizeLong()) / (1024L * 1024L * 1024L);
+                            if (sdTotal > 0) {
+                                JSONObject sdDisk = new JSONObject();
+                                sdDisk.put("drive", "sdcard" + (i > 1 ? String.valueOf(i) : ""));
+                                sdDisk.put("label", isTurkish() ? ("SD Kart" + (i > 1 ? " " + i : "")) : ("SD Card" + (i > 1 ? " " + i : "")));
+                                sdDisk.put("total_gb", (int) sdTotal);
+                                sdDisk.put("free_gb", (int) Math.max(0, sdFree));
+                                disksArr.put(sdDisk);
+                            }
+                        } catch (Throwable ignored) {}
                     }
                 }
             }
@@ -2146,18 +2151,8 @@ public class WorkerService extends Service {
                     if (nm != null) nm.notify(NOTIF_ID, runningNotif);
 
                     // Broadcast state to local app UI immediately
-                    try {
-                        JSONObject rState = new JSONObject();
-                        rState.put("is_paired", true);
-                        rState.put("model_status", "running");
-                        rState.put("model_status_desc", runningDesc);
-                        rState.put("current_tps", currentLiveTps);
-                        rState.put("active_vram_model", activeVramModel);
-                        Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
-                        bIntent.putExtra("state", rState.toString());
-                        bIntent.setPackage(getPackageName());
-                        sendBroadcast(bIntent);
-                    } catch (Exception ignored) {}
+                    currentModelStatus = "running";
+                    broadcastCurrentState();
 
                     // Immediately trigger HTTP sync to server coordinator
                     new Thread(new Runnable() { @Override public void run() { doHttpHeartbeatAndSync(runningDesc); } }).start();
@@ -2326,18 +2321,7 @@ public class WorkerService extends Service {
                     if (nm != null) nm.notify(NOTIF_ID, idleNotif);
 
                     // Broadcast state to local app UI immediately
-                    try {
-                        JSONObject iState = new JSONObject();
-                        iState.put("is_paired", true);
-                        iState.put("model_status", currentModelStatus);
-                        iState.put("model_status_desc", statusMsg);
-                        iState.put("current_tps", 0.0);
-                        iState.put("active_vram_model", activeVramModel);
-                        Intent bIntent = new Intent("org.byog.worker.STATE_CHANGED");
-                        bIntent.putExtra("state", iState.toString());
-                        bIntent.setPackage(getPackageName());
-                        sendBroadcast(bIntent);
-                    } catch (Exception ignored) {}
+                    broadcastCurrentState();
 
                     // Immediately sync idle status to server
                     doHttpHeartbeatAndSync(statusMsg);
@@ -2358,8 +2342,33 @@ public class WorkerService extends Service {
         }).start();
     }
 
-    private Notification buildNotification(String title, String content) {
+    private Notification buildNotification(String ignoredTitle, String statusHint) {
         try {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            String sysName = sp != null ? stringPref(sp, "system_name", "") : "";
+            if (sysName.isEmpty()) sysName = sp != null ? stringPref(sp, "app_name", "{app_name}") : "{app_name}";
+            boolean isTr = isTurkish();
+
+            // Format status state title according to Item 16
+            String statusSuffix;
+            String hintLower = statusHint != null ? statusHint.toLowerCase() : "";
+            if (hintLower.contains("run") || hintLower.contains("üretim") || hintLower.contains("çalışıyor")) {
+                statusSuffix = isTr ? "Çalışıyor" : "Running";
+            } else if (hintLower.contains("download") || hintLower.contains("indiriliyor")) {
+                statusSuffix = isTr ? "İndiriliyor" : "Downloading";
+            } else if (hintLower.contains("stop") || hintLower.contains("durduruldu") || hintLower.contains("kaldırıldı") || hintLower.contains("çevrimdışı") || hintLower.contains("offline")) {
+                statusSuffix = isTr ? "Durduruldu" : "Stopped";
+            } else if (hintLower.contains("error") || hintLower.contains("hata")) {
+                statusSuffix = isTr ? "Hata" : "Error";
+            } else {
+                statusSuffix = isTr ? "Bekliyor" : "Waiting";
+            }
+
+            String notifTitle = sysName + " BYOG - " + statusSuffix;
+
+            long totalTokens = sp != null ? sp.getLong("total_tokens_processed", 0) : 0;
+            long dailyTokens = sp != null ? sp.getLong("daily_tokens_earned", 0) : 0;
+
             Notification.Builder builder;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 builder = new Notification.Builder(this, CHANNEL_ID);
@@ -2377,10 +2386,24 @@ public class WorkerService extends Service {
                 appIcon = android.R.drawable.ic_dialog_info;
             }
 
-            builder.setContentTitle(title != null ? title : "BYOG Worker")
-                   .setContentText(content != null ? content : "Aktif")
+            builder.setContentTitle(notifTitle)
                    .setSmallIcon(appIcon)
                    .setOngoing(true);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                builder.setPriority(Notification.PRIORITY_LOW);
+            }
+
+            // Honeygain style: collapsed view is slim / compact with no model ID or VRAM
+            // Expanded view with BigTextStyle shows total token balance and daily earnings
+            String expandedBody = isTr
+                ? "Toplam Bakiye: " + String.format(java.util.Locale.US, "%,d", totalTokens) + " token\nBugünkü Kazanç: +" + String.format(java.util.Locale.US, "%,d", dailyTokens) + " token"
+                : "Total Balance: " + String.format(java.util.Locale.US, "%,d", totalTokens) + " tokens\nToday's Earnings: +" + String.format(java.util.Locale.US, "%,d", dailyTokens) + " tokens";
+
+            Notification.BigTextStyle bigStyle = new Notification.BigTextStyle();
+            bigStyle.setBigContentTitle(notifTitle);
+            bigStyle.bigText(expandedBody);
+            builder.setStyle(bigStyle);
 
             try {
                 Intent mainIntent = new Intent(this, MainActivity.class);
@@ -2393,37 +2416,9 @@ public class WorkerService extends Service {
                 builder.setContentIntent(pi);
             } catch (Exception ignored) {}
 
-            try {
-                File customIcon = new File(getFilesDir(), "custom_favicon.png");
-                if (customIcon.exists()) {
-                    long lastMod = customIcon.lastModified();
-                    if (cachedLargeIcon == null || lastMod != cachedIconLastModified) {
-                        BitmapFactory.Options opts = new BitmapFactory.Options();
-                        opts.inJustDecodeBounds = true;
-                        BitmapFactory.decodeFile(customIcon.getAbsolutePath(), opts);
-                        int sample = 1;
-                        while (opts.outWidth / (sample * 2) >= 128 && opts.outHeight / (sample * 2) >= 128) {
-                            sample *= 2;
-                        }
-                        opts.inJustDecodeBounds = false;
-                        opts.inSampleSize = sample;
-                        Bitmap bm = BitmapFactory.decodeFile(customIcon.getAbsolutePath(), opts);
-                        if (bm != null) {
-                            if (bm.getWidth() > 128 || bm.getHeight() > 128) {
-                                cachedLargeIcon = Bitmap.createScaledBitmap(bm, 128, 128, true);
-                            } else {
-                                cachedLargeIcon = bm;
-                            }
-                            cachedIconLastModified = lastMod;
-                        }
-                    }
-                    if (cachedLargeIcon != null) {
-                        builder.setLargeIcon(cachedLargeIcon);
-                    }
-                }
-            } catch (Throwable ignored) {}
-
-            return builder.build();
+            Notification notif = builder.build();
+            notif.flags |= Notification.FLAG_ONGOING_EVENT | Notification.FLAG_NO_CLEAR;
+            return notif;
         } catch (Throwable fallbackErr) {
             int fallbackIcon = android.R.drawable.ic_dialog_info;
             try {
@@ -2570,6 +2565,8 @@ public class WorkerService extends Service {
         } catch (Exception ignored) {}
     }
 
+    
+
     @Override
     public void onDestroy() {
         isRunning = false;
@@ -2578,6 +2575,31 @@ public class WorkerService extends Service {
         if (tunnelWs != null) tunnelWs.close();
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
+
+        try {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            boolean isPaired = sp != null && boolPref(sp, "is_paired", false) && !stringPref(sp, "node_id", "").isEmpty();
+            boolean intentional = sp != null && boolPref(sp, "intentional_stop", false);
+            if (isPaired && !intentional) {
+                Intent restartServiceIntent = new Intent(getApplicationContext(), WorkerService.class);
+                restartServiceIntent.setPackage(getPackageName());
+                PendingIntent pi = PendingIntent.getService(
+                    getApplicationContext(), 2, restartServiceIntent,
+                    PendingIntent.FLAG_ONE_SHOT | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0)
+                );
+                AlarmManager am = (AlarmManager) getApplicationContext().getSystemService(Context.ALARM_SERVICE);
+                if (am != null) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 500, pi);
+                    } else {
+                        am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 500, pi);
+                    }
+                }
+                Intent bIntent = new Intent("org.byog.worker.RESTART_SERVICE");
+                bIntent.setPackage(getPackageName());
+                sendBroadcast(bIntent);
+            }
+        } catch (Throwable ignored) {}
         super.onDestroy();
     }
 

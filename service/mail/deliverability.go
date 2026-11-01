@@ -183,12 +183,24 @@ var dkimSelectors = []string{
 	"mail",
 	"dkim",
 	"poste",
+	"posteio",
+	"s2024",
+	"s2025",
+	"s2026",
+	"s2023",
+	"s2022",
+	"s2021",
+	"s2020",
+	"s2027",
+	"s",
+	"key",
 	"smtp",
 	"email",
 	"google",
 	"selector1",
 	"selector2",
 	"k1",
+	"k2",
 	"s1",
 	"s2",
 	"smtpapi",
@@ -197,6 +209,7 @@ var dkimSelectors = []string{
 	"postfix",
 	"key1",
 	"dkim1",
+	"mail1",
 }
 
 // lookupDKIM looks for a DKIM key of the domain.
@@ -272,15 +285,19 @@ func dkimRecord(selector string, domain string) bool {
 	}
 	for _, record := range records {
 		lowered := strings.ToLower(record)
-		if !strings.Contains(lowered, "p=") {
+		clean := strings.ReplaceAll(lowered, " ", "")
+		clean = strings.ReplaceAll(clean, "\"", "")
+		clean = strings.ReplaceAll(clean, "'", "")
+		if !strings.Contains(clean, "p=") {
 			continue
 		}
-		for _, part := range strings.Split(lowered, ";") {
+		for _, part := range strings.Split(clean, ";") {
 			part = strings.TrimSpace(part)
 			if !strings.HasPrefix(part, "p=") {
 				continue
 			}
-			if strings.TrimSpace(strings.TrimPrefix(part, "p=")) != "" {
+			val := strings.TrimSpace(strings.TrimPrefix(part, "p="))
+			if len(val) >= 8 {
 				return true
 			}
 		}

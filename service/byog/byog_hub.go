@@ -277,9 +277,8 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 			node.FanSpeed = telemetry.FanSpeed
 			node.BatteryPercent = telemetry.BatteryPercent
 			node.IsCharging = telemetry.IsCharging
-			node.CurrentTps = telemetry.CurrentTps
-			if telemetry.ModelStatus == "ready" || telemetry.ModelStatus == "idle" || telemetry.ModelStatus == "downloading" {
-				node.CurrentTps = 0.0
+			if telemetry.CurrentTps > 0 {
+				node.CurrentTps = telemetry.CurrentTps
 			}
 			if telemetry.CurrentTtftMs > 0 {
 				node.CurrentTtftMs = telemetry.CurrentTtftMs
@@ -298,8 +297,8 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 			// of the report names the transfer: the progress of a second model
 			// never continues the progress of the first one and the progress of
 			// a transfer never goes back on the panel.
-			if telemetry.DownloadModelId != "" {
-				if node.DownloadModelId != telemetry.DownloadModelId {
+			if telemetry.DownloadModelId != "" || telemetry.DownloadedMB > 0 || telemetry.TotalMB > 0 || telemetry.DownloadProgress > 0 {
+				if telemetry.DownloadModelId != "" && node.DownloadModelId != telemetry.DownloadModelId {
 					node.DownloadModelId = telemetry.DownloadModelId
 					node.DownloadProgress = 0
 					node.DownloadedMB = 0
@@ -314,14 +313,14 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 				if telemetry.TotalMB > 0 {
 					node.TotalMB = telemetry.TotalMB
 				}
-				if telemetry.DownloadedMB > node.DownloadedMB {
+				if telemetry.DownloadedMB > node.DownloadedMB || node.DownloadedMB == 0 {
 					node.DownloadedMB = telemetry.DownloadedMB
 				}
 				progress := telemetry.DownloadProgress
 				if progress <= 0 && node.TotalMB > 0 {
 					progress = int((float64(node.DownloadedMB) / float64(node.TotalMB)) * 100)
 				}
-				if progress > node.DownloadProgress {
+				if progress > node.DownloadProgress || node.DownloadProgress == 0 {
 					node.DownloadProgress = progress
 				}
 				node.DownloadSpeedBps = telemetry.DownloadSpeedBps
@@ -397,8 +396,8 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 			if telemetry.FreeDiskGB > 0 {
 				node.FreeDiskGB = telemetry.FreeDiskGB
 			}
-			if telemetry.PhysicalRamMB != nil && node.AllocatedRamGB > *telemetry.PhysicalRamMB/1024 {
-				node.AllocatedRamGB = *telemetry.PhysicalRamMB / 1024
+			if telemetry.PhysicalRamMB != nil && node.AllocatedRamGB > float64(*telemetry.PhysicalRamMB)/1024.0 {
+				node.AllocatedRamGB = float64(*telemetry.PhysicalRamMB) / 1024.0
 			}
 			if telemetry.VramMB != nil && node.AllocatedVramGB > *telemetry.VramMB/1024 {
 				node.AllocatedVramGB = *telemetry.VramMB / 1024

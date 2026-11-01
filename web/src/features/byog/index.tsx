@@ -97,12 +97,18 @@ export function ByogUserDashboard() {
       try {
         const userNodes = await getUserNodes()
         setNodes(userNodes)
+        if (selectedNode) {
+          const fresh = userNodes.find((n: ByogNode) => n.node_id === selectedNode.node_id)
+          if (fresh && !isSaving) {
+            setSelectedNode((prev) => (prev ? { ...prev, ...fresh } : fresh))
+          }
+        }
       } catch {
         // A failing background refresh must not interrupt the user.
       }
-    }, 5000)
+    }, 4000)
     return () => clearInterval(timer)
-  }, [])
+  }, [selectedNode, isSaving])
 
   // If user is banned from BYOG, show Section 3.8 Banned Screen
   if (statusData?.is_banned) {

@@ -105,6 +105,21 @@ export function Home() {
     const contentIsHtml = isLikelyHtml(content)
 
     if (contentIsHtml) {
+      const containsScriptOrInteractive = /<script[\s\S]*?>[\s\S]*?<\/script>|<form[\s\S]*?>/i.test(content)
+      if (containsScriptOrInteractive) {
+        return (
+          <PublicLayout showMainContainer={false}>
+            <iframe
+              srcDoc={content}
+              className='min-h-screen w-full border-none'
+              title={t('Custom Home Page')}
+              sandbox='allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-modals'
+              allow='fullscreen; clipboard-read; clipboard-write'
+            />
+          </PublicLayout>
+        )
+      }
+
       return (
         <PublicLayout showMainContainer={false}>
           <RichContent

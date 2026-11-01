@@ -150,6 +150,7 @@ export interface ByogRewardItem {
   title: string
   description: string
   category: string
+  image_url?: string
   required_tokens: number
   stock: number
   is_active: boolean

@@ -96,15 +96,11 @@ export function ResourceSliders({
     return Math.max(2, Math.floor(totalRamGB - 2))
   }, [node])
 
-  // Enforce system headroom on Cores (8 cores -> max 7, 18 cores -> max 16)
+  // CPU Cores allocation bounded by the device's actual core count
   const maxCores = useMemo(() => {
-    if (!node) return 7
-    const total = node.cpu_cores || (node.allocated_cores ? Math.max(node.allocated_cores, 8) : 8)
-    if (total <= 2) return 1
-    if (total <= 4) return total - 1
-    if (total <= 8) return 7
-    if (total <= 18) return Math.min(16, total - 1)
-    return Math.max(1, total - 2)
+    if (!node) return 8
+    const total = node.cpu_cores || node.allocated_cores || 8
+    return Math.max(1, total)
   }, [node])
 
   // Strictly bound max disk to actual free space (no arbitrary 500 GB when 40 GB free)
@@ -275,14 +271,14 @@ export function ResourceSliders({
                 {t('byog.ram_allocation', 'RAM Allocation')}
               </Label>
               <span className='text-primary font-mono font-bold'>
-                {Math.min(ramGB, maxRam)} GB / {maxRam} GB
+                {Math.min(ramGB, maxRam) % 1 === 0 ? Math.min(ramGB, maxRam).toString() : Math.min(ramGB, maxRam).toFixed(1)} GB / {maxRam % 1 === 0 ? maxRam.toString() : maxRam.toFixed(1)} GB
               </span>
             </div>
             <Slider
               value={[Math.min(ramGB, maxRam)]}
-              min={1}
+              min={0.5}
               max={maxRam}
-              step={1}
+              step={0.5}
               onValueChange={(val) =>
                 onRamChange(Array.isArray(val) ? val[0] : (val as number))
               }

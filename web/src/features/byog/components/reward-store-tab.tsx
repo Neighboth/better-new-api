@@ -118,8 +118,20 @@ export function RewardStoreTab({
           return (
             <Card
               key={item.id}
-              className='border-border/80 hover:border-primary/50 flex flex-col justify-between transition-all'
+              className='border-border/80 hover:border-primary/50 flex flex-col justify-between overflow-hidden transition-all'
             >
+              {item.image_url ? (
+                <div className='relative h-36 w-full overflow-hidden bg-muted/30 border-b'>
+                  <img
+                    src={item.image_url}
+                    alt={item.title}
+                    className='h-full w-full object-cover transition-transform duration-300 hover:scale-105'
+                    onError={(e) => {
+                      ;(e.target as HTMLElement).style.display = 'none'
+                    }}
+                  />
+                </div>
+              ) : null}
               <CardHeader className='pb-3'>
                 <div className='flex items-center justify-between gap-2'>
                   <Badge

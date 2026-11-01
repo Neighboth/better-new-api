@@ -90,6 +90,11 @@ const defaultModelSettings: ModelSettings = {
   'model_deployment.modal.shared_volume_path': '/vol/models',
   'model_deployment.modal.idle_timeout_seconds': 300,
   'model_deployment.modal.priority': 'modal_first',
+  'model_deployment.huggingface.enabled': false,
+  'model_deployment.huggingface.token': '',
+  'model_deployment.huggingface.org': '',
+  'model_deployment.huggingface.hardware': 't4-small',
+  'model_deployment.huggingface.priority': 'hf_first',
 }
 
 export function ModelSettings() {

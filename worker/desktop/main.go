@@ -1187,11 +1187,11 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 			// the page of the installation must agree on the hot start of the
 			// model and on the resources of the computer.
 			var ack struct {
-				HotStartEnabled *bool `json:"hot_start_enabled"`
-				AllocatedRamGB  *int  `json:"allocated_ram_gb"`
-				AllocatedVramGB *int  `json:"allocated_vram_gb"`
-				AllocatedCores  *int  `json:"allocated_cores"`
-				AllocatedDiskGB *int  `json:"allocated_disk_gb"`
+				HotStartEnabled *bool    `json:"hot_start_enabled"`
+				AllocatedRamGB  *float64 `json:"allocated_ram_gb"`
+				AllocatedVramGB *int     `json:"allocated_vram_gb"`
+				AllocatedCores  *int     `json:"allocated_cores"`
+				AllocatedDiskGB *int     `json:"allocated_disk_gb"`
 			}
 			if err := json.Unmarshal(frame.Payload, &ack); err == nil {
 				changed := false

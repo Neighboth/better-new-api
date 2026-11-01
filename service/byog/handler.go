@@ -59,10 +59,39 @@ func TryHandleByogRelay(c *gin.Context, requestedModel string) bool {
 		promptPrefix = p
 	}
 
-	// 1. Check if warm node exists (has model installed and is connected)
-	targetSession := GlobalJit.FindWarmNodeForModel(byogModel.ModelId)
+	// 1. Prioritize user's own online node if available (Item 18)
+	var targetSession *NodeSession
+	userId := c.GetInt("id")
+	if userId > 0 {
+		userNodes, _ := model.GetUserByogNodes(userId)
+		for _, un := range userNodes {
+			if un.Status != "banned" {
+				if s, ok := GlobalHub.GetSession(un.NodeId); ok && s != nil && !s.IsPaused && !s.IsGamerMode {
+					if s.InstalledModels != nil && s.InstalledModels[byogModel.ModelId] {
+						targetSession = s
+						break
+					}
+					assigned, _ := GlobalScheduler.EvaluateNodeModelAssignment(un)
+					for _, am := range assigned {
+						if am == byogModel.ModelId {
+							targetSession = s
+							break
+						}
+					}
+					if targetSession != nil {
+						break
+					}
+				}
+			}
+		}
+	}
 
-	// 2. If no warm node, try selecting any capable online node
+	// 2. Check if warm node exists (has model installed and is connected)
+	if targetSession == nil {
+		targetSession = GlobalJit.FindWarmNodeForModel(byogModel.ModelId)
+	}
+
+	// 3. If no warm node, try selecting any capable online node
 	if targetSession == nil {
 		selected, _ := GlobalRouter.SelectNodeForRequest(byogModel.ModelId, conversationId, promptPrefix, c.ClientIP())
 		if selected != nil {
@@ -123,7 +152,13 @@ func TryHandleByogRelay(c *gin.Context, requestedModel string) bool {
 	}
 
 	// 6. Construct inference payload
-	maxTokens := 64
+	maxTokens := 4096
+	if byogModel != nil && byogModel.ContextLength > 0 {
+		maxTokens = byogModel.ContextLength
+		if maxTokens > 8192 {
+			maxTokens = 8192
+		}
+	}
 	if mt, ok := reqMap["max_tokens"].(float64); ok && mt > 0 {
 		maxTokens = int(mt)
 	}

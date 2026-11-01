@@ -566,6 +566,22 @@ func UpdateUserByogNode(c *gin.Context) {
 		return
 	}
 
+	// Live Bidirectional Sync: notify connected worker session immediately (Item 7)
+	if s, ok := byogservice.GlobalHub.GetSession(node.NodeId); ok && s != nil {
+		updatePayload, _ := json.Marshal(map[string]interface{}{
+			"allocated_ram_gb":  node.AllocatedRamGB,
+			"allocated_vram_gb": node.AllocatedVramGB,
+			"allocated_cores":   node.AllocatedCores,
+			"allocated_disk_gb": node.AllocatedDiskGB,
+			"hot_start_enabled": node.HotStartEnabled,
+			"disks":             node.Disks,
+		})
+		_ = s.WriteFrame(byogservice.TunnelFrame{
+			Type:    "update_resources",
+			Payload: updatePayload,
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": node})
 }
 
@@ -1416,9 +1432,9 @@ func RegisterByogWorker(c *gin.Context) {
 			initialIsCharging = *req.IsCharging
 		}
 
-		allocRam := 8
+		allocRam := 8.0
 		if req.PhysicalRam > 0 {
-			allocRam = int(math.Max(2, float64(req.PhysicalRam)/2048))
+			allocRam = math.Max(2.0, float64(req.PhysicalRam)/2048.0)
 		}
 		allocVram := 0
 		if !isMobile && req.VramMB > 0 {
@@ -2096,7 +2112,7 @@ func UpdateByogWorkerResources(c *gin.Context) {
 	}
 	var req struct {
 		NodeId          string           `json:"node_id" binding:"required"`
-		AllocatedRamGB  *int             `json:"allocated_ram_gb"`
+		AllocatedRamGB  *float64         `json:"allocated_ram_gb"`
 		AllocatedVramGB *int             `json:"allocated_vram_gb"`
 		AllocatedCores  *int             `json:"allocated_cores"`
 		AllocatedDiskGB *int             `json:"allocated_disk_gb"`
@@ -2120,8 +2136,8 @@ func UpdateByogWorkerResources(c *gin.Context) {
 		if ram < 0 {
 			ram = 0
 		}
-		if node.PhysicalRamMB > 0 && ram > node.PhysicalRamMB/1024 {
-			ram = node.PhysicalRamMB / 1024
+		if node.PhysicalRamMB > 0 && ram > float64(node.PhysicalRamMB)/1024.0 {
+			ram = float64(node.PhysicalRamMB) / 1024.0
 		}
 		node.AllocatedRamGB = ram
 	}
@@ -2213,6 +2229,22 @@ func UpdateByogWorkerResources(c *gin.Context) {
 	if err := model.SaveByogNode(node); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
+	}
+
+	// Live Bidirectional Sync: notify connected worker session immediately (Item 7)
+	if s, ok := byogservice.GlobalHub.GetSession(node.NodeId); ok && s != nil {
+		updatePayload, _ := json.Marshal(map[string]interface{}{
+			"allocated_ram_gb":  node.AllocatedRamGB,
+			"allocated_vram_gb": node.AllocatedVramGB,
+			"allocated_cores":   node.AllocatedCores,
+			"allocated_disk_gb": node.AllocatedDiskGB,
+			"hot_start_enabled": node.HotStartEnabled,
+			"disks":             node.Disks,
+		})
+		_ = s.WriteFrame(byogservice.TunnelFrame{
+			Type:    "update_resources",
+			Payload: updatePayload,
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{

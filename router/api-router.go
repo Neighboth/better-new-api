@@ -572,6 +572,8 @@ func SetApiRouter(router *gin.Engine) {
 				byogAdminRoute.POST("/models", middleware.RequirePermission(authz.ByogWrite), controller.CreateByogAdminModel)
 				byogAdminRoute.PUT("/models/:id", middleware.RequirePermission(authz.ByogWrite), controller.UpdateByogAdminModel)
 				byogAdminRoute.DELETE("/models/:id", middleware.RequirePermission(authz.ByogWrite), controller.DeleteByogAdminModel)
+				byogAdminRoute.GET("/hf/search", middleware.RequirePermission(authz.ByogRead), controller.SearchHuggingFaceModels)
+				byogAdminRoute.GET("/hf/files", middleware.RequirePermission(authz.ByogRead), controller.GetHuggingFaceModelFiles)
 				byogAdminRoute.POST("/models/:id/loras", middleware.RequirePermission(authz.ByogWrite), controller.CreateByogAdminLora)
 				byogAdminRoute.DELETE("/loras/:id", middleware.RequirePermission(authz.ByogWrite), controller.DeleteByogAdminLora)
 				byogAdminRoute.GET("/nodes", middleware.RequirePermission(authz.ByogRead), controller.GetByogAdminNodes)

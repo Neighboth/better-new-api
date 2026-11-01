@@ -432,7 +432,10 @@ export function ByogNodesTab() {
                         </div>
                       </TableCell>
                       <TableCell className='font-mono text-xs'>
-                        <div>{node.ping_ms} ms</div>
+                        <div className='font-bold'>{node.ping_ms ? `${Math.round(node.ping_ms)} ms` : '-- ms'}</div>
+                        <div className='text-muted-foreground font-sans text-[10px]'>
+                          ↓ {node.bandwidth_down_mbps ? node.bandwidth_down_mbps.toFixed(1) : '--'} / ↑ {node.bandwidth_up_mbps ? node.bandwidth_up_mbps.toFixed(1) : '--'} Mbps
+                        </div>
                         <div className='text-muted-foreground font-sans text-[10px]'>
                           {node.country || 'Global'}
                         </div>

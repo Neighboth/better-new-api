@@ -527,6 +527,41 @@ export function ByogRewardsTab() {
                 />
               </div>
 
+              {/* Reward Image URL & Guidelines (Item 24) */}
+              <div className='space-y-2'>
+                <div className='flex items-center justify-between'>
+                  <Label>{t('byog.admin.reward_image', 'Ürün Görseli')}</Label>
+                  <span className='text-muted-foreground text-[11px] font-medium'>
+                    Önerilen Boyut: 400x250 px (16:10)
+                  </span>
+                </div>
+                <Input
+                  value={editingItem.image_url || ''}
+                  onChange={(e) =>
+                    setEditingItem({
+                      ...editingItem,
+                      image_url: e.target.value,
+                    })
+                  }
+                  placeholder='https://.../product-image.png veya veri bağlantısı'
+                />
+                <p className='text-muted-foreground text-[11px]'>
+                  Doğrudan görsel bağlantısı (URL) girin. Önerilen boyut 400x250 pikseldir.
+                </p>
+                {editingItem.image_url ? (
+                  <div className='relative mt-2 h-28 w-44 overflow-hidden rounded-lg border bg-muted/40'>
+                    <img
+                      src={editingItem.image_url}
+                      alt='Önizleme'
+                      className='h-full w-full object-cover'
+                      onError={(e) => {
+                        ;(e.target as HTMLElement).style.display = 'none'
+                      }}
+                    />
+                  </div>
+                ) : null}
+              </div>
+
               <div className='space-y-2'>
                 <Label>{t('byog.admin.description')}</Label>
                 <Textarea

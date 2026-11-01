@@ -159,6 +159,11 @@ func displayAdapters() []displayAdapter {
 			strings.Contains(lower, "parsec") || strings.Contains(lower, "oray") {
 			continue
 		}
+		if strings.Contains(lower, "iris") || strings.Contains(lower, "intel(r) uhd") || strings.Contains(lower, "intel(r) hd") ||
+			strings.Contains(lower, "intel graphics") || strings.Contains(lower, "radeon(tm) graphics") {
+			// Integrated GPU / UMA: shares system RAM, dedicated VRAM is locked to 0
+			vram = 0
+		}
 		adapters = append(adapters, displayAdapter{Name: name, VramMB: vram})
 	}
 	return adapters

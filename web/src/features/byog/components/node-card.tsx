@@ -32,6 +32,7 @@ import {
   Tablet,
   Thermometer,
   Trash2,
+  Wifi,
   Zap,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -388,6 +389,25 @@ export function NodeCard({
             </span>
             <div className='text-foreground font-mono font-semibold'>
               +{node.total_tokens_processed.toLocaleString()}
+            </div>
+          </div>
+          <div>
+            <span className='text-muted-foreground text-[11px]'>
+              {t('byog.ping', 'Ping / Gecikme')}:
+            </span>
+            <div className='text-foreground flex items-center gap-1 font-mono font-semibold'>
+              <Wifi className='h-3 w-3 text-cyan-500' />
+              {node.ping_ms ? `${Math.round(node.ping_ms)} ms` : '-- ms'}
+            </div>
+          </div>
+          <div>
+            <span className='text-muted-foreground text-[11px]'>
+              {t('byog.bandwidth', 'Hız (İndir/Yükle)')}:
+            </span>
+            <div className='text-foreground flex items-center gap-1 font-mono text-[11px] font-semibold'>
+              <span>↓ {node.bandwidth_down_mbps ? node.bandwidth_down_mbps.toFixed(1) : '--'}</span>
+              <span className='text-muted-foreground'>/</span>
+              <span>↑ {node.bandwidth_up_mbps ? node.bandwidth_up_mbps.toFixed(1) : '--'} M</span>
             </div>
           </div>
         </div>

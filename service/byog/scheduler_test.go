@@ -12,7 +12,7 @@ func TestAvailableRamMB(t *testing.T) {
 	cases := []struct {
 		name      string
 		physical  int
-		allocated int
+		allocated float64
 		want      int
 	}{
 		{

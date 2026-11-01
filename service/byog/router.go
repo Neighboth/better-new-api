@@ -269,18 +269,37 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 				multiplier, _ := model.CalculateNodeMultipliers(node)
 				tokensToCredit := int64(float64(totalTokensGenerated) * multiplier)
 
+				userId := c.GetInt("id")
+				isOwner := userId > 0 && userId == node.UserId
+				clientIp := c.ClientIP()
+				isSameIp := clientIp != "" && (clientIp == node.IpAddress || clientIp == "127.0.0.1" || clientIp == "::1")
+
+				// Item 10: Anti-Manipulation / Alt-Account Self-Farming Block:
+				// If the caller is the owner of the node, or querying from the exact same IP/network,
+				// they cannot earn mining tokens from self-queries!
+				if isOwner || isSameIp {
+					tokensToCredit = 0
+				}
+
 				// Credit tokens to compute provider node
-				_ = model.DB.Model(&model.ByogNode{}).
-					Where("node_id = ?", session.NodeId).
-					Updates(map[string]interface{}{
-						"total_tokens_processed": gormExpr("total_tokens_processed + ?", totalTokensGenerated),
-						"total_earned_credits":   gormExpr("total_earned_credits + ?", float64(tokensToCredit)*0.000001),
-					})
+				if tokensToCredit > 0 {
+					_ = model.DB.Model(&model.ByogNode{}).
+						Where("node_id = ?", session.NodeId).
+						Updates(map[string]interface{}{
+							"total_tokens_processed": gormExpr("total_tokens_processed + ?", totalTokensGenerated),
+							"total_earned_credits":   gormExpr("total_earned_credits + ?", float64(tokensToCredit)*0.000001),
+						})
+				} else {
+					_ = model.DB.Model(&model.ByogNode{}).
+						Where("node_id = ?", session.NodeId).
+						Update("total_tokens_processed", gormExpr("total_tokens_processed + ?", totalTokensGenerated))
+				}
 
 				// Charge customer:
-				// Use price from Models section if configured; if not configured, charge 3x provider cost price.
-				userId := c.GetInt("id")
-				if userId > 0 {
+				// Item 18: If the user owns this node, access to their own node's models is 100% FREE!
+				if isOwner {
+					// Free API usage for owner on their own device!
+				} else if userId > 0 {
 					setting, _ := model.GetByogSetting()
 					providerPricePer1M := 0.20
 					if setting != nil {

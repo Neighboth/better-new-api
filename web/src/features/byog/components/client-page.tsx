@@ -544,34 +544,48 @@ export function ClientPage() {
   const [savingResources, setSavingResources] = useState(false)
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('')
   const [allocatedInitialized, setAllocatedInitialized] = useState(false)
+  const lastUserEditTimeRef = useRef(0)
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const bridge = getBridge()
   const [localApi, setLocalApi] = useState('')
   const [localToken, setLocalToken] = useState('')
 
-  // Sync allocations from loaded worker state once
+  // Live Bidirectional Sync: sync allocations from state when user is not actively editing
   useEffect(() => {
-    if (!allocatedInitialized && state) {
-      if (state.allocated_ram_gb !== undefined) setRamGB(state.allocated_ram_gb)
-      if (state.allocated_vram_gb !== undefined) setVramGB(state.allocated_vram_gb)
-      if (state.allocated_cores !== undefined) setCores(state.allocated_cores)
-      if (state.allocated_disk_gb !== undefined) setDiskGB(state.allocated_disk_gb)
-      if (state.hot_start_enabled !== undefined) setHotStart(state.hot_start_enabled)
-      if (state.disks && state.disks.length > 0) {
-        const allocations: Record<string, number> = {}
-        for (const disk of state.disks) {
-          allocations[disk.drive] = disk.allocated_gb ?? 0
-        }
-        setDiskAllocations(allocations)
-      }
-      if (state.allocated_ram_gb || state.physical_ram_mb) {
-        setAllocatedInitialized(true)
-      }
+    if (!state) return
+    const isActivelyEditing = Date.now() - lastUserEditTimeRef.current < 3000
+    if (isActivelyEditing) return
+
+    if (state.allocated_ram_gb !== undefined && state.allocated_ram_gb !== ramGB) {
+      setRamGB(state.allocated_ram_gb)
     }
-  }, [allocatedInitialized, state])
+    if (state.allocated_vram_gb !== undefined && state.allocated_vram_gb !== vramGB) {
+      setVramGB(state.allocated_vram_gb)
+    }
+    if (state.allocated_cores !== undefined && state.allocated_cores !== cores) {
+      setCores(state.allocated_cores)
+    }
+    if (state.allocated_disk_gb !== undefined && state.allocated_disk_gb !== diskGB) {
+      setDiskGB(state.allocated_disk_gb)
+    }
+    if (state.hot_start_enabled !== undefined && state.hot_start_enabled !== hotStart) {
+      setHotStart(state.hot_start_enabled)
+    }
+    if (state.disks && state.disks.length > 0) {
+      const allocations: Record<string, number> = {}
+      for (const disk of state.disks) {
+        allocations[disk.drive] = disk.allocated_gb ?? 0
+      }
+      setDiskAllocations(allocations)
+    }
+    if (!allocatedInitialized && (state.allocated_ram_gb || state.physical_ram_mb)) {
+      setAllocatedInitialized(true)
+    }
+  }, [allocatedInitialized, state, ramGB, vramGB, cores, diskGB, hotStart])
 
   // Save allocated resource sliders to backend & local bridge
-  const saveResourceAllocations = async () => {
+  const saveResourceAllocations = useCallback(async () => {
     setSavingResources(true)
     setSaveSuccessMsg('')
     try {
@@ -624,6 +638,31 @@ export function ClientPage() {
     } finally {
       setSavingResources(false)
     }
+  }, [cores, diskAllocations, diskGB, hotStart, loadState, localApi, localToken, nodeId, ramGB, state?.node_id, t, vramGB])
+
+  const handleVramChange = (val: number) => {
+    lastUserEditTimeRef.current = Date.now()
+    setVramGB(val)
+  }
+  const handleRamChange = (val: number) => {
+    lastUserEditTimeRef.current = Date.now()
+    setRamGB(val)
+  }
+  const handleCoresChange = (val: number) => {
+    lastUserEditTimeRef.current = Date.now()
+    setCores(val)
+  }
+  const handleDiskChange = (val: number) => {
+    lastUserEditTimeRef.current = Date.now()
+    setDiskGB(val)
+  }
+  const handleDiskAllocationsChange = (val: Record<string, number>) => {
+    lastUserEditTimeRef.current = Date.now()
+    setDiskAllocations(val)
+  }
+  const handleHotStartChange = (val: boolean) => {
+    lastUserEditTimeRef.current = Date.now()
+    setHotStart(val)
   }
 
   // Sync language changes across app, localStorage, and uninstaller registry
@@ -812,6 +851,25 @@ export function ClientPage() {
   useEffect(() => {
     const target = window as unknown as Record<string, unknown>
     target.showUpdatePrompt = (version: string) => setUpdateVersion(version)
+    target.updateState = (stateObj: unknown) => {
+      if (!stateObj) return
+      try {
+        const parsed = typeof stateObj === 'string' ? JSON.parse(stateObj) : (stateObj as Record<string, unknown>)
+        if (parsed && typeof parsed === 'object') {
+          setState((prev) => ({
+            ...(prev ?? {}),
+            ...(parsed as Partial<WorkerState>),
+          }))
+          if (parsed.node_id && typeof parsed.node_id === 'string') {
+            setNodeId(parsed.node_id)
+            window.localStorage.setItem('byog_node_id', parsed.node_id)
+          }
+          if (parsed.server_url && typeof parsed.server_url === 'string') {
+            setServerUrl(parsed.server_url)
+          }
+        }
+      } catch {}
+    }
     target.handleScannedQr = (qrText: string) => {
       if (qrText) {
         setCode(extractPairingCode(qrText))
@@ -828,6 +886,7 @@ export function ClientPage() {
     }
     return () => {
       delete target.showUpdatePrompt
+      delete target.updateState
       delete target.handleScannedQr
       delete target.onPairSuccess
       delete target.onPairError
@@ -1013,6 +1072,7 @@ export function ClientPage() {
     cpu_model: state?.cpu_model || '',
     gpu_model: state?.gpu_model || '',
     npu_model: '',
+    cpu_cores: state?.cpu_cores ?? 8,
     physical_ram_mb: state?.physical_ram_mb ?? 0,
     swap_ram_mb: state?.swap_ram_mb ?? 0,
     vram_mb: state?.vram_mb ?? 0,
@@ -1056,8 +1116,8 @@ export function ClientPage() {
     battery_temp: 0,
   } as unknown as ByogNode
 
-  // Determine paired status
-  const isPaired = Boolean(state?.paired && nodeId)
+  // Determine paired status (Device is paired if it has an assigned node_id or paired flag)
+  const isPaired = Boolean(nodeId || state?.node_id || state?.paired)
   const isModelReady = state?.model_status === 'ready' || (state && state.download_progress >= 100)
 
   // Header Brand Logo: use custom site logo/favicon or favicon_base64
@@ -1547,6 +1607,22 @@ export function ClientPage() {
                     </span>
                   </div>
 
+                  <div className='flex items-center gap-3 min-w-0'>
+                    <Activity className='text-muted-foreground h-4 w-4 shrink-0' />
+                    <span className='text-muted-foreground w-24 sm:w-36 shrink-0'>{t('byog.client_ping', 'Gecikme (Ping)')}:</span>
+                    <span className='font-mono font-semibold truncate min-w-0 flex-1'>
+                      {state?.ping_ms ? `${Math.round(state.ping_ms)} ms` : '—'}
+                    </span>
+                  </div>
+
+                  <div className='flex items-center gap-3 min-w-0'>
+                    <Gauge className='text-muted-foreground h-4 w-4 shrink-0' />
+                    <span className='text-muted-foreground w-24 sm:w-36 shrink-0'>{t('byog.client_bandwidth', 'Hız (İndir/Yükle)')}:</span>
+                    <span className='font-mono font-semibold truncate min-w-0 flex-1'>
+                      ↓ {state?.bandwidth_down_mbps ? state.bandwidth_down_mbps.toFixed(1) : '—'} Mbps / ↑ {state?.bandwidth_up_mbps ? state.bandwidth_up_mbps.toFixed(1) : '—'} Mbps
+                    </span>
+                  </div>
+
                   {/* Download progress bar if downloading */}
                   {state && state.download_progress > 0 && state.download_progress < 100 && (
                     <div className='space-y-1.5 pt-3 border-t border-border/50'>
@@ -1605,12 +1681,12 @@ export function ClientPage() {
                 diskGB={diskGB}
                 hotStartEnabled={hotStart}
                 diskAllocations={diskAllocations}
-                onVramChange={setVramGB}
-                onRamChange={setRamGB}
-                onCoresChange={setCores}
-                onDiskChange={setDiskGB}
-                onDiskAllocationsChange={setDiskAllocations}
-                onHotStartChange={setHotStart}
+                onVramChange={handleVramChange}
+                onRamChange={handleRamChange}
+                onCoresChange={handleCoresChange}
+                onDiskChange={handleDiskChange}
+                onDiskAllocationsChange={handleDiskAllocationsChange}
+                onHotStartChange={handleHotStartChange}
               />
 
               <div className='flex items-center justify-between pt-2'>

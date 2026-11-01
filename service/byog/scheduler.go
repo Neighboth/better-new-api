@@ -110,7 +110,7 @@ func availableRamMB(node *model.ByogNode) int {
 	}
 	available := node.PhysicalRamMB
 	if node.AllocatedRamGB > 0 {
-		allocated := node.AllocatedRamGB * 1024
+		allocated := int(node.AllocatedRamGB * 1024)
 		if allocated < available {
 			available = allocated
 		}
