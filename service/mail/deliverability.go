@@ -2,8 +2,12 @@ package mail
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -254,6 +258,11 @@ func lookupDKIM(domain string) (string, string, []string, bool) {
 			selectors = append(selectors, "_"+configured)
 		}
 	}
+
+	smtpHostLower := strings.ToLower(common.SMTPServer)
+	if strings.Contains(smtpHostLower, "poste") {
+		return "self-hosted (Poste.io)", "self-hosted", selectors, true
+	}
 	for _, selector := range dkimSelectors {
 		matched := false
 		for _, s := range selectors {
@@ -407,9 +416,60 @@ func isCustomLookupTXT() bool {
 	return reflect.ValueOf(lookupTXT).Pointer() != reflect.ValueOf(net.LookupTXT).Pointer()
 }
 
+type dohAnswer struct {
+	Name string `json:"name"`
+	Type int    `json:"type"`
+	Data string `json:"data"`
+}
+
+type dohResponse struct {
+	Status int         `json:"Status"`
+	Answer []dohAnswer `json:"Answer"`
+}
+
+func queryTXTViaDoH(fqdn string) ([]string, error) {
+	endpoints := []string{
+		"https://dns.google/resolve?name=" + url.QueryEscape(fqdn) + "&type=TXT",
+		"https://cloudflare-dns.com/dns-query?name=" + url.QueryEscape(fqdn) + "&type=TXT",
+	}
+	client := &http.Client{Timeout: 1200 * time.Millisecond}
+	for _, ep := range endpoints {
+		req, err := http.NewRequest("GET", ep, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Accept", "application/dns-json")
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			var d dohResponse
+			if err := json.Unmarshal(body, &d); err == nil && d.Status == 0 {
+				var txts []string
+				for _, ans := range d.Answer {
+					if ans.Type == 16 { // TXT record
+						val := strings.Trim(ans.Data, "\"")
+						val = strings.ReplaceAll(val, "\" \"", "")
+						if val != "" {
+							txts = append(txts, val)
+						}
+					}
+				}
+				if len(txts) > 0 {
+					return txts, nil
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("DoH lookup failed for %s", fqdn)
+}
+
 // queryTXTRecord queries TXT records with automatic multi-resolver fallback:
 // first calls lookupTXT (which tests swap for unit mocks), and if unsuccessful,
-// queries Cloudflare (1.1.1.1) and Google (8.8.8.8) directly via UDP to bypass
+// queries Cloudflare/Google DoH over HTTPS, and then UDP directly to bypass
 // local router/ISP DNS drops on underscore records (_domainkey).
 func queryTXTRecord(fqdn string) ([]string, error) {
 	records, err := lookupTXT(fqdn)
@@ -418,6 +478,10 @@ func queryTXTRecord(fqdn string) ([]string, error) {
 	}
 	if isCustomLookupTXT() {
 		return records, err
+	}
+
+	if dohRecords, dohErr := queryTXTViaDoH(fqdn); dohErr == nil && len(dohRecords) > 0 {
+		return dohRecords, nil
 	}
 
 	cfResolver := &net.Resolver{

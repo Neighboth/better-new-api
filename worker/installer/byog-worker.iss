@@ -142,6 +142,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 ; with two entries is removed twice and the second removal fails.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\BYOGWorker"; Flags: deletekey
 Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\BYOGWorker"; Flags: deletekey
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{5B4C0A1E-6C1B-4C0E-9E4F-7A3D2B5C8E11}_is1"; Flags: deletekey
+Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{5B4C0A1E-6C1B-4C0E-9E4F-7A3D2B5C8E11}_is1"; Flags: deletekey
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,BYOG Worker}"; Flags: nowait postinstall skipifsilent
@@ -226,13 +228,12 @@ const
   GWL_EXSTYLE = -20;
   WS_EX_APPWINDOW = $00040000;
 
-function LoadImageW(hInst: THandle; ImageName: String; ImageType: UINT; X, Y: Integer; Flags: UINT): THandle; external 'LoadImageW@user32.dll stdcall';
-function SendMessageW(hWnd: HWND; Msg: UINT; wParam: Longint; lParam: Longint): Longint; external 'SendMessageW@user32.dll stdcall';
-function GetWindow(hWnd: HWND; uCmd: UINT): HWND; external 'GetWindow@user32.dll stdcall';
-function GetAncestor(hWnd: HWND; gaFlags: UINT): HWND; external 'GetAncestor@user32.dll stdcall';
-function SetClassLongW(hWnd: HWND; nIndex: Integer; dwNewLong: Longint): Longint; external 'SetClassLongW@user32.dll stdcall';
-function GetWindowLongW(hWnd: HWND; nIndex: Integer): Longint; external 'GetWindowLongW@user32.dll stdcall';
-function SetWindowLongW(hWnd: HWND; nIndex: Integer; dwNewLong: Longint): Longint; external 'SetWindowLongW@user32.dll stdcall';
+function LoadImageW(hInst: THandle; ImageName: String; ImageType: UINT; X, Y: Integer; Flags: UINT): THandle; external 'LoadImageW@user32.dll stdcall delayload';
+function SendMessageW(hWnd: HWND; Msg: UINT; wParam: Longint; lParam: Longint): Longint; external 'SendMessageW@user32.dll stdcall delayload';
+function GetWindow(hWnd: HWND; uCmd: UINT): HWND; external 'GetWindow@user32.dll stdcall delayload';
+function GetAncestor(hWnd: HWND; gaFlags: UINT): HWND; external 'GetAncestor@user32.dll stdcall delayload';
+function GetWindowLongW(hWnd: HWND; nIndex: Integer): Longint; external 'GetWindowLongW@user32.dll stdcall delayload';
+function SetWindowLongW(hWnd: HWND; nIndex: Integer; dwNewLong: Longint): Longint; external 'SetWindowLongW@user32.dll stdcall delayload';
 
 procedure ApplyWindowIcon(const WindowHandle: HWND; const IcoFile: String);
 var
@@ -249,7 +250,6 @@ begin
       if WindowHandle <> 0 then
       begin
         SendMessageW(WindowHandle, WM_SETICON, ICON_BIG, hIconBig);
-        SetClassLongW(WindowHandle, GCL_HICON, hIconBig);
         hOwner := GetWindow(WindowHandle, GW_OWNER);
         if hOwner <> 0 then
           SendMessageW(hOwner, WM_SETICON, ICON_BIG, hIconBig);
@@ -263,7 +263,6 @@ begin
       if WindowHandle <> 0 then
       begin
         SendMessageW(WindowHandle, WM_SETICON, ICON_SMALL, hIconSmall);
-        SetClassLongW(WindowHandle, GCL_HICONSM, hIconSmall);
         hOwner := GetWindow(WindowHandle, GW_OWNER);
         if hOwner <> 0 then
           SendMessageW(hOwner, WM_SETICON, ICON_SMALL, hIconSmall);
@@ -1146,24 +1145,27 @@ procedure InitializeUninstallProgressForm();
 var
   icoPath, bmpPath: String;
 begin
-  icoPath := ExpandConstant('{app}\byog.ico');
-  if FileExists(icoPath) then
-  begin
-    try
-      SetWindowLongW(UninstallProgressForm.Handle, GWL_EXSTYLE, GetWindowLongW(UninstallProgressForm.Handle, GWL_EXSTYLE) or WS_EX_APPWINDOW);
-    except
+  try
+    icoPath := ExpandConstant('{app}\byog.ico');
+    if FileExists(icoPath) then
+    begin
+      try
+        SetWindowLongW(UninstallProgressForm.Handle, GWL_EXSTYLE, GetWindowLongW(UninstallProgressForm.Handle, GWL_EXSTYLE) or WS_EX_APPWINDOW);
+      except
+      end;
+      ApplyWindowIcon(UninstallProgressForm.Handle, icoPath);
     end;
-    ApplyWindowIcon(UninstallProgressForm.Handle, icoPath);
-  end;
 
-  bmpPath := ExpandConstant('{app}\brand_logo.bmp');
-  if FileExists(bmpPath) then
-  begin
-    try
-      UninstallProgressForm.WizardSmallBitmapImage.Bitmap.LoadFromFile(bmpPath);
-      UninstallProgressForm.WizardSmallBitmapImage.Stretch := True;
-    except
+    bmpPath := ExpandConstant('{app}\brand_logo.bmp');
+    if FileExists(bmpPath) then
+    begin
+      try
+        UninstallProgressForm.WizardSmallBitmapImage.Bitmap.LoadFromFile(bmpPath);
+        UninstallProgressForm.WizardSmallBitmapImage.Stretch := True;
+      except
+      end;
     end;
+  except
   end;
 end;
 

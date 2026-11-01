@@ -123,15 +123,25 @@ func MarkInterruptedMailCampaigns() error {
 		}).Error
 }
 
+// notDeletedUserQuery ensures deleted_at is checked safely across MySQL (preventing Error 1525 on zero dates)
+// and SQLite / Postgres.
+func notDeletedUserQuery(db *gorm.DB) *gorm.DB {
+	if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
+		return db.Where("deleted_at IS NULL OR CAST(deleted_at AS CHAR) LIKE '0000-00-00%' OR deleted_at = '0001-01-01 00:00:00'")
+	}
+	return db.Where("deleted_at IS NULL")
+}
+
 // mailRecipientQuery selects the users that can receive a message.
 //
 // A user without an address cannot receive a message, a disabled user is not
 // written to.
 func mailRecipientQuery() *gorm.DB {
-	return DB.Model(&User{}).
+	q := DB.Unscoped().Model(&User{}).
 		Select("id, username, display_name, email, setting, status").
 		Where("status = ?", common.UserStatusEnabled).
 		Where("email <> ''")
+	return notDeletedUserQuery(q)
 }
 
 // marketingOptOut reports whether the settings of a user refuse the
@@ -210,14 +220,17 @@ type MailAudience struct {
 // the sender always agree on the number of the readers.
 func CountMailAudience() (MailAudience, error) {
 	var total int64
-	if err := DB.Unscoped().Model(&User{}).Count(&total).Error; err != nil {
-		return MailAudience{}, err
+	qTotal := notDeletedUserQuery(DB.Unscoped().Model(&User{}))
+	if err := qTotal.Count(&total).Error; err != nil {
+		if err2 := DB.Unscoped().Model(&User{}).Count(&total).Error; err2 != nil {
+			return MailAudience{}, err
+		}
 	}
 
 	var rows []User
-	if err := DB.Model(&User{}).
-		Select("id, status, email, setting").
-		Find(&rows).Error; err != nil {
+	qRows := notDeletedUserQuery(DB.Unscoped().Model(&User{}).
+		Select("id, status, email, setting"))
+	if err := qRows.Find(&rows).Error; err != nil {
 		return MailAudience{}, err
 	}
 	audience := MailAudience{Total: total}

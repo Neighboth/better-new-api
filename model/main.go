@@ -199,7 +199,10 @@ func InitDB() (err error) {
 			return nil
 		}
 		if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
-			//_, _ = sqlDB.Exec("ALTER TABLE channels MODIFY model_mapping TEXT;") // TODO: delete this line when most users have upgraded
+			// Relax strict mode in session to safely clean up any invalid zero dates in MySQL
+			_, _ = sqlDB.Exec("SET SESSION sql_mode = REPLACE(REPLACE(REPLACE(@@sql_mode, 'NO_ZERO_DATE', ''), 'NO_ZERO_IN_DATE', ''), 'STRICT_TRANS_TABLES', '')")
+			_, _ = sqlDB.Exec("UPDATE users SET deleted_at = NULL WHERE CAST(deleted_at AS CHAR) LIKE '0000-00-00%' OR deleted_at = '0001-01-01 00:00:00'")
+			_, _ = sqlDB.Exec("ALTER TABLE users MODIFY COLUMN deleted_at DATETIME NULL DEFAULT NULL")
 		}
 		common.SysLog("database migration started")
 		err = migrateDB()

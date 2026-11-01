@@ -962,13 +962,16 @@ export function ByogModelsTab() {
 
       {/* Hugging Face Model Explorer Modal (Item 21 & Upgraded UI) */}
       <Dialog open={hfModalOpen} onOpenChange={setHfModalOpen}>
-        <DialogContent className='!max-w-[1400px] !w-[96vw] sm:!max-w-[1400px] sm:!w-[96vw] !h-[90vh] sm:!h-[90vh] flex flex-col p-6 overflow-hidden'>
+        <DialogContent
+          style={{ maxWidth: 'min(96vw, 1200px)', width: '96vw' }}
+          className='w-[96vw] max-w-[96vw] h-[92vh] max-h-[92vh] flex flex-col p-3.5 sm:p-6 overflow-hidden'
+        >
           <DialogHeader className='pb-3 border-b'>
-            <DialogTitle className='flex items-center gap-2 text-xl font-bold'>
-              <Search className='h-5 w-5 text-primary' />
+            <DialogTitle className='flex items-center gap-2 text-base sm:text-xl font-bold'>
+              <Search className='h-4 w-4 sm:h-5 sm:w-5 text-primary' />
               {t('byog.admin.hf_modal_title', 'Hugging Face Model & Quantization Gezgini')}
             </DialogTitle>
-            <DialogDescription className='text-xs text-muted-foreground'>
+            <DialogDescription className='text-[11px] sm:text-xs text-muted-foreground'>
               {t(
                 'byog.admin.hf_modal_desc',
                 'Hugging Face üzerindeki tüm açık kaynak modelleri arayın (arama için token gerekmez). Gated/izinli modeller için opsiyonel token girebilirsiniz.'
@@ -990,10 +993,10 @@ export function ByogModelsTab() {
                       'byog.admin.hf_search_placeholder',
                       'Model adı arayın (örn. gemma-3, qwen2.5, llama-3, mistral)...'
                     )}
-                    className='pl-9 h-10 text-sm'
+                    className='pl-9 h-10 text-xs sm:text-sm'
                   />
                 </div>
-                <Button onClick={() => searchHf()} disabled={hfSearching} className='h-10 px-5 gap-1.5 font-medium'>
+                <Button onClick={() => searchHf()} disabled={hfSearching} className='h-10 px-3.5 sm:px-5 gap-1.5 font-medium shrink-0 text-xs sm:text-sm'>
                   {hfSearching ? <Loader2 className='h-4 w-4 animate-spin' /> : <Search className='h-4 w-4' />}
                   {t('byog.admin.hf_search_btn', 'Ara')}
                 </Button>
@@ -1025,9 +1028,9 @@ export function ByogModelsTab() {
             ) : null}
 
             {/* Split view: Left Repos, Right Quantized Files */}
-            <div className='grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 min-h-0 overflow-hidden'>
+            <div className='grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 flex-1 min-h-0 overflow-y-auto md:overflow-hidden'>
               {/* Repos list */}
-              <div className='border rounded-xl p-3 flex flex-col bg-muted/10 overflow-hidden'>
+              <div className='border rounded-xl p-3 flex flex-col bg-muted/10 min-h-[260px] md:min-h-0 overflow-hidden'>
                 <div className='flex items-center justify-between text-xs font-semibold text-muted-foreground pb-2 border-b mb-2 shrink-0'>
                   <span>
                     {t('byog.admin.hf_repos_found', 'Bulunan Model Repoları')} ({hfRepos.length})
@@ -1095,7 +1098,7 @@ export function ByogModelsTab() {
               </div>
 
               {/* Quantization Files list */}
-              <div className='border rounded-xl p-3 flex flex-col bg-muted/10 overflow-hidden'>
+              <div className='border rounded-xl p-3 flex flex-col bg-muted/10 min-h-[260px] md:min-h-0 overflow-hidden'>
                 <div className='text-xs font-semibold text-muted-foreground pb-2 border-b mb-2 shrink-0 truncate'>
                   {hfSelectedRepo ? (
                     <span className='text-foreground font-bold'>

@@ -98,6 +98,13 @@ func TestConvertKeepsTheTextOfAPlainPolicy(t *testing.T) {
 // TestConvertWritesAValidDocument checks the structure of the document: the
 // groups are balanced and every character outside of the ASCII range is an
 // escape, whatever the encoding of the transport is.
+func TestConvertHandlesPipelssTablesAndComplexLinks(t *testing.T) {
+	md := "Madde 1 | Madde 2\n--- | ---\nDeğer 1 | Değer 2\n\n---\n\nDetaylar [şurada](https://example.com/page?query=1&b=2) mevcuttur."
+	doc := Convert(md)
+	assert.Contains(t, doc, `\tx`)
+	assert.Contains(t, doc, `HYPERLINK "https://example.com/page?query=1&b=2"`)
+	assert.Contains(t, visibleText(doc), `─`)
+}
 func TestConvertWritesAValidDocument(t *testing.T) {
 	document := Convert("# Başlık 🙂\n\n| A | B |\n|---|---|\n| 🙂 | ş |\n\n- ğ\n\n---\n")
 

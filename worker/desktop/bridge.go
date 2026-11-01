@@ -87,6 +87,7 @@ func startLocalBridge() (*localBridge, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/state", bridge.handleState)
 	mux.HandleFunc("/pair", bridge.handlePair)
+	mux.HandleFunc("/disconnect", bridge.handleDisconnect)
 	mux.HandleFunc("/test", bridge.handleTest)
 	mux.HandleFunc("/settings", bridge.handleSettings)
 	// The page of the first start is served by the client itself. The page of
@@ -198,7 +199,20 @@ func (b *localBridge) handlePair(writer http.ResponseWriter, request *http.Reque
 	}
 	code := strings.ToUpper(strings.TrimSpace(payload.Code))
 	if code == "" {
-		writeBridgeJSON(writer, map[string]any{"success": false, "message": "the pairing code is empty"})
+		State.Mu.Lock()
+		State.Config.PairingCode = ""
+		State.Config.NodeId = ""
+		State.Mu.Unlock()
+		saveConfig(State.Config)
+		updateStatus(func(status *AppStatus) {
+			status.Paired = false
+			status.Connected = false
+			status.NodeId = ""
+			status.PairingCode = ""
+			status.LastError = ""
+		})
+		stopTunnel()
+		writeBridgeJSON(writer, map[string]any{"success": true, "message": "disconnected"})
 		return
 	}
 	State.Mu.Lock()
@@ -237,6 +251,27 @@ func (b *localBridge) handlePair(writer http.ResponseWriter, request *http.Reque
 		startTunnel()
 	}()
 	writeBridgeJSON(writer, map[string]any{"success": true})
+}
+
+// handleDisconnect clears the pairing state of the client.
+func (b *localBridge) handleDisconnect(writer http.ResponseWriter, request *http.Request) {
+	if !b.allowed(writer, request) {
+		return
+	}
+	State.Mu.Lock()
+	State.Config.PairingCode = ""
+	State.Config.NodeId = ""
+	State.Mu.Unlock()
+	saveConfig(State.Config)
+	updateStatus(func(status *AppStatus) {
+		status.Paired = false
+		status.Connected = false
+		status.NodeId = ""
+		status.PairingCode = ""
+		status.LastError = ""
+	})
+	stopTunnel()
+	writeBridgeJSON(writer, map[string]any{"success": true, "message": "disconnected"})
 }
 
 // handleTest runs the model of the client with the message of the page.

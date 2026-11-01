@@ -367,7 +367,7 @@ public class WorkerService extends Service {
             || Build.HARDWARE.contains("goldfish")
             || Build.HARDWARE.contains("ranchu");
         if (isEmu) {
-            url = url.replace("://10.0.2.2", "://127.0.0.1").replace("://localhost", "://127.0.0.1");
+            url = url.replace("://127.0.0.1", "://10.0.2.2").replace("://localhost", "://10.0.2.2");
         }
         return url;
     }

@@ -247,7 +247,7 @@ func applyConfig(config Config) {
 		status.DeviceName = config.DeviceName
 		status.PairingCode = config.PairingCode
 		status.HasCode = config.PairingCode != ""
-		status.Paired = config.PairingCode != ""
+		status.Paired = config.PairingCode != "" && config.NodeId != ""
 	})
 }
 
@@ -462,6 +462,21 @@ func startTunnel() {
 			}
 			time.Sleep(3 * time.Second)
 		}
+	})
+}
+
+// stopTunnel closes the active websocket connection if open.
+func stopTunnel() {
+	State.Mu.Lock()
+	if State.WsConn != nil {
+		_ = State.WsConn.Close()
+		State.WsConn = nil
+	}
+	State.IsConnected = false
+	State.Mu.Unlock()
+	updateStatus(func(status *AppStatus) {
+		status.Connected = false
+		status.Started = false
 	})
 }
 

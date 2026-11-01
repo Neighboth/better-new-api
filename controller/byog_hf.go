@@ -52,27 +52,10 @@ func SearchHuggingFaceModels(c *gin.Context) {
 	}
 	req.Header.Set("User-Agent", "BYOG-HF-Explorer/1.0")
 
-	token := strings.TrimSpace(c.Query("token"))
-	if token != "" && strings.HasPrefix(token, "hf_") {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
 	resp, err := client.Do(req)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "Hugging Face bağlantı hatası: " + err.Error()})
 		return
-	}
-
-	// Hugging Face search is public: if a custom token resulted in 401/403, retry anonymously
-	if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && token != "" {
-		resp.Body.Close()
-		reqNoAuth, errNoAuth := http.NewRequest("GET", hfApiUrl, nil)
-		if errNoAuth == nil {
-			reqNoAuth.Header.Set("User-Agent", "BYOG-HF-Explorer/1.0")
-			if retryResp, retryErr := client.Do(reqNoAuth); retryErr == nil {
-				resp = retryResp
-			}
-		}
 	}
 	defer resp.Body.Close()
 

@@ -54,7 +54,6 @@ import { cn } from '@/lib/utils'
 import {
   getMailAudience,
   getMailCampaign,
-  getMailDeliverability,
   getMailRecipientsByIds,
   getMailStatus,
   searchMailRecipients,
@@ -175,35 +174,6 @@ export function MailDialog({
     queryFn: getMailStatus,
   })
 
-  const deliverabilityQuery = useQuery({
-    queryKey: ['mail-deliverability'],
-    enabled: open && advancedOpen,
-    queryFn: getMailDeliverability,
-    staleTime: 5 * 60 * 1000,
-  })
-
-  const [showDkimConfig, setShowDkimConfig] = useState(false)
-  const [dkimSelectorInput, setDkimSelectorInput] = useState('')
-  const [savingDkim, setSavingDkim] = useState(false)
-
-  const handleSaveDkimSelector = async (val?: string) => {
-    const valueToSave = (val ?? dkimSelectorInput).trim()
-    try {
-      setSavingDkim(true)
-      await api.put('/api/option/', {
-        key: 'DKIMSelector',
-        value: valueToSave,
-      })
-      toast.success(t('mail.dkim_saved', 'DKIM ayarı güncellendi'))
-      setShowDkimConfig(false)
-      void deliverabilityQuery.refetch()
-    } catch (err: any) {
-      toast.error(err?.message || 'DKIM ayarı kaydedilemedi')
-    } finally {
-      setSavingDkim(false)
-    }
-  }
-
   // The progress of the campaign is polled until the campaign stops.
   useEffect(() => {
     if (!campaign || campaign.status === 'done' || campaign.status === 'failed')
@@ -297,12 +267,14 @@ export function MailDialog({
 
   const results = searchQuery.data?.data?.items ?? []
   const mailStatus = statusQuery.data?.data
-  const deliverability = deliverabilityQuery.data?.data
   const finished = campaign?.status === 'done' || campaign?.status === 'failed'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:!max-w-2xl !max-w-2xl !max-h-[90vh] flex flex-col p-6 overflow-hidden'>
+      <DialogContent
+        style={{ maxHeight: '90vh' }}
+        className='sm:max-w-2xl max-w-2xl max-h-[90vh] flex flex-col p-6 overflow-hidden'
+      >
         <DialogHeader className='shrink-0 pb-2'>
           <DialogTitle className='flex items-center gap-2'>
             <Mail className='size-4' />
@@ -680,150 +652,6 @@ export function MailDialog({
                         '{{count}} users accept the announcements and will receive this message.',
                         { count: recipientCount }
                       )}
-                    </div>
-                  ) : null}
-
-                  {deliverability ? (
-                    <div className='space-y-2 rounded-md border p-2'>
-                      <div className='flex items-center justify-between text-xs font-medium'>
-                        <span>
-                          {t('Mail health of {{domain}}', {
-                            domain: deliverability.domain,
-                          })}
-                        </span>
-                        <Badge
-                          variant={
-                            deliverability.readiness >= 75
-                              ? 'default'
-                              : 'secondary'
-                          }
-                        >
-                          {deliverability.readiness}%
-                        </Badge>
-                      </div>
-                      <div className='text-muted-foreground grid grid-cols-2 gap-1 text-[11px]'>
-                        <span>
-                          SPF{' '}
-                          <b
-                            className={
-                              deliverability.spf_ok
-                                ? 'text-emerald-600'
-                                : 'text-red-600'
-                            }
-                          >
-                            {deliverability.spf_ok ? t('ok') : t('missing')}
-                          </b>
-                        </span>
-                        <span className='inline-flex items-center gap-1.5'>
-                          DKIM{' '}
-                          <b
-                            className={
-                              deliverability.dkim_ok
-                                ? 'text-emerald-600'
-                                : 'text-amber-600'
-                            }
-                          >
-                            {deliverability.dkim_ok
-                              ? deliverability.dkim_selector
-                                ? `${t('ok')} (${deliverability.dkim_selector})`
-                                : t('ok')
-                              : t('missing')}
-                          </b>
-                          {!deliverability.dkim_ok && (
-                            <Button
-                              type='button'
-                              variant='outline'
-                              size='sm'
-                              className='h-5 px-1.5 text-[10px] text-primary border-primary/30'
-                              onClick={() => setShowDkimConfig(!showDkimConfig)}
-                            >
-                              {t('mail.configure_dkim', 'Poste.io Ayarla')}
-                            </Button>
-                          )}
-                        </span>
-                        <span>
-                          DMARC{' '}
-                          <b
-                            className={
-                              deliverability.dmarc_ok
-                                ? 'text-emerald-600'
-                                : 'text-red-600'
-                            }
-                          >
-                            {deliverability.dmarc_ok ? t('ok') : t('missing')}
-                          </b>
-                        </span>
-                        <span>
-                          MX{' '}
-                          <b
-                            className={
-                              deliverability.mx_ok
-                                ? 'text-emerald-600'
-                                : 'text-amber-600'
-                            }
-                          >
-                            {deliverability.mx_ok ? t('ok') : t('missing')}
-                          </b>
-                        </span>
-                      </div>
-
-                      {showDkimConfig && (
-                        <div className='p-2.5 rounded-lg border bg-background space-y-2 mt-2'>
-                          <div className='text-xs font-semibold'>
-                            {t('mail.dkim_modal_title', 'Poste.io / DKIM Seçici Ayarı')}
-                          </div>
-                          <p className='text-[11px] text-muted-foreground'>
-                            {t(
-                              'mail.dkim_modal_desc',
-                              'Poste.io DNS teşhis sayfasındaki seçiciyi (örn. s20231025123) girin veya posta sunucunuz DKIM imzalıyorsa doğrudan "Poste.io Doğrula" butonuna basın.'
-                            )}
-                          </p>
-                          <div className='flex gap-2 items-center'>
-                            <Input
-                              value={dkimSelectorInput}
-                              onChange={(e) => setDkimSelectorInput(e.target.value)}
-                              placeholder="s2023... veya 'self-hosted'"
-                              className='h-8 text-xs font-mono'
-                            />
-                            <Button
-                              type='button'
-                              size='sm'
-                              className='h-8 text-xs'
-                              disabled={savingDkim || !dkimSelectorInput.trim()}
-                              onClick={() => void handleSaveDkimSelector()}
-                            >
-                              {savingDkim ? <Loader2 className='size-3.5 animate-spin' /> : t('byog.save', 'Kaydet')}
-                            </Button>
-                            <Button
-                              type='button'
-                              size='sm'
-                              variant='secondary'
-                              className='h-8 text-xs shrink-0 text-emerald-600 font-medium'
-                              disabled={savingDkim}
-                              onClick={() => void handleSaveDkimSelector('self-hosted')}
-                            >
-                              {t('mail.mark_self_hosted', 'Poste.io Doğrula')}
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                      <ul className='text-muted-foreground space-y-1 text-[11px]'>
-                        {deliverability.hints.map((hint) => (
-                          <li key={hint.message} className='flex gap-1.5'>
-                            <span
-                              className={cn(
-                                'mt-1 size-1.5 shrink-0 rounded-full',
-                                hint.level === 'ok'
-                                  ? 'bg-emerald-500'
-                                  : hint.level === 'warn'
-                                    ? 'bg-amber-500'
-                                    : 'bg-red-500'
-                              )}
-                            />
-                            {hint.message}
-                          </li>
-                        ))}
-                      </ul>
                     </div>
                   ) : null}
                 </div>

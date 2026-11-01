@@ -1966,7 +1966,7 @@ public class MainActivity extends Activity {
             sp.edit().putString("server_url", defaultServer).apply();
         }
         if (server == null || server.trim().isEmpty() || server.startsWith("{")) {
-            server = "http://10.0.2.2:3000";
+            server = "http://10.0.2.2:3001";
         }
         while (server.endsWith("/")) server = server.substring(0, server.length() - 1);
         String lang = WorkerService.isTurkish() ? "tr" : "en";
@@ -2856,6 +2856,17 @@ public class MainActivity extends Activity {
 
     public class WebAppInterface {
         @JavascriptInterface
+        public void showToast(final String msg) {
+            if (msg == null || msg.trim().isEmpty()) return;
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
+        @JavascriptInterface
         public String getPermissionStatus() {
             JSONObject obj = new JSONObject();
             try {
@@ -2999,15 +3010,49 @@ public class MainActivity extends Activity {
             new Thread(new Runnable() {
                 @Override
                 public void run() {
-                    String model = "qwen-2.5-0.5b-instruct";
                     try {
-                        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                        model = WorkerService.stringPref(sp, "assigned_model", "qwen-2.5-0.5b-instruct");
-                    } catch (Exception ignored) {}
+                        String model = "qwen-2.5-0.5b-instruct";
+                        try {
+                            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+                            model = WorkerService.stringPref(sp, "assigned_model", "qwen-2.5-0.5b-instruct");
+                        } catch (Exception ignored) {}
 
-                    File mf = LocalNeuralEngine.resolveModelFile(getFilesDir(), model);
-                    if (!mf.exists() || mf.length() < 10 * 1024 * 1024) {
-                        final String errMsg = "Model dosyası (" + model + ".gguf) henüz indirilmedi veya eksik! Lütfen model indirmesi tamamlandıktan sonra test edin.";
+                        File mf = LocalNeuralEngine.resolveModelFile(getFilesDir(), model);
+                        if (!mf.exists() || mf.length() < 10 * 1024 * 1024) {
+                            final String errMsg = "Model dosyası (" + model + ".gguf) henüz indirilmedi veya eksik! Lütfen model indirmesi tamamlandıktan sonra test edin.";
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    if (webView != null) {
+                                        String js = String.format(java.util.Locale.US, "if (window.onModelTestResult) window.onModelTestResult(%s, %d, %.1f);",
+                                            JSONObject.quote(errMsg), 0, 0.0f);
+                                        webView.evaluateJavascript(js, null);
+                                    }
+                                }
+                            });
+                            return;
+                        }
+
+                        LocalNeuralEngine engine = new LocalNeuralEngine(model, getFilesDir());
+                        LocalNeuralEngine.InferenceResult res = engine.generateStream(prompt, 256, 0.7f, 0.92f, null, null);
+
+                        final String finalReply = res != null && res.fullText != null ? res.fullText : "";
+                        final int finalLatency = res != null ? res.ttftMs : 0;
+                        final float finalTps = res != null ? res.tps : 0.0f;
+
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (webView != null) {
+                                    String js = String.format(java.util.Locale.US, "if (window.onModelTestResult) window.onModelTestResult(%s, %d, %.1f);",
+                                        JSONObject.quote(finalReply), finalLatency, finalTps);
+                                    webView.evaluateJavascript(js, null);
+                                }
+                            }
+                        });
+                    } catch (Throwable t) {
+                        android.util.Log.e("BYOG_INFERENCE", "Inference error", t);
+                        final String errMsg = "Çıkarım hatası: " + (t.getMessage() != null ? t.getMessage() : t.toString());
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
@@ -3018,26 +3063,7 @@ public class MainActivity extends Activity {
                                 }
                             }
                         });
-                        return;
                     }
-
-                    LocalNeuralEngine engine = new LocalNeuralEngine(model, getFilesDir());
-                    LocalNeuralEngine.InferenceResult res = engine.generateStream(prompt, 256, 0.7f, 0.92f, null, null);
-
-                    final String finalReply = res.fullText;
-                    final int finalLatency = res.ttftMs;
-                    final float finalTps = res.tps;
-
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (webView != null) {
-                                String js = String.format(java.util.Locale.US, "if (window.onModelTestResult) window.onModelTestResult(%s, %d, %.1f);",
-                                    JSONObject.quote(finalReply), finalLatency, finalTps);
-                                webView.evaluateJavascript(js, null);
-                            }
-                        }
-                    });
                 }
             }).start();
         }
@@ -3342,9 +3368,10 @@ public class MainActivity extends Activity {
                                                 sp.edit().putString("model_status", "downloading").putInt("download_progress", 0).putInt("downloaded_mb", 0).commit();
                                             }
                                         } catch (Exception ignored) {}
+                                        latestWorkerState = state;
                                         try {
                                             if (webView != null) {
-                                                webView.evaluateJavascript("window.updateState(" + state.toString() + "); if (window.onPairSuccess) window.onPairSuccess();", null);
+                                                webView.evaluateJavascript("if (window.updateState) window.updateState(" + state.toString() + "); if (window.onPairSuccess) window.onPairSuccess();", null);
                                             }
                                         } catch (Throwable ignored) {}
                                     }

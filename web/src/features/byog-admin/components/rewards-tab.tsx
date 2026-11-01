@@ -481,7 +481,10 @@ export function ByogRewardsTab() {
 
       {/* Item Dialog */}
       <Dialog open={itemModalOpen} onOpenChange={setItemModalOpen}>
-        <DialogContent className='!max-w-xl sm:!max-w-xl !max-h-[88vh] flex flex-col p-6 overflow-hidden'>
+        <DialogContent
+          style={{ maxHeight: '90vh' }}
+          className='max-w-xl sm:max-w-xl max-h-[90vh] flex flex-col p-6 overflow-hidden'
+        >
           <DialogHeader className='shrink-0 pb-2 border-b'>
             <DialogTitle>
               {editingItem?.id

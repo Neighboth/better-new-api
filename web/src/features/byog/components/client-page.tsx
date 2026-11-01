@@ -745,6 +745,11 @@ export function ClientPage() {
           }
           return merged
         })
+      } else if (response.status === 404 || (payload && !payload.success)) {
+        // Node does not exist on server (database reset or unpaired)
+        window.localStorage.removeItem('byog_node_id')
+        setNodeId('')
+        setState((prev) => (prev ? { ...prev, paired: false, node_id: '', status: 'offline' } : null))
       }
     } catch {
       // ignore
@@ -885,6 +890,18 @@ export function ClientPage() {
         setCode(extractPairingCode(qrText))
       }
     }
+    target.refreshPermissions = () => {
+      if (bridge && typeof bridge.getPermissionStatus === 'function') {
+        try {
+          const raw = bridge.getPermissionStatus()
+          if (raw) {
+            setPermissions(JSON.parse(raw) as PermissionState)
+          }
+        } catch {}
+      }
+    }
+    const onFocus = () => target.refreshPermissions?.()
+    window.addEventListener('focus', onFocus)
     target.onPairSuccess = () => {
       setBusy(false)
       setOnboardingDone(true)
@@ -896,9 +913,11 @@ export function ClientPage() {
       setMessage(errMsg || t('byog.client_pair_failed', 'Eşleştirme başarısız oldu'))
     }
     return () => {
+      window.removeEventListener('focus', onFocus)
       delete target.showUpdatePrompt
       delete target.updateState
       delete target.handleScannedQr
+      delete target.refreshPermissions
       delete target.onPairSuccess
       delete target.onPairError
     }
@@ -988,6 +1007,9 @@ export function ClientPage() {
       if (bridge) {
         bridge.disconnect()
       } else if (localApi) {
+        await fetch(`${localApi}/disconnect?token=${localToken}`, {
+          method: 'POST',
+        }).catch(() => {})
         await fetch(`${localApi}/pair?token=${localToken}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1168,30 +1190,43 @@ export function ClientPage() {
 
   if ((bridge && (!onboardingDone || needsMandatoryPermissions)) || (isTestingOnboarding && !onboardingDone)) {
     const handleNextStep = () => {
+      let curPerms = permissions
+      if (bridge && typeof bridge.getPermissionStatus === 'function') {
+        try {
+          const raw = bridge.getPermissionStatus()
+          if (raw) {
+            curPerms = JSON.parse(raw) as PermissionState
+            setPermissions(curPerms)
+          }
+        } catch {}
+      }
+
       if (onboardingStep === 0) {
-        if (!permissions?.notifications && !isTestingOnboarding) {
+        if (!curPerms?.notifications && !isTestingOnboarding) {
           const msg = t(
             'byog.notification_permission_required',
             'Bildirim izni zorunludur. Devam etmek için lütfen izin verin.'
           )
           setStepError(msg)
           toast.error(msg)
+          bridge?.showToast?.(msg)
           return
         }
         setStepError('')
         setOnboardingStep(1)
       } else if (onboardingStep === 1) {
-        if (!permissions?.battery && !isTestingOnboarding) {
+        if (!curPerms?.battery && !isTestingOnboarding) {
           const msg = t(
             'byog.battery_permission_required',
             'Pil optimizasyonu muafiyeti zorunludur. Devam etmek için lütfen izin verin.'
           )
           setStepError(msg)
           toast.error(msg)
+          bridge?.showToast?.(msg)
           return
         }
         setStepError('')
-        if (permissions?.autostart_supported) {
+        if (curPerms?.autostart_supported) {
           setOnboardingStep(2)
         } else {
           bridge?.completeOnboarding()
