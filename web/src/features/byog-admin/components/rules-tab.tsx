@@ -509,7 +509,9 @@ export function ByogRulesTab() {
               </div>
 
               <div className='space-y-2'>
-                <Label>KV Cache Quantization (K/V Tipi)</Label>
+                <Label>
+                  {t('byog.admin.kv_cache_quant_label', 'KV Cache Quantization (K/V Type)')}
+                </Label>
                 <Select
                   value={editingRule.kv_cache_type || 'off'}
                   onValueChange={(val) =>
@@ -524,18 +526,18 @@ export function ByogRulesTab() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value='off'>
-                      Kapalı (Varsayılan - Tam Hassasiyet f16)
+                      {t('byog.admin.kv_cache_off', 'Off (Default - Full Precision f16)')}
                     </SelectItem>
                     <SelectItem value='q8_0'>
-                      q8_0 (8-bit Quantized KV Cache)
+                      {t('byog.admin.kv_cache_q8', 'q8_0 (8-bit Quantized KV Cache)')}
                     </SelectItem>
                     <SelectItem value='q4_0'>
-                      q4_0 (4-bit Quantized KV Cache - Yüksek Hız)
+                      {t('byog.admin.kv_cache_q4', 'q4_0 (4-bit Quantized KV Cache - High Speed)')}
                     </SelectItem>
                   </SelectContent>
                 </Select>
                 <span className='text-muted-foreground text-[11px]'>
-                  Donanıma göre KV cache quantize edilerek bellekten tasarruf sağlanır.
+                  {t('byog.admin.kv_cache_hint', 'Quantizing the KV cache saves memory on hardware-constrained nodes.')}
                 </span>
               </div>
 

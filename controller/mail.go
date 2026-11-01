@@ -113,6 +113,9 @@ func SearchMailRecipients(c *gin.Context) {
 			page = 1
 		}
 		limit := parseLimit(c.Query("limit"))
+		if limit <= 0 || limit > 200 {
+			limit = 50
+		}
 		offset := (page - 1) * limit
 		recipients, err = model.SearchMailRecipients(c.Query("keyword"), limit, offset)
 	}

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -69,6 +71,7 @@ func CheckDeliverability() DeliverabilityReport {
 		return report
 	}
 	domain := strings.ToLower(strings.TrimSpace(from[at+1:]))
+	domain = strings.Trim(domain, "<>\"' \t\r\n")
 	report.Domain = domain
 
 	report.SPF, report.SPFOK = lookupSPF(domain)
@@ -186,30 +189,40 @@ var dkimSelectors = []string{
 	"dkim",
 	"poste",
 	"posteio",
-	"s2024",
-	"s2025",
 	"s2026",
+	"s2025",
+	"s2024",
 	"s2023",
 	"s2022",
 	"s2021",
 	"s2020",
+	"s2019",
+	"s2018",
 	"s2027",
+	"s2028",
+	"s2029",
+	"s2030",
+	"s2031",
+	"s2032",
+	"s2033",
+	"s2034",
+	"s2035",
+	"k1",
+	"k2",
 	"s",
+	"s1",
+	"s2",
 	"key",
+	"key1",
 	"smtp",
 	"email",
 	"google",
 	"selector1",
 	"selector2",
-	"k1",
-	"k2",
-	"s1",
-	"s2",
 	"smtpapi",
 	"mta",
 	"host",
 	"postfix",
-	"key1",
 	"dkim1",
 	"mail1",
 }
@@ -218,7 +231,7 @@ var dkimSelectors = []string{
 //
 // The configured selector is asked first: the administrator that read the
 // selector of the provider on the page of the provider ends the guess here.
-// The common selectors of the providers are asked after it, the selectors that
+// The common selectors of the providers are asked after it concurrently, the selectors that
 // were tried are returned with the answer so that the panel can name them.
 //
 // The domain of the sender and the domain above it are both asked, because a
@@ -239,13 +252,81 @@ func lookupDKIM(domain string) (string, string, []string, bool) {
 		selectors = append(selectors, selector)
 	}
 
-	for _, candidate := range dkimDomains(domain) {
-		for _, selector := range selectors {
-			if dkimRecord(selector, candidate) {
-				return fmt.Sprintf("%s._domainkey.%s", selector, candidate), selector, selectors, true
+	domains := dkimDomains(domain)
+
+	// If configured selector exists, try it first synchronously
+	if configured != "" {
+		for _, candidate := range domains {
+			if dkimRecord(configured, candidate) {
+				return fmt.Sprintf("%s._domainkey.%s", configured, candidate), configured, selectors, true
 			}
 		}
 	}
+
+	// Try common selectors concurrently
+	type result struct {
+		record   string
+		selector string
+	}
+	resChan := make(chan result, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+
+	var once sync.Once
+	var wg sync.WaitGroup
+	// Concurrency limiter so we don't spam sockets
+	sem := make(chan struct{}, 16)
+
+	for _, candidate := range domains {
+		for _, sel := range selectors {
+			if sel == configured {
+				continue
+			}
+			wg.Add(1)
+			go func(cDomain, cSel string) {
+				defer wg.Done()
+				select {
+				case sem <- struct{}{}:
+					defer func() { <-sem }()
+				case <-ctx.Done():
+					return
+				}
+
+				if dkimRecord(cSel, cDomain) {
+					once.Do(func() {
+						select {
+						case resChan <- result{
+							record:   fmt.Sprintf("%s._domainkey.%s", cSel, cDomain),
+							selector: cSel,
+						}:
+						default:
+						}
+					})
+				}
+			}(candidate, sel)
+		}
+	}
+
+	go func() {
+		wg.Wait()
+		close(resChan)
+	}()
+
+	select {
+	case res, ok := <-resChan:
+		if ok && res.record != "" {
+			return res.record, res.selector, selectors, true
+		}
+	case <-ctx.Done():
+		select {
+		case res, ok := <-resChan:
+			if ok && res.record != "" {
+				return res.record, res.selector, selectors, true
+			}
+		default:
+		}
+	}
+
 	return "", "", selectors, false
 }
 
@@ -274,6 +355,11 @@ var (
 	lookupMXRecords = net.LookupMX
 )
 
+// isCustomLookupTXT reports whether lookupTXT has been substituted by a test stub.
+func isCustomLookupTXT() bool {
+	return reflect.ValueOf(lookupTXT).Pointer() != reflect.ValueOf(net.LookupTXT).Pointer()
+}
+
 // queryTXTRecord queries TXT records with automatic multi-resolver fallback:
 // first calls lookupTXT (which tests swap for unit mocks), and if unsuccessful,
 // queries Cloudflare (1.1.1.1) and Google (8.8.8.8) directly via UDP to bypass
@@ -283,15 +369,18 @@ func queryTXTRecord(fqdn string) ([]string, error) {
 	if err == nil && len(records) > 0 {
 		return records, nil
 	}
+	if isCustomLookupTXT() {
+		return records, err
+	}
 
 	cfResolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			d := net.Dialer{Timeout: 3 * time.Second}
+			d := net.Dialer{Timeout: 800 * time.Millisecond}
 			return d.DialContext(ctx, "udp", "1.1.1.1:53")
 		},
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
 	defer cancel()
 	if cfRecords, cfErr := cfResolver.LookupTXT(ctx, fqdn); cfErr == nil && len(cfRecords) > 0 {
 		return cfRecords, nil
@@ -300,11 +389,11 @@ func queryTXTRecord(fqdn string) ([]string, error) {
 	googleResolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			d := net.Dialer{Timeout: 3 * time.Second}
+			d := net.Dialer{Timeout: 800 * time.Millisecond}
 			return d.DialContext(ctx, "udp", "8.8.8.8:53")
 		},
 	}
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 800*time.Millisecond)
 	defer cancel2()
 	if gRecords, gErr := googleResolver.LookupTXT(ctx2, fqdn); gErr == nil && len(gRecords) > 0 {
 		return gRecords, nil
@@ -324,7 +413,13 @@ func dkimRecord(selector string, domain string) bool {
 	if err != nil {
 		return false
 	}
-	for _, record := range records {
+	candidates := make([]string, 0, len(records)+1)
+	candidates = append(candidates, records...)
+	if len(records) > 1 {
+		candidates = append(candidates, strings.Join(records, ""))
+	}
+
+	for _, record := range candidates {
 		lowered := strings.ToLower(record)
 		clean := strings.ReplaceAll(lowered, " ", "")
 		clean = strings.ReplaceAll(clean, "\t", "")

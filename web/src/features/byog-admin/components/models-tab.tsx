@@ -20,15 +20,12 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronRight,
-  Cpu,
   Download,
-  HardDrive,
   HelpCircle,
   Layers,
   Loader2,
   Lock,
   Search,
-  Sparkles,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -179,26 +176,6 @@ export function ByogModelsTab() {
     })
     setHfModalOpen(false)
     toast.success(`${file.filename} bilgileri forma aktarıldı!`)
-  }
-
-  function fillRecommendedAntiCheat() {
-    if (!editingModel) return
-    setEditingModel({
-      ...editingModel,
-      anti_cheat_logic_prompt: 'What is 2+2?',
-      anti_cheat_logic_expected: '4',
-      anti_cheat_logic_temp: 0,
-      anti_cheat_logic_seed: 42,
-      anti_cheat_logic_logprob: -0.001,
-      anti_cheat_logic_tolerance: 0.01,
-      anti_cheat_sig_prompt: 'Hello world',
-      anti_cheat_sig_expected: 'Hello! How can I help you today?',
-      anti_cheat_sig_temp: 0,
-      anti_cheat_sig_seed: 8472910482910482,
-      anti_cheat_sig_logprob: -0.0124,
-      anti_cheat_sig_tolerance: 0.005,
-    })
-    toast.success('Önerilen deterministik anti-cheat değerleri dolduruldu')
   }
 
   useEffect(() => {
@@ -633,7 +610,7 @@ export function ByogModelsTab() {
                     }}
                   >
                     <Search className='h-3.5 w-3.5' />
-                    Hugging Face'ten Model Ara
+                    {t('byog.admin.search_from_hf', "Hugging Face'ten Model Ara")}
                   </Button>
                 </div>
                 <Input
@@ -703,16 +680,27 @@ export function ByogModelsTab() {
 
                 <div className='bg-muted/40 rounded-lg p-2.5 text-xs text-muted-foreground space-y-1 border'>
                   <p className='font-semibold text-foreground'>
-                    💡 Seed ve Logprob Değerleri Nedir, Nasıl Öğrenilir?
+                    {t('byog.admin.canary_help_title', '💡 Seed ve Logprob Değerleri Nedir, Nasıl Öğrenilir?')}
                   </p>
                   <p>
-                    Anti-cheat canaries, cihazların sahte çıktı üretmesini veya daha küçük modeller kullanmasını önlemek için deterministik (sıcaklık=0, sabit seed) testler yapar.
+                    {t(
+                      'byog.admin.canary_help_p1',
+                      'Anti-cheat canaries, cihazların sahte çıktı üretmesini veya daha küçük modeller kullanmasını önlemek için deterministik (sıcaklık=0, sabit seed) testler yapar.'
+                    )}
                   </p>
                   <p>
-                    • <strong>Opsiyoneldir:</strong> Boş bırakırsanız bu doğrulama atlanır ve model normal çalışmaya devam eder.
+                    • <strong>{t('byog.admin.canary_optional_tag', 'Opsiyoneldir:')}</strong>{' '}
+                    {t(
+                      'byog.admin.canary_help_p2',
+                      'Boş bırakırsanız bu doğrulama atlanır ve model normal çalışmaya devam eder.'
+                    )}
                   </p>
                   <p>
-                    • <strong>Öğrenme Yöntemi:</strong> Modelinizi test ederken sabit bir prompt ve seed verip llama.cpp / llama-cli üzerinden dönen beklenen yanıtı ve logprob değerini buraya elle girebilirsiniz.
+                    • <strong>{t('byog.admin.canary_learn_tag', 'Öğrenme Yöntemi:')}</strong>{' '}
+                    {t(
+                      'byog.admin.canary_help_p3',
+                      'Modelinizi test ederken sabit bir prompt ve seed verip llama.cpp / llama-cli üzerinden dönen beklenen yanıtı ve logprob değerini buraya elle girebilirsiniz.'
+                    )}
                   </p>
                 </div>
                 <div className='grid grid-cols-1 gap-3 md:grid-cols-2'>
@@ -963,14 +951,17 @@ export function ByogModelsTab() {
 
       {/* Hugging Face Model Explorer Modal (Item 21 & Upgraded UI) */}
       <Dialog open={hfModalOpen} onOpenChange={setHfModalOpen}>
-        <DialogContent className='max-w-5xl w-[94vw] h-[85vh] flex flex-col p-6 overflow-hidden'>
+        <DialogContent className='max-w-[1400px] w-[96vw] h-[90vh] flex flex-col p-6 overflow-hidden'>
           <DialogHeader className='pb-3 border-b'>
             <DialogTitle className='flex items-center gap-2 text-xl font-bold'>
               <Search className='h-5 w-5 text-primary' />
-              Hugging Face Model & Quantization Gezgini
+              {t('byog.admin.hf_modal_title', 'Hugging Face Model & Quantization Gezgini')}
             </DialogTitle>
             <DialogDescription className='text-xs text-muted-foreground'>
-              Hugging Face üzerindeki tüm açık kaynak modelleri arayın (arama için token gerekmez). Gated/izinli modeller için opsiyonel token girebilirsiniz.
+              {t(
+                'byog.admin.hf_modal_desc',
+                'Hugging Face üzerindeki tüm açık kaynak modelleri arayın (arama için token gerekmez). Gated/izinli modeller için opsiyonel token girebilirsiniz.'
+              )}
             </DialogDescription>
           </DialogHeader>
 
@@ -984,13 +975,16 @@ export function ByogModelsTab() {
                     value={hfSearchQuery}
                     onChange={(e) => setHfSearchQuery(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && searchHf()}
-                    placeholder='Model adı arayın (örn. gemma-3, qwen2.5, llama-3, mistral)...'
+                    placeholder={t(
+                      'byog.admin.hf_search_placeholder',
+                      'Model adı arayın (örn. gemma-3, qwen2.5, llama-3, mistral)...'
+                    )}
                     className='pl-9 h-10 text-sm'
                   />
                 </div>
                 <Button onClick={() => searchHf()} disabled={hfSearching} className='h-10 px-5 gap-1.5 font-medium'>
                   {hfSearching ? <Loader2 className='h-4 w-4 animate-spin' /> : <Search className='h-4 w-4' />}
-                  Ara
+                  {t('byog.admin.hf_search_btn', 'Ara')}
                 </Button>
               </div>
               <div className='md:col-span-4'>
@@ -998,9 +992,15 @@ export function ByogModelsTab() {
                   type='password'
                   value={hfToken}
                   onChange={(e) => setHfToken(e.target.value)}
-                  placeholder='HF Token (Opsiyonel - Gated modeller için)'
+                  placeholder={t(
+                    'byog.admin.hf_token_placeholder',
+                    'HF Token (Opsiyonel - Gated modeller için)'
+                  )}
                   className='h-10 text-xs'
-                  title='Hugging Face public arama için token gerekmez. Sadece Llama/Gemma gibi şartlı gated modellerin dosyalarını listelemek için gereklidir.'
+                  title={t(
+                    'byog.admin.hf_token_title',
+                    'Hugging Face public arama için token gerekmez. Sadece Llama/Gemma gibi şartlı gated modellerin dosyalarını listelemek için gereklidir.'
+                  )}
                 />
               </div>
             </div>
@@ -1018,20 +1018,33 @@ export function ByogModelsTab() {
               {/* Repos list */}
               <div className='border rounded-xl p-3 flex flex-col bg-muted/10 overflow-hidden'>
                 <div className='flex items-center justify-between text-xs font-semibold text-muted-foreground pb-2 border-b mb-2 shrink-0'>
-                  <span>Bulunan Model Repoları ({hfRepos.length})</span>
-                  {hfSearching && <span className='text-primary animate-pulse text-[11px]'>Taranıyor...</span>}
+                  <span>
+                    {t('byog.admin.hf_repos_found', 'Bulunan Model Repoları')} ({hfRepos.length})
+                  </span>
+                  {hfSearching && (
+                    <span className='text-primary animate-pulse text-[11px]'>
+                      {t('byog.admin.hf_scanning', 'Taranıyor...')}
+                    </span>
+                  )}
                 </div>
                 <div className='flex-1 overflow-y-auto space-y-2 pr-1'>
                   {hfSearching ? (
                     <div className='flex flex-col items-center justify-center h-56 text-muted-foreground text-xs gap-2'>
                       <Loader2 className='h-6 w-6 animate-spin text-primary' />
-                      <span>Hugging Face taranıyor...</span>
+                      <span>{t('byog.admin.hf_scanning_msg', 'Hugging Face taranıyor...')}</span>
                     </div>
                   ) : hfRepos.length === 0 ? (
                     <div className='flex flex-col items-center justify-center h-56 text-muted-foreground text-xs text-center px-4'>
                       <Search className='h-8 w-8 text-muted-foreground/40 mb-2' />
-                      <p className='font-medium text-foreground'>Model bulunamadı</p>
-                      <p className='text-[11px] mt-1'>Arama kutusuna model veya mimari adı yazıp Ara butonuna basın.</p>
+                      <p className='font-medium text-foreground'>
+                        {t('byog.admin.hf_no_models', 'Model bulunamadı')}
+                      </p>
+                      <p className='text-[11px] mt-1'>
+                        {t(
+                          'byog.admin.hf_search_hint',
+                          'Arama kutusuna model veya mimari adı yazıp Ara butonuna basın.'
+                        )}
+                      </p>
                     </div>
                   ) : (
                     hfRepos.map((repo) => (
@@ -1046,15 +1059,21 @@ export function ByogModelsTab() {
                       >
                         <div className='font-bold text-sm text-foreground break-all'>{repo.id}</div>
                         <div className='flex flex-wrap items-center gap-3 text-muted-foreground text-[11px] mt-1.5'>
-                          <span>İndirme: <strong>{repo.downloads?.toLocaleString() || 0}</strong></span>
-                          <span>Beğeni: <strong>{repo.likes?.toLocaleString() || 0}</strong></span>
+                          <span>
+                            {t('byog.admin.hf_downloads', 'İndirme')}:{' '}
+                            <strong>{repo.downloads?.toLocaleString() || 0}</strong>
+                          </span>
+                          <span>
+                            {t('byog.admin.hf_likes', 'Beğeni')}:{' '}
+                            <strong>{repo.likes?.toLocaleString() || 0}</strong>
+                          </span>
                           {repo.gated ? (
                             <Badge variant='outline' className='text-[10px] border-amber-500/50 text-amber-500 bg-amber-500/10'>
-                              Gated (Şartlı)
+                              {t('byog.admin.hf_gated_badge', 'Gated (Şartlı)')}
                             </Badge>
                           ) : (
                             <Badge variant='outline' className='text-[10px] border-emerald-500/40 text-emerald-500 bg-emerald-500/10'>
-                              Açık Kaynak
+                              {t('byog.admin.hf_open_badge', 'Açık Kaynak')}
                             </Badge>
                           )}
                         </div>
@@ -1068,9 +1087,14 @@ export function ByogModelsTab() {
               <div className='border rounded-xl p-3 flex flex-col bg-muted/10 overflow-hidden'>
                 <div className='text-xs font-semibold text-muted-foreground pb-2 border-b mb-2 shrink-0 truncate'>
                   {hfSelectedRepo ? (
-                    <span className='text-foreground font-bold'>{hfSelectedRepo} <span className='font-normal text-muted-foreground'>({hfFiles.length} GGUF Dosyası)</span></span>
+                    <span className='text-foreground font-bold'>
+                      {hfSelectedRepo}{' '}
+                      <span className='font-normal text-muted-foreground'>
+                        ({hfFiles.length} GGUF)
+                      </span>
+                    </span>
                   ) : (
-                    'Quantize GGUF Dosyaları'
+                    t('byog.admin.hf_quant_files', 'Quantize GGUF Dosyaları')
                   )}
                 </div>
 
@@ -1078,19 +1102,33 @@ export function ByogModelsTab() {
                   {hfLoadingFiles ? (
                     <div className='flex flex-col items-center justify-center h-56 text-muted-foreground text-xs gap-2'>
                       <Loader2 className='h-6 w-6 animate-spin text-primary' />
-                      <span>Model dosyaları taranıyor...</span>
+                      <span>{t('byog.admin.hf_scanning_files', 'Model dosyaları taranıyor...')}</span>
                     </div>
                   ) : !hfSelectedRepo ? (
                     <div className='flex flex-col items-center justify-center h-56 text-muted-foreground text-xs text-center px-4'>
                       <Layers className='h-8 w-8 text-muted-foreground/40 mb-2' />
-                      <p className='font-medium text-foreground'>Repo Seçin</p>
-                      <p className='text-[11px] mt-1'>Soldaki listeden bir modele tıklayarak içindeki quantize GGUF dosyalarını görüntüleyin.</p>
+                      <p className='font-medium text-foreground'>
+                        {t('byog.admin.hf_select_repo', 'Repo Seçin')}
+                      </p>
+                      <p className='text-[11px] mt-1'>
+                        {t(
+                          'byog.admin.hf_select_repo_hint',
+                          'Soldaki listeden bir modele tıklayarak içindeki quantize GGUF dosyalarını görüntüleyin.'
+                        )}
+                      </p>
                     </div>
                   ) : hfFiles.length === 0 ? (
                     <div className='flex flex-col items-center justify-center h-56 text-muted-foreground text-xs text-center px-4'>
                       <AlertCircle className='h-8 w-8 text-amber-500/60 mb-2' />
-                      <p className='font-medium text-foreground'>Kullanılabilir GGUF bulunamadı</p>
-                      <p className='text-[11px] mt-1'>Bu repoda doğrudan GGUF dosyası olmayabilir veya gated erişim için HF token gereklidir.</p>
+                      <p className='font-medium text-foreground'>
+                        {t('byog.admin.hf_no_gguf', 'Kullanılabilir GGUF bulunamadı')}
+                      </p>
+                      <p className='text-[11px] mt-1'>
+                        {t(
+                          'byog.admin.hf_no_gguf_hint',
+                          'Bu repoda doğrudan GGUF dosyası olmayabilir veya gated erişim için HF token gereklidir.'
+                        )}
+                      </p>
                     </div>
                   ) : (
                     hfFiles.map((file, idx) => (
@@ -1108,21 +1146,28 @@ export function ByogModelsTab() {
                         </div>
 
                         <div className='text-xs text-muted-foreground font-medium'>
-                          Dosya Boyutu: <strong className='text-foreground'>{file.size_gb} GB</strong>
+                          {t('byog.admin.hf_file_size', 'Dosya Boyutu')}:{' '}
+                          <strong className='text-foreground'>{file.size_gb} GB</strong>
                         </div>
 
                         {/* Hardware recommendations badge */}
                         <div className='bg-muted/50 rounded-lg p-2.5 text-[11px] text-muted-foreground grid grid-cols-3 gap-2 border'>
                           <div className='flex flex-col'>
-                            <span className='text-[10px] text-muted-foreground/80'>Min RAM</span>
+                            <span className='text-[10px] text-muted-foreground/80'>
+                              {t('byog.admin.min_ram', 'Min RAM')}
+                            </span>
                             <strong className='text-foreground'>{file.recommended_ram_gb} GB</strong>
                           </div>
                           <div className='flex flex-col'>
-                            <span className='text-[10px] text-muted-foreground/80'>Min VRAM</span>
+                            <span className='text-[10px] text-muted-foreground/80'>
+                              {t('byog.admin.min_vram', 'Min VRAM')}
+                            </span>
                             <strong className='text-emerald-500'>{file.recommended_vram_gb} GB</strong>
                           </div>
                           <div className='flex flex-col'>
-                            <span className='text-[10px] text-muted-foreground/80'>Çekirdek</span>
+                            <span className='text-[10px] text-muted-foreground/80'>
+                              {t('byog.admin.cores', 'Çekirdek')}
+                            </span>
                             <strong className='text-foreground'>{file.recommended_cores} Core</strong>
                           </div>
                         </div>
@@ -1133,7 +1178,7 @@ export function ByogModelsTab() {
                           onClick={() => handleSelectHfFile(file)}
                         >
                           <Download className='h-3.5 w-3.5' />
-                          Bu Modeli Seç ve Ekle
+                          {t('byog.admin.hf_select_and_add', 'Bu Modeli Seç ve Ekle')}
                         </Button>
                       </div>
                     ))
@@ -1145,7 +1190,7 @@ export function ByogModelsTab() {
 
           <DialogFooter className='pt-2 border-t'>
             <Button variant='outline' onClick={() => setHfModalOpen(false)}>
-              Kapat
+              {t('byog.close', 'Kapat')}
             </Button>
           </DialogFooter>
         </DialogContent>

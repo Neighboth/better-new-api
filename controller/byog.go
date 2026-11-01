@@ -1254,9 +1254,17 @@ func RegisterByogWorker(c *gin.Context) {
 		}
 
 		if matchedUserId == 0 {
-			if existingNode, _ := model.GetByogNodeByHWID(req.HWID); existingNode != nil && existingNode.UserId > 0 {
-				matchedUserId = existingNode.UserId
-			} else {
+			if req.NodeId != "" {
+				if existingNode, _ := model.GetByogNodeByNodeId(req.NodeId); existingNode != nil && existingNode.UserId > 0 {
+					matchedUserId = existingNode.UserId
+				}
+			}
+			if matchedUserId == 0 {
+				if existingNode, _ := model.GetByogNodeByHWID(req.HWID); existingNode != nil && existingNode.UserId > 0 {
+					matchedUserId = existingNode.UserId
+				}
+			}
+			if matchedUserId == 0 {
 				c.JSON(http.StatusBadRequest, gin.H{
 					"success": false,
 					"message": "Geçersiz veya süresi dolmuş eşleştirme kodu. Lütfen siteden yeni kod alıp tekrar deneyiniz.",

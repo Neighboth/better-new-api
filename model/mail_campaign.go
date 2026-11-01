@@ -128,8 +128,9 @@ func MarkInterruptedMailCampaigns() error {
 // A user without an address cannot receive a message, a disabled user is not
 // written to.
 func mailRecipientQuery() *gorm.DB {
-	return DB.Model(&User{}).
-		Select("id, username, display_name, email, setting, status").
+	return DB.Unscoped().Model(&User{}).
+		Select("id, username, display_name, email, setting, status, deleted_at").
+		Where("(deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00' OR deleted_at <= '1970-01-02 00:00:00')").
 		Where("status = ?", common.UserStatusEnabled).
 		Where("email <> ''")
 }
@@ -210,14 +211,18 @@ type MailAudience struct {
 // the sender always agree on the number of the readers.
 func CountMailAudience() (MailAudience, error) {
 	var rows []User
-	if err := DB.Model(&User{}).
-		Select("id, status, email, setting").
+	if err := DB.Unscoped().Model(&User{}).
+		Select("id, status, email, setting, deleted_at").
 		Find(&rows).Error; err != nil {
 		return MailAudience{}, err
 	}
 	audience := MailAudience{Total: int64(len(rows))}
 	for index := range rows {
 		user := rows[index]
+		if user.DeletedAt.Valid && !user.DeletedAt.Time.IsZero() && user.DeletedAt.Time.Year() > 1970 {
+			audience.Disabled++
+			continue
+		}
 		if user.Status != common.UserStatusEnabled {
 			audience.Disabled++
 			continue

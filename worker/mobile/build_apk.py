@@ -3324,10 +3324,12 @@ public class MainActivity extends Activity {
                                             state.put("assigned_model", finalAssignedModel);
 
                                             File mf = new File(getFilesDir(), finalAssignedModel + ".gguf");
-                                            if (!mf.exists() || !WorkerService.isValidGGUFFile(mf, finalAssignedModel)) {
-                                                File sd = new File("/sdcard", finalAssignedModel + ".gguf");
-                                                if (sd.exists() && WorkerService.isValidGGUFFile(sd, finalAssignedModel)) mf = sd;
-                                            }
+                                            try {
+                                                if (!mf.exists() || !WorkerService.isValidGGUFFile(mf, finalAssignedModel)) {
+                                                    File sd = new File("/sdcard", finalAssignedModel + ".gguf");
+                                                    if (sd.exists() && WorkerService.isValidGGUFFile(sd, finalAssignedModel)) mf = sd;
+                                                }
+                                            } catch (Throwable ignored) {}
                                             boolean modelExists = WorkerService.isValidGGUFFile(mf, finalAssignedModel);
                                             if (modelExists) {
                                                 state.put("model_status", "ready");
@@ -3528,10 +3530,12 @@ public class MainActivity extends Activity {
                 } catch (Throwable ignored) {}
                 String assignedModel = WorkerService.stringPref(sp, "assigned_model", "qwen-2.5-0.5b-instruct");
                 File mf = new File(getFilesDir(), assignedModel + ".gguf");
-                if (!mf.exists() || !WorkerService.isValidGGUFFile(mf, assignedModel)) {
-                    File sd = new File("/sdcard", assignedModel + ".gguf");
-                    if (sd.exists() && WorkerService.isValidGGUFFile(sd, assignedModel)) mf = sd;
-                }
+                try {
+                    if (!mf.exists() || !WorkerService.isValidGGUFFile(mf, assignedModel)) {
+                        File sd = new File("/sdcard", assignedModel + ".gguf");
+                        if (sd.exists() && WorkerService.isValidGGUFFile(sd, assignedModel)) mf = sd;
+                    }
+                } catch (Throwable ignored) {}
                 boolean modelOnDisk = WorkerService.isValidGGUFFile(mf, assignedModel);
                 String defaultStatus = modelOnDisk ? "ready" : "downloading";
                 int dMB = WorkerService.intPref(sp, "downloaded_mb", 0);

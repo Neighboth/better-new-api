@@ -136,3 +136,18 @@ func TestDeliverabilityReportNamesTheKey(t *testing.T) {
 	require.False(t, report.MXOK)
 	require.Less(t, report.Readiness, 100)
 }
+
+func TestDeliverabilitySanitizesSenderWithBrackets(t *testing.T) {
+	previousFrom := common.SMTPFrom
+	common.SMTPFrom = "Administrator <support@example.com>"
+	t.Cleanup(func() { common.SMTPFrom = previousFrom })
+
+	fakeDNS(t, map[string][]string{
+		"poste._domainkey.example.com": {"v=DKIM1; k=rsa; p=MIIBIjANBgkq"},
+	})
+
+	report := CheckDeliverability()
+	require.Equal(t, "example.com", report.Domain)
+	require.True(t, report.DKIMOK)
+	require.Equal(t, "poste", report.DKIMSelector)
+}

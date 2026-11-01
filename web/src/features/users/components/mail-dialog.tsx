@@ -103,6 +103,13 @@ export function MailDialog({
   const selectedIds = useMemo(() => selected.map((user) => user.id), [selected])
   const idsKey = selectedIds.join(',')
   const startedRef = useRef(false)
+  const recipientListRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (recipientListRef.current) {
+      recipientListRef.current.scrollTop = 0
+    }
+  }, [page])
 
   const resetForm = useCallback(() => {
     setSubject('')
@@ -272,8 +279,8 @@ export function MailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-2xl max-h-[88vh] overflow-y-auto overflow-x-hidden'>
-        <DialogHeader>
+      <DialogContent className='sm:max-w-2xl max-h-[90vh] flex flex-col p-6 overflow-hidden'>
+        <DialogHeader className='shrink-0 pb-2'>
           <DialogTitle className='flex items-center gap-2'>
             <Mail className='size-4' />
             {t('Send mail')}
@@ -357,8 +364,9 @@ export function MailDialog({
             </DialogFooter>
           </div>
         ) : (
-          <div className='space-y-4'>
-            {mailStatus && !mailStatus.configured ? (
+          <div className='flex-1 flex flex-col min-h-0 overflow-hidden'>
+            <div className='flex-1 overflow-y-auto pr-1.5 space-y-4'>
+              {mailStatus && !mailStatus.configured ? (
               <div className='rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400'>
                 {t(
                   'The mail server is not configured. Set the SMTP settings before a message is sent.'
@@ -447,7 +455,12 @@ export function MailDialog({
                       className='h-8 border-0 shadow-none focus-visible:ring-0'
                     />
                   </div>
-                  <div className='max-h-44 overflow-y-auto'>
+                  <div ref={recipientListRef} className='max-h-44 overflow-y-auto relative'>
+                    {searchQuery.isFetching && !searchQuery.isLoading ? (
+                      <div className='absolute right-2 top-2 z-10'>
+                        <Loader2 className='size-3.5 animate-spin text-primary' />
+                      </div>
+                    ) : null}
                     {searchQuery.isLoading ? (
                       <div className='text-muted-foreground p-3 text-center text-xs'>
                         {t('Loading…')}
@@ -741,9 +754,10 @@ export function MailDialog({
                 </div>
               )}
             </div>
+          </div>
 
-            <DialogFooter className='gap-2'>
-              <Button
+          <DialogFooter className='shrink-0 pt-3 border-t mt-2 gap-2'>
+            <Button
                 type='button'
                 variant='outline'
                 disabled={sending}

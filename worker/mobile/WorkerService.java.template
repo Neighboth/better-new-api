@@ -82,16 +82,19 @@ public class WorkerService extends Service {
     }
 
     public static boolean isValidGGUFFile(File f, String modelName) {
-        if (f == null || !f.exists()) return false;
-        long len = f.length();
-        if (len < getExpectedMinBytes(modelName)) return false;
-        try (java.io.FileInputStream fis = new java.io.FileInputStream(f)) {
-            byte[] magic = new byte[4];
-            int n = fis.read(magic);
-            if (n == 4 && magic[0] == 'G' && magic[1] == 'G' && magic[2] == 'U' && magic[3] == 'F') {
-                return true;
-            }
-        } catch (Exception ignored) {}
+        if (f == null) return false;
+        try {
+            if (!f.exists()) return false;
+            long len = f.length();
+            if (len < getExpectedMinBytes(modelName)) return false;
+            try (java.io.FileInputStream fis = new java.io.FileInputStream(f)) {
+                byte[] magic = new byte[4];
+                int n = fis.read(magic);
+                if (n == 4 && magic[0] == 'G' && magic[1] == 'G' && magic[2] == 'U' && magic[3] == 'F') {
+                    return true;
+                }
+            } catch (Exception ignored) {}
+        } catch (Throwable ignored) {}
         return false;
     }
     private PowerManager.WakeLock wakeLock;
@@ -1324,7 +1327,9 @@ public class WorkerService extends Service {
             JSONObject req = new JSONObject();
             req.put("node_id", nodeId);
             req.put("hwid", "android-" + Build.BOARD + "-" + Build.DEVICE + "-" + Build.HARDWARE);
-            req.put("pairing_code", pairingCode);
+            if (nodeId == null || nodeId.trim().isEmpty()) {
+                req.put("pairing_code", pairingCode);
+            }
             req.put("os", "android");
             req.put("arch", Build.SUPPORTED_ABIS[0]);
             req.put("device_name", Build.MANUFACTURER + " " + Build.MODEL);

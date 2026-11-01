@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import jsQR from 'jsqr'
 import {
   Activity,
@@ -545,7 +546,6 @@ export function ClientPage() {
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('')
   const [allocatedInitialized, setAllocatedInitialized] = useState(false)
   const lastUserEditTimeRef = useRef(0)
-  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const bridge = getBridge()
   const [localApi, setLocalApi] = useState('')
@@ -868,7 +868,7 @@ export function ClientPage() {
           setState((prev) => ({
             ...(prev ?? {}),
             ...(parsed as Partial<WorkerState>),
-          }))
+          } as WorkerState))
           if (parsed.node_id && typeof parsed.node_id === 'string') {
             setNodeId(parsed.node_id)
             window.localStorage.setItem('byog_node_id', parsed.node_id)
@@ -1150,11 +1150,43 @@ export function ClientPage() {
 
   // --- VIEW 1: Onboarding / Permissions (Mobile only, shown sequentially before pairing) ---
   const isTestingOnboarding = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('onboarding') === '1'
-  if ((bridge && !onboardingDone) || (isTestingOnboarding && !onboardingDone)) {
+  const needsMandatoryPermissions = Boolean(
+    bridge && permissions && (!permissions.notifications || !permissions.battery)
+  )
+
+  useEffect(() => {
+    if (bridge && permissions) {
+      if (!permissions.notifications) {
+        setOnboardingStep(0)
+      } else if (!permissions.battery && onboardingStep === 0) {
+        setOnboardingStep(1)
+      }
+    }
+  }, [bridge, permissions, onboardingStep])
+
+  if ((bridge && (!onboardingDone || needsMandatoryPermissions)) || (isTestingOnboarding && !onboardingDone)) {
     const handleNextStep = () => {
       if (onboardingStep === 0) {
+        if (!permissions?.notifications && !isTestingOnboarding) {
+          toast.error(
+            t(
+              'byog.notification_permission_required',
+              'Bildirim izni zorunludur. Devam etmek için lütfen izin verin.'
+            )
+          )
+          return
+        }
         setOnboardingStep(1)
       } else if (onboardingStep === 1) {
+        if (!permissions?.battery && !isTestingOnboarding) {
+          toast.error(
+            t(
+              'byog.battery_permission_required',
+              'Pil optimizasyonu muafiyeti zorunludur. Devam etmek için lütfen izin verin.'
+            )
+          )
+          return
+        }
         if (permissions?.autostart_supported) {
           setOnboardingStep(2)
         } else {

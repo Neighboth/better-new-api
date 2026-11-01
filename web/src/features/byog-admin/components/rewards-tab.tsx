@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Image as ImageIcon, Upload, X } from 'lucide-react'
+import { Upload, X } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -105,7 +105,12 @@ export function ByogRewardsTab() {
           ctx.drawImage(img, 0, 0, targetWidth, targetHeight)
           const dataUrl = canvas.toDataURL('image/jpeg', 0.88)
           setEditingItem((prev) => (prev ? { ...prev, image_url: dataUrl } : null))
-          toast.success('Görsel yüklendi ve 400x250 boyutuna optimize edildi.')
+          toast.success(
+            t(
+              'byog.admin.reward_image_uploaded',
+              'Görsel yüklendi ve 400x250 boyutuna optimize edildi.'
+            )
+          )
         }
       }
       img.src = event.target?.result as string
@@ -474,8 +479,8 @@ export function ByogRewardsTab() {
 
       {/* Item Dialog */}
       <Dialog open={itemModalOpen} onOpenChange={setItemModalOpen}>
-        <DialogContent className='max-w-lg'>
-          <DialogHeader>
+        <DialogContent className='max-w-xl max-h-[88vh] flex flex-col p-6 overflow-hidden'>
+          <DialogHeader className='shrink-0 pb-2 border-b'>
             <DialogTitle>
               {editingItem?.id
                 ? t('byog.admin.edit_reward_item')
@@ -487,7 +492,7 @@ export function ByogRewardsTab() {
           </DialogHeader>
 
           {editingItem && (
-            <div className='space-y-4 py-2'>
+            <div className='flex-1 overflow-y-auto pr-1 space-y-4 py-3 min-h-0'>
               <div className='space-y-2'>
                 <Label>{t('byog.admin.item_title')}</Label>
                 <Input
@@ -564,7 +569,7 @@ export function ByogRewardsTab() {
                 <div className='flex items-center justify-between'>
                   <Label>{t('byog.admin.reward_image', 'Ürün Görseli')}</Label>
                   <span className='text-muted-foreground text-[11px] font-medium'>
-                    Tam Boyut: 400x250 px (16:10)
+                    {t('byog.admin.reward_exact_size', 'Tam Boyut: 400x250 px (16:10)')}
                   </span>
                 </div>
                 <div className='flex gap-2 items-center'>
@@ -576,7 +581,10 @@ export function ByogRewardsTab() {
                         image_url: e.target.value,
                       })
                     }
-                    placeholder='https://.../product-image.png veya dosya yükleyin'
+                    placeholder={t(
+                      'byog.admin.reward_image_placeholder',
+                      'https://.../product-image.png veya dosya yükleyin'
+                    )}
                     className='text-xs flex-1'
                   />
                   <input
@@ -594,18 +602,21 @@ export function ByogRewardsTab() {
                     onClick={() => fileInputRef.current?.click()}
                   >
                     <Upload className='size-3.5' />
-                    Görsel Yükle
+                    {t('byog.admin.reward_upload_image', 'Görsel Yükle')}
                   </Button>
                 </div>
                 <p className='text-muted-foreground text-[11px]'>
-                  Önerilen tam boyut <strong>400x250 pikseldir</strong> (16:10 en-boy oranı). Dosya yükleyebilir veya doğrudan görsel URL'si yapıştırabilirsiniz.
+                  {t(
+                    'byog.admin.reward_size_hint',
+                    'Önerilen tam boyut 400x250 pikseldir (16:10 en-boy oranı). Dosya yükleyebilir veya doğrudan görsel URL\'si yapıştırabilirsiniz.'
+                  )}
                 </p>
                 {editingItem.image_url ? (
                   <div className='relative mt-2 inline-block'>
                     <div className='relative h-28 w-44 overflow-hidden rounded-lg border bg-muted/40 shadow-xs'>
                       <img
                         src={editingItem.image_url}
-                        alt='Önizleme'
+                        alt={t('byog.admin.preview', 'Önizleme')}
                         className='h-full w-full object-cover'
                         onError={(e) => {
                           ;(e.target as HTMLElement).style.display = 'none'
@@ -618,7 +629,7 @@ export function ByogRewardsTab() {
                       size='icon'
                       className='absolute -top-2 -right-2 size-6 rounded-full shadow-sm'
                       onClick={() => setEditingItem({ ...editingItem, image_url: '' })}
-                      title='Görseli Kaldır'
+                      title={t('byog.admin.remove_image', 'Görseli Kaldır')}
                     >
                       <X className='size-3' />
                     </Button>
@@ -654,7 +665,7 @@ export function ByogRewardsTab() {
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className='pt-3 border-t shrink-0'>
             <Button variant='outline' onClick={() => setItemModalOpen(false)}>
               {t('byog.cancel')}
             </Button>
