@@ -87,7 +87,9 @@ export function ByogRewardsTab() {
     const file = e.target.files?.[0]
     if (!file) return
     if (!file.type.startsWith('image/')) {
-      toast.error('Lütfen geçerli bir resim dosyası seçin.')
+      toast.error(
+        t('byog.admin.reward_invalid_image', 'Lütfen geçerli bir resim dosyası seçin.')
+      )
       return
     }
     const reader = new FileReader()
@@ -479,7 +481,7 @@ export function ByogRewardsTab() {
 
       {/* Item Dialog */}
       <Dialog open={itemModalOpen} onOpenChange={setItemModalOpen}>
-        <DialogContent className='max-w-xl max-h-[88vh] flex flex-col p-6 overflow-hidden'>
+        <DialogContent className='!max-w-xl sm:!max-w-xl !max-h-[88vh] flex flex-col p-6 overflow-hidden'>
           <DialogHeader className='shrink-0 pb-2 border-b'>
             <DialogTitle>
               {editingItem?.id

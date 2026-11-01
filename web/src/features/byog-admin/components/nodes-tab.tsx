@@ -487,7 +487,7 @@ export function ByogNodesTab() {
 
       {/* Deep Inspect Modal - Zero Decorative Icons */}
       <Dialog open={inspectOpen} onOpenChange={setInspectOpen}>
-        <DialogContent className='max-h-[90vh] max-w-3xl overflow-y-auto'>
+        <DialogContent className='!max-w-3xl sm:!max-w-3xl !max-h-[90vh] overflow-y-auto p-6'>
           <DialogHeader>
             <DialogTitle>
               {t('byog.admin.deep_inspect_title', {

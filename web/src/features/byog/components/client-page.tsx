@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
+import { toast, Toaster } from 'sonner'
 import jsQR from 'jsqr'
 import {
   Activity,
@@ -526,6 +526,7 @@ export function ClientPage() {
     return true
   })
   const [onboardingStep, setOnboardingStep] = useState(0)
+  const [stepError, setStepError] = useState('')
   const [updateVersion, setUpdateVersion] = useState('')
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(() => {
     if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('disconnect') === '1') {
@@ -886,6 +887,7 @@ export function ClientPage() {
     }
     target.onPairSuccess = () => {
       setBusy(false)
+      setOnboardingDone(true)
       setMessage(t('byog.client_paired', 'Cihaz başarıyla eşleştirildi'))
       void loadState()
     }
@@ -1168,25 +1170,27 @@ export function ClientPage() {
     const handleNextStep = () => {
       if (onboardingStep === 0) {
         if (!permissions?.notifications && !isTestingOnboarding) {
-          toast.error(
-            t(
-              'byog.notification_permission_required',
-              'Bildirim izni zorunludur. Devam etmek için lütfen izin verin.'
-            )
+          const msg = t(
+            'byog.notification_permission_required',
+            'Bildirim izni zorunludur. Devam etmek için lütfen izin verin.'
           )
+          setStepError(msg)
+          toast.error(msg)
           return
         }
+        setStepError('')
         setOnboardingStep(1)
       } else if (onboardingStep === 1) {
         if (!permissions?.battery && !isTestingOnboarding) {
-          toast.error(
-            t(
-              'byog.battery_permission_required',
-              'Pil optimizasyonu muafiyeti zorunludur. Devam etmek için lütfen izin verin.'
-            )
+          const msg = t(
+            'byog.battery_permission_required',
+            'Pil optimizasyonu muafiyeti zorunludur. Devam etmek için lütfen izin verin.'
           )
+          setStepError(msg)
+          toast.error(msg)
           return
         }
+        setStepError('')
         if (permissions?.autostart_supported) {
           setOnboardingStep(2)
         } else {
@@ -1194,6 +1198,7 @@ export function ClientPage() {
           setOnboardingDone(true)
         }
       } else {
+        setStepError('')
         bridge?.completeOnboarding()
         setOnboardingDone(true)
       }
@@ -1201,25 +1206,26 @@ export function ClientPage() {
 
     return (
       <div className='flex h-screen w-full flex-col bg-background text-foreground antialiased'>
-      <header className='flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4'>
-        <div className='flex items-center gap-2 min-w-0'>
-          <img
-            src={brandLogo}
-            alt='Logo'
-            className='h-7 w-7 rounded-lg object-contain shrink-0'
-            onError={(e) => {
-              ;(e.currentTarget as HTMLElement).style.display = 'none'
-            }}
-          />
-          <span className='text-sm font-semibold tracking-tight truncate max-w-[160px] sm:max-w-none'>
-            {systemName || state?.system_name || state?.app_name || 'BYOG Worker'}
-          </span>
-        </div>
-        <div className='flex items-center gap-1.5 shrink-0'>
-          <LanguageSwitcher />
-          <ThemeSwitch />
-        </div>
-      </header>
+        <Toaster position='top-center' />
+        <header className='flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4'>
+          <div className='flex items-center gap-2 min-w-0'>
+            <img
+              src={brandLogo}
+              alt='Logo'
+              className='h-7 w-7 rounded-lg object-contain shrink-0'
+              onError={(e) => {
+                ;(e.currentTarget as HTMLElement).style.display = 'none'
+              }}
+            />
+            <span className='text-sm font-semibold tracking-tight truncate max-w-[160px] sm:max-w-none'>
+              {systemName || state?.system_name || state?.app_name || 'BYOG Worker'}
+            </span>
+          </div>
+          <div className='flex items-center gap-1.5 shrink-0'>
+            <LanguageSwitcher />
+            <ThemeSwitch />
+          </div>
+        </header>
 
         <div className='flex flex-1 items-center justify-center p-4 sm:p-6'>
           <Card className='w-full max-w-lg border-border/80 shadow-lg'>
@@ -1239,6 +1245,13 @@ export function ClientPage() {
             </CardHeader>
 
             <CardContent className='space-y-6'>
+              {stepError && (
+                <div className='rounded-lg bg-destructive/15 border border-destructive/30 p-3 text-xs font-semibold text-destructive flex items-center gap-2'>
+                  <AlertTriangle className='size-4 shrink-0' />
+                  <span>{stepError}</span>
+                </div>
+              )}
+
               {/* Step 0: Notifications */}
               {onboardingStep === 0 && (
                 <div className='space-y-4 rounded-xl border border-border/60 bg-muted/40 p-5'>
@@ -1268,6 +1281,7 @@ export function ClientPage() {
                       <Button
                         size='sm'
                         onClick={() => {
+                          setStepError('')
                           bridge?.requestNotificationPermission()
                           setTimeout(() => void loadState(), 1500)
                         }}
@@ -1276,7 +1290,7 @@ export function ClientPage() {
                       </Button>
                     )}
 
-                    <Button onClick={handleNextStep} disabled={!permissions?.notifications && !isTestingOnboarding}>
+                    <Button onClick={handleNextStep}>
                       {t('byog.continue', 'Devam Et')} <ChevronRight className='size-4 ml-1' />
                     </Button>
                   </div>
@@ -1312,6 +1326,7 @@ export function ClientPage() {
                       <Button
                         size='sm'
                         onClick={() => {
+                          setStepError('')
                           bridge?.requestBatteryOptimization()
                           setTimeout(() => void loadState(), 1500)
                         }}
@@ -1320,7 +1335,7 @@ export function ClientPage() {
                       </Button>
                     )}
 
-                    <Button onClick={handleNextStep} disabled={!permissions?.battery && !isTestingOnboarding}>
+                    <Button onClick={handleNextStep}>
                       {t('byog.continue', 'Devam Et')} <ChevronRight className='size-4 ml-1' />
                     </Button>
                   </div>

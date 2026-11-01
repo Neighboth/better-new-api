@@ -6903,5 +6903,22 @@
   "byog.admin.preview": "Xem trước",
   "byog.admin.remove_image": "Xóa hình ảnh",
   "byog.notification_permission_required": "Cần có quyền thông báo để tiếp tục. Vui lòng cấp quyền.",
-  "byog.battery_permission_required": "Cần miễn trừ tối ưu hóa pin để tiếp tục. Vui lòng cấp quyền."
+  "byog.battery_permission_required": "Cần miễn trừ tối ưu hóa pin để tiếp tục. Vui lòng cấp quyền.",
+  "mail.configure_dkim": "Cấu hình DKIM",
+  "mail.dkim_saved": "Cài đặt DKIM đã được lưu thành công",
+  "mail.dkim_modal_title": "Cấu hình DKIM Poste.io / Tùy chỉnh",
+  "mail.dkim_modal_desc": "Nếu sử dụng máy chủ thư tự lưu trữ Poste.io, hãy nhấp vào 'Xác minh Poste.io' hoặc nhập bộ chọn DKIM cụ thể của bạn (ví dụ: s20231025123).",
+  "mail.mark_self_hosted": "Xác minh Poste.io",
+  "byog.admin.hf_search_failed": "Không thể tìm kiếm các mô hình Hugging Face",
+  "byog.admin.hf_files_failed": "Không thể liệt kê các tệp kho lưu trữ",
+  "byog.admin.hf_file_imported": "Chi tiết {{filename}} đã được nhập vào biểu mẫu!",
+  "byog.admin.reward_invalid_image": "Vui lòng chọn tệp hình ảnh hợp lệ (PNG, JPG, WEBP, SVG, GIF, AVIF)",
+  "byog.admin.type_llm": "LLM (Trò chuyện / Văn bản)",
+  "byog.admin.type_embedding": "Nhúng (Vector)",
+  "byog.admin.type_reranker": "Xếp hạng lại (Reranker)",
+  "byog.admin.type_vision": "Thị giác (Đa phương thức)",
+  "byog.admin.type_image_gen": "Tạo hình ảnh",
+  "byog.admin.type_video_gen": "Tạo video",
+  "byog.admin.type_video": "Video (Văn bản thành video)",
+  "byog.admin.type_audio": "Âm thanh / Giọng nói"
 }

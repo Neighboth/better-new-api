@@ -6903,5 +6903,22 @@
   "byog.admin.preview": "Preview",
   "byog.admin.remove_image": "Remove Image",
   "byog.notification_permission_required": "Notification permission is required to continue. Please grant the permission.",
-  "byog.battery_permission_required": "Battery optimization exemption is required to continue. Please grant the permission."
+  "byog.battery_permission_required": "Battery optimization exemption is required to continue. Please grant the permission.",
+  "mail.configure_dkim": "Configure DKIM",
+  "mail.dkim_saved": "DKIM settings saved successfully",
+  "mail.dkim_modal_title": "Poste.io / Custom DKIM Configuration",
+  "mail.dkim_modal_desc": "If using Poste.io self-hosted mail, click 'Poste.io Verify' or enter your specific DKIM selector (e.g. s20231025123) from Poste.io admin panel.",
+  "mail.mark_self_hosted": "Poste.io Verify",
+  "byog.admin.hf_search_failed": "Failed to search Hugging Face models",
+  "byog.admin.hf_files_failed": "Failed to list repository files",
+  "byog.admin.hf_file_imported": "{{filename}} details imported to form!",
+  "byog.admin.reward_invalid_image": "Please select a valid image file (PNG, JPG, WEBP, SVG, GIF, AVIF)",
+  "byog.admin.type_llm": "LLM (Chat / Text)",
+  "byog.admin.type_embedding": "Embedding (Vector)",
+  "byog.admin.type_reranker": "Reranker",
+  "byog.admin.type_vision": "Vision (Multimodal)",
+  "byog.admin.type_image_gen": "Image Generation",
+  "byog.admin.type_video_gen": "Video Generation",
+  "byog.admin.type_video": "Video (Text-to-Video)",
+  "byog.admin.type_audio": "Audio / Speech"
 }

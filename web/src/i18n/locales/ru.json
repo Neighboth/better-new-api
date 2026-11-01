@@ -6903,5 +6903,22 @@
   "byog.admin.preview": "Предпросмотр",
   "byog.admin.remove_image": "Удалить изображение",
   "byog.notification_permission_required": "Для продолжения требуется разрешение на уведомления. Пожалуйста, предоставьте разрешение.",
-  "byog.battery_permission_required": "Для продолжения требуется отключение оптимизации батареи. Пожалуйста, предоставьте разрешение."
+  "byog.battery_permission_required": "Для продолжения требуется отключение оптимизации батареи. Пожалуйста, предоставьте разрешение.",
+  "mail.configure_dkim": "Настроить DKIM",
+  "mail.dkim_saved": "Настройки DKIM успешно сохранены",
+  "mail.dkim_modal_title": "Конфигурация Poste.io / пользовательского DKIM",
+  "mail.dkim_modal_desc": "Если вы используете собственный почтовый сервер Poste.io, нажмите «Проверить Poste.io» или введите ваш селектор DKIM (например, s20231025123).",
+  "mail.mark_self_hosted": "Проверить Poste.io",
+  "byog.admin.hf_search_failed": "Не удалось выполнить поиск моделей Hugging Face",
+  "byog.admin.hf_files_failed": "Не удалось получить список файлов репозитория",
+  "byog.admin.hf_file_imported": "Данные {{filename}} перенесены в форму!",
+  "byog.admin.reward_invalid_image": "Пожалуйста, выберите допустимый файл изображения (PNG, JPG, WEBP, SVG, GIF, AVIF)",
+  "byog.admin.type_llm": "LLM (Чат / Текст)",
+  "byog.admin.type_embedding": "Эмбеддинг (Вектор)",
+  "byog.admin.type_reranker": "Реранкер (Reranker)",
+  "byog.admin.type_vision": "Зрение (Мультимодальный)",
+  "byog.admin.type_image_gen": "Генерация изображений",
+  "byog.admin.type_video_gen": "Генерация видео",
+  "byog.admin.type_video": "Видео (Текст в видео)",
+  "byog.admin.type_audio": "Аудио / Речь"
 }

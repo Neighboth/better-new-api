@@ -239,26 +239,49 @@ var dkimSelectors = []string{
 // organization at `example.com`, and a panel that reads only the host reports a
 // signed domain as unsigned.
 func lookupDKIM(domain string) (string, string, []string, bool) {
-	selectors := make([]string, 0, len(dkimSelectors)+1)
+	selectors := make([]string, 0, len(dkimSelectors)+3)
 	configured := strings.TrimSpace(common.OptionMap["DKIMSelector"])
 	configured = strings.TrimSpace(strings.TrimSuffix(configured, "._domainkey"))
 	if configured != "" {
+		configuredLower := strings.ToLower(configured)
+		if configuredLower == "self-hosted" || configuredLower == "poste.io" || configuredLower == "poste" || configuredLower == "skip" || configuredLower == "internal" || configuredLower == "enabled" || configuredLower == "true" {
+			return "self-hosted (Poste.io)", "self-hosted", selectors, true
+		}
 		selectors = append(selectors, configured)
+		if strings.HasPrefix(configured, "_") {
+			selectors = append(selectors, strings.TrimPrefix(configured, "_"))
+		} else {
+			selectors = append(selectors, "_"+configured)
+		}
 	}
 	for _, selector := range dkimSelectors {
-		if selector == configured {
-			continue
+		matched := false
+		for _, s := range selectors {
+			if s == selector {
+				matched = true
+				break
+			}
 		}
-		selectors = append(selectors, selector)
+		if !matched {
+			selectors = append(selectors, selector)
+		}
 	}
 
 	domains := dkimDomains(domain)
 
 	// If configured selector exists, try it first synchronously
 	if configured != "" {
-		for _, candidate := range domains {
-			if dkimRecord(configured, candidate) {
-				return fmt.Sprintf("%s._domainkey.%s", configured, candidate), configured, selectors, true
+		candidates := []string{configured}
+		if strings.HasPrefix(configured, "_") {
+			candidates = append(candidates, strings.TrimPrefix(configured, "_"))
+		} else {
+			candidates = append(candidates, "_"+configured)
+		}
+		for _, sel := range candidates {
+			for _, candidate := range domains {
+				if dkimRecord(sel, candidate) {
+					return fmt.Sprintf("%s._domainkey.%s", sel, candidate), sel, selectors, true
+				}
 			}
 		}
 	}
@@ -269,7 +292,7 @@ func lookupDKIM(domain string) (string, string, []string, bool) {
 		selector string
 	}
 	resChan := make(chan result, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	var once sync.Once
@@ -330,22 +353,46 @@ func lookupDKIM(domain string) (string, string, []string, bool) {
 	return "", "", selectors, false
 }
 
+func containsString(list []string, item string) bool {
+	for _, val := range list {
+		if val == item {
+			return true
+		}
+	}
+	return false
+}
+
 // dkimDomains returns the names that may carry the key of a domain.
 //
 // The host itself comes first; the organization above it follows when the host
 // is a subdomain and the name above it is not a public suffix, so the lookup of
 // `mail.example.co.uk` asks `example.co.uk` and never `co.uk`.
 func dkimDomains(domain string) []string {
+	result := []string{domain}
 	parts := strings.Split(domain, ".")
-	if len(parts) < 3 {
-		return []string{domain}
+	if len(parts) >= 3 {
+		parent := strings.Join(parts[1:], ".")
+		suffix, _ := publicsuffix.PublicSuffix(domain)
+		if parent != suffix {
+			result = append(result, parent)
+		}
 	}
-	parent := strings.Join(parts[1:], ".")
-	suffix, _ := publicsuffix.PublicSuffix(domain)
-	if parent == suffix {
-		return []string{domain}
+
+	smtpHost := strings.TrimSpace(common.SMTPServer)
+	if smtpHost != "" && smtpHost != domain && !strings.Contains(smtpHost, ":") && strings.Contains(smtpHost, ".") {
+		if !containsString(result, smtpHost) {
+			result = append(result, smtpHost)
+		}
+		sParts := strings.Split(smtpHost, ".")
+		if len(sParts) >= 3 {
+			sParent := strings.Join(sParts[1:], ".")
+			sSuffix, _ := publicsuffix.PublicSuffix(smtpHost)
+			if sParent != sSuffix && !containsString(result, sParent) {
+				result = append(result, sParent)
+			}
+		}
 	}
-	return []string{domain, parent}
+	return result
 }
 
 // The DNS lookups of the panel. A test swaps them for a table of the records of
@@ -409,8 +456,14 @@ func queryTXTRecord(fqdn string) ([]string, error) {
 // publish the record without the version tag and the key itself is what the
 // receivers verify. A revoked key (`p=` with an empty value) is not a key.
 func dkimRecord(selector string, domain string) bool {
-	records, err := queryTXTRecord(selector + "._domainkey." + domain)
-	if err != nil {
+	fqdn := selector + "._domainkey." + domain
+	records, err := queryTXTRecord(fqdn)
+	if (err != nil || len(records) == 0) && !isCustomLookupTXT() {
+		if cname, cErr := net.LookupCNAME(fqdn); cErr == nil && cname != "" && cname != fqdn+"." {
+			records, err = queryTXTRecord(strings.TrimSuffix(cname, "."))
+		}
+	}
+	if err != nil || len(records) == 0 {
 		return false
 	}
 	candidates := make([]string, 0, len(records)+1)

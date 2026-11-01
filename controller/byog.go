@@ -379,6 +379,9 @@ func GetUserPairingCode(c *gin.Context) {
 		scheme = "https"
 	}
 	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+	if system_setting.ServerAddress != "" && !strings.Contains(system_setting.ServerAddress, "localhost") {
+		serverUrl = strings.TrimRight(system_setting.ServerAddress, "/")
+	}
 
 	systemName, appName, faviconUrl, faviconBase64 := getBranding(serverUrl)
 
@@ -1633,6 +1636,9 @@ func RegisterByogWorker(c *gin.Context) {
 		scheme = "https"
 	}
 	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+	if system_setting.ServerAddress != "" && !strings.Contains(system_setting.ServerAddress, "localhost") {
+		serverUrl = strings.TrimRight(system_setting.ServerAddress, "/")
+	}
 	systemName, appName, faviconUrl, faviconBase64 := getBranding(serverUrl)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -2363,6 +2369,9 @@ func GetByogFaviconIcon(c *gin.Context) {
 		scheme = "https"
 	}
 	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+	if system_setting.ServerAddress != "" && !strings.Contains(system_setting.ServerAddress, "localhost") {
+		serverUrl = strings.TrimRight(system_setting.ServerAddress, "/")
+	}
 	_, _, _, faviconBase64 := getBranding(serverUrl)
 
 	payload := faviconBase64
@@ -2394,6 +2403,9 @@ func embedByogClient(program []byte, c *gin.Context) ([]byte, error) {
 		scheme = "https"
 	}
 	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+	if system_setting.ServerAddress != "" && !strings.Contains(system_setting.ServerAddress, "localhost") {
+		serverUrl = strings.TrimRight(system_setting.ServerAddress, "/")
+	}
 	systemName, appName, faviconUrl, faviconBase64 := getBranding(serverUrl)
 
 	// The icon of the installation is written into the program, the program
@@ -2665,6 +2677,9 @@ func DownloadByogWorker(c *gin.Context) {
 		scheme = "https"
 	}
 	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+	if system_setting.ServerAddress != "" && !strings.Contains(system_setting.ServerAddress, "localhost") {
+		serverUrl = strings.TrimRight(system_setting.ServerAddress, "/")
+	}
 	systemName, _, _, _ := getBranding(serverUrl)
 	displayName := byogDisplayName(systemName)
 	sourceName := fmt.Sprintf("byog-worker-%s-%s", platform, arch)

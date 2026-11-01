@@ -6903,5 +6903,22 @@
   "byog.admin.preview": "Önizleme",
   "byog.admin.remove_image": "Görseli Kaldır",
   "byog.notification_permission_required": "Bildirim izni zorunludur. Devam etmek için lütfen izin verin.",
-  "byog.battery_permission_required": "Pil optimizasyonu muafiyeti zorunludur. Devam etmek için lütfen izin verin."
+  "byog.battery_permission_required": "Pil optimizasyonu muafiyeti zorunludur. Devam etmek için lütfen izin verin.",
+  "mail.configure_dkim": "DKIM Yapılandır",
+  "mail.dkim_saved": "DKIM ayarları başarıyla kaydedildi",
+  "mail.dkim_modal_title": "Poste.io / Özel DKIM Yapılandırması",
+  "mail.dkim_modal_desc": "Poste.io self-hosted mail sunucusu kullanıyorsanız, 'Poste.io Doğrula' butonuna tıklayabilir veya Poste.io yönetim panelinizdeki seçiciyi (örn. s20231025123) girebilirsiniz.",
+  "mail.mark_self_hosted": "Poste.io Doğrula",
+  "byog.admin.hf_search_failed": "Hugging Face modelleri aranamadı",
+  "byog.admin.hf_files_failed": "Repo dosyaları listelenemedi",
+  "byog.admin.hf_file_imported": "{{filename}} bilgileri forma aktarıldı!",
+  "byog.admin.reward_invalid_image": "Lütfen geçerli bir görsel dosyası seçin (PNG, JPG, WEBP, SVG, GIF, AVIF)",
+  "byog.admin.type_llm": "LLM (Sohbet / Metin)",
+  "byog.admin.type_embedding": "Embedding (Vektör)",
+  "byog.admin.type_reranker": "Yeniden Sıralayıcı (Reranker)",
+  "byog.admin.type_vision": "Görsel (Çok Modlu / Vision)",
+  "byog.admin.type_image_gen": "Görsel Üretimi (Image Gen)",
+  "byog.admin.type_video_gen": "Video Üretimi (Video Gen)",
+  "byog.admin.type_video": "Video (Metinden Videoya)",
+  "byog.admin.type_audio": "Ses / Konuşma (Audio)"
 }

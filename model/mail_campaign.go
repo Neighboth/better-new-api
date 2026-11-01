@@ -128,9 +128,8 @@ func MarkInterruptedMailCampaigns() error {
 // A user without an address cannot receive a message, a disabled user is not
 // written to.
 func mailRecipientQuery() *gorm.DB {
-	return DB.Unscoped().Model(&User{}).
-		Select("id, username, display_name, email, setting, status, deleted_at").
-		Where("(deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00' OR deleted_at <= '1970-01-02 00:00:00')").
+	return DB.Model(&User{}).
+		Select("id, username, display_name, email, setting, status").
 		Where("status = ?", common.UserStatusEnabled).
 		Where("email <> ''")
 }
@@ -210,19 +209,20 @@ type MailAudience struct {
 // PostgreSQL. The same pass fills the breakdown of the audience, so the page and
 // the sender always agree on the number of the readers.
 func CountMailAudience() (MailAudience, error) {
+	var total int64
+	if err := DB.Unscoped().Model(&User{}).Count(&total).Error; err != nil {
+		return MailAudience{}, err
+	}
+
 	var rows []User
-	if err := DB.Unscoped().Model(&User{}).
-		Select("id, status, email, setting, deleted_at").
+	if err := DB.Model(&User{}).
+		Select("id, status, email, setting").
 		Find(&rows).Error; err != nil {
 		return MailAudience{}, err
 	}
-	audience := MailAudience{Total: int64(len(rows))}
+	audience := MailAudience{Total: total}
 	for index := range rows {
 		user := rows[index]
-		if user.DeletedAt.Valid && !user.DeletedAt.Time.IsZero() && user.DeletedAt.Time.Year() > 1970 {
-			audience.Disabled++
-			continue
-		}
 		if user.Status != common.UserStatusEnabled {
 			audience.Disabled++
 			continue
@@ -237,6 +237,9 @@ func CountMailAudience() (MailAudience, error) {
 			continue
 		}
 		audience.Marketing++
+	}
+	if int64(len(rows)) < total {
+		audience.Disabled += (total - int64(len(rows)))
 	}
 	return audience, nil
 }

@@ -57,6 +57,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { api } from '@/lib/api'
 
 import {
   createAdminLora,
@@ -105,17 +106,20 @@ export function ByogModelsTab() {
     setHfSearching(true)
     setHfGatedWarning('')
     try {
-      const resp = await fetch(
-        `/api/byog/admin/hf/search?q=${encodeURIComponent(q || 'gguf')}&token=${encodeURIComponent(hfToken)}`
-      )
-      const res = await resp.json()
+      const resp = await api.get('/api/byog/admin/hf/search', {
+        params: {
+          q: q || 'gguf',
+          token: hfToken,
+        },
+      })
+      const res = resp.data
       if (res.success) {
         setHfRepos(res.data || [])
       } else {
-        toast.error(res.message || 'Hugging Face modelleri aranamadı')
+        toast.error(res.message || t('byog.admin.hf_search_failed', 'Hugging Face modelleri aranamadı'))
       }
     } catch (e: any) {
-      toast.error(String(e))
+      toast.error(e?.response?.data?.message || String(e))
     } finally {
       setHfSearching(false)
     }
@@ -127,19 +131,22 @@ export function ByogModelsTab() {
     setHfFiles([])
     setHfGatedWarning('')
     try {
-      const resp = await fetch(
-        `/api/byog/admin/hf/files?repo=${encodeURIComponent(repoId)}&token=${encodeURIComponent(hfToken)}`
-      )
-      const res = await resp.json()
+      const resp = await api.get('/api/byog/admin/hf/files', {
+        params: {
+          repo: repoId,
+          token: hfToken,
+        },
+      })
+      const res = resp.data
       if (res.gated) {
         setHfGatedWarning(res.message)
       } else if (res.success && res.data) {
         setHfFiles(res.data.files || [])
       } else {
-        toast.error(res.message || 'Repo dosyaları listelenemedi')
+        toast.error(res.message || t('byog.admin.hf_files_failed', 'Repo dosyaları listelenemedi'))
       }
     } catch (e: any) {
-      toast.error(String(e))
+      toast.error(e?.response?.data?.message || String(e))
     } finally {
       setHfLoadingFiles(false)
     }
@@ -175,7 +182,13 @@ export function ByogModelsTab() {
       file_size: file.size || file.size_mb * 1024 * 1024,
     })
     setHfModalOpen(false)
-    toast.success(`${file.filename} bilgileri forma aktarıldı!`)
+    toast.success(
+      t(
+        'byog.admin.hf_file_imported',
+        '{{filename}} bilgileri forma aktarıldı!',
+        { filename: file.filename }
+      )
+    )
   }
 
   useEffect(() => {
@@ -493,7 +506,7 @@ export function ByogModelsTab() {
 
       {/* Base Model Dialog */}
       <Dialog open={modelModalOpen} onOpenChange={setModelModalOpen}>
-        <DialogContent className='max-h-[90vh] max-w-3xl overflow-y-auto'>
+        <DialogContent className='!max-w-3xl sm:!max-w-3xl !max-h-[90vh] overflow-y-auto p-6'>
           <DialogHeader>
             <DialogTitle>
               {editingModel?.id
@@ -547,16 +560,14 @@ export function ByogModelsTab() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value='llm'>LLM (Chat / Text)</SelectItem>
-                    <SelectItem value='embedding'>
-                      Embedding (Vector)
-                    </SelectItem>
-                    <SelectItem value='reranker'>Reranker</SelectItem>
-                    <SelectItem value='vision'>Vision (Multimodal)</SelectItem>
-                    <SelectItem value='image_gen'>Image Generation</SelectItem>
-                    <SelectItem value='video_gen'>Video Generation</SelectItem>
-                    <SelectItem value='video'>Video (Text-to-Video)</SelectItem>
-                    <SelectItem value='audio'>Audio / Speech</SelectItem>
+                    <SelectItem value='llm'>{t('byog.admin.type_llm', 'LLM (Chat / Text)')}</SelectItem>
+                    <SelectItem value='embedding'>{t('byog.admin.type_embedding', 'Embedding (Vector)')}</SelectItem>
+                    <SelectItem value='reranker'>{t('byog.admin.type_reranker', 'Reranker')}</SelectItem>
+                    <SelectItem value='vision'>{t('byog.admin.type_vision', 'Vision (Multimodal)')}</SelectItem>
+                    <SelectItem value='image_gen'>{t('byog.admin.type_image_gen', 'Image Generation')}</SelectItem>
+                    <SelectItem value='video_gen'>{t('byog.admin.type_video_gen', 'Video Generation')}</SelectItem>
+                    <SelectItem value='video'>{t('byog.admin.type_video', 'Video (Text-to-Video)')}</SelectItem>
+                    <SelectItem value='audio'>{t('byog.admin.type_audio', 'Audio / Speech')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -887,7 +898,7 @@ export function ByogModelsTab() {
 
       {/* LoRA Dialog */}
       <Dialog open={loraModalOpen} onOpenChange={setLoraModalOpen}>
-        <DialogContent className='max-w-xl'>
+        <DialogContent className='!max-w-xl sm:!max-w-xl'>
           <DialogHeader>
             <DialogTitle>
               {t('byog.admin.add_lora_for', { modelId: selectedBaseModelId })}
@@ -951,7 +962,7 @@ export function ByogModelsTab() {
 
       {/* Hugging Face Model Explorer Modal (Item 21 & Upgraded UI) */}
       <Dialog open={hfModalOpen} onOpenChange={setHfModalOpen}>
-        <DialogContent className='max-w-[1400px] w-[96vw] h-[90vh] flex flex-col p-6 overflow-hidden'>
+        <DialogContent className='!max-w-[1400px] !w-[96vw] sm:!max-w-[1400px] sm:!w-[96vw] !h-[90vh] sm:!h-[90vh] flex flex-col p-6 overflow-hidden'>
           <DialogHeader className='pb-3 border-b'>
             <DialogTitle className='flex items-center gap-2 text-xl font-bold'>
               <Search className='h-5 w-5 text-primary' />

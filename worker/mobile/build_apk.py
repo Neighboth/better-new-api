@@ -976,13 +976,8 @@ html_content = f'''<!DOCTYPE html>
           permissionsCompleted = Boolean(p.notifications && p.battery);
           const btnCont = document.getElementById('btn-perm-continue');
           if (btnCont) {{
-            if (permissionsCompleted) {{
-              btnCont.disabled = false;
-              btnCont.style.opacity = '1';
-            }} else {{
-              btnCont.disabled = true;
-              btnCont.style.opacity = '0.5';
-            }}
+            btnCont.disabled = false;
+            btnCont.style.opacity = permissionsCompleted ? '1' : '0.85';
           }}
 
           if (!p.notifications || !p.battery) {{
@@ -1079,8 +1074,22 @@ html_content = f'''<!DOCTYPE html>
     }};
 
     function proceedToPairing() {{
+      const isTr = (navigator.language || 'en').toLowerCase().startsWith('tr');
+      if (window.AndroidBridge && window.AndroidBridge.getPermissionStatus) {{
+        try {{
+          const p = JSON.parse(window.AndroidBridge.getPermissionStatus());
+          if (!p.notifications) {{
+            showToast(isTr ? "Bildirim izni zorunludur. Lütfen önce izin verin." : "Notification permission is required. Please grant it first.");
+            return;
+          }}
+          if (!p.battery) {{
+            showToast(isTr ? "Pil optimizasyonu muafiyeti zorunludur. Lütfen muafiyet verin." : "Battery optimization exemption is required. Please grant it first.");
+            return;
+          }}
+        }} catch(e) {{}}
+      }}
       if (!permissionsCompleted) {{
-        showToast("Lütfen önce tüm izinleri (Bildirim, Pil ve Otomatik Başlatma) tamamlayınız.");
+        showToast(isTr ? "Bildirim ve Pil optimizasyonu izinleri zorunludur." : "Notification and battery optimization permissions are required.");
         return;
       }}
       if (window.AndroidBridge && window.AndroidBridge.completeOnboarding) {{
@@ -1966,10 +1975,7 @@ public class MainActivity extends Activity {
         if (!nodeId.isEmpty()) {
             url += "&node=" + Uri.encode(nodeId);
         }
-        boolean onboardingDone = WorkerService.boolPref(sp, "onboarding_done", false);
-        if (!onboardingDone) {
-            url += "&onboarding=1";
-        }
+        // Onboarding is managed reactively via bridge.isOnboardingDone() and bridge.getPermissionStatus()
         return url;
     }
 
@@ -2858,10 +2864,12 @@ public class MainActivity extends Activity {
                     notif = checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
                 }
 
-                boolean battery = true;
+                boolean battery = false;
                 PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
                 if (pm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     battery = pm.isIgnoringBatteryOptimizations(getPackageName());
+                } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+                    battery = true;
                 }
 
                 boolean bgAllowed = true;
@@ -3257,6 +3265,7 @@ public class MainActivity extends Activity {
                                   .putString("favicon", returnedFavicon)
                                   .putString("assigned_model", assignedModel)
                                   .putBoolean("is_paired", true)
+                                  .putBoolean("onboarding_done", true)
                                   .putInt("battery_percent", percent)
                                   .putFloat("battery_temp", temp);
 
@@ -3297,17 +3306,7 @@ public class MainActivity extends Activity {
 
                                         Toast.makeText(MainActivity.this, "Cihaz başarıyla bağlandı", Toast.LENGTH_SHORT).show();
 
-                                        // The page of the client of the installation is on the
-                                        // site, it uses the theme of the site.
-                                        try {
-                                            if (webView != null) {
-                                                String curUrl = webView.getUrl();
-                                                String targetUrl = clientPageUrl();
-                                                if (curUrl == null || curUrl.startsWith("file://")) {
-                                                    webView.loadUrl(targetUrl);
-                                                }
-                                            }
-                                        } catch (Throwable ignored) {}
+                                        // Web UI is already mounted, notify it directly without destroying/reloading the WebView document
 
                                         JSONObject state = new JSONObject();
                                         try {

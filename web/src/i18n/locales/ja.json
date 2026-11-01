@@ -6903,5 +6903,22 @@
   "byog.admin.preview": "プレビュー",
   "byog.admin.remove_image": "画像を削除",
   "byog.notification_permission_required": "続行するには通知権限が必要です。権限を許可してください。",
-  "byog.battery_permission_required": "続行するにはバッテリー最適化の除外が必要です。権限を許可してください。"
+  "byog.battery_permission_required": "続行するにはバッテリー最適化の除外が必要です。権限を許可してください。",
+  "mail.configure_dkim": "DKIMを設定",
+  "mail.dkim_saved": "DKIM設定が正常に保存されました",
+  "mail.dkim_modal_title": "Poste.io / カスタムDKIM設定",
+  "mail.dkim_modal_desc": "Poste.ioセルフホストメールを使用している場合は、「Poste.io検証」をクリックするか、管理画面のDKIMセレクタ（例: s20231025123）を入力してください。",
+  "mail.mark_self_hosted": "Poste.io検証",
+  "byog.admin.hf_search_failed": "Hugging Faceモデルを検索できませんでした",
+  "byog.admin.hf_files_failed": "リポジトリファイルの一覧を取得できませんでした",
+  "byog.admin.hf_file_imported": "{{filename}} の詳細がフォームに入力されました！",
+  "byog.admin.reward_invalid_image": "有効な画像ファイルを選択してください (PNG, JPG, WEBP, SVG, GIF, AVIF)",
+  "byog.admin.type_llm": "LLM（チャット / テキスト）",
+  "byog.admin.type_embedding": "埋め込み（ベクトル）",
+  "byog.admin.type_reranker": "リランカー (Reranker)",
+  "byog.admin.type_vision": "画像認識・マルチモーダル",
+  "byog.admin.type_image_gen": "画像生成",
+  "byog.admin.type_video_gen": "動画生成",
+  "byog.admin.type_video": "動画（テキストから動画）",
+  "byog.admin.type_audio": "音声 / スピーチ"
 }

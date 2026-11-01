@@ -6903,5 +6903,22 @@
   "byog.admin.preview": "Aperçu",
   "byog.admin.remove_image": "Supprimer l'image",
   "byog.notification_permission_required": "L'autorisation de notification est requise pour continuer. Veuillez l'accorder.",
-  "byog.battery_permission_required": "L'exemption d'optimisation de batterie est requise pour continuer. Veuillez l'accorder."
+  "byog.battery_permission_required": "L'exemption d'optimisation de batterie est requise pour continuer. Veuillez l'accorder.",
+  "mail.configure_dkim": "Configurer DKIM",
+  "mail.dkim_saved": "Paramètres DKIM enregistrés avec succès",
+  "mail.dkim_modal_title": "Configuration DKIM Poste.io / personnalisée",
+  "mail.dkim_modal_desc": "Si vous utilisez le serveur de messagerie auto-hébergé Poste.io, cliquez sur « Vérifier Poste.io » ou saisissez votre sélecteur DKIM (ex. s20231025123).",
+  "mail.mark_self_hosted": "Vérifier Poste.io",
+  "byog.admin.hf_search_failed": "Échec de la recherche de modèles Hugging Face",
+  "byog.admin.hf_files_failed": "Impossible de lister les fichiers du dépôt",
+  "byog.admin.hf_file_imported": "Détails de {{filename}} importés dans le formulaire !",
+  "byog.admin.reward_invalid_image": "Veuillez sélectionner un fichier image valide (PNG, JPG, WEBP, SVG, GIF, AVIF)",
+  "byog.admin.type_llm": "LLM (Discussion / Texte)",
+  "byog.admin.type_embedding": "Plongement (Vecteur)",
+  "byog.admin.type_reranker": "Reclasseur (Reranker)",
+  "byog.admin.type_vision": "Vision (Multimodal)",
+  "byog.admin.type_image_gen": "Génération d'images",
+  "byog.admin.type_video_gen": "Génération de vidéo",
+  "byog.admin.type_video": "Vidéo (Texte vers vidéo)",
+  "byog.admin.type_audio": "Audio / Parole"
 }

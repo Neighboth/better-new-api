@@ -234,10 +234,12 @@ public class WorkerService extends Service {
         } catch (Exception ignored) {}
 
         File actualFile = new File(getFilesDir(), currentAssignedModel + ".gguf");
-        if (!actualFile.exists() || !isValidGGUFFile(actualFile, currentAssignedModel)) {
-            File sd = new File("/sdcard", currentAssignedModel + ".gguf");
-            if (sd.exists() && isValidGGUFFile(sd, currentAssignedModel)) actualFile = sd;
-        }
+        try {
+            if (!actualFile.exists() || !isValidGGUFFile(actualFile, currentAssignedModel)) {
+                File sd = new File("/sdcard", currentAssignedModel + ".gguf");
+                if (sd.exists() && isValidGGUFFile(sd, currentAssignedModel)) actualFile = sd;
+            }
+        } catch (Throwable ignored) {}
         boolean modelFileOnDisk = isValidGGUFFile(actualFile, currentAssignedModel);
         if (!modelFileOnDisk) {
             installedModelsList.remove(currentAssignedModel);
@@ -777,10 +779,12 @@ public class WorkerService extends Service {
                 checkAndTriggerModelDownloads();
             } else {
                 File mf = new File(getFilesDir(), currentAssignedModel + ".gguf");
-                if (!mf.exists() || !isValidGGUFFile(mf, currentAssignedModel)) {
-                    File sd = new File("/sdcard", currentAssignedModel + ".gguf");
-                    if (sd.exists() && isValidGGUFFile(sd, currentAssignedModel)) mf = sd;
-                }
+                try {
+                    if (!mf.exists() || !isValidGGUFFile(mf, currentAssignedModel)) {
+                        File sd = new File("/sdcard", currentAssignedModel + ".gguf");
+                        if (sd.exists() && isValidGGUFFile(sd, currentAssignedModel)) mf = sd;
+                    }
+                } catch (Throwable ignored) {}
                 if (isValidGGUFFile(mf, currentAssignedModel)) {
                     currentModelStatus = "ready";
                     if (!activeVramModel.isEmpty()) {
@@ -1479,10 +1483,12 @@ public class WorkerService extends Service {
                     List<String> validInstalled = new ArrayList<>();
                     for (String m : installedModelsList) {
                         File mf = new File(getFilesDir(), m + ".gguf");
-                        if (!mf.exists() || !isValidGGUFFile(mf, m)) {
-                            File sd = new File("/sdcard", m + ".gguf");
-                            if (sd.exists() && isValidGGUFFile(sd, m)) mf = sd;
-                        }
+                        try {
+                            if (!mf.exists() || !isValidGGUFFile(mf, m)) {
+                                File sd = new File("/sdcard", m + ".gguf");
+                                if (sd.exists() && isValidGGUFFile(sd, m)) mf = sd;
+                            }
+                        } catch (Throwable ignored) {}
                         if (isValidGGUFFile(mf, m)) {
                             validInstalled.add(m);
                         }

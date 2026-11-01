@@ -6903,5 +6903,22 @@
   "byog.admin.preview": "预览",
   "byog.admin.remove_image": "移除图片",
   "byog.notification_permission_required": "需要通知权限才能继续。请授予该权限。",
-  "byog.battery_permission_required": "需要电池优化豁免才能继续。请授予该权限。"
+  "byog.battery_permission_required": "需要电池优化豁免才能继续。请授予该权限。",
+  "mail.configure_dkim": "配置 DKIM",
+  "mail.dkim_saved": "DKIM 设置已成功保存",
+  "mail.dkim_modal_title": "Poste.io / 自定义 DKIM 配置",
+  "mail.dkim_modal_desc": "如果使用 Poste.io 自建邮件服务器，请点击“Poste.io 验证”或输入 Poste.io 后台显示的 DKIM 选择器（如 s20231025123）。",
+  "mail.mark_self_hosted": "Poste.io 验证",
+  "byog.admin.hf_search_failed": "无法搜索 Hugging Face 模型",
+  "byog.admin.hf_files_failed": "无法列出仓库文件",
+  "byog.admin.hf_file_imported": "{{filename}} 详细信息已导入表单！",
+  "byog.admin.reward_invalid_image": "请选择有效的图像文件 (PNG, JPG, WEBP, SVG, GIF, AVIF)",
+  "byog.admin.type_llm": "大语言模型 (对话 / 文本)",
+  "byog.admin.type_embedding": "嵌入模型 (向量)",
+  "byog.admin.type_reranker": "重排序模型 (Reranker)",
+  "byog.admin.type_vision": "视觉多模态",
+  "byog.admin.type_image_gen": "图像生成",
+  "byog.admin.type_video_gen": "视频生成",
+  "byog.admin.type_video": "视频 (文本到视频)",
+  "byog.admin.type_audio": "音频 / 语音"
 }
