@@ -322,10 +322,14 @@ export async function getMailAudience(ids: number[] = []) {
   return res.data
 }
 
-export async function searchMailRecipients(keyword: string, limit = 50) {
+export async function searchMailRecipients(
+  keyword: string,
+  limit = 50,
+  page = 1
+) {
   const res = await api.get<
     ApiResponse<{ items: MailRecipientOption[]; count: number }>
-  >('/api/user/mail/recipients', { params: { keyword, limit } })
+  >('/api/user/mail/recipients', { params: { keyword, limit, page } })
   return res.data
 }
 

@@ -1,9 +1,11 @@
 package mail
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"golang.org/x/net/publicsuffix"
@@ -272,6 +274,45 @@ var (
 	lookupMXRecords = net.LookupMX
 )
 
+// queryTXTRecord queries TXT records with automatic multi-resolver fallback:
+// first calls lookupTXT (which tests swap for unit mocks), and if unsuccessful,
+// queries Cloudflare (1.1.1.1) and Google (8.8.8.8) directly via UDP to bypass
+// local router/ISP DNS drops on underscore records (_domainkey).
+func queryTXTRecord(fqdn string) ([]string, error) {
+	records, err := lookupTXT(fqdn)
+	if err == nil && len(records) > 0 {
+		return records, nil
+	}
+
+	cfResolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 3 * time.Second}
+			return d.DialContext(ctx, "udp", "1.1.1.1:53")
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if cfRecords, cfErr := cfResolver.LookupTXT(ctx, fqdn); cfErr == nil && len(cfRecords) > 0 {
+		return cfRecords, nil
+	}
+
+	googleResolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 3 * time.Second}
+			return d.DialContext(ctx, "udp", "8.8.8.8:53")
+		},
+	}
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel2()
+	if gRecords, gErr := googleResolver.LookupTXT(ctx2, fqdn); gErr == nil && len(gRecords) > 0 {
+		return gRecords, nil
+	}
+
+	return records, err
+}
+
 // dkimRecord reports whether one selector of the domain publishes a key.
 //
 // A TXT record of a DKIM key carries the public key in `p=`. The record is read
@@ -279,27 +320,33 @@ var (
 // publish the record without the version tag and the key itself is what the
 // receivers verify. A revoked key (`p=` with an empty value) is not a key.
 func dkimRecord(selector string, domain string) bool {
-	records, err := lookupTXT(selector + "._domainkey." + domain)
+	records, err := queryTXTRecord(selector + "._domainkey." + domain)
 	if err != nil {
 		return false
 	}
 	for _, record := range records {
 		lowered := strings.ToLower(record)
 		clean := strings.ReplaceAll(lowered, " ", "")
+		clean = strings.ReplaceAll(clean, "\t", "")
+		clean = strings.ReplaceAll(clean, "\r", "")
+		clean = strings.ReplaceAll(clean, "\n", "")
 		clean = strings.ReplaceAll(clean, "\"", "")
 		clean = strings.ReplaceAll(clean, "'", "")
 		if !strings.Contains(clean, "p=") {
 			continue
 		}
-		for _, part := range strings.Split(clean, ";") {
-			part = strings.TrimSpace(part)
-			if !strings.HasPrefix(part, "p=") {
-				continue
-			}
-			val := strings.TrimSpace(strings.TrimPrefix(part, "p="))
-			if len(val) >= 8 {
-				return true
-			}
+		// Extract value after p= until next semicolon or end
+		idx := strings.Index(clean, "p=")
+		if idx == -1 {
+			continue
+		}
+		val := clean[idx+2:]
+		if semi := strings.Index(val, ";"); semi != -1 {
+			val = val[:semi]
+		}
+		val = strings.TrimSpace(val)
+		if len(val) >= 8 {
+			return true
 		}
 	}
 	return false

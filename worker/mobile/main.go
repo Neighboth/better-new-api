@@ -402,7 +402,7 @@ func handleInference(requestID string, payload map[string]interface{}) {
 			}
 		}
 	}
-	maxTokens := 512
+	maxTokens := -1
 	if value, ok := payload["max_tokens"].(float64); ok && value > 0 {
 		maxTokens = int(value)
 	}

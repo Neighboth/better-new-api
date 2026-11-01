@@ -283,8 +283,15 @@ export function ByogRulesTab() {
                         </span>
                       </TableCell>
                       <TableCell className='text-muted-foreground text-xs'>
-                        RAM: {(rule.min_physical_ram_mb / 1024).toFixed(0)} GB |
-                        VRAM: {(rule.min_vram_mb / 1024).toFixed(0)} GB
+                        <div>
+                          RAM: {(rule.min_physical_ram_mb / 1024).toFixed(0)} GB |
+                          VRAM: {(rule.min_vram_mb / 1024).toFixed(0)} GB
+                        </div>
+                        {rule.kv_cache_type && rule.kv_cache_type !== 'off' ? (
+                          <Badge variant='outline' className='text-[10px] mt-1 border-primary/40 text-primary'>
+                            Cache: {rule.kv_cache_type}
+                          </Badge>
+                        ) : null}
                       </TableCell>
                       <TableCell>
                         <div className='flex max-w-[280px] flex-wrap gap-1'>
@@ -499,6 +506,37 @@ export function ByogRulesTab() {
                     </SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className='space-y-2'>
+                <Label>KV Cache Quantization (K/V Tipi)</Label>
+                <Select
+                  value={editingRule.kv_cache_type || 'off'}
+                  onValueChange={(val) =>
+                    setEditingRule({
+                      ...editingRule,
+                      kv_cache_type: val || 'off',
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='off'>
+                      Kapalı (Varsayılan - Tam Hassasiyet f16)
+                    </SelectItem>
+                    <SelectItem value='q8_0'>
+                      q8_0 (8-bit Quantized KV Cache)
+                    </SelectItem>
+                    <SelectItem value='q4_0'>
+                      q4_0 (4-bit Quantized KV Cache - Yüksek Hız)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className='text-muted-foreground text-[11px]'>
+                  Donanıma göre KV cache quantize edilerek bellekten tasarruf sağlanır.
+                </span>
               </div>
 
               <div className='space-y-2 md:col-span-2'>

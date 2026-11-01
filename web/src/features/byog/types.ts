@@ -185,6 +185,7 @@ export interface ByogAssignmentRule {
   vector_instruction_set: string
   target_models: string
   target_loras: string
+  kv_cache_type?: string
   priority: number
   is_enabled: boolean
   created_at: number

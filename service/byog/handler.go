@@ -152,13 +152,7 @@ func TryHandleByogRelay(c *gin.Context, requestedModel string) bool {
 	}
 
 	// 6. Construct inference payload
-	maxTokens := 4096
-	if byogModel != nil && byogModel.ContextLength > 0 {
-		maxTokens = byogModel.ContextLength
-		if maxTokens > 8192 {
-			maxTokens = 8192
-		}
-	}
+	maxTokens := -1
 	if mt, ok := reqMap["max_tokens"].(float64); ok && mt > 0 {
 		maxTokens = int(mt)
 	}

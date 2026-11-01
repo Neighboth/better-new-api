@@ -39,9 +39,11 @@ const llamaReleaseTag = "b5231"
 
 // Runtime holds the paths of the llama.cpp binaries.
 type Runtime struct {
-	Dir        string
-	ServerPath string
-	CliPath    string
+	Dir            string
+	ServerPath     string
+	CliPath        string
+	AllocatedCores int
+	KvCacheType    string
 }
 
 // Server is a running llama.cpp server for a single model.
@@ -295,6 +297,12 @@ func (r *Runtime) StartServer(modelPath string, storageDir string) (*Server, err
 	if threads > 1 {
 		threads-- // Leave 1 core for the OS and UI responsiveness
 	}
+	if r.AllocatedCores > 0 {
+		threads = r.AllocatedCores
+	}
+	if threads < 1 {
+		threads = 4
+	}
 
 	args := []string{
 		"-m", modelPath,
@@ -303,12 +311,17 @@ func (r *Runtime) StartServer(modelPath string, storageDir string) (*Server, err
 		"-c", ctxSize,
 		"-b", batchSize,
 		"-t", strconv.Itoa(threads),
+		"--flash-attn",
+		"--chunks", "1024",
 		"--no-warmup",
 		"-np", "1",
 		"--log-disable",
 	}
 	if !useMmap {
 		args = append(args, "--no-mmap")
+	}
+	if r.KvCacheType != "" && r.KvCacheType != "off" {
+		args = append(args, "--cache-type-k", r.KvCacheType, "--cache-type-v", r.KvCacheType)
 	}
 	logFile, _ := os.OpenFile(filepath.Join(storageDir, "llama_server.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	cmd := exec.Command(r.ServerPath, args...)
@@ -408,7 +421,7 @@ func StopServers() {
 type llamaChatRequest struct {
 	Model         string             `json:"model"`
 	Messages      []llamaChatMessage `json:"messages"`
-	MaxTokens     int                `json:"max_tokens"`
+	MaxTokens     int                `json:"max_tokens,omitempty"`
 	Temperature   float64            `json:"temperature"`
 	Stream        bool               `json:"stream"`
 	StreamOptions map[string]bool    `json:"stream_options,omitempty"`
@@ -458,10 +471,15 @@ func (r *Runtime) Infer(ctx context.Context, modelPath string, storageDir string
 		return nil, err
 	}
 
+	reqMaxTokens := 0
+	if maxTokens > 0 {
+		reqMaxTokens = maxTokens
+	}
+
 	payload := llamaChatRequest{
 		Model:       modelPath,
 		Messages:    []llamaChatMessage{{Role: "user", Content: prompt}},
-		MaxTokens:   maxTokens,
+		MaxTokens:   reqMaxTokens,
 		Temperature: temperature,
 		Stream:      true,
 		StreamOptions: map[string]bool{

@@ -75,6 +75,9 @@ func (s *Scheduler) EvaluateNodeModelAssignment(node *model.ByogNode) ([]string,
 				if !assignedModelSet[mId] {
 					assignedModelSet[mId] = true
 					assignedList = append(assignedList, mId)
+					if rule.KvCacheType != "" {
+						node.KvCacheType = rule.KvCacheType
+					}
 				}
 			}
 		}

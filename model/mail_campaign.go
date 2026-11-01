@@ -302,9 +302,12 @@ func CountSelectedMailRecipients(ids []int, promotional bool) (int, error) {
 //
 // The search runs on the server: an installation with a hundred thousand users
 // does not send its users to the browser of the administrator.
-func SearchMailRecipients(keyword string, limit int) ([]MailRecipient, error) {
+func SearchMailRecipients(keyword string, limit int, offset int) ([]MailRecipient, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
 	}
 	query := mailRecipientQuery()
 	keyword = strings.TrimSpace(keyword)
@@ -313,7 +316,7 @@ func SearchMailRecipients(keyword string, limit int) ([]MailRecipient, error) {
 		query = query.Where("username LIKE ? OR display_name LIKE ? OR email LIKE ?", like, like, like)
 	}
 	var rows []User
-	if err := query.Order("id ASC").Limit(limit).Find(&rows).Error; err != nil {
+	if err := query.Order("id ASC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	recipients := make([]MailRecipient, 0, len(rows))

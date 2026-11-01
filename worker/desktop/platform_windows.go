@@ -129,13 +129,113 @@ type displayAdapter struct {
 	VramMB int
 }
 
+var (
+	moddxgi                = syscall.NewLazyDLL("dxgi.dll")
+	procCreateDXGIFactory1 = moddxgi.NewProc("CreateDXGIFactory1")
+)
+
+var iidIDXGIFactory1 = syscall.GUID{
+	Data1: 0x770aae78,
+	Data2: 0xf26f,
+	Data3: 0x4dba,
+	Data4: [8]byte{0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87},
+}
+
+type dxgiAdapterDesc1 struct {
+	Description           [128]uint16
+	VendorId              uint32
+	DeviceId              uint32
+	SubSysId              uint32
+	Revision              uint32
+	DedicatedVideoMemory  uintptr
+	DedicatedSystemMemory uintptr
+	SharedSystemMemory    uintptr
+	AdapterLuidLow        uint32
+	AdapterLuidHigh       int32
+	Flags                 uint32
+}
+
+// displayAdaptersDXGI directly queries DirectX Graphics Infrastructure (DXGI)
+// to inspect physical dedicated hardware VRAM vs shared system memory (UMA)
+// across all GPU manufacturers without fragile substring or vendor name matching.
+func displayAdaptersDXGI() ([]displayAdapter, bool) {
+	if procCreateDXGIFactory1.Find() != nil {
+		return nil, false
+	}
+
+	var factory uintptr
+	hr, _, _ := procCreateDXGIFactory1.Call(
+		uintptr(unsafe.Pointer(&iidIDXGIFactory1)),
+		uintptr(unsafe.Pointer(&factory)),
+	)
+	if hr != 0 || factory == 0 {
+		return nil, false
+	}
+	factoryVtbl := *(**[20]uintptr)(unsafe.Pointer(factory))
+	defer syscall.SyscallN(factoryVtbl[2], factory)
+
+	var adapters []displayAdapter
+	for i := uint32(0); i < 16; i++ {
+		var adapter uintptr
+		hr, _, _ = syscall.SyscallN(
+			factoryVtbl[12], // EnumAdapters1
+			factory,
+			uintptr(i),
+			uintptr(unsafe.Pointer(&adapter)),
+		)
+		if hr != 0 || adapter == 0 {
+			break
+		}
+
+		adapterVtbl := *(**[20]uintptr)(unsafe.Pointer(adapter))
+		var desc dxgiAdapterDesc1
+		hr, _, _ = syscall.SyscallN(
+			adapterVtbl[10], // GetDesc1
+			adapter,
+			uintptr(unsafe.Pointer(&desc)),
+		)
+		syscall.SyscallN(adapterVtbl[2], adapter)
+
+		if hr != 0 {
+			continue
+		}
+
+		// DXGI_ADAPTER_FLAG_SOFTWARE (2) -> skip software/WARP renderers
+		if desc.Flags&2 != 0 {
+			continue
+		}
+
+		name := syscall.UTF16ToString(desc.Description[:])
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+
+		// Direct Hardware VRAM Measurement:
+		// Dedicated discrete GPUs have their own high-speed VRAM (>= 1024 MB).
+		// Integrated / shared GPUs (UMA) have 0 or <= 512 MB BIOS aperture in DedicatedVideoMemory,
+		// and use SharedSystemMemory. If DedicatedVideoMemory <= 512MB, VramMB is locked to 0.
+		vramMB := 0
+		if desc.DedicatedVideoMemory > 512*1024*1024 {
+			vramMB = int(desc.DedicatedVideoMemory / (1024 * 1024))
+		}
+
+		adapters = append(adapters, displayAdapter{
+			Name:   name,
+			VramMB: vramMB,
+		})
+	}
+
+	return adapters, len(adapters) > 0
+}
+
 // displayAdapters reads the graphics adapters of the computer.
-//
-// The size of the memory of an adapter is read from the key of the driver: the
-// QWORD value carries the whole size, the DWORD value of the old drivers is
-// limited to four gigabytes. An adapter without a driver is skipped, a basic
-// display adapter is not a card that can run a model.
+// It prioritizes DXGI direct hardware measurement, falling back to registry if unavailable.
 func displayAdapters() []displayAdapter {
+	if dxgiList, ok := displayAdaptersDXGI(); ok && len(dxgiList) > 0 {
+		return dxgiList
+	}
+
 	var adapters []displayAdapter
 	for index := 0; index < 16; index++ {
 		key, err := registry.OpenKey(registry.LOCAL_MACHINE, displayAdapterClass+fmt4(index), registry.QUERY_VALUE)
@@ -155,13 +255,12 @@ func displayAdapters() []displayAdapter {
 			continue
 		}
 		lower := strings.ToLower(name)
-		if strings.Contains(lower, "microsoft basic display") || strings.Contains(lower, "microsoft remote display") ||
+		if strings.Contains(lower, "basic display") || strings.Contains(lower, "remote display") ||
 			strings.Contains(lower, "parsec") || strings.Contains(lower, "oray") {
 			continue
 		}
-		if strings.Contains(lower, "iris") || strings.Contains(lower, "intel(r) uhd") || strings.Contains(lower, "intel(r) hd") ||
-			strings.Contains(lower, "intel graphics") || strings.Contains(lower, "radeon(tm) graphics") {
-			// Integrated GPU / UMA: shares system RAM, dedicated VRAM is locked to 0
+		// If reported memory is <= 512MB, it is an integrated aperture, not dedicated discrete VRAM
+		if vram <= 512 {
 			vram = 0
 		}
 		adapters = append(adapters, displayAdapter{Name: name, VramMB: vram})

@@ -584,164 +584,66 @@ export function ClientPage() {
     }
   }, [allocatedInitialized, state, ramGB, vramGB, cores, diskGB, hotStart])
 
-  // Save allocated resource sliders to backend & local bridge
-  const saveResourceAllocations = useCallback(async () => {
-    setSavingResources(true)
-    setSaveSuccessMsg('')
-    try {
-      if (localApi) {
-        await fetch(`${localApi}/settings?token=${localToken}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            allocated_ram_gb: ramGB,
-            allocated_vram_gb: vramGB,
-            allocated_cores: cores,
-            allocated_disk_gb: diskGB,
-            hot_start_enabled: hotStart,
-            disks: Object.entries(diskAllocations).map(([drive, allocated]) => ({
-              drive,
-              allocated_gb: allocated,
-            })),
-          }),
-        }).catch(() => {})
-      }
-      const targetNodeId = nodeId || state?.node_id
-      if (targetNodeId) {
-        const resp = await fetch('/api/v1/worker/resources', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            node_id: targetNodeId,
-            allocated_ram_gb: ramGB,
-            allocated_vram_gb: vramGB,
-            allocated_cores: cores,
-            allocated_disk_gb: diskGB,
-            hot_start_enabled: hotStart,
-            disks: Object.entries(diskAllocations).map(([drive, allocated]) => ({
-              drive,
-              allocated_gb: allocated,
-            })),
-          }),
-        })
-        const payload = await resp.json()
-        if (payload.success) {
-          setSaveSuccessMsg(t('byog.resources_saved', 'Kaynak ayarları başarıyla kaydedildi'))
-          setTimeout(() => setSaveSuccessMsg(''), 4000)
-          void loadState()
-        } else {
-          setMessage(payload.message || t('common.error', 'Hata oluştu'))
-        }
-      }
-    } catch (e) {
-      setMessage(String(e))
-    } finally {
-      setSavingResources(false)
-    }
-  }, [cores, diskAllocations, diskGB, hotStart, loadState, localApi, localToken, nodeId, ramGB, state?.node_id, t, vramGB])
-
-  const handleVramChange = (val: number) => {
-    lastUserEditTimeRef.current = Date.now()
-    setVramGB(val)
-  }
-  const handleRamChange = (val: number) => {
-    lastUserEditTimeRef.current = Date.now()
-    setRamGB(val)
-  }
-  const handleCoresChange = (val: number) => {
-    lastUserEditTimeRef.current = Date.now()
-    setCores(val)
-  }
-  const handleDiskChange = (val: number) => {
-    lastUserEditTimeRef.current = Date.now()
-    setDiskGB(val)
-  }
-  const handleDiskAllocationsChange = (val: Record<string, number>) => {
-    lastUserEditTimeRef.current = Date.now()
-    setDiskAllocations(val)
-  }
-  const handleHotStartChange = (val: boolean) => {
-    lastUserEditTimeRef.current = Date.now()
-    setHotStart(val)
-  }
-
-  // Sync language changes across app, localStorage, and uninstaller registry
-  useEffect(() => {
-    const onLangChange = (lng: string) => {
-      window.localStorage.setItem('i18nextLng', lng)
-      if (localApi) {
-        fetch(`${localApi}/settings?token=${localToken}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ language: lng }),
-        }).catch(() => {})
-      }
-    }
-    i18n.on('languageChanged', onLangChange)
-    return () => {
-      i18n.off('languageChanged', onLangChange)
-    }
-  }, [i18n, localApi, localToken])
-
-  useEffect(() => {
-    if (state?.language && state.language !== i18n.language) {
-      i18n.changeLanguage(state.language)
-    }
-  }, [state?.language, i18n])
-
+  // Load client state from Android bridge, local agent, or coordinator
   const loadState = useCallback(async () => {
     if (bridge) {
       try {
         const raw = bridge.getInitialState()
-        const initial = JSON.parse(raw) as Record<string, unknown>
-        if (typeof initial.server_url === 'string' && initial.server_url) {
-          setServerUrl(initial.server_url)
+        if (raw) {
+          const initial = JSON.parse(raw) as Record<string, unknown>
+          if (typeof initial.server_url === 'string' && initial.server_url) {
+            setServerUrl(initial.server_url)
+          }
+          if (typeof initial.node_id === 'string' && initial.node_id) {
+            setNodeId(initial.node_id)
+          }
+          const isPaired = Boolean(initial.is_paired && initial.node_id)
+          setState((prev) => ({
+            ...prev,
+            node_id: String(initial.node_id ?? ''),
+            device_name: String(initial.device_name ?? initial.app_name ?? ''),
+            system_name: String(initial.system_name ?? ''),
+            app_name: String(initial.app_name ?? ''),
+            status: isPaired ? 'online' : 'offline',
+            paired: isPaired,
+            model_status: String(initial.model_status ?? ''),
+            download_status: String(initial.model_status ?? ''),
+            download_progress: Number(initial.download_progress ?? 0),
+            current_tps: Number(initial.current_tps ?? 0),
+            models: String(initial.assigned_model ?? ''),
+            assigned_model: String(initial.assigned_model ?? ''),
+            disks: initial.disks as WorkerState['disks'],
+            physical_ram_mb: initial.physical_ram_mb as number,
+            swap_ram_mb: initial.swap_ram_mb as number,
+            cpu_cores: initial.cpu_cores as number,
+            cpu_model: initial.cpu_model as string,
+            gpu_model: initial.gpu_model as string,
+            vram_mb: initial.vram_mb as number,
+            shared_vram_mb: initial.shared_vram_mb as number,
+            bandwidth_down_mbps: initial.bandwidth_down_mbps as number,
+            bandwidth_up_mbps: initial.bandwidth_up_mbps as number,
+            ping_ms: initial.ping_ms as number,
+            download_model_id: initial.download_model_id as string,
+            download_speed_bps: initial.download_speed_bps as number,
+            eta_seconds: initial.eta_seconds as number,
+            download_queue: initial.download_queue as string[],
+            allocated_disk_gb: initial.allocated_disk_gb as number,
+            hot_start_enabled: initial.hot_start_enabled as boolean,
+            favicon: initial.favicon as string,
+            favicon_base64: initial.favicon_base64 as string,
+          }))
         }
-        if (typeof initial.node_id === 'string' && initial.node_id) {
-          setNodeId(initial.node_id)
-        }
-        const isPaired = Boolean(initial.is_paired && initial.node_id)
-        setState((prev) => ({
-          ...prev,
-          node_id: String(initial.node_id ?? ''),
-          device_name: String(initial.device_name ?? initial.app_name ?? ''),
-          system_name: String(initial.system_name ?? ''),
-          app_name: String(initial.app_name ?? ''),
-          status: isPaired ? 'online' : 'offline',
-          paired: isPaired,
-          model_status: String(initial.model_status ?? ''),
-          download_status: String(initial.model_status ?? ''),
-          download_progress: Number(initial.download_progress ?? 0),
-          current_tps: Number(initial.current_tps ?? 0),
-          models: String(initial.assigned_model ?? ''),
-          assigned_model: String(initial.assigned_model ?? ''),
-          disks: initial.disks as WorkerState['disks'],
-          physical_ram_mb: initial.physical_ram_mb as number,
-          swap_ram_mb: initial.swap_ram_mb as number,
-          cpu_cores: initial.cpu_cores as number,
-          cpu_model: initial.cpu_model as string,
-          gpu_model: initial.gpu_model as string,
-          vram_mb: initial.vram_mb as number,
-          shared_vram_mb: initial.shared_vram_mb as number,
-          bandwidth_down_mbps: initial.bandwidth_down_mbps as number,
-          bandwidth_up_mbps: initial.bandwidth_up_mbps as number,
-          ping_ms: initial.ping_ms as number,
-          download_model_id: initial.download_model_id as string,
-          download_speed_bps: initial.download_speed_bps as number,
-          eta_seconds: initial.eta_seconds as number,
-          download_queue: initial.download_queue as string[],
-          allocated_disk_gb: initial.allocated_disk_gb as number,
-          hot_start_enabled: initial.hot_start_enabled as boolean,
-          favicon: initial.favicon as string,
-          favicon_base64: initial.favicon_base64 as string,
-        }))
       } catch {
         // bridge fallback
       }
       try {
         const raw = bridge.getPermissionStatus()
-        setPermissions(JSON.parse(raw) as PermissionState)
-        setOnboardingDone(bridge.isOnboardingDone())
+        if (raw) {
+          setPermissions(JSON.parse(raw) as PermissionState)
+        }
+        if (typeof bridge.isOnboardingDone === 'function') {
+          setOnboardingDone(bridge.isOnboardingDone())
+        }
       } catch {
         // ignore
       }
@@ -847,6 +749,113 @@ export function ClientPage() {
       // ignore
     }
   }, [bridge, localApi, localToken, nodeId, state?.node_id])
+
+  // Save allocated resource sliders to backend & local bridge
+  const saveResourceAllocations = useCallback(async () => {
+    setSavingResources(true)
+    setSaveSuccessMsg('')
+    try {
+      if (localApi) {
+        await fetch(`${localApi}/settings?token=${localToken}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            allocated_ram_gb: ramGB,
+            allocated_vram_gb: vramGB,
+            allocated_cores: cores,
+            allocated_disk_gb: diskGB,
+            hot_start_enabled: hotStart,
+            disks: Object.entries(diskAllocations).map(([drive, allocated]) => ({
+              drive,
+              allocated_gb: allocated,
+            })),
+          }),
+        }).catch(() => {})
+      }
+      const targetNodeId = nodeId || state?.node_id
+      if (targetNodeId) {
+        const resp = await fetch('/api/v1/worker/resources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            node_id: targetNodeId,
+            allocated_ram_gb: ramGB,
+            allocated_vram_gb: vramGB,
+            allocated_cores: cores,
+            allocated_disk_gb: diskGB,
+            hot_start_enabled: hotStart,
+            disks: Object.entries(diskAllocations).map(([drive, allocated]) => ({
+              drive,
+              allocated_gb: allocated,
+            })),
+          }),
+        })
+        const payload = await resp.json()
+        if (payload.success) {
+          setSaveSuccessMsg(t('byog.resources_saved', 'Kaynak ayarları başarıyla kaydedildi'))
+          setTimeout(() => setSaveSuccessMsg(''), 4000)
+          void loadState()
+        } else {
+          setMessage(payload.message || t('common.error', 'Hata oluştu'))
+        }
+      }
+    } catch (e) {
+      setMessage(String(e))
+    } finally {
+      setSavingResources(false)
+    }
+  }, [cores, diskAllocations, diskGB, hotStart, loadState, localApi, localToken, nodeId, ramGB, state?.node_id, t, vramGB])
+
+  const handleVramChange = (val: number) => {
+    lastUserEditTimeRef.current = Date.now()
+    setVramGB(val)
+  }
+  const handleRamChange = (val: number) => {
+    lastUserEditTimeRef.current = Date.now()
+    setRamGB(val)
+  }
+  const handleCoresChange = (val: number) => {
+    lastUserEditTimeRef.current = Date.now()
+    setCores(val)
+  }
+  const handleDiskChange = (val: number) => {
+    lastUserEditTimeRef.current = Date.now()
+    setDiskGB(val)
+  }
+  const handleDiskAllocationsChange = (val: Record<string, number>) => {
+    lastUserEditTimeRef.current = Date.now()
+    setDiskAllocations(val)
+  }
+  const handleHotStartChange = (val: boolean) => {
+    lastUserEditTimeRef.current = Date.now()
+    setHotStart(val)
+  }
+
+  // Sync language changes across app, localStorage, and uninstaller registry
+  useEffect(() => {
+    const onLangChange = (lng: string) => {
+      window.localStorage.setItem('i18nextLng', lng)
+      if (localApi) {
+        fetch(`${localApi}/settings?token=${localToken}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ language: lng }),
+        }).catch(() => {})
+      }
+    }
+    i18n.on('languageChanged', onLangChange)
+    return () => {
+      i18n.off('languageChanged', onLangChange)
+    }
+  }, [i18n, localApi, localToken])
+
+  useEffect(() => {
+    if (state?.language && state.language !== i18n.language) {
+      i18n.changeLanguage(state.language)
+    }
+  }, [state?.language, i18n])
+
+
 
   useEffect(() => {
     const target = window as unknown as Record<string, unknown>

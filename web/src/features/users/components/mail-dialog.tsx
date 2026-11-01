@@ -146,9 +146,13 @@ export function MailDialog({
   const searchQuery = useQuery({
     queryKey: ['mail-recipients', debouncedKeyword, page],
     enabled: open && !allUsers,
-    queryFn: () => searchMailRecipients(debouncedKeyword, PAGE_SIZE),
+    queryFn: () => searchMailRecipients(debouncedKeyword, PAGE_SIZE, page),
     staleTime: 30 * 1000,
   })
+
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedKeyword])
 
   const audienceQuery = useQuery({
     queryKey: ['mail-audience', allUsers ? 'all' : idsKey],
@@ -268,7 +272,7 @@ export function MailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-2xl'>
+      <DialogContent className='sm:max-w-2xl max-h-[88vh] overflow-y-auto overflow-x-hidden'>
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
             <Mail className='size-4' />

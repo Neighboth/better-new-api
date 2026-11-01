@@ -108,7 +108,13 @@ func SearchMailRecipients(c *gin.Context) {
 		// administrator selected and shows the users with their names.
 		recipients, err = model.MailRecipientsByIds(ids)
 	} else {
-		recipients, err = model.SearchMailRecipients(c.Query("keyword"), parseLimit(c.Query("limit")))
+		page, _ := strconv.Atoi(c.Query("page"))
+		if page < 1 {
+			page = 1
+		}
+		limit := parseLimit(c.Query("limit"))
+		offset := (page - 1) * limit
+		recipients, err = model.SearchMailRecipients(c.Query("keyword"), limit, offset)
 	}
 	if err != nil {
 		common.ApiError(c, err)

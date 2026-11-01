@@ -17,12 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
+  AlertCircle,
   ChevronDown,
   ChevronRight,
   Cpu,
   Download,
   HardDrive,
   HelpCircle,
+  Layers,
   Loader2,
   Lock,
   Search,
@@ -697,16 +699,6 @@ export function ByogModelsTab() {
                       {t('byog.admin.anti_cheat_logic_exam_title')} ({t('Optional')})
                     </span>
                   </div>
-                  <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
-                    className='gap-1 text-xs text-primary h-7'
-                    onClick={fillRecommendedAntiCheat}
-                  >
-                    <Sparkles className='h-3.5 w-3.5 text-amber-500' />
-                    Önerilen Değerleri Uygula
-                  </Button>
                 </div>
 
                 <div className='bg-muted/40 rounded-lg p-2.5 text-xs text-muted-foreground space-y-1 border'>
@@ -720,7 +712,7 @@ export function ByogModelsTab() {
                     • <strong>Opsiyoneldir:</strong> Boş bırakırsanız bu doğrulama atlanır ve model normal çalışmaya devam eder.
                   </p>
                   <p>
-                    • <strong>Öğrenme Yöntemi:</strong> Modeli llama.cpp ile test edip ilk token logprob değerini görebilirsiniz veya <em>Önerilen Değerleri Uygula</em> tuşuna basabilirsiniz.
+                    • <strong>Öğrenme Yöntemi:</strong> Modelinizi test ederken sabit bir prompt ve seed verip llama.cpp / llama-cli üzerinden dönen beklenen yanıtı ve logprob değerini buraya elle girebilirsiniz.
                   </p>
                 </div>
                 <div className='grid grid-cols-1 gap-3 md:grid-cols-2'>
@@ -969,162 +961,189 @@ export function ByogModelsTab() {
         </DialogContent>
       </Dialog>
 
-      {/* Hugging Face Model Explorer Modal (Item 21) */}
+      {/* Hugging Face Model Explorer Modal (Item 21 & Upgraded UI) */}
       <Dialog open={hfModalOpen} onOpenChange={setHfModalOpen}>
-        <DialogContent className='max-w-4xl max-h-[85vh] flex flex-col overflow-hidden'>
-          <DialogHeader>
-            <DialogTitle className='flex items-center gap-2'>
+        <DialogContent className='max-w-5xl w-[94vw] h-[85vh] flex flex-col p-6 overflow-hidden'>
+          <DialogHeader className='pb-3 border-b'>
+            <DialogTitle className='flex items-center gap-2 text-xl font-bold'>
               <Search className='h-5 w-5 text-primary' />
               Hugging Face Model & Quantization Gezgini
             </DialogTitle>
-            <DialogDescription>
-              Hugging Face üzerindeki tüm açık kaynak modelleri arayın, quantize GGUF dosyalarını inceleyin ve doğrudan ekleyin.
+            <DialogDescription className='text-xs text-muted-foreground'>
+              Hugging Face üzerindeki tüm açık kaynak modelleri arayın (arama için token gerekmez). Gated/izinli modeller için opsiyonel token girebilirsiniz.
             </DialogDescription>
           </DialogHeader>
 
-          <div className='space-y-4 py-2 flex-1 overflow-y-auto'>
-            {/* Search Input & Gated Token Input */}
-            <div className='grid grid-cols-1 md:grid-cols-3 gap-2'>
-              <div className='md:col-span-2 flex gap-2'>
-                <Input
-                  value={hfSearchQuery}
-                  onChange={(e) => setHfSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && searchHf()}
-                  placeholder='Model adı arayın (örn. gemma-3, qwen2.5, llama-3)...'
-                />
-                <Button onClick={() => searchHf()} disabled={hfSearching}>
+          <div className='flex flex-col gap-3 py-3 flex-1 overflow-hidden min-h-0'>
+            {/* Search Input Bar & Optional Token */}
+            <div className='grid grid-cols-1 md:grid-cols-12 gap-2 shrink-0'>
+              <div className='md:col-span-8 flex gap-2'>
+                <div className='relative flex-1'>
+                  <Search className='absolute left-3 top-2.5 h-4 w-4 text-muted-foreground' />
+                  <Input
+                    value={hfSearchQuery}
+                    onChange={(e) => setHfSearchQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && searchHf()}
+                    placeholder='Model adı arayın (örn. gemma-3, qwen2.5, llama-3, mistral)...'
+                    className='pl-9 h-10 text-sm'
+                  />
+                </div>
+                <Button onClick={() => searchHf()} disabled={hfSearching} className='h-10 px-5 gap-1.5 font-medium'>
                   {hfSearching ? <Loader2 className='h-4 w-4 animate-spin' /> : <Search className='h-4 w-4' />}
                   Ara
                 </Button>
               </div>
-              <div className='flex gap-1.5 items-center'>
+              <div className='md:col-span-4'>
                 <Input
                   type='password'
                   value={hfToken}
                   onChange={(e) => setHfToken(e.target.value)}
-                  placeholder='HF Token (Gated modeller için)'
-                  className='text-xs'
+                  placeholder='HF Token (Opsiyonel - Gated modeller için)'
+                  className='h-10 text-xs'
+                  title='Hugging Face public arama için token gerekmez. Sadece Llama/Gemma gibi şartlı gated modellerin dosyalarını listelemek için gereklidir.'
                 />
               </div>
             </div>
 
             {/* Gated warning banner */}
             {hfGatedWarning ? (
-              <div className='bg-amber-500/10 border border-amber-500/30 text-amber-500 rounded-lg p-3 text-xs flex items-center gap-2'>
+              <div className='bg-amber-500/10 border border-amber-500/30 text-amber-500 rounded-lg p-3 text-xs flex items-center gap-2 shrink-0'>
                 <Lock className='h-4 w-4 shrink-0' />
                 <span>{hfGatedWarning}</span>
               </div>
             ) : null}
 
             {/* Split view: Left Repos, Right Quantized Files */}
-            <div className='grid grid-cols-1 md:grid-cols-2 gap-4 h-[420px]'>
+            <div className='grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 min-h-0 overflow-hidden'>
               {/* Repos list */}
-              <div className='border rounded-xl p-2 overflow-y-auto space-y-2'>
-                <div className='text-xs font-semibold text-muted-foreground px-1 pb-1 border-b'>
-                  Bulunan Model Repoları ({hfRepos.length})
+              <div className='border rounded-xl p-3 flex flex-col bg-muted/10 overflow-hidden'>
+                <div className='flex items-center justify-between text-xs font-semibold text-muted-foreground pb-2 border-b mb-2 shrink-0'>
+                  <span>Bulunan Model Repoları ({hfRepos.length})</span>
+                  {hfSearching && <span className='text-primary animate-pulse text-[11px]'>Taranıyor...</span>}
                 </div>
-                {hfSearching ? (
-                  <div className='flex items-center justify-center h-48 text-muted-foreground text-xs gap-2'>
-                    <Loader2 className='h-4 w-4 animate-spin' /> Hugging Face taranıyor...
-                  </div>
-                ) : hfRepos.length === 0 ? (
-                  <div className='text-center text-muted-foreground text-xs py-8'>
-                    Model bulunamadı. Arama kutusuna bir model adı yazıp 'Ara' butonuna basın.
-                  </div>
-                ) : (
-                  hfRepos.map((repo) => (
-                    <div
-                      key={repo.id}
-                      onClick={() => loadHfRepoFiles(repo.id)}
-                      className={`p-2.5 rounded-lg border text-xs cursor-pointer transition-colors ${
-                        hfSelectedRepo === repo.id
-                          ? 'border-primary bg-primary/10'
-                          : 'hover:bg-muted/50 border-border'
-                      }`}
-                    >
-                      <div className='font-bold truncate text-foreground'>{repo.id}</div>
-                      <div className='flex items-center gap-3 text-muted-foreground text-[10px] mt-1'>
-                        <span>İndirme: {repo.downloads?.toLocaleString() || 0}</span>
-                        <span>Beğeni: {repo.likes?.toLocaleString() || 0}</span>
-                        {repo.gated ? (
-                          <Badge variant='outline' className='text-[9px] border-amber-500/50 text-amber-500'>
-                            Gated (Şartlı)
-                          </Badge>
-                        ) : null}
-                      </div>
+                <div className='flex-1 overflow-y-auto space-y-2 pr-1'>
+                  {hfSearching ? (
+                    <div className='flex flex-col items-center justify-center h-56 text-muted-foreground text-xs gap-2'>
+                      <Loader2 className='h-6 w-6 animate-spin text-primary' />
+                      <span>Hugging Face taranıyor...</span>
                     </div>
-                  ))
-                )}
+                  ) : hfRepos.length === 0 ? (
+                    <div className='flex flex-col items-center justify-center h-56 text-muted-foreground text-xs text-center px-4'>
+                      <Search className='h-8 w-8 text-muted-foreground/40 mb-2' />
+                      <p className='font-medium text-foreground'>Model bulunamadı</p>
+                      <p className='text-[11px] mt-1'>Arama kutusuna model veya mimari adı yazıp Ara butonuna basın.</p>
+                    </div>
+                  ) : (
+                    hfRepos.map((repo) => (
+                      <div
+                        key={repo.id}
+                        onClick={() => loadHfRepoFiles(repo.id)}
+                        className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                          hfSelectedRepo === repo.id
+                            ? 'border-primary bg-primary/10 shadow-sm'
+                            : 'hover:bg-muted/60 bg-card border-border'
+                        }`}
+                      >
+                        <div className='font-bold text-sm text-foreground break-all'>{repo.id}</div>
+                        <div className='flex flex-wrap items-center gap-3 text-muted-foreground text-[11px] mt-1.5'>
+                          <span>İndirme: <strong>{repo.downloads?.toLocaleString() || 0}</strong></span>
+                          <span>Beğeni: <strong>{repo.likes?.toLocaleString() || 0}</strong></span>
+                          {repo.gated ? (
+                            <Badge variant='outline' className='text-[10px] border-amber-500/50 text-amber-500 bg-amber-500/10'>
+                              Gated (Şartlı)
+                            </Badge>
+                          ) : (
+                            <Badge variant='outline' className='text-[10px] border-emerald-500/40 text-emerald-500 bg-emerald-500/10'>
+                              Açık Kaynak
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
 
               {/* Quantization Files list */}
-              <div className='border rounded-xl p-2 overflow-y-auto space-y-2'>
-                <div className='text-xs font-semibold text-muted-foreground px-1 pb-1 border-b'>
-                  {hfSelectedRepo ? `${hfSelectedRepo} Dosyaları` : 'Bir repo seçin'}
+              <div className='border rounded-xl p-3 flex flex-col bg-muted/10 overflow-hidden'>
+                <div className='text-xs font-semibold text-muted-foreground pb-2 border-b mb-2 shrink-0 truncate'>
+                  {hfSelectedRepo ? (
+                    <span className='text-foreground font-bold'>{hfSelectedRepo} <span className='font-normal text-muted-foreground'>({hfFiles.length} GGUF Dosyası)</span></span>
+                  ) : (
+                    'Quantize GGUF Dosyaları'
+                  )}
                 </div>
 
-                {hfLoadingFiles ? (
-                  <div className='flex items-center justify-center h-48 text-muted-foreground text-xs gap-2'>
-                    <Loader2 className='h-4 w-4 animate-spin' /> Dosyalar taranıyor...
-                  </div>
-                ) : !hfSelectedRepo ? (
-                  <div className='text-center text-muted-foreground text-xs py-8'>
-                    Soldaki listeden bir modele tıklayarak içindeki quantize GGUF dosyalarını görüntüleyin.
-                  </div>
-                ) : hfFiles.length === 0 ? (
-                  <div className='text-center text-muted-foreground text-xs py-8'>
-                    Bu repoda doğrudan kullanılabilir GGUF dosyası bulunamadı veya model gated token gerektiriyor.
-                  </div>
-                ) : (
-                  hfFiles.map((file, idx) => (
-                    <div
-                      key={idx}
-                      className='p-3 rounded-lg border bg-card/60 hover:border-primary/60 transition-all space-y-2 text-xs'
-                    >
-                      <div className='flex items-start justify-between gap-2'>
-                        <div className='font-mono font-bold truncate text-foreground max-w-[240px]' title={file.filename}>
-                          {file.filename}
-                        </div>
-                        <Badge variant='secondary' className='text-[10px] shrink-0 font-bold'>
-                          {file.quantization}
-                        </Badge>
-                      </div>
-
-                      <div className='flex items-center gap-3 text-[11px] text-muted-foreground'>
-                        <span>Boyut: <strong>{file.size_gb} GB</strong></span>
-                      </div>
-
-                      {/* Hardware recommendations badge */}
-                      <div className='bg-muted/40 rounded-md p-2 text-[11px] text-muted-foreground flex flex-wrap gap-2 border'>
-                        <span className='flex items-center gap-1'>
-                          <HardDrive className='h-3 w-3 text-primary' />
-                          Min RAM: <strong>{file.recommended_ram_gb} GB</strong>
-                        </span>
-                        <span className='flex items-center gap-1'>
-                          <Cpu className='h-3 w-3 text-emerald-500' />
-                          Min VRAM: <strong>{file.recommended_vram_gb} GB</strong>
-                        </span>
-                        <span className='flex items-center gap-1'>
-                          Çekirdek: <strong>{file.recommended_cores}</strong>
-                        </span>
-                      </div>
-
-                      <Button
-                        size='sm'
-                        className='w-full text-xs h-7 gap-1 mt-1'
-                        onClick={() => handleSelectHfFile(file)}
-                      >
-                        <Download className='h-3.5 w-3.5' />
-                        Bu Modeli Seç ve Ekle
-                      </Button>
+                <div className='flex-1 overflow-y-auto space-y-2 pr-1'>
+                  {hfLoadingFiles ? (
+                    <div className='flex flex-col items-center justify-center h-56 text-muted-foreground text-xs gap-2'>
+                      <Loader2 className='h-6 w-6 animate-spin text-primary' />
+                      <span>Model dosyaları taranıyor...</span>
                     </div>
-                  ))
-                )}
+                  ) : !hfSelectedRepo ? (
+                    <div className='flex flex-col items-center justify-center h-56 text-muted-foreground text-xs text-center px-4'>
+                      <Layers className='h-8 w-8 text-muted-foreground/40 mb-2' />
+                      <p className='font-medium text-foreground'>Repo Seçin</p>
+                      <p className='text-[11px] mt-1'>Soldaki listeden bir modele tıklayarak içindeki quantize GGUF dosyalarını görüntüleyin.</p>
+                    </div>
+                  ) : hfFiles.length === 0 ? (
+                    <div className='flex flex-col items-center justify-center h-56 text-muted-foreground text-xs text-center px-4'>
+                      <AlertCircle className='h-8 w-8 text-amber-500/60 mb-2' />
+                      <p className='font-medium text-foreground'>Kullanılabilir GGUF bulunamadı</p>
+                      <p className='text-[11px] mt-1'>Bu repoda doğrudan GGUF dosyası olmayabilir veya gated erişim için HF token gereklidir.</p>
+                    </div>
+                  ) : (
+                    hfFiles.map((file, idx) => (
+                      <div
+                        key={idx}
+                        className='p-3.5 rounded-xl border bg-card hover:border-primary/60 transition-all space-y-2.5 shadow-xs'
+                      >
+                        <div className='flex items-start justify-between gap-2'>
+                          <div className='font-mono font-bold text-xs text-foreground break-all' title={file.filename}>
+                            {file.filename}
+                          </div>
+                          <Badge variant='secondary' className='text-[11px] shrink-0 font-bold px-2 py-0.5'>
+                            {file.quantization}
+                          </Badge>
+                        </div>
+
+                        <div className='text-xs text-muted-foreground font-medium'>
+                          Dosya Boyutu: <strong className='text-foreground'>{file.size_gb} GB</strong>
+                        </div>
+
+                        {/* Hardware recommendations badge */}
+                        <div className='bg-muted/50 rounded-lg p-2.5 text-[11px] text-muted-foreground grid grid-cols-3 gap-2 border'>
+                          <div className='flex flex-col'>
+                            <span className='text-[10px] text-muted-foreground/80'>Min RAM</span>
+                            <strong className='text-foreground'>{file.recommended_ram_gb} GB</strong>
+                          </div>
+                          <div className='flex flex-col'>
+                            <span className='text-[10px] text-muted-foreground/80'>Min VRAM</span>
+                            <strong className='text-emerald-500'>{file.recommended_vram_gb} GB</strong>
+                          </div>
+                          <div className='flex flex-col'>
+                            <span className='text-[10px] text-muted-foreground/80'>Çekirdek</span>
+                            <strong className='text-foreground'>{file.recommended_cores} Core</strong>
+                          </div>
+                        </div>
+
+                        <Button
+                          size='sm'
+                          className='w-full text-xs h-8 gap-1.5 font-medium'
+                          onClick={() => handleSelectHfFile(file)}
+                        >
+                          <Download className='h-3.5 w-3.5' />
+                          Bu Modeli Seç ve Ekle
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className='pt-2 border-t'>
             <Button variant='outline' onClick={() => setHfModalOpen(false)}>
               Kapat
             </Button>

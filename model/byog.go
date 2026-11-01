@@ -115,6 +115,7 @@ type ByogAssignmentRule struct {
 	VectorInstructionSet  string `json:"vector_instruction_set" gorm:"type:varchar(64);default:'all'"` // avx2, avx512, neon, dotprod, all
 	TargetModels          string `json:"target_models" gorm:"type:text"` // JSON array of model IDs
 	TargetLoras           string `json:"target_loras" gorm:"type:text"` // JSON array of LoRA IDs
+	KvCacheType           string `json:"kv_cache_type" gorm:"type:varchar(32);default:'off'"` // off (f16), q8_0, q4_0
 	Priority              int    `json:"priority" gorm:"default:10"`
 	IsEnabled             bool   `json:"is_enabled" gorm:"default:true"`
 	CreatedAt             int64  `json:"created_at" gorm:"bigint"`
@@ -222,6 +223,7 @@ type ByogNode struct {
 	AllocatedRamGB        float64 `json:"allocated_ram_gb" gorm:"type:double;default:8"`
 	AllocatedCores        int     `json:"allocated_cores" gorm:"default:4"`
 	HotStartEnabled       bool    `json:"hot_start_enabled" gorm:"default:false"`
+	KvCacheType           string  `json:"kv_cache_type" gorm:"type:varchar(32);default:'off'"` // off, q8_0, q4_0
 
 	// Mobile specific settings & defaults
 	WifiOnlyDownload      bool    `json:"wifi_only_download" gorm:"default:true"` // DEFAULT TRUE

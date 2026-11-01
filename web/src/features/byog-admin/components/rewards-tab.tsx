@@ -16,9 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { Image as ImageIcon, Upload, X } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -80,6 +81,37 @@ export function ByogRewardsTab() {
   const [itemModalOpen, setItemModalOpen] = useState(false)
   const [editingItem, setEditingItem] =
     useState<Partial<ByogRewardItem> | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      toast.error('Lütfen geçerli bir resim dosyası seçin.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const img = new window.Image()
+      img.onload = () => {
+        // Target 400x250 aspect ratio (16:10)
+        const targetWidth = 400
+        const targetHeight = 250
+        const canvas = document.createElement('canvas')
+        canvas.width = targetWidth
+        canvas.height = targetHeight
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, targetWidth, targetHeight)
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.88)
+          setEditingItem((prev) => (prev ? { ...prev, image_url: dataUrl } : null))
+          toast.success('Görsel yüklendi ve 400x250 boyutuna optimize edildi.')
+        }
+      }
+      img.src = event.target?.result as string
+    }
+    reader.readAsDataURL(file)
+  }
 
   // Action status
   const [actioningId, setActioningId] = useState<number | null>(null)
@@ -527,37 +559,69 @@ export function ByogRewardsTab() {
                 />
               </div>
 
-              {/* Reward Image URL & Guidelines (Item 24) */}
+              {/* Reward Image Upload / URL & Guidelines (Item 24 & Upgraded) */}
               <div className='space-y-2'>
                 <div className='flex items-center justify-between'>
                   <Label>{t('byog.admin.reward_image', 'Ürün Görseli')}</Label>
                   <span className='text-muted-foreground text-[11px] font-medium'>
-                    Önerilen Boyut: 400x250 px (16:10)
+                    Tam Boyut: 400x250 px (16:10)
                   </span>
                 </div>
-                <Input
-                  value={editingItem.image_url || ''}
-                  onChange={(e) =>
-                    setEditingItem({
-                      ...editingItem,
-                      image_url: e.target.value,
-                    })
-                  }
-                  placeholder='https://.../product-image.png veya veri bağlantısı'
-                />
+                <div className='flex gap-2 items-center'>
+                  <Input
+                    value={editingItem.image_url || ''}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        image_url: e.target.value,
+                      })
+                    }
+                    placeholder='https://.../product-image.png veya dosya yükleyin'
+                    className='text-xs flex-1'
+                  />
+                  <input
+                    ref={fileInputRef}
+                    type='file'
+                    accept='image/*'
+                    className='hidden'
+                    onChange={handleImageUpload}
+                  />
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='gap-1.5 shrink-0 text-xs'
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Upload className='size-3.5' />
+                    Görsel Yükle
+                  </Button>
+                </div>
                 <p className='text-muted-foreground text-[11px]'>
-                  Doğrudan görsel bağlantısı (URL) girin. Önerilen boyut 400x250 pikseldir.
+                  Önerilen tam boyut <strong>400x250 pikseldir</strong> (16:10 en-boy oranı). Dosya yükleyebilir veya doğrudan görsel URL'si yapıştırabilirsiniz.
                 </p>
                 {editingItem.image_url ? (
-                  <div className='relative mt-2 h-28 w-44 overflow-hidden rounded-lg border bg-muted/40'>
-                    <img
-                      src={editingItem.image_url}
-                      alt='Önizleme'
-                      className='h-full w-full object-cover'
-                      onError={(e) => {
-                        ;(e.target as HTMLElement).style.display = 'none'
-                      }}
-                    />
+                  <div className='relative mt-2 inline-block'>
+                    <div className='relative h-28 w-44 overflow-hidden rounded-lg border bg-muted/40 shadow-xs'>
+                      <img
+                        src={editingItem.image_url}
+                        alt='Önizleme'
+                        className='h-full w-full object-cover'
+                        onError={(e) => {
+                          ;(e.target as HTMLElement).style.display = 'none'
+                        }}
+                      />
+                    </div>
+                    <Button
+                      type='button'
+                      variant='destructive'
+                      size='icon'
+                      className='absolute -top-2 -right-2 size-6 rounded-full shadow-sm'
+                      onClick={() => setEditingItem({ ...editingItem, image_url: '' })}
+                      title='Görseli Kaldır'
+                    >
+                      <X className='size-3' />
+                    </Button>
                   </div>
                 ) : null}
               </div>

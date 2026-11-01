@@ -1068,7 +1068,7 @@ func NewLocalTransformerEngine(modelId string, storageDir string) *LocalTransfor
 // estimated or fabricated.
 func (e *LocalTransformerEngine) GenerateStream(ctx context.Context, prompt string, maxTokens int, temperature float64, onChunk func(piece string, tokenId int) bool) (*llama.Result, error) {
 	if maxTokens <= 0 {
-		maxTokens = 512
+		maxTokens = -1
 	}
 	if temperature <= 0 {
 		temperature = 0.7
