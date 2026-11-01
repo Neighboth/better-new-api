@@ -3177,7 +3177,10 @@ public class MainActivity extends Activity {
                         int cores = Runtime.getRuntime().availableProcessors();
                         if (cores <= 0) cores = 4;
 
-                        Intent batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+                        Intent batteryIntent = null;
+                        try {
+                            batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+                        } catch (Throwable ignored) {}
                         int level = -1;
                         int scale = 100;
                         float temp = 31.0f;
@@ -3341,9 +3344,6 @@ public class MainActivity extends Activity {
                                             state.put("server_url", finalServerUrl);
                                             state.put("app_name", returnedAppName);
                                             state.put("favicon", returnedFavicon);
-                                            if (!returnedFaviconB64.isEmpty()) {
-                                                state.put("favicon_base64", returnedFaviconB64);
-                                            }
                                             state.put("battery_level", finalPercent);
                                             state.put("battery_temp", finalTemp);
                                             state.put("assigned_model", finalAssignedModel);
@@ -3391,7 +3391,7 @@ public class MainActivity extends Activity {
                             }
                         });
 
-                    } catch (Exception e) {
+                    } catch (Throwable e) {
                         final String exMsg = e.getMessage() != null ? e.getMessage() : "Bilinmeyen hata";
                         runOnUiThread(new Runnable() {
                             @Override
@@ -3423,7 +3423,6 @@ public class MainActivity extends Activity {
                         state.put("is_paired", false);
                         state.put("app_name", WorkerService.stringPref(sp, "app_name", "{app_name}"));
                         state.put("favicon", WorkerService.stringPref(sp, "favicon", "logo.png"));
-                        state.put("favicon_base64", WorkerService.stringPref(sp, "favicon_base64", ""));
                         state.put("permissions_done", true);
                     } catch (Exception ignored) {}
                     webView.evaluateJavascript("window.updateState(" + state.toString() + ")", null);

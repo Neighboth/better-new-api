@@ -455,8 +455,6 @@ public class WorkerService extends Service {
             state.put("server_url", stringPref(sp, "server_url", ""));
             state.put("app_name", stringPref(sp, "app_name", "{app_name}"));
             state.put("favicon", stringPref(sp, "favicon", "logo.png"));
-            String b64 = stringPref(sp, "favicon_base64", "");
-            if (!b64.isEmpty()) state.put("favicon_base64", b64);
             state.put("battery_level", getSafeBatteryPercent());
             state.put("battery_temp", getSafeBatteryTemp());
             state.put("is_charging", isSafeCharging());

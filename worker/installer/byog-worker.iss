@@ -1142,31 +1142,7 @@ begin
 end;
 
 procedure InitializeUninstallProgressForm();
-var
-  icoPath, bmpPath: String;
 begin
-  try
-    icoPath := ExpandConstant('{app}\byog.ico');
-    if FileExists(icoPath) then
-    begin
-      try
-        SetWindowLongW(UninstallProgressForm.Handle, GWL_EXSTYLE, GetWindowLongW(UninstallProgressForm.Handle, GWL_EXSTYLE) or WS_EX_APPWINDOW);
-      except
-      end;
-      ApplyWindowIcon(UninstallProgressForm.Handle, icoPath);
-    end;
-
-    bmpPath := ExpandConstant('{app}\brand_logo.bmp');
-    if FileExists(bmpPath) then
-    begin
-      try
-        UninstallProgressForm.WizardSmallBitmapImage.Bitmap.LoadFromFile(bmpPath);
-        UninstallProgressForm.WizardSmallBitmapImage.Stretch := True;
-      except
-      end;
-    end;
-  except
-  end;
 end;
 
 function InitializeUninstall(): Boolean;

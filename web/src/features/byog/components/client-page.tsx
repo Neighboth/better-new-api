@@ -254,6 +254,7 @@ interface AndroidBridge {
   openQRScanner(): void
   scanQrCode(): void
   isSystemDarkMode(): boolean
+  testModelInference?(prompt: string): void
 }
 
 function getBridge(): AndroidBridge | null {
@@ -526,7 +527,6 @@ export function ClientPage() {
     return true
   })
   const [onboardingStep, setOnboardingStep] = useState(0)
-  const [stepError, setStepError] = useState('')
   const [updateVersion, setUpdateVersion] = useState('')
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(() => {
     if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('disconnect') === '1') {
@@ -745,7 +745,7 @@ export function ClientPage() {
           }
           return merged
         })
-      } else if (response.status === 404 || (payload && !payload.success)) {
+      } else if (response.status === 404 && payload?.code === 'NODE_NOT_FOUND' && !bridge) {
         // Node does not exist on server (database reset or unpaired)
         window.localStorage.removeItem('byog_node_id')
         setNodeId('')
@@ -908,6 +908,10 @@ export function ClientPage() {
       setMessage(t('byog.client_paired', 'Cihaz başarıyla eşleştirildi'))
       void loadState()
     }
+    target.onModelTestResult = (reply?: string) => {
+      setBusy(false)
+      if (reply) setAnswer(reply)
+    }
     target.onPairError = (errMsg?: string) => {
       setBusy(false)
       setMessage(errMsg || t('byog.client_pair_failed', 'Eşleştirme başarısız oldu'))
@@ -919,6 +923,7 @@ export function ClientPage() {
       delete target.handleScannedQr
       delete target.refreshPermissions
       delete target.onPairSuccess
+      delete target.onModelTestResult
       delete target.onPairError
     }
   }, [t, loadState])
@@ -1035,6 +1040,10 @@ export function ClientPage() {
     setBusy(true)
     setAnswer('')
     try {
+      if (bridge?.testModelInference) {
+        bridge.testModelInference(prompt)
+        return
+      }
       let response: Response
       if (localApi) {
         response = await fetch(`${localApi}/test`, {
@@ -1203,29 +1212,25 @@ export function ClientPage() {
 
       if (onboardingStep === 0) {
         if (!curPerms?.notifications && !isTestingOnboarding) {
-          const msg = t(
-            'byog.notification_permission_required',
-            'Bildirim izni zorunludur. Devam etmek için lütfen izin verin.'
+          toast.error(
+            t(
+              'byog.notification_permission_required',
+              'Bildirim izni zorunludur. Devam etmek için lütfen izin verin.'
+            )
           )
-          setStepError(msg)
-          toast.error(msg)
-          bridge?.showToast?.(msg)
           return
         }
-        setStepError('')
         setOnboardingStep(1)
       } else if (onboardingStep === 1) {
         if (!curPerms?.battery && !isTestingOnboarding) {
-          const msg = t(
-            'byog.battery_permission_required',
-            'Pil optimizasyonu muafiyeti zorunludur. Devam etmek için lütfen izin verin.'
+          toast.error(
+            t(
+              'byog.battery_permission_required',
+              'Pil optimizasyonu muafiyeti zorunludur. Devam etmek için lütfen izin verin.'
+            )
           )
-          setStepError(msg)
-          toast.error(msg)
-          bridge?.showToast?.(msg)
           return
         }
-        setStepError('')
         if (curPerms?.autostart_supported) {
           setOnboardingStep(2)
         } else {
@@ -1233,7 +1238,6 @@ export function ClientPage() {
           setOnboardingDone(true)
         }
       } else {
-        setStepError('')
         bridge?.completeOnboarding()
         setOnboardingDone(true)
       }
@@ -1241,7 +1245,6 @@ export function ClientPage() {
 
     return (
       <div className='flex h-screen w-full flex-col bg-background text-foreground antialiased'>
-        <Toaster position='top-center' />
         <header className='flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4'>
           <div className='flex items-center gap-2 min-w-0'>
             <img
@@ -1280,13 +1283,6 @@ export function ClientPage() {
             </CardHeader>
 
             <CardContent className='space-y-6'>
-              {stepError && (
-                <div className='rounded-lg bg-destructive/15 border border-destructive/30 p-3 text-xs font-semibold text-destructive flex items-center gap-2'>
-                  <AlertTriangle className='size-4 shrink-0' />
-                  <span>{stepError}</span>
-                </div>
-              )}
-
               {/* Step 0: Notifications */}
               {onboardingStep === 0 && (
                 <div className='space-y-4 rounded-xl border border-border/60 bg-muted/40 p-5'>
@@ -1316,7 +1312,6 @@ export function ClientPage() {
                       <Button
                         size='sm'
                         onClick={() => {
-                          setStepError('')
                           bridge?.requestNotificationPermission()
                           setTimeout(() => void loadState(), 1500)
                         }}
@@ -1361,7 +1356,6 @@ export function ClientPage() {
                       <Button
                         size='sm'
                         onClick={() => {
-                          setStepError('')
                           bridge?.requestBatteryOptimization()
                           setTimeout(() => void loadState(), 1500)
                         }}

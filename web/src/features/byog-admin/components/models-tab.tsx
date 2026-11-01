@@ -164,14 +164,22 @@ export function ByogModelsTab() {
       if (parts.length > 0) vendor = parts[0]
     }
     let paramSize = '7B'
-    const lower = file.filename.toLowerCase()
+    const lower = (file.filename + ' ' + (hfSelectedRepo || '')).toLowerCase()
     if (lower.includes('0.5b')) paramSize = '0.5B'
     else if (lower.includes('1.5b')) paramSize = '1.5B'
     else if (lower.includes('3b')) paramSize = '3B'
     else if (lower.includes('4b')) paramSize = '4B'
     else if (lower.includes('7b') || lower.includes('8b')) paramSize = '7B'
     else if (lower.includes('14b')) paramSize = '14B'
+    else if (lower.includes('32b') || lower.includes('33b')) paramSize = '32B'
     else if (lower.includes('70b') || lower.includes('72b')) paramSize = '70B'
+    else if (file.size_gb >= 35) paramSize = '70B'
+    else if (file.size_gb >= 16) paramSize = '32B'
+    else if (file.size_gb >= 7) paramSize = '14B'
+    else if (file.size_gb >= 3.5) paramSize = '7B'
+    else if (file.size_gb >= 1.8) paramSize = '3B'
+    else if (file.size_gb >= 0.8) paramSize = '1.5B'
+    else if (file.size_gb > 0) paramSize = '0.5B'
 
     setEditingModel({
       ...editingModel,
