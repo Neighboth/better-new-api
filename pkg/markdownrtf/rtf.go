@@ -49,7 +49,7 @@ func Convert(markdown string) string {
 
 	return `{\rtf1\ansi\ansicpg1252\deff0\uc1` +
 		`{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}{\f1\fnil\fcharset0 Consolas;}}` +
-		`{\colortbl;\red37\green99\blue235;\red90\green98\blue115;}` +
+		`{\colortbl;\red37\green99\blue235;\red90\green98\blue115;\red180\green190\blue205;\red240\green244\blue248;\red0\green0\blue0;}` +
 		`\f0\fs20 ` + body.String() + `}`
 }
 
@@ -66,7 +66,7 @@ func renderBlock(body *strings.Builder, node ast.Node, src []byte) {
 		body.WriteString(`\b0\fs20\par `)
 
 	case *ast.ThematicBreak:
-		body.WriteString(`\pard\li0\fi0{\f1 ` + strings.Repeat(escapeRune('─'), ruleCharacters) + `}\par `)
+		body.WriteString(`\pard\li0\fi0\brdrb\brdrs\brdrw15\brsp40 \par\pard\li0\fi0 `)
 
 	case *ast.Paragraph:
 		body.WriteString(`\pard\li0\fi0 `)
@@ -185,29 +185,29 @@ func renderTable(body *strings.Builder, table *extast.Table, src []byte) {
 		stops[col] = pos
 	}
 
-	var tabs strings.Builder
-	for _, stop := range stops {
-		tabs.WriteString(`\tx` + strconv.Itoa(stop))
-	}
-	tabStops := tabs.String()
-
 	for rowIndex, cells := range rows {
-		body.WriteString(`\pard\li0\fi0` + tabStops + ` `)
+		body.WriteString(`\trowd\trgaph108\trleft0\trkeep`)
 		for col := 0; col < columns; col++ {
-			if col > 0 {
-				body.WriteString(`\tab `)
+			headerShading := ""
+			if rowIndex == 0 {
+				headerShading = `\clcbpat4`
 			}
-			if col >= len(cells) {
-				continue
+			body.WriteString(`\clbrdrt\brdrs\brdrw15\brdrcf3\clbrdrl\brdrs\brdrw15\brdrcf3\clbrdrb\brdrs\brdrw15\brdrcf3\clbrdrr\brdrs\brdrw15\brdrcf3\clpadt60\clpadb60\clpadl100\clpadr100\clpadft3\clpadfb3\clpadfl3\clpadfr3` + headerShading + `\cellx` + strconv.Itoa(stops[col]))
+		}
+		for col := 0; col < columns; col++ {
+			body.WriteString(`\pard\intbl\ql `)
+			content := ""
+			if col < len(cells) {
+				content = cells[col]
 			}
-			content := cells[col]
 			if rowIndex == 0 {
 				body.WriteString(`{\b ` + content + `}`)
 			} else {
 				body.WriteString(content)
 			}
+			body.WriteString(`\cell `)
 		}
-		body.WriteString(`\par `)
+		body.WriteString(`\row\pard\li0\fi0 `)
 	}
 }
 

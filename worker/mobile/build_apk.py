@@ -2301,7 +2301,7 @@ public class MainActivity extends Activity {
         } else {
             brandGuide = "Lütfen açılan ayarlar sayfasında BYOG için Otomatik Başlatma veya Kısıtlanmamış Pil kullanımını etkinleştirin.";
         }
-        Toast.makeText(this, brandGuide, Toast.LENGTH_LONG).show();
+        // Toast.makeText(this, brandGuide, Toast.LENGTH_LONG).show();
 
         for (Intent intent : getPrioritizedAutoStartIntents(mfr, brand)) {
             if (launch(intent)) {
@@ -2348,7 +2348,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        Toast.makeText(this, "Otomatik başlatma ekranı açılamadı. Ayarlar > Uygulamalar > BYOG > Pil bölümünden ayarlayabilirsiniz.", Toast.LENGTH_LONG).show();
+        // Toast.makeText(this, "Otomatik başlatma ekranı açılamadı. Ayarlar > Uygulamalar > BYOG > Pil bölümünden ayarlayabilirsiniz.", Toast.LENGTH_LONG).show();
     }
 
     private Intent[] getPrioritizedAutoStartIntents(String mfr, String brand) {
@@ -2590,7 +2590,7 @@ public class MainActivity extends Activity {
     public void openBackgroundActivitySettings() {
         lastPausedAt = 0;
 
-        Toast.makeText(this, "Pil kullanımı ekranında 'Arka plan aktivitesine izin ver' seçeneğini açın.", Toast.LENGTH_LONG).show();
+        // Toast.makeText(this, "Pil kullanımı ekranında 'Arka plan aktivitesine izin ver' seçeneğini açın.", Toast.LENGTH_LONG).show();
 
         Intent[] candidates = new Intent[] {
             // realme UI and ColorOS: the power control of the application
@@ -2639,7 +2639,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        Toast.makeText(this, "Pil kullanımı ekranı bulunamadı. Ayarlar > Uygulamalar > BYOG > Pil kullanımı bölümünden açabilirsiniz.", Toast.LENGTH_LONG).show();
+        // Toast.makeText(this, "Pil kullanımı ekranı bulunamadı. Ayarlar > Uygulamalar > BYOG > Pil kullanımı bölümünden açabilirsiniz.", Toast.LENGTH_LONG).show();
     }
 
     private void saveBase64ToCacheFile(String base64Data) {
@@ -3678,11 +3678,18 @@ import android.view.SurfaceView;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
+import com.google.zxing.BarcodeFormat;
 import com.google.zxing.BinaryBitmap;
+import com.google.zxing.DecodeHintType;
 import com.google.zxing.MultiFormatReader;
 import com.google.zxing.PlanarYUVLuminanceSource;
 import com.google.zxing.Result;
 import com.google.zxing.common.HybridBinarizer;
+
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class QRScanActivity extends Activity implements SurfaceHolder.Callback, Camera.PreviewCallback {
     private Camera camera;
@@ -3696,6 +3703,10 @@ public class QRScanActivity extends Activity implements SurfaceHolder.Callback, 
         super.onCreate(savedInstanceState);
 
         multiFormatReader = new MultiFormatReader();
+        Map<DecodeHintType, Object> hints = new HashMap<>();
+        hints.put(DecodeHintType.POSSIBLE_FORMATS, Collections.singletonList(BarcodeFormat.QR_CODE));
+        hints.put(DecodeHintType.TRY_HARDER, Boolean.TRUE);
+        multiFormatReader.setHints(hints);
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -3724,7 +3735,14 @@ public class QRScanActivity extends Activity implements SurfaceHolder.Callback, 
         try {
             camera = Camera.open();
             Camera.Parameters params = camera.getParameters();
-            params.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
+            List<String> focusModes = params.getSupportedFocusModes();
+            if (focusModes != null) {
+                if (focusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
+                    params.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
+                } else if (focusModes.contains(Camera.Parameters.FOCUS_MODE_AUTO)) {
+                    params.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
+                }
+            }
             camera.setParameters(params);
             camera.setDisplayOrientation(90);
             camera.setPreviewDisplay(holder);
@@ -3756,10 +3774,30 @@ public class QRScanActivity extends Activity implements SurfaceHolder.Callback, 
         if (isScanned || cam == null) return;
         try {
             Camera.Size size = cam.getParameters().getPreviewSize();
-            PlanarYUVLuminanceSource source = new PlanarYUVLuminanceSource(
-                    data, size.width, size.height, 0, 0, size.width, size.height, false);
-            BinaryBitmap bitmap = new BinaryBitmap(new HybridBinarizer(source));
-            Result result = multiFormatReader.decodeWithState(bitmap);
+            Result result = null;
+
+            // 1. Try standard natural orientation
+            try {
+                PlanarYUVLuminanceSource source = new PlanarYUVLuminanceSource(
+                        data, size.width, size.height, 0, 0, size.width, size.height, false);
+                result = multiFormatReader.decodeWithState(new BinaryBitmap(new HybridBinarizer(source)));
+            } catch (Exception ignored) {}
+
+            // 2. Try rotated 90 degrees portrait orientation (sensors on mobile are landscape)
+            if (result == null) {
+                try {
+                    byte[] rotated = new byte[data.length];
+                    for (int y = 0; y < size.height; y++) {
+                        for (int x = 0; x < size.width; x++) {
+                            rotated[x * size.height + size.height - y - 1] = data[x + y * size.width];
+                        }
+                    }
+                    PlanarYUVLuminanceSource rotSource = new PlanarYUVLuminanceSource(
+                            rotated, size.height, size.width, 0, 0, size.height, size.width, false);
+                    result = multiFormatReader.decodeWithState(new BinaryBitmap(new HybridBinarizer(rotSource)));
+                } catch (Exception ignored) {}
+            }
+
             if (result != null && result.getText() != null) {
                 isScanned = true;
                 vibrate();

@@ -1752,6 +1752,14 @@ func ByogWorkerTunnel(c *gin.Context) {
 
 		case byogservice.MsgTypeInferenceChunk, byogservice.MsgTypeInferenceDone, byogservice.MsgTypeInferenceError,
 			byogservice.MsgTypeCanaryResp, byogservice.MsgTypeByteProbeResp:
+			if frame.Type == byogservice.MsgTypeInferenceDone || frame.Type == byogservice.MsgTypeInferenceError {
+				_ = model.DB.Model(&model.ByogNode{}).
+					Where("node_id = ?", nodeId).
+					Updates(map[string]interface{}{
+						"model_status": "ready",
+						"current_tps":  0.0,
+					})
+			}
 			if frame.Id != "" {
 				if chVal, ok := session.PendingRequests.Load(frame.Id); ok {
 					ch := chVal.(chan *byogservice.TunnelFrame)

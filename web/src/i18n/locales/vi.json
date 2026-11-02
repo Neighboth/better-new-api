@@ -3036,7 +3036,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Các Dự Án Liên Quan",
     "footer.defaultCopyright": "Bản quyền được bảo lưu.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
+    "footer.newapi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Đối với các kênh được thêm sau ngày 10 tháng 5 năm 2025, không cần loại bỏ \".\" khỏi tên mô hình trong quá trình triển khai",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Đối với các triển khai riêng tư, định dạng: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "Vì lý do bảo mật, không thể hiển thị lại token truy cập hiện có. Chỉ tạo lại khi bạn cần token mới.",
@@ -6856,7 +6856,6 @@
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Zoom",
-
     "byog.admin.canary_help_title": "💡 Giá trị Seed và Logprob là gì và làm thế nào để lấy được?",
     "byog.admin.canary_help_p1": "Các canary chống gian lận thực hiện kiểm tra xác minh xác định (nhiệt độ=0, seed cố định) để ngăn các node tạo đầu ra giả mạo hoặc sử dụng các mô hình nhỏ hơn chưa được chỉ định.",
     "byog.admin.canary_optional_tag": "Tùy chọn:",
@@ -6922,5 +6921,27 @@
     "byog.admin.type_video": "Video (Văn bản thành video)",
     "byog.admin.type_audio": "Âm thanh / Giọng nói",
     "byog.admin.reward_image": "Hình ảnh sản phẩm"
+  },
+  "byog": {
+    "admin": {
+      "canary_help_title": "💡 Giá trị Seed và Logprob là gì & Cách tìm hiểu?",
+      "canary_help_p1": "Canary chống gian lận chạy các bài kiểm tra tất định (nhiệt độ=0, seed cố định) để ngăn thiết bị giả mạo đầu ra hoặc dùng mô hình nhỏ hơn.",
+      "canary_optional_tag": "Tùy chọn:",
+      "canary_help_p2": "Nếu để trống, bước xác minh này sẽ được bỏ qua và mô hình hoạt động bình thường.",
+      "canary_learn_tag": "Cách xác định:",
+      "canary_help_p3": "Khi kiểm tra mô hình với prompt và seed cố định, bạn có thể nhập thủ công phản hồi dự kiến và logprob từ llama.cpp / llama-cli tại đây.",
+      "search_from_hf": "Tìm kiếm mô hình từ Hugging Face",
+      "hf_modal_title": "Trình khám phá mô hình & lượng tử hóa Hugging Face",
+      "hf_modal_desc": "Tìm kiếm tất cả mô hình nguồn mở trên Hugging Face (không cần token khi tìm). Bạn có thể nhập token tùy chọn cho các mô hình gated.",
+      "hf_search_placeholder": "Tìm kiếm tên mô hình (vd: gemma-3, qwen2.5, llama-3, mistral)...",
+      "hf_search_btn": "Tìm kiếm",
+      "hf_token_placeholder": "HF Token (Tùy chọn - cho mô hình gated)",
+      "hf_token_title": "Không cần token cho tìm kiếm công khai. Chỉ cần thiết để liệt kê tệp của các mô hình gated như Llama hoặc Gemma.",
+      "hf_repos_found": "Kho lưu trữ mô hình tìm thấy",
+      "hf_scanning": "Đang quét...",
+      "hf_scanning_msg": "Đang quét Hugging Face...",
+      "hf_no_models": "Không tìm thấy mô hình nào",
+      "hf_search_hint": "Nhập tên mô hình hoặc kiến trúc vào ô tìm kiếm và nhấp Tìm kiếm."
+    }
   }
 }

@@ -3036,7 +3036,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Projets liés",
     "footer.defaultCopyright": "Tous droits réservés.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Tous droits réservés. Conçu et développé par les contributeurs du projet.",
+    "footer.newapi.projectAttributionSuffix": "Tous droits réservés. Conçu et développé par les contributeurs du projet.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Pour les canaux ajoutés après le 10 mai 2025, pas besoin de supprimer \".\" des noms de modèles lors du déploiement",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Pour les déploiements privés, format : https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "Pour des raisons de sécurité, les jetons d'accès existants ne peuvent pas être réaffichés. Ne les régénérez que si vous en avez besoin d'un nouveau.",
@@ -6856,7 +6856,6 @@
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Zoom",
-
     "byog.admin.canary_help_title": "💡 Que sont les valeurs Seed et Logprob et comment les obtenir ?",
     "byog.admin.canary_help_p1": "Les canaris anti-triche effectuent des tests de vérification déterministes (température=0, seed fixe) pour empêcher les nœuds de générer des sorties falsifiées ou d'utiliser des modèles plus petits non assignés.",
     "byog.admin.canary_optional_tag": "Optionnel :",
@@ -6922,5 +6921,27 @@
     "byog.admin.type_video": "Vidéo (Texte vers vidéo)",
     "byog.admin.type_audio": "Audio / Parole",
     "byog.admin.reward_image": "Image du produit"
+  },
+  "byog": {
+    "admin": {
+      "canary_help_title": "💡 Que sont les valeurs Seed et Logprob & Comment les obtenir ?",
+      "canary_help_p1": "Les canaris anti-triche effectuent des tests déterministes (température=0, seed fixe) pour empêcher les appareils d'usurper des sorties ou d'utiliser des modèles plus petits.",
+      "canary_optional_tag": "Optionnel :",
+      "canary_help_p2": "Si vous laissez ce champ vide, cette vérification est ignorée et le modèle fonctionne normalement.",
+      "canary_learn_tag": "Méthode d'obtention :",
+      "canary_help_p3": "Lors du test de votre modèle avec une invite et une graine fixes, vous pouvez saisir manuellement la réponse attendue et la valeur de logprob renvoyées par llama.cpp / llama-cli.",
+      "search_from_hf": "Rechercher sur Hugging Face",
+      "hf_modal_title": "Explorateur de modèles & quantification Hugging Face",
+      "hf_modal_desc": "Recherchez tous les modèles open source sur Hugging Face (aucun jeton requis pour la recherche). Vous pouvez saisir un jeton optionnel pour les modèles soumis à conditions.",
+      "hf_search_placeholder": "Rechercher un modèle (ex. gemma-3, qwen2.5, llama-3, mistral)...",
+      "hf_search_btn": "Rechercher",
+      "hf_token_placeholder": "Jeton HF (Optionnel - pour modèles fermés)",
+      "hf_token_title": "Aucun jeton n'est requis pour les recherches publiques. Requis uniquement pour lister les fichiers des modèles fermés comme Llama ou Gemma.",
+      "hf_repos_found": "Dépôts de modèles trouvés",
+      "hf_scanning": "Analyse en cours...",
+      "hf_scanning_msg": "Recherche sur Hugging Face...",
+      "hf_no_models": "Aucun modèle trouvé",
+      "hf_search_hint": "Saisissez un nom de modèle ou d'architecture dans la boîte de recherche et cliquez sur Rechercher."
+    }
   }
 }

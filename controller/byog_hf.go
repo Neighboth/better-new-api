@@ -98,7 +98,7 @@ func SearchHuggingFaceModels(c *gin.Context) {
 		if gVal, ok := r["gated"]; ok && gVal != nil {
 			if gb, ok := gVal.(bool); ok {
 				isGated = gb
-			} else if gs, ok := gVal.(string); ok && gs == "manual" {
+			} else if gs, ok := gVal.(string); ok && gs != "" && gs != "false" {
 				isGated = true
 			}
 		}
@@ -233,11 +233,14 @@ func GetHuggingFaceModelFiles(c *gin.Context) {
 			}
 
 			var fileSize int64 = 0
-			if sz, ok := item["size"].(float64); ok && sz > 0 {
-				fileSize = int64(sz)
-			} else if lfs, ok := item["lfs"].(map[string]interface{}); ok {
+			if lfs, ok := item["lfs"].(map[string]interface{}); ok {
 				if lfsSz, ok := lfs["size"].(float64); ok && lfsSz > 0 {
 					fileSize = int64(lfsSz)
+				}
+			}
+			if fileSize <= 0 {
+				if sz, ok := item["size"].(float64); ok && sz > 0 {
+					fileSize = int64(sz)
 				}
 			}
 

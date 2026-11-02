@@ -3036,7 +3036,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "相關項目",
     "footer.defaultCopyright": "版權所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
+    "footer.newapi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "對於 2025 年 5 月 10 日之後新增的渠道，在部署時無需從模型名稱中移除 \".\"",
     "For private deployments, format: https://fastgpt.run/api/openapi": "對於私有部署，格式為：https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "基於安全考量，現有存取令牌無法再次顯示。僅在需要新令牌時重新生成。",
@@ -6856,7 +6856,6 @@
     "Zhipu": "智譜",
     "Zhipu V4": "智譜 V4",
     "Zoom": "縮放",
-
     "byog.admin.canary_help_title": "💡 什麼是 Seed 和 Logprob 值，如何獲取？",
     "byog.admin.canary_help_p1": "防作弊金絲雀執行確定性驗證測試（溫度=0，固定種子），以防止計算節點生成偽造輸出或使用更小的未分配模型。",
     "byog.admin.canary_optional_tag": "可選：",
@@ -6922,5 +6921,27 @@
     "byog.admin.type_video": "影片 (文字轉影片)",
     "byog.admin.type_audio": "音訊 / 語音",
     "byog.admin.reward_image": "商品圖片"
+  },
+  "byog": {
+    "admin": {
+      "canary_help_title": "💡 什麼是 Seed 和 Logprob 值，如何獲取？",
+      "canary_help_p1": "防作弊金絲雀執行確定性測試（溫度=0，固定種子），以防止設備偽造輸出或使用較小的模型。",
+      "canary_optional_tag": "可選：",
+      "canary_help_p2": "若留空，將跳過此驗證，模型正常運作。",
+      "canary_learn_tag": "獲取方法：",
+      "canary_help_p3": "使用固定的提示詞和種子測試模型時，可手動在此輸入 llama.cpp / llama-cli 返回的預期響應和 logprob 值。",
+      "search_from_hf": "從 Hugging Face 搜尋模型",
+      "hf_modal_title": "Hugging Face 模型與量化瀏覽器",
+      "hf_modal_desc": "搜尋 Hugging Face 上的所有開源模型（搜尋無需 Token）。受限模型可輸入可選 Token。",
+      "hf_search_placeholder": "搜尋模型名稱（例如 gemma-3、qwen2.5、llama-3、mistral）...",
+      "hf_search_btn": "搜尋",
+      "hf_token_placeholder": "HF Token（可選 - 用於受限模型）",
+      "hf_token_title": "公開搜尋無需 Token。僅在列出 Llama 或 Gemma 等受限模型檔案時需要。",
+      "hf_repos_found": "找到的模型倉庫",
+      "hf_scanning": "掃描中...",
+      "hf_scanning_msg": "正在掃描 Hugging Face...",
+      "hf_no_models": "未找到模型",
+      "hf_search_hint": "在搜尋框中輸入模型或架構名稱，然後按一下搜尋。"
+    }
   }
 }

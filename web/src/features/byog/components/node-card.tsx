@@ -56,6 +56,12 @@ interface NodeCardProps {
   onDelete: (nodeId: string) => void
 }
 
+function formatBandwidth(mbps?: number): string {
+  if (!mbps || mbps <= 0) return '--'
+  if (mbps >= 1000) return `${(mbps / 1000).toFixed(1)} Gbps`
+  return `${mbps.toFixed(1)} Mbps`
+}
+
 export function NodeCard({
   node,
   onEditName,
@@ -207,7 +213,16 @@ export function NodeCard({
       }
     }
 
-    // 2. Stopped check
+    // 2. Error check
+    if (node.model_status === 'error') {
+      return {
+        model: primaryModel || t('byog.no_model_assigned', 'Model Kuyruğu Bekleniyor'),
+        status: t('byog.model_download_failed', 'İndirme Başarısız'),
+        badgeClass: 'border-rose-500/40 bg-rose-500/10 text-rose-500',
+      }
+    }
+
+    // 3. Stopped check
     if (isStopped) {
       let stoppedStatus = t('byog.status_stopped', 'Durmuş')
       if (node.status === 'banned') {
@@ -227,8 +242,10 @@ export function NodeCard({
       const isActivelyGenerating = node.model_status === 'running' || ((node.current_tps || 0) > 0.05 && node.model_status !== 'ready' && node.model_status !== 'idle')
       if (isActivelyGenerating) {
         statusText = t('byog.model_working', 'Üretimde')
-      } else if (node.active_vram_model && installed.includes(node.active_vram_model)) {
+      } else if (node.hot_start_enabled && (node.vram_mb || 0) > 1024 && !isIntegratedGpu(node.gpu_model) && node.active_vram_model && installed.includes(node.active_vram_model)) {
         statusText = t('byog.model_ready_vram', 'Hazır (VRAM)')
+      } else if (node.hot_start_enabled) {
+        statusText = t('byog.model_ready_ram', 'Hazır (RAM)')
       }
       return {
         model: installed[0],
@@ -405,9 +422,9 @@ export function NodeCard({
               {t('byog.bandwidth', 'Hız (İndir/Yükle)')}:
             </span>
             <div className='text-foreground flex items-center gap-1 font-mono text-[11px] font-semibold'>
-              <span>↓ {node.bandwidth_down_mbps ? node.bandwidth_down_mbps.toFixed(1) : '--'}</span>
+              <span>↓ {formatBandwidth(node.bandwidth_down_mbps)}</span>
               <span className='text-muted-foreground'>/</span>
-              <span>↑ {node.bandwidth_up_mbps ? node.bandwidth_up_mbps.toFixed(1) : '--'} M</span>
+              <span>↑ {formatBandwidth(node.bandwidth_up_mbps)}</span>
             </div>
           </div>
         </div>

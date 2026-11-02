@@ -3036,7 +3036,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Related Projects",
     "footer.defaultCopyright": "All rights reserved.",
-    "footer.new\u0061pi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
+    "footer.newapi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment",
     "For private deployments, format: https://fastgpt.run/api/openapi": "For private deployments, format: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.",
@@ -6856,7 +6856,6 @@
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Zoom",
-
     "byog.admin.canary_help_title": "💡 What Are Seed and Logprob Values & How to Obtain Them?",
     "byog.admin.canary_help_p1": "Anti-cheat canaries run deterministic verification tests (temperature=0, fixed seed) to prevent workers from generating counterfeit outputs or using smaller unassigned models.",
     "byog.admin.canary_optional_tag": "Optional:",
@@ -6922,5 +6921,27 @@
     "byog.admin.type_video": "Video (Text-to-Video)",
     "byog.admin.type_audio": "Audio / Speech",
     "byog.admin.reward_image": "Product Image"
+  },
+  "byog": {
+    "admin": {
+      "canary_help_title": "💡 What are Seed and Logprob Values & How to Learn Them?",
+      "canary_help_p1": "Anti-cheat canaries run deterministic tests (temperature=0, fixed seed) to prevent devices from spoofing outputs or running smaller models.",
+      "canary_optional_tag": "Optional:",
+      "canary_help_p2": "If left blank, this verification is skipped and the model functions normally.",
+      "canary_learn_tag": "How to Learn:",
+      "canary_help_p3": "When testing your model with a fixed prompt and seed, you can enter the expected response and logprob returned by llama.cpp / llama-cli manually here.",
+      "search_from_hf": "Search Model from Hugging Face",
+      "hf_modal_title": "Hugging Face Model & Quantization Explorer",
+      "hf_modal_desc": "Search all open source models on Hugging Face (no token required for search). You can enter an optional token for gated models.",
+      "hf_search_placeholder": "Search model name (e.g. gemma-3, qwen2.5, llama-3, mistral)...",
+      "hf_search_btn": "Search",
+      "hf_token_placeholder": "HF Token (Optional - for gated models)",
+      "hf_token_title": "No token is needed for public searches. Only required to list files for gated models like Llama or Gemma.",
+      "hf_repos_found": "Model Repositories Found",
+      "hf_scanning": "Scanning...",
+      "hf_scanning_msg": "Scanning Hugging Face...",
+      "hf_no_models": "No models found",
+      "hf_search_hint": "Type a model or architecture name into the search box and click Search."
+    }
   }
 }

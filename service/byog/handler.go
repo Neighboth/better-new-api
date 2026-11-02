@@ -3,9 +3,7 @@ package byog
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -25,16 +23,8 @@ func TryHandleByogRelay(c *gin.Context, requestedModel string) bool {
 		return false
 	}
 
-	// Read request body to extract messages/prompt/stream
-	bodyBytes, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		return false
-	}
-	// Re-assign body for subsequent reads if needed
-	c.Request.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
-
 	var reqMap map[string]interface{}
-	if err := json.Unmarshal(bodyBytes, &reqMap); err != nil {
+	if err := common.UnmarshalBodyReusable(c, &reqMap); err != nil {
 		return false
 	}
 

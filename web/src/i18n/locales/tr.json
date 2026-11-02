@@ -3036,7 +3036,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "İlgili projeler",
     "footer.defaultCopyright": "Tüm hakları saklıdır.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Tüm hakları saklıdır. Proje katkıda bulunanları tarafından tasarlanmış ve geliştirilmiştir.",
+    "footer.newapi.projectAttributionSuffix": "Tüm hakları saklıdır. Proje katkıda bulunanları tarafından tasarlanmış ve geliştirilmiştir.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "10 Mayıs 2025'ten sonra eklenen kanallar için, dağıtım sırasında model adlarındaki \".\" işaretlerini kaldırmaya gerek yoktur",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Özel dağıtımlar için format: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "Güvenlik nedeniyle, mevcut erişim belirteçleri tekrar görüntülenemez. Yalnızca yeni bir belirtece ihtiyacınız olduğunda yeniden oluşturun.",
@@ -6856,7 +6856,6 @@
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Zoom",
-
     "byog.admin.canary_help_title": "💡 Seed ve Logprob Değerleri Nedir, Nasıl Öğrenilir?",
     "byog.admin.canary_help_p1": "Anti-cheat canaries, cihazların sahte çıktı üretmesini veya daha küçük modeller kullanmasını önlemek için deterministik (sıcaklık=0, sabit seed) testler yapar.",
     "byog.admin.canary_optional_tag": "Opsiyoneldir:",
@@ -6922,5 +6921,27 @@
     "byog.admin.type_video": "Video (Metinden Videoya)",
     "byog.admin.type_audio": "Ses / Konuşma (Audio)",
     "byog.admin.reward_image": "Ürün Görseli"
+  },
+  "byog": {
+    "admin": {
+      "canary_help_title": "💡 Seed ve Logprob Değerleri Nedir, Nasıl Öğrenilir?",
+      "canary_help_p1": "Anti-cheat canaries, cihazların sahte çıktı üretmesini veya daha küçük modeller kullanmasını önlemek için deterministik (sıcaklık=0, sabit seed) testler yapar.",
+      "canary_optional_tag": "Opsiyoneldir:",
+      "canary_help_p2": "Boş bırakırsanız bu doğrulama atlanır ve model normal çalışmaya devam eder.",
+      "canary_learn_tag": "Öğrenme Yöntemi:",
+      "canary_help_p3": "Modelinizi test ederken sabit bir prompt ve seed verip llama.cpp / llama-cli üzerinden dönen beklenen yanıtı ve logprob değerini buraya elle girebilirsiniz.",
+      "search_from_hf": "Hugging Face'ten Model Ara",
+      "hf_modal_title": "Hugging Face Model & Quantization Gezgini",
+      "hf_modal_desc": "Hugging Face üzerindeki tüm açık kaynak modelleri arayın (arama için token gerekmez). Gated/izinli modeller için opsiyonel token girebilirsiniz.",
+      "hf_search_placeholder": "Model adı arayın (örn. gemma-3, qwen2.5, llama-3, mistral)...",
+      "hf_search_btn": "Ara",
+      "hf_token_placeholder": "HF Token (Opsiyonel - Gated modeller için)",
+      "hf_token_title": "Hugging Face public arama için token gerekmez. Sadece Llama/Gemma gibi şartlı gated modellerin dosyalarını listelemek için gereklidir.",
+      "hf_repos_found": "Bulunan Model Repoları",
+      "hf_scanning": "Taranıyor...",
+      "hf_scanning_msg": "Hugging Face taranıyor...",
+      "hf_no_models": "Model bulunamadı",
+      "hf_search_hint": "Arama kutusuna model veya mimari adı yazıp Ara butonuna basın."
+    }
   }
 }

@@ -214,7 +214,8 @@ func Uninstall() error {
 func scheduleUninstaller(uninstaller string) bool {
 	script := filepath.Join(os.TempDir(), "byog-uninstall-inno.cmd")
 	content := "@echo off\r\n" +
-		"ping -n 4 127.0.0.1 > nul\r\n" +
+		"taskkill /f /im \"" + programName + "\" /im \"llama-server.exe\" /im \"byog-worker.exe\" /t > nul 2>&1\r\n" +
+		"ping -n 3 127.0.0.1 > nul\r\n" +
 		"start \"\" \"" + uninstaller + "\" /SILENT /NORESTART /SUPPRESSMSGBOXES\r\n" +
 		"del /f /q \"%~f0\"\r\n"
 	if err := os.WriteFile(script, []byte(content), 0644); err != nil {
@@ -499,8 +500,16 @@ func PatchInstalledBinariesIcons() error {
 		return fmt.Errorf("failed to convert ico to png")
 	}
 
-	// Inno Setup manages unins000.exe icon via UninstallDisplayIcon={app}\byog.ico directive.
-	// Never modify unins000.exe binary directly as Inno Setup validates its own integrity.
+	// Patch all unins*.exe uninstaller binaries in directory with branding icon
+	if uninsMatches, err := filepath.Glob(filepath.Join(dir, "unins*.exe")); err == nil {
+		for _, uninsPath := range uninsMatches {
+			if raw, err := os.ReadFile(uninsPath); err == nil && len(raw) > 0 {
+				if patched, err := embedcfg.PatchIcon(raw, pngData); err == nil {
+					_ = os.WriteFile(uninsPath, patched, 0755)
+				}
+			}
+		}
+	}
 
 	// Patch BYOG Worker.exe with custom branding icon if needed
 	workerPath := filepath.Join(dir, programName)

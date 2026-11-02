@@ -177,7 +177,7 @@ function CryptStringToBinary(
   pdwSkip: DWORD;
   pdwFlags: DWORD
 ): BOOL;
-external 'CryptStringToBinaryW@crypt32.dll stdcall setuponly';
+external 'CryptStringToBinaryW@crypt32.dll stdcall';
 
 function LoadBranding(): Boolean; forward;
 
@@ -227,12 +227,12 @@ const
   GWL_EXSTYLE = -20;
   WS_EX_APPWINDOW = $00040000;
 
-function LoadImageW(hInst: THandle; ImageName: String; ImageType: UINT; X, Y: Integer; Flags: UINT): THandle; external 'LoadImageW@user32.dll stdcall delayload setuponly';
-function SendMessageW(hWnd: HWND; Msg: UINT; wParam: Longint; lParam: Longint): Longint; external 'SendMessageW@user32.dll stdcall delayload setuponly';
-function GetWindow(hWnd: HWND; uCmd: UINT): HWND; external 'GetWindow@user32.dll stdcall delayload setuponly';
-function GetAncestor(hWnd: HWND; gaFlags: UINT): HWND; external 'GetAncestor@user32.dll stdcall delayload setuponly';
-function GetWindowLongW(hWnd: HWND; nIndex: Integer): Longint; external 'GetWindowLongW@user32.dll stdcall delayload setuponly';
-function SetWindowLongW(hWnd: HWND; nIndex: Integer; dwNewLong: Longint): Longint; external 'SetWindowLongW@user32.dll stdcall delayload setuponly';
+function LoadImageW(hInst: THandle; ImageName: String; ImageType: UINT; X, Y: Integer; Flags: UINT): THandle; external 'LoadImageW@user32.dll stdcall delayload';
+function SendMessageW(hWnd: HWND; Msg: UINT; wParam: Longint; lParam: Longint): Longint; external 'SendMessageW@user32.dll stdcall delayload';
+function GetWindow(hWnd: HWND; uCmd: UINT): HWND; external 'GetWindow@user32.dll stdcall delayload';
+function GetAncestor(hWnd: HWND; gaFlags: UINT): HWND; external 'GetAncestor@user32.dll stdcall delayload';
+function GetWindowLongW(hWnd: HWND; nIndex: Integer): Longint; external 'GetWindowLongW@user32.dll stdcall delayload';
+function SetWindowLongW(hWnd: HWND; nIndex: Integer; dwNewLong: Longint): Longint; external 'SetWindowLongW@user32.dll stdcall delayload';
 
 procedure ApplyWindowIcon(const WindowHandle: HWND; const IcoFile: String);
 var
@@ -284,7 +284,7 @@ var
   LangDialogCancelBtn: TNewButton;
   LangDialogKeys: array of String;
 
-function GetUserDefaultUILanguage(): Word; external 'GetUserDefaultUILanguage@kernel32.dll stdcall setuponly';
+function GetUserDefaultUILanguage(): Word; external 'GetUserDefaultUILanguage@kernel32.dll stdcall';
 
 function DetectDefaultLanguage(): String;
 var
@@ -1356,12 +1356,26 @@ begin
 end;
 
 function InitializeUninstall(): Boolean;
+var
+  ResultCode: Integer;
 begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM "BYOG Worker.exe" /IM "llama-server.exe" /IM "byog-worker.exe" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(500);
   Result := True;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
+  DriveChar: Char;
+  DrivePath: String;
 begin
+  if CurUninstallStep = usUninstall then
+  begin
+    Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM "BYOG Worker.exe" /IM "llama-server.exe" /IM "byog-worker.exe" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(500);
+  end;
+
   if CurUninstallStep = usPostUninstall then
   begin
     DeleteFile(ExpandConstant('{commonprograms}\PixRouter BYOG Worker.lnk'));
@@ -1378,6 +1392,31 @@ begin
     RegDeleteValue(HKEY_LOCAL_MACHINE, 'Software\Microsoft\Windows\CurrentVersion\Run', 'BYOG Worker');
     RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\BYOGWorker');
     RegDeleteKeyIncludingSubkeys(HKEY_LOCAL_MACHINE, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\BYOGWorker');
+
+    // Purge {app} directory completely
+    DelTree(ExpandConstant('{app}'), True, True, True);
+    DelTree(ExpandConstant('{%USERPROFILE}\.byog'), True, True, True);
+    DelTree(ExpandConstant('{localappdata}\Programs\PixRouter BYOG Worker'), True, True, True);
+    DelTree(ExpandConstant('{localappdata}\Programs\BYOG Worker'), True, True, True);
+    if BrandSystemName <> '' then
+      DelTree(ExpandConstant('{localappdata}\Programs\' + BrandSystemName + ' BYOG Worker'), True, True, True);
+
+    // Clean up model folders across all local drives
+    for DriveChar := 'C' to 'Z' do
+    begin
+      DrivePath := DriveChar + ':\PixRouter BYOG Models';
+      if DirExists(DrivePath) then
+        DelTree(DrivePath, True, True, True);
+      DrivePath := DriveChar + ':\BYOG Models';
+      if DirExists(DrivePath) then
+        DelTree(DrivePath, True, True, True);
+      if BrandSystemName <> '' then
+      begin
+        DrivePath := DriveChar + ':\' + BrandSystemName + ' BYOG Models';
+        if DirExists(DrivePath) then
+          DelTree(DrivePath, True, True, True);
+      end;
+    end;
   end;
 end;
 

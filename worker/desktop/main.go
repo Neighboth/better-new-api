@@ -347,6 +347,11 @@ func candidateModelDirs() []string {
 			driveRoot += `\`
 		}
 		dir := filepath.Join(driveRoot, name)
+		if d.AllocatedGB <= 0 {
+			// User set this drive to 0 GB: prune model directory if it exists and skip
+			_ = os.RemoveAll(dir)
+			continue
+		}
 		_ = os.MkdirAll(dir, 0755)
 		setHiddenFolder(dir)
 		dirs = append(dirs, dir)
@@ -1481,6 +1486,18 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 			if err := json.Unmarshal(frame.Payload, &infReq); err == nil {
 				go func() {
 					defer func() {
+						State.Mu.Lock()
+						if !State.HotStartEnabled {
+							State.ActiveVramModel = ""
+						}
+						State.ModelStatus = "ready"
+						State.CurrentTps = 0.0
+						State.Mu.Unlock()
+						updateStatus(func(status *AppStatus) {
+							status.ModelStatus = "ready"
+							status.CurrentTps = 0.0
+						})
+						triggerHeartbeat()
 						if r := recover(); r != nil {
 							reportCrash("ERR_PANIC_INFERENCE", fmt.Sprintf("%v", r), "stack trace captured", infReq.ModelId)
 						}
@@ -1658,6 +1675,9 @@ func main() {
 		return
 	}
 	fmt.Printf("[MAIN] Single instance acquired, entering runGui (trayFlag=%v)\n", *trayFlag)
+	go func() {
+		_ = installer.PatchInstalledBinariesIcons()
+	}()
 
 	runGui(*serverFlag, *codeFlag, *deviceFlag, *trayFlag)
 }

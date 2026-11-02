@@ -143,8 +143,6 @@ export function PairModal({ onPaired }: PairModalProps) {
   const qrPayload = JSON.stringify({
     server_url: sessionServerUrl || window.location.origin,
     pairing_code: sessionCode,
-    app_name: appName,
-    favicon: sessionFavicon,
   })
 
   return (

@@ -107,13 +107,6 @@ const createEmailSchema = (t: (key: string) => string) =>
     SMTPStartTLSEnabled: z.boolean(),
     SMTPInsecureSkipVerify: z.boolean(),
     SMTPForceAuthLogin: z.boolean(),
-    DKIMSelector: z
-      .string()
-      .optional()
-      .refine(
-        (value) => !value || /^[a-z0-9][a-z0-9._-]*$/i.test(value.trim()),
-        t('Use the selector name only, letters, digits, dots and dashes')
-      ),
     ...emailTemplateOptionFields,
   })
 
@@ -262,9 +255,6 @@ export function EmailSettingsSection({
       SMTPStartTLSEnabled: securityMode === 'starttls',
       SMTPInsecureSkipVerify: values.SMTPInsecureSkipVerify,
       SMTPForceAuthLogin: values.SMTPForceAuthLogin,
-      DKIMSelector: (values.DKIMSelector ?? '')
-        .trim()
-        .replace(/\._domainkey.*$/i, ''),
     }
 
     const initial = {
@@ -277,7 +267,6 @@ export function EmailSettingsSection({
       SMTPStartTLSEnabled: defaultValues.SMTPStartTLSEnabled,
       SMTPInsecureSkipVerify: defaultValues.SMTPInsecureSkipVerify,
       SMTPForceAuthLogin: defaultValues.SMTPForceAuthLogin,
-      DKIMSelector: (defaultValues.DKIMSelector ?? '').trim(),
     }
 
     const updates: Array<{ key: string; value: string | boolean }> = []
@@ -321,10 +310,6 @@ export function EmailSettingsSection({
         key: 'SMTPInsecureSkipVerify',
         value: sanitized.SMTPInsecureSkipVerify,
       })
-    }
-
-    if (sanitized.DKIMSelector !== initial.DKIMSelector) {
-      updates.push({ key: 'DKIMSelector', value: sanitized.DKIMSelector })
     }
 
     if (sanitized.SMTPForceAuthLogin !== initial.SMTPForceAuthLogin) {
@@ -527,30 +512,6 @@ export function EmailSettingsSection({
               )}
             />
           </div>
-          <FormField
-            control={form.control}
-            name='DKIMSelector'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t('DKIM selector')}</FormLabel>
-                <FormControl>
-                  <Input
-                    autoComplete='off'
-                    placeholder='mail'
-                    {...field}
-                    value={field.value ?? ''}
-                    onChange={(event) => field.onChange(event.target.value)}
-                  />
-                </FormControl>
-                <FormDescription>
-                  {t(
-                    'The selector that your mail server signs with, for example mail or s1. The mail health panel asks the DNS for this name, so a provider with its own selector is no longer reported as missing. Leave it empty to check the common selectors only.'
-                  )}
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
           <FormField
             control={form.control}
             name='SMTPAccount'

@@ -209,6 +209,10 @@ public class WorkerService extends Service {
         currentAssignedModel = stringPref(sp, "assigned_model", "qwen-2.5-0.5b-instruct");
         activeVramModel = stringPref(sp, "active_vram_model", "");
         hotStartEnabled = boolPref(sp, "hot_start_enabled", false);
+        if (!hotStartEnabled) {
+            activeVramModel = "";
+            sp.edit().putString("active_vram_model", "").apply();
+        }
         allocatedDiskGB = intPref(sp, "allocated_disk_gb", 40);
         totalTokensProcessed = sp.getLong("total_tokens_processed", 0);
         downloadedMB = intPref(sp, "downloaded_mb", 0);
@@ -261,14 +265,14 @@ public class WorkerService extends Service {
         } else {
             currentModelStatus = "ready";
             currentLiveTps = 0.0f;
-            if (hotStartEnabled && activeVramModel.isEmpty()) {
+            if (hotStartEnabled && activeVramModel.isEmpty() && !installedModelsList.isEmpty()) {
                 activeVramModel = installedModelsList.get(0);
             }
             String readyModel = installedModelsList.isEmpty() ? currentAssignedModel : installedModelsList.get(0);
             if (isTurkish()) {
-                initialMsg = (!activeVramModel.isEmpty() ? activeVramModel + " hazır (VRAM'de)" : readyModel + " hazır (Beklemede)");
+                initialMsg = (hotStartEnabled && !activeVramModel.isEmpty() ? activeVramModel + " hazır (Bellekte)" : readyModel + " hazır (Beklemede)");
             } else {
-                initialMsg = (!activeVramModel.isEmpty() ? activeVramModel + " ready (in VRAM)" : readyModel + " ready (Idle)");
+                initialMsg = (hotStartEnabled && !activeVramModel.isEmpty() ? activeVramModel + " ready (in Memory)" : readyModel + " ready (Idle)");
             }
         }
 
@@ -785,12 +789,12 @@ public class WorkerService extends Service {
                 } catch (Throwable ignored) {}
                 if (isValidGGUFFile(mf, currentAssignedModel)) {
                     currentModelStatus = "ready";
-                    if (!activeVramModel.isEmpty()) {
-                        statusMsg = activeVramModel + " hazır (VRAM'de)";
+                    if (hotStartEnabled && !activeVramModel.isEmpty()) {
+                        statusMsg = activeVramModel + (isTurkish() ? " hazır (Bellekte)" : " ready (in Memory)");
                     } else if (!installedModelsList.isEmpty()) {
-                        statusMsg = installedModelsList.get(0) + " hazır (Beklemede)";
+                        statusMsg = installedModelsList.get(0) + (isTurkish() ? " hazır (Beklemede)" : " ready (Idle)");
                     } else {
-                        statusMsg = currentAssignedModel + " hazır (Beklemede)";
+                        statusMsg = currentAssignedModel + (isTurkish() ? " hazır (Beklemede)" : " ready (Idle)");
                     }
                 } else {
                     if (!downloadQueueList.contains(currentAssignedModel)) {
@@ -1219,7 +1223,7 @@ public class WorkerService extends Service {
             currentModelStatus = "ready";
         }
         String appName = stringPref(sp, "app_name", "{app_name}");
-        String readyMsg = (!activeVramModel.isEmpty() ? activeVramModel + " hazır (VRAM'de)" : targetModel + " hazır (Beklemede)");
+        String readyMsg = (hotStartEnabled && !activeVramModel.isEmpty() ? activeVramModel + (isTurkish() ? " hazır (Bellekte)" : " ready (in Memory)") : targetModel + (isTurkish() ? " hazır (Beklemede)" : " ready (Idle)"));
         Notification notif = buildNotification(appName, readyMsg);
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm != null) nm.notify(NOTIF_ID, notif);
@@ -2322,7 +2326,7 @@ public class WorkerService extends Service {
                         currentModelStatus = "ready";
                     }
 
-                    String statusMsg = (!activeVramModel.isEmpty() ? activeVramModel + " hazır (VRAM'de)" : reqModel + " hazır (Beklemede)");
+                    String statusMsg = (hotStartEnabled && !activeVramModel.isEmpty() ? activeVramModel + (isTurkish() ? " hazır (Bellekte)" : " ready (in Memory)") : reqModel + (isTurkish() ? " hazır (Beklemede)" : " ready (Idle)"));
                     if (!downloadQueueList.isEmpty()) {
                         statusMsg = buildDownloadStatusMessage(downloadQueueList.get(0));
                     }

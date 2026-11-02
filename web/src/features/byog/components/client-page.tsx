@@ -87,6 +87,7 @@ import { useSystemConfig } from '@/hooks/use-system-config'
 import { cn } from '@/lib/utils'
 
 import { ResourceSliders, isIntegratedGpu } from './resource-sliders'
+import { MobileSettingsCard } from './mobile-settings-card'
 import type { ByogNode } from '../types'
 
 interface DiskInfo {
@@ -326,7 +327,7 @@ function QrScanModal({
     if (ctx) {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-      const qrCode = jsQR(imageData.data, canvas.width, canvas.height)
+      const qrCode = jsQR(imageData.data, canvas.width, canvas.height, { inversionAttempts: 'attemptBoth' })
       if (qrCode && qrCode.data) {
         onScan(qrCode.data)
         stopStream()
@@ -502,8 +503,21 @@ function QrScanModal({
 
 const cleanModel = (val: unknown): string => {
   if (!val) return ''
+  if (Array.isArray(val)) {
+    const valid = val.map((v) => String(v).trim()).filter((v) => v && v !== 'null' && v !== 'undefined')
+    return valid.join(', ')
+  }
   const s = String(val).trim()
-  if (s === 'null' || s === 'undefined' || s === '[]') return ''
+  if (s === 'null' || s === 'undefined' || s === '[]' || s === '[""]' || s === '["null"]') return ''
+  if (s.startsWith('[') && s.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(s)
+      if (Array.isArray(parsed)) {
+        const valid = parsed.map((v) => String(v).trim()).filter((v) => v && v !== 'null' && v !== 'undefined')
+        return valid.join(', ')
+      }
+    } catch {}
+  }
   return s
 }
 
@@ -554,6 +568,13 @@ export function ClientPage() {
   const [diskGB, setDiskGB] = useState(0)
   const [diskAllocations, setDiskAllocations] = useState<Record<string, number>>({})
   const [hotStart, setHotStart] = useState(false)
+  const [wifiOnly, setWifiOnly] = useState(false)
+  const [dataLimitMB, setDataLimitMB] = useState(0)
+  const [chargingOnly, setChargingOnly] = useState(false)
+  const [batteryCutoffEnabled, setBatteryCutoffEnabled] = useState(false)
+  const [batteryCutoffPercent, setBatteryCutoffPercent] = useState(20)
+  const [maxBatteryTemp, setMaxBatteryTemp] = useState(50)
+  const [autoPauseOnGame, setAutoPauseOnGame] = useState(true)
   const [qrModalOpen, setQrModalOpen] = useState(false)
   const [savingResources, setSavingResources] = useState(false)
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('')
@@ -1234,8 +1255,8 @@ export function ClientPage() {
     battery_temp: 0,
   } as unknown as ByogNode
 
-  // Determine paired status (Device is paired if it has an assigned node_id or paired flag)
-  const isPaired = Boolean(nodeId || state?.node_id || state?.paired)
+  // Determine paired status (Device is paired only when authenticated or confirmed by backend/bridge)
+  const isPaired = Boolean(state?.paired || (state?.user_id && state.user_id > 0))
   const isModelReady = state?.model_status === 'ready' || (state && state.download_progress >= 100)
 
   // Header Brand Logo: use custom site logo/favicon or favicon_base64
@@ -1757,6 +1778,7 @@ export function ClientPage() {
                     <span className='text-muted-foreground w-24 sm:w-36 shrink-0'>{t('byog.installed_models', 'Modeller')}:</span>
                     <span className='font-mono truncate font-medium min-w-0 flex-1'>
                       {cleanModel(state?.models) ||
+                       cleanModel((state as Record<string, unknown>)?.installed_models) ||
                        cleanModel(state?.assigned_model) ||
                        (state?.download_model_id ? `${state.download_model_id} (${t('byog.client_downloading', 'İndiriliyor')})` : '—')}
                     </span>
@@ -1875,6 +1897,25 @@ export function ClientPage() {
                 onDiskChange={handleDiskChange}
                 onDiskAllocationsChange={handleDiskAllocationsChange}
                 onHotStartChange={handleHotStartChange}
+              />
+
+              <MobileSettingsCard
+                deviceType={state?.device_type || 'desktop'}
+                wifiOnly={wifiOnly}
+                dataLimitMB={dataLimitMB}
+                chargingOnly={chargingOnly}
+                batteryCutoffEnabled={batteryCutoffEnabled}
+                batteryCutoffPercent={batteryCutoffPercent}
+                maxBatteryTemp={maxBatteryTemp}
+                batteryTempSupported={true}
+                autoPauseOnGame={autoPauseOnGame}
+                onWifiOnlyChange={setWifiOnly}
+                onDataLimitChange={setDataLimitMB}
+                onChargingOnlyChange={setChargingOnly}
+                onBatteryCutoffEnabledChange={setBatteryCutoffEnabled}
+                onBatteryCutoffPercentChange={setBatteryCutoffPercent}
+                onMaxBatteryTempChange={setMaxBatteryTemp}
+                onAutoPauseOnGameChange={setAutoPauseOnGame}
               />
 
               <div className='flex items-center justify-between pt-2'>

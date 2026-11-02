@@ -371,49 +371,47 @@ export function ByogUserDashboard() {
                 }
               />
 
-              {/* Mobile Governance (if mobile/tablet) */}
-              {(selectedNode.device_type === 'mobile' ||
-                selectedNode.device_type === 'tablet') && (
-                <MobileSettingsCard
-                  wifiOnly={selectedNode.wifi_only_download}
-                  dataLimitMB={selectedNode.monthly_data_limit_mb}
-                  chargingOnly={selectedNode.run_only_while_charging}
-                  batteryCutoffEnabled={selectedNode.battery_cutoff_enabled}
-                  batteryCutoffPercent={selectedNode.battery_cutoff_percent}
-                  maxBatteryTemp={selectedNode.max_battery_temp}
-                  batteryTempSupported={selectedNode.battery_temp_supported}
-                  onWifiOnlyChange={(w) =>
-                    setSelectedNode({ ...selectedNode, wifi_only_download: w })
-                  }
-                  onDataLimitChange={(dl) =>
-                    setSelectedNode({
-                      ...selectedNode,
-                      monthly_data_limit_mb: dl,
-                    })
-                  }
-                  onChargingOnlyChange={(ch) =>
-                    setSelectedNode({
-                      ...selectedNode,
-                      run_only_while_charging: ch,
-                    })
-                  }
-                  onBatteryCutoffEnabledChange={(be) =>
-                    setSelectedNode({
-                      ...selectedNode,
-                      battery_cutoff_enabled: be,
-                    })
-                  }
-                  onBatteryCutoffPercentChange={(bp) =>
-                    setSelectedNode({
-                      ...selectedNode,
-                      battery_cutoff_percent: bp,
-                    })
-                  }
-                  onMaxBatteryTempChange={(mt) =>
-                    setSelectedNode({ ...selectedNode, max_battery_temp: mt })
-                  }
-                />
-              )}
+              {/* Device Governance & Intelligent Gamer Mode */}
+              <MobileSettingsCard
+                deviceType={selectedNode.device_type}
+                wifiOnly={selectedNode.wifi_only_download}
+                dataLimitMB={selectedNode.monthly_data_limit_mb}
+                chargingOnly={selectedNode.run_only_while_charging}
+                batteryCutoffEnabled={selectedNode.battery_cutoff_enabled}
+                batteryCutoffPercent={selectedNode.battery_cutoff_percent}
+                maxBatteryTemp={selectedNode.max_battery_temp}
+                batteryTempSupported={selectedNode.battery_temp_supported}
+                onWifiOnlyChange={(w) =>
+                  setSelectedNode({ ...selectedNode, wifi_only_download: w })
+                }
+                onDataLimitChange={(dl) =>
+                  setSelectedNode({
+                    ...selectedNode,
+                    monthly_data_limit_mb: dl,
+                  })
+                }
+                onChargingOnlyChange={(ch) =>
+                  setSelectedNode({
+                    ...selectedNode,
+                    run_only_while_charging: ch,
+                  })
+                }
+                onBatteryCutoffEnabledChange={(be) =>
+                  setSelectedNode({
+                    ...selectedNode,
+                    battery_cutoff_enabled: be,
+                  })
+                }
+                onBatteryCutoffPercentChange={(bp) =>
+                  setSelectedNode({
+                    ...selectedNode,
+                    battery_cutoff_percent: bp,
+                  })
+                }
+                onMaxBatteryTempChange={(mt) =>
+                  setSelectedNode({ ...selectedNode, max_battery_temp: mt })
+                }
+              />
             </div>
           )}
 

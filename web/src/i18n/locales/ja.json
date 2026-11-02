@@ -3036,7 +3036,7 @@
     "footer.columns.related.links.oneApi": "1つのAPI",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
     "For private deployments, format: https://fastgpt.run/api/openapi": "プライベートデプロイメントの場合、形式: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "セキュリティ上、既存のアクセストークンは再表示できません。新しいトークンが必要な場合のみ再生成してください。",
@@ -6856,7 +6856,6 @@
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
     "Zoom": "ズーム",
-
     "byog.admin.canary_help_title": "💡 SeedとLogprob値とは何か、どのように取得するか？",
     "byog.admin.canary_help_p1": "チート対策カナリアは、ワーカーが偽造出力を生成したり、より小さな未割り当てモデルを使用したりするのを防ぐために、決定論的検証テスト（温度=0、固定シード）を実行します。",
     "byog.admin.canary_optional_tag": "任意：",
@@ -6922,5 +6921,27 @@
     "byog.admin.type_video": "動画（テキストから動画）",
     "byog.admin.type_audio": "音声 / スピーチ",
     "byog.admin.reward_image": "商品画像"
+  },
+  "byog": {
+    "admin": {
+      "canary_help_title": "💡 SeedとLogprob値とは何か、どう調べるか？",
+      "canary_help_p1": "不正防止カナリアは、デバイスによる偽の出力生成や小型モデルへのすり替えを防ぐため、決定論的テスト（温度=0、固定シード）を実行します。",
+      "canary_optional_tag": "オプション：",
+      "canary_help_p2": "空白のままにすると、この検証はスキップされ、モデルは正常に動作します。",
+      "canary_learn_tag": "確認方法：",
+      "canary_help_p3": "固定プロンプトとシードでモデルをテストし、llama.cpp / llama-cliから返された期待される応答とlogprob値をここに入力できます。",
+      "search_from_hf": "Hugging Faceからモデルを検索",
+      "hf_modal_title": "Hugging Face モデル＆量子化エクスプローラー",
+      "hf_modal_desc": "Hugging Face上のすべてのオープンソースモデルを検索（検索にトークンは不要）。ゲート付きモデルには任意のトークンを入力できます。",
+      "hf_search_placeholder": "モデル名を検索（例：gemma-3, qwen2.5, llama-3, mistral）...",
+      "hf_search_btn": "検索",
+      "hf_token_placeholder": "HFトークン（任意 - ゲート付きモデル用）",
+      "hf_token_title": "公開検索にトークンは不要です。LlamaやGemmaなどのゲート付きモデルのファイル一覧を取得する場合にのみ必要です。",
+      "hf_repos_found": "見つかったモデルリポジトリ",
+      "hf_scanning": "スキャン中...",
+      "hf_scanning_msg": "Hugging Faceをスキャン中...",
+      "hf_no_models": "モデルが見つかりません",
+      "hf_search_hint": "検索ボックスにモデル名またはアーキテクチャ名を入力して検索をクリックしてください。"
+    }
   }
 }

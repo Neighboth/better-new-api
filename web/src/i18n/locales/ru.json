@@ -3036,7 +3036,7 @@
     "footer.columns.related.links.oneApi": "Один API",
     "footer.columns.related.title": "Связанные проекты",
     "footer.defaultCopyright": "Все права защищены.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
+    "footer.newapi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Для каналов, добавленных после 10 мая 2025 г., не нужно удалять \".\" из имён моделей при развёртывании",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Для частных развертываний, формат: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "В целях безопасности существующие токены доступа нельзя просмотреть повторно. Создавайте новый токен только при необходимости.",
@@ -6856,7 +6856,6 @@
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Zoom",
-
     "byog.admin.canary_help_title": "💡 Что такое значения Seed и Logprob и как их узнать?",
     "byog.admin.canary_help_p1": "Канарейки защиты от мошенничества выполняют детерминированные тесты (температура=0, фиксированный сид), чтобы устройства не генерировали поддельные ответы и не подменяли модели меньшими.",
     "byog.admin.canary_optional_tag": "Необязательно:",
@@ -6922,5 +6921,27 @@
     "byog.admin.type_video": "Видео (Текст в видео)",
     "byog.admin.type_audio": "Аудио / Речь",
     "byog.admin.reward_image": "Изображение товара"
+  },
+  "byog": {
+    "admin": {
+      "canary_help_title": "💡 Что такое значения Seed и Logprob и как их узнать?",
+      "canary_help_p1": "Античит-канарейки запускают детерминированные тесты (температура=0, фиксированный сид), чтобы предотвратить подделку результатов или использование меньших моделей.",
+      "canary_optional_tag": "Необязательно:",
+      "canary_help_p2": "Если оставить пустым, эта проверка пропускается, и модель работает в обычном режиме.",
+      "canary_learn_tag": "Способ получения:",
+      "canary_help_p3": "При тестировании модели с фиксированным промптом и сидом вы можете вручную ввести сюда ожидаемый ответ и logprob из llama.cpp / llama-cli.",
+      "search_from_hf": "Поиск модели на Hugging Face",
+      "hf_modal_title": "Обозреватель моделей и квантования Hugging Face",
+      "hf_modal_desc": "Ищите все модели с открытым исходным кодом на Hugging Face (токен для поиска не требуется). Для gated-моделей можно ввести токен доступа.",
+      "hf_search_placeholder": "Поиск по названию модели (напр., gemma-3, qwen2.5, llama-3, mistral)...",
+      "hf_search_btn": "Найти",
+      "hf_token_placeholder": "HF Токен (Необязательно - для gated-моделей)",
+      "hf_token_title": "Для публичного поиска токен не требуется. Он нужен только для списка файлов gated-моделей вроде Llama или Gemma.",
+      "hf_repos_found": "Найденные репозитории",
+      "hf_scanning": "Сканирование...",
+      "hf_scanning_msg": "Сканирование Hugging Face...",
+      "hf_no_models": "Модели не найдены",
+      "hf_search_hint": "Введите название модели или архитектуры в строку поиска и нажмите кнопку Найти."
+    }
   }
 }

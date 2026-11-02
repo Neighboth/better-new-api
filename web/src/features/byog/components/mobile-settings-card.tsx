@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   Battery,
   BatteryCharging,
+  Cpu,
+  Gamepad2,
   Info,
   Smartphone,
   Thermometer,
@@ -45,6 +47,7 @@ import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 
 interface MobileSettingsCardProps {
+  deviceType?: string
   wifiOnly: boolean
   dataLimitMB: number
   chargingOnly: boolean
@@ -52,15 +55,18 @@ interface MobileSettingsCardProps {
   batteryCutoffPercent: number
   maxBatteryTemp: number
   batteryTempSupported: boolean
+  autoPauseOnGame?: boolean
   onWifiOnlyChange: (val: boolean) => void
   onDataLimitChange: (val: number) => void
   onChargingOnlyChange: (val: boolean) => void
   onBatteryCutoffEnabledChange: (val: boolean) => void
   onBatteryCutoffPercentChange: (val: number) => void
   onMaxBatteryTempChange: (val: number) => void
+  onAutoPauseOnGameChange?: (val: boolean) => void
 }
 
 export function MobileSettingsCard({
+  deviceType,
   wifiOnly,
   dataLimitMB,
   chargingOnly,
@@ -68,12 +74,14 @@ export function MobileSettingsCard({
   batteryCutoffPercent,
   maxBatteryTemp,
   batteryTempSupported,
+  autoPauseOnGame = true,
   onWifiOnlyChange,
   onDataLimitChange,
   onChargingOnlyChange,
   onBatteryCutoffEnabledChange,
   onBatteryCutoffPercentChange,
   onMaxBatteryTempChange,
+  onAutoPauseOnGameChange,
 }: MobileSettingsCardProps) {
   const { t } = useTranslation()
 
@@ -81,13 +89,62 @@ export function MobileSettingsCard({
     <Card className='border-border/80'>
       <CardHeader>
         <CardTitle className='flex items-center gap-2 text-base font-semibold'>
-          <Smartphone className='text-primary h-4 w-4' />
-          {t('byog.mobile_governance_title')}
+          {deviceType === 'desktop' || deviceType === 'server' ? (
+            <Cpu className='text-primary h-4 w-4' />
+          ) : (
+            <Smartphone className='text-primary h-4 w-4' />
+          )}
+          {deviceType === 'desktop' || deviceType === 'server'
+            ? t('byog.desktop_governance_title', 'Cihaz Yönetişimi & Akıllı Oyun Modu')
+            : t('byog.mobile_governance_title', 'Mobil Cihaz Yönetişimi')}
         </CardTitle>
-        <CardDescription>{t('byog.mobile_governance_desc')}</CardDescription>
+        <CardDescription>
+          {deviceType === 'desktop' || deviceType === 'server'
+            ? t('byog.desktop_governance_desc', 'Oyun oynarken gücü otomatik kısma, veri kotası ve güç kurallarını belirleyin.')
+            : t('byog.mobile_governance_desc', 'Mobil veri kotası, şarj ve pil kurallarını belirleyin.')}
+        </CardDescription>
       </CardHeader>
 
       <CardContent className='space-y-6'>
+        {/* Gamer Mode - Auto Pause / Throttle on Games (especially for PC/Desktop) */}
+        <div className='space-y-3 rounded-lg border p-3.5 bg-purple-500/5 border-purple-500/20'>
+          <div className='flex items-center justify-between'>
+            <div className='space-y-0.5'>
+              <div className='flex items-center gap-2 text-sm font-medium text-foreground'>
+                <Gamepad2 className='text-purple-400 h-4 w-4' />
+                {t('byog.gamer_mode_title', 'Akıllı Gamer Modu (Oyun Algılama)')}
+              </div>
+              <p className='text-muted-foreground text-xs'>
+                {t('byog.gamer_mode_desc', 'Oyun oynarken BYOG arka plan hesaplamasını otomatik duraklatır veya gücü kısarak FPS kaybını önler.')}
+              </p>
+            </div>
+            <Switch
+              checked={autoPauseOnGame}
+              onCheckedChange={onAutoPauseOnGameChange}
+            />
+          </div>
+
+          {autoPauseOnGame && (
+            <div className='border-border/50 space-y-2 border-t pt-2 text-xs'>
+              <div className='flex items-center justify-between'>
+                <span className='text-muted-foreground'>
+                  {t('byog.gamer_heavy_policy', 'Ağır / Tam Ekran (AAA) Oyunlarda:')}
+                </span>
+                <span className='font-semibold text-purple-400'>
+                  {t('byog.gamer_heavy_action', 'BYOG Otomatik Duraklatılır')}
+                </span>
+              </div>
+              <div className='flex items-center justify-between'>
+                <span className='text-muted-foreground'>
+                  {t('byog.gamer_light_policy', 'Orta / Hafif Oyunlarda:')}
+                </span>
+                <span className='font-semibold text-emerald-400'>
+                  {t('byog.gamer_light_action', 'Güç %50 Seviyesine İndirilir')}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
         {/* 1. Download on Wi-Fi Only - DEFAULT: ON */}
         <div className='flex items-center justify-between rounded-lg border p-3.5'>
           <div className='space-y-0.5'>

@@ -48,6 +48,26 @@ func checkDebuggerPresent() bool {
 	return res != 0
 }
 
+func isIntegratedGpuName(name string) bool {
+	lower := strings.ToLower(name)
+	if strings.Contains(lower, "arc(tm)") || strings.Contains(lower, "arc a") || strings.Contains(lower, "arc b") {
+		return false
+	}
+	if strings.Contains(lower, "iris") ||
+		strings.Contains(lower, "uhd") ||
+		strings.Contains(lower, "hd graphics") ||
+		strings.Contains(lower, "intel") ||
+		strings.Contains(lower, "vega") ||
+		(strings.Contains(lower, "radeon") && (strings.Contains(lower, "graphics") || strings.Contains(lower, "tm"))) ||
+		strings.Contains(lower, "integrated") ||
+		strings.Contains(lower, "uma") {
+		return true
+	}
+	return false
+}
+
+// isFullscreenGameRunning reports whether the user is playing a game.
+// It checks notification state and whether any foreground/fullscreen 3D game process is running.
 func isFullscreenGameRunning() bool {
 	shell32 := syscall.NewLazyDLL("shell32.dll")
 	queryState := shell32.NewProc("SHQueryUserNotificationState")
@@ -213,10 +233,10 @@ func displayAdaptersDXGI() ([]displayAdapter, bool) {
 
 		// Direct Hardware VRAM Measurement:
 		// Dedicated discrete GPUs have their own high-speed VRAM (>= 1024 MB).
-		// Integrated / shared GPUs (UMA) have 0 or <= 512 MB BIOS aperture in DedicatedVideoMemory,
-		// and use SharedSystemMemory. If DedicatedVideoMemory <= 512MB, VramMB is locked to 0.
+		// Integrated / shared GPUs (UMA) have 0 or BIOS aperture in DedicatedVideoMemory,
+		// and use SharedSystemMemory. If DedicatedVideoMemory <= 512MB or GPU is integrated, VramMB is locked to 0.
 		vramMB := 0
-		if desc.DedicatedVideoMemory > 512*1024*1024 {
+		if !isIntegratedGpuName(name) && desc.DedicatedVideoMemory > 512*1024*1024 {
 			vramMB = int(desc.DedicatedVideoMemory / (1024 * 1024))
 		}
 
@@ -259,8 +279,8 @@ func displayAdapters() []displayAdapter {
 			strings.Contains(lower, "parsec") || strings.Contains(lower, "oray") {
 			continue
 		}
-		// If reported memory is <= 512MB, it is an integrated aperture, not dedicated discrete VRAM
-		if vram <= 512 {
+		// If reported memory is <= 512MB or GPU is integrated, it has no dedicated discrete VRAM
+		if vram <= 512 || isIntegratedGpuName(name) {
 			vram = 0
 		}
 		adapters = append(adapters, displayAdapter{Name: name, VramMB: vram})

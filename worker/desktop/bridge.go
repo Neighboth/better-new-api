@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -161,10 +163,21 @@ func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Requ
 	}
 	for i := range hardware.Disks {
 		drv := strings.ToUpper(strings.TrimSpace(hardware.Disks[i].Drive))
-		if alloc, ok := allocMap[drv]; ok && alloc > 0 {
+		if alloc, ok := allocMap[drv]; ok {
 			hardware.Disks[i].AllocatedGB = alloc
 		} else {
 			hardware.Disks[i].AllocatedGB = hardware.Disks[i].FreeGB / 2
+		}
+		if hardware.Disks[i].AllocatedGB <= 0 {
+			name := getSystemModelDirName()
+			driveRoot := hardware.Disks[i].Drive
+			if strings.HasSuffix(driveRoot, ":") {
+				driveRoot += `\`
+			} else if !strings.HasSuffix(driveRoot, `\`) && !strings.HasSuffix(driveRoot, `/`) {
+				driveRoot += `\`
+			}
+			dir := filepath.Join(driveRoot, name)
+			_ = os.RemoveAll(dir)
 		}
 	}
 	writeBridgeJSON(writer, bridgeState{

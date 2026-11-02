@@ -23,26 +23,27 @@ func TestConvertWritesTheTableOfThePolicy(t *testing.T) {
 	document := Convert("| Ad | Süre |\n|:---|---:|\n| İndirme | 2 saat |\n| Yükleme | 1 saat |\n")
 	text := visibleText(document)
 
-	assert.Contains(t, document, `\tx`, "the columns of the table are the tab stops of the rows")
+	assert.Contains(t, document, `\trowd`, "the rows of the table are RTF table rows")
+	assert.Contains(t, document, `\clbrdrt`, "the cells of the table have borders")
 	assert.Contains(t, document, `{\b `, "the head of the table is written in bold")
 	assert.NotContains(t, text, "---", "the separator of the head is not a row of the text")
 
 	rows := nonEmptyLines(text)
 	require.Len(t, rows, 3)
-	assert.Equal(t, "Ad\tSüre", rows[0])
-	assert.Equal(t, "İndirme\t2 saat", rows[1])
-	assert.Equal(t, "Yükleme\t1 saat", rows[2])
+	assert.Equal(t, "Ad\tSüre", strings.TrimRight(rows[0], "\t"))
+	assert.Equal(t, "İndirme\t2 saat", strings.TrimRight(rows[1], "\t"))
+	assert.Equal(t, "Yükleme\t1 saat", strings.TrimRight(rows[2], "\t"))
 }
 
 // TestConvertWritesAHorizontalRule checks that a rule of Markdown is a visible
-// line and not an empty paragraph.
+// border line.
 func TestConvertWritesAHorizontalRule(t *testing.T) {
-	lines := nonEmptyLines(visibleText(Convert("Birinci\n\n---\n\nİkinci\n")))
-
-	require.Len(t, lines, 3)
+	document := Convert("Birinci\n\n---\n\nİkinci\n")
+	assert.Contains(t, document, `\brdrb\brdrs\brdrw15`, "horizontal rule rendered as native RTF border line")
+	lines := nonEmptyLines(visibleText(document))
+	require.Len(t, lines, 2)
 	assert.Equal(t, "Birinci", lines[0])
-	assert.Equal(t, strings.Repeat("─", ruleCharacters), lines[1])
-	assert.Equal(t, "İkinci", lines[2])
+	assert.Equal(t, "İkinci", lines[1])
 }
 
 // TestConvertWritesLinks checks that a link keeps the text and the address and
@@ -108,9 +109,10 @@ func TestConvertKeepsTheTextOfAPlainPolicy(t *testing.T) {
 func TestConvertHandlesPipelssTablesAndComplexLinks(t *testing.T) {
 	md := "Madde 1 | Madde 2\n--- | ---\nDeğer 1 | Değer 2\n\n---\n\nDetaylar [şurada](https://example.com/page?query=1&b=2) mevcuttur."
 	doc := Convert(md)
-	assert.Contains(t, doc, `\tx`)
+	assert.Contains(t, doc, `\trowd`)
+	assert.Contains(t, doc, `\clbrdrt`)
 	assert.Contains(t, doc, `HYPERLINK "https://example.com/page?query=1&b=2"`)
-	assert.Contains(t, visibleText(doc), `─`)
+	assert.Contains(t, doc, `\brdrb\brdrs\brdrw15`)
 }
 func TestConvertWritesAValidDocument(t *testing.T) {
 	document := Convert("# Başlık 🙂\n\n| A | B |\n|---|---|\n| 🙂 | ş |\n\n- ğ\n\n---\n")
