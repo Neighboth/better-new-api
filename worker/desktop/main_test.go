@@ -87,3 +87,32 @@ func TestHardwareDetectionOnThisMachine(t *testing.T) {
 	hw := readHardware()
 	t.Logf("Hardware: GPU=%s, VramMB=%d, SharedVramMB=%d, RamMB=%d", hw.GpuModel, hw.VramMB, hw.SharedVramMB, hw.PhysicalRamMB)
 }
+
+func TestMultiTurnMessagesParsing(t *testing.T) {
+	rawJSON := `[
+		{"role": "user", "content": "Benim adım Ali."},
+		{"role": "assistant", "content": "Merhaba Ali! Sana nasıl yardımcı olabilirim?"},
+		{"role": "user", "content": "Benim ilk mesajım neydi?"}
+	]`
+	var rawMsgs []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(rawJSON), &rawMsgs))
+	require.Len(t, rawMsgs, 3)
+
+	var chatMessages []llama.LlamaChatMessage
+	for _, m := range rawMsgs {
+		role, _ := m["role"].(string)
+		content, _ := m["content"].(string)
+		chatMessages = append(chatMessages, llama.LlamaChatMessage{
+			Role:    role,
+			Content: content,
+		})
+	}
+
+	assert.Len(t, chatMessages, 3)
+	assert.Equal(t, "Benim adım Ali.", chatMessages[0].Content)
+	assert.Equal(t, "user", chatMessages[0].Role)
+	assert.Equal(t, "Merhaba Ali! Sana nasıl yardımcı olabilirim?", chatMessages[1].Content)
+	assert.Equal(t, "assistant", chatMessages[1].Role)
+	assert.Equal(t, "Benim ilk mesajım neydi?", chatMessages[2].Content)
+	assert.Equal(t, "user", chatMessages[2].Role)
+}

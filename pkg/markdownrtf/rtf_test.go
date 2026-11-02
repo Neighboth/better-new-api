@@ -9,6 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestReproTable(t *testing.T) {
+	md := "Kullanıcılarımız ve ilgili resmi kurumlar:\n| İletişim Amacı | E-Posta |\n| :--- | :--- |\n| Bilgi | info@pixrouter.com |\n\n---\n\n3. TANIMLAR"
+	doc := Convert(md)
+	t.Logf("Doc:\n%s\n", doc)
+	assert.NotContains(t, doc, `| :---`)
+}
+
 // TestConvertWritesTheTableOfThePolicy checks that the cells of a table keep
 // their order and that the row of the dashes of the head is not a row of the
 // text that the reader sees.

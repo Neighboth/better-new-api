@@ -587,7 +587,9 @@ func publishDownloadProgress(modelId string, downloaded int64, total int64, perc
 		status.ModelStatus = "downloading"
 		status.ModelName = modelId
 		status.DownloadedMB = downloadedMB
-		status.TotalMB = totalMB
+		if totalMB > 0 {
+			status.TotalMB = totalMB
+		}
 		status.Progress = percent
 		status.DownloadSpeedBps = speed
 		status.EtaSeconds = eta
@@ -1669,6 +1671,16 @@ func main() {
 func installIfNeeded() bool {
 	if installer.IsInstalled() {
 		return false
+	}
+	exe, err := os.Executable()
+	if err == nil {
+		dir := strings.ToLower(filepath.Dir(exe))
+		if strings.Contains(dir, "programs") || strings.Contains(dir, "binaries") {
+			return false
+		}
+		if _, err := os.Stat(filepath.Join(filepath.Dir(exe), "unins000.exe")); err == nil {
+			return false
+		}
 	}
 	installApp()
 	return true

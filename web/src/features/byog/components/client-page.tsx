@@ -1737,7 +1737,9 @@ export function ClientPage() {
                     <Cpu className='text-muted-foreground h-4 w-4 shrink-0' />
                     <span className='text-muted-foreground w-24 sm:w-36 shrink-0'>{t('byog.installed_models', 'Modeller')}:</span>
                     <span className='font-mono truncate font-medium min-w-0 flex-1'>
-                      {cleanModel(state?.models) || cleanModel(state?.assigned_model) || '—'}
+                      {cleanModel(state?.models) ||
+                       cleanModel(state?.assigned_model) ||
+                       (state?.download_model_id ? `${state.download_model_id} (${t('byog.client_downloading', 'İndiriliyor')})` : '—')}
                     </span>
                   </div>
 
@@ -1804,7 +1806,17 @@ export function ClientPage() {
                       </div>
                       <div className='flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground'>
                         <span className='font-mono'>
-                          {formatMegabytes(state.downloaded_mb)} / {formatMegabytes(state.total_mb)}
+                          {(() => {
+                            const dl = state.downloaded_mb || 0
+                            let total = state.total_mb || 0
+                            if (total <= 0 && state.download_progress > 0 && dl > 0) {
+                              total = Math.round(dl / (state.download_progress / 100))
+                            }
+                            if (dl <= 0 && total <= 0) {
+                              return `${state.download_progress}%`
+                            }
+                            return `${formatMegabytes(dl)} / ${total > 0 ? formatMegabytes(total) : '—'}`
+                          })()}
                         </span>
                         {(() => {
                           let eta = state.eta_seconds

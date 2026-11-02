@@ -21,7 +21,6 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
 	"golang.org/x/sys/windows/registry"
 
@@ -144,15 +143,8 @@ func Install(displayName string, version string) error {
 		icon = filepath.Join(Directory(), "byog.ico")
 	}
 
-	if _, managed := InnoUninstaller(); managed || innoEntryExists() {
-		removeOwnUninstallEntry()
-		writeAppPathsEntry(executable)
-		return nil
-	}
-
-	writeUninstallEntry(displayName, version, executable, icon)
+	removeOwnUninstallEntry()
 	writeAppPathsEntry(executable)
-	writeStartupEntry(displayName, executable)
 	return nil
 }
 
@@ -364,6 +356,7 @@ func renameShortcut(displayName string) {
 		return
 	}
 	if _, err := os.Stat(target); err == nil {
+		_ = os.Remove(current)
 		return
 	}
 	if err := os.Rename(current, target); err != nil {
@@ -406,24 +399,9 @@ func IsInstalled() bool {
 // writeUninstallEntry writes the entry of a client that installed itself in the
 // applications of the control panel.
 func writeUninstallEntry(displayName string, version string, executable string, icon string) {
-	key, _, err := registry.CreateKey(registry.CURRENT_USER, uninstallKey, registry.SET_VALUE|registry.QUERY_VALUE)
-	if err != nil {
-		return
-	}
-	defer key.Close()
-
-	_ = key.SetStringValue("DisplayName", displayName)
-	_ = key.SetStringValue("DisplayVersion", version)
-	_ = key.SetStringValue("Publisher", publisherName)
-	_ = key.SetStringValue("DisplayIcon", icon)
-	_ = key.SetStringValue("InstallLocation", filepath.Dir(executable))
-	_ = key.SetStringValue("UninstallString", fmt.Sprintf("\"%s\" --uninstall", executable))
-	_ = key.SetStringValue("QuietUninstallString", fmt.Sprintf("\"%s\" --uninstall", executable))
-	_ = key.SetStringValue("InstallDate", time.Now().Format("2006-01-02"))
-	_ = key.SetDWordValue("NoModify", 1)
-	_ = key.SetDWordValue("NoRepair", 1)
-	_ = key.SetDWordValue("EstimatedSize", 12000)
-	_ = key.SetStringValue("Comments", "The client of the local computing network of the installation.")
+	// Inno Setup is the sole authority for Control Panel uninstall entries.
+	// The client binary never writes a duplicate uninstaller key.
+	removeOwnUninstallEntry()
 }
 
 // writeAppPathsEntry writes the path of the program of the client, the system

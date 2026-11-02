@@ -1,4 +1,4 @@
-﻿; The installation of the client of the local computing network.
+; The installation of the client of the local computing network.
 ;
 ; The installer is built with Inno Setup, the standard tool of Windows. The
 ; dashboard downloads the installer with the name, the icon and the address of
@@ -28,14 +28,12 @@ VersionInfoCompany={#MyAppPublisher}
 DefaultDirName={code:GetDefaultDir}
 DefaultGroupName={#MyAppName}
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
 DisableProgramGroupPage=yes
 DisableDirPage=no
 OutputDir=..\binaries
 OutputBaseFilename={#MyAppName} Kurulumu
 SetupIconFile=..\desktop\assets\byog.ico
 UninstallDisplayIcon={app}\byog.ico
-UninstallDisplayName={code:GetDisplayName}
 Compression=lzma2/fast
 SolidCompression=no
 WizardStyle=modern
@@ -136,7 +134,7 @@ Name: "{autoprograms}\{code:GetDisplayName}"; Filename: "{app}\{#MyAppExeName}";
 Name: "{autodesktop}\{code:GetDisplayName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\byog.ico"
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{code:GetDisplayName}"; ValueData: """{app}\{#MyAppExeName}"" --tray"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{code:GetDisplayName}"; ValueData: """{app}\{#MyAppExeName}"" --tray"
 ; The client of an older version wrote an entry of its own into the applications
 ; of the control panel. The installation of the system owns the entry of the
 ; client, therefore the entry of the older version is removed: an application
@@ -529,8 +527,8 @@ begin
           CmdLine := CmdLine + ' ' + AddQuotes(P);
       end;
 
-      if not ShellExec('open', ExpandConstant('{srcexe}'), CmdLine, '', SW_SHOWNORMAL, ewNoWait, ErrorCode) then
-        Exec(ExpandConstant('{srcexe}'), CmdLine, '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
+      if not Exec(ExpandConstant('{srcexe}'), CmdLine, '', SW_SHOWNORMAL, ewNoWait, ErrorCode) then
+        ShellExec('', ExpandConstant('{srcexe}'), CmdLine, '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
       Result := False;
     end
     else
@@ -983,39 +981,20 @@ end;
 
 function IsHorizontalRule(const S: String): Boolean;
 var
-  k, count: Integer;
-  ch: Char;
+  T: String;
 begin
-  Result := False;
-  if Length(S) < 3 then
-    Exit;
-  ch := S[1];
-  if (ch <> '-') and (ch <> '*') and (ch <> '_') then
-    Exit;
-  count := 0;
-  for k := 1 to Length(S) do
-  begin
-    if S[k] = ch then
-      count := count + 1
-    else if S[k] <> ' ' then
-      Exit;
-  end;
-  Result := (count >= 3);
+  T := Trim(S);
+  Result := (Pos('---', T) = 1) or (Pos('***', T) = 1) or (Pos('___', T) = 1) or
+            (T = '---') or (T = '***') or (T = '___') or
+            (Copy(T, 1, 3) = '---');
 end;
 
 function IsTableSeparator(const S: String): Boolean;
 var
-  k: Integer;
+  T: String;
 begin
-  Result := False;
-  if (Length(S) < 3) or (Pos('|', S) = 0) or (Pos('-', S) = 0) then
-    Exit;
-  for k := 1 to Length(S) do
-  begin
-    if (S[k] <> '|') and (S[k] <> '-') and (S[k] <> ':') and (S[k] <> ' ') then
-      Exit;
-  end;
-  Result := True;
+  T := Trim(S);
+  Result := (Pos('|', T) > 0) and (Pos('--', T) > 0);
 end;
 
 function MarkdownToRTF(const Text: String): String;
@@ -1254,6 +1233,10 @@ begin
   PolicyViewer.ScrollBars := ssVertical;
   PolicyViewer.ReadOnly := True;
   PolicyViewer.UseRichEdit := True;
+  try
+    SendMessageW(PolicyViewer.Handle, $0435, 0, 10485760);
+  except
+  end;
   PolicyViewer.RTFText := PlainToRTF(ExpandConstant('{cm:PolicyLoading}'));
 
   PolicyAccept := TNewCheckBox.Create(PolicyPage);
@@ -1391,6 +1374,10 @@ begin
     DeleteFile(ExpandConstant('{userdesktop}\BYOG Worker.lnk'));
     RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'PixRouter BYOG Worker');
     RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'BYOG Worker');
+    RegDeleteValue(HKEY_LOCAL_MACHINE, 'Software\Microsoft\Windows\CurrentVersion\Run', 'PixRouter BYOG Worker');
+    RegDeleteValue(HKEY_LOCAL_MACHINE, 'Software\Microsoft\Windows\CurrentVersion\Run', 'BYOG Worker');
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\BYOGWorker');
+    RegDeleteKeyIncludingSubkeys(HKEY_LOCAL_MACHINE, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\BYOGWorker');
   end;
 end;
 
