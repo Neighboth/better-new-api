@@ -37,6 +37,7 @@ type HfFileDetail struct {
 
 // SearchHuggingFaceModels proxies model search requests to Hugging Face API
 func SearchHuggingFaceModels(c *gin.Context) {
+	token := strings.TrimSpace(c.Query("token"))
 	query := strings.TrimSpace(c.Query("q"))
 	if query == "" {
 		query = "gguf"
@@ -51,6 +52,9 @@ func SearchHuggingFaceModels(c *gin.Context) {
 		return
 	}
 	req.Header.Set("User-Agent", "BYOG-HF-Explorer/1.0")
+	if token != "" && strings.HasPrefix(token, "hf_") {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -318,21 +322,33 @@ func GetHuggingFaceModelFiles(c *gin.Context) {
 							}
 
 							// Estimate size from model name if tree wasn't available
-							sizeGB := 4.0
-							if strings.Contains(lower, "0.5b") {
-								sizeGB = 0.5
-							} else if strings.Contains(lower, "1.5b") {
-								sizeGB = 1.2
-							} else if strings.Contains(lower, "3b") || strings.Contains(lower, "4b") {
-								sizeGB = 2.8
-							} else if strings.Contains(lower, "7b") || strings.Contains(lower, "8b") {
-								sizeGB = 4.8
+							sizeGB := 4.8
+							if strings.Contains(lower, "671b") || strings.Contains(lower, "deepseek-v3") || strings.Contains(lower, "deepseek-r1") && !strings.Contains(lower, "distill") {
+								sizeGB = 220.0
+							} else if strings.Contains(lower, "236b") {
+								sizeGB = 140.0
+							} else if strings.Contains(lower, "110b") || strings.Contains(lower, "120b") {
+								sizeGB = 65.0
+							} else if strings.Contains(lower, "70b") || strings.Contains(lower, "72b") {
+								sizeGB = 40.0
+							} else if strings.Contains(lower, "8x22b") {
+								sizeGB = 80.0
+							} else if strings.Contains(lower, "8x7b") {
+								sizeGB = 28.0
+							} else if strings.Contains(lower, "32b") || strings.Contains(lower, "33b") || strings.Contains(lower, "34b") {
+								sizeGB = 20.0
+							} else if strings.Contains(lower, "27b") {
+								sizeGB = 16.0
 							} else if strings.Contains(lower, "14b") {
 								sizeGB = 9.2
-							} else if strings.Contains(lower, "32b") || strings.Contains(lower, "33b") {
-								sizeGB = 20.0
-							} else if strings.Contains(lower, "70b") {
-								sizeGB = 40.0
+							} else if strings.Contains(lower, "7b") || strings.Contains(lower, "8b") || strings.Contains(lower, "9b") {
+								sizeGB = 4.8
+							} else if strings.Contains(lower, "3b") || strings.Contains(lower, "4b") {
+								sizeGB = 2.6
+							} else if strings.Contains(lower, "1.5b") || strings.Contains(lower, "2b") {
+								sizeGB = 1.2
+							} else if strings.Contains(lower, "0.5b") {
+								sizeGB = 0.5
 							}
 							sizeMB := int(sizeGB * 1024)
 							fileSize := int64(sizeMB) * 1024 * 1024

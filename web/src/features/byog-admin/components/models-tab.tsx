@@ -154,6 +154,16 @@ export function ByogModelsTab() {
 
   function handleSelectHfFile(file: any) {
     if (!editingModel) return
+    const isRepoGated = hfRepos.find((r) => r.id === hfSelectedRepo)?.gated
+    if (isRepoGated && !hfToken?.trim()) {
+      toast.error(
+        t(
+          'byog.admin.gated_token_required',
+          'Bu model Gated (erişim şartlı) bir modeldir. Ekleyebilmek için lütfen yukarıdaki alana Hugging Face Access Token girin!'
+        )
+      )
+      return
+    }
     const cleanName = file.filename
       .replace(/\.gguf$/i, '')
       .toLowerCase()

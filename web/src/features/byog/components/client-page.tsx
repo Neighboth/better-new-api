@@ -86,7 +86,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { cn } from '@/lib/utils'
 
-import { ResourceSliders } from './resource-sliders'
+import { ResourceSliders, isIntegratedGpu } from './resource-sliders'
 import type { ByogNode } from '../types'
 
 interface DiskInfo {
@@ -528,8 +528,13 @@ export function ClientPage() {
   const [busy, setBusy] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [onboardingDone, setOnboardingDone] = useState(() => {
-    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('onboarding') === '1') {
-      return false
+    if (typeof window !== 'undefined') {
+      if (new URLSearchParams(window.location.search).get('onboarding') === '1') {
+        return false
+      }
+      if ((window as unknown as Record<string, unknown>).AndroidBridge) {
+        return false
+      }
     }
     return true
   })
@@ -579,7 +584,8 @@ export function ClientPage() {
       setCores(effectiveCores)
     }
 
-    const maxDedicatedVram = (state.vram_mb && state.vram_mb >= 512) ? Math.floor(state.vram_mb / 1024) : 0
+    const isIntegrated = isIntegratedGpu(state.gpu_model)
+    const maxDedicatedVram = (!isIntegrated && state.vram_mb && state.vram_mb >= 512) ? Math.floor(state.vram_mb / 1024) : 0
     const effectiveVram = maxDedicatedVram > 0
       ? (state.allocated_vram_gb && state.allocated_vram_gb > 0 ? state.allocated_vram_gb : Math.floor(maxDedicatedVram * 0.5))
       : 0
@@ -674,10 +680,15 @@ export function ClientPage() {
       try {
         const raw = bridge.getPermissionStatus()
         if (raw) {
-          setPermissions(JSON.parse(raw) as PermissionState)
-        }
-        if (typeof bridge.isOnboardingDone === 'function') {
-          setOnboardingDone(bridge.isOnboardingDone())
+          const perms = JSON.parse(raw) as PermissionState
+          setPermissions(perms)
+          if (!perms.notifications || !perms.battery) {
+            setOnboardingDone(false)
+          } else if (typeof bridge.isOnboardingDone === 'function') {
+            setOnboardingDone(bridge.isOnboardingDone())
+          } else {
+            setOnboardingDone(true)
+          }
         }
       } catch {
         // ignore
@@ -1385,7 +1396,11 @@ export function ClientPage() {
                       </Button>
                     )}
 
-                    <Button onClick={handleNextStep}>
+                    <Button
+                      onClick={handleNextStep}
+                      disabled={!permissions?.notifications && !isTestingOnboarding}
+                      className={!permissions?.notifications && !isTestingOnboarding ? 'opacity-50 cursor-not-allowed' : ''}
+                    >
                       {t('byog.continue', 'Devam Et')} <ChevronRight className='size-4 ml-1' />
                     </Button>
                   </div>
@@ -1429,7 +1444,11 @@ export function ClientPage() {
                       </Button>
                     )}
 
-                    <Button onClick={handleNextStep}>
+                    <Button
+                      onClick={handleNextStep}
+                      disabled={!permissions?.battery && !isTestingOnboarding}
+                      className={!permissions?.battery && !isTestingOnboarding ? 'opacity-50 cursor-not-allowed' : ''}
+                    >
                       {t('byog.continue', 'Devam Et')} <ChevronRight className='size-4 ml-1' />
                     </Button>
                   </div>

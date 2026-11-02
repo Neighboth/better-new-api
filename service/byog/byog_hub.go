@@ -399,7 +399,10 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 			if telemetry.PhysicalRamMB != nil && node.AllocatedRamGB > float64(*telemetry.PhysicalRamMB)/1024.0 {
 				node.AllocatedRamGB = float64(*telemetry.PhysicalRamMB) / 1024.0
 			}
-			if telemetry.VramMB != nil && node.AllocatedVramGB > *telemetry.VramMB/1024 {
+			if isIntegratedGpuModel(node.GpuModel) {
+				node.VramMB = 0
+				node.AllocatedVramGB = 0
+			} else if telemetry.VramMB != nil && node.AllocatedVramGB > *telemetry.VramMB/1024 {
 				node.AllocatedVramGB = *telemetry.VramMB / 1024
 			}
 			if node.AllocatedDiskGB > node.FreeDiskGB && node.FreeDiskGB > 0 {
@@ -448,6 +451,22 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 			})
 		}
 	}
+}
+
+func isIntegratedGpuModel(gpu string) bool {
+	if gpu == "" {
+		return false
+	}
+	lower := strings.ToLower(gpu)
+	return strings.Contains(lower, "iris") ||
+		strings.Contains(lower, "uhd") ||
+		strings.Contains(lower, "hd graphics") ||
+		strings.Contains(lower, "intel") ||
+		strings.Contains(lower, "vega") ||
+		(strings.Contains(lower, "radeon") && (strings.Contains(lower, "graphics") || strings.Contains(lower, "tm"))) ||
+		strings.Contains(lower, "apple m") ||
+		strings.Contains(lower, "integrated") ||
+		strings.Contains(lower, "uma")
 }
 
 // WebSocket upgrader

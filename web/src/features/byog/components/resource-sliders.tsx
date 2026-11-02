@@ -53,6 +53,22 @@ interface ResourceSlidersProps {
   onHotStartChange?: (val: boolean) => void
 }
 
+export function isIntegratedGpu(gpuModel?: string): boolean {
+  if (!gpuModel) return false
+  const lower = gpuModel.toLowerCase()
+  return (
+    lower.includes('iris') ||
+    lower.includes('uhd') ||
+    lower.includes('hd graphics') ||
+    lower.includes('intel') ||
+    lower.includes('vega') ||
+    (lower.includes('radeon') && (lower.includes('graphics') || lower.includes('tm'))) ||
+    lower.includes('apple m') ||
+    lower.includes('integrated') ||
+    lower.includes('uma')
+  )
+}
+
 export function ResourceSliders({
   node,
   vramGB,
@@ -77,7 +93,7 @@ export function ResourceSliders({
   // Dynamic limits bounded by the device's actual dedicated VRAM specs
   const maxVram = useMemo(() => {
     if (!node) return 0
-    if (isMobile) {
+    if (isMobile || isIntegratedGpu(node.gpu_model)) {
       return 0
     }
     const dedicatedVramMB = Number(node.vram_mb || 0)

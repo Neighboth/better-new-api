@@ -976,8 +976,8 @@ html_content = f'''<!DOCTYPE html>
           permissionsCompleted = Boolean(p.notifications && p.battery);
           const btnCont = document.getElementById('btn-perm-continue');
           if (btnCont) {{
-            btnCont.disabled = false;
-            btnCont.style.opacity = permissionsCompleted ? '1' : '0.85';
+            btnCont.disabled = !permissionsCompleted;
+            btnCont.style.opacity = permissionsCompleted ? '1' : '0.5';
           }}
 
           if (!p.notifications || !p.battery) {{
@@ -1649,6 +1649,7 @@ main_activity_content = '''package org.byog.worker;
 
 import android.app.Activity;
 import android.app.ActivityManager;
+import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
 import android.content.ClipboardManager;
 import android.content.ComponentName;
@@ -2125,14 +2126,23 @@ public class MainActivity extends Activity {
         SharedPreferences spInit = getSharedPreferences("byog_prefs", MODE_PRIVATE);
         if (WorkerService.boolPref(spInit, "is_paired", false) && !WorkerService.stringPref(spInit, "node_id", "").isEmpty()) {
             try {
-                long lastCrash = WorkerService.longPref(spInit, "worker_last_crash_time", 0);
-                if (System.currentTimeMillis() - lastCrash > 10000L) {
-                    Intent sIntent = new Intent(this, WorkerService.class);
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(sIntent);
-                    } else {
-                        startService(sIntent);
+                NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                boolean notifOk = (nm != null && nm.areNotificationsEnabled());
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    notifOk = notifOk && (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED);
+                }
+                if (notifOk) {
+                    long lastCrash = WorkerService.longPref(spInit, "worker_last_crash_time", 0);
+                    if (System.currentTimeMillis() - lastCrash > 10000L) {
+                        Intent sIntent = new Intent(this, WorkerService.class);
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(sIntent);
+                        } else {
+                            startService(sIntent);
+                        }
                     }
+                } else {
+                    android.util.Log.w("BYOG_MAIN", "Notification permission missing on start, service deferred");
                 }
             } catch (Throwable ignored) {}
         }
@@ -2870,9 +2880,15 @@ public class MainActivity extends Activity {
         public String getPermissionStatus() {
             JSONObject obj = new JSONObject();
             try {
-                boolean notif = true;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    notif = checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+                boolean notif = false;
+                try {
+                    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                    notif = (nm != null && nm.areNotificationsEnabled());
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        notif = notif && (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED);
+                    }
+                } catch (Throwable ignored) {
+                    notif = false;
                 }
 
                 boolean battery = false;
@@ -2942,13 +2958,19 @@ public class MainActivity extends Activity {
                 PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
                 if (pm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                        Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                        intent.setData(Uri.parse("package:" + getPackageName()));
-                        startActivity(intent);
-                        return;
+                        try {
+                            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                            intent.setData(Uri.parse("package:" + getPackageName()));
+                            startActivity(intent);
+                            return;
+                        } catch (Throwable t) {
+                            Intent fallback = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                            startActivity(fallback);
+                            return;
+                        }
                     }
                 }
-            } catch (Exception ignored) {}
+            } catch (Throwable ignored) {}
             if (webView != null) webView.evaluateJavascript("if (window.refreshPermissions) window.refreshPermissions();", null);
         }
 
@@ -3321,13 +3343,22 @@ public class MainActivity extends Activity {
                                         // failure is retried by the watchdog and by the next
                                         // resume, it must never take the application down.
                                         try {
-                                            Intent sIntent = new Intent(MainActivity.this, WorkerService.class);
-                                            sIntent.putExtra("pairing_code", cleanCode);
-                                            sIntent.putExtra("server_url", finalServerUrl);
-                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                                startForegroundService(sIntent);
+                                            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                                            boolean notifOk = (nm != null && nm.areNotificationsEnabled());
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                                notifOk = notifOk && (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED);
+                                            }
+                                            if (notifOk) {
+                                                Intent sIntent = new Intent(MainActivity.this, WorkerService.class);
+                                                sIntent.putExtra("pairing_code", cleanCode);
+                                                sIntent.putExtra("server_url", finalServerUrl);
+                                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                                    startForegroundService(sIntent);
+                                                } else {
+                                                    startService(sIntent);
+                                                }
                                             } else {
-                                                startService(sIntent);
+                                                android.util.Log.w("BYOG_CONNECT", "WorkerService start deferred until notification permission is granted");
                                             }
                                         } catch (Throwable ex) {
                                             android.util.Log.w("BYOG_CONNECT", "Worker could not be started: " + ex.getMessage());

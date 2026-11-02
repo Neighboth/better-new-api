@@ -499,15 +499,10 @@ func PatchInstalledBinariesIcons() error {
 		return fmt.Errorf("failed to convert ico to png")
 	}
 
-	// 1. Patch unins000.exe if present
-	uninsPath := filepath.Join(dir, "unins000.exe")
-	if raw, err := os.ReadFile(uninsPath); err == nil && len(raw) > 0 {
-		if patched, err := embedcfg.PatchIcon(raw, pngData); err == nil {
-			_ = os.WriteFile(uninsPath, patched, 0755)
-		}
-	}
+	// Inno Setup manages unins000.exe icon via UninstallDisplayIcon={app}\byog.ico directive.
+	// Never modify unins000.exe binary directly as Inno Setup validates its own integrity.
 
-	// 2. Patch BYOG Worker.exe
+	// Patch BYOG Worker.exe with custom branding icon if needed
 	workerPath := filepath.Join(dir, programName)
 	if raw, err := os.ReadFile(workerPath); err == nil && len(raw) > 0 {
 		if patched, err := embedcfg.PatchIcon(raw, pngData); err == nil {
