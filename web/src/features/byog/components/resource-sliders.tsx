@@ -74,15 +74,32 @@ export function ResourceSliders({
 
   const isMobile = node?.device_type === 'mobile' || node?.device_type === 'tablet'
 
-  // Dynamic limits bounded by the device's actual hardware specs
+  // Dynamic limits bounded by the device's actual dedicated VRAM specs
   const maxVram = useMemo(() => {
-    if (!node) return 32
+    if (!node) return 0
     if (isMobile) {
       return 0
     }
-    const totalVramMB = (node.vram_mb || 0) + (node.shared_vram_mb || 0)
-    return totalVramMB > 0 ? Math.max(1, Math.round(totalVramMB / 1024)) : 0
+    const dedicatedVramMB = Number(node.vram_mb || 0)
+    return dedicatedVramMB >= 512 ? Math.max(1, Math.round(dedicatedVramMB / 1024)) : 0
   }, [node, isMobile])
+
+  // Safely parse disks whether passed as an array or a JSON string
+  const parsedDisks = useMemo(() => {
+    if (!node) return []
+    if (Array.isArray(node.disks)) return node.disks
+    if (typeof (node as unknown as { disks: unknown }).disks === 'string') {
+      const raw = (node as unknown as { disks: string }).disks.trim()
+      if (raw.startsWith('[')) {
+        try {
+          return JSON.parse(raw) as NonNullable<ByogNode['disks']>
+        } catch {
+          return []
+        }
+      }
+    }
+    return []
+  }, [node])
 
   // Enforce system headroom on RAM (16GB -> max 14GB, 4GB -> max 3GB, 2GB -> max 1.5GB)
   const maxRam = useMemo(() => {
@@ -308,18 +325,18 @@ export function ResourceSliders({
           </div>
 
           {/* Disk Partitions / Disk Slider */}
-          {node?.disks && node.disks.length > 0 ? (
+          {parsedDisks.length > 0 ? (
             <div className='space-y-4 rounded-xl border border-border/80 bg-muted/10 p-3.5'>
               <div className='flex items-center justify-between text-sm font-semibold text-foreground'>
                 <span className='flex items-center gap-1.5'>
                   <HardDrive className='text-primary h-4 w-4' />
-                  {t('byog.partitions_title', 'Sabit Disk Bölümleri')} ({node.disks.length})
+                  {t('byog.partitions_title', 'Sabit Disk Bölümleri')} ({parsedDisks.length})
                 </span>
                 <span className='font-mono text-primary text-xs font-bold'>
                   {t('byog.total_allocated', 'Toplam Tahsis')}: {diskGB} GB
                 </span>
               </div>
-              {node.disks.map((d) => {
+              {parsedDisks.map((d) => {
                 const dMax = Math.max(0, d.free_gb)
                 // A partition that was never shared gives nothing, the value of
                 // the record of the node is the value of the slider.

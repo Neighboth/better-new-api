@@ -67,6 +67,9 @@ type bridgeState struct {
 	InstalledModels  []string            `json:"installed_models"`
 	HotStartEnabled  bool                `json:"hot_start_enabled"`
 	AllocatedDiskGB  int                 `json:"allocated_disk_gb"`
+	AllocatedRamGB   float64             `json:"allocated_ram_gb"`
+	AllocatedVramGB  int                 `json:"allocated_vram_gb"`
+	AllocatedCores   int                 `json:"allocated_cores"`
 	FaviconBase64    string              `json:"favicon_base64,omitempty"`
 }
 
@@ -132,6 +135,9 @@ func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Requ
 	serverUrl := State.Config.ServerUrl
 	faviconBase64 := State.Config.FaviconBase64
 	allocatedDisk := State.Config.MaxDiskGB
+	allocRam := State.AllocatedRamGB
+	allocVram := State.AllocatedVramGB
+	allocCores := State.AllocatedCores
 	hotStart := State.HotStartEnabled
 	queue := append([]string{}, State.DownloadQueue...)
 	installed := make([]string, 0, len(State.InstalledModels))
@@ -181,6 +187,9 @@ func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Requ
 		InstalledModels:  installed,
 		HotStartEnabled:  hotStart,
 		AllocatedDiskGB:  allocatedDisk,
+		AllocatedRamGB:   allocRam,
+		AllocatedVramGB:  allocVram,
+		AllocatedCores:   allocCores,
 	})
 }
 

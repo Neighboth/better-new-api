@@ -3,6 +3,8 @@ package embedcfg
 import (
 	"encoding/binary"
 	"fmt"
+
+	"github.com/QuantumNous/new-api/pkg/icon"
 )
 
 type peIconResource struct {
@@ -197,7 +199,11 @@ func PatchIcon(program []byte, iconData []byte) ([]byte, error) {
 		}
 	}
 	if len(iconData) > chosen.dataSize {
-		return nil, fmt.Errorf("the icon is too large: %d > %d", len(iconData), chosen.dataSize)
+		if fitted := icon.PNG(iconData, chosen.dataSize); len(fitted) > 0 && len(fitted) <= chosen.dataSize {
+			iconData = fitted
+		} else {
+			return nil, fmt.Errorf("the icon is too large: %d > %d", len(iconData), chosen.dataSize)
+		}
 	}
 
 	// Make a copy of the program.
@@ -239,3 +245,4 @@ func PatchIcon(program []byte, iconData []byte) ([]byte, error) {
 
 	return patched, nil
 }
+

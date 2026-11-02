@@ -120,22 +120,28 @@ func TestSignWindowsProgramWithoutCertificate(t *testing.T) {
 // favicon of the site is a file of the icons of Windows, the picture is written
 // into the resource of the program of the client.
 func TestIconPatchWithSiteIcon(t *testing.T) {
-	programPath := filepath.Join("..", "worker", "binaries", "BYOG Worker.exe")
-	program, err := os.ReadFile(programPath)
-	if err != nil {
-		t.Skipf("the client is not built at %s, skipping", programPath)
+	for _, name := range []string{"BYOG Worker.exe", "BYOG Worker Kurulumu.exe"} {
+		programPath := filepath.Join("..", "worker", "binaries", name)
+		program, err := os.ReadFile(programPath)
+		if err != nil {
+			t.Logf("file not found: %s", programPath)
+			continue
+		}
+		favicon, err := os.ReadFile(filepath.Join("..", "web", "public", "favicon.ico"))
+		require.NoError(t, err)
+
+		iconData := decodeFaviconIcon("data:image/x-icon;base64," + base64.StdEncoding.EncodeToString(favicon))
+		require.NotEmpty(t, iconData)
+		require.LessOrEqual(t, len(iconData), icon.MaxResourceSize)
+
+		patched, err := embedcfg.PatchIcon(program, iconData)
+		if err != nil {
+			t.Errorf("PatchIcon failed for %s: %v", name, err)
+			continue
+		}
+		require.NotEqual(t, program, patched)
+		require.Equal(t, len(program), len(patched))
 	}
-	favicon, err := os.ReadFile(filepath.Join("..", "web", "public", "favicon.ico"))
-	require.NoError(t, err)
-
-	iconData := decodeFaviconIcon("data:image/x-icon;base64," + base64.StdEncoding.EncodeToString(favicon))
-	require.NotEmpty(t, iconData)
-	require.LessOrEqual(t, len(iconData), icon.MaxResourceSize)
-
-	patched, err := embedcfg.PatchIcon(program, iconData)
-	require.NoError(t, err)
-	require.NotEqual(t, program, patched)
-	require.Equal(t, len(program), len(patched))
 }
 
 func TestInstallerAndWorkerWithPNGFavicon(t *testing.T) {

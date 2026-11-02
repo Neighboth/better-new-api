@@ -503,6 +503,21 @@ func PairByogNode(c *gin.Context) {
 		return
 	}
 
+	if s, ok := byogservice.GlobalHub.GetSession(node.NodeId); ok && s != nil {
+		updatePayload, _ := json.Marshal(map[string]interface{}{
+			"allocated_ram_gb":  node.AllocatedRamGB,
+			"allocated_vram_gb": node.AllocatedVramGB,
+			"allocated_cores":   node.AllocatedCores,
+			"allocated_disk_gb": node.AllocatedDiskGB,
+			"hot_start_enabled": node.HotStartEnabled,
+			"disks":             node.Disks,
+		})
+		_ = s.WriteFrame(byogservice.TunnelFrame{
+			Type:    "update_resources",
+			Payload: updatePayload,
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    node,
@@ -538,6 +553,9 @@ func UpdateUserByogNode(c *gin.Context) {
 	}
 	if req.ScheduleConfig != "" {
 		node.ScheduleConfig = req.ScheduleConfig
+	}
+	if req.Disks != "" {
+		node.Disks = req.Disks
 	}
 	if req.AllocatedDiskGB > 0 {
 		node.AllocatedDiskGB = req.AllocatedDiskGB
@@ -1443,19 +1461,24 @@ func RegisterByogWorker(c *gin.Context) {
 			initialIsCharging = *req.IsCharging
 		}
 
-		allocRam := 8.0
+		allocRam := 4.0
 		if req.PhysicalRam > 0 {
-			allocRam = math.Max(2.0, float64(req.PhysicalRam)/2048.0)
+			allocRam = math.Round((float64(req.PhysicalRam)/2048.0)*10) / 10
+			if allocRam < 1.0 {
+				allocRam = 1.0
+			}
+		}
+		allocCores := 2
+		if req.CpuCores > 0 {
+			allocCores = int(math.Max(1, math.Floor(float64(req.CpuCores)*0.5)))
 		}
 		allocVram := 0
-		if !isMobile && req.VramMB > 0 {
-			allocVram = req.VramMB / 1024
+		if !isMobile && req.VramMB >= 512 {
+			allocVram = int(float64(req.VramMB) / 2048.0)
 		}
 		allocDisk := 0
 		if req.FreeDiskGB > 0 {
-			// The node gives a third of the free space of the computer to the
-			// cache of the models, at most forty gigabytes and at least one.
-			allocDisk = int(math.Min(40, math.Max(1, float64(req.FreeDiskGB)/3)))
+			allocDisk = int(float64(req.FreeDiskGB) * 0.5)
 		}
 
 		var initialDisks string
@@ -1467,7 +1490,7 @@ func RegisterByogWorker(c *gin.Context) {
 			}
 		}
 		if initialDisks != "" {
-			initialDisks, allocDisk = distributeDiskAllocation(initialDisks, allocDisk)
+			initialDisks, allocDisk = default50DiskAllocation(initialDisks)
 		}
 
 		node = &model.ByogNode{
@@ -1506,7 +1529,7 @@ func RegisterByogWorker(c *gin.Context) {
 			Disks:                initialDisks,
 			AllocatedVramGB:      allocVram,
 			AllocatedRamGB:       allocRam,
-			AllocatedCores:       allocatedCores(req.CpuCores),
+			AllocatedCores:       allocCores,
 			CpuCores:             req.CpuCores,
 			WifiOnlyDownload:     true,
 			MonthlyDataLimitMB:   0,
@@ -1984,6 +2007,8 @@ func GetByogWorkerStatus(c *gin.Context) {
 			"download_model_id": node.DownloadModelId,
 			"download_speed_bps": node.DownloadSpeedBps,
 			"eta_seconds":       node.EtaSeconds,
+			"downloaded_mb":     node.DownloadedMB,
+			"total_mb":          node.TotalMB,
 			"current_tps":       node.CurrentTps,
 			"models":            node.InstalledModels,
 			"assigned_model":    node.ActiveVramModel,
@@ -2049,6 +2074,29 @@ func mergeDiskAllocation(reportedJSON string, allocatedJSON string) string {
 		return reportedJSON
 	}
 	return string(encoded)
+}
+
+// default50DiskAllocation allocates 50% of free space for each partition.
+func default50DiskAllocation(disksJSON string) (string, int) {
+	var disks []map[string]interface{}
+	if err := json.Unmarshal([]byte(disksJSON), &disks); err != nil || len(disks) == 0 {
+		return disksJSON, 0
+	}
+	total := 0
+	for i := range disks {
+		free, _ := disks[i]["free_gb"].(float64)
+		alloc := int(math.Floor(free * 0.5))
+		if alloc < 0 {
+			alloc = 0
+		}
+		disks[i]["allocated_gb"] = alloc
+		total += alloc
+	}
+	encoded, err := json.Marshal(disks)
+	if err != nil {
+		return disksJSON, total
+	}
+	return string(encoded), total
 }
 
 // distributeDiskAllocation shares an amount of space between the partitions of
@@ -2410,7 +2458,7 @@ func embedByogClient(program []byte, c *gin.Context) ([]byte, error) {
 
 	// The icon of the installation is written into the program, the program
 	// carries the name and the icon of the installation.
-	if iconData := decodeFaviconIcon(faviconBase64); len(iconData) > 0 && len(iconData) <= 14026 {
+	if iconData := decodeFaviconIcon(faviconBase64); len(iconData) > 0 {
 		if patched, err := embedcfg.PatchIcon(program, iconData); err == nil {
 			program = patched
 		} else {

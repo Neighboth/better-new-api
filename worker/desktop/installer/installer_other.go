@@ -49,6 +49,9 @@ func UpdateBranding(displayName string, version string) error {
 // UpdateUninstallerLanguage is a no-op on non-Windows platforms.
 func UpdateUninstallerLanguage(lang string) {}
 
+// PatchInstalledBinariesIcons is a no-op on non-Windows platforms.
+func PatchInstalledBinariesIcons() error { return nil }
+
 // IsInstalled reports whether the client is installed on the computer.
 func IsInstalled() bool {
 	_, err := os.Stat(Executable())

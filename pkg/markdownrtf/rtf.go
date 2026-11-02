@@ -279,11 +279,18 @@ func renderInlines(body *strings.Builder, node ast.Node, src []byte) {
 }
 
 func linkRTF(visibleLabel string, target string) string {
-	cleanLabel := stripRtfControl(visibleLabel)
-	cleanTarget := escapeString(target)
+	cleanLabel := strings.TrimSpace(stripRtfControl(visibleLabel))
+	cleanTarget := strings.TrimSpace(escapeString(target))
 	visible := visibleLabel
-	if cleanLabel != target {
+	if cleanLabel != "" && cleanLabel != target && cleanLabel != cleanTarget &&
+		cleanLabel != strings.TrimPrefix(target, "https://") &&
+		cleanLabel != strings.TrimPrefix(target, "http://") {
 		visible += ` (` + cleanTarget + `)`
+	} else {
+		visible = escapeString(cleanLabel)
+		if visible == "" {
+			visible = cleanTarget
+		}
 	}
 	return `{\field{\*\fldinst{HYPERLINK "` + escapeFieldTarget(target) + `"}}{\fldrslt{\ul\cf1 ` + visible + `}}}`
 }

@@ -418,20 +418,20 @@ func StopServers() {
 }
 
 // llamaChatRequest is the payload of an OpenAI compatible chat completion.
+// LlamaChatMessage is a single chat message for multi-turn conversations.
+type LlamaChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 type llamaChatRequest struct {
 	Model         string             `json:"model"`
-	Messages      []llamaChatMessage `json:"messages"`
+	Messages      []LlamaChatMessage `json:"messages"`
 	MaxTokens     int                `json:"max_tokens,omitempty"`
 	Temperature   float64            `json:"temperature"`
 	Stream        bool               `json:"stream"`
 	StreamOptions map[string]bool    `json:"stream_options,omitempty"`
 	CachePrompt   bool               `json:"cache_prompt"`
-}
-
-// llamaChatMessage is a single chat message.
-type llamaChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
 }
 
 // llamaChatResponse is a chunk of the streamed chat completion.
@@ -466,6 +466,12 @@ type Result struct {
 // Infer performs a real inference with the llama.cpp server and streams the produced
 // tokens to the callback.
 func (r *Runtime) Infer(ctx context.Context, modelPath string, storageDir string, prompt string, maxTokens int, temperature float64, onChunk func(piece string, tokenId int) bool) (*Result, error) {
+	return r.InferMessages(ctx, modelPath, storageDir, []LlamaChatMessage{{Role: "user", Content: prompt}}, maxTokens, temperature, onChunk)
+}
+
+// InferMessages performs a real inference with the llama.cpp server with full multi-turn conversation
+// history and streams the produced tokens to the callback.
+func (r *Runtime) InferMessages(ctx context.Context, modelPath string, storageDir string, messages []LlamaChatMessage, maxTokens int, temperature float64, onChunk func(piece string, tokenId int) bool) (*Result, error) {
 	process, err := r.serverForModel(modelPath, storageDir)
 	if err != nil {
 		return nil, err
@@ -476,9 +482,13 @@ func (r *Runtime) Infer(ctx context.Context, modelPath string, storageDir string
 		reqMaxTokens = maxTokens
 	}
 
+	if len(messages) == 0 {
+		messages = []LlamaChatMessage{{Role: "user", Content: "Hello"}}
+	}
+
 	payload := llamaChatRequest{
 		Model:       modelPath,
-		Messages:    []llamaChatMessage{{Role: "user", Content: prompt}},
+		Messages:    messages,
 		MaxTokens:   reqMaxTokens,
 		Temperature: temperature,
 		Stream:      true,

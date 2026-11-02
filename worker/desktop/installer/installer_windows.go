@@ -24,6 +24,9 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/QuantumNous/new-api/pkg/embedcfg"
+	"github.com/QuantumNous/new-api/pkg/icon"
 )
 
 func hideProcessWindow(command *exec.Cmd) {
@@ -503,3 +506,43 @@ func deleteKeyTree(root registry.Key, path string) {
 	}
 	_ = registry.DeleteKey(root, path)
 }
+
+// PatchInstalledBinariesIcons replaces the icon resources of BYOG Worker.exe and unins000.exe
+// with the branding icon in the application directory.
+func PatchInstalledBinariesIcons() error {
+	dir := InstalledDirectory()
+	icoPath := filepath.Join(dir, "byog.ico")
+	icoData, err := os.ReadFile(icoPath)
+	if err != nil || len(icoData) == 0 {
+		return err
+	}
+	pngData := icon.PNG(icoData, icon.MaxResourceSize)
+	if len(pngData) == 0 {
+		return fmt.Errorf("failed to convert ico to png")
+	}
+
+	// 1. Patch unins000.exe if present
+	uninsPath := filepath.Join(dir, "unins000.exe")
+	if raw, err := os.ReadFile(uninsPath); err == nil && len(raw) > 0 {
+		if patched, err := embedcfg.PatchIcon(raw, pngData); err == nil {
+			_ = os.WriteFile(uninsPath, patched, 0755)
+		}
+	}
+
+	// 2. Patch BYOG Worker.exe
+	workerPath := filepath.Join(dir, programName)
+	if raw, err := os.ReadFile(workerPath); err == nil && len(raw) > 0 {
+		if patched, err := embedcfg.PatchIcon(raw, pngData); err == nil {
+			if err := os.WriteFile(workerPath, patched, 0755); err != nil {
+				// Running executable: use atomic rename on Windows
+				oldPath := workerPath + ".old"
+				_ = os.Remove(oldPath)
+				if err := os.Rename(workerPath, oldPath); err == nil {
+					_ = os.WriteFile(workerPath, patched, 0755)
+				}
+			}
+		}
+	}
+	return nil
+}
+

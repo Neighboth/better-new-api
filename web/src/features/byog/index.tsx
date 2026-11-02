@@ -62,6 +62,40 @@ export function ByogUserDashboard() {
   const [selectedNode, setSelectedNode] = useState<ByogNode | null>(null)
   const [configOpen, setConfigOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [diskAllocations, setDiskAllocations] = useState<Record<string, number>>({})
+
+  useEffect(() => {
+    if (!selectedNode) {
+      setDiskAllocations({})
+      return
+    }
+    let disks: Array<{ drive: string; label: string; total_gb: number; free_gb: number; allocated_gb?: number }> = []
+    if (Array.isArray(selectedNode.disks)) {
+      disks = selectedNode.disks
+    } else if (typeof selectedNode.disks === 'string' && selectedNode.disks) {
+      try {
+        disks = JSON.parse(selectedNode.disks)
+      } catch {
+        disks = []
+      }
+    }
+    if (disks.length > 0) {
+      const initialMap: Record<string, number> = {}
+      let needsDefault = true
+      for (const d of disks) {
+        if (d.allocated_gb && d.allocated_gb > 0) {
+          needsDefault = false
+          break
+        }
+      }
+      for (const d of disks) {
+        initialMap[d.drive] = needsDefault
+          ? Math.floor((d.free_gb || 0) * 0.5)
+          : (d.allocated_gb ?? 0)
+      }
+      setDiskAllocations(initialMap)
+    }
+  }, [selectedNode?.node_id])
 
   // Rename Dialog state
   const [renameNode, setRenameNode] = useState<ByogNode | null>(null)
@@ -119,7 +153,11 @@ export function ByogUserDashboard() {
     if (!selectedNode) return
     try {
       setIsSaving(true)
-      await updateNode(selectedNode.node_id, selectedNode)
+      const payload = { ...selectedNode }
+      if (Array.isArray(payload.disks)) {
+        payload.disks = JSON.stringify(payload.disks) as any
+      }
+      await updateNode(selectedNode.node_id, payload)
       toast.success(t('byog.node_config_saved_success'))
       setConfigOpen(false)
       fetchData()
@@ -275,6 +313,31 @@ export function ByogUserDashboard() {
                 cores={selectedNode.allocated_cores}
                 diskGB={selectedNode.allocated_disk_gb}
                 hotStartEnabled={selectedNode.hot_start_enabled}
+                diskAllocations={diskAllocations}
+                onDiskAllocationsChange={(da) => {
+                  setDiskAllocations(da)
+                  let disks: Array<{ drive: string; label: string; total_gb: number; free_gb: number; allocated_gb?: number }> = []
+                  if (Array.isArray(selectedNode.disks)) {
+                    disks = [...selectedNode.disks]
+                  } else if (typeof selectedNode.disks === 'string' && selectedNode.disks) {
+                    try {
+                      disks = JSON.parse(selectedNode.disks)
+                    } catch {
+                      disks = []
+                    }
+                  }
+                  let total = 0
+                  const updatedDisks = disks.map((d) => {
+                    const alloc = da[d.drive] ?? d.allocated_gb ?? 0
+                    total += alloc
+                    return { ...d, allocated_gb: alloc }
+                  })
+                  setSelectedNode({
+                    ...selectedNode,
+                    allocated_disk_gb: total,
+                    disks: updatedDisks as any,
+                  })
+                }}
                 onVramChange={(v) =>
                   setSelectedNode({ ...selectedNode, allocated_vram_gb: v })
                 }

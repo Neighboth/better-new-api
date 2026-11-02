@@ -500,6 +500,13 @@ function QrScanModal({
   )
 }
 
+const cleanModel = (val: unknown): string => {
+  if (!val) return ''
+  const s = String(val).trim()
+  if (s === 'null' || s === 'undefined' || s === '[]') return ''
+  return s
+}
+
 export function ClientPage() {
   const { t, i18n } = useTranslation()
   const { logo: systemLogo, favicon: systemFavicon, systemName } = useSystemConfig()
@@ -552,34 +559,59 @@ export function ClientPage() {
   const [localApi, setLocalApi] = useState('')
   const [localToken, setLocalToken] = useState('')
 
-  // Live Bidirectional Sync: sync allocations from state when user is not actively editing
+  // Live Bidirectional Sync & 50% Defaults: sync allocations from state when user is not actively editing
   useEffect(() => {
     if (!state) return
     const isActivelyEditing = Date.now() - lastUserEditTimeRef.current < 3000
     if (isActivelyEditing) return
 
-    if (state.allocated_ram_gb !== undefined && state.allocated_ram_gb !== ramGB) {
-      setRamGB(state.allocated_ram_gb)
+    const effectiveRam = state.allocated_ram_gb && state.allocated_ram_gb > 0
+      ? state.allocated_ram_gb
+      : Math.round(((state.physical_ram_mb || 8192) / 2048) * 10) / 10
+    if (effectiveRam !== ramGB) {
+      setRamGB(effectiveRam)
     }
-    if (state.allocated_vram_gb !== undefined && state.allocated_vram_gb !== vramGB) {
-      setVramGB(state.allocated_vram_gb)
+
+    const effectiveCores = state.allocated_cores && state.allocated_cores > 0
+      ? state.allocated_cores
+      : Math.max(1, Math.floor((state.cpu_cores || 4) * 0.5))
+    if (effectiveCores !== cores) {
+      setCores(effectiveCores)
     }
-    if (state.allocated_cores !== undefined && state.allocated_cores !== cores) {
-      setCores(state.allocated_cores)
+
+    const maxDedicatedVram = (state.vram_mb && state.vram_mb >= 512) ? Math.floor(state.vram_mb / 1024) : 0
+    const effectiveVram = maxDedicatedVram > 0
+      ? (state.allocated_vram_gb && state.allocated_vram_gb > 0 ? state.allocated_vram_gb : Math.floor(maxDedicatedVram * 0.5))
+      : 0
+    if (effectiveVram !== vramGB) {
+      setVramGB(effectiveVram)
     }
-    if (state.allocated_disk_gb !== undefined && state.allocated_disk_gb !== diskGB) {
-      setDiskGB(state.allocated_disk_gb)
-    }
+
     if (state.hot_start_enabled !== undefined && state.hot_start_enabled !== hotStart) {
       setHotStart(state.hot_start_enabled)
     }
+
     if (state.disks && state.disks.length > 0) {
       const allocations: Record<string, number> = {}
+      let anyAllocated = false
       for (const disk of state.disks) {
-        allocations[disk.drive] = disk.allocated_gb ?? 0
+        if (disk.allocated_gb && disk.allocated_gb > 0) {
+          anyAllocated = true
+          break
+        }
+      }
+      for (const disk of state.disks) {
+        allocations[disk.drive] = anyAllocated
+          ? (disk.allocated_gb ?? 0)
+          : Math.floor((disk.free_gb || 0) * 0.5)
       }
       setDiskAllocations(allocations)
+      const sum = Object.values(allocations).reduce((a, b) => a + b, 0)
+      setDiskGB(sum)
+    } else if (state.allocated_disk_gb !== undefined && state.allocated_disk_gb !== diskGB) {
+      setDiskGB(state.allocated_disk_gb)
     }
+
     if (!allocatedInitialized && (state.allocated_ram_gb || state.physical_ram_mb)) {
       setAllocatedInitialized(true)
     }
@@ -625,6 +657,8 @@ export function ClientPage() {
             bandwidth_up_mbps: initial.bandwidth_up_mbps as number,
             ping_ms: initial.ping_ms as number,
             download_model_id: initial.download_model_id as string,
+            downloaded_mb: Number(initial.downloaded_mb ?? 0),
+            total_mb: Number(initial.total_mb ?? 0),
             download_speed_bps: initial.download_speed_bps as number,
             eta_seconds: initial.eta_seconds as number,
             download_queue: initial.download_queue as string[],
@@ -668,7 +702,10 @@ export function ClientPage() {
           paired: Boolean(payload.paired),
           model_status: String(payload.model_status ?? ''),
           download_status: String(payload.model_status ?? ''),
-          download_progress: Number(payload.download_progress ?? 0),
+          download_progress: Math.max(
+            prev?.download_progress || 0,
+            Number(payload.download_progress ?? 0)
+          ),
           current_tps: Number(payload.current_tps ?? 0),
           models: String(payload.model_name ?? ''),
           disks: payload.disks as WorkerState['disks'],
@@ -683,6 +720,8 @@ export function ClientPage() {
           bandwidth_up_mbps: payload.bandwidth_up_mbps as number,
           ping_ms: payload.ping_ms as number,
           download_model_id: payload.download_model_id as string,
+          downloaded_mb: Number(payload.downloaded_mb ?? 0),
+          total_mb: Number(payload.total_mb ?? 0),
           download_speed_bps: payload.download_speed_bps as number,
           eta_seconds: payload.eta_seconds as number,
           download_queue: payload.download_queue as string[],
@@ -717,10 +756,12 @@ export function ClientPage() {
             status: remote.status === 'online' ? 'online' : 'offline',
             paired: true,
             models:
-              (remote.models as string) ||
-              (remote.assigned_model as string) ||
-              prev?.models ||
+              cleanModel(remote.models) ||
+              cleanModel(remote.assigned_model) ||
+              cleanModel(prev?.models) ||
               '',
+            downloaded_mb: Number(remote.downloaded_mb ?? prev?.downloaded_mb ?? 0),
+            total_mb: Number(remote.total_mb ?? prev?.total_mb ?? 0),
           } as WorkerState
           merged.disks = mergeDiskReports(
             remote.disks as DiskInfo[] | undefined,
@@ -729,12 +770,36 @@ export function ClientPage() {
           if (prev && (localApi || bridge)) {
             // The client of the computer is the source of the live values, the
             // record of the node is the source of the allocation above.
-            merged.download_progress = prev.download_progress
-            merged.download_status = prev.download_status
-            merged.download_model_id = prev.download_model_id
-            merged.download_speed_bps = prev.download_speed_bps
-            merged.eta_seconds = prev.eta_seconds
-            merged.download_queue = prev.download_queue
+            if (prev.download_status) merged.download_status = prev.download_status
+            if (prev.download_progress !== undefined) {
+              merged.download_progress = Math.max(prev.download_progress, Number(remote.download_progress ?? 0))
+            }
+            if (prev.downloaded_mb !== undefined && prev.downloaded_mb > 0) {
+              merged.downloaded_mb = prev.downloaded_mb
+            }
+            if (prev.total_mb !== undefined && prev.total_mb > 0) {
+              merged.total_mb = prev.total_mb
+            }
+            if (prev.download_model_id) merged.download_model_id = prev.download_model_id
+            if (prev.download_speed_bps !== undefined && prev.download_speed_bps > 0) {
+              merged.download_speed_bps = prev.download_speed_bps
+            }
+            if (prev.eta_seconds !== undefined && prev.eta_seconds > 0) {
+              merged.eta_seconds = prev.eta_seconds
+            }
+            if (prev.current_tps !== undefined && prev.current_tps > 0) {
+              merged.current_tps = prev.current_tps
+            }
+            if (prev.ping_ms !== undefined && prev.ping_ms > 0) {
+              merged.ping_ms = prev.ping_ms
+            }
+            if (prev.bandwidth_down_mbps !== undefined && prev.bandwidth_down_mbps > 0) {
+              merged.bandwidth_down_mbps = prev.bandwidth_down_mbps
+            }
+            if (prev.bandwidth_up_mbps !== undefined && prev.bandwidth_up_mbps > 0) {
+              merged.bandwidth_up_mbps = prev.bandwidth_up_mbps
+            }
+            if (prev.download_queue) merged.download_queue = prev.download_queue
             if (prev.model_status) {
               merged.model_status = prev.model_status
             }
@@ -1672,7 +1737,7 @@ export function ClientPage() {
                     <Cpu className='text-muted-foreground h-4 w-4 shrink-0' />
                     <span className='text-muted-foreground w-24 sm:w-36 shrink-0'>{t('byog.installed_models', 'Modeller')}:</span>
                     <span className='font-mono truncate font-medium min-w-0 flex-1'>
-                      {state?.models || state?.assigned_model || '—'}
+                      {cleanModel(state?.models) || cleanModel(state?.assigned_model) || '—'}
                     </span>
                   </div>
 

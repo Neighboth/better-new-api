@@ -27,7 +27,8 @@ VersionInfoProductName={#MyAppName}
 VersionInfoCompany={#MyAppPublisher}
 DefaultDirName={code:GetDefaultDir}
 DefaultGroupName={#MyAppName}
-PrivilegesRequired=admin
+PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=dialog
 DisableProgramGroupPage=yes
 DisableDirPage=no
 OutputDir=..\binaries
@@ -142,8 +143,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 ; with two entries is removed twice and the second removal fails.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\BYOGWorker"; Flags: deletekey
 Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\BYOGWorker"; Flags: deletekey
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{5B4C0A1E-6C1B-4C0E-9E4F-7A3D2B5C8E11}_is1"; Flags: deletekey
-Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{5B4C0A1E-6C1B-4C0E-9E4F-7A3D2B5C8E11}_is1"; Flags: deletekey
+
+
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,BYOG Worker}"; Flags: nowait postinstall skipifsilent
@@ -178,7 +179,7 @@ function CryptStringToBinary(
   pdwSkip: DWORD;
   pdwFlags: DWORD
 ): BOOL;
-external 'CryptStringToBinaryW@crypt32.dll stdcall';
+external 'CryptStringToBinaryW@crypt32.dll stdcall setuponly';
 
 function LoadBranding(): Boolean; forward;
 
@@ -228,12 +229,12 @@ const
   GWL_EXSTYLE = -20;
   WS_EX_APPWINDOW = $00040000;
 
-function LoadImageW(hInst: THandle; ImageName: String; ImageType: UINT; X, Y: Integer; Flags: UINT): THandle; external 'LoadImageW@user32.dll stdcall delayload';
-function SendMessageW(hWnd: HWND; Msg: UINT; wParam: Longint; lParam: Longint): Longint; external 'SendMessageW@user32.dll stdcall delayload';
-function GetWindow(hWnd: HWND; uCmd: UINT): HWND; external 'GetWindow@user32.dll stdcall delayload';
-function GetAncestor(hWnd: HWND; gaFlags: UINT): HWND; external 'GetAncestor@user32.dll stdcall delayload';
-function GetWindowLongW(hWnd: HWND; nIndex: Integer): Longint; external 'GetWindowLongW@user32.dll stdcall delayload';
-function SetWindowLongW(hWnd: HWND; nIndex: Integer; dwNewLong: Longint): Longint; external 'SetWindowLongW@user32.dll stdcall delayload';
+function LoadImageW(hInst: THandle; ImageName: String; ImageType: UINT; X, Y: Integer; Flags: UINT): THandle; external 'LoadImageW@user32.dll stdcall delayload setuponly';
+function SendMessageW(hWnd: HWND; Msg: UINT; wParam: Longint; lParam: Longint): Longint; external 'SendMessageW@user32.dll stdcall delayload setuponly';
+function GetWindow(hWnd: HWND; uCmd: UINT): HWND; external 'GetWindow@user32.dll stdcall delayload setuponly';
+function GetAncestor(hWnd: HWND; gaFlags: UINT): HWND; external 'GetAncestor@user32.dll stdcall delayload setuponly';
+function GetWindowLongW(hWnd: HWND; nIndex: Integer): Longint; external 'GetWindowLongW@user32.dll stdcall delayload setuponly';
+function SetWindowLongW(hWnd: HWND; nIndex: Integer; dwNewLong: Longint): Longint; external 'SetWindowLongW@user32.dll stdcall delayload setuponly';
 
 procedure ApplyWindowIcon(const WindowHandle: HWND; const IcoFile: String);
 var
@@ -285,7 +286,7 @@ var
   LangDialogCancelBtn: TNewButton;
   LangDialogKeys: array of String;
 
-function GetUserDefaultUILanguage(): Word; external 'GetUserDefaultUILanguage@kernel32.dll stdcall';
+function GetUserDefaultUILanguage(): Word; external 'GetUserDefaultUILanguage@kernel32.dll stdcall setuponly';
 
 function DetectDefaultLanguage(): String;
 var
@@ -894,6 +895,187 @@ begin
   Result := '{\rtf1\ansi\deff0{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}}\f0\fs18 ' + body + '}';
 end;
 
+function FormatInlineMarkdown(const S: String): String;
+var
+  i, j, k, len: Integer;
+  inBold, inCode: Boolean;
+  labelStr, targetStr: String;
+begin
+  Result := '';
+  i := 1;
+  len := Length(S);
+  inBold := False;
+  inCode := False;
+  while i <= len do
+  begin
+    if (S[i] = '[') and (not inCode) then
+    begin
+      j := i + 1;
+      while (j <= len) and (S[j] <> ']') do
+        j := j + 1;
+      if (j < len) and (S[j] = ']') and (S[j + 1] = '(') then
+      begin
+        k := j + 2;
+        while (k <= len) and (S[k] <> ')') do
+          k := k + 1;
+        if (k <= len) and (S[k] = ')') then
+        begin
+          labelStr := Copy(S, i + 1, j - i - 1);
+          targetStr := Copy(S, j + 2, k - j - 2);
+          if (Trim(labelStr) = Trim(targetStr)) or
+             (Trim(labelStr) = 'https://' + Trim(targetStr)) or
+             (Trim(labelStr) = 'http://' + Trim(targetStr)) or
+             (Trim(targetStr) = 'https://' + Trim(labelStr)) or
+             (Trim(targetStr) = 'http://' + Trim(labelStr)) then
+          begin
+            Result := Result + '{\field{\*\fldinst{HYPERLINK "' + targetStr + '"}}{\fldrslt{\ul\cf1 ' + targetStr + '}}}';
+          end
+          else
+          begin
+            Result := Result + '{\field{\*\fldinst{HYPERLINK "' + targetStr + '"}}{\fldrslt{\ul\cf1 ' + labelStr + ' (' + targetStr + ')}}}';
+          end;
+          i := k + 1;
+          Continue;
+        end;
+      end;
+    end;
+
+    if (i < len) and (S[i] = '*') and (S[i + 1] = '*') then
+    begin
+      if inBold then
+      begin
+        Result := Result + '}';
+        inBold := False;
+      end
+      else
+      begin
+        Result := Result + '{\b ';
+        inBold := True;
+      end;
+      i := i + 2;
+      Continue;
+    end;
+
+    if S[i] = '`' then
+    begin
+      if inCode then
+      begin
+        Result := Result + '}';
+        inCode := False;
+      end
+      else
+      begin
+        Result := Result + '{\f1 ';
+        inCode := True;
+      end;
+      i := i + 1;
+      Continue;
+    end;
+
+    Result := Result + RtfEscapeChar(S[i]);
+    i := i + 1;
+  end;
+  if inBold then
+    Result := Result + '}';
+  if inCode then
+    Result := Result + '}';
+end;
+
+function MarkdownToRTF(const Text: String): String;
+var
+  lines: TStringList;
+  i, j, cellStart: Integer;
+  line, trimmed, cellText, rowText: String;
+  body: String;
+  isTableHeader: Boolean;
+begin
+  lines := TStringList.Create();
+  try
+    lines.Text := Text;
+    body := '';
+    for i := 0 to lines.Count - 1 do
+    begin
+      line := lines[i];
+      trimmed := Trim(line);
+
+      if trimmed = '' then
+      begin
+        body := body + '\par ';
+        Continue;
+      end;
+
+      if (trimmed = '---') or (trimmed = '***') or (trimmed = '___') or
+         ((Copy(trimmed, 1, 3) = '---') and (Length(trimmed) <= 5)) then
+      begin
+        body := body + '\pard\li0\fi0{\f1 \u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?}\par ';
+        Continue;
+      end;
+
+      if (Length(trimmed) > 1) and (trimmed[1] = '|') then
+      begin
+        if Pos('---', trimmed) > 0 then
+          Continue;
+
+        rowText := '\pard\li0\fi0\tx2000\tx4500\tx6500 ';
+        isTableHeader := (i + 1 < lines.Count) and (Pos('---', lines[i + 1]) > 0) and (Pos('|', lines[i + 1]) > 0);
+        cellStart := 2;
+        for j := 2 to Length(trimmed) do
+        begin
+          if (trimmed[j] = '|') or (j = Length(trimmed)) then
+          begin
+            if (j = Length(trimmed)) and (trimmed[j] <> '|') then
+              cellText := Trim(Copy(trimmed, cellStart, j - cellStart + 1))
+            else
+              cellText := Trim(Copy(trimmed, cellStart, j - cellStart));
+            if cellText <> '' then
+            begin
+              if isTableHeader then
+                rowText := rowText + '{\b ' + FormatInlineMarkdown(cellText) + '}\tab '
+              else
+                rowText := rowText + FormatInlineMarkdown(cellText) + '\tab ';
+            end;
+            cellStart := j + 1;
+          end;
+        end;
+        body := body + rowText + '\par ';
+        Continue;
+      end;
+
+      if Copy(trimmed, 1, 3) = '###' then
+      begin
+        body := body + '\pard\li0\fi0\b\fs20 ' + FormatInlineMarkdown(Trim(Copy(trimmed, 4, Length(trimmed)))) + '\b0\fs20\par ';
+        Continue;
+      end
+      else if Copy(trimmed, 1, 2) = '##' then
+      begin
+        body := body + '\pard\li0\fi0\b\fs22 ' + FormatInlineMarkdown(Trim(Copy(trimmed, 3, Length(trimmed)))) + '\b0\fs20\par ';
+        Continue;
+      end
+      else if Copy(trimmed, 1, 1) = '#' then
+      begin
+        body := body + '\pard\li0\fi0\b\fs26 ' + FormatInlineMarkdown(Trim(Copy(trimmed, 2, Length(trimmed)))) + '\b0\fs20\par ';
+        Continue;
+      end;
+
+      if (Copy(trimmed, 1, 2) = '- ') or (Copy(trimmed, 1, 2) = '* ') then
+      begin
+        body := body + '\pard\li360\fi-180 \u8226?\tab ' + FormatInlineMarkdown(Trim(Copy(trimmed, 3, Length(trimmed)))) + '\par ';
+        Continue;
+      end
+      else if Copy(trimmed, 1, 3) = '• ' then
+      begin
+        body := body + '\pard\li360\fi-180 \u8226?\tab ' + FormatInlineMarkdown(Trim(Copy(trimmed, 4, Length(trimmed)))) + '\par ';
+        Continue;
+      end;
+
+      body := body + '\pard\li0\fi0 ' + FormatInlineMarkdown(trimmed) + '\par ';
+    end;
+  finally
+    lines.Free();
+  end;
+  Result := '{\rtf1\ansi\ansicpg1252\deff0\uc1{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}{\f1\fnil\fcharset0 Consolas;}}{\colortbl;\red37\green99\blue235;\red90\green98\blue115;}\f0\fs20 ' + body + '}';
+end;
+
 // ReadPolicies reads the policies of the installation as a document of the
 // format of the viewer.
 function ReadPolicies(): String;
@@ -1055,7 +1237,12 @@ begin
     PoliciesLoaded := True;
     policies := ReadPolicies();
     if policies <> '' then
-      PolicyViewer.RTFText := policies
+    begin
+      if Pos('{\rtf', policies) > 0 then
+        PolicyViewer.RTFText := policies
+      else
+        PolicyViewer.RTFText := MarkdownToRTF(policies);
+    end
     else
     begin
       fallbackUrl := BrandServerUrl;
@@ -1118,6 +1305,7 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   icoPath, bmpPath: String;
+  patchResult: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -1138,6 +1326,7 @@ begin
     if BrandingLoaded then
       AppendBrandingToClient();
     WriteClientConfig();
+    Exec(ExpandConstant('{app}\{#MyAppExeName}'), '--patch-icons', '', SW_HIDE, ewWaitUntilTerminated, patchResult);
   end;
 end;
 

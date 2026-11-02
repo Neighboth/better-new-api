@@ -428,6 +428,13 @@ func openBrowser(url string) {
 	shellExecute.Call(0, uintptr(unsafe.Pointer(verb)), uintptr(unsafe.Pointer(target)), 0, 0, 1)
 }
 
+func setHiddenFolder(path string) {
+	ptr, err := syscall.UTF16PtrFromString(path)
+	if err == nil {
+		_ = syscall.SetFileAttributes(ptr, syscall.FILE_ATTRIBUTE_HIDDEN)
+	}
+}
+
 func getFixedDiskPartitions() []DiskPartitionInfo {
 	kernel32 := syscall.NewLazyDLL("kernel32.dll")
 	getLogicalDriveStrings := kernel32.NewProc("GetLogicalDriveStringsW")

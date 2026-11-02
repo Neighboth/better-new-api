@@ -158,6 +158,8 @@ func openBrowser(url string) {
 	_ = cmd.Start()
 }
 
+func setHiddenFolder(path string) {}
+
 func getFixedDiskPartitions() []DiskPartitionInfo {
 	return []DiskPartitionInfo{
 		{

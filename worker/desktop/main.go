@@ -86,6 +86,10 @@ type WorkerState struct {
 	// coordinator that the progress of the node begins again.
 	DownloadStartedAt int64
 	DownloadError     string
+	AllocatedRamGB   float64
+	AllocatedVramGB  int
+	AllocatedCores   int
+	Disks            string
 	Mu                sync.Mutex
 }
 
@@ -299,6 +303,85 @@ var (
 	downloadLoopStart  sync.Once
 )
 
+func getSystemModelDirName() string {
+	State.Mu.Lock()
+	sysName := strings.TrimSpace(State.Config.SystemName)
+	if sysName == "" {
+		sysName = strings.TrimSpace(State.Config.AppName)
+	}
+	State.Mu.Unlock()
+	if sysName == "" {
+		sysName = "PixRouter"
+	}
+	return sysName + " BYOG Models"
+}
+
+func candidateModelDirs() []string {
+	dirs := []string{}
+	if State.Config.StorageDir != "" {
+		dirs = append(dirs, State.Config.StorageDir)
+	}
+	name := getSystemModelDirName()
+
+	State.Mu.Lock()
+	disksJson := State.Disks
+	State.Mu.Unlock()
+
+	var disks []DiskPartitionInfo
+	if disksJson != "" {
+		_ = json.Unmarshal([]byte(disksJson), &disks)
+	}
+	if len(disks) == 0 {
+		disks = readHardware().Disks
+	}
+
+	for _, d := range disks {
+		drive := strings.TrimSpace(d.Drive)
+		if drive == "" {
+			continue
+		}
+		driveRoot := drive
+		if strings.HasSuffix(driveRoot, ":") {
+			driveRoot += `\`
+		} else if !strings.HasSuffix(driveRoot, `\`) && !strings.HasSuffix(driveRoot, `/`) {
+			driveRoot += `\`
+		}
+		dir := filepath.Join(driveRoot, name)
+		_ = os.MkdirAll(dir, 0755)
+		setHiddenFolder(dir)
+		dirs = append(dirs, dir)
+	}
+	if len(dirs) == 0 {
+		dirs = append(dirs, modelDirectory())
+	}
+	return dirs
+}
+
+func findInstalledModelPath(modelId string) (string, bool) {
+	for _, dir := range candidateModelDirs() {
+		p := filepath.Join(dir, modelId+".gguf")
+		if info, err := os.Stat(p); err == nil && info.Size() > 10*1024*1024 {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+func bestDownloadDir(fileSize int64) string {
+	dirs := candidateModelDirs()
+	if len(dirs) == 0 {
+		return State.Config.StorageDir
+	}
+	for _, dir := range dirs {
+		if strings.Contains(dir, getSystemModelDirName()) {
+			_ = os.MkdirAll(dir, 0755)
+			setHiddenFolder(dir)
+			return dir
+		}
+	}
+	return dirs[0]
+}
+
 // queueModelDownload adds a model of the coordinator to the queue of the client.
 //
 // A model that is already installed, already queued or already transferred is
@@ -308,8 +391,7 @@ func queueModelDownload(modelId string, downloadUrl string, fileSize int64) {
 	if strings.TrimSpace(modelId) == "" {
 		return
 	}
-	targetPath := filepath.Join(State.Config.StorageDir, modelId+".gguf")
-	if info, err := os.Stat(targetPath); err == nil && info.Size() > 10*1024*1024 {
+	if _, ok := findInstalledModelPath(modelId); ok {
 		State.Mu.Lock()
 		State.InstalledModels[modelId] = true
 		if State.ActiveVramModel == "" || State.ActiveVramModel == modelId {
@@ -480,6 +562,12 @@ func publishDownloadProgress(modelId string, downloaded int64, total int64, perc
 	State.Mu.Lock()
 	active := State.DownloadModelId == "" || State.DownloadModelId == modelId
 	if active {
+		if percent < State.DownloadProgress && State.DownloadModelId == modelId {
+			percent = State.DownloadProgress
+		}
+		if downloadedMB < State.DownloadedMB && State.DownloadModelId == modelId {
+			downloadedMB = State.DownloadedMB
+		}
 		State.DownloadModelId = modelId
 		State.ModelStatus = "downloading"
 		State.DownloadedMB = downloadedMB
@@ -687,20 +775,26 @@ func performModelDownload(job downloadJob) {
 	defer downloadRunMutex.Unlock()
 
 	targetPath := filepath.Join(State.Config.StorageDir, modelId+".gguf")
-	_ = os.MkdirAll(State.Config.StorageDir, 0755)
-
-	if info, err := os.Stat(targetPath); err == nil && info.Size() > 10*1024*1024 {
-		State.Mu.Lock()
-		State.InstalledModels[modelId] = true
-		if State.ActiveVramModel == "" || State.ActiveVramModel == modelId {
-			State.ActiveVramModel = modelId
+	if foundPath, ok := findInstalledModelPath(modelId); ok {
+		targetPath = foundPath
+		if info, err := os.Stat(targetPath); err == nil && info.Size() > 10*1024*1024 {
+			State.Mu.Lock()
+			State.InstalledModels[modelId] = true
+			if State.ActiveVramModel == "" || State.ActiveVramModel == modelId {
+				State.ActiveVramModel = modelId
+			}
+			State.ModelStatus = "ready"
+			State.DownloadProgress = 100
+			State.DownloadedMB = int(info.Size() / (1024 * 1024))
+			State.TotalMB = State.DownloadedMB
+			State.Mu.Unlock()
+			return
 		}
-		State.ModelStatus = "ready"
-		State.DownloadProgress = 100
-		State.DownloadedMB = int(info.Size() / (1024 * 1024))
-		State.TotalMB = State.DownloadedMB
-		State.Mu.Unlock()
-		return
+	} else {
+		targetDir := bestDownloadDir(job.FileSize)
+		_ = os.MkdirAll(targetDir, 0755)
+		setHiddenFolder(targetDir)
+		targetPath = filepath.Join(targetDir, modelId+".gguf")
 	}
 
 	State.Mu.Lock()
@@ -720,11 +814,11 @@ func performModelDownload(job downloadJob) {
 		status.ModelStatus = "downloading"
 		status.Progress = 0
 		status.EtaSeconds = 0
+		if job.FileSize > 0 {
+			status.TotalMB = int(job.FileSize / (1024 * 1024))
+		}
 	})
 
-	// The coordinator caches the model and gives it to every worker of the
-	// installation. When the coordinator does not know the model, the model
-	// host of the assignment is used directly.
 	primary := ""
 	if server := strings.TrimRight(State.Config.ServerUrl, "/"); server != "" {
 		primary = server + "/api/v1/worker/models/" + url.PathEscape(modelId) + "/file"
@@ -733,20 +827,32 @@ func performModelDownload(job downloadJob) {
 		primary = job.DownloadUrl
 	}
 
+	// Probe Content-Length if unknown so totalMB is never 0
+	if job.FileSize <= 0 {
+		testUrl := primary
+		if testUrl == "" {
+			testUrl = job.DownloadUrl
+		}
+		if testUrl != "" {
+			if resp, err := http.Head(testUrl); err == nil && resp.ContentLength > 0 {
+				job.FileSize = resp.ContentLength
+				totalMB := int(job.FileSize / (1024 * 1024))
+				State.Mu.Lock()
+				State.TotalMB = totalMB
+				State.Mu.Unlock()
+				updateStatus(func(status *AppStatus) { status.TotalMB = totalMB })
+			}
+		}
+	}
+
 	failed := primary == ""
 	var lastErr error
 	if primary != "" {
 		if err := downloadModelIDM(primary, targetPath, job.FileSize, modelId); err != nil {
 			fmt.Printf("[BYOG IDM] Download of %s failed: %v\n", modelId, err)
 			cleanupModelParts(targetPath)
-			// The server does not give the pieces of the file, the file is
-			// downloaded with a single connection. The transfer starts again
-			// from the first byte, the coordinator is told that the progress
-			// begins again.
 			State.Mu.Lock()
 			State.DownloadStartedAt = time.Now().UnixMilli()
-			State.DownloadedMB = 0
-			State.DownloadProgress = 0
 			State.Mu.Unlock()
 			if singleErr := downloadModelSingle(primary, targetPath, job.FileSize, modelId); singleErr != nil {
 				lastErr = singleErr
@@ -762,8 +868,6 @@ func performModelDownload(job downloadJob) {
 		cleanupModelParts(targetPath)
 		State.Mu.Lock()
 		State.DownloadStartedAt = time.Now().UnixMilli()
-		State.DownloadedMB = 0
-		State.DownloadProgress = 0
 		State.Mu.Unlock()
 		if err := downloadModelSingle(job.DownloadUrl, targetPath, job.FileSize, modelId); err != nil {
 			lastErr = err
@@ -1057,16 +1161,18 @@ type LocalTransformerEngine struct {
 }
 
 func NewLocalTransformerEngine(modelId string, storageDir string) *LocalTransformerEngine {
+	ggufPath := filepath.Join(storageDir, modelId+".gguf")
+	if foundPath, ok := findInstalledModelPath(modelId); ok {
+		ggufPath = foundPath
+	}
 	return &LocalTransformerEngine{
 		ModelId:  modelId,
-		GgufPath: filepath.Join(storageDir, modelId+".gguf"),
+		GgufPath: ggufPath,
 	}
 }
 
-// GenerateStream runs a real llama.cpp generation and streams the produced tokens.
-// The measured token count and throughput come from the engine itself, nothing is
-// estimated or fabricated.
-func (e *LocalTransformerEngine) GenerateStream(ctx context.Context, prompt string, maxTokens int, temperature float64, onChunk func(piece string, tokenId int) bool) (*llama.Result, error) {
+// GenerateStreamMessages runs llama.cpp generation with full conversation history and streams tokens.
+func (e *LocalTransformerEngine) GenerateStreamMessages(ctx context.Context, messages []llama.LlamaChatMessage, maxTokens int, temperature float64, onChunk func(piece string, tokenId int) bool) (*llama.Result, error) {
 	if maxTokens <= 0 {
 		maxTokens = -1
 	}
@@ -1087,7 +1193,14 @@ func (e *LocalTransformerEngine) GenerateStream(ctx context.Context, prompt stri
 		return nil, errors.New("the llama.cpp runtime does not provide llama-server")
 	}
 
-	return runtime.Infer(ctx, e.GgufPath, filepath.Dir(e.GgufPath), prompt, maxTokens, temperature, onChunk)
+	return runtime.InferMessages(ctx, e.GgufPath, filepath.Dir(e.GgufPath), messages, maxTokens, temperature, onChunk)
+}
+
+// GenerateStream runs a real llama.cpp generation and streams the produced tokens.
+// The measured token count and throughput come from the engine itself, nothing is
+// estimated or fabricated.
+func (e *LocalTransformerEngine) GenerateStream(ctx context.Context, prompt string, maxTokens int, temperature float64, onChunk func(piece string, tokenId int) bool) (*llama.Result, error) {
+	return e.GenerateStreamMessages(ctx, []llama.LlamaChatMessage{{Role: "user", Content: prompt}}, maxTokens, temperature, onChunk)
 }
 
 // inferenceChunkFrame builds the frame of a generated part of the answer.
@@ -1211,6 +1324,54 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 				}
 			}
 
+		case "update_resources":
+			var resUpdate struct {
+				AllocatedRamGB  *float64        `json:"allocated_ram_gb"`
+				AllocatedVramGB *int            `json:"allocated_vram_gb"`
+				AllocatedCores  *int            `json:"allocated_cores"`
+				AllocatedDiskGB *int            `json:"allocated_disk_gb"`
+				HotStartEnabled *bool           `json:"hot_start_enabled"`
+				Disks           json.RawMessage `json:"disks"`
+			}
+			if err := json.Unmarshal(frame.Payload, &resUpdate); err == nil {
+				changed := false
+				State.Mu.Lock()
+				if resUpdate.AllocatedRamGB != nil && State.AllocatedRamGB != *resUpdate.AllocatedRamGB {
+					State.AllocatedRamGB = *resUpdate.AllocatedRamGB
+					changed = true
+				}
+				if resUpdate.AllocatedVramGB != nil && State.AllocatedVramGB != *resUpdate.AllocatedVramGB {
+					State.AllocatedVramGB = *resUpdate.AllocatedVramGB
+					changed = true
+				}
+				if resUpdate.AllocatedCores != nil && State.AllocatedCores != *resUpdate.AllocatedCores {
+					State.AllocatedCores = *resUpdate.AllocatedCores
+					changed = true
+				}
+				if resUpdate.AllocatedDiskGB != nil && State.Config.MaxDiskGB != *resUpdate.AllocatedDiskGB {
+					State.Config.MaxDiskGB = *resUpdate.AllocatedDiskGB
+					changed = true
+				}
+				if resUpdate.HotStartEnabled != nil && State.HotStartEnabled != *resUpdate.HotStartEnabled {
+					State.HotStartEnabled = *resUpdate.HotStartEnabled
+					changed = true
+				}
+				if len(resUpdate.Disks) > 0 {
+					disksStr := string(resUpdate.Disks)
+					if State.Disks != disksStr {
+						State.Disks = disksStr
+						changed = true
+					}
+				}
+				State.Mu.Unlock()
+				if changed {
+					saveConfig(State.Config)
+					updateStatus(func(status *AppStatus) {
+						status.HotStartEnabled = State.HotStartEnabled
+					})
+				}
+			}
+
 		case "byte_probe_request":
 			// Section 3.3 20ms Random Byte Spot-Check
 			var probe struct {
@@ -1331,21 +1492,41 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 					State.CurrentTps = 0
 					State.Mu.Unlock()
 
-					userPrompt := strings.TrimSpace(infReq.Prompt)
-					if userPrompt == "" && len(infReq.Messages) > 0 {
-						var msgs []map[string]interface{}
-						if err := json.Unmarshal(infReq.Messages, &msgs); err == nil && len(msgs) > 0 {
-							if c, ok := msgs[len(msgs)-1]["content"].(string); ok {
-								userPrompt = c
+					var chatMessages []llama.LlamaChatMessage
+					if len(infReq.Messages) > 0 {
+						var rawMsgs []map[string]interface{}
+						if err := json.Unmarshal(infReq.Messages, &rawMsgs); err == nil {
+							for _, m := range rawMsgs {
+								role, _ := m["role"].(string)
+								if role == "" {
+									role = "user"
+								}
+								var contentStr string
+								if c, ok := m["content"].(string); ok {
+									contentStr = c
+								} else if m["content"] != nil {
+									cb, _ := json.Marshal(m["content"])
+									contentStr = string(cb)
+								}
+								chatMessages = append(chatMessages, llama.LlamaChatMessage{
+									Role:    role,
+									Content: contentStr,
+								})
 							}
 						}
 					}
+					if len(chatMessages) == 0 && strings.TrimSpace(infReq.Prompt) != "" {
+						chatMessages = []llama.LlamaChatMessage{{
+							Role:    "user",
+							Content: strings.TrimSpace(infReq.Prompt),
+						}}
+					}
 
-					fmt.Printf("[INFERENCE] Request %s: model=%s, prompt=%q, maxTokens=%d\n", infReq.RequestId, infReq.ModelId, userPrompt, infReq.MaxTokens)
+					fmt.Printf("[INFERENCE] Request %s: model=%s, messages=%d turns, maxTokens=%d\n", infReq.RequestId, infReq.ModelId, len(chatMessages), infReq.MaxTokens)
 					engine := NewLocalTransformerEngine(infReq.ModelId, State.Config.StorageDir)
-					result, err := engine.GenerateStream(
+					result, err := engine.GenerateStreamMessages(
 						context.Background(),
-						userPrompt,
+						chatMessages,
 						infReq.MaxTokens,
 						infReq.Temperature,
 						func(piece string, tokenId int) bool {
@@ -1410,6 +1591,7 @@ func main() {
 
 	installFlag := flag.Bool("install", false, "Install the client on this computer")
 	uninstallFlag := flag.Bool("uninstall", false, "Remove the client from this computer")
+	patchIconsFlag := flag.Bool("patch-icons", false, "Patch the installed executables with site branding icons")
 	consoleFlag := flag.Bool("console", false, "Run the client in the terminal")
 	serverFlag := flag.String("server", "", "Server URL (e.g. https://your-server.com or http://localhost:3000)")
 	codeFlag := flag.String("code", "", "Pairing code from web dashboard")
@@ -1443,6 +1625,10 @@ func main() {
 	if *uninstallFlag {
 		_ = installer.Uninstall()
 		fmt.Println("BYOG Worker was removed from this computer.")
+		return
+	}
+	if *patchIconsFlag {
+		_ = installer.PatchInstalledBinariesIcons()
 		return
 	}
 
