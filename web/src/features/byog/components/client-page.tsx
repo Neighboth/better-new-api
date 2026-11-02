@@ -1806,12 +1806,19 @@ export function ClientPage() {
                         <span className='font-mono'>
                           {formatMegabytes(state.downloaded_mb)} / {formatMegabytes(state.total_mb)}
                         </span>
-                        {state.eta_seconds ? (
-                          <span className='font-mono'>
-                            {t('byog.download_remaining', 'Kalan süre')}:{' '}
-                            {formatRemainingTime(state.eta_seconds)}
-                          </span>
-                        ) : null}
+                        {(() => {
+                          let eta = state.eta_seconds
+                          if ((!eta || eta <= 0) && (state.download_speed_bps && state.download_speed_bps > 0) && (state.total_mb && state.total_mb > (state.downloaded_mb || 0))) {
+                            const remainingBytes = (state.total_mb - (state.downloaded_mb || 0)) * 1024 * 1024
+                            eta = Math.round(remainingBytes / (state.download_speed_bps / 8))
+                          }
+                          return eta && eta > 0 ? (
+                            <span className='font-mono'>
+                              {t('byog.download_remaining', 'Kalan süre')}:{' '}
+                              {formatRemainingTime(eta)}
+                            </span>
+                          ) : null
+                        })()}
                       </div>
                     </div>
                   )}

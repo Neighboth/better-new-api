@@ -1,4 +1,4 @@
-; The installation of the client of the local computing network.
+﻿; The installation of the client of the local computing network.
 ;
 ; The installer is built with Inno Setup, the standard tool of Windows. The
 ; dashboard downloads the installer with the name, the icon and the address of
@@ -981,6 +981,43 @@ begin
     Result := Result + '}';
 end;
 
+function IsHorizontalRule(const S: String): Boolean;
+var
+  k, count: Integer;
+  ch: Char;
+begin
+  Result := False;
+  if Length(S) < 3 then
+    Exit;
+  ch := S[1];
+  if (ch <> '-') and (ch <> '*') and (ch <> '_') then
+    Exit;
+  count := 0;
+  for k := 1 to Length(S) do
+  begin
+    if S[k] = ch then
+      count := count + 1
+    else if S[k] <> ' ' then
+      Exit;
+  end;
+  Result := (count >= 3);
+end;
+
+function IsTableSeparator(const S: String): Boolean;
+var
+  k: Integer;
+begin
+  Result := False;
+  if (Length(S) < 3) or (Pos('|', S) = 0) or (Pos('-', S) = 0) then
+    Exit;
+  for k := 1 to Length(S) do
+  begin
+    if (S[k] <> '|') and (S[k] <> '-') and (S[k] <> ':') and (S[k] <> ' ') then
+      Exit;
+  end;
+  Result := True;
+end;
+
 function MarkdownToRTF(const Text: String): String;
 var
   lines: TStringList;
@@ -1004,21 +1041,22 @@ begin
         Continue;
       end;
 
-      if (trimmed = '---') or (trimmed = '***') or (trimmed = '___') or
-         ((Copy(trimmed, 1, 3) = '---') and (Length(trimmed) <= 5)) then
+      if IsHorizontalRule(trimmed) then
       begin
         body := body + '\pard\li0\fi0{\f1 \u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?\u9472?}\par ';
         Continue;
       end;
 
-      if (Length(trimmed) > 1) and (trimmed[1] = '|') then
+      if Pos('|', trimmed) > 0 then
       begin
-        if Pos('---', trimmed) > 0 then
+        if IsTableSeparator(trimmed) then
           Continue;
 
-        rowText := '\pard\li0\fi0\tx2000\tx4500\tx6500 ';
-        isTableHeader := (i + 1 < lines.Count) and (Pos('---', lines[i + 1]) > 0) and (Pos('|', lines[i + 1]) > 0);
-        cellStart := 2;
+        rowText := '\pard\li0\fi0\tx2200\tx4600\tx6800 ';
+        isTableHeader := (i + 1 < lines.Count) and IsTableSeparator(Trim(lines[i + 1]));
+        cellStart := 1;
+        if trimmed[1] = '|' then
+          cellStart := 2;
         for j := 2 to Length(trimmed) do
         begin
           if (trimmed[j] = '|') or (j = Length(trimmed)) then
@@ -1337,6 +1375,23 @@ end;
 function InitializeUninstall(): Boolean;
 begin
   Result := True;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    DeleteFile(ExpandConstant('{commonprograms}\PixRouter BYOG Worker.lnk'));
+    DeleteFile(ExpandConstant('{commonprograms}\BYOG Worker.lnk'));
+    DeleteFile(ExpandConstant('{commondesktop}\PixRouter BYOG Worker.lnk'));
+    DeleteFile(ExpandConstant('{commondesktop}\BYOG Worker.lnk'));
+    DeleteFile(ExpandConstant('{userprograms}\PixRouter BYOG Worker.lnk'));
+    DeleteFile(ExpandConstant('{userprograms}\BYOG Worker.lnk'));
+    DeleteFile(ExpandConstant('{userdesktop}\PixRouter BYOG Worker.lnk'));
+    DeleteFile(ExpandConstant('{userdesktop}\BYOG Worker.lnk'));
+    RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'PixRouter BYOG Worker');
+    RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'BYOG Worker');
+  end;
 end;
 
 

@@ -144,10 +144,29 @@ func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Requ
 	for name := range State.InstalledModels {
 		installed = append(installed, name)
 	}
+	disksJson := State.Disks
 	State.Mu.Unlock()
 	sort.Strings(installed)
 	hardware := readHardware()
 	network, _ := readBandwidth()
+
+	allocMap := make(map[string]int)
+	if disksJson != "" {
+		var savedDisks []DiskPartitionInfo
+		if err := json.Unmarshal([]byte(disksJson), &savedDisks); err == nil {
+			for _, sd := range savedDisks {
+				allocMap[strings.ToUpper(strings.TrimSpace(sd.Drive))] = sd.AllocatedGB
+			}
+		}
+	}
+	for i := range hardware.Disks {
+		drv := strings.ToUpper(strings.TrimSpace(hardware.Disks[i].Drive))
+		if alloc, ok := allocMap[drv]; ok && alloc > 0 {
+			hardware.Disks[i].AllocatedGB = alloc
+		} else {
+			hardware.Disks[i].AllocatedGB = hardware.Disks[i].FreeGB / 2
+		}
+	}
 	writeBridgeJSON(writer, bridgeState{
 		NodeId:           status.NodeId,
 		DeviceName:       status.DeviceName,

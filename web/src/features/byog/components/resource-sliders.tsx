@@ -338,10 +338,9 @@ export function ResourceSliders({
               </div>
               {parsedDisks.map((d) => {
                 const dMax = Math.max(0, d.free_gb)
-                // A partition that was never shared gives nothing, the value of
-                // the record of the node is the value of the slider.
+                const default50 = Math.max(0, Math.floor(dMax * 0.5))
                 const currentVal = Math.min(
-                  Math.max(0, diskAllocations[d.drive] ?? d.allocated_gb ?? 0),
+                  Math.max(0, diskAllocations[d.drive] ?? (d.allocated_gb !== undefined && d.allocated_gb > 0 ? d.allocated_gb : default50)),
                   dMax
                 )
                 return (
