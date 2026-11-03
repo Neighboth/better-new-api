@@ -399,10 +399,37 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 				return nil
 
 			case MsgTypeInferenceError:
-				return fmt.Errorf("worker reported error: %s", string(frame.Payload))
+				errMsg := string(frame.Payload)
+				if payload.Stream {
+					errJson, _ := json.Marshal(map[string]interface{}{
+						"error": map[string]interface{}{
+							"message": fmt.Sprintf("Worker reported error: %s", errMsg),
+							"type":    "byog_worker_error",
+						},
+					})
+					_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(errJson))
+					_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+					if flusher != nil {
+						flusher.Flush()
+					}
+				}
+				return fmt.Errorf("worker reported error: %s", errMsg)
 			}
 
 		case <-timeoutTicker.C:
+			if payload.Stream {
+				errJson, _ := json.Marshal(map[string]interface{}{
+					"error": map[string]interface{}{
+						"message": "Worker inference timed out after 180 seconds",
+						"type":    "byog_timeout",
+					},
+				})
+				_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(errJson))
+				_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
 			return fmt.Errorf("worker inference timed out")
 
 		case <-c.Request.Context().Done():

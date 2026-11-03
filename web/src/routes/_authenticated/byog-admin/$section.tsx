@@ -21,6 +21,7 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import { ByogAdmin, type ByogAdminSection } from '@/features/byog-admin'
 
 const VALID_SECTIONS: ByogAdminSection[] = [
+  'stats',
   'settings',
   'rules',
   'models',

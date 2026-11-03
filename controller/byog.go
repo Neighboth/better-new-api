@@ -504,13 +504,20 @@ func PairByogNode(c *gin.Context) {
 	}
 
 	if s, ok := byogservice.GlobalHub.GetSession(node.NodeId); ok && s != nil {
+		var disksObj interface{}
+		if node.Disks != "" {
+			_ = json.Unmarshal([]byte(node.Disks), &disksObj)
+		}
+		if disksObj == nil {
+			disksObj = []interface{}{}
+		}
 		updatePayload, _ := json.Marshal(map[string]interface{}{
 			"allocated_ram_gb":  node.AllocatedRamGB,
 			"allocated_vram_gb": node.AllocatedVramGB,
 			"allocated_cores":   node.AllocatedCores,
 			"allocated_disk_gb": node.AllocatedDiskGB,
 			"hot_start_enabled": node.HotStartEnabled,
-			"disks":             node.Disks,
+			"disks":             disksObj,
 		})
 		_ = s.WriteFrame(byogservice.TunnelFrame{
 			Type:    "update_resources",
@@ -557,7 +564,7 @@ func UpdateUserByogNode(c *gin.Context) {
 	if req.Disks != "" {
 		node.Disks = req.Disks
 	}
-	if req.AllocatedDiskGB > 0 {
+	if req.AllocatedDiskGB >= 0 {
 		node.AllocatedDiskGB = req.AllocatedDiskGB
 	}
 	if req.AllocatedVramGB >= 0 {
@@ -589,13 +596,20 @@ func UpdateUserByogNode(c *gin.Context) {
 
 	// Live Bidirectional Sync: notify connected worker session immediately (Item 7)
 	if s, ok := byogservice.GlobalHub.GetSession(node.NodeId); ok && s != nil {
+		var disksObj interface{}
+		if node.Disks != "" {
+			_ = json.Unmarshal([]byte(node.Disks), &disksObj)
+		}
+		if disksObj == nil {
+			disksObj = []interface{}{}
+		}
 		updatePayload, _ := json.Marshal(map[string]interface{}{
 			"allocated_ram_gb":  node.AllocatedRamGB,
 			"allocated_vram_gb": node.AllocatedVramGB,
 			"allocated_cores":   node.AllocatedCores,
 			"allocated_disk_gb": node.AllocatedDiskGB,
 			"hot_start_enabled": node.HotStartEnabled,
-			"disks":             node.Disks,
+			"disks":             disksObj,
 		})
 		_ = s.WriteFrame(byogservice.TunnelFrame{
 			Type:    "update_resources",
@@ -2303,13 +2317,20 @@ func UpdateByogWorkerResources(c *gin.Context) {
 
 	// Live Bidirectional Sync: notify connected worker session immediately (Item 7)
 	if s, ok := byogservice.GlobalHub.GetSession(node.NodeId); ok && s != nil {
+		var disksObj interface{}
+		if node.Disks != "" {
+			_ = json.Unmarshal([]byte(node.Disks), &disksObj)
+		}
+		if disksObj == nil {
+			disksObj = []interface{}{}
+		}
 		updatePayload, _ := json.Marshal(map[string]interface{}{
 			"allocated_ram_gb":  node.AllocatedRamGB,
 			"allocated_vram_gb": node.AllocatedVramGB,
 			"allocated_cores":   node.AllocatedCores,
 			"allocated_disk_gb": node.AllocatedDiskGB,
 			"hot_start_enabled": node.HotStartEnabled,
-			"disks":             node.Disks,
+			"disks":             disksObj,
 		})
 		_ = s.WriteFrame(byogservice.TunnelFrame{
 			Type:    "update_resources",
@@ -2352,9 +2373,17 @@ func MeasureByogWorkerBandwidth(c *gin.Context) {
 		if size > 32*1024*1024 {
 			size = 32 * 1024 * 1024
 		}
+		payload := make([]byte, size)
+		state := uint32(123456789)
+		for i := 0; i < size; i++ {
+			state = state*1664525 + 1013904223
+			payload[i] = byte(state >> 16)
+		}
 		c.Header("Content-Type", "application/octet-stream")
-		c.Header("Cache-Control", "no-store")
-		_, _ = c.Writer.Write(bytes.Repeat([]byte{0x5A}, size))
+		c.Header("Content-Encoding", "identity")
+		c.Header("Cache-Control", "no-cache, no-store, must-revalidate, no-transform")
+		c.Header("Content-Length", strconv.Itoa(size))
+		_, _ = c.Writer.Write(payload)
 	}
 }
 

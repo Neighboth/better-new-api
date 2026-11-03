@@ -39,11 +39,13 @@ const llamaReleaseTag = "b5231"
 
 // Runtime holds the paths of the llama.cpp binaries.
 type Runtime struct {
-	Dir            string
-	ServerPath     string
-	CliPath        string
-	AllocatedCores int
-	KvCacheType    string
+	Dir             string
+	ServerPath      string
+	CliPath         string
+	AllocatedCores  int
+	AllocatedVramGB int
+	CudaAvailable   bool
+	KvCacheType     string
 }
 
 // Server is a running llama.cpp server for a single model.
@@ -311,11 +313,14 @@ func (r *Runtime) StartServer(modelPath string, storageDir string) (*Server, err
 		"-c", ctxSize,
 		"-b", batchSize,
 		"-t", strconv.Itoa(threads),
-		"--flash-attn",
 		"--chunks", "1024",
 		"--no-warmup",
 		"-np", "1",
-		"--log-disable",
+	}
+	if r.CudaAvailable && r.AllocatedVramGB > 0 {
+		args = append(args, "--flash-attn", "-ngl", "99")
+	} else {
+		args = append(args, "-ngl", "0")
 	}
 	if !useMmap {
 		args = append(args, "--no-mmap")
@@ -323,7 +328,8 @@ func (r *Runtime) StartServer(modelPath string, storageDir string) (*Server, err
 	if r.KvCacheType != "" && r.KvCacheType != "off" {
 		args = append(args, "--cache-type-k", r.KvCacheType, "--cache-type-v", r.KvCacheType)
 	}
-	logFile, _ := os.OpenFile(filepath.Join(storageDir, "llama_server.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	logFilePath := filepath.Join(storageDir, "llama_server.log")
+	logFile, _ := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	cmd := exec.Command(r.ServerPath, args...)
 	cmd.Dir = storageDir
 	if logFile != nil {
@@ -339,7 +345,7 @@ func (r *Runtime) StartServer(modelPath string, storageDir string) (*Server, err
 	}
 
 	process := &Server{cmd: cmd, port: port, model: modelPath, started: time.Now()}
-	if err := waitForLlamaServer(cmd, port, 90*time.Second); err != nil {
+	if err := waitForLlamaServer(cmd, port, 60*time.Second, logFilePath); err != nil {
 		_ = cmd.Process.Kill()
 		if logFile != nil {
 			logFile.Close()
@@ -360,12 +366,20 @@ func freeLocalPort() (int, error) {
 }
 
 // waitForLlamaServer waits until the server accepts requests.
-func waitForLlamaServer(cmd *exec.Cmd, port int, timeout time.Duration) error {
+func waitForLlamaServer(cmd *exec.Cmd, port int, timeout time.Duration, logFilePath string) error {
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 2 * time.Second}
 	for time.Now().Before(deadline) {
 		if cmd != nil && cmd.ProcessState != nil && cmd.ProcessState.Exited() {
-			return errors.New("llama-server process exited unexpectedly")
+			logTail := ""
+			if data, err := os.ReadFile(logFilePath); err == nil && len(data) > 0 {
+				lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+				if len(lines) > 5 {
+					lines = lines[len(lines)-5:]
+				}
+				logTail = ": " + strings.Join(lines, " ")
+			}
+			return fmt.Errorf("llama-server process exited unexpectedly (code %d)%s", cmd.ProcessState.ExitCode(), logTail)
 		}
 		resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
 		if err == nil {

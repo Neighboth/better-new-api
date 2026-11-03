@@ -93,7 +93,9 @@ public class LocalNeuralEngine {
 
     public static File resolveModelFile(File modelDir, String modelId) {
         File primary = new File(modelDir, modelId + ".gguf");
-        if (primary.exists() && primary.length() >= MIN_MODEL_BYTES) return primary;
+        try {
+            if (primary.exists() && primary.length() >= MIN_MODEL_BYTES) return primary;
+        } catch (Throwable ignored) {}
 
         File[] candidates = new File[] {
             new File("/sdcard/Android/data/org.byog.worker/files", modelId + ".gguf"),
@@ -103,31 +105,31 @@ public class LocalNeuralEngine {
             new File("/storage/emulated/0", modelId + ".gguf")
         };
 
-        for (File cand : candidates) {
-            if (cand.exists() && cand.length() >= MIN_MODEL_BYTES) {
+        try {
+            for (File cand : candidates) {
                 try {
-                    if (modelDir != null && (modelDir.exists() || modelDir.mkdirs())) {
-                        Log.i(TAG, "Importing model into internal storage: " + cand.getAbsolutePath() + " -> " + primary.getAbsolutePath());
-                        java.io.FileInputStream in = new java.io.FileInputStream(cand);
-                        java.io.FileOutputStream out = new java.io.FileOutputStream(primary);
-                        byte[] buf = new byte[2 * 1024 * 1024];
-                        int r;
-                        while ((r = in.read(buf)) > 0) {
-                            out.write(buf, 0, r);
+                    if (cand != null && cand.exists() && cand.length() >= MIN_MODEL_BYTES) {
+                        if (modelDir != null && (modelDir.exists() || modelDir.mkdirs())) {
+                            Log.i(TAG, "Importing model into internal storage: " + cand.getAbsolutePath() + " -> " + primary.getAbsolutePath());
+                            java.io.FileInputStream in = new java.io.FileInputStream(cand);
+                            java.io.FileOutputStream out = new java.io.FileOutputStream(primary);
+                            byte[] buf = new byte[2 * 1024 * 1024];
+                            int r;
+                            while ((r = in.read(buf)) > 0) {
+                                out.write(buf, 0, r);
+                            }
+                            in.close();
+                            out.close();
+                            if (primary.exists() && primary.length() >= MIN_MODEL_BYTES) {
+                                Log.i(TAG, "Model successfully copied to internal storage: " + primary.length() + " bytes");
+                                return primary;
+                            }
                         }
-                        in.close();
-                        out.close();
-                        if (primary.exists() && primary.length() >= MIN_MODEL_BYTES) {
-                            Log.i(TAG, "Model successfully copied to internal storage: " + primary.length() + " bytes");
-                            return primary;
-                        }
+                        return cand;
                     }
-                } catch (Throwable t) {
-                    Log.w(TAG, "Could not copy model file to internal storage: " + t.getMessage());
-                }
-                return cand;
+                } catch (Throwable ignored) {}
             }
-        }
+        } catch (Throwable ignored) {}
         return primary;
     }
 

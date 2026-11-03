@@ -6943,5 +6943,6 @@
       "hf_no_models": "No models found",
       "hf_search_hint": "Type a model or architecture name into the search box and click Search."
     }
-  }
+  },
+  "byog.admin.tab_stats": "Analytics & Statistics"
 }

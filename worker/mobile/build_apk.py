@@ -3783,6 +3783,15 @@ public class QRScanActivity extends Activity implements SurfaceHolder.Callback, 
                 result = multiFormatReader.decodeWithState(new BinaryBitmap(new HybridBinarizer(source)));
             } catch (Exception ignored) {}
 
+            // 1b. Natural orientation with GlobalHistogramBinarizer fallback
+            if (result == null) {
+                try {
+                    PlanarYUVLuminanceSource source = new PlanarYUVLuminanceSource(
+                            data, size.width, size.height, 0, 0, size.width, size.height, false);
+                    result = multiFormatReader.decodeWithState(new BinaryBitmap(new com.google.zxing.common.GlobalHistogramBinarizer(source)));
+                } catch (Exception ignored) {}
+            }
+
             // 2. Try rotated 90 degrees portrait orientation (sensors on mobile are landscape)
             if (result == null) {
                 try {
@@ -3795,6 +3804,9 @@ public class QRScanActivity extends Activity implements SurfaceHolder.Callback, 
                     PlanarYUVLuminanceSource rotSource = new PlanarYUVLuminanceSource(
                             rotated, size.height, size.width, 0, 0, size.height, size.width, false);
                     result = multiFormatReader.decodeWithState(new BinaryBitmap(new HybridBinarizer(rotSource)));
+                    if (result == null) {
+                        result = multiFormatReader.decodeWithState(new BinaryBitmap(new com.google.zxing.common.GlobalHistogramBinarizer(rotSource)));
+                    }
                 } catch (Exception ignored) {}
             }
 

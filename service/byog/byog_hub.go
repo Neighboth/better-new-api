@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -400,11 +399,16 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 			if telemetry.PhysicalRamMB != nil && node.AllocatedRamGB > float64(*telemetry.PhysicalRamMB)/1024.0 {
 				node.AllocatedRamGB = float64(*telemetry.PhysicalRamMB) / 1024.0
 			}
-			if isIntegratedGpuModel(node.GpuModel) {
-				node.VramMB = 0
-				node.AllocatedVramGB = 0
-			} else if telemetry.VramMB != nil && node.AllocatedVramGB > *telemetry.VramMB/1024 {
-				node.AllocatedVramGB = *telemetry.VramMB / 1024
+			if telemetry.VramMB != nil {
+				if *telemetry.VramMB <= 512 {
+					node.VramMB = 0
+					node.AllocatedVramGB = 0
+				} else {
+					node.VramMB = *telemetry.VramMB
+					if node.AllocatedVramGB > node.VramMB/1024 {
+						node.AllocatedVramGB = node.VramMB / 1024
+					}
+				}
 			}
 			if node.AllocatedDiskGB > node.FreeDiskGB && node.FreeDiskGB > 0 {
 				node.AllocatedDiskGB = node.FreeDiskGB
@@ -454,21 +458,6 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 	}
 }
 
-func isIntegratedGpuModel(gpu string) bool {
-	if gpu == "" {
-		return false
-	}
-	lower := strings.ToLower(gpu)
-	return strings.Contains(lower, "iris") ||
-		strings.Contains(lower, "uhd") ||
-		strings.Contains(lower, "hd graphics") ||
-		strings.Contains(lower, "intel") ||
-		strings.Contains(lower, "vega") ||
-		(strings.Contains(lower, "radeon") && (strings.Contains(lower, "graphics") || strings.Contains(lower, "tm"))) ||
-		strings.Contains(lower, "apple m") ||
-		strings.Contains(lower, "integrated") ||
-		strings.Contains(lower, "uma")
-}
 
 // WebSocket upgrader
 var Upgrader = websocket.Upgrader{

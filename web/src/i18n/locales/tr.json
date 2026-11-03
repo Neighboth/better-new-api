@@ -6943,5 +6943,6 @@
       "hf_no_models": "Model bulunamadı",
       "hf_search_hint": "Arama kutusuna model veya mimari adı yazıp Ara butonuna basın."
     }
-  }
+  },
+  "byog.admin.tab_stats": "İstatistikler"
 }

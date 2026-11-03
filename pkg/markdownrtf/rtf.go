@@ -186,7 +186,7 @@ func renderTable(body *strings.Builder, table *extast.Table, src []byte) {
 	}
 
 	for rowIndex, cells := range rows {
-		body.WriteString(`\trowd\trgaph108\trleft0\trkeep`)
+		body.WriteString(`\trowd\trgaph108\trleft0\trkeep\trbrdrt\brdrs\brdrw20\brdrcf3\trbrdrb\brdrs\brdrw20\brdrcf3\trbrdrl\brdrs\brdrw20\brdrcf3\trbrdrr\brdrs\brdrw20\brdrcf3\trbrdrh\brdrs\brdrw20\brdrcf3\trbrdrv\brdrs\brdrw20\brdrcf3`)
 		for col := 0; col < columns; col++ {
 			headerShading := ""
 			if rowIndex == 0 {

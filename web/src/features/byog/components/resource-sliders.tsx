@@ -53,20 +53,8 @@ interface ResourceSlidersProps {
   onHotStartChange?: (val: boolean) => void
 }
 
-export function isIntegratedGpu(gpuModel?: string): boolean {
-  if (!gpuModel) return false
-  const lower = gpuModel.toLowerCase()
-  return (
-    lower.includes('iris') ||
-    lower.includes('uhd') ||
-    lower.includes('hd graphics') ||
-    lower.includes('intel') ||
-    lower.includes('vega') ||
-    (lower.includes('radeon') && (lower.includes('graphics') || lower.includes('tm'))) ||
-    lower.includes('apple m') ||
-    lower.includes('integrated') ||
-    lower.includes('uma')
-  )
+export function isIntegratedGpu(_gpuModel?: string): boolean {
+  return false
 }
 
 export function ResourceSliders({
@@ -90,14 +78,11 @@ export function ResourceSliders({
 
   const isMobile = node?.device_type === 'mobile' || node?.device_type === 'tablet'
 
-  // Dynamic limits bounded by the device's actual dedicated VRAM specs
+  // Dynamic limits bounded by the device's actual dedicated VRAM specs (pure hardware metric, no string filters)
   const maxVram = useMemo(() => {
-    if (!node) return 0
-    if (isMobile || isIntegratedGpu(node.gpu_model)) {
-      return 0
-    }
+    if (!node || isMobile) return 0
     const dedicatedVramMB = Number(node.vram_mb || 0)
-    return dedicatedVramMB >= 512 ? Math.max(1, Math.round(dedicatedVramMB / 1024)) : 0
+    return dedicatedVramMB >= 1024 ? Math.floor(dedicatedVramMB / 1024) : 0
   }, [node, isMobile])
 
   // Safely parse disks whether passed as an array or a JSON string
@@ -356,7 +341,7 @@ export function ResourceSliders({
                 const dMax = Math.max(0, d.free_gb)
                 const default50 = Math.max(0, Math.floor(dMax * 0.5))
                 const currentVal = Math.min(
-                  Math.max(0, diskAllocations[d.drive] ?? (d.allocated_gb !== undefined && d.allocated_gb > 0 ? d.allocated_gb : default50)),
+                  Math.max(0, diskAllocations[d.drive] ?? (d.allocated_gb !== undefined ? d.allocated_gb : default50)),
                   dMax
                 )
                 return (

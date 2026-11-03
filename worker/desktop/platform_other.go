@@ -160,6 +160,10 @@ func openBrowser(url string) {
 
 func setHiddenFolder(path string) {}
 
+func removeDirectoryRobust(path string) error {
+	return os.RemoveAll(path)
+}
+
 func getFixedDiskPartitions() []DiskPartitionInfo {
 	return []DiskPartitionInfo{
 		{

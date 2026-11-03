@@ -6943,5 +6943,6 @@
       "hf_no_models": "未找到模型",
       "hf_search_hint": "在搜尋框中輸入模型或架構名稱，然後按一下搜尋。"
     }
-  }
+  },
+  "byog.admin.tab_stats": "統計分析"
 }

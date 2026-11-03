@@ -233,7 +233,7 @@ export function useSidebarData(): SidebarData {
           ? [
               {
                 title: t('BYOG Management'),
-                url: '/byog-admin/nodes' as const,
+                url: '/byog-admin/stats' as const,
                 activeUrls: ['/byog-admin'],
                 icon: Network,
                 requiredPermission: {

@@ -489,42 +489,68 @@ func deleteKeyTree(root registry.Key, path string) {
 // PatchInstalledBinariesIcons replaces the icon resources of BYOG Worker.exe and unins000.exe
 // with the branding icon in the application directory.
 func PatchInstalledBinariesIcons() error {
-	dir := InstalledDirectory()
-	icoPath := filepath.Join(dir, "byog.ico")
-	icoData, err := os.ReadFile(icoPath)
-	if err != nil || len(icoData) == 0 {
-		return err
+	dirs := []string{InstalledDirectory(), Directory()}
+	var icoData []byte
+	for _, d := range dirs {
+		candidate := filepath.Join(d, "byog.ico")
+		if data, err := os.ReadFile(candidate); err == nil && len(data) > 0 {
+			icoData = data
+			break
+		}
+	}
+	if len(icoData) == 0 {
+		return fmt.Errorf("byog.ico not found")
 	}
 	pngData := icon.PNG(icoData, icon.MaxResourceSize)
 	if len(pngData) == 0 {
 		return fmt.Errorf("failed to convert ico to png")
 	}
 
-	// Patch all unins*.exe uninstaller binaries in directory with branding icon
-	if uninsMatches, err := filepath.Glob(filepath.Join(dir, "unins*.exe")); err == nil {
-		for _, uninsPath := range uninsMatches {
-			if raw, err := os.ReadFile(uninsPath); err == nil && len(raw) > 0 {
-				if patched, err := embedcfg.PatchIcon(raw, pngData); err == nil {
-					_ = os.WriteFile(uninsPath, patched, 0755)
+	patchedAny := false
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		// Patch all unins*.exe uninstaller binaries in directory with branding icon
+		if uninsMatches, err := filepath.Glob(filepath.Join(dir, "unins*.exe")); err == nil {
+			for _, uninsPath := range uninsMatches {
+				if raw, err := os.ReadFile(uninsPath); err == nil && len(raw) > 0 {
+					if patched, err := embedcfg.PatchIcon(raw, pngData); err == nil && len(patched) > 0 {
+						if err := os.WriteFile(uninsPath, patched, 0755); err == nil {
+							patchedAny = true
+						}
+					}
+				}
+			}
+		}
+
+		// Patch BYOG Worker.exe with custom branding icon if needed
+		workerPath := filepath.Join(dir, programName)
+		if raw, err := os.ReadFile(workerPath); err == nil && len(raw) > 0 {
+			if patched, err := embedcfg.PatchIcon(raw, pngData); err == nil && len(patched) > 0 {
+				if err := os.WriteFile(workerPath, patched, 0755); err != nil {
+					// Running executable: use atomic rename on Windows
+					oldPath := workerPath + ".old"
+					_ = os.Remove(oldPath)
+					if err := os.Rename(workerPath, oldPath); err == nil {
+						_ = os.WriteFile(workerPath, patched, 0755)
+						patchedAny = true
+					}
+				} else {
+					patchedAny = true
 				}
 			}
 		}
 	}
 
-	// Patch BYOG Worker.exe with custom branding icon if needed
-	workerPath := filepath.Join(dir, programName)
-	if raw, err := os.ReadFile(workerPath); err == nil && len(raw) > 0 {
-		if patched, err := embedcfg.PatchIcon(raw, pngData); err == nil {
-			if err := os.WriteFile(workerPath, patched, 0755); err != nil {
-				// Running executable: use atomic rename on Windows
-				oldPath := workerPath + ".old"
-				_ = os.Remove(oldPath)
-				if err := os.Rename(workerPath, oldPath); err == nil {
-					_ = os.WriteFile(workerPath, patched, 0755)
-				}
-			}
-		}
+	if patchedAny {
+		// SHCNE_ASSOCCHANGED (0x08000000), SHCNF_IDLIST (0)
+		// Forces Windows Explorer to invalidate and refresh shell icon cache immediately
+		shell32 := syscall.NewLazyDLL("shell32.dll")
+		shChangeNotify := shell32.NewProc("SHChangeNotify")
+		_, _, _ = shChangeNotify.Call(0x08000000, 0, 0, 0)
 	}
+
 	return nil
 }
 

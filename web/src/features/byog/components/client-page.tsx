@@ -86,7 +86,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { cn } from '@/lib/utils'
 
-import { ResourceSliders, isIntegratedGpu } from './resource-sliders'
+import { ResourceSliders } from './resource-sliders'
 import { MobileSettingsCard } from './mobile-settings-card'
 import type { ByogNode } from '../types'
 
@@ -288,6 +288,7 @@ function QrScanModal({
   const [errorMsg, setErrorMsg] = useState('')
   const [cameraActive, setCameraActive] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const animFrameRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -320,14 +321,24 @@ function QrScanModal({
       animFrameRef.current = requestAnimationFrame(scanFrame)
       return
     }
-    const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
+    if (!canvasRef.current) {
+      canvasRef.current = document.createElement('canvas')
+    }
+    const canvas = canvasRef.current
+    let w = video.videoWidth
+    let h = video.videoHeight
+    if (w > 1000) {
+      const scale = 1000 / w
+      w = 1000
+      h = Math.round(h * scale)
+    }
+    canvas.width = w
+    canvas.height = h
     const ctx = canvas.getContext('2d', { willReadFrequently: true })
     if (ctx) {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-      const qrCode = jsQR(imageData.data, canvas.width, canvas.height, { inversionAttempts: 'attemptBoth' })
+      ctx.drawImage(video, 0, 0, w, h)
+      const imageData = ctx.getImageData(0, 0, w, h)
+      const qrCode = jsQR(imageData.data, w, h, { inversionAttempts: 'attemptBoth' })
       if (qrCode && qrCode.data) {
         onScan(qrCode.data)
         stopStream()
@@ -386,13 +397,20 @@ function QrScanModal({
       const img = new Image()
       img.onload = () => {
         const canvas = document.createElement('canvas')
-        canvas.width = img.width
-        canvas.height = img.height
+        let w = img.width
+        let h = img.height
+        if (w > 1200) {
+          const scale = 1200 / w
+          w = 1200
+          h = Math.round(h * scale)
+        }
+        canvas.width = w
+        canvas.height = h
         const ctx = canvas.getContext('2d', { willReadFrequently: true })
         if (!ctx) return
-        ctx.drawImage(img, 0, 0)
-        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-        const code = jsQR(imgData.data, canvas.width, canvas.height)
+        ctx.drawImage(img, 0, 0, w, h)
+        const imgData = ctx.getImageData(0, 0, w, h)
+        const code = jsQR(imgData.data, w, h, { inversionAttempts: 'attemptBoth' })
         if (code && code.data) {
           onScan(code.data)
           onOpenChange(false)
@@ -605,8 +623,7 @@ export function ClientPage() {
       setCores(effectiveCores)
     }
 
-    const isIntegrated = isIntegratedGpu(state.gpu_model)
-    const maxDedicatedVram = (!isIntegrated && state.vram_mb && state.vram_mb >= 512) ? Math.floor(state.vram_mb / 1024) : 0
+    const maxDedicatedVram = (state.vram_mb && state.vram_mb >= 1024) ? Math.floor(state.vram_mb / 1024) : 0
     const effectiveVram = maxDedicatedVram > 0
       ? (state.allocated_vram_gb && state.allocated_vram_gb > 0 ? state.allocated_vram_gb : Math.floor(maxDedicatedVram * 0.5))
       : 0
@@ -622,7 +639,7 @@ export function ClientPage() {
       const allocations: Record<string, number> = {}
       let anyAllocated = false
       for (const disk of state.disks) {
-        if (disk.allocated_gb && disk.allocated_gb > 0) {
+        if (disk.allocated_gb !== undefined) {
           anyAllocated = true
           break
         }
@@ -825,10 +842,10 @@ export function ClientPage() {
             if (prev.ping_ms !== undefined && prev.ping_ms > 0) {
               merged.ping_ms = prev.ping_ms
             }
-            if (prev.bandwidth_down_mbps !== undefined && prev.bandwidth_down_mbps > 0) {
+            if ((merged.bandwidth_down_mbps === undefined || merged.bandwidth_down_mbps === 0) && prev.bandwidth_down_mbps !== undefined && prev.bandwidth_down_mbps > 0) {
               merged.bandwidth_down_mbps = prev.bandwidth_down_mbps
             }
-            if (prev.bandwidth_up_mbps !== undefined && prev.bandwidth_up_mbps > 0) {
+            if ((merged.bandwidth_up_mbps === undefined || merged.bandwidth_up_mbps === 0) && prev.bandwidth_up_mbps !== undefined && prev.bandwidth_up_mbps > 0) {
               merged.bandwidth_up_mbps = prev.bandwidth_up_mbps
             }
             if (prev.download_queue) merged.download_queue = prev.download_queue
@@ -928,6 +945,8 @@ export function ClientPage() {
   const handleDiskAllocationsChange = (val: Record<string, number>) => {
     lastUserEditTimeRef.current = Date.now()
     setDiskAllocations(val)
+    const sum = Object.values(val).reduce((a, b) => a + b, 0)
+    setDiskGB(sum)
   }
   const handleHotStartChange = (val: boolean) => {
     lastUserEditTimeRef.current = Date.now()
@@ -1583,6 +1602,12 @@ export function ClientPage() {
 
                 <Input
                   value={code}
+                  autoComplete='off'
+                  autoCorrect='off'
+                  autoCapitalize='off'
+                  spellCheck={false}
+                  data-form-type='other'
+                  data-lpignore='true'
                   onChange={(event) => {
                     const rawInput = event.target.value
                     if (rawInput.trim().startsWith('{') && rawInput.includes('pairing_code')) {
@@ -1966,6 +1991,12 @@ export function ClientPage() {
 
                 <Input
                   value={prompt}
+                  autoComplete='off'
+                  autoCorrect='off'
+                  autoCapitalize='off'
+                  spellCheck={false}
+                  data-form-type='other'
+                  data-lpignore='true'
                   onChange={(event) => setPrompt(event.target.value)}
                   placeholder={t('byog.client_test_prompt', 'Test için bir mesaj yazın...')}
                   disabled={!isModelReady || busy}

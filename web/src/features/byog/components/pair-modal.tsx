@@ -187,11 +187,11 @@ export function PairModal({ onPaired }: PairModalProps) {
             <div className='bg-card flex flex-col items-center justify-center space-y-4 rounded-xl border p-5 text-center'>
               <div className='relative rounded-xl bg-white p-3 shadow-md'>
                 {isLoadingCode || !sessionCode ? (
-                  <div className='flex h-[150px] w-[150px] items-center justify-center'>
+                  <div className='flex h-[180px] w-[180px] items-center justify-center'>
                     <RefreshCw className='h-6 w-6 animate-spin text-slate-500' />
                   </div>
                 ) : (
-                  <QRCodeSVG value={qrPayload} size={150} level='M' />
+                  <QRCodeSVG value={qrPayload} size={180} level='L' marginSize={2} />
                 )}
               </div>
 

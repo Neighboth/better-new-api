@@ -554,6 +554,7 @@ func SetApiRouter(router *gin.Engine) {
 			byogAdminRoute := byogRoute.Group("/admin")
 			byogAdminRoute.Use(middleware.AdminAuth())
 			{
+				byogAdminRoute.GET("/stats", middleware.RequirePermission(authz.ByogRead), controller.GetByogAdminStats)
 				byogAdminRoute.GET("/settings", middleware.RequirePermission(authz.ByogRead), controller.GetByogAdminSettings)
 				byogAdminRoute.POST("/settings", middleware.RequirePermission(authz.ByogWrite), controller.UpdateByogAdminSettings)
 				byogAdminRoute.GET("/rewards", middleware.RequirePermission(authz.ByogRead), controller.GetByogAdminRewards)

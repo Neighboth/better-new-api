@@ -1062,6 +1062,13 @@ public class WorkerService extends Service {
                                     totalBytes += existingLen;
                                 }
                             } else if (code == 200) {
+                                if (existingLen > 0) {
+                                    // The mirror does not support Range requests (returned 200 instead of 206).
+                                    // Do NOT delete the already downloaded partFile!
+                                    // Close and try the next mirror in candidateUrls that supports Range resume.
+                                    conn.disconnect();
+                                    continue;
+                                }
                                 append = false;
                                 existingLen = 0;
                                 try {
@@ -1512,6 +1519,12 @@ public class WorkerService extends Service {
                         .putFloat("battery_temp", batteryTemp);
                     ed.apply();
                 }
+            } else if (resCode == 404 || resCode == 401) {
+                android.util.Log.w("BYOG_WORKER", "Server returned HTTP " + resCode + ", device unlinked or removed");
+                sp.edit().putBoolean("is_paired", false).putString("node_id", "").apply();
+                handleDeviceRemoved();
+                conn.disconnect();
+                return;
             }
             conn.disconnect();
         } catch (Exception ignored) {}
@@ -1637,6 +1650,11 @@ public class WorkerService extends Service {
                 }
 
                 if (!headerBuf.toString().contains("101")) {
+                    String respHdr = headerBuf.toString();
+                    if (respHdr.contains("404") || respHdr.contains("401")) {
+                        android.util.Log.w("BYOG_WS", "Tunnel handshake HTTP 404/401, device unlinked");
+                        handleDeviceRemoved();
+                    }
                     close();
                     return;
                 }

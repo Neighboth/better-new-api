@@ -33,6 +33,7 @@ DisableDirPage=no
 OutputDir=..\binaries
 OutputBaseFilename={#MyAppName} Kurulumu
 SetupIconFile=..\desktop\assets\byog.ico
+UninstallIconFile=..\desktop\assets\byog.ico
 UninstallDisplayIcon={app}\byog.ico
 Compression=lzma2/fast
 SolidCompression=no
@@ -40,8 +41,10 @@ WizardStyle=modern
 WizardSmallImageFile=..\desktop\assets\wizard_small.bmp
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-CloseApplications=no
+CloseApplications=yes
+CloseApplicationsFilter=*.exe
 RestartApplications=no
+UninstallRestartComputer=no
 ShowLanguageDialog=no
 ChangesAssociations=no
 DisableWelcomePage=no
@@ -1349,6 +1352,12 @@ begin
     WriteClientConfig();
     Exec(ExpandConstant('{app}\{#MyAppExeName}'), '--patch-icons', '', SW_HIDE, ewWaitUntilTerminated, patchResult);
   end;
+
+  if CurStep = ssDone then
+  begin
+    // unins000.exe is generated at the very end of setup, patch its icon resource now
+    Exec(ExpandConstant('{app}\{#MyAppExeName}'), '--patch-icons', '', SW_HIDE, ewWaitUntilTerminated, patchResult);
+  end;
 end;
 
 procedure InitializeUninstallProgressForm();
@@ -1359,8 +1368,10 @@ function InitializeUninstall(): Boolean;
 var
   ResultCode: Integer;
 begin
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM "BYOG Worker.exe" /IM "llama-server.exe" /IM "byog-worker.exe" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Sleep(500);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM "{#MyAppExeName}" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM "byog-worker.exe" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM "llama-server.exe" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(400);
   Result := True;
 end;
 
@@ -1372,8 +1383,18 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
-    Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM "BYOG Worker.exe" /IM "llama-server.exe" /IM "byog-worker.exe" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    Sleep(500);
+    Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM "{#MyAppExeName}" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM "byog-worker.exe" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM "llama-server.exe" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(400);
+
+    // Delete unlogged runtime artifacts from {app} before Inno uninstalls logged files
+    DelTree(ExpandConstant('{app}\llama-runtime'), True, True, True);
+    DelTree(ExpandConstant('{app}\llama'), True, True, True);
+    DeleteFile(ExpandConstant('{app}\llama_server.log'));
+    DeleteFile(ExpandConstant('{app}\byog_worker.log'));
+    DeleteFile(ExpandConstant('{app}\*.log'));
+    DeleteFile(ExpandConstant('{app}\*.tmp'));
   end;
 
   if CurUninstallStep = usPostUninstall then

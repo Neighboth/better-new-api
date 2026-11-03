@@ -6943,5 +6943,6 @@
       "hf_no_models": "Không tìm thấy mô hình nào",
       "hf_search_hint": "Nhập tên mô hình hoặc kiến trúc vào ô tìm kiếm và nhấp Tìm kiếm."
     }
-  }
+  },
+  "byog.admin.tab_stats": "Thống kê"
 }

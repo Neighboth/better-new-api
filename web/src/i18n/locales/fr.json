@@ -6943,5 +6943,6 @@
       "hf_no_models": "Aucun modèle trouvé",
       "hf_search_hint": "Saisissez un nom de modèle ou d'architecture dans la boîte de recherche et cliquez sur Rechercher."
     }
-  }
+  },
+  "byog.admin.tab_stats": "Statistiques"
 }

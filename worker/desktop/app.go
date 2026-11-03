@@ -423,8 +423,57 @@ func registerWorker() (registerResult, error) {
 // startTunnel starts the tunnel to the coordinator in the background.
 //
 // The tunnel reconnects itself, a connection that ends is opened again.
+var connectionWatchdogOnce sync.Once
+
+func startConnectionWatchdog() {
+	connectionWatchdogOnce.Do(func() {
+		recoverForever("connectionWatchdog", func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			httpClient := &http.Client{Timeout: 10 * time.Second}
+			for range ticker.C {
+				State.Mu.Lock()
+				serverUrl := strings.TrimRight(State.Config.ServerUrl, "/")
+				nodeId := State.Config.NodeId
+				State.Mu.Unlock()
+
+				if serverUrl == "" || nodeId == "" {
+					continue
+				}
+
+				checkUrl := fmt.Sprintf("%s/api/v1/worker/status?node_id=%s", serverUrl, nodeId)
+				resp, err := httpClient.Get(checkUrl)
+				if err == nil {
+					if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnauthorized {
+						fmt.Printf("[BYOG Worker] Watchdog detected node %s was unlinked/removed on server (HTTP %d). Resetting pairing...\n", nodeId, resp.StatusCode)
+						State.Mu.Lock()
+						State.Config.NodeId = ""
+						State.Config.PairingCode = ""
+						State.IsConnected = false
+						cfg := State.Config
+						wsConn := State.WsConn
+						State.WsConn = nil
+						State.Mu.Unlock()
+						if wsConn != nil {
+							_ = wsConn.Close()
+						}
+						saveConfig(cfg)
+						updateStatus(func(status *AppStatus) {
+							status.Connected = false
+							status.Paired = false
+							status.NodeId = ""
+						})
+					}
+					_ = resp.Body.Close()
+				}
+			}
+		})
+	})
+}
+
 func startTunnel() {
 	updateStatus(func(status *AppStatus) { status.Started = true })
+	startConnectionWatchdog()
 	recoverForever("tunnel", func() {
 		for {
 			State.Mu.Lock()
@@ -435,8 +484,24 @@ func startTunnel() {
 			if serverUrl != "" && nodeId != "" {
 				wsUrl := fmt.Sprintf("ws%s/api/v1/worker/tunnel?node_id=%s",
 					strings.TrimPrefix(serverUrl, "http"), nodeId)
-				conn, _, err := websocket.DefaultDialer.Dial(wsUrl, nil)
-				if err == nil {
+				conn, resp, err := websocket.DefaultDialer.Dial(wsUrl, nil)
+				if err != nil {
+					if resp != nil && (resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnauthorized) {
+						fmt.Println("[BYOG Worker] Device was removed on server (404/401). Resetting pairing...")
+						State.Mu.Lock()
+						State.Config.NodeId = ""
+						State.Config.PairingCode = ""
+						State.IsConnected = false
+						cfg := State.Config
+						State.Mu.Unlock()
+						saveConfig(cfg)
+						updateStatus(func(status *AppStatus) {
+							status.Connected = false
+							status.Paired = false
+							status.NodeId = ""
+						})
+					}
+				} else {
 					State.Mu.Lock()
 					State.WsConn = conn
 					State.IsConnected = true

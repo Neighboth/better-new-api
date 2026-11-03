@@ -145,11 +145,18 @@ func measureBandwidth() {
 	sample := bandwidthSample{MeasuredAt: time.Now()}
 	failure := ""
 
+	directClient := &http.Client{
+		Transport: &http.Transport{
+			DisableCompression: true,
+		},
+		Timeout: 20 * time.Second,
+	}
+
 	// The latency of three small requests, the smallest value is reported: the
 	// other values carry the load of the network stack of the system.
 	for attempt := 0; attempt < 3; attempt++ {
 		started := time.Now()
-		response, err := http.Get(server + "/api/v1/worker/ping")
+		response, err := directClient.Get(server + "/api/v1/worker/ping")
 		if err != nil {
 			failure = err.Error()
 			break
@@ -167,9 +174,9 @@ func measureBandwidth() {
 	}
 
 	if failure == "" {
-		const probeBytes = 2 * 1024 * 1024
+		const probeBytes = 3 * 1024 * 1024
 		started := time.Now()
-		response, err := http.Get(fmt.Sprintf("%s/api/v1/worker/bandwidth?bytes=%d", server, probeBytes))
+		response, err := directClient.Get(fmt.Sprintf("%s/api/v1/worker/bandwidth?bytes=%d", server, probeBytes))
 		if err != nil {
 			failure = err.Error()
 		} else {
@@ -185,10 +192,15 @@ func measureBandwidth() {
 	}
 
 	if failure == "" {
-		const uploadBytes = 512 * 1024
-		payload := bytes.Repeat([]byte{0x5A}, uploadBytes)
+		const uploadBytes = 1024 * 1024
+		payload := make([]byte, uploadBytes)
+		seed := uint32(time.Now().UnixNano())
+		for i := 0; i < uploadBytes; i++ {
+			seed = seed*1664525 + 1013904223
+			payload[i] = byte(seed >> 16)
+		}
 		started := time.Now()
-		response, err := http.Post(
+		response, err := directClient.Post(
 			fmt.Sprintf("%s/api/v1/worker/bandwidth", server),
 			"application/octet-stream",
 			bytes.NewReader(payload),
@@ -236,10 +248,10 @@ func roundMbps(value float64) float64 {
 // runs.
 func startBandwidthLoop() {
 	recoverForever("bandwidth", func() {
-		time.Sleep(5 * time.Second)
+		time.Sleep(3 * time.Second)
 		for {
 			measureBandwidth()
-			time.Sleep(30 * time.Minute)
+			time.Sleep(3 * time.Minute)
 		}
 	})
 }

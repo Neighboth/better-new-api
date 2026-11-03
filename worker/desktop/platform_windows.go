@@ -5,7 +5,9 @@ package main
 import (
 	"encoding/binary"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -48,23 +50,6 @@ func checkDebuggerPresent() bool {
 	return res != 0
 }
 
-func isIntegratedGpuName(name string) bool {
-	lower := strings.ToLower(name)
-	if strings.Contains(lower, "arc(tm)") || strings.Contains(lower, "arc a") || strings.Contains(lower, "arc b") {
-		return false
-	}
-	if strings.Contains(lower, "iris") ||
-		strings.Contains(lower, "uhd") ||
-		strings.Contains(lower, "hd graphics") ||
-		strings.Contains(lower, "intel") ||
-		strings.Contains(lower, "vega") ||
-		(strings.Contains(lower, "radeon") && (strings.Contains(lower, "graphics") || strings.Contains(lower, "tm"))) ||
-		strings.Contains(lower, "integrated") ||
-		strings.Contains(lower, "uma") {
-		return true
-	}
-	return false
-}
 
 // isFullscreenGameRunning reports whether the user is playing a game.
 // It checks notification state and whether any foreground/fullscreen 3D game process is running.
@@ -231,12 +216,12 @@ func displayAdaptersDXGI() ([]displayAdapter, bool) {
 			continue
 		}
 
-		// Direct Hardware VRAM Measurement:
-		// Dedicated discrete GPUs have their own high-speed VRAM (>= 1024 MB).
-		// Integrated / shared GPUs (UMA) have 0 or BIOS aperture in DedicatedVideoMemory,
-		// and use SharedSystemMemory. If DedicatedVideoMemory <= 512MB or GPU is integrated, VramMB is locked to 0.
+		// Pure Direct Hardware VRAM Measurement:
+		// Dedicated discrete GPUs have their own physical GDDR/HBM video memory (>= 1024 MB).
+		// Integrated/shared GPUs (UMA/APU/SoC) have 0 or small aperture (<= 512 MB) in DedicatedVideoMemory,
+		// and use SharedSystemMemory.
 		vramMB := 0
-		if !isIntegratedGpuName(name) && desc.DedicatedVideoMemory > 512*1024*1024 {
+		if desc.DedicatedVideoMemory > 512*1024*1024 {
 			vramMB = int(desc.DedicatedVideoMemory / (1024 * 1024))
 		}
 
@@ -279,8 +264,8 @@ func displayAdapters() []displayAdapter {
 			strings.Contains(lower, "parsec") || strings.Contains(lower, "oray") {
 			continue
 		}
-		// If reported memory is <= 512MB or GPU is integrated, it has no dedicated discrete VRAM
-		if vram <= 512 || isIntegratedGpuName(name) {
+		// If reported memory is <= 512MB, it has no dedicated discrete VRAM (UMA/shared)
+		if vram <= 512 {
 			vram = 0
 		}
 		adapters = append(adapters, displayAdapter{Name: name, VramMB: vram})
@@ -453,6 +438,24 @@ func setHiddenFolder(path string) {
 	if err == nil {
 		_ = syscall.SetFileAttributes(ptr, syscall.FILE_ATTRIBUTE_HIDDEN)
 	}
+}
+
+func removeDirectoryRobust(path string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil
+	}
+	_ = filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+		if err == nil {
+			if ptr, err := syscall.UTF16PtrFromString(p); err == nil {
+				_ = syscall.SetFileAttributes(ptr, syscall.FILE_ATTRIBUTE_NORMAL)
+			}
+		}
+		return nil
+	})
+	if ptr, err := syscall.UTF16PtrFromString(path); err == nil {
+		_ = syscall.SetFileAttributes(ptr, syscall.FILE_ATTRIBUTE_NORMAL)
+	}
+	return os.RemoveAll(path)
 }
 
 func getFixedDiskPartitions() []DiskPartitionInfo {

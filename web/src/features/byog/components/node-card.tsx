@@ -190,12 +190,12 @@ export function NodeCard({
       primaryModel = queue[0]
     }
 
-    // 1. Downloading check ALWAYS takes priority
+    // 1. Downloading check if no models installed yet
     const isDownloading = node.model_status === 'downloading' ||
       ((node.download_progress || 0) > 0 && (node.download_progress || 0) < 100) ||
-      (queue && queue.length > 0 && (!installed || installed.length === 0))
+      (queue && queue.length > 0)
 
-    if (isDownloading) {
+    if (isDownloading && (!installed || installed.length === 0)) {
       const dMb = node.downloaded_mb || 0
       const tMb = (node.total_mb ?? 0) > 0 ? (node.total_mb ?? 0) : 380
       let pct = 0
@@ -242,13 +242,22 @@ export function NodeCard({
       const isActivelyGenerating = node.model_status === 'running' || ((node.current_tps || 0) > 0.05 && node.model_status !== 'ready' && node.model_status !== 'idle')
       if (isActivelyGenerating) {
         statusText = t('byog.model_working', 'Üretimde')
-      } else if (node.hot_start_enabled && (node.vram_mb || 0) > 1024 && !isIntegratedGpu(node.gpu_model) && node.active_vram_model && installed.includes(node.active_vram_model)) {
+      } else if ((node.vram_mb || 0) >= 1024 && (node.allocated_vram_gb || 0) > 0) {
         statusText = t('byog.model_ready_vram', 'Hazır (VRAM)')
       } else if (node.hot_start_enabled) {
         statusText = t('byog.model_ready_ram', 'Hazır (RAM)')
       }
+
+      if (isDownloading) {
+        const dMb = node.downloaded_mb || 0
+        const tMb = (node.total_mb ?? 0) > 0 ? (node.total_mb ?? 0) : 380
+        const pct = node.download_progress ? Math.round(node.download_progress) : (tMb > 0 ? Math.round((dMb / tMb) * 100) : 0)
+        const dlModel = (queue && queue.length > 0) ? queue[0] : ''
+        statusText += dlModel ? ` (+${dlModel} %${pct})` : ` (+1 model %${pct})`
+      }
+
       return {
-        model: installed[0],
+        model: installed.join(', '),
         status: statusText,
         badgeClass: isActivelyGenerating
           ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-500 animate-pulse'

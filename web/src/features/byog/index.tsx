@@ -83,7 +83,7 @@ export function ByogUserDashboard() {
       const initialMap: Record<string, number> = {}
       let needsDefault = true
       for (const d of disks) {
-        if (d.allocated_gb && d.allocated_gb > 0) {
+        if (d.allocated_gb !== undefined && d.allocated_gb !== null) {
           needsDefault = false
           break
         }
@@ -440,6 +440,7 @@ export function ByogUserDashboard() {
             <Input
               id='node-rename'
               value={newName}
+              autoComplete='off'
               onChange={(e) => setNewName(e.target.value)}
             />
           </div>

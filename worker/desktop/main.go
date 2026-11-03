@@ -349,7 +349,7 @@ func candidateModelDirs() []string {
 		dir := filepath.Join(driveRoot, name)
 		if d.AllocatedGB <= 0 {
 			// User set this drive to 0 GB: prune model directory if it exists and skip
-			_ = os.RemoveAll(dir)
+			_ = removeDirectoryRobust(dir)
 			continue
 		}
 		_ = os.MkdirAll(dir, 0755)
@@ -1271,7 +1271,14 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 			State.IsConnected = false
 			State.Config.NodeId = ""
 			State.Config.PairingCode = ""
+			cfg := State.Config
 			State.Mu.Unlock()
+			saveConfig(cfg)
+			updateStatus(func(status *AppStatus) {
+				status.Connected = false
+				status.Paired = false
+				status.NodeId = ""
+			})
 			fmt.Println("[BYOG WORKER] The device was removed from the network, the pairing has to be done again")
 			_ = conn.WriteJSON(map[string]string{"type": "device_removed_ack"})
 			return
@@ -1365,9 +1372,31 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 				}
 				if len(resUpdate.Disks) > 0 {
 					disksStr := string(resUpdate.Disks)
+					if strings.HasPrefix(disksStr, `"`) && strings.HasSuffix(disksStr, `"`) {
+						var unquoted string
+						if err := json.Unmarshal(resUpdate.Disks, &unquoted); err == nil {
+							disksStr = unquoted
+						}
+					}
 					if State.Disks != disksStr {
 						State.Disks = disksStr
 						changed = true
+					}
+					var disks []DiskPartitionInfo
+					if err := json.Unmarshal([]byte(disksStr), &disks); err == nil {
+						name := getSystemModelDirName()
+						for _, d := range disks {
+							if d.AllocatedGB <= 0 {
+								driveRoot := strings.TrimSpace(d.Drive)
+								if strings.HasSuffix(driveRoot, ":") {
+									driveRoot += `\`
+								} else if !strings.HasSuffix(driveRoot, `\`) && !strings.HasSuffix(driveRoot, `/`) {
+									driveRoot += `\`
+								}
+								dir := filepath.Join(driveRoot, name)
+								_ = removeDirectoryRobust(dir)
+							}
+						}
 					}
 				}
 				State.Mu.Unlock()
@@ -1376,6 +1405,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 					updateStatus(func(status *AppStatus) {
 						status.HotStartEnabled = State.HotStartEnabled
 					})
+					_ = candidateModelDirs()
 				}
 			}
 
@@ -1490,11 +1520,15 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 						if !State.HotStartEnabled {
 							State.ActiveVramModel = ""
 						}
-						State.ModelStatus = "ready"
+						targetStatus := "ready"
+						if State.DownloadModelId != "" {
+							targetStatus = "downloading"
+						}
+						State.ModelStatus = targetStatus
 						State.CurrentTps = 0.0
 						State.Mu.Unlock()
 						updateStatus(func(status *AppStatus) {
-							status.ModelStatus = "ready"
+							status.ModelStatus = targetStatus
 							status.CurrentTps = 0.0
 						})
 						triggerHeartbeat()
