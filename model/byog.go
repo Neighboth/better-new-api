@@ -1078,3 +1078,109 @@ func CalculateNodeMultipliers(node *ByogNode) (float64, []string) {
 	multiplier := 1.0 + totalBonusPercent
 	return multiplier, activeBonuses
 }
+
+// DownloadTelemetry carries the download fields of one client report.
+//
+// The coordinator receives the progress of a transfer over two paths: the HTTP
+// registration and the WebSocket heartbeat. Both paths merge the report with
+// the very same rules so that the panel never sees the value of one path jump
+// over the value of the other path.
+type DownloadTelemetry struct {
+	// ModelId names the model of the transfer, empty when not reported.
+	ModelId string
+	// StartedAt is the millisecond moment of the current attempt, 0 when not
+	// reported. A new attempt is allowed to start the progress again.
+	StartedAt int64
+	// HasProgress tells whether the report carries download numbers at all.
+	HasProgress  bool
+	DownloadedMB int
+	TotalMB      int
+	Progress     int
+	SpeedBps     float64
+	EtaSeconds   int
+	// ModelStatus and DownloadStatus follow the state of the worker.
+	ModelStatus    string
+	DownloadStatus string
+	// QueueJSON is the encoded download queue, empty when not reported.
+	QueueJSON string
+}
+
+// ApplyDownloadTelemetry merges one download report into the node record.
+//
+// The rules keep the progress of the panel stable:
+//   - the progress of one attempt of one model never goes back, a report that
+//     arrives late or carries the value of an older moment is ignored;
+//   - a different model or a new attempt resets the progress, the reset is the
+//     only moment the bar of the panel is allowed to fall;
+//   - the reported total size wins over an old estimate, the estimate of the
+//     coordinator never replaces the size the client measured;
+//   - a worker that reports "ready" without a running transfer shows the
+//     finished transfer of the last model at one hundred percent.
+func ApplyDownloadTelemetry(node *ByogNode, t DownloadTelemetry) {
+	if node == nil {
+		return
+	}
+
+	if t.ModelStatus != "" {
+		node.ModelStatus = t.ModelStatus
+	}
+	if t.DownloadStatus != "" {
+		node.DownloadStatus = t.DownloadStatus
+	}
+	if t.QueueJSON != "" {
+		node.DownloadQueue = t.QueueJSON
+	}
+
+	if !t.HasProgress {
+		if node.ModelStatus == "ready" && node.DownloadModelId != "" {
+			node.DownloadProgress = 100
+			node.DownloadSpeedBps = 0
+			node.EtaSeconds = 0
+		}
+		return
+	}
+
+	if t.ModelId != "" && node.DownloadModelId != t.ModelId {
+		node.DownloadModelId = t.ModelId
+		node.DownloadProgress = 0
+		node.DownloadedMB = 0
+		if t.StartedAt > 0 {
+			node.DownloadStartedAt = t.StartedAt
+		}
+	}
+	if t.StartedAt > 0 && node.DownloadStartedAt != t.StartedAt {
+		node.DownloadStartedAt = t.StartedAt
+		node.DownloadProgress = 0
+		node.DownloadedMB = 0
+	}
+
+	if t.TotalMB > 0 {
+		node.TotalMB = t.TotalMB
+	}
+	if t.DownloadedMB >= node.DownloadedMB || node.DownloadedMB <= 0 {
+		node.DownloadedMB = t.DownloadedMB
+	}
+
+	progress := t.Progress
+	if progress <= 0 && node.TotalMB > 0 && node.DownloadedMB > 0 {
+		progress = int((float64(node.DownloadedMB) / float64(node.TotalMB)) * 100)
+	}
+	if progress > node.DownloadProgress || node.DownloadProgress <= 0 {
+		node.DownloadProgress = progress
+	}
+	if node.DownloadProgress < 0 {
+		node.DownloadProgress = 0
+	}
+	if node.DownloadProgress > 100 {
+		node.DownloadProgress = 100
+	}
+
+	node.DownloadSpeedBps = t.SpeedBps
+	node.EtaSeconds = t.EtaSeconds
+
+	if node.ModelStatus == "ready" && t.ModelId == "" {
+		node.DownloadProgress = 100
+		node.DownloadSpeedBps = 0
+		node.EtaSeconds = 0
+	}
+}

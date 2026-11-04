@@ -35,6 +35,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/markdownrtf"
 	byogservice "github.com/QuantumNous/new-api/service/byog"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
 // Generate pure random pairing code without prefix (Section 4.5 e.g. 9K4L-28XM-73PQ-51ZR)
@@ -1230,9 +1231,14 @@ func RegisterByogWorker(c *gin.Context) {
 		DownloadQueue    string  `json:"download_queue"`
 		ActiveVramModel  string  `json:"active_vram_model"`
 		ModelStatus      string  `json:"model_status"`
+		DownloadStatus   string  `json:"download_status"`
 		DownloadedMB     int     `json:"downloaded_mb"`
 		TotalMB          int     `json:"total_mb"`
 		DownloadProgress int     `json:"download_progress"`
+		DownloadModelId  string  `json:"download_model_id"`
+		DownloadStartMs  int64   `json:"download_started_at"`
+		DownloadSpeedBps float64 `json:"download_speed_bps"`
+		EtaSeconds       int     `json:"eta_seconds"`
 		TotalDiskGB      int     `json:"total_disk_gb"`
 		FreeDiskGB       int     `json:"free_disk_gb"`
 		Disks            any     `json:"disks"`
@@ -1405,22 +1411,23 @@ func RegisterByogWorker(c *gin.Context) {
 				}
 			}
 		}
-		if req.DownloadQueue != "" {
-			node.DownloadQueue = req.DownloadQueue
-		}
-		if req.ModelStatus != "" {
-			node.ModelStatus = req.ModelStatus
-		}
-		if req.TotalMB > 0 || req.DownloadedMB > 0 || req.ModelStatus == "downloading" {
-			if req.TotalMB > 0 {
-				node.TotalMB = req.TotalMB
-			}
-			node.DownloadedMB = req.DownloadedMB
-			node.DownloadProgress = req.DownloadProgress
-			if node.DownloadProgress <= 0 && node.TotalMB > 0 {
-				node.DownloadProgress = int((float64(node.DownloadedMB) / float64(node.TotalMB)) * 100)
-			}
-		}
+		// The download telemetry follows the very same merge rules as the
+		// WebSocket heartbeat: the two report paths of a worker must never
+		// write the progress of an older moment over the progress of the
+		// other path, the bar of the panel stays stable.
+		model.ApplyDownloadTelemetry(node, model.DownloadTelemetry{
+			ModelId:        req.DownloadModelId,
+			StartedAt:      req.DownloadStartMs,
+			HasProgress:    req.DownloadModelId != "" || req.TotalMB > 0 || req.DownloadedMB > 0 || req.DownloadProgress > 0 || req.ModelStatus == "downloading",
+			DownloadedMB:   req.DownloadedMB,
+			TotalMB:        req.TotalMB,
+			Progress:       req.DownloadProgress,
+			SpeedBps:       req.DownloadSpeedBps,
+			EtaSeconds:     req.EtaSeconds,
+			ModelStatus:    req.ModelStatus,
+			DownloadStatus: req.DownloadStatus,
+			QueueJSON:      req.DownloadQueue,
+		})
 		if req.ActiveVramModel != "" {
 			node.ActiveVramModel = req.ActiveVramModel
 		}
@@ -1741,14 +1748,41 @@ func ByogWorkerTunnel(c *gin.Context) {
 	byogservice.GlobalHub.Register(session)
 	defer byogservice.GlobalHub.Unregister(nodeId)
 
+	// A tunnel without a read deadline stays in the hub forever when the
+	// device loses the network without a FIN packet. The coordinator would
+	// dispatch the requests of the playground to a node that is gone and the
+	// user would wait for the timeout of the inference. Every frame of the
+	// worker refreshes the deadline, the keepalive ping below makes a silent
+	// worker answer with a protocol pong at the latest.
+	const readDeadline = 90 * time.Second
+	_ = conn.SetReadLimit(8 << 20)
+	_ = conn.SetReadDeadline(time.Now().Add(readDeadline))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(readDeadline))
+	})
+
 	// Keepalive ping loop
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
+	readLoopDone := make(chan struct{})
+	defer close(readLoopDone)
 
 	go func() {
-		for range ticker.C {
-			if err := session.WriteFrame(byogservice.TunnelFrame{Type: "ping"}); err != nil {
+		for {
+			select {
+			case <-readLoopDone:
 				return
+			case <-ticker.C:
+				// The protocol level ping is answered by every conform client
+				// even when the application level heartbeat is stuck. The
+				// control write of the websocket library is safe next to the
+				// other writes of the session.
+				if pingErr := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second)); pingErr != nil {
+					return
+				}
+				if err := session.WriteFrame(byogservice.TunnelFrame{Type: "ping"}); err != nil {
+					return
+				}
 			}
 		}
 	}()
@@ -1759,10 +1793,15 @@ func ByogWorkerTunnel(c *gin.Context) {
 		if err := conn.ReadJSON(&frame); err != nil {
 			break
 		}
+		_ = conn.SetReadDeadline(time.Now().Add(readDeadline))
 
 		switch frame.Type {
 		case byogservice.MsgTypeHeartbeat:
 			session.HandleHeartbeat(&frame)
+
+		case byogservice.MsgTypeHeartbeatAck:
+			// The answer of the worker to the ping of the coordinator, the
+			// refresh of the read deadline above is the whole handling.
 
 		case byogservice.MsgTypeInferenceChunk, byogservice.MsgTypeInferenceDone, byogservice.MsgTypeInferenceError,
 			byogservice.MsgTypeCanaryResp, byogservice.MsgTypeByteProbeResp:

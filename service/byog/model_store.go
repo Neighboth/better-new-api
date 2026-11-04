@@ -296,14 +296,20 @@ func (s *ModelStore) streamModelToWorker(c *gin.Context, modelId string, modelDe
 	}
 	c.Writer.WriteHeader(http.StatusOK)
 
+	// A worker that disconnects during the transfer does not fail the cache:
+	// the download of the model host continues into the cache and the next
+	// request of any worker is served from the finished file.
+	clientGone := false
+
 	buffer := make([]byte, 256*1024)
 	var written int64
 	for {
 		n, readErr := resp.Body.Read(buffer)
 		if n > 0 {
-			if _, err := c.Writer.Write(buffer[:n]); err != nil {
-				s.finishDownload(modelId, err)
-				return
+			if !clientGone {
+				if _, err := c.Writer.Write(buffer[:n]); err != nil {
+					clientGone = true
+				}
 			}
 			if _, err := cache.Write(buffer[:n]); err != nil {
 				s.finishDownload(modelId, err)

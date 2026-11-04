@@ -634,20 +634,158 @@ func finishDownload(modelId string, failed bool, err error) {
 	})
 }
 
+// errRangeUnsupported reports a model host that answers a range request with
+// the whole file. The parallel download stops at once and the caller falls
+// back to the transfer with a single connection.
+var errRangeUnsupported = errors.New("the server does not support the range requests")
+
+// chunkAttempts is the number of tries of a single channel of the parallel
+// download. A channel resumes the bytes it already holds, a stalled mirror
+// does not fail the whole transfer.
+const chunkAttempts = 3
+
+// resolveRemoteFileSize probes the real size of a model file.
+//
+// The size of the assignment of the coordinator can be out of date, a
+// parallel download that is cut from a wrong size produces a model that is
+// missing its tail and crashes the inference. The probe follows the redirects
+// of the coordinator to the model host and asks the host itself.
+func resolveRemoteFileSize(remoteUrl string) int64 {
+	client := &http.Client{Timeout: 30 * time.Second}
+	request, err := http.NewRequest(http.MethodHead, remoteUrl, nil)
+	if err != nil {
+		return 0
+	}
+	request.Header.Set("User-Agent", "BYOG-Worker/1.0")
+	request.Header.Set("Accept-Encoding", "identity")
+	response, err := client.Do(request)
+	if err == nil {
+		size := response.ContentLength
+		response.Body.Close()
+		if size > 0 {
+			return size
+		}
+	}
+	// A host that refuses HEAD is asked with the first byte of the file, the
+	// answer of the range request carries the real size.
+	request, err = http.NewRequest(http.MethodGet, remoteUrl, nil)
+	if err != nil {
+		return 0
+	}
+	request.Header.Set("User-Agent", "BYOG-Worker/1.0")
+	request.Header.Set("Accept-Encoding", "identity")
+	request.Header.Set("Range", "bytes=0-0")
+	response, err = client.Do(request)
+	if err != nil {
+		return 0
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusPartialContent {
+		contentRange := response.Header.Get("Content-Range")
+		if slash := strings.LastIndex(contentRange, "/"); slash >= 0 && slash+1 < len(contentRange) {
+			if total, parseErr := strconv.ParseInt(strings.TrimSpace(contentRange[slash+1:]), 10, 64); parseErr == nil && total > 0 {
+				return total
+			}
+		}
+	}
+	if response.StatusCode == http.StatusOK {
+		return response.ContentLength
+	}
+	return 0
+}
+
+// fetchChunkRange transfers one channel of the parallel download and appends
+// the bytes to the part file of the channel. A part that already holds bytes
+// resumes where it stopped.
+func fetchChunkRange(ctx context.Context, remoteUrl string, partPath string, start int64, end int64, counter *int64, mutex *sync.Mutex) error {
+	have := int64(0)
+	if info, err := os.Stat(partPath); err == nil && info.Size() > 0 {
+		have = info.Size()
+	}
+	expected := end - start + 1
+	if have >= expected {
+		mutex.Lock()
+		*counter += have
+		mutex.Unlock()
+		return nil
+	}
+	if have > 0 {
+		mutex.Lock()
+		*counter += have
+		mutex.Unlock()
+	}
+
+	request, err := http.NewRequest(http.MethodGet, remoteUrl, nil)
+	if err != nil {
+		return err
+	}
+	request = request.WithContext(ctx)
+	request.Header.Set("User-Agent", "BYOG-Worker/1.0")
+	request.Header.Set("Accept-Encoding", "identity")
+	request.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start+have, end))
+
+	// The transfer of a model takes minutes, the timeout covers the whole
+	// download and not a single read.
+	client := &http.Client{Timeout: 6 * time.Hour}
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	switch response.StatusCode {
+	case http.StatusPartialContent:
+	case http.StatusOK:
+		// The host sends the whole file for every channel, the parallel
+		// download is not possible and the single connection fallback is used.
+		return errRangeUnsupported
+	case http.StatusRequestedRangeNotSatisfiable:
+		// The part holds more bytes than the file has, the size of the
+		// assignment does not match the file of the host.
+		return fmt.Errorf("the range %d-%d is not satisfiable, the size of the model is out of date", start+have, end)
+	default:
+		return fmt.Errorf("the server answered with %d", response.StatusCode)
+	}
+
+	out, err := os.OpenFile(partPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	written, err := io.Copy(&progressWriter{writer: out, counter: counter, mutex: mutex}, response.Body)
+	if err != nil {
+		return err
+	}
+	if have+written != expected {
+		return fmt.Errorf("the piece of the file is incomplete: %d of %d bytes", have+written, expected)
+	}
+	return nil
+}
+
 // IDM-Style 16-Channel Parallel Range Downloader (Section 2.2)
 //
 // The download reports the transferred amount so that the panel can show the real
-// progress of the model that is currently fetched.
-func downloadModelIDM(url string, targetPath string, fileSize int64, modelId string) error {
+// progress of the model that is currently fetched. A channel resumes the bytes
+// it holds and retries a stalled mirror, only the missing bytes are fetched
+// again.
+func downloadModelIDM(remoteUrl string, targetPath string, fileSize int64, modelId string) error {
 	if fileSize <= 0 {
 		return fmt.Errorf("the size of the model is not known")
 	}
-	partSize := fileSize / int64(ParallelConnections)
+	connections := ParallelConnections
+	// A small file does not profit from sixteen connections, four channels
+	// keep the overhead of the requests low.
+	if fileSize < int64(connections)*8*1024*1024 {
+		connections = 4
+	}
+	partSize := fileSize / int64(connections)
 	if partSize <= 0 {
 		return fmt.Errorf("the model is too small for a parallel download")
 	}
+
 	var wg sync.WaitGroup
-	errs := make([]error, ParallelConnections)
+	errs := make([]error, connections)
 
 	var downloaded int64
 	var downloadMutex sync.Mutex
@@ -670,60 +808,45 @@ func downloadModelIDM(url string, targetPath string, fileSize int64, modelId str
 	}()
 	defer close(progressDone)
 
-	fmt.Printf("[BYOG IDM] Starting 16-channel saturated download for %s (%d bytes)\n", targetPath, fileSize)
+	// The channels share one context: a host that does not support the range
+	// requests stops every channel at once, the fallback of the single
+	// connection does not wait for fifteen more full answers.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	for i := 0; i < ParallelConnections; i++ {
+	fmt.Printf("[BYOG IDM] Starting %d-channel saturated download for %s (%d bytes)\n", connections, targetPath, fileSize)
+
+	for i := 0; i < connections; i++ {
 		wg.Add(1)
 		go func(channelIdx int) {
 			defer wg.Done()
 			startByte := int64(channelIdx) * partSize
 			endByte := startByte + partSize - 1
-			if channelIdx == ParallelConnections-1 {
+			if channelIdx == connections-1 {
 				endByte = fileSize - 1
 			}
-
-			req, err := http.NewRequest("GET", url, nil)
-			if err != nil {
-				errs[channelIdx] = err
-				return
-			}
-			req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", startByte, endByte))
-
-			// The transfer of a model takes minutes, the timeout covers the whole
-			// download and not a single read.
-			client := &http.Client{Timeout: 6 * time.Hour}
-			resp, err := client.Do(req)
-			if err != nil {
-				errs[channelIdx] = err
-				return
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusPartialContent {
-				// The server does not give the piece of the file, it sends the
-				// whole file for every request. The download of the file has
-				// to be done with a single connection.
-				errs[channelIdx] = fmt.Errorf("the server does not support the range: %d", resp.StatusCode)
-				return
-			}
-
 			partFile := fmt.Sprintf("%s.part%d", targetPath, channelIdx)
-			out, err := os.Create(partFile)
-			if err != nil {
-				errs[channelIdx] = err
-				return
-			}
-			defer out.Close()
 
-			// The bytes are counted while they arrive, the progress of the
-			// download follows the transfer. Only the bytes of the piece are
-			// read, a server that sends more does not fill the disk.
-			expected := endByte - startByte + 1
-			written, err := io.CopyN(&progressWriter{writer: out, counter: &downloaded, mutex: &downloadMutex}, resp.Body, expected)
-			if err == nil && written != expected {
-				err = fmt.Errorf("the piece of the file is incomplete: %d of %d bytes", written, expected)
+			var lastErr error
+			for attempt := 0; attempt < chunkAttempts; attempt++ {
+				if ctx.Err() != nil {
+					lastErr = ctx.Err()
+					break
+				}
+				lastErr = fetchChunkRange(ctx, remoteUrl, partFile, startByte, endByte, &downloaded, &downloadMutex)
+				if lastErr == nil {
+					return
+				}
+				if errors.Is(lastErr, errRangeUnsupported) || errors.Is(lastErr, context.Canceled) {
+					break
+				}
+				fmt.Printf("[BYOG IDM] Channel %d attempt %d failed: %v\n", channelIdx, attempt+1, lastErr)
+				time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
 			}
-			errs[channelIdx] = err
+			if errors.Is(lastErr, errRangeUnsupported) {
+				cancel()
+			}
+			errs[channelIdx] = lastErr
 		}(i)
 	}
 
@@ -731,38 +854,55 @@ func downloadModelIDM(url string, targetPath string, fileSize int64, modelId str
 
 	for _, err := range errs {
 		if err != nil {
+			if errors.Is(err, errRangeUnsupported) {
+				return errRangeUnsupported
+			}
 			return fmt.Errorf("chunk download failed: %v", err)
 		}
 	}
 
-	// Merge all parts into final model file
+	// Merge all parts into final model file, the parts are streamed through a
+	// small buffer: a piece of a model of many gigabytes is never held in the
+	// memory of the client.
 	finalFile, err := os.Create(targetPath)
 	if err != nil {
 		return err
 	}
-	defer finalFile.Close()
 
-	for i := 0; i < ParallelConnections; i++ {
+	mergeFailed := false
+	for i := 0; i < connections && !mergeFailed; i++ {
 		partFile := fmt.Sprintf("%s.part%d", targetPath, i)
-		pData, err := os.ReadFile(partFile)
-		if err != nil {
-			return fmt.Errorf("the part %d of the model could not be read: %w", i, err)
+		partHandle, openErr := os.Open(partFile)
+		if openErr != nil {
+			err = fmt.Errorf("the part %d of the model could not be read: %w", i, openErr)
+			mergeFailed = true
+			break
 		}
-		if _, err := finalFile.Write(pData); err != nil {
-			return err
+		_, copyErr := io.Copy(finalFile, partHandle)
+		partHandle.Close()
+		if copyErr != nil {
+			err = fmt.Errorf("the part %d of the model could not be merged: %w", i, copyErr)
+			mergeFailed = true
 		}
-		_ = os.Remove(partFile)
+	}
+	closeErr := finalFile.Close()
+	if mergeFailed {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	for i := 0; i < connections; i++ {
+		_ = os.Remove(fmt.Sprintf("%s.part%d", targetPath, i))
 	}
 
 	// A model that is not complete can not be used for an inference.
-	if fileSize > 0 {
-		info, err := finalFile.Stat()
-		if err != nil {
-			return err
-		}
-		if info.Size() != fileSize {
-			return fmt.Errorf("the model file is incomplete: %d of %d bytes", info.Size(), fileSize)
-		}
+	info, err := os.Stat(targetPath)
+	if err != nil {
+		return err
+	}
+	if info.Size() != fileSize {
+		return fmt.Errorf("the model file is incomplete: %d of %d bytes", info.Size(), fileSize)
 	}
 
 	meter.report(fileSize)
@@ -834,21 +974,27 @@ func performModelDownload(job downloadJob) {
 		primary = job.DownloadUrl
 	}
 
-	// Probe Content-Length if unknown so totalMB is never 0
-	if job.FileSize <= 0 {
-		testUrl := primary
-		if testUrl == "" {
-			testUrl = job.DownloadUrl
-		}
-		if testUrl != "" {
-			if resp, err := http.Head(testUrl); err == nil && resp.ContentLength > 0 {
-				job.FileSize = resp.ContentLength
-				totalMB := int(job.FileSize / (1024 * 1024))
-				State.Mu.Lock()
-				State.TotalMB = totalMB
-				State.Mu.Unlock()
-				updateStatus(func(status *AppStatus) { status.TotalMB = totalMB })
+	// The real size of the file is probed at the host. The size of the
+	// assignment of the coordinator can be out of date, a parallel download
+	// that is cut from a wrong size produces a model that is missing its tail
+	// and the inference of that model crashes the engine.
+	probeUrl := primary
+	if probeUrl == "" {
+		probeUrl = job.DownloadUrl
+	}
+	if probeUrl != "" {
+		if realSize := resolveRemoteFileSize(probeUrl); realSize > 0 && realSize != job.FileSize {
+			if job.FileSize > 0 {
+				fmt.Printf("[BYOG IDM] The size of the assignment (%d) does not match the size of the host (%d), the size of the host is used\n", job.FileSize, realSize)
 			}
+			job.FileSize = realSize
+			totalMB := int(realSize / (1024 * 1024))
+			State.Mu.Lock()
+			State.TotalMB = totalMB
+			State.Mu.Unlock()
+			updateStatus(func(status *AppStatus) { status.TotalMB = totalMB })
+		} else if realSize > 0 {
+			job.FileSize = realSize
 		}
 	}
 
@@ -903,12 +1049,42 @@ func cleanupModelParts(targetPath string) {
 // downloadModelSingle downloads a model with a single connection.
 //
 // The coordinator does not always give the pieces of the file with the range
-// requests, the file is downloaded as a whole then. The size of the response is
-// used when the size of the assignment is not known or out of date.
+// requests, the file is downloaded as a whole then. A transfer that is
+// interrupted resumes the bytes of the part file when the host supports the
+// range requests, only the missing tail is fetched again.
 func downloadModelSingle(downloadUrl string, targetPath string, fileSize int64, modelId string) error {
+	partFile := targetPath + ".part"
+	var lastErr error
+
+	for attempt := 0; attempt < chunkAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * 2 * time.Second)
+		}
+		lastErr = downloadModelSingleAttempt(downloadUrl, partFile, targetPath, fileSize, modelId)
+		if lastErr == nil {
+			return nil
+		}
+		fmt.Printf("[BYOG IDM] Single connection attempt %d failed: %v\n", attempt+1, lastErr)
+	}
+	return lastErr
+}
+
+// downloadModelSingleAttempt runs one transfer of the single connection
+// fallback and verifies the size of the file before it is renamed.
+func downloadModelSingleAttempt(downloadUrl string, partFile string, targetPath string, fileSize int64, modelId string) error {
+	have := int64(0)
+	if info, err := os.Stat(partFile); err == nil && info.Size() > 0 {
+		have = info.Size()
+	}
+
 	request, err := http.NewRequest("GET", downloadUrl, nil)
 	if err != nil {
 		return err
+	}
+	request.Header.Set("User-Agent", "BYOG-Worker/1.0")
+	request.Header.Set("Accept-Encoding", "identity")
+	if have > 0 {
+		request.Header.Set("Range", fmt.Sprintf("bytes=%d-", have))
 	}
 	client := &http.Client{Timeout: 6 * time.Hour}
 	response, err := client.Do(request)
@@ -916,23 +1092,60 @@ func downloadModelSingle(downloadUrl string, targetPath string, fileSize int64, 
 		return err
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
+
+	appendPart := false
+	total := fileSize
+	switch response.StatusCode {
+	case http.StatusPartialContent:
+		appendPart = true
+		total = have
+		if response.ContentLength > 0 {
+			total += response.ContentLength
+		}
+		if contentRange := response.Header.Get("Content-Range"); contentRange != "" {
+			if slash := strings.LastIndex(contentRange, "/"); slash >= 0 && slash+1 < len(contentRange) {
+				if parsed, parseErr := strconv.ParseInt(strings.TrimSpace(contentRange[slash+1:]), 10, 64); parseErr == nil && parsed > 0 {
+					total = parsed
+				}
+			}
+		}
+	case http.StatusOK:
+		// The host does not resume, the transfer starts from the first byte.
+		have = 0
+		total = fileSize
+		if response.ContentLength > 0 {
+			total = response.ContentLength
+		}
+	case http.StatusRequestedRangeNotSatisfiable:
+		// The part already holds the whole file or more, it is verified below.
+		if info, statErr := os.Stat(partFile); statErr == nil && fileSize > 0 && info.Size() == fileSize {
+			return os.Rename(partFile, targetPath)
+		}
+		_ = os.Remove(partFile)
+		return fmt.Errorf("the part file does not match the size of the model")
+	default:
 		return fmt.Errorf("the server answered with %d", response.StatusCode)
 	}
 
-	partFile := targetPath + ".part"
-	out, err := os.Create(partFile)
+	flags := os.O_CREATE | os.O_WRONLY
+	if appendPart {
+		flags |= os.O_APPEND
+	} else {
+		flags |= os.O_TRUNC
+	}
+	out, err := os.OpenFile(partFile, flags, 0o644)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
 
-	total := fileSize
-	if response.ContentLength > 0 {
-		total = response.ContentLength
-	}
 	var downloaded int64
 	var mutex sync.Mutex
+	if appendPart {
+		mutex.Lock()
+		downloaded = have
+		mutex.Unlock()
+	}
 	writer := &progressWriter{writer: out, counter: &downloaded, mutex: &mutex}
 	meter := newDownloadMeter(modelId, total)
 
@@ -964,13 +1177,13 @@ func downloadModelSingle(downloadUrl string, targetPath string, fileSize int64, 
 	if info.Size() <= 10*1024*1024 {
 		return fmt.Errorf("the model file is too small: %d bytes", info.Size())
 	}
-	if response.ContentLength > 0 && info.Size() != response.ContentLength {
-		return fmt.Errorf("the model file is incomplete: %d of %d bytes", info.Size(), response.ContentLength)
-	}
-	if response.ContentLength <= 0 && fileSize > 0 && info.Size() != fileSize {
-		return fmt.Errorf("the model file is incomplete: %d of %d bytes", info.Size(), fileSize)
+	if total > 0 && info.Size() != total {
+		return fmt.Errorf("the model file is incomplete: %d of %d bytes", info.Size(), total)
 	}
 	meter.report(info.Size())
+	if err := out.Close(); err != nil {
+		return err
+	}
 	return os.Rename(partFile, targetPath)
 }
 

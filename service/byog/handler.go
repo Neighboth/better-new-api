@@ -4,12 +4,67 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 )
+
+// messageContentText extracts the plain text of an OpenAI chat message content.
+//
+// The content is either a string or the array of the content parts of a
+// multimodal message, the text parts of the array are joined.
+func messageContentText(content interface{}) string {
+	switch v := content.(type) {
+	case string:
+		return v
+	case []interface{}:
+		var texts []string
+		for _, part := range v {
+			if partMap, ok := part.(map[string]interface{}); ok {
+				if text, ok := partMap["text"].(string); ok && text != "" {
+					texts = append(texts, text)
+				}
+			}
+		}
+		return strings.Join(texts, "\n")
+	}
+	return ""
+}
+
+// buildConversationTranscript renders the messages of a chat completion as a
+// role tagged transcript. The transcript is the prompt of the workers that
+// generate from a plain prompt, it keeps the full context of the conversation.
+func buildConversationTranscript(messages interface{}) string {
+	msgs, ok := messages.([]interface{})
+	if !ok || len(msgs) == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	for _, item := range msgs {
+		msg, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		role, _ := msg["role"].(string)
+		if role == "" {
+			role = "user"
+		}
+		text := messageContentText(msg["content"])
+		if text == "" {
+			continue
+		}
+		if builder.Len() > 0 {
+			builder.WriteString("\n")
+		}
+		builder.WriteString(role)
+		builder.WriteString(": ")
+		builder.WriteString(text)
+	}
+	return builder.String()
+}
 
 // TryHandleByogRelay checks if the incoming request can be served by BYOG DePIN network
 // Returns true if handled (client response completed or abort), false if should fallback to normal channels
@@ -41,9 +96,7 @@ func TryHandleByogRelay(c *gin.Context, requestedModel string) bool {
 	promptPrefix := ""
 	if msgs, ok := reqMap["messages"].([]interface{}); ok && len(msgs) > 0 {
 		if lastMsg, ok := msgs[len(msgs)-1].(map[string]interface{}); ok {
-			if content, ok := lastMsg["content"].(string); ok {
-				promptPrefix = content
-			}
+			promptPrefix = messageContentText(lastMsg["content"])
 		}
 	} else if p, ok := reqMap["prompt"].(string); ok {
 		promptPrefix = p
@@ -157,15 +210,44 @@ func TryHandleByogRelay(c *gin.Context, requestedModel string) bool {
 
 	messagesJson, _ := json.Marshal(reqMap["messages"])
 
+	// The prompt is the transcript of the conversation. A worker that runs on a
+	// phone generates from the prompt alone, the transcript gives that worker
+	// the full context of the playground conversation instead of the last
+	// message only.
+	transcript := buildConversationTranscript(reqMap["messages"])
+	if transcript == "" {
+		transcript = promptPrefix
+	}
+
+	topP := 0.0
+	if tp, ok := reqMap["top_p"].(float64); ok {
+		topP = tp
+	}
+	var stopWords []string
+	switch sv := reqMap["stop"].(type) {
+	case string:
+		if sv != "" {
+			stopWords = []string{sv}
+		}
+	case []interface{}:
+		for _, item := range sv {
+			if s, ok := item.(string); ok && s != "" {
+				stopWords = append(stopWords, s)
+			}
+		}
+	}
+
 	inferencePayload := InferencePayload{
 		RequestId:   fmt.Sprintf("byog_%d", time.Now().UnixNano()),
 		ModelId:     byogModel.ModelId,
 		Messages:    messagesJson,
-		Prompt:      promptPrefix,
+		Prompt:      transcript,
 		Stream:      isStream,
 		Temperature: temp,
 		MaxTokens:   maxTokens,
 		Seed:        seed,
+		Stop:        stopWords,
+		TopP:        topP,
 	}
 
 	// 7. Dispatch inference to worker

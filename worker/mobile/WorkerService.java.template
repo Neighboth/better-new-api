@@ -132,12 +132,64 @@ public class WorkerService extends Service {
     private volatile String downloadErrorText = "";
     private volatile long lastDownloadAttemptAt = 0;
     private static final long DOWNLOAD_RETRY_BACKOFF_MS = 15000L;
+
+    // The identity of the download and its live telemetry. The panel shows a
+    // bar that never jumps back: the identity of the model that is fetched
+    // decides which report is newer than the report of another path.
+    private volatile long downloadStartedAtMs = 0;
+    private volatile long lastDownloadSpeedBps = 0;
+    private volatile int lastDownloadEtaSeconds = 0;
+    private volatile int lastBroadcastPercent = -1;
+    private volatile String lastBroadcastModel = "";
+    private volatile long lastHttpSyncAt = 0;
+    private static final long HTTP_SYNC_INTERVAL_MS = 5000L;
+    private static final long WAKE_LOCK_TIMEOUT_MS = 15L * 60 * 1000;
     private Bitmap cachedLargeIcon = null;
     private long cachedIconLastModified = 0;
 
     @Override
     public void onCreate() {
         super.onCreate();
+        // The foreground promotion is the first action of the service. Android
+        // gives a started foreground service only seconds of time for the call
+        // of startForeground, every step before it (the settings, the branding,
+        // the icon) eats that budget and an aggressive system ends the
+        // application with the "did not then call Service.startForeground"
+        // failure. Nothing heavy runs before the promotion.
+        createNotificationChannel();
+        Notification notification;
+        try {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            String appName = sp != null ? stringPref(sp, "app_name", "{app_name}") : "{app_name}";
+            notification = buildNotification(appName, "BYOG Servisi aktif...");
+        } catch (Throwable ignored) {
+            notification = buildFallbackNotification();
+        }
+        boolean promoted = false;
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+            } else {
+                startForeground(NOTIF_ID, notification);
+            }
+            promoted = true;
+        } catch (Throwable e) {
+            try {
+                startForeground(NOTIF_ID, notification);
+                promoted = true;
+            } catch (Throwable ignored) {}
+        }
+        if (!promoted) {
+            // Android 12+ refuses the foreground start of a service that is
+            // started from the background. The service ends itself instead of
+            // running half alive, the watchdog and the next resume of the
+            // interface start it again.
+            android.util.Log.w("BYOG_WORKER", "startForeground was refused by the system, the service stops itself");
+            try {
+                stopSelf();
+            } catch (Throwable ignored) {}
+            return;
+        }
         try {
             if (getApplicationInfo() != null && getApplicationInfo().nativeLibraryDir != null) {
                 System.setProperty("de.kherud.llama.lib.path", getApplicationInfo().nativeLibraryDir);
@@ -145,20 +197,25 @@ public class WorkerService extends Service {
             }
         } catch (Throwable ignored) {}
         installWorkerCrashHandler();
-        createNotificationChannel();
-        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-        String appName = sp != null ? stringPref(sp, "app_name", "{app_name}") : "{app_name}";
-        Notification notification = buildNotification(appName, "BYOG Servisi aktif...");
+    }
+
+    /** A minimal notification for the case that the branding cannot be read. */
+    private Notification buildFallbackNotification() {
         try {
-            if (Build.VERSION.SDK_INT >= 29) {
-                startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-            } else {
-                startForeground(NOTIF_ID, notification);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                return new Notification.Builder(this, CHANNEL_ID)
+                        .setContentTitle("BYOG Worker")
+                        .setContentText("Aktif")
+                        .setSmallIcon(android.R.drawable.stat_notify_sync)
+                        .build();
             }
-        } catch (Throwable e) {
-            try {
-                startForeground(NOTIF_ID, notification);
-            } catch (Throwable ignored) {}
+            return new Notification.Builder(this)
+                    .setContentTitle("BYOG Worker")
+                    .setContentText("Aktif")
+                    .setSmallIcon(android.R.drawable.stat_notify_sync)
+                    .build();
+        } catch (Throwable ignored) {
+            return new Notification();
         }
     }
 
@@ -295,10 +352,12 @@ public class WorkerService extends Service {
         startTunnelLoop();
         startWorkerLoop();
 
-        if (!modelFileOnDisk || !downloadQueueList.isEmpty()) {
-            checkAndTriggerModelDownloads();
-        }
-
+        // The model check and the download start run on the first tick of the
+        // worker loop. The start of a download resolves the file of the model
+        // and can copy a model of many gigabytes from the storage of the
+        // device, that work must never run on the main thread: an ANR of the
+        // main thread ends the application on an aggressive system before the
+        // service is even paired.
         return START_STICKY;
     }
 
@@ -399,6 +458,16 @@ public class WorkerService extends Service {
      * application. The failure is reported to the coordinator instead, the
      * worker keeps running.
      */
+    /**
+     * A failure of a background thread of the worker must not end the whole
+     * application, a failure of the main thread must not leave the application
+     * as a frozen shell that never opens again.
+     *
+     * The handler reports every failure. A dead main thread ends the process
+     * after the interface is started again, a dead background thread is only
+     * reported and the loops of the worker restart their own work with the
+     * next tick.
+     */
     private void installWorkerCrashHandler() {
         try {
             Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
@@ -406,7 +475,33 @@ public class WorkerService extends Service {
                 public void uncaughtException(Thread t, Throwable e) {
                     try {
                         android.util.Log.e("BYOG_CRASH", "Worker thread " + t.getName() + " failed", e);
+                        SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+                        if (sp != null) {
+                            sp.edit().putString("last_crash", describe(e)).putLong("last_crash_at", System.currentTimeMillis()).commit();
+                        }
                         reportCrash("ERR_WORKER_THREAD", describe(e), "");
+                    } catch (Throwable ignored) {}
+
+                    boolean isMainThread = false;
+                    try {
+                        isMainThread = (t == android.os.Looper.getMainLooper().getThread());
+                    } catch (Throwable ignored) {}
+                    if (!isMainThread) {
+                        return;
+                    }
+                    // The main thread is dead: the interface of the application
+                    // never opens again while the process runs, the process is
+                    // ended and the interface is started again.
+                    try {
+                        Intent restart = new Intent(getApplicationContext(), MainActivity.class);
+                        restart.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                        getApplicationContext().startActivity(restart);
+                    } catch (Throwable ignored) {}
+                    try {
+                        android.os.Process.killProcess(android.os.Process.myPid());
+                    } catch (Throwable ignored) {}
+                    try {
+                        System.exit(10);
                     } catch (Throwable ignored) {}
                 }
             });
@@ -472,6 +567,20 @@ public class WorkerService extends Service {
             state.put("download_progress", computeDownloadPercent());
             state.put("current_tps", currentLiveTps);
             state.put("downloading_model", downloadingModel);
+            // The identity of the transfer and its live numbers: the interface
+            // of the device decides with the model id which report belongs to
+            // the download that is shown.
+            String activeDownload = downloadingModel;
+            if (activeDownload == null || activeDownload.isEmpty()) {
+                activeDownload = currentAssignedModel;
+            }
+            state.put("download_model_id", activeDownload != null ? activeDownload : "");
+            state.put("download_started_at", downloadStartedAtMs);
+            state.put("download_speed_bps", lastDownloadSpeedBps);
+            state.put("eta_seconds", lastDownloadEtaSeconds);
+            JSONArray dlqState = new JSONArray();
+            for (String m : downloadQueueList) dlqState.put(m);
+            state.put("download_queue", dlqState.toString());
             if (!downloadErrorText.isEmpty()) state.put("download_error", downloadErrorText);
             String lastCrash = stringPref(sp, "last_crash", "");
             if (!lastCrash.isEmpty()) state.put("last_crash", lastCrash);
@@ -608,7 +717,12 @@ public class WorkerService extends Service {
             if (pm != null && (wakeLock == null || !wakeLock.isHeld())) {
                 wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BYOG:WorkerWakeLock");
                 wakeLock.setReferenceCounted(false);
-                wakeLock.acquire();
+                // A wake lock without a timeout keeps the device awake forever
+                // when the loops of the worker die. The lock is acquired with
+                // a timeout and refreshed by every tick of the worker, a frozen
+                // process releases the lock on its own and the system does not
+                // end the application for the battery drain it does not cause.
+                wakeLock.acquire(WAKE_LOCK_TIMEOUT_MS);
             }
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             if (wm != null && (wifiLock == null || !wifiLock.isHeld())) {
@@ -617,6 +731,32 @@ public class WorkerService extends Service {
                 wifiLock.acquire();
             }
         } catch (Exception ignored) {}
+    }
+
+    /**
+     * Schedules the watchdog alarm of the service.
+     *
+     * An exact alarm is refused by the systems that take the permission of the
+     * exact alarms away (Android 12+), the fallback of the inexact alarm keeps
+     * the watchdog of the worker alive on every device.
+     */
+    private static void scheduleAlarmCompat(AlarmManager am, long triggerAtElapsed, PendingIntent pi) {
+        if (am == null || pi == null) return;
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAtElapsed, pi);
+            } else {
+                am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAtElapsed, pi);
+            }
+        } catch (Throwable exactFailure) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAtElapsed, pi);
+                } else {
+                    am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAtElapsed, pi);
+                }
+            } catch (Throwable ignored) {}
+        }
     }
 
     @Override
@@ -634,18 +774,19 @@ public class WorkerService extends Service {
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? (PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE) : PendingIntent.FLAG_ONE_SHOT
                 );
                 AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
-                if (am != null) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 1000, pi);
-                    } else {
-                        am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 1000, pi);
-                    }
-                }
+                scheduleAlarmCompat(am, SystemClock.elapsedRealtime() + 1000, pi);
             }
         } catch (Exception ignored) {}
     }
 
-    private int getModelSizeMB(String modelName) {
+    /**
+     * The expected size of a model family in megabytes.
+     *
+     * The estimate is only the first value of the interface, the real size of
+     * the answer of the model host replaces it as soon as the transfer starts.
+     */
+    public static int getModelSizeMB(String modelName) {
+        if (modelName == null) return 468;
         String lower = modelName.toLowerCase();
         if (lower.contains("0.5b") || lower.contains("0.6b")) return 468;
         if (lower.contains("1.5b") || lower.contains("1.7b")) return 1065;
@@ -807,12 +948,27 @@ public class WorkerService extends Service {
             }
 
             // 2. HTTP Telemetry Sync
-            doHttpHeartbeatAndSync(statusMsg);
+            //
+            // The HTTP request blocks the worker thread for the seconds of the
+            // timeout of the server. A sync every tick (1.5s while a download
+            // runs) leaves the thread almost only waiting, the sync runs at
+            // most every five seconds. The WebSocket heartbeat below is cheap
+            // and stays on every tick.
+            long nowMs = System.currentTimeMillis();
+            if (nowMs - lastHttpSyncAt >= HTTP_SYNC_INTERVAL_MS) {
+                lastHttpSyncAt = nowMs;
+                doHttpHeartbeatAndSync(statusMsg);
+            }
 
             // 3. WebSocket Heartbeat
             if (tunnelWs != null && tunnelWs.connected) {
                 tunnelWs.sendHeartbeatFrame();
             }
+
+            // The wake lock carries a timeout, every tick refreshes it. A
+            // frozen worker releases the lock on its own instead of draining
+            // the battery of the device forever.
+            acquireLocks();
 
             // 4. Update Notification & Broadcast State
             Notification updated = buildNotification(appName, statusMsg);
@@ -850,6 +1006,14 @@ public class WorkerService extends Service {
             state.put("total_mb", totalMB);
             state.put("download_progress", computeDownloadPercent());
             state.put("current_tps", currentLiveTps);
+            String tickActiveDownload = downloadingModel;
+            if (tickActiveDownload == null || tickActiveDownload.isEmpty()) {
+                tickActiveDownload = currentAssignedModel;
+            }
+            state.put("download_model_id", tickActiveDownload != null ? tickActiveDownload : "");
+            state.put("download_started_at", downloadStartedAtMs);
+            state.put("download_speed_bps", lastDownloadSpeedBps);
+            state.put("eta_seconds", lastDownloadEtaSeconds);
             if (!downloadErrorText.isEmpty()) {
                 state.put("download_error", downloadErrorText);
             }
@@ -864,6 +1028,9 @@ public class WorkerService extends Service {
                 .putString("downloading_model", downloadingModel)
                 .putLong("download_current_bytes", downloadCurrentBytes)
                 .putLong("download_total_bytes", downloadTotalBytes)
+                .putLong("download_started_at", downloadStartedAtMs)
+                .putLong("download_speed_bps", lastDownloadSpeedBps)
+                .putInt("eta_seconds", lastDownloadEtaSeconds)
                 .putString("download_error", downloadErrorText)
                 .putBoolean("is_charging", isCharging)
                 .apply();
@@ -884,6 +1051,24 @@ public class WorkerService extends Service {
      */
     private List<String> buildDownloadCandidates(String model) {
         List<String> urls = new ArrayList<>();
+
+        // The coordinator is asked first. It answers with the redirect to the
+        // model host or with the cached file, both answers carry the real size
+        // of the file, and the host fills the cache for the other workers.
+        String serverGiven = modelDownloadUrls.get(model);
+        if (serverGiven != null && !serverGiven.isEmpty()) {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            String serverUrl = stringPref(sp, "server_url", "");
+            while (serverUrl.endsWith("/")) {
+                serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
+            }
+            if (serverGiven.startsWith("/") && !serverUrl.isEmpty()) {
+                serverGiven = serverUrl + serverGiven;
+            }
+            if (!urls.contains(serverGiven)) {
+                urls.add(serverGiven);
+            }
+        }
 
         String repo = null;
         String file = null;
@@ -912,22 +1097,11 @@ public class WorkerService extends Service {
         }
 
         if (repo != null && file != null) {
-            urls.add("https://huggingface.co/" + repo + "/resolve/main/" + file);
-            urls.add("https://hf-mirror.com/" + repo + "/resolve/main/" + file);
-        }
-
-        String serverGiven = modelDownloadUrls.get(model);
-        if (serverGiven != null && !serverGiven.isEmpty()) {
-            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            String serverUrl = stringPref(sp, "server_url", "");
-            while (serverUrl.endsWith("/")) {
-                serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
+            if (!urls.contains("https://huggingface.co/" + repo + "/resolve/main/" + file)) {
+                urls.add("https://huggingface.co/" + repo + "/resolve/main/" + file);
             }
-            if (serverGiven.startsWith("/") && !serverUrl.isEmpty()) {
-                serverGiven = serverUrl + serverGiven;
-            }
-            if (!urls.contains(serverGiven)) {
-                urls.add(serverGiven);
+            if (!urls.contains("https://hf-mirror.com/" + repo + "/resolve/main/" + file)) {
+                urls.add("https://hf-mirror.com/" + repo + "/resolve/main/" + file);
             }
         }
         return urls;
@@ -953,7 +1127,17 @@ public class WorkerService extends Service {
         isModelDownloading = true;
         currentModelStatus = "downloading";
         currentAssignedModel = targetModel;
-        downloadingModel = targetModel;
+        if (!targetModel.equals(downloadingModel)) {
+            // A new model entered the download: the identity of the transfer
+            // changes, the progress starts again and the speed of the old
+            // transfer does not belong to the new model.
+            downloadingModel = targetModel;
+            downloadStartedAtMs = System.currentTimeMillis();
+            lastDownloadSpeedBps = 0;
+            lastDownloadEtaSeconds = 0;
+            lastBroadcastPercent = 0;
+            lastBroadcastModel = targetModel;
+        }
         downloadErrorText = "";
         Long knownSize = modelFileSizes.get(targetModel);
         if (knownSize != null && knownSize > 0 && downloadTotalBytes <= 0) {
@@ -1093,30 +1277,42 @@ public class WorkerService extends Service {
                                 continue;
                             }
 
-                            int expMinMB = (int)(getExpectedMinBytes(targetModel) / (1024 * 1024));
                             if (totalBytes > 0) {
                                 if (totalBytes >= getExpectedMinBytes(targetModel)) {
+                                    // The answer of the model host is the only
+                                    // authority about the size of the file. The
+                                    // estimate of the application never overwrites
+                                    // it, a real size of 397 MB must not flip to
+                                    // the estimate of 468 MB and back.
                                     downloadTotalBytes = totalBytes;
                                     totalMB = (int) (totalBytes / (1024 * 1024));
+                                    if (totalMB <= 0) totalMB = 1;
                                 } else {
-                                    // Total bytes is suspiciously small (e.g. error page returned with 200 OK)
-                                    android.util.Log.w("BYOG_DOWNLOAD", "Suspicious small Content-Length: " + totalBytes);
-                                    totalMB = getModelSizeMB(targetModel);
-                                    downloadTotalBytes = (long)totalMB * 1024L * 1024L;
+                                    // The answer is too small for the model, it is
+                                    // the error page of the host and not the file.
+                                    // The address is left, the estimate of the size
+                                    // stays untouched for the next address.
+                                    android.util.Log.w("BYOG_DOWNLOAD", "Suspicious small Content-Length: " + totalBytes + " for " + dlUrl);
+                                    lastError = "Sunucu geçersiz boyut döndürdü (" + totalBytes + " bayt)";
+                                    conn.disconnect();
+                                    continue;
                                 }
                             }
-                            if (totalMB < expMinMB) totalMB = getModelSizeMB(targetModel);
                             downloadCurrentBytes = existingLen;
                             downloadedMB = (int) (existingLen / (1024 * 1024));
+                            // The resume of a part continues the bar where it
+                            // stopped, the percent of the existing bytes is the
+                            // floor of the broadcasts of this transfer.
+                            lastBroadcastPercent = computeDownloadPercent();
+                            if (lastBroadcastPercent > 99) lastBroadcastPercent = 99;
 
                             InputStream is = conn.getInputStream();
                             FileOutputStream fos = new FileOutputStream(partFile, append);
                             byte[] buffer = new byte[256 * 1024];
                             int nRead;
                             long currentBytes = existingLen;
-                            long lastBroadcastTime = 0;
-                            long lastHttpSyncTime = 0;
-                            long lastHeartbeatTime = 0;
+                            long lastBroadcastTime = System.currentTimeMillis();
+                            long windowBytes = currentBytes;
 
                             while ((nRead = is.read(buffer)) != -1) {
                                 // The transfer stops at the size of the model. A server
@@ -1134,19 +1330,33 @@ public class WorkerService extends Service {
 
                                 long tick = System.currentTimeMillis();
                                 if (tick - lastBroadcastTime > 1200) {
+                                    // The speed and the remaining time belong to the
+                                    // window since the last broadcast, they smooth the
+                                    // numbers of the panel without a blocking call.
+                                    long elapsed = tick - lastBroadcastTime;
+                                    if (elapsed > 0) {
+                                        long speed = ((currentBytes - windowBytes) * 1000L) / elapsed;
+                                        lastDownloadSpeedBps = speed;
+                                        long total = downloadTotalBytes;
+                                        if (total <= 0) total = (long) totalMB * 1024L * 1024L;
+                                        if (speed > 0 && total > currentBytes) {
+                                            lastDownloadEtaSeconds = (int) ((total - currentBytes) / speed);
+                                        } else if (speed > 0) {
+                                            lastDownloadEtaSeconds = 0;
+                                        }
+                                    }
+                                    windowBytes = currentBytes;
                                     lastBroadcastTime = tick;
+
                                     int pct = computeDownloadPercent();
                                     if (pct > 99) pct = 99;
+                                    // The bar of the panel only moves forward: a
+                                    // report of an older moment never pulls the
+                                    // percent of the same model down.
+                                    if (pct < lastBroadcastPercent) pct = lastBroadcastPercent;
+                                    lastBroadcastPercent = pct;
                                     String dlMsg = targetModel + " indiriliyor... (" + downloadedMB + " MB / " + totalMB + " MB - %" + pct + ")";
                                     broadcastDownloadProgress(targetModel, dlMsg, downloadedMB, totalMB, pct);
-                                    if (tick - lastHeartbeatTime > 1500) {
-                                        lastHeartbeatTime = tick;
-                                        if (tunnelWs != null) tunnelWs.sendHeartbeatFrame();
-                                    }
-                                    if (tick - lastHttpSyncTime > 4000) {
-                                        lastHttpSyncTime = tick;
-                                        doHttpHeartbeatAndSync(dlMsg);
-                                    }
                                 }
                             }
 
@@ -1205,9 +1415,25 @@ public class WorkerService extends Service {
         if (!installedModelsList.contains(targetModel)) {
             installedModelsList.add(targetModel);
         }
-        downloadedMB = 0;
-        downloadCurrentBytes = 0;
-        downloadTotalBytes = 0;
+        // The last report of the finished transfer carries the whole size of
+        // the model. A report of "0 MB of 397 MB" after the finish would pull
+        // the bar of the panel from 99% down to 0% before the state of the
+        // ready model arrives.
+        long finalTotal = downloadTotalBytes;
+        int finalTotalMB = totalMB;
+        if (finalTotal <= 0 && finalTotalMB > 0) {
+            finalTotal = (long) finalTotalMB * 1024L * 1024L;
+        }
+        if (finalTotal > 0) {
+            downloadedMB = (int) (finalTotal / (1024L * 1024L));
+            downloadCurrentBytes = finalTotal;
+            downloadTotalBytes = finalTotal;
+            totalMB = downloadedMB > 0 ? downloadedMB : finalTotalMB;
+            lastBroadcastPercent = 100;
+            broadcastDownloadProgress(targetModel, targetModel + (isTurkish() ? " indirildi" : " downloaded"), downloadedMB, totalMB, 100);
+        }
+        lastDownloadSpeedBps = 0;
+        lastDownloadEtaSeconds = 0;
         downloadingModel = "";
         downloadErrorText = "";
         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
@@ -1216,8 +1442,8 @@ public class WorkerService extends Service {
         sp.edit()
                 .putString("installed_models", instArr.toString())
                 .putString("downloading_model", "")
-                .putLong("download_current_bytes", 0L)
-                .putLong("download_total_bytes", 0L)
+                .putLong("download_current_bytes", finalTotal)
+                .putLong("download_total_bytes", finalTotal)
                 .putString("download_error", "")
                 .apply();
 
@@ -1240,9 +1466,16 @@ public class WorkerService extends Service {
             s.put("is_paired", true);
             s.put("model_status", currentModelStatus);
             s.put("model_status_desc", readyMsg);
-            s.put("downloaded_mb", 0);
+            // The report of the finish carries the whole size of the model,
+            // a "0 MB" next to the 100% would empty the bar of the panel in
+            // the moment of the finish.
+            s.put("downloaded_mb", downloadedMB);
             s.put("total_mb", totalMB);
             s.put("download_progress", 100);
+            s.put("download_model_id", targetModel);
+            s.put("download_started_at", downloadStartedAtMs);
+            s.put("download_speed_bps", 0);
+            s.put("eta_seconds", 0);
             s.put("active_vram_model", activeVramModel);
             s.put("current_tps", 0.0);
             Intent b = new Intent("org.byog.worker.STATE_CHANGED");
@@ -1278,6 +1511,15 @@ public class WorkerService extends Service {
             state.put("download_progress", pct);
             state.put("current_tps", currentLiveTps);
             state.put("active_vram_model", activeVramModel);
+            // The identity of the transfer and its live numbers, the very same
+            // fields the heartbeat of the WebSocket carries.
+            state.put("download_model_id", modelName);
+            state.put("download_started_at", downloadStartedAtMs);
+            state.put("download_speed_bps", lastDownloadSpeedBps);
+            state.put("eta_seconds", lastDownloadEtaSeconds);
+            JSONArray dlqProgress = new JSONArray();
+            for (String m : downloadQueueList) dlqProgress.put(m);
+            state.put("download_queue", dlqProgress.toString());
             if (!downloadErrorText.isEmpty()) {
                 state.put("download_error", downloadErrorText);
             }
@@ -1291,6 +1533,9 @@ public class WorkerService extends Service {
                 .putString("downloading_model", modelName)
                 .putLong("download_current_bytes", downloadCurrentBytes)
                 .putLong("download_total_bytes", downloadTotalBytes)
+                .putLong("download_started_at", downloadStartedAtMs)
+                .putLong("download_speed_bps", lastDownloadSpeedBps)
+                .putInt("eta_seconds", lastDownloadEtaSeconds)
                 .putString("download_error", downloadErrorText)
                 .apply();
 
@@ -1379,6 +1624,17 @@ public class WorkerService extends Service {
             req.put("current_ttft_ms", lastTtftMs);
             req.put("total_tokens", totalTokensProcessed);
             req.put("download_status", currentModelStatus);
+            // The identity and the live numbers of the transfer, the very same
+            // fields the WebSocket heartbeat carries: the two report paths of
+            // the device must never disagree about the progress.
+            String activeDownload = downloadingModel;
+            if (activeDownload == null || activeDownload.isEmpty()) {
+                activeDownload = currentAssignedModel;
+            }
+            req.put("download_model_id", activeDownload != null ? activeDownload : "");
+            req.put("download_started_at", downloadStartedAtMs);
+            req.put("download_speed_bps", lastDownloadSpeedBps);
+            req.put("eta_seconds", lastDownloadEtaSeconds);
             if (!downloadErrorText.isEmpty()) {
                 req.put("download_error", downloadErrorText);
             }
@@ -1812,6 +2068,21 @@ public class WorkerService extends Service {
                 payload.put("total_mb", totalMB);
                 payload.put("download_progress", computeDownloadPercent());
                 payload.put("download_status", currentModelStatus);
+                // The identity and the live numbers of the transfer: the panel
+                // decides with the model id which report is the newer one and
+                // the speed and the remaining time give the user the real
+                // numbers of the download instead of an estimate.
+                String activeDownload = downloadingModel;
+                if (activeDownload == null || activeDownload.isEmpty()) {
+                    activeDownload = currentAssignedModel;
+                }
+                payload.put("download_model_id", activeDownload != null ? activeDownload : "");
+                payload.put("download_started_at", downloadStartedAtMs);
+                payload.put("download_speed_bps", lastDownloadSpeedBps);
+                payload.put("eta_seconds", lastDownloadEtaSeconds);
+                JSONArray dlq = new JSONArray();
+                for (String m : downloadQueueList) dlq.put(m);
+                payload.put("download_queue", dlq);
                 if (!downloadErrorText.isEmpty()) {
                     payload.put("download_error", downloadErrorText);
                 }
@@ -1936,6 +2207,14 @@ public class WorkerService extends Service {
             downloadTotalBytes = size > 0 ? size : 0;
             downloadedMB = 0;
             totalMB = size > 0 ? (int) (size / (1024 * 1024)) : getModelSizeMB(modelId);
+            // A server driven download is a new transfer: the identity of the
+            // progress changes and the numbers of the old model do not belong
+            // to the new one.
+            downloadStartedAtMs = System.currentTimeMillis();
+            lastDownloadSpeedBps = 0;
+            lastDownloadEtaSeconds = 0;
+            lastBroadcastPercent = 0;
+            lastBroadcastModel = downloadingModel;
             checkAndTriggerModelDownloads();
         } catch (Exception ignored) {}
     }
@@ -1978,6 +2257,24 @@ public class WorkerService extends Service {
                     String modelId = payload != null ? payload.optString("model_id", "") : "";
                     if (modelId.isEmpty()) modelId = currentAssignedModel;
                     int maxTokens = payload != null ? payload.optInt("max_tokens", 32) : 32;
+
+                    // The canary answers with the error frame when the model is
+                    // not a sane file on the disk, the native engine must never
+                    // see a truncated download.
+                    File canaryFile = LocalNeuralEngine.resolveModelFile(getFilesDir(), modelId);
+                    String headerProblem = LocalNeuralEngine.validateGgufHeader(canaryFile);
+                    if (headerProblem != null) {
+                        JSONObject resp = new JSONObject();
+                        resp.put("request_id", payload != null ? payload.optString("request_id", id) : id);
+                        resp.put("error", "Model dosyasi hazir degil: " + headerProblem);
+                        JSONObject frame = new JSONObject();
+                        frame.put("type", "canary_response");
+                        frame.put("id", id);
+                        frame.put("payload", resp);
+                        frame.put("timestamp", System.currentTimeMillis());
+                        if (tunnelWs != null) tunnelWs.sendText(frame.toString());
+                        return;
+                    }
 
                     LocalNeuralEngine engine = new LocalNeuralEngine(modelId, getFilesDir());
                     LocalNeuralEngine.InferenceResult res = engine.generateStream(prompt, maxTokens, 0.1f, 0.92f, null, null);
@@ -2162,6 +2459,23 @@ public class WorkerService extends Service {
                         return;
                     }
 
+                    // The model must be a real file on the disk of the device.
+                    // A request for a model that is not downloaded answers with
+                    // the error frame at once, the playground shows the reason
+                    // instead of waiting for the timeout of the coordinator.
+                    File reqFile = LocalNeuralEngine.resolveModelFile(getFilesDir(), reqModel);
+                    if (!isValidGGUFFile(reqFile, reqModel)) {
+                        installedModelsList.remove(reqModel);
+                        if (!downloadQueueList.contains(reqModel)) {
+                            downloadQueueList.add(reqModel);
+                        }
+                        currentAssignedModel = reqModel;
+                        currentModelStatus = "downloading";
+                        sendInferenceError(id, "Model cihazda hazir degil, indirme sirasina alindi: " + reqModel);
+                        checkAndTriggerModelDownloads();
+                        return;
+                    }
+
                     // VRAM Hot Swapping:
                     // If requested model is not in VRAM, evict current model and load requested model into VRAM
                     if (!reqModel.equals(activeVramModel)) {
@@ -2274,7 +2588,11 @@ public class WorkerService extends Service {
                                         if (tunnelWs != null) tunnelWs.sendHeartbeatFrame();
                                     }
                                 } catch (Exception ignored) {}
-                                return isRunning;
+                                // A generation without a tunnel produces tokens
+                                // for nobody and drains the battery of the
+                                // device, the stream stops when the connection
+                                // of the coordinator is gone.
+                                return isRunning && tunnelWs != null && tunnelWs.connected;
                             }
                         }
                     );
@@ -2612,13 +2930,7 @@ public class WorkerService extends Service {
                     PendingIntent.FLAG_ONE_SHOT | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0)
                 );
                 AlarmManager am = (AlarmManager) getApplicationContext().getSystemService(Context.ALARM_SERVICE);
-                if (am != null) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 500, pi);
-                    } else {
-                        am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 500, pi);
-                    }
-                }
+                scheduleAlarmCompat(am, SystemClock.elapsedRealtime() + 500, pi);
                 Intent bIntent = new Intent("org.byog.worker.RESTART_SERVICE");
                 bIntent.setPackage(getPackageName());
                 sendBroadcast(bIntent);

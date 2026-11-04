@@ -48,6 +48,10 @@ type AppStatus struct {
 	CurrentTps       float64
 	TotalTokens      int64
 	ModelName        string
+	// The model of the running transfer. The name above falls back to the
+	// model of the memory when no download runs, the identity of the
+	// progress needs the honest value: an empty text means "no transfer".
+	DownloadModelId string
 	HotStartEnabled  bool
 	PairingCode  string
 	HasCode      bool
@@ -627,6 +631,7 @@ func syncStatus() {
 		status.CurrentTps = tps
 		status.TotalTokens = tokens
 		status.HotStartEnabled = hotStart
+		status.DownloadModelId = downloading
 		if downloading != "" {
 			status.ModelName = downloading
 		} else {

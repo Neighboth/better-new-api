@@ -59,8 +59,6 @@ export function PairModal({ onPaired }: PairModalProps) {
   const [open, setDialogOpen] = useState(false)
   const [sessionCode, setSessionCode] = useState('')
   const [sessionServerUrl, setSessionServerUrl] = useState('')
-  const [appName, setAppName] = useState('')
-  const [sessionFavicon, setSessionFavicon] = useState('')
   const [copiedCode, setCopiedCode] = useState(false)
   const [isLoadingCode, setIsLoadingCode] = useState(false)
   const initialNodeCountRef = useRef<number>(-1)
@@ -71,8 +69,6 @@ export function PairModal({ onPaired }: PairModalProps) {
       const data = await getUserPairingCode()
       setSessionCode(data.pairing_code)
       setSessionServerUrl(data.server_url)
-      setAppName(data.app_name)
-      setSessionFavicon(data.favicon || '')
     } catch {
       toast.error(t('byog.failed_to_get_pairing_code', 'Failed to retrieve pairing code'))
     } finally {

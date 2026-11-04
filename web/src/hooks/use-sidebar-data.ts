@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   Activity,
+  BarChart3,
   Box,
   Cpu,
   CreditCard,
@@ -233,7 +234,7 @@ export function useSidebarData(): SidebarData {
           ? [
               {
                 title: t('BYOG Management'),
-                url: '/byog-admin/stats' as const,
+                url: '/byog-admin/nodes' as const,
                 activeUrls: ['/byog-admin'],
                 icon: Network,
                 requiredPermission: {
@@ -243,6 +244,13 @@ export function useSidebarData(): SidebarData {
               },
             ]
           : []),
+        {
+          title: t('Statistics'),
+          url: '/statistics' as const,
+          activeUrls: ['/statistics'],
+          icon: BarChart3,
+          requiredRole: ROLE.ADMIN,
+        },
         {
           title: t('System Info'),
           url: '/system-info',

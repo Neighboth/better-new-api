@@ -489,6 +489,8 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
@@ -1750,7 +1752,7 @@ public class MainActivity extends Activity {
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                webView.evaluateJavascript("if (window.updateState) window.updateState(" + stateJson + ")", null);
+                                safeEvalJs("if (window.updateState) window.updateState(" + stateJson + ")");
                             }
                         });
                     }
@@ -1761,7 +1763,7 @@ public class MainActivity extends Activity {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            webView.evaluateJavascript("if (window.showUpdatePrompt) window.showUpdatePrompt('" + version + "')", null);
+                            safeEvalJs("if (window.showUpdatePrompt) window.showUpdatePrompt('" + version + "')");
                         }
                     });
                 }
@@ -1770,7 +1772,7 @@ public class MainActivity extends Activity {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            webView.evaluateJavascript("if (window.onPermissionRevoked) window.onPermissionRevoked(); if (window.refreshPermissions) window.refreshPermissions();", null);
+                            safeEvalJs("if (window.onPermissionRevoked) window.onPermissionRevoked(); if (window.refreshPermissions) window.refreshPermissions();");
                         }
                     });
                 }
@@ -1923,7 +1925,7 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 if (webView != null) {
-                    webView.evaluateJavascript("window.showUpdatePrompt('" + version + "')", null);
+                    safeEvalJs("window.showUpdatePrompt('" + version + "')");
                 }
             }
         });
@@ -2188,7 +2190,7 @@ public class MainActivity extends Activity {
                 } catch (Exception ignored) {}
             }
 
-            webView.evaluateJavascript("if (window.refreshPermissions) window.refreshPermissions();", null);
+            safeEvalJs("if (window.refreshPermissions) window.refreshPermissions();");
         }
     }
 
@@ -2724,6 +2726,31 @@ public class MainActivity extends Activity {
     }
 
     /**
+     * Runs a script inside the interface with every guard.
+     *
+     * A call of evaluateJavascript on a destroyed WebView or from a thread
+     * that is not the main thread ends the application, the helper checks the
+     * view, moves the call to the main thread and swallows the failure of the
+     * script itself. The pairing of the device must not die because the
+     * interface was closed in the middle of a report.
+     */
+    private void safeEvalJs(final String script) {
+        if (script == null) return;
+        try {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        if (webView != null) {
+                            webView.evaluateJavascript(script, null);
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            });
+        } catch (Throwable ignored) {}
+    }
+
+    /**
      * Sends a crash report to the coordinator.
      */
     private void reportCrashToServer(final String errorCode, final String errorMessage, final String stackTrace) {
@@ -2801,7 +2828,7 @@ public class MainActivity extends Activity {
                                     public void run() {
                                         setTitle(newAppName);
                                         if (webView != null) {
-                                            webView.evaluateJavascript("if (document.getElementById('app-title')) document.getElementById('app-title').innerText = '" + newAppName + "';", null);
+                                            safeEvalJs("if (document.getElementById('app-title')) document.getElementById('app-title').innerText = '" + newAppName + "';");
                                         }
                                     }
                                 });
@@ -2853,7 +2880,7 @@ public class MainActivity extends Activity {
                                 @Override
                                 public void run() {
                                     if (webView != null) {
-                                        webView.evaluateJavascript("if (window.updateLogo) window.updateLogo('" + dataUri + "')", null);
+                                        safeEvalJs("if (window.updateLogo) window.updateLogo('" + dataUri + "')");
                                     }
                                 }
                             });
@@ -2949,7 +2976,7 @@ public class MainActivity extends Activity {
                     return;
                 }
             }
-            if (webView != null) webView.evaluateJavascript("if (window.refreshPermissions) window.refreshPermissions();", null);
+            if (webView != null) safeEvalJs("if (window.refreshPermissions) window.refreshPermissions();");
         }
 
         @JavascriptInterface
@@ -2971,7 +2998,7 @@ public class MainActivity extends Activity {
                     }
                 }
             } catch (Throwable ignored) {}
-            if (webView != null) webView.evaluateJavascript("if (window.refreshPermissions) window.refreshPermissions();", null);
+            if (webView != null) safeEvalJs("if (window.refreshPermissions) window.refreshPermissions();");
         }
 
         @JavascriptInterface
@@ -3048,7 +3075,7 @@ public class MainActivity extends Activity {
                                     if (webView != null) {
                                         String js = String.format(java.util.Locale.US, "if (window.onModelTestResult) window.onModelTestResult(%s, %d, %.1f);",
                                             JSONObject.quote(errMsg), 0, 0.0f);
-                                        webView.evaluateJavascript(js, null);
+                                        safeEvalJs(js);
                                     }
                                 }
                             });
@@ -3068,7 +3095,7 @@ public class MainActivity extends Activity {
                                 if (webView != null) {
                                     String js = String.format(java.util.Locale.US, "if (window.onModelTestResult) window.onModelTestResult(%s, %d, %.1f);",
                                         JSONObject.quote(finalReply), finalLatency, finalTps);
-                                    webView.evaluateJavascript(js, null);
+                                    safeEvalJs(js);
                                 }
                             }
                         });
@@ -3081,7 +3108,7 @@ public class MainActivity extends Activity {
                                 if (webView != null) {
                                     String js = String.format(java.util.Locale.US, "if (window.onModelTestResult) window.onModelTestResult(%s, %d, %.1f);",
                                         JSONObject.quote(errMsg), 0, 0.0f);
-                                    webView.evaluateJavascript(js, null);
+                                    safeEvalJs(js);
                                 }
                             }
                         });
@@ -3154,7 +3181,7 @@ public class MainActivity extends Activity {
                     public void run() {
                         String msg = "Lütfen sunucu adresini içeren QR kodu tarayın veya sunucudan indirilmiş APK kullanın";
                         if (webView != null) {
-                            webView.evaluateJavascript("window.setConnectingState(false); if (window.onPairError) window.onPairError(" + org.json.JSONObject.quote(msg) + ");", null);
+                            safeEvalJs("window.setConnectingState(false); if (window.onPairError) window.onPairError(" + org.json.JSONObject.quote(msg) + ");");
                         }
                         Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
                     }
@@ -3168,7 +3195,7 @@ public class MainActivity extends Activity {
                     public void run() {
                         String msg = "Lütfen eşleştirme kodunu girin";
                         if (webView != null) {
-                            webView.evaluateJavascript("window.setConnectingState(false); if (window.onPairError) window.onPairError(" + org.json.JSONObject.quote(msg) + ");", null);
+                            safeEvalJs("window.setConnectingState(false); if (window.onPairError) window.onPairError(" + org.json.JSONObject.quote(msg) + ");");
                         }
                         Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show();
                     }
@@ -3184,7 +3211,7 @@ public class MainActivity extends Activity {
                             @Override
                             public void run() {
                                 if (webView != null) {
-                                    webView.evaluateJavascript("window.setConnectingState(true)", null);
+                                    safeEvalJs("window.setConnectingState(true)");
                                 }
                             }
                         });
@@ -3402,7 +3429,7 @@ public class MainActivity extends Activity {
                                         latestWorkerState = state;
                                         try {
                                             if (webView != null) {
-                                                webView.evaluateJavascript("if (window.updateState) window.updateState(" + state.toString() + "); if (window.onPairSuccess) window.onPairSuccess();", null);
+                                                safeEvalJs("if (window.updateState) window.updateState(" + state.toString() + "); if (window.onPairSuccess) window.onPairSuccess();");
                                             }
                                         } catch (Throwable ignored) {}
                                     }
@@ -3416,7 +3443,7 @@ public class MainActivity extends Activity {
                             @Override
                             public void run() {
                                 if (webView != null) {
-                                    webView.evaluateJavascript("window.setConnectingState(false); if (window.onPairError) window.onPairError(" + org.json.JSONObject.quote(finalErr) + ");", null);
+                                    safeEvalJs("window.setConnectingState(false); if (window.onPairError) window.onPairError(" + org.json.JSONObject.quote(finalErr) + ");");
                                 }
                                 Toast.makeText(MainActivity.this, finalErr, Toast.LENGTH_LONG).show();
                             }
@@ -3428,7 +3455,7 @@ public class MainActivity extends Activity {
                             @Override
                             public void run() {
                                 if (webView != null) {
-                                    webView.evaluateJavascript("window.setConnectingState(false); if (window.onPairError) window.onPairError(" + org.json.JSONObject.quote("Bağlantı hatası: " + exMsg) + ");", null);
+                                    safeEvalJs("window.setConnectingState(false); if (window.onPairError) window.onPairError(" + org.json.JSONObject.quote("Bağlantı hatası: " + exMsg) + ");");
                                 }
                                 Toast.makeText(MainActivity.this, "Bağlantı hatası: " + exMsg, Toast.LENGTH_LONG).show();
                             }
@@ -3456,7 +3483,7 @@ public class MainActivity extends Activity {
                         state.put("favicon", WorkerService.stringPref(sp, "favicon", "logo.png"));
                         state.put("permissions_done", true);
                     } catch (Exception ignored) {}
-                    webView.evaluateJavascript("window.updateState(" + state.toString() + ")", null);
+                    safeEvalJs("window.updateState(" + state.toString() + ")");
                     if (webView != null) {
                         webView.loadUrl(clientPageUrl());
                     }
@@ -3595,8 +3622,21 @@ public class MainActivity extends Activity {
                 boolean modelOnDisk = WorkerService.isValidGGUFFile(mf, assignedModel);
                 String defaultStatus = modelOnDisk ? "ready" : "downloading";
                 int dMB = WorkerService.intPref(sp, "downloaded_mb", 0);
-                int tMB = WorkerService.intPref(sp, "total_mb", 380);
-                if (tMB < 200) tMB = 380;
+                // The size of the interface follows the persisted numbers of
+                // the worker: the real size of the model host first, the
+                // estimate of the model family second. A hard coded fallback
+                // of another size would pull the bar of an honest download
+                // to a wrong total and the bar would jump.
+                int tMB = WorkerService.intPref(sp, "total_mb", 0);
+                if (tMB <= 0) {
+                    long totalBytes = WorkerService.longPref(sp, "download_total_bytes", 0);
+                    if (totalBytes > 0) {
+                        tMB = (int) (totalBytes / (1024L * 1024L));
+                    }
+                }
+                if (tMB <= 0) {
+                    tMB = WorkerService.getModelSizeMB(assignedModel);
+                }
                 String defaultDesc;
                 if (WorkerService.isTurkish()) {
                     defaultDesc = modelOnDisk ? (assignedModel + " hazır (Beklemede)") : (assignedModel + " indiriliyor... (" + dMB + " MB / " + tMB + " MB)");
@@ -3604,6 +3644,7 @@ public class MainActivity extends Activity {
                     defaultDesc = modelOnDisk ? (assignedModel + " ready (Idle)") : ("Downloading " + assignedModel + "... (" + dMB + " MB / " + tMB + " MB)");
                 }
 
+                String downloadingModel = WorkerService.stringPref(sp, "downloading_model", "");
                 state.put("assigned_model", assignedModel);
                 state.put("model_status", modelOnDisk ? WorkerService.stringPref(sp, "model_status", defaultStatus) : "downloading");
                 state.put("model_status_desc", modelOnDisk ? WorkerService.stringPref(sp, "model_status_desc", defaultDesc) : defaultDesc);
@@ -3613,7 +3654,13 @@ public class MainActivity extends Activity {
                 state.put("current_tps", 0.0);
                 state.put("active_vram_model", WorkerService.stringPref(sp, "active_vram_model", ""));
                 state.put("is_charging", WorkerService.boolPref(sp, "is_charging", false));
-                state.put("downloading_model", WorkerService.stringPref(sp, "downloading_model", ""));
+                state.put("downloading_model", downloadingModel);
+                // The identity of the transfer and its live numbers, the very
+                // same fields the broadcasts of the worker carry.
+                state.put("download_model_id", !downloadingModel.isEmpty() ? downloadingModel : assignedModel);
+                state.put("download_started_at", WorkerService.longPref(sp, "download_started_at", 0));
+                state.put("download_speed_bps", WorkerService.longPref(sp, "download_speed_bps", 0));
+                state.put("eta_seconds", WorkerService.intPref(sp, "eta_seconds", 0));
                 String downloadError = WorkerService.stringPref(sp, "download_error", "");
                 if (!downloadError.isEmpty()) {
                     state.put("download_error", downloadError);
@@ -3639,7 +3686,7 @@ public class MainActivity extends Activity {
             String scanned = data.getStringExtra("qr_result");
             if (scanned != null && webView != null) {
                 String js = "window.handleScannedQr(" + JSONObject.quote(scanned) + ")";
-                webView.evaluateJavascript(js, null);
+                safeEvalJs(js);
             }
         }
     }
@@ -3651,7 +3698,7 @@ public class MainActivity extends Activity {
             Intent intent = new Intent(MainActivity.this, QRScanActivity.class);
             startActivityForResult(intent, REQ_QR_SCAN);
         } else if (requestCode == REQ_POST_NOTIFS) {
-            if (webView != null) webView.evaluateJavascript("if (window.refreshPermissions) window.refreshPermissions();", null);
+            if (webView != null) safeEvalJs("if (window.refreshPermissions) window.refreshPermissions();");
         }
     }
 }
@@ -3670,6 +3717,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.hardware.Camera;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Vibrator;
 import android.view.Gravity;
@@ -3695,8 +3743,21 @@ public class QRScanActivity extends Activity implements SurfaceHolder.Callback, 
     private Camera camera;
     private SurfaceView surfaceView;
     private SurfaceHolder surfaceHolder;
+    private TextView tvHint;
     private boolean isScanned = false;
     private MultiFormatReader multiFormatReader;
+
+    // The camera of the device is not always the id 0 and the sensor is not
+    // always mounted for a portrait phone. A tablet answers the blind open of
+    // the camera 0 with an exception or with a mirrored preview that never
+    // finds the code, the fields below hold the real identity of the sensor
+    // that was opened.
+    private int cameraId = -1;
+    private int sensorOrientation = 0;
+    private boolean sensorIsFront = false;
+    private int previewWidth = 0;
+    private int previewHeight = 0;
+    private byte[] rotateBuffer = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -3716,7 +3777,7 @@ public class QRScanActivity extends Activity implements SurfaceHolder.Callback, 
         surfaceHolder.addCallback(this);
         root.addView(surfaceView, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
-        TextView tvHint = new TextView(this);
+        tvHint = new TextView(this);
         tvHint.setText("Web ekranındaki QR kodu kareye hizalayın");
         tvHint.setTextColor(Color.WHITE);
         tvHint.setTextSize(15f);
@@ -3730,10 +3791,90 @@ public class QRScanActivity extends Activity implements SurfaceHolder.Callback, 
         setContentView(root);
     }
 
-    @Override
-    public void surfaceCreated(SurfaceHolder holder) {
+    /**
+     * Finds the id of the back facing camera.
+     *
+     * The pairing of a tablet must not end the application because the camera
+     * 0 is the front camera or does not exist. Every sensor of the device is
+     * listed, the back facing one is chosen and the front one is the fallback.
+     *
+     * @return the id of the camera or -1 when the device has no camera
+     */
+    private int findBackCameraId() {
+        int fallback = -1;
         try {
-            camera = Camera.open();
+            int count = Camera.getNumberOfCameras();
+            for (int id = 0; id < count; id++) {
+                Camera.CameraInfo info = new Camera.CameraInfo();
+                try {
+                    Camera.getCameraInfo(id, info);
+                } catch (Throwable ignored) {
+                    continue;
+                }
+                if (info.facing == Camera.CameraInfo.CAMERA_FACING_BACK) {
+                    return id;
+                }
+                if (fallback < 0) {
+                    fallback = id;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return fallback;
+    }
+
+    /**
+     * Computes the orientation of the preview from the sensor of the camera
+     * and the rotation of the screen, the formula of the platform for the
+     * back and the front sensor.
+     */
+    private int computeDisplayOrientation() {
+        int degrees = 0;
+        try {
+            android.view.WindowManager wm = (android.view.WindowManager) getSystemService(Context.WINDOW_SERVICE);
+            if (wm != null && wm.getDefaultDisplay() != null) {
+                switch (wm.getDefaultDisplay().getRotation()) {
+                    case android.view.Surface.ROTATION_0: degrees = 0; break;
+                    case android.view.Surface.ROTATION_90: degrees = 90; break;
+                    case android.view.Surface.ROTATION_180: degrees = 180; break;
+                    case android.view.Surface.ROTATION_270: degrees = 270; break;
+                    default: degrees = 0; break;
+                }
+            }
+        } catch (Throwable ignored) {}
+        int result;
+        if (sensorIsFront) {
+            result = (sensorOrientation + degrees) % 360;
+            result = (360 - result) % 360;
+        } else {
+            result = (sensorOrientation - degrees + 360) % 360;
+        }
+        return result;
+    }
+
+    /**
+     * Opens the camera and starts the preview.
+     *
+     * A failure of the camera must never end the activity with a crash, the
+     * user sees the reason and can pair the device with the manual code.
+     */
+    private void openCamera() {
+        if (camera != null) return;
+        try {
+            cameraId = findBackCameraId();
+            if (cameraId < 0) {
+                showCameraFailure("Bu cihazda kamera bulunamadı. Eşleştirme kodunu web panelinden kopyalayıp uygulamaya elle girebilirsiniz.");
+                return;
+            }
+            Camera.CameraInfo info = new Camera.CameraInfo();
+            try {
+                Camera.getCameraInfo(cameraId, info);
+                sensorOrientation = info.orientation;
+                sensorIsFront = (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT);
+            } catch (Throwable ignored) {
+                sensorOrientation = 90;
+                sensorIsFront = false;
+            }
+            camera = Camera.open(cameraId);
             Camera.Parameters params = camera.getParameters();
             List<String> focusModes = params.getSupportedFocusModes();
             if (focusModes != null) {
@@ -3743,17 +3884,74 @@ public class QRScanActivity extends Activity implements SurfaceHolder.Callback, 
                     params.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
                 }
             }
+            // A small preview keeps the decode loop of every frame fast on a
+            // device with a weak processor, the size is cached for the frames.
+            try {
+                List<Camera.Size> sizes = params.getSupportedPreviewSizes();
+                Camera.Size chosen = null;
+                if (sizes != null) {
+                    for (Camera.Size s : sizes) {
+                        if (s != null && s.width >= 640 && s.width <= 1280) {
+                            chosen = s;
+                            break;
+                        }
+                    }
+                    if (chosen == null && !sizes.isEmpty()) {
+                        chosen = sizes.get(0);
+                    }
+                }
+                if (chosen != null) {
+                    params.setPreviewSize(chosen.width, chosen.height);
+                }
+            } catch (Throwable ignored) {}
             camera.setParameters(params);
-            camera.setDisplayOrientation(90);
-            camera.setPreviewDisplay(holder);
+            try {
+                Camera.Size active = camera.getParameters().getPreviewSize();
+                if (active != null) {
+                    previewWidth = active.width;
+                    previewHeight = active.height;
+                }
+            } catch (Throwable ignored) {}
+            camera.setDisplayOrientation(computeDisplayOrientation());
+            camera.setPreviewDisplay(surfaceHolder);
             camera.setOneShotPreviewCallback(this);
             camera.startPreview();
-        } catch (Exception e) {
+        } catch (Throwable e) {
             if (camera != null) {
-                camera.release();
+                try { camera.release(); } catch (Throwable ignored) {}
                 camera = null;
             }
+            showCameraFailure("Kamera açılamadı. Eşleştirme kodunu web panelinden kopyalayıp uygulamaya elle girebilirsiniz.");
         }
+    }
+
+    private void releaseCamera() {
+        if (camera != null) {
+            try {
+                camera.setOneShotPreviewCallback(null);
+                camera.stopPreview();
+            } catch (Throwable ignored) {}
+            try {
+                camera.release();
+            } catch (Throwable ignored) {}
+            camera = null;
+        }
+        previewWidth = 0;
+        previewHeight = 0;
+        rotateBuffer = null;
+    }
+
+    private void showCameraFailure(String message) {
+        try {
+            if (tvHint != null) {
+                tvHint.setText(message);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    @Override
+    public void surfaceCreated(SurfaceHolder holder) {
+        openCamera();
     }
 
     @Override
@@ -3761,53 +3959,88 @@ public class QRScanActivity extends Activity implements SurfaceHolder.Callback, 
 
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
-        if (camera != null) {
-            camera.stopPreview();
-            camera.setPreviewCallback(null);
-            camera.release();
-            camera = null;
-        }
+        releaseCamera();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // The system gives the camera to the application that is visible, a
+        // camera that stays open in the background ends the whole camera
+        // service on an aggressive device.
+        releaseCamera();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        try {
+            if (surfaceHolder != null && surfaceHolder.getSurface() != null && surfaceHolder.getSurface().isValid()) {
+                openCamera();
+            }
+        } catch (Throwable ignored) {}
     }
 
     @Override
     public void onPreviewFrame(byte[] data, Camera cam) {
-        if (isScanned || cam == null) return;
+        if (isScanned || cam == null || data == null) return;
         try {
-            Camera.Size size = cam.getParameters().getPreviewSize();
+            int width = previewWidth;
+            int height = previewHeight;
+            if (width <= 0 || height <= 0) {
+                try {
+                    Camera.Size size = cam.getParameters().getPreviewSize();
+                    if (size != null) {
+                        width = size.width;
+                        height = size.height;
+                        previewWidth = width;
+                        previewHeight = height;
+                    }
+                } catch (Throwable ignored) {}
+            }
+            if (width <= 0 || height <= 0 || data.length < width * height) {
+                return;
+            }
             Result result = null;
 
             // 1. Try standard natural orientation
             try {
                 PlanarYUVLuminanceSource source = new PlanarYUVLuminanceSource(
-                        data, size.width, size.height, 0, 0, size.width, size.height, false);
+                        data, width, height, 0, 0, width, height, false);
                 result = multiFormatReader.decodeWithState(new BinaryBitmap(new HybridBinarizer(source)));
-            } catch (Exception ignored) {}
+            } catch (Throwable ignored) {}
 
             // 1b. Natural orientation with GlobalHistogramBinarizer fallback
             if (result == null) {
                 try {
                     PlanarYUVLuminanceSource source = new PlanarYUVLuminanceSource(
-                            data, size.width, size.height, 0, 0, size.width, size.height, false);
+                            data, width, height, 0, 0, width, height, false);
                     result = multiFormatReader.decodeWithState(new BinaryBitmap(new com.google.zxing.common.GlobalHistogramBinarizer(source)));
-                } catch (Exception ignored) {}
+                } catch (Throwable ignored) {}
             }
 
             // 2. Try rotated 90 degrees portrait orientation (sensors on mobile are landscape)
             if (result == null) {
                 try {
-                    byte[] rotated = new byte[data.length];
-                    for (int y = 0; y < size.height; y++) {
-                        for (int x = 0; x < size.width; x++) {
-                            rotated[x * size.height + size.height - y - 1] = data[x + y * size.width];
+                    // The buffer of the rotation is reused between the frames,
+                    // a new array for every frame of the preview fills the
+                    // memory of the device with garbage.
+                    if (rotateBuffer == null || rotateBuffer.length != data.length) {
+                        rotateBuffer = new byte[data.length];
+                    }
+                    byte[] rotated = rotateBuffer;
+                    for (int y = 0; y < height; y++) {
+                        for (int x = 0; x < width; x++) {
+                            rotated[x * height + height - y - 1] = data[x + y * width];
                         }
                     }
                     PlanarYUVLuminanceSource rotSource = new PlanarYUVLuminanceSource(
-                            rotated, size.height, size.width, 0, 0, size.height, size.width, false);
+                            rotated, height, width, 0, 0, height, width, false);
                     result = multiFormatReader.decodeWithState(new BinaryBitmap(new HybridBinarizer(rotSource)));
                     if (result == null) {
                         result = multiFormatReader.decodeWithState(new BinaryBitmap(new com.google.zxing.common.GlobalHistogramBinarizer(rotSource)));
                     }
-                } catch (Exception ignored) {}
+                } catch (Throwable ignored) {}
             }
 
             if (result != null && result.getText() != null) {
@@ -3819,10 +4052,15 @@ public class QRScanActivity extends Activity implements SurfaceHolder.Callback, 
                 finish();
                 return;
             }
-        } catch (Exception ignored) {
+        } catch (Throwable ignored) {
         } finally {
+            try {
+                multiFormatReader.reset();
+            } catch (Throwable ignored) {}
             if (!isScanned && camera != null) {
-                camera.setOneShotPreviewCallback(this);
+                try {
+                    camera.setOneShotPreviewCallback(this);
+                } catch (Throwable ignored) {}
             }
         }
     }
@@ -3831,9 +4069,13 @@ public class QRScanActivity extends Activity implements SurfaceHolder.Callback, 
         try {
             Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
             if (v != null) {
-                v.vibrate(80);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    v.vibrate(android.os.VibrationEffect.createOneShot(80, android.os.VibrationEffect.DEFAULT_AMPLITUDE));
+                } else {
+                    v.vibrate(80);
+                }
             }
-        } catch (Exception ignored) {}
+        } catch (Throwable ignored) {}
     }
 }
 '''

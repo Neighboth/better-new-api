@@ -21,11 +21,10 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import { ByogAdmin, type ByogAdminSection } from '@/features/byog-admin'
 
 const VALID_SECTIONS: ByogAdminSection[] = [
-  'stats',
+  'nodes',
   'settings',
   'rules',
   'models',
-  'nodes',
   'banned',
   'rewards',
 ]
@@ -35,7 +34,7 @@ export const Route = createFileRoute('/_authenticated/byog-admin/$section')({
     if (!VALID_SECTIONS.includes(params.section as ByogAdminSection)) {
       throw redirect({
         to: '/byog-admin/$section',
-        params: { section: 'settings' },
+        params: { section: 'nodes' },
       })
     }
   },

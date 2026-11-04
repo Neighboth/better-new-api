@@ -210,7 +210,7 @@ func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Requ
 		BandwidthDown:    network.DownMbps,
 		BandwidthUp:      network.UpMbps,
 		PingMs:           network.PingMs,
-		DownloadModelId:  status.ModelName,
+		DownloadModelId:  status.DownloadModelId,
 		DownloadedMB:     status.DownloadedMB,
 		TotalMB:          status.TotalMB,
 		DownloadSpeedBps: status.DownloadSpeedBps,

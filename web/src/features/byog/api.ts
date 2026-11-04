@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 
 import type {
-  ByogAdminStatsResponse,
   ByogAssignmentRule,
   ByogModel,
   ByogModelLora,
@@ -247,13 +246,4 @@ export async function unbanAdminNode(id: number): Promise<void> {
 
 export async function deleteAdminNode(nodeId: string): Promise<void> {
   await api.delete(`/api/byog/admin/nodes/${nodeId}`)
-}
-
-export async function getByogAdminStats(params?: {
-  range?: string
-  device_type?: string
-  user_id?: number
-}): Promise<ByogAdminStatsResponse> {
-  const res = await api.get('/api/byog/admin/stats', { params })
-  return res.data.data
 }
