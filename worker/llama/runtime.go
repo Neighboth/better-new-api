@@ -313,7 +313,6 @@ func (r *Runtime) StartServer(modelPath string, storageDir string) (*Server, err
 		"-c", ctxSize,
 		"-b", batchSize,
 		"-t", strconv.Itoa(threads),
-		"--chunks", "1024",
 		"--no-warmup",
 		"-np", "1",
 	}
@@ -368,19 +367,30 @@ func freeLocalPort() (int, error) {
 // waitForLlamaServer waits until the server accepts requests.
 func waitForLlamaServer(cmd *exec.Cmd, port int, timeout time.Duration, logFilePath string) error {
 	deadline := time.Now().Add(timeout)
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := &http.Client{Timeout: 1 * time.Second}
+
+	exitChan := make(chan error, 1)
+	if cmd != nil {
+		go func() {
+			exitChan <- cmd.Wait()
+		}()
+	}
+
 	for time.Now().Before(deadline) {
-		if cmd != nil && cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+		select {
+		case err := <-exitChan:
 			logTail := ""
-			if data, err := os.ReadFile(logFilePath); err == nil && len(data) > 0 {
+			if data, readErr := os.ReadFile(logFilePath); readErr == nil && len(data) > 0 {
 				lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 				if len(lines) > 5 {
 					lines = lines[len(lines)-5:]
 				}
 				logTail = ": " + strings.Join(lines, " ")
 			}
-			return fmt.Errorf("llama-server process exited unexpectedly (code %d)%s", cmd.ProcessState.ExitCode(), logTail)
+			return fmt.Errorf("llama-server process exited unexpectedly (%v)%s", err, logTail)
+		default:
 		}
+
 		resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
 		if err == nil {
 			resp.Body.Close()
@@ -388,7 +398,7 @@ func waitForLlamaServer(cmd *exec.Cmd, port int, timeout time.Duration, logFileP
 				return nil
 			}
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(150 * time.Millisecond)
 	}
 	return errors.New("llama-server did not become ready in time")
 }

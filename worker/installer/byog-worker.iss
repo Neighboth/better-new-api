@@ -1378,7 +1378,8 @@ end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ResultCode: Integer;
-  DriveChar: Char;
+  I: Integer;
+  DriveChar: String;
   DrivePath: String;
 begin
   if CurUninstallStep = usUninstall then
@@ -1423,8 +1424,9 @@ begin
       DelTree(ExpandConstant('{localappdata}\Programs\' + BrandSystemName + ' BYOG Worker'), True, True, True);
 
     // Clean up model folders across all local drives
-    for DriveChar := 'C' to 'Z' do
+    for I := Ord('C') to Ord('Z') do
     begin
+      DriveChar := Chr(I);
       DrivePath := DriveChar + ':\PixRouter BYOG Models';
       if DirExists(DrivePath) then
         DelTree(DrivePath, True, True, True);
