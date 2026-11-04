@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { useNavigate, useParams } from '@tanstack/react-router'
 import {
   Activity,
-  BarChart3,
   Cpu,
   Gift,
   Layers,
@@ -37,16 +36,14 @@ import { ByogNodesTab } from './components/nodes-tab'
 import { ByogRewardsTab } from './components/rewards-tab'
 import { ByogRulesTab } from './components/rules-tab'
 import { ByogSettingsTab } from './components/settings-tab'
-import { ByogStatsTab } from './components/stats-tab'
 
 export type ByogAdminSection =
+  | 'nodes'
   | 'settings'
   | 'rules'
   | 'models'
-  | 'nodes'
   | 'banned'
   | 'rewards'
-  | 'stats'
 
 interface ByogAdminProps {
   initialSection?: ByogAdminSection
@@ -57,9 +54,11 @@ export function ByogAdmin({ initialSection }: ByogAdminProps) {
   const params = useParams({ strict: false }) as { section?: string }
   const navigate = useNavigate()
 
+  // The page opens with the globe of the network, the map of the nodes is
+  // the first view of the management.
   const currentSection = (params.section ||
     initialSection ||
-    'settings') as ByogAdminSection
+    'nodes') as ByogAdminSection
   const [activeTab, setActiveTab] = useState<ByogAdminSection>(currentSection)
 
   useEffect(() => {
@@ -96,10 +95,10 @@ export function ByogAdmin({ initialSection }: ByogAdminProps) {
         className='space-y-6'
       >
         <div className='w-full overflow-x-auto pb-2 scrollbar-thin'>
-          <TabsList className='inline-flex h-auto w-max min-w-full justify-start gap-1 p-1 md:grid md:w-full md:grid-cols-7'>
-            <TabsTrigger value='stats' className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'>
-              <BarChart3 className='h-4 w-4' />
-              {t('byog.admin.tab_stats', 'İstatistikler')}
+          <TabsList className='inline-flex h-auto w-max min-w-full justify-start gap-1 p-1 md:grid md:w-full md:grid-cols-6'>
+            <TabsTrigger value='nodes' className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'>
+              <Activity className='h-4 w-4' />
+              {t('byog.admin.tab_nodes')}
             </TabsTrigger>
             <TabsTrigger value='settings' className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'>
               <Settings className='h-4 w-4' />
@@ -113,10 +112,6 @@ export function ByogAdmin({ initialSection }: ByogAdminProps) {
               <Layers className='h-4 w-4' />
               {t('byog.admin.tab_models')}
             </TabsTrigger>
-            <TabsTrigger value='nodes' className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'>
-              <Activity className='h-4 w-4' />
-              {t('byog.admin.tab_nodes')}
-            </TabsTrigger>
             <TabsTrigger value='banned' className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'>
               <ShieldAlert className='h-4 w-4' />
               {t('byog.admin.tab_banned')}
@@ -128,8 +123,8 @@ export function ByogAdmin({ initialSection }: ByogAdminProps) {
           </TabsList>
         </div>
 
-        <TabsContent value='stats' className='space-y-4'>
-          <ByogStatsTab />
+        <TabsContent value='nodes' className='space-y-4'>
+          <ByogNodesTab />
         </TabsContent>
 
         <TabsContent value='settings' className='space-y-4'>
@@ -142,10 +137,6 @@ export function ByogAdmin({ initialSection }: ByogAdminProps) {
 
         <TabsContent value='models' className='space-y-4'>
           <ByogModelsTab />
-        </TabsContent>
-
-        <TabsContent value='nodes' className='space-y-4'>
-          <ByogNodesTab />
         </TabsContent>
 
         <TabsContent value='banned' className='space-y-4'>

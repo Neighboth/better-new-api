@@ -59,9 +59,8 @@ type Server struct {
 }
 
 var (
-	runtimeOnce sync.Once
-	runtimePath *Runtime
-	runtimeErr  error
+	runtimeMutex sync.Mutex
+	runtimePath  *Runtime
 
 	serverMutex sync.Mutex
 	servers     = map[string]*Server{}
@@ -73,11 +72,22 @@ func llamaRuntimeDirectory(storageDir string) string {
 }
 
 // EnsureRuntime makes sure that the llama.cpp binaries are available.
+//
+// A failed installation is not remembered forever: the runtime can be
+// downloaded later when the network is back, the inference must not stay dead
+// for the whole life of the client because the first attempt failed.
 func EnsureRuntime(storageDir string) (*Runtime, error) {
-	runtimeOnce.Do(func() {
-		runtimePath, runtimeErr = locateOrInstallLlamaRuntime(storageDir)
-	})
-	return runtimePath, runtimeErr
+	runtimeMutex.Lock()
+	defer runtimeMutex.Unlock()
+	if runtimePath != nil {
+		return runtimePath, nil
+	}
+	found, err := locateOrInstallLlamaRuntime(storageDir)
+	if err != nil {
+		return nil, err
+	}
+	runtimePath = found
+	return runtimePath, nil
 }
 
 // locateOrInstallLlamaRuntime searches the well known locations and downloads the
@@ -416,6 +426,24 @@ func (r *Runtime) serverForModel(modelPath string, storageDir string) (*Server, 
 			return process, nil
 		}
 		delete(servers, modelPath)
+	}
+
+	// A computer serves one model at a time. The server of another model holds
+	// the memory of the weights and the context without a purpose, on a
+	// machine with a small memory the second server ends the stability of the
+	// first one. The servers of the other models are stopped before the new
+	// model is loaded.
+	for path, process := range servers {
+		if path == modelPath {
+			continue
+		}
+		process.mutex.Lock()
+		if !process.stopping && process.cmd.Process != nil {
+			_ = process.cmd.Process.Kill()
+		}
+		process.stopping = true
+		process.mutex.Unlock()
+		delete(servers, path)
 	}
 
 	process, err := r.StartServer(modelPath, storageDir)

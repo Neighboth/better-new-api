@@ -83,5 +83,7 @@
   "The child panel feature is currently disabled for your reseller account. Please contact the platform administrator to activate child panel capability before deploying your custom domain and branding.": "The child panel feature is currently disabled for your reseller account. Please contact the platform administrator to activate child panel capability before deploying your custom domain and branding.",
   "The display title of your platform in navigation bars, footers, and emails.": "The display title of your platform in navigation bars, footers, and emails.",
   "Tokens Pool Description": "Calculated prompt and completion token count pool.",
-  "Your child panel is ready! Point your CNAME record to this server, enter your custom domain below, and save your custom branding.": "Your child panel is ready! Point your CNAME record to this server, enter your custom domain below, and save your custom branding."
+  "Your child panel is ready! Point your CNAME record to this server, enter your custom domain below, and save your custom branding.": "Your child panel is ready! Point your CNAME record to this server, enter your custom domain below, and save your custom branding.",
+  "Failed to load statistics": "Failed to load statistics",
+  "Site-wide statistics of the whole installation.": "Site-wide statistics of the whole installation."
 }

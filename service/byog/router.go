@@ -189,7 +189,7 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 		payload.RequestId = reqId
 	}
 
-	respChan := make(chan *TunnelFrame, 100)
+	respChan := make(chan *TunnelFrame, 1024)
 	session.PendingRequests.Store(reqId, respChan)
 	defer session.PendingRequests.Delete(reqId)
 
@@ -215,24 +215,58 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 		c.Header("Content-Type", "application/json")
 	}
 
-	timeoutTicker := time.NewTicker(180 * time.Second)
+	// The first token of a device covers the load of the model: a phone that
+	// keeps the model on the disk needs minutes for the load, the wait for the
+	// first token is therefore longer than the wait between two tokens of a
+	// generation that already runs.
+	firstTokenTimeout := 300 * time.Second
+	interTokenTimeout := 90 * time.Second
+	timeoutTicker := time.NewTicker(firstTokenTimeout)
 	defer timeoutTicker.Stop()
 
 	var totalTokensGenerated int
+	var receivedFirstChunk bool
 	var fullNonStreamContent strings.Builder
+
+	// streamError writes an OpenAI style error into the answer of the client,
+	// a stream receives it as an event, a plain answer as a JSON body.
+	streamError := func(message string, errType string) {
+		errBody := map[string]interface{}{
+			"error": map[string]interface{}{
+				"message": message,
+				"type":    errType,
+			},
+		}
+		if payload.Stream {
+			errJson, _ := json.Marshal(errBody)
+			_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(errJson))
+			_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+			if flusher != nil {
+				flusher.Flush()
+			}
+		} else if !c.Writer.Written() {
+			c.JSON(http.StatusBadGateway, errBody)
+		}
+	}
 
 	for {
 		select {
 		case frame, ok := <-respChan:
 			if !ok {
-				return nil
+				return fmt.Errorf("worker response channel closed before the request completed")
 			}
 
 			switch frame.Type {
 			case MsgTypeInferenceChunk:
-				timeoutTicker.Reset(60 * time.Second)
+				receivedFirstChunk = true
+				timeoutTicker.Reset(interTokenTimeout)
 				var chunk ChunkPayload
 				if err := json.Unmarshal(frame.Payload, &chunk); err == nil {
+					// The final marker of the worker carries no content, it
+					// closes the answer and it is not a generated token.
+					if chunk.Content == "" {
+						continue
+					}
 					totalTokensGenerated++
 					if payload.Stream {
 						// Stream OpenAI compatible chunk
@@ -261,9 +295,24 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 					}
 				}
 
+			case MsgTypeTunnelClosed:
+				streamError("The connection of the BYOG worker closed while the request was running. Please retry in a moment.", "byog_worker_disconnected")
+				return fmt.Errorf("worker tunnel closed while request %s was running", reqId)
+
 			case MsgTypeInferenceDone:
 				var done DonePayload
 				_ = json.Unmarshal(frame.Payload, &done)
+
+				// The worker measures the tokens of the generation itself, the
+				// count of the coordinator is the fallback of a worker that
+				// does not report the number.
+				if done.TotalTokens > 0 {
+					totalTokensGenerated = done.TotalTokens
+				}
+				if done.Error != "" && totalTokensGenerated == 0 {
+					streamError(done.Error, "byog_worker_error")
+					return fmt.Errorf("worker reported error: %s", done.Error)
+				}
 
 				// Calculate multipliers & credit tokens
 				multiplier, _ := model.CalculateNodeMultipliers(node)
@@ -399,38 +448,31 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 				return nil
 
 			case MsgTypeInferenceError:
-				errMsg := string(frame.Payload)
-				if payload.Stream {
-					errJson, _ := json.Marshal(map[string]interface{}{
-						"error": map[string]interface{}{
-							"message": fmt.Sprintf("Worker reported error: %s", errMsg),
-							"type":    "byog_worker_error",
-						},
-					})
-					_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(errJson))
-					_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
-					if flusher != nil {
-						flusher.Flush()
-					}
+				// The payload of the error is a JSON object, the message of the
+				// worker is the field "error" of that object.
+				errMsg := ""
+				var errPayload struct {
+					Error string `json:"error"`
 				}
+				if json.Unmarshal(frame.Payload, &errPayload) == nil && errPayload.Error != "" {
+					errMsg = errPayload.Error
+				} else {
+					errMsg = strings.TrimSpace(string(frame.Payload))
+				}
+				if errMsg == "" {
+					errMsg = "unknown worker error"
+				}
+				streamError(fmt.Sprintf("Worker reported error: %s", errMsg), "byog_worker_error")
 				return fmt.Errorf("worker reported error: %s", errMsg)
 			}
 
 		case <-timeoutTicker.C:
-			if payload.Stream {
-				errJson, _ := json.Marshal(map[string]interface{}{
-					"error": map[string]interface{}{
-						"message": "Worker inference timed out after 180 seconds",
-						"type":    "byog_timeout",
-					},
-				})
-				_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(errJson))
-				_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
-				if flusher != nil {
-					flusher.Flush()
-				}
+			if !receivedFirstChunk {
+				streamError(fmt.Sprintf("The BYOG worker did not produce the first token within %d seconds. The device may still be loading the model or is overloaded.", int(firstTokenTimeout.Seconds())), "byog_timeout")
+				return fmt.Errorf("worker inference timed out waiting for the first token")
 			}
-			return fmt.Errorf("worker inference timed out")
+			streamError(fmt.Sprintf("The BYOG worker stopped producing tokens for %d seconds.", int(interTokenTimeout.Seconds())), "byog_timeout")
+			return fmt.Errorf("worker inference timed out between tokens")
 
 		case <-c.Request.Context().Done():
 			return fmt.Errorf("client disconnected")

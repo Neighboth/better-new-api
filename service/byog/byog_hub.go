@@ -33,6 +33,10 @@ const (
 	MsgTypeResumeWorker     = "resume_worker"
 	MsgTypeDeviceRemoved    = "device_removed"
 	MsgTypePairingRevoked   = "pairing_revoked"
+	// MsgTypeTunnelClosed is a synthetic frame the coordinator produces when the
+	// tunnel of a node dies while requests are waiting. The waiter of a request
+	// receives an immediate error instead of waiting for its timeout.
+	MsgTypeTunnelClosed = "tunnel_closed"
 )
 
 // NotifyDeviceRemoved tells a worker that it was removed from the network.
@@ -202,6 +206,9 @@ func (h *Hub) Unregister(nodeId string) {
 			_ = session.Conn.Close()
 		}
 		session.Mu.Unlock()
+		// Requests that wait for the answers of the node are failed at once,
+		// the caller must not wait for the timeout of a device that is gone.
+		session.FailPendingRequests("the connection of the worker closed while the request was running")
 		common.SysLog(fmt.Sprintf("[BYOG] Node disconnected: %s", nodeId))
 		if model.DB != nil {
 			_ = model.DB.Model(&model.ByogNode{}).
@@ -211,6 +218,35 @@ func (h *Hub) Unregister(nodeId string) {
 				})
 		}
 	}
+}
+
+// FailPendingRequests wakes every request that waits for an answer of the node
+// with a synthetic tunnel-closed frame.
+func (s *NodeSession) FailPendingRequests(reason string) {
+	payload, err := json.Marshal(map[string]interface{}{
+		"error":   reason,
+		"node_id": s.NodeId,
+	})
+	if err != nil {
+		return
+	}
+	s.PendingRequests.Range(func(key, value interface{}) bool {
+		ch, ok := value.(chan *TunnelFrame)
+		if !ok {
+			return true
+		}
+		frame := &TunnelFrame{
+			Type:      MsgTypeTunnelClosed,
+			Id:        fmt.Sprintf("%v", key),
+			Payload:   payload,
+			Timestamp: time.Now().UnixMilli(),
+		}
+		select {
+		case ch <- frame:
+		default:
+		}
+		return true
+	})
 }
 
 func (h *Hub) GetSession(nodeId string) (*NodeSession, bool) {
@@ -289,63 +325,30 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 			node.UptimeSeconds = uptimeSecs
 			node.Status = status
 			node.InstalledModels = string(installedJson)
-			if telemetry.ModelStatus != "" {
-				node.ModelStatus = telemetry.ModelStatus
-			}
-			// The progress of a model is only meaningful while that model is
-			// transferred. The client downloads one model at a time, the model
-			// of the report names the transfer: the progress of a second model
-			// never continues the progress of the first one and the progress of
-			// a transfer never goes back on the panel.
-			if telemetry.DownloadModelId != "" || telemetry.DownloadedMB > 0 || telemetry.TotalMB > 0 || telemetry.DownloadProgress > 0 {
-				if telemetry.DownloadModelId != "" && node.DownloadModelId != telemetry.DownloadModelId {
-					node.DownloadModelId = telemetry.DownloadModelId
-					node.DownloadProgress = 0
-					node.DownloadedMB = 0
-				}
-				// A transfer that is retried starts from the first byte, the
-				// moment of the attempt is the start of the new progress.
-				if telemetry.DownloadStartedAt > 0 && node.DownloadStartedAt != telemetry.DownloadStartedAt {
-					node.DownloadStartedAt = telemetry.DownloadStartedAt
-					node.DownloadProgress = 0
-					node.DownloadedMB = 0
-				}
-				if telemetry.TotalMB > 0 {
-					node.TotalMB = telemetry.TotalMB
-				}
-				if telemetry.DownloadedMB > node.DownloadedMB || node.DownloadedMB == 0 {
-					node.DownloadedMB = telemetry.DownloadedMB
-				}
-				progress := telemetry.DownloadProgress
-				if progress <= 0 && node.TotalMB > 0 {
-					progress = int((float64(node.DownloadedMB) / float64(node.TotalMB)) * 100)
-				}
-				if progress > node.DownloadProgress || node.DownloadProgress == 0 {
-					node.DownloadProgress = progress
-				}
-				node.DownloadSpeedBps = telemetry.DownloadSpeedBps
-				node.EtaSeconds = telemetry.EtaSeconds
-			} else if telemetry.ModelStatus == "ready" && node.DownloadModelId != "" {
-				// The model of the last transfer is complete, the panel shows
-				// the finished transfer until the next model starts.
-				node.DownloadProgress = 100
-				node.EtaSeconds = 0
-				node.DownloadSpeedBps = 0
-			}
-			if node.DownloadProgress < 0 {
-				node.DownloadProgress = 0
-			}
-			if node.DownloadProgress > 100 {
-				node.DownloadProgress = 100
-			}
-			if telemetry.DownloadStatus != "" {
-				node.DownloadStatus = telemetry.DownloadStatus
-			}
+
+			// The download telemetry follows the very same merge rules as the
+			// HTTP registration of the worker: one path must never write the
+			// progress of an older moment over the progress of the other path,
+			// the bar of the panel never jumps between the two reports.
+			queueJSON := ""
 			if len(telemetry.DownloadQueue) > 0 || telemetry.ModelStatus == "ready" {
 				if encoded, err := json.Marshal(telemetry.DownloadQueue); err == nil {
-					node.DownloadQueue = string(encoded)
+					queueJSON = string(encoded)
 				}
 			}
+			model.ApplyDownloadTelemetry(node, model.DownloadTelemetry{
+				ModelId:     telemetry.DownloadModelId,
+				StartedAt:   telemetry.DownloadStartedAt,
+				HasProgress: telemetry.DownloadModelId != "" || telemetry.DownloadedMB > 0 || telemetry.TotalMB > 0 || telemetry.DownloadProgress > 0,
+				DownloadedMB: telemetry.DownloadedMB,
+				TotalMB:      telemetry.TotalMB,
+				Progress:     telemetry.DownloadProgress,
+				SpeedBps:     telemetry.DownloadSpeedBps,
+				EtaSeconds:   telemetry.EtaSeconds,
+				ModelStatus:  telemetry.ModelStatus,
+				DownloadStatus: telemetry.DownloadStatus,
+				QueueJSON:    queueJSON,
+			})
 			if telemetry.ActiveVramModel != "" {
 				node.ActiveVramModel = telemetry.ActiveVramModel
 			}

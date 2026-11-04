@@ -389,6 +389,14 @@ func SetApiRouter(router *gin.Engine) {
 		dataRoute.GET("/flow", middleware.AdminAuth(), controller.GetAllFlowQuotaDates)
 		dataRoute.GET("/flow/self", middleware.UserAuth(), controller.GetUserFlowQuotaDates)
 
+		// The site wide statistics of the administration: the time series,
+		// the distributions and the rankings of the whole installation.
+		statisticsRoute := apiRouter.Group("/statistics")
+		statisticsRoute.Use(middleware.AdminAuth())
+		{
+			statisticsRoute.GET("/site", controller.GetSiteStatistics)
+		}
+
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{
 			logRoute.GET("/token", middleware.TokenAuthReadOnly(), controller.GetLogByKey)
@@ -554,7 +562,6 @@ func SetApiRouter(router *gin.Engine) {
 			byogAdminRoute := byogRoute.Group("/admin")
 			byogAdminRoute.Use(middleware.AdminAuth())
 			{
-				byogAdminRoute.GET("/stats", middleware.RequirePermission(authz.ByogRead), controller.GetByogAdminStats)
 				byogAdminRoute.GET("/settings", middleware.RequirePermission(authz.ByogRead), controller.GetByogAdminSettings)
 				byogAdminRoute.POST("/settings", middleware.RequirePermission(authz.ByogWrite), controller.UpdateByogAdminSettings)
 				byogAdminRoute.GET("/rewards", middleware.RequirePermission(authz.ByogRead), controller.GetByogAdminRewards)

@@ -28,6 +28,21 @@ public class LocalNeuralEngine {
     private static LlamaModel cachedModel = null;
     private static String cachedModelKey = null;
 
+    /**
+     * The generations of the device run one at a time.
+     *
+     * The native engine of llama.cpp is not safe for two concurrent
+     * generations of the same loaded model, the anti cheat canary and a
+     * request of the playground that arrive at the same moment end the
+     * process with a native failure. The lock serializes the generations,
+     * the second request waits for the first one instead of crashing the
+     * device.
+     */
+    private static final Object INFERENCE_LOCK = new Object();
+
+    /** The longest generation the device accepts, a huge token count of a request must not block the worker for hours. */
+    private static final int MAX_TOKENS_LIMIT = 2048;
+
     static {
         try {
             android.system.Os.setenv("OMP_NUM_THREADS", "1", true);
@@ -140,6 +155,81 @@ public class LocalNeuralEngine {
 
     private static String modelKey(File file) {
         return file.getAbsolutePath() + "|" + file.length() + "|" + file.lastModified();
+    }
+
+    /**
+     * Validates the header of a GGUF file before the native engine sees it.
+     *
+     * A download that stopped in the middle leaves a file with a correct
+     * magic but truncated tensor tables, llama.cpp fails inside the native
+     * code and the whole process of the application dies. The header check
+     * answers with a Java error instead, the file is downloaded again.
+     *
+     * @return null when the header is sane, the reason text when it is not
+     */
+    public static String validateGgufHeader(File file) {
+        if (file == null || !file.exists()) {
+            return "the model file does not exist";
+        }
+        long length = file.length();
+        if (length < MIN_MODEL_BYTES) {
+            return "the model file is too small: " + length + " bytes";
+        }
+        java.io.RandomAccessFile raf = null;
+        try {
+            raf = new java.io.RandomAccessFile(file, "r");
+            byte[] magic = new byte[4];
+            raf.readFully(magic);
+            if (magic[0] != 'G' || magic[1] != 'G' || magic[2] != 'U' || magic[3] != 'F') {
+                return "the model file is not a GGUF file";
+            }
+            // version, tensor count and metadata kv count, little endian
+            int version = readIntLE(raf);
+            if (version != 1 && version != 2 && version != 3) {
+                return "the GGUF version " + version + " is not supported";
+            }
+            long tensorCount;
+            long kvCount;
+            if (version == 1) {
+                tensorCount = readIntLE(raf) & 0xFFFFFFFFL;
+                kvCount = readIntLE(raf) & 0xFFFFFFFFL;
+            } else {
+                tensorCount = readLongLE(raf);
+                kvCount = readLongLE(raf);
+            }
+            if (tensorCount <= 0 || tensorCount > 1000000) {
+                return "the GGUF tensor count " + tensorCount + " is not sane";
+            }
+            if (kvCount < 0 || kvCount > 1000000) {
+                return "the GGUF metadata count " + kvCount + " is not sane";
+            }
+            return null;
+        } catch (Throwable t) {
+            return "the GGUF header could not be read: " + (t.getMessage() != null ? t.getMessage() : t.toString());
+        } finally {
+            if (raf != null) {
+                try {
+                    raf.close();
+                } catch (Throwable ignored) {}
+            }
+        }
+    }
+
+    private static int readIntLE(java.io.RandomAccessFile raf) throws java.io.IOException {
+        int b0 = raf.read();
+        int b1 = raf.read();
+        int b2 = raf.read();
+        int b3 = raf.read();
+        if ((b0 | b1 | b2 | b3) < 0) {
+            throw new java.io.EOFException("the model file is truncated");
+        }
+        return (b3 << 24) | (b2 << 16) | (b1 << 8) | b0;
+    }
+
+    private static long readLongLE(java.io.RandomAccessFile raf) throws java.io.IOException {
+        long low = readIntLE(raf) & 0xFFFFFFFFL;
+        long high = readIntLE(raf) & 0xFFFFFFFFL;
+        return (high << 32) | low;
     }
 
     /**
@@ -310,6 +400,9 @@ public class LocalNeuralEngine {
         if (maxTokens <= 0) {
             maxTokens = 512;
         }
+        if (maxTokens > MAX_TOKENS_LIMIT) {
+            maxTokens = MAX_TOKENS_LIMIT;
+        }
         if (temperature <= 0.01f) {
             temperature = 0.7f;
         }
@@ -322,48 +415,71 @@ public class LocalNeuralEngine {
             return res;
         }
 
+        // The header of the file is checked in Java before the native engine
+        // sees it. A truncated download ends the whole process inside
+        // llama.cpp, the check here answers with the error of the result and
+        // the corrupted file is dropped for a fresh download.
+        String headerProblem = validateGgufHeader(modelFile);
+        if (headerProblem != null) {
+            Log.e(TAG, "model header rejected: " + headerProblem);
+            try {
+                if (!modelFile.delete()) {
+                    Log.w(TAG, "the corrupted model file could not be deleted: " + modelFile.getAbsolutePath());
+                }
+            } catch (Throwable ignored) {}
+            res.error = "Model dosyası bozuk, yeniden indirilecek: " + headerProblem;
+            res.success = false;
+            res.ttftMs = 0;
+            res.tps = 0.0f;
+            return res;
+        }
+
         GenerationState state = new GenerationState();
 
-        try {
-            if (System.getProperty("de.kherud.llama.lib.path") != null) {
-                File nativeLib = new File(System.getProperty("de.kherud.llama.lib.path"), "libjllama.so");
-                if (nativeLib.exists()) {
-                    try {
-                        System.load(nativeLib.getAbsolutePath());
-                    } catch (Throwable ignored) {}
+        // Every generation of the device runs inside the same lock, the
+        // native engine is not safe for two concurrent generations.
+        synchronized (INFERENCE_LOCK) {
+            try {
+                if (System.getProperty("de.kherud.llama.lib.path") != null) {
+                    File nativeLib = new File(System.getProperty("de.kherud.llama.lib.path"), "libjllama.so");
+                    if (nativeLib.exists()) {
+                        try {
+                            System.load(nativeLib.getAbsolutePath());
+                        } catch (Throwable ignored) {}
+                    }
                 }
-            }
-            try {
-                System.loadLibrary("jllama");
-            } catch (Throwable ignored) {}
-            LlamaModel model = acquireModel(modelFile);
+                try {
+                    System.loadLibrary("jllama");
+                } catch (Throwable ignored) {}
+                LlamaModel model = acquireModel(modelFile);
 
-            try {
-                res.promptTokens = model.encode(prompt).length;
-            } catch (Throwable ignored) {
-                res.promptTokens = Math.max(1, prompt.length() / 4);
-            }
+                try {
+                    res.promptTokens = model.encode(prompt).length;
+                } catch (Throwable ignored) {
+                    res.promptTokens = Math.max(1, prompt.length() / 4);
+                }
 
-            try {
-                streamTokens(model, buildParameters(prompt, maxTokens, temperature, topP, stop), callback, state);
-            } catch (Throwable templateFailure) {
-                // GGUF without a usable chat template: retry once with the raw prompt.
-                Log.w(TAG, "chat template generation failed, retrying with raw prompt: " + templateFailure.getMessage());
-                state.tokenCount = 0;
-                state.firstTokenAt = 0;
-                state.text.setLength(0);
-                state.logprobs.clear();
-                streamTokens(model, buildRawParameters(prompt, maxTokens, temperature, topP), callback, state);
-            }
+                try {
+                    streamTokens(model, buildParameters(prompt, maxTokens, temperature, topP, stop), callback, state);
+                } catch (Throwable templateFailure) {
+                    // GGUF without a usable chat template: retry once with the raw prompt.
+                    Log.w(TAG, "chat template generation failed, retrying with raw prompt: " + templateFailure.getMessage());
+                    state.tokenCount = 0;
+                    state.firstTokenAt = 0;
+                    state.text.setLength(0);
+                    state.logprobs.clear();
+                    streamTokens(model, buildRawParameters(prompt, maxTokens, temperature, topP), callback, state);
+                }
 
-            res.success = true;
-        } catch (Throwable t) {
-            String msg = t.getMessage() != null ? t.getMessage() : t.toString();
-            Log.e(TAG, "llama.cpp inference failed: " + msg, t);
-            res.error = "Cihazda yerel model çalıştırılamadı: " + msg;
-            res.success = false;
-            if (state.tokenCount == 0) {
-                state.text.setLength(0);
+                res.success = true;
+            } catch (Throwable t) {
+                String msg = t.getMessage() != null ? t.getMessage() : t.toString();
+                Log.e(TAG, "llama.cpp inference failed: " + msg, t);
+                res.error = "Cihazda yerel model çalıştırılamadı: " + msg;
+                res.success = false;
+                if (state.tokenCount == 0) {
+                    state.text.setLength(0);
+                }
             }
         }
 

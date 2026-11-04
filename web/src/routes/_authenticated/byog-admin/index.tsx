@@ -22,7 +22,7 @@ export const Route = createFileRoute('/_authenticated/byog-admin/')({
   beforeLoad: () => {
     throw redirect({
       to: '/byog-admin/$section',
-      params: { section: 'stats' },
+      params: { section: 'nodes' },
     })
   },
 })

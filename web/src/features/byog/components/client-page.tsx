@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toast, Toaster } from 'sonner'
+import { toast } from 'sonner'
 import jsQR from 'jsqr'
 import {
   Activity,
@@ -104,6 +104,7 @@ interface WorkerState {
   device_type?: string
   status: string
   paired?: boolean
+  user_id?: number
   model_status: string
   download_status: string
   download_progress: number
@@ -170,6 +171,53 @@ export function formatTransferSpeed(bytesPerSecond: number): string {
     unit += 1
   }
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
+}
+
+// mergeWorkerState merges a state report of the device into the state of the
+// page.
+//
+// The reports of the broadcasts of the device and of the record of the node
+// arrive in an arbitrary order, a report of an older moment must never pull
+// the bar of a running download down. The identity of the download decides:
+// a report of another model starts a fresh bar, a report of the same model
+// only moves the bar forward.
+export function mergeWorkerState(
+  prev: WorkerState | null | undefined,
+  incoming: Partial<WorkerState>
+): WorkerState {
+  const merged = {
+    ...((prev ?? {}) as WorkerState),
+    ...incoming,
+  } as WorkerState
+
+  if (!prev) {
+    return merged
+  }
+
+  const prevModel = prev.download_model_id || ''
+  const nextModel = incoming.download_model_id || ''
+  const sameTransfer = !nextModel || !prevModel || nextModel === prevModel
+
+  if (sameTransfer) {
+    // The bar of the same download only moves forward.
+    merged.download_progress = Math.max(
+      prev.download_progress ?? 0,
+      incoming.download_progress ?? 0
+    )
+    if (incoming.downloaded_mb !== undefined || prev.downloaded_mb !== undefined) {
+      merged.downloaded_mb = Math.max(prev.downloaded_mb ?? 0, incoming.downloaded_mb ?? 0)
+    }
+  }
+
+  // The real size of the model host is the authority about the total, a
+  // report without a size never replaces a known size with zero.
+  if (incoming.total_mb === undefined) {
+    merged.total_mb = prev.total_mb ?? merged.total_mb
+  } else if (incoming.total_mb <= 0 && (prev.total_mb ?? 0) > 0) {
+    merged.total_mb = prev.total_mb
+  }
+
+  return merged
 }
 
 // formatMegabytes formats a size of a model.
@@ -987,10 +1035,10 @@ export function ClientPage() {
       try {
         const parsed = typeof stateObj === 'string' ? JSON.parse(stateObj) : (stateObj as Record<string, unknown>)
         if (parsed && typeof parsed === 'object') {
-          setState((prev) => ({
-            ...(prev ?? {}),
-            ...(parsed as Partial<WorkerState>),
-          } as WorkerState))
+          // The merge of the broadcast follows the identity of the download,
+          // a report of an older moment never pulls the bar of the running
+          // transfer down.
+          setState((prev) => mergeWorkerState(prev, parsed as Partial<WorkerState>))
           if (parsed.node_id && typeof parsed.node_id === 'string') {
             setNodeId(parsed.node_id)
             window.localStorage.setItem('byog_node_id', parsed.node_id)
@@ -1016,7 +1064,10 @@ export function ClientPage() {
         } catch {}
       }
     }
-    const onFocus = () => target.refreshPermissions?.()
+    const onFocus = () => {
+      const refresh = target.refreshPermissions
+      if (typeof refresh === 'function') refresh()
+    }
     window.addEventListener('focus', onFocus)
     target.onPairSuccess = () => {
       setBusy(false)
@@ -1803,7 +1854,7 @@ export function ClientPage() {
                     <span className='text-muted-foreground w-24 sm:w-36 shrink-0'>{t('byog.installed_models', 'Modeller')}:</span>
                     <span className='font-mono truncate font-medium min-w-0 flex-1'>
                       {cleanModel(state?.models) ||
-                       cleanModel((state as Record<string, unknown>)?.installed_models) ||
+                       cleanModel((state as unknown as Record<string, unknown>)?.installed_models) ||
                        cleanModel(state?.assigned_model) ||
                        (state?.download_model_id ? `${state.download_model_id} (${t('byog.client_downloading', 'İndiriliyor')})` : '—')}
                     </span>
