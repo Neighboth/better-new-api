@@ -424,7 +424,9 @@ func GetSiteStatsTopGroups(f SiteStatsFilter, sort string, order string, limit i
 		Where("type = ?", LogTypeConsume).
 		Where(logGroupCol + " <> ''")
 	tx = f.applyLogsRequest(tx)
-	err := tx.Group(logGroupCol).
+	// The column is already quoted; use a raw expression to avoid GORM
+	// quoting it a second time. Repeating the column is valid in every dialect.
+	err := tx.Group(logGroupCol + ", " + logGroupCol).
 		Order(rankingOrder(sort, order)).
 		Limit(rankingLimit(limit)).
 		Scan(&rows).Error

@@ -159,7 +159,7 @@ func setupSiteStatsTestDB(t *testing.T) *siteStatsFixture {
 	))
 
 	now := time.Now().Unix()
-	users := []model.User{{Username: "alice", Status: 1}, {Username: "bob", Status: 1}}
+	users := []model.User{{Username: "alice", AffCode: "aff-alice", Status: 1}, {Username: "bob", AffCode: "aff-bob", Status: 1}}
 	require.NoError(t, db.Create(&users).Error)
 
 	require.NoError(t, db.Create(&model.Channel{Id: 5, Name: "upstream-one", Status: 1, Type: 1, Key: "sk-test"}).Error)

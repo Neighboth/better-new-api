@@ -61,7 +61,7 @@ func TestByogCrashReportPagingFiltersAndCounts(t *testing.T) {
 	cleanByogObservabilityTables(t)
 
 	now := time.Now().Unix()
-	users := []User{{Username: "erin", Status: 1}, {Username: "frank", Status: 1}}
+	users := []User{{Username: "erin", AffCode: "aff-erin", Status: 1}, {Username: "frank", AffCode: "aff-frank", Status: 1}}
 	require.NoError(t, DB.Create(&users).Error)
 	nodes := []ByogNode{
 		{NodeId: "c-n1", UserId: users[0].Id, HWID: "hw-c1", DeviceName: "alpha-desktop", DeviceType: "desktop", Status: "paused"},

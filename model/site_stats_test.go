@@ -27,7 +27,7 @@ func TestGetSiteStatsSeriesCarriesTokenSplitsAndByog(t *testing.T) {
 	cleanSiteStatsTables(t)
 
 	now := time.Now().Unix()
-	users := []User{{Username: "alice", Status: 1}, {Username: "bob", Status: 1}}
+	users := []User{{Username: "alice", AffCode: "aff-alice", Status: 1}, {Username: "bob", AffCode: "aff-bob", Status: 1}}
 	require.NoError(t, DB.Create(&users).Error)
 
 	logs := []Log{
@@ -103,7 +103,7 @@ func TestGetSiteStatsTopGroupsUsesTheGroupColumn(t *testing.T) {
 	cleanSiteStatsTables(t)
 
 	now := time.Now().Unix()
-	user := User{Username: "carol", Status: 1}
+	user := User{Username: "carol", AffCode: "aff-carol", Status: 1}
 	require.NoError(t, DB.Create(&user).Error)
 	logs := []Log{
 		{UserId: user.Id, Username: "carol", CreatedAt: now - 3600, Type: LogTypeConsume, ModelName: "gpt-4o", Group: "default", Quota: 100, PromptTokens: 10, CompletionTokens: 5},
@@ -138,7 +138,7 @@ func TestGetSiteStatsByogDistributions(t *testing.T) {
 	cleanSiteStatsTables(t)
 
 	now := time.Now().Unix()
-	user := User{Username: "dave", Status: 1}
+	user := User{Username: "dave", AffCode: "aff-dave", Status: 1}
 	require.NoError(t, DB.Create(&user).Error)
 	nodes := []ByogNode{
 		{NodeId: "dist-n1", UserId: user.Id, HWID: "hw-dist-1", DeviceName: "dave-desktop", DeviceType: "desktop", Country: "Turkey", Status: "online", LastHeartbeatAt: now},
@@ -147,6 +147,8 @@ func TestGetSiteStatsByogDistributions(t *testing.T) {
 		{NodeId: "dist-n4", UserId: user.Id, HWID: "hw-dist-4", DeviceName: "dave-empty", DeviceType: "", Country: "", Status: "offline"},
 	}
 	require.NoError(t, DB.Create(&nodes).Error)
+	// GORM applies schema defaults on zero-valued fields during Create.
+	require.NoError(t, DB.Model(&ByogNode{}).Where("node_id = ?", "dist-n4").Updates(map[string]interface{}{"device_type": "", "country": ""}).Error)
 
 	deviceTypes, err := GetSiteStatsByogDeviceTypes()
 	require.NoError(t, err)
