@@ -6,8 +6,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -57,29 +55,7 @@ jobs:
         run: go build ./...
 
       - name: Test root and relaykit modules
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set +e
-          make test > /tmp/ci-test-output 2>&1
-          result=$?
-          cat /tmp/ci-test-output
-          if [ "$result" -ne 0 ]; then
-            python3 - <<'PYCODE'
-          import json, re
-          lines = open('/tmp/ci-test-output').read().splitlines()
-          selected = set()
-          for i, line in enumerate(lines):
-              if re.search(r'--- FAIL:|^FAIL|panic:|Error Trace:|Error:', line):
-                  selected.update(range(max(0, i - 4), min(len(lines), i + 12)))
-          text = '\n'.join(lines[i] for i in sorted(selected))[-50000:]
-          with open('/tmp/ci-comment.json', 'w') as f:
-              json.dump({'body': 'Temporary CI diagnostics for backend test failure:\n```\n' + text + '\n```'}, f)
-          PYCODE
-            gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" -X POST --input /tmp/ci-comment.json
-          fi
-          exit "$result"
+        run: make test
 
   frontend:
     name: Frontend typecheck and test

@@ -50,8 +50,7 @@
 - [x] New UI strings translated into all eight locales; locale sync run.
 - [ ] Existing translation backlog remains (sync report: fr 87, ja 423, ru 422, vi 87, zh 197; additionally some existing dashboard strings are English in zh-TW). Do not treat sync as translation.
 - [x] Web typecheck, build, existing suite (313 tests) and new targeted UI tests (5 tests) passed locally.
-- [ ] Backend Go build/tests: sandbox has no Go toolchain; must be verified on CI or a machine with Go before merge.
+- [x] Backend Go vet, build and tests passed in GitHub CI after fixing fixture uniqueness and the quoted group query. The local sandbox has no Go toolchain.
 - [ ] Real browser and all-client end-to-end run: sandbox Chromium launch failed due to missing libnspr4/libnss3; Android/desktop toolchains and devices unavailable. A 30-minute all-client live test has not been performed.
-- [ ] No merge until the outstanding translation and real-runtime validation requirements are met.
+- [ ] Translation and real-runtime validation requirements remain outstanding; the user requested merging the partial work with these limitations.
 - [ ] Verify picker authorization for delegated admins: user/channel search endpoints require their respective read permissions, whereas site statistics uses AdminAuth alone. Avoid broadening access without a deliberate permission decision.
-- [ ] User subsequently requested merging the current partial work to main; outstanding limitations above remain documented.
