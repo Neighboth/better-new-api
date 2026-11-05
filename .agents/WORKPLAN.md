@@ -43,3 +43,15 @@
 
 ## G. Git
 - [x] commit on arena branch, push, PR -> merge to main (gh pr merge), verify. Remote branches: only origin/main existed pre-push; after merge the arena branch remains (session is tracked by it) — no stale non-main branches to delete.
+
+## H. Statistics and BYOG observability follow-up (session arena/7f197559)
+- [x] Statistics: name-search filters, loading and retry states, concurrent visible time-series and rankings, token split and global BYOG distributions.
+- [x] BYOG admin: operational health, crash report pages and detail dialog, model/download error list; new read-protected endpoints and tests.
+- [x] New UI strings translated into all eight locales; locale sync run.
+- [ ] Existing translation backlog remains (sync report: fr 87, ja 423, ru 422, vi 87, zh 197; additionally some existing dashboard strings are English in zh-TW). Do not treat sync as translation.
+- [x] Web typecheck, build, existing suite (313 tests) and new targeted UI tests (5 tests) passed locally.
+- [ ] Backend Go build/tests: sandbox has no Go toolchain; must be verified on CI or a machine with Go before merge.
+- [ ] Real browser and all-client end-to-end run: sandbox Chromium launch failed due to missing libnspr4/libnss3; Android/desktop toolchains and devices unavailable. A 30-minute all-client live test has not been performed.
+- [ ] No merge until the outstanding translation and real-runtime validation requirements are met.
+- [ ] Verify picker authorization for delegated admins: user/channel search endpoints require their respective read permissions, whereas site statistics uses AdminAuth alone. Avoid broadening access without a deliberate permission decision.
+- [ ] User subsequently requested merging the current partial work to main; outstanding limitations above remain documented.

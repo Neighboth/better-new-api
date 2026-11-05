@@ -27,6 +27,7 @@ const VALID_SECTIONS: ByogAdminSection[] = [
   'models',
   'banned',
   'rewards',
+  'observability',
 ]
 
 export const Route = createFileRoute('/_authenticated/byog-admin/$section')({

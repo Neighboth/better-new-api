@@ -6974,7 +6974,27 @@
     "Wed": "Wed",
     "Thu": "Thu",
     "Fri": "Fri",
-    "Sat": "Sat"
+    "Sat": "Sat",
+    "BYOG Device Types": "BYOG 裝置類型",
+    "BYOG Countries": "BYOG 國家",
+    "Stale": "心跳過期",
+    "Offline": "離線",
+    "Paused": "已暫停",
+    "Banned": "已封鎖",
+    "Downloading": "下載中",
+    "Total crashes": "當機總數",
+    "Node Health": "節點健康狀況",
+    "Crash Reports": "當機報告",
+    "Error codes": "錯誤代碼",
+    "Error Code": "錯誤代碼",
+    "Download Errors": "下載錯誤",
+    "Model Status": "模型狀態",
+    "Download Progress": "下載進度",
+    "Memory Usage": "記憶體使用量",
+    "Recommendation": "建議",
+    "Stack Trace": "堆疊追蹤",
+    "Global BYOG network (not affected by filters)": "全域 BYOG 網路（不受篩選影響）",
+    "Health counts may overlap; online means a recent heartbeat.": "健康狀態計數可能重疊；線上表示最近收到心跳。"
   },
   "byog": {
     "admin": {

@@ -23,13 +23,16 @@ import (
 
 // siteStatsSeriesPoint is one bucket of the answer.
 type siteStatsSeriesPoint struct {
-	Bucket        int64 `json:"bucket"`
-	Requests      int64 `json:"requests"`
-	Tokens        int64 `json:"tokens"`
-	Quota         int64 `json:"quota"`
-	UniqueUsers   int64 `json:"unique_users"`
-	Errors        int64 `json:"errors"`
-	Registrations int64 `json:"registrations"`
+	Bucket           int64 `json:"bucket"`
+	Requests         int64 `json:"requests"`
+	Tokens           int64 `json:"tokens"`
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	Quota            int64 `json:"quota"`
+	UniqueUsers      int64 `json:"unique_users"`
+	ByogRequests     int64 `json:"byog_requests"`
+	Errors           int64 `json:"errors"`
+	Registrations    int64 `json:"registrations"`
 }
 
 // siteStatsRankings carries every ranking of the answer.
@@ -63,12 +66,18 @@ type siteStatsByogNodeRank struct {
 type siteStatsDistributions struct {
 	HourOfDay []int64 `json:"hour_of_day"`
 	Weekday   []int64 `json:"weekday"`
+	// The distributions of the BYOG network are global, the nodes are long
+	// lived and the log range does not describe them.
+	ByogDeviceTypes []model.SiteStatsNameCount `json:"byog_device_types"`
+	ByogCountries   []model.SiteStatsNameCount `json:"byog_countries"`
 }
 
 // siteStatsSummary is the aggregate part of the answer.
 type siteStatsSummary struct {
 	Requests         int64   `json:"requests"`
 	Tokens           int64   `json:"tokens"`
+	PromptTokens     int64   `json:"prompt_tokens"`
+	CompletionTokens int64   `json:"completion_tokens"`
 	Quota            int64   `json:"quota"`
 	UniqueUsers      int64   `json:"unique_users"`
 	AvgUseTimeSecond float64 `json:"avg_use_time_seconds"`
@@ -278,8 +287,11 @@ func GetSiteStatistics(c *gin.Context) {
 			point := addPoint(row.Bucket)
 			point.Requests = row.Requests
 			point.Tokens = row.Tokens
+			point.PromptTokens = row.PromptTokens
+			point.CompletionTokens = row.CompletionTokens
 			point.Quota = row.Quota
 			point.UniqueUsers = row.UniqueUsers
+			point.ByogRequests = row.ByogRequests
 		}
 	} else {
 		pairs, err := model.GetSiteStatsDayUserPairs(filter)
@@ -299,7 +311,10 @@ func GetSiteStatistics(c *gin.Context) {
 			point := addPoint(bucket)
 			point.Requests += pair.Requests
 			point.Tokens += pair.Tokens
+			point.PromptTokens += pair.PromptTokens
+			point.CompletionTokens += pair.CompletionTokens
 			point.Quota += pair.Quota
+			point.ByogRequests += pair.ByogRequests
 			set, ok := userSets[bucket]
 			if !ok {
 				set = make(map[int]bool)
@@ -411,6 +426,12 @@ func GetSiteStatistics(c *gin.Context) {
 			}
 		}
 	}
+	if deviceTypes, err := model.GetSiteStatsByogDeviceTypes(); err == nil {
+		distributions.ByogDeviceTypes = deviceTypes
+	}
+	if countries, err := model.GetSiteStatsByogCountries(12); err == nil {
+		distributions.ByogCountries = countries
+	}
 
 	// The rankings.
 	rankings := siteStatsRankings{}
@@ -487,6 +508,8 @@ func GetSiteStatistics(c *gin.Context) {
 	if row, err := model.GetSiteStatsSummary(filter); err == nil && row != nil {
 		summary.Requests = row.Requests
 		summary.Tokens = row.Tokens
+		summary.PromptTokens = row.PromptTokens
+		summary.CompletionTokens = row.CompletionTokens
 		summary.Quota = row.Quota
 		summary.UniqueUsers = row.UniqueUsers
 		summary.ByogRequests = row.ByogRequests

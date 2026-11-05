@@ -6974,7 +6974,27 @@
     "Wed": "Wed",
     "Thu": "Thu",
     "Fri": "Fri",
-    "Sat": "Sat"
+    "Sat": "Sat",
+    "BYOG Device Types": "BYOG Device Types",
+    "BYOG Countries": "BYOG Countries",
+    "Stale": "Stale",
+    "Offline": "Offline",
+    "Paused": "Paused",
+    "Banned": "Banned",
+    "Downloading": "Downloading",
+    "Total crashes": "Total crashes",
+    "Node Health": "Node Health",
+    "Crash Reports": "Crash Reports",
+    "Error codes": "Error codes",
+    "Error Code": "Error Code",
+    "Download Errors": "Download Errors",
+    "Model Status": "Model Status",
+    "Download Progress": "Download Progress",
+    "Memory Usage": "Memory Usage",
+    "Recommendation": "Recommendation",
+    "Stack Trace": "Stack Trace",
+    "Global BYOG network (not affected by filters)": "Global BYOG network (not affected by filters)",
+    "Health counts may overlap; online means a recent heartbeat.": "Health counts may overlap; online means a recent heartbeat."
   },
   "byog": {
     "admin": {
