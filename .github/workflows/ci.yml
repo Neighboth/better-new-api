@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -55,19 +56,27 @@ jobs:
         run: go build ./...
 
       - name: Test root and relaykit modules
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set +e
           make test > /tmp/test.log 2>&1
           rc=$?
-          {
-            echo "### make test (exit $rc)"
-            echo '```'
-            grep -E '^(FAIL|--- FAIL|panic:)' /tmp/test.log | head -60
-            echo '```'
-            echo '```'
-            grep -A 20 -E '^--- FAIL' /tmp/test.log | head -240
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rc" -ne 0 ]; then
+            {
+              echo "### make test failures (run $GITHUB_RUN_ID, exit $rc)"
+              echo '```'
+              grep -E '^(FAIL|--- FAIL|panic:)' /tmp/test.log | head -40
+              echo '```'
+              echo '```'
+              grep -B 1 -A 18 -E '^--- FAIL' /tmp/test.log | head -300
+              echo '```'
+            } > /tmp/testfail.md
+            if [ -n "$PR_NUMBER" ]; then
+              gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/testfail.md || true
+            fi
+          fi
           exit $rc
 
   frontend:
