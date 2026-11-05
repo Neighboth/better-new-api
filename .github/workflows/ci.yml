@@ -55,7 +55,20 @@ jobs:
         run: go build ./...
 
       - name: Test root and relaykit modules
-        run: make test
+        run: |
+          set +e
+          make test > /tmp/test.log 2>&1
+          rc=$?
+          {
+            echo "### make test (exit $rc)"
+            echo '```'
+            grep -E '^(FAIL|--- FAIL|panic:)' /tmp/test.log | head -60
+            echo '```'
+            echo '```'
+            grep -A 20 -E '^--- FAIL' /tmp/test.log | head -240
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
 
   frontend:
     name: Frontend typecheck and test
