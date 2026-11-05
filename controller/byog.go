@@ -1755,7 +1755,7 @@ func ByogWorkerTunnel(c *gin.Context) {
 	// worker refreshes the deadline, the keepalive ping below makes a silent
 	// worker answer with a protocol pong at the latest.
 	const readDeadline = 90 * time.Second
-	_ = conn.SetReadLimit(8 << 20)
+	conn.SetReadLimit(8 << 20)
 	_ = conn.SetReadDeadline(time.Now().Add(readDeadline))
 	conn.SetPongHandler(func(string) error {
 		return conn.SetReadDeadline(time.Now().Add(readDeadline))

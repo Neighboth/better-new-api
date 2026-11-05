@@ -303,12 +303,11 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 				var done DonePayload
 				_ = json.Unmarshal(frame.Payload, &done)
 
-				// The worker measures the tokens of the generation itself, the
-				// count of the coordinator is the fallback of a worker that
-				// does not report the number.
-				if done.TotalTokens > 0 {
-					totalTokensGenerated = done.TotalTokens
-				}
+				// The done frame reports total_tokens as the sum of the prompt
+				// and the generation of the worker, so it must not replace the
+				// count of the generated chunks here: completion_tokens of the
+				// usage block is the number of the generated tokens and the
+				// quota math below adds done.PromptTokens on top of it.
 				if done.Error != "" && totalTokensGenerated == 0 {
 					streamError(done.Error, "byog_worker_error")
 					return fmt.Errorf("worker reported error: %s", done.Error)
