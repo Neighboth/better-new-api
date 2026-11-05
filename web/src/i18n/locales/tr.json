@@ -6974,7 +6974,27 @@
     "Wed": "Çar",
     "Thu": "Per",
     "Fri": "Cum",
-    "Sat": "Cmt"
+    "Sat": "Cmt",
+    "BYOG Device Types": "BYOG Cihaz Türleri",
+    "BYOG Countries": "BYOG Ülkeleri",
+    "Stale": "Yanıtsız",
+    "Offline": "Çevrimdışı",
+    "Paused": "Duraklatıldı",
+    "Banned": "Yasaklı",
+    "Downloading": "İndiriliyor",
+    "Total crashes": "Toplam çökme",
+    "Node Health": "Düğüm sağlığı",
+    "Crash Reports": "Çökme raporları",
+    "Error codes": "Hata kodları",
+    "Error Code": "Hata kodu",
+    "Download Errors": "İndirme hataları",
+    "Model Status": "Model durumu",
+    "Download Progress": "İndirme ilerlemesi",
+    "Memory Usage": "Bellek kullanımı",
+    "Recommendation": "Öneri",
+    "Stack Trace": "Yığın izi",
+    "Global BYOG network (not affected by filters)": "Genel BYOG ağı (filtrelerden etkilenmez)",
+    "Health counts may overlap; online means a recent heartbeat.": "Sağlık sayıları örtüşebilir; çevrimiçi, yakın zamanda kalp atışı alındığını belirtir."
   },
   "byog": {
     "admin": {

@@ -31,11 +31,14 @@ type SiteStatsFilter struct {
 
 // SiteStatsBucket is one bucket of the time series of the requests.
 type SiteStatsBucket struct {
-	Bucket      int64 `gorm:"column:bucket" json:"bucket"`
-	Requests    int64 `gorm:"column:requests" json:"requests"`
-	Tokens      int64 `gorm:"column:tokens" json:"tokens"`
-	Quota       int64 `gorm:"column:quota" json:"quota"`
-	UniqueUsers int64 `gorm:"column:unique_users" json:"unique_users"`
+	Bucket           int64 `gorm:"column:bucket" json:"bucket"`
+	Requests         int64 `gorm:"column:requests" json:"requests"`
+	Tokens           int64 `gorm:"column:tokens" json:"tokens"`
+	PromptTokens     int64 `gorm:"column:prompt_tokens" json:"prompt_tokens"`
+	CompletionTokens int64 `gorm:"column:completion_tokens" json:"completion_tokens"`
+	Quota            int64 `gorm:"column:quota" json:"quota"`
+	UniqueUsers      int64 `gorm:"column:unique_users" json:"unique_users"`
+	ByogRequests     int64 `gorm:"column:byog_requests" json:"byog_requests"`
 }
 
 // SiteStatsCount is a bucket with a single count.
@@ -48,11 +51,14 @@ type SiteStatsCount struct {
 // merged in the handler to the week and the month buckets with the real count
 // of the distinct users.
 type SiteStatsDayUser struct {
-	Bucket   int64 `gorm:"column:bucket" json:"bucket"`
-	UserId   int   `gorm:"column:user_id" json:"user_id"`
-	Requests int64 `gorm:"column:requests" json:"requests"`
-	Tokens   int64 `gorm:"column:tokens" json:"tokens"`
-	Quota    int64 `gorm:"column:quota" json:"quota"`
+	Bucket           int64 `gorm:"column:bucket" json:"bucket"`
+	UserId           int   `gorm:"column:user_id" json:"user_id"`
+	Requests         int64 `gorm:"column:requests" json:"requests"`
+	Tokens           int64 `gorm:"column:tokens" json:"tokens"`
+	PromptTokens     int64 `gorm:"column:prompt_tokens" json:"prompt_tokens"`
+	CompletionTokens int64 `gorm:"column:completion_tokens" json:"completion_tokens"`
+	Quota            int64 `gorm:"column:quota" json:"quota"`
+	ByogRequests     int64 `gorm:"column:byog_requests" json:"byog_requests"`
 }
 
 // SiteStatsTopUser is one line of the ranking of the users.
@@ -114,6 +120,8 @@ type SiteStatsLogTypeCount struct {
 type SiteStatsSummary struct {
 	Requests         int64   `gorm:"column:requests" json:"requests"`
 	Tokens           int64   `gorm:"column:tokens" json:"tokens"`
+	PromptTokens     int64   `gorm:"column:prompt_tokens" json:"prompt_tokens"`
+	CompletionTokens int64   `gorm:"column:completion_tokens" json:"completion_tokens"`
 	Quota            int64   `gorm:"column:quota" json:"quota"`
 	UniqueUsers      int64   `gorm:"column:unique_users" json:"unique_users"`
 	AvgUseTimeSecond float64 `gorm:"column:avg_use_time" json:"avg_use_time_seconds"`
@@ -209,10 +217,14 @@ func GetSiteStatsSeries(f SiteStatsFilter, divSeconds int64) ([]SiteStatsBucket,
 	expr := bucketExpr("created_at", f.TzOffsetSec, divSeconds)
 	var rows []SiteStatsBucket
 	tx := LOG_DB.Table("logs").
-		Select(expr + " AS bucket, COUNT(*) AS requests, " +
-			"COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens, " +
-			"COALESCE(SUM(quota), 0) AS quota, " +
-			"COUNT(DISTINCT user_id) AS unique_users").
+		Select(expr+" AS bucket, COUNT(*) AS requests, "+
+			"COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens, "+
+			"COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, "+
+			"COALESCE(SUM(completion_tokens), 0) AS completion_tokens, "+
+			"COALESCE(SUM(quota), 0) AS quota, "+
+			"COUNT(DISTINCT user_id) AS unique_users, "+
+			"COALESCE(SUM(CASE WHEN channel_id = 0 AND other LIKE ? THEN 1 ELSE 0 END), 0) AS byog_requests",
+			byogLogLikePattern).
 		Where("type = ?", LogTypeConsume)
 	tx = f.applyLogsRequest(tx)
 	err := tx.Group(expr).Order("bucket ASC").Scan(&rows).Error
@@ -226,9 +238,13 @@ func GetSiteStatsDayUserPairs(f SiteStatsFilter) ([]SiteStatsDayUser, error) {
 	expr := bucketExpr("created_at", f.TzOffsetSec, 86400)
 	var rows []SiteStatsDayUser
 	tx := LOG_DB.Table("logs").
-		Select(expr + " AS bucket, user_id, COUNT(*) AS requests, " +
-			"COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens, " +
-			"COALESCE(SUM(quota), 0) AS quota").
+		Select(expr+" AS bucket, user_id, COUNT(*) AS requests, "+
+			"COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens, "+
+			"COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, "+
+			"COALESCE(SUM(completion_tokens), 0) AS completion_tokens, "+
+			"COALESCE(SUM(quota), 0) AS quota, "+
+			"COALESCE(SUM(CASE WHEN channel_id = 0 AND other LIKE ? THEN 1 ELSE 0 END), 0) AS byog_requests",
+			byogLogLikePattern).
 		Where("type = ?", LogTypeConsume)
 	tx = f.applyLogsRequest(tx)
 	err := tx.Group(expr + ", user_id").Order("bucket ASC").Scan(&rows).Error
@@ -292,6 +308,8 @@ func GetSiteStatsSummary(f SiteStatsFilter) (*SiteStatsSummary, error) {
 	tx := LOG_DB.Table("logs").
 		Select("COUNT(*) AS requests, "+
 			"COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens, "+
+			"COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, "+
+			"COALESCE(SUM(completion_tokens), 0) AS completion_tokens, "+
 			"COALESCE(SUM(quota), 0) AS quota, "+
 			"COUNT(DISTINCT user_id) AS unique_users, "+
 			"COALESCE(AVG(use_time), 0) AS avg_use_time, "+
@@ -406,7 +424,9 @@ func GetSiteStatsTopGroups(f SiteStatsFilter, sort string, order string, limit i
 		Where("type = ?", LogTypeConsume).
 		Where(logGroupCol + " <> ''")
 	tx = f.applyLogsRequest(tx)
-	err := tx.Group(logGroupCol).
+	// The column is already quoted; use a raw expression to avoid GORM
+	// quoting it a second time. Repeating the column is valid in every dialect.
+	err := tx.Group(logGroupCol + ", " + logGroupCol).
 		Order(rankingOrder(sort, order)).
 		Limit(rankingLimit(limit)).
 		Scan(&rows).Error
@@ -584,4 +604,39 @@ func GetSiteStatsUsernames(ids []int) (map[int]string, error) {
 		result[row.Id] = row.Username
 	}
 	return result, nil
+}
+
+// SiteStatsNameCount is a name with a count, the distributions of the BYOG
+// network use it for the device types and the countries of the nodes.
+type SiteStatsNameCount struct {
+	Name  string `gorm:"column:name" json:"name"`
+	Count int64  `gorm:"column:count" json:"count"`
+}
+
+// GetSiteStatsByogDeviceTypes returns the node count of every device type of
+// the whole network, the distribution is global because the nodes are long
+// lived and the log range does not describe them.
+func GetSiteStatsByogDeviceTypes() ([]SiteStatsNameCount, error) {
+	var rows []SiteStatsNameCount
+	err := DB.Table("byog_nodes").
+		Select("device_type AS name, COUNT(*) AS count").
+		Where("device_type <> ''").
+		Group("device_type").
+		Order("count DESC").
+		Scan(&rows).Error
+	return rows, err
+}
+
+// GetSiteStatsByogCountries returns the node count of every country of the
+// whole network ordered by the count.
+func GetSiteStatsByogCountries(limit int) ([]SiteStatsNameCount, error) {
+	var rows []SiteStatsNameCount
+	err := DB.Table("byog_nodes").
+		Select("country AS name, COUNT(*) AS count").
+		Where("country <> ''").
+		Group("country").
+		Order("count DESC").
+		Limit(rankingLimit(limit)).
+		Scan(&rows).Error
+	return rows, err
 }

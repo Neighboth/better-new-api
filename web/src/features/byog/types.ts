@@ -271,3 +271,75 @@ export interface ByogStatusData {
   client_downloads?: Record<string, { available: boolean }>
 }
 
+// ---------------------------------------------------------------------------
+// Observability (admin)
+// ---------------------------------------------------------------------------
+
+/** The operational state counts of the whole node network. */
+export interface ByogNodeHealth {
+  total: number
+  online: number
+  stale: number
+  offline: number
+  paused: number
+  banned: number
+  downloading: number
+  errors: number
+}
+
+/** One error code of the crash reports with its count. */
+export interface ByogCrashErrorCodeCount {
+  name: string
+  count: number
+}
+
+/** The health summary of the observability tab. */
+export interface ByogObservabilitySummary {
+  node_health: ByogNodeHealth
+  crash_reports_24h: number
+  crash_reports_7d: number
+  crash_reports_total: number
+  top_error_codes: ByogCrashErrorCodeCount[]
+}
+
+/** One crash report of a worker with the resolved names. */
+export interface ByogCrashReportItem {
+  id: number
+  node_id: string
+  user_id: number
+  error_code: string
+  error_message: string
+  stack_trace: string
+  memory_usage_mb: number
+  model_id: string
+  recommendation: string
+  created_at: number
+  username: string
+  device_name: string
+}
+
+/** One page of the crash reports. */
+export interface ByogCrashReportsPage {
+  items: ByogCrashReportItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+/** One node that is stuck with a failed model or a failed transfer. */
+export interface ByogDownloadErrorItem {
+  node_id: string
+  device_name: string
+  device_type: string
+  user_id: number
+  username: string
+  status: string
+  model_status: string
+  download_status: string
+  download_model_id: string
+  download_progress: number
+  downloaded_mb: number
+  total_mb: number
+  download_started_at: number
+  last_heartbeat_at: number
+}

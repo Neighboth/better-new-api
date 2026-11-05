@@ -33,6 +33,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ByogBannedNodesTab } from './components/banned-nodes-tab'
 import { ByogModelsTab } from './components/models-tab'
 import { ByogNodesTab } from './components/nodes-tab'
+import { ByogObservabilityTab } from './components/observability-tab'
 import { ByogRewardsTab } from './components/rewards-tab'
 import { ByogRulesTab } from './components/rules-tab'
 import { ByogSettingsTab } from './components/settings-tab'
@@ -44,6 +45,7 @@ export type ByogAdminSection =
   | 'models'
   | 'banned'
   | 'rewards'
+  | 'observability'
 
 interface ByogAdminProps {
   initialSection?: ByogAdminSection
@@ -95,34 +97,62 @@ export function ByogAdmin({ initialSection }: ByogAdminProps) {
         className='space-y-6'
       >
         <div className='w-full overflow-x-auto pb-2 scrollbar-thin'>
-          <TabsList className='inline-flex h-auto w-max min-w-full justify-start gap-1 p-1 md:grid md:w-full md:grid-cols-6'>
-            <TabsTrigger value='nodes' className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'>
+          <TabsList className='inline-flex h-auto w-max min-w-full justify-start gap-1 p-1 md:grid md:w-full md:grid-cols-7'>
+            <TabsTrigger
+              value='nodes'
+              className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'
+            >
               <Activity className='h-4 w-4' />
               {t('byog.admin.tab_nodes')}
             </TabsTrigger>
-            <TabsTrigger value='settings' className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'>
+            <TabsTrigger
+              value='settings'
+              className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'
+            >
               <Settings className='h-4 w-4' />
               {t('byog.admin.tab_settings')}
             </TabsTrigger>
-            <TabsTrigger value='rules' className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'>
+            <TabsTrigger
+              value='rules'
+              className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'
+            >
               <Cpu className='h-4 w-4' />
               {t('byog.admin.tab_rules')}
             </TabsTrigger>
-            <TabsTrigger value='models' className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'>
+            <TabsTrigger
+              value='models'
+              className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'
+            >
               <Layers className='h-4 w-4' />
               {t('byog.admin.tab_models')}
             </TabsTrigger>
-            <TabsTrigger value='banned' className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'>
+            <TabsTrigger
+              value='banned'
+              className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'
+            >
               <ShieldAlert className='h-4 w-4' />
               {t('byog.admin.tab_banned')}
             </TabsTrigger>
-            <TabsTrigger value='rewards' className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'>
+            <TabsTrigger
+              value='rewards'
+              className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'
+            >
               <Gift className='h-4 w-4' />
               {t('byog.admin.tab_rewards')}
+            </TabsTrigger>
+            <TabsTrigger
+              value='observability'
+              className='flex-1 whitespace-nowrap px-3 py-2 gap-2 text-xs'
+            >
+              <Activity className='h-4 w-4' />
+              {t('Observability')}
             </TabsTrigger>
           </TabsList>
         </div>
 
+        <TabsContent value='observability' className='space-y-4'>
+          <ByogObservabilityTab />
+        </TabsContent>
         <TabsContent value='nodes' className='space-y-4'>
           <ByogNodesTab />
         </TabsContent>

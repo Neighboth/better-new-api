@@ -23,14 +23,7 @@ import { api } from '@/lib/api'
 // ---------------------------------------------------------------------------
 
 export type SiteStatsRangePreset =
-  | 'today'
-  | '24h'
-  | '7d'
-  | '30d'
-  | '90d'
-  | '180d'
-  | '365d'
-  | 'all'
+  'today' | '24h' | '7d' | '30d' | '90d' | '180d' | '365d' | 'all'
 
 export type SiteStatsGranularity = 'hour' | 'day' | 'week' | 'month'
 
@@ -78,6 +71,8 @@ export interface SiteStatsRangeInfo {
 export interface SiteStatsSummary {
   requests: number
   tokens: number
+  prompt_tokens: number
+  completion_tokens: number
   quota: number
   unique_users: number
   avg_use_time_seconds: number
@@ -106,10 +101,19 @@ export interface SiteStatsSeriesPoint {
   bucket: number
   requests: number
   tokens: number
+  prompt_tokens: number
+  completion_tokens: number
   quota: number
   unique_users: number
+  byog_requests: number
   errors: number
   registrations: number
+}
+
+/** A name with a count, used by the distributions of the BYOG network. */
+export interface SiteStatsNameCount {
+  name: string
+  count: number
 }
 
 export interface SiteStatsDistributions {
@@ -117,6 +121,10 @@ export interface SiteStatsDistributions {
   hour_of_day: number[]
   /** 7 request counts indexed by the weekday, 0 is Sunday. */
   weekday: number[]
+  /** Node counts per device type of the whole BYOG network. */
+  byog_device_types: SiteStatsNameCount[]
+  /** Node counts per country of the whole BYOG network. */
+  byog_countries: SiteStatsNameCount[]
 }
 
 export interface SiteStatsTopUser {
@@ -208,8 +216,20 @@ export interface SiteStatisticsResponse {
 // ---------------------------------------------------------------------------
 
 export async function getSiteStatistics(
-  params: SiteStatsQuery
+  params: SiteStatsQuery,
 ): Promise<SiteStatisticsResponse> {
   const res = await api.get('/api/statistics/site', { params })
+  if (!res.data.success || !res.data.data)
+    throw new Error(res.data.message || 'Failed to load statistics')
   return res.data.data as SiteStatisticsResponse
+}
+
+/**
+ * The group names of the installation for the filter picker.
+ */
+export async function getSiteStatsGroupOptions(): Promise<string[]> {
+  const res = await api.get('/api/group/')
+  if (!res.data.success || !Array.isArray(res.data.data))
+    throw new Error(res.data.message || 'Failed to load groups')
+  return res.data.data as string[]
 }

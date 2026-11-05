@@ -37,6 +37,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -84,7 +85,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { Skeleton } from '@/components/ui/skeleton'
+import { searchUsers } from '@/features/users/api'
+import { searchChannels } from '@/features/channels/api'
 import dayjs from '@/lib/dayjs'
 import {
   formatCompactNumber,
@@ -96,6 +104,7 @@ import {
 
 import {
   getSiteStatistics,
+  getSiteStatsGroupOptions,
   type SiteStatisticsResponse,
   type SiteStatsGranularity,
   type SiteStatsRangePreset,
@@ -137,23 +146,6 @@ const LOG_TYPE_KEYS: Record<number, string> = {
   6: 'Refund',
   7: 'Login',
 }
-
-type SeriesMetric =
-  | 'requests'
-  | 'tokens'
-  | 'quota'
-  | 'unique_users'
-  | 'errors'
-  | 'registrations'
-
-const SERIES_METRICS: { value: SeriesMetric; labelKey: string }[] = [
-  { value: 'requests', labelKey: 'Requests' },
-  { value: 'tokens', labelKey: 'Tokens' },
-  { value: 'quota', labelKey: 'Quota Used' },
-  { value: 'unique_users', labelKey: 'Unique Users' },
-  { value: 'errors', labelKey: 'Errors' },
-  { value: 'registrations', labelKey: 'Registrations' },
-]
 
 interface TextFilters {
   includeUsers: string
@@ -258,7 +250,9 @@ function RankTable({ rows, nameHeader, showQuota = true }: RankTableProps) {
             </TableCell>
             <TableCell>
               <div className='flex flex-col'>
-                <span className='max-w-56 truncate font-medium'>{row.name}</span>
+                <span className='max-w-56 truncate font-medium'>
+                  {row.name}
+                </span>
                 {row.detail ? (
                   <span className='text-xs text-muted-foreground'>
                     {row.detail}
@@ -294,6 +288,150 @@ function RankTable({ rows, nameHeader, showQuota = true }: RankTableProps) {
   )
 }
 
+type NamedOption = { id: string; name: string }
+
+function NamePicker({
+  label,
+  kind,
+  selected,
+  onChange,
+  multiple = false,
+}: {
+  label: string
+  kind: 'user' | 'channel'
+  selected: NamedOption[]
+  onChange: (items: NamedOption[]) => void
+  multiple?: boolean
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [options, setOptions] = useState<NamedOption[]>([])
+  const [pending, setPending] = useState(false)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    setPending(true)
+    const timer = setTimeout(async () => {
+      try {
+        const res =
+          kind === 'user'
+            ? await searchUsers({ keyword: query, page_size: 50 })
+            : await searchChannels({ keyword: query, page_size: 50 })
+        if (!res.success) throw new Error(res.message)
+        if (!active) return
+        const items = res.data?.items ?? []
+        setOptions(
+          items.map((item) => ({
+            id: String(item.id),
+            name:
+              kind === 'user'
+                ? 'username' in item
+                  ? item.username
+                  : ''
+                : 'name' in item
+                  ? item.name
+                  : '',
+          })),
+        )
+        setFailed(false)
+      } catch {
+        if (active) {
+          setOptions([])
+          setFailed(true)
+        }
+      } finally {
+        if (active) setPending(false)
+      }
+    }, 300)
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [open, query, kind])
+  return (
+    <div className='space-y-1'>
+      <span className='text-xs text-muted-foreground'>{label}</span>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          render={
+            <Button
+              variant='outline'
+              className='w-full justify-start truncate'
+            />
+          }
+        >
+          <span className='truncate'>
+            {selected.length
+              ? selected.map((x) => x.name || `#${x.id}`).join(', ')
+              : label}
+          </span>
+        </PopoverTrigger>
+        <PopoverContent align='start' className='w-80 max-w-[90vw]'>
+          <Input
+            aria-label={label}
+            placeholder={t('Search...')}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {selected.length > 0 && (
+            <div className='flex flex-wrap gap-1'>
+              {selected.map((item) => (
+                <Button
+                  key={item.id}
+                  size='sm'
+                  variant='secondary'
+                  onClick={() =>
+                    onChange(selected.filter((x) => x.id !== item.id))
+                  }
+                >
+                  {item.name || `#${item.id}`} ×
+                </Button>
+              ))}
+            </div>
+          )}
+          <div className='max-h-52 overflow-y-auto'>
+            {pending ? (
+              <p className='p-2 text-sm'>{t('Loading...')}</p>
+            ) : failed ? (
+              <p className='p-2 text-sm text-destructive'>
+                {t('Failed to load')}
+              </p>
+            ) : options.length === 0 ? (
+              <p className='p-2 text-sm text-muted-foreground'>
+                {t('No Data')}
+              </p>
+            ) : (
+              options.map((item) => (
+                <button
+                  type='button'
+                  key={item.id}
+                  className='w-full rounded px-2 py-2 text-left text-sm hover:bg-muted'
+                  onClick={() => {
+                    onChange(
+                      multiple
+                        ? selected.some((x) => x.id === item.id)
+                          ? selected.filter((x) => x.id !== item.id)
+                          : [...selected, item]
+                        : [item],
+                    )
+                    if (!multiple) setOpen(false)
+                  }}
+                >
+                  {selected.some((x) => x.id === item.id) ? '✓ ' : ''}
+                  {item.name || t('Unknown')}{' '}
+                  <span className='text-muted-foreground'>#{item.id}</span>
+                </button>
+              ))
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
+}
+
 export function SiteStatistics() {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(true)
@@ -301,10 +439,9 @@ export function SiteStatistics() {
 
   // The selects reload on change, the text inputs reload only through the
   // apply button so that typing does not fire a request per keystroke.
-  const [rangePreset, setRangePreset] =
-    useState<SiteStatsRangePreset>('30d')
+  const [rangePreset, setRangePreset] = useState<SiteStatsRangePreset>('30d')
   const [granularity, setGranularity] = useState<'auto' | SiteStatsGranularity>(
-    'auto'
+    'auto',
   )
   const [sort, setSort] = useState<'requests' | 'tokens' | 'quota'>('requests')
   const [order, setOrder] = useState<'asc' | 'desc'>('desc')
@@ -313,10 +450,22 @@ export function SiteStatistics() {
   const [textFilters, setTextFilters] =
     useState<TextFilters>(EMPTY_TEXT_FILTERS)
 
-  const [metric, setMetric] = useState<SeriesMetric>('requests')
+  const [included, setIncluded] = useState<NamedOption[]>([])
+  const [excluded, setExcluded] = useState<NamedOption[]>([])
+  const [channel, setChannel] = useState<NamedOption[]>([])
+  const [groups, setGroups] = useState<string[]>([])
+  const [error, setError] = useState(false)
+  const requestId = useRef(0)
+  useEffect(() => {
+    getSiteStatsGroupOptions()
+      .then(setGroups)
+      .catch(() => toast.error(t('Failed to load')))
+  }, [t])
 
   const load = useCallback(async () => {
+    const current = ++requestId.current
     setLoading(true)
+    setError(false)
     try {
       const channelId = Number(textFilters.channelId.trim())
       const res = await getSiteStatistics({
@@ -333,11 +482,13 @@ export function SiteStatistics() {
         order,
         limit,
       })
-      setData(res)
+      if (current === requestId.current) setData(res)
     } catch {
+      if (current !== requestId.current) return
+      setError(true)
       toast.error(t('Failed to load statistics'))
     } finally {
-      setLoading(false)
+      if (current === requestId.current) setLoading(false)
     }
   }, [rangePreset, granularity, sort, order, limit, textFilters, t])
 
@@ -346,7 +497,12 @@ export function SiteStatistics() {
   }, [load])
 
   const applyFilters = () => {
-    setTextFilters({ ...textDrafts })
+    setTextFilters({
+      ...textDrafts,
+      includeUsers: included.map((x) => x.id).join(','),
+      excludeUsers: excluded.map((x) => x.id).join(','),
+      channelId: channel[0]?.id ?? '',
+    })
   }
 
   const seriesData = useMemo(() => {
@@ -365,6 +521,10 @@ export function SiteStatistics() {
       unique_users: point.unique_users,
       errors: point.errors,
       registrations: point.registrations,
+      prompt_tokens: point.prompt_tokens,
+      completion_tokens: point.completion_tokens,
+      byog_requests: point.byog_requests,
+      upstream_requests: Math.max(0, point.requests - point.byog_requests),
     }))
   }, [data])
 
@@ -393,26 +553,6 @@ export function SiteStatistics() {
         value: row.count,
       }))
   }, [data, t])
-
-  const tooltipValue = useCallback(
-    (value: number) => {
-      switch (metric) {
-        case 'tokens':
-          return formatTokens(value)
-        case 'quota':
-          return formatQuota(value)
-        default:
-          return formatNumber(value)
-      }
-    },
-    [metric]
-  )
-
-  const yAxisTick = useCallback(
-    (value: number) =>
-      metric === 'quota' ? formatQuota(value) : formatCompactNumber(value),
-    [metric]
-  )
 
   const summary = data?.summary
   const counters = data?.counters
@@ -590,60 +730,83 @@ export function SiteStatistics() {
                 </div>
               </div>
               <div className='grid grid-cols-1 gap-3 md:grid-cols-5'>
-                <Input
-                  placeholder={t('Include Users')}
-                  title={t('User IDs, comma separated')}
-                  value={textDrafts.includeUsers}
-                  onChange={(event) =>
-                    setTextDrafts((drafts) => ({
-                      ...drafts,
-                      includeUsers: event.target.value,
-                    }))
-                  }
+                <NamePicker
+                  label={t('Include Users')}
+                  kind='user'
+                  selected={included}
+                  onChange={setIncluded}
+                  multiple
                 />
-                <Input
-                  placeholder={t('Exclude Users')}
-                  title={t('User IDs, comma separated')}
-                  value={textDrafts.excludeUsers}
-                  onChange={(event) =>
-                    setTextDrafts((drafts) => ({
-                      ...drafts,
-                      excludeUsers: event.target.value,
-                    }))
-                  }
+                <NamePicker
+                  label={t('Exclude Users')}
+                  kind='user'
+                  selected={excluded}
+                  onChange={setExcluded}
+                  multiple
                 />
-                <Input
-                  placeholder={t('Model')}
-                  value={textDrafts.model}
-                  onChange={(event) =>
-                    setTextDrafts((drafts) => ({
-                      ...drafts,
-                      model: event.target.value,
-                    }))
-                  }
+                <div className='space-y-1'>
+                  <label
+                    htmlFor='stats-model'
+                    className='text-xs text-muted-foreground'
+                  >
+                    {t('Model')}
+                  </label>
+                  <Input
+                    id='stats-model'
+                    placeholder={t('Model')}
+                    value={textDrafts.model}
+                    onChange={(e) =>
+                      setTextDrafts((d) => ({ ...d, model: e.target.value }))
+                    }
+                  />
+                </div>
+                <NamePicker
+                  label={t('Channel')}
+                  kind='channel'
+                  selected={channel}
+                  onChange={setChannel}
                 />
-                <Input
-                  placeholder={t('Channel ID')}
-                  value={textDrafts.channelId}
-                  onChange={(event) =>
-                    setTextDrafts((drafts) => ({
-                      ...drafts,
-                      channelId: event.target.value,
-                    }))
-                  }
-                />
-                <Input
-                  placeholder={t('Group')}
-                  value={textDrafts.group}
-                  onChange={(event) =>
-                    setTextDrafts((drafts) => ({
-                      ...drafts,
-                      group: event.target.value,
-                    }))
-                  }
-                />
+                <div className='space-y-1'>
+                  <label className='text-xs text-muted-foreground'>
+                    {t('Group')}
+                  </label>
+                  <Select
+                    value={textDrafts.group || '__all__'}
+                    onValueChange={(value) =>
+                      setTextDrafts((d) => ({
+                        ...d,
+                        group: value === '__all__' ? '' : (value ?? ''),
+                      }))
+                    }
+                  >
+                    <SelectTrigger className='w-full'>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='__all__'>{t('All Groups')}</SelectItem>
+                      {groups.map((group) => (
+                        <SelectItem key={group} value={group}>
+                          {group}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className='flex justify-end'>
+              <div className='flex justify-end gap-2'>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  onClick={() => {
+                    setIncluded([])
+                    setExcluded([])
+                    setChannel([])
+                    setTextDrafts(EMPTY_TEXT_FILTERS)
+                    setTextFilters(EMPTY_TEXT_FILTERS)
+                  }}
+                >
+                  {t('Reset')}
+                </Button>
                 <Button size='sm' onClick={applyFilters}>
                   {t('Apply')}
                 </Button>
@@ -651,444 +814,602 @@ export function SiteStatistics() {
             </CardContent>
           </Card>
 
-          {/* Summary of the range */}
-          {summary ? (
-            <div className='grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5'>
-              <StatCard
-                icon={<Activity className='size-4 text-blue-500' />}
-                label={t('Requests')}
-                value={formatNumber(summary.requests)}
-                description={`${t('Avg. Response')}: ${formatUseTime(summary.avg_use_time_seconds)}`}
-              />
-              <StatCard
-                icon={<Users className='size-4 text-indigo-500' />}
-                label={t('Unique Users')}
-                value={formatNumber(summary.unique_users)}
-              />
-              <StatCard
-                icon={<Zap className='size-4 text-amber-500' />}
-                label={t('Tokens')}
-                value={formatTokens(summary.tokens)}
-              />
-              <StatCard
-                icon={<Coins className='size-4 text-yellow-500' />}
-                label={t('Quota Used')}
-                value={formatQuota(summary.quota)}
-              />
-              <StatCard
-                icon={<Radio className='size-4 text-emerald-500' />}
-                label={t('BYOG Requests')}
-                value={formatNumber(summary.byog_requests)}
-              />
-              <StatCard
-                icon={<Server className='size-4 text-cyan-500' />}
-                label={t('Upstream Requests')}
-                value={formatNumber(summary.upstream_requests)}
-              />
-              <StatCard
-                icon={<AlertTriangle className='size-4 text-red-500' />}
-                label={t('Errors')}
-                value={formatNumber(summary.errors)}
-              />
-              <StatCard
-                icon={<LogIn className='size-4 text-sky-500' />}
-                label={t('Logins')}
-                value={formatNumber(summary.logins)}
-              />
-              <StatCard
-                icon={<UserPlus className='size-4 text-violet-500' />}
-                label={t('Registrations')}
-                value={formatNumber(summary.registrations)}
-              />
-              <StatCard
-                icon={<Globe className='size-4 text-teal-500' />}
-                label={t('BYOG Nodes Online')}
-                value={
-                  counters
-                    ? `${formatNumber(counters.byog_nodes_online)} / ${formatNumber(counters.byog_nodes_total)}`
-                    : '-'
-                }
-              />
+          {loading && (
+            <div
+              role='status'
+              className='flex items-center gap-2 text-sm text-muted-foreground'
+            >
+              <RefreshCw className='size-4 animate-spin' />
+              {t('Loading...')}
             </div>
-          ) : null}
-
-          {/* Global counters */}
-          {counters ? (
-            <div className='grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5'>
-              <StatCard
-                icon={<Users className='size-4 text-muted-foreground' />}
-                label={t('Total Users')}
-                value={formatNumber(counters.total_users)}
-                description={`${t('Active Users')}: ${formatNumber(counters.active_users)}`}
-              />
-              <StatCard
-                icon={<Network className='size-4 text-muted-foreground' />}
-                label={t('Total Channels')}
-                value={formatNumber(counters.total_channels)}
-                description={`${t('Active Channels')}: ${formatNumber(counters.active_channels)}`}
-              />
-              <StatCard
-                icon={<KeyRound className='size-4 text-muted-foreground' />}
-                label={t('API Keys')}
-                value={formatNumber(counters.total_api_tokens)}
-                description={`${t('Active API Keys')}: ${formatNumber(counters.active_api_tokens)}`}
-              />
-              <StatCard
-                icon={<Ticket className='size-4 text-muted-foreground' />}
-                label={t('Redemption Codes')}
-                value={formatNumber(counters.total_redemptions)}
-                description={`${t('Unused Codes')}: ${formatNumber(counters.unused_redemptions)}`}
-              />
-              <StatCard
-                icon={<Globe className='size-4 text-muted-foreground' />}
-                label={t('BYOG Nodes')}
-                value={formatNumber(counters.byog_nodes_total)}
-                description={`${t('BYOG Nodes Online')}: ${formatNumber(counters.byog_nodes_online)}`}
-              />
+          )}
+          {error && (
+            <div
+              role='alert'
+              className='flex items-center gap-3 text-destructive'
+            >
+              {t('Failed to load statistics')}{' '}
+              <Button variant='outline' size='sm' onClick={load}>
+                {t('Retry')}
+              </Button>
             </div>
-          ) : null}
-
-          {/* Series chart */}
-          <Card>
-            <CardHeader className='pb-2'>
-              <div className='flex flex-wrap items-center justify-between gap-2'>
-                <div>
-                  <CardTitle className='text-base'>
-                    {t('Traffic Over Time')}
-                  </CardTitle>
-                  <CardDescription>
-                    {data
-                      ? `${dayjs.unix(data.range.start).format('YYYY-MM-DD HH:mm')} — ${dayjs.unix(data.range.end).format('YYYY-MM-DD HH:mm')} · ${t(data.range.granularity === 'hour' ? 'Hour' : data.range.granularity === 'day' ? 'Day' : data.range.granularity === 'week' ? 'Week' : 'Month')}`
-                      : ''}
-                  </CardDescription>
-                </div>
-                <Select
-                  value={metric}
-                  onValueChange={(value) => setMetric(value as SeriesMetric)}
-                >
-                  <SelectTrigger className='w-44'>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SERIES_METRICS.map((entry) => (
-                      <SelectItem key={entry.value} value={entry.value}>
-                        {t(entry.labelKey)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+          )}
+          {loading && !data && (
+            <div className='grid grid-cols-2 gap-3 md:grid-cols-5'>
+              {Array.from({ length: 10 }, (_, i) => (
+                <Skeleton key={i} className='h-28' />
+              ))}
+            </div>
+          )}
+          <div
+            className={
+              loading ? 'pointer-events-none space-y-4 opacity-60' : 'space-y-4'
+            }
+            aria-busy={loading}
+          >
+            {/* Summary of the range */}
+            {summary ? (
+              <div className='grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5'>
+                <StatCard
+                  icon={<Activity className='size-4 text-blue-500' />}
+                  label={t('Requests')}
+                  value={formatNumber(summary.requests)}
+                  description={`${t('Avg. Response')}: ${formatUseTime(summary.avg_use_time_seconds)}`}
+                />
+                <StatCard
+                  icon={<Users className='size-4 text-indigo-500' />}
+                  label={t('Unique Users')}
+                  value={formatNumber(summary.unique_users)}
+                />
+                <StatCard
+                  icon={<Zap className='size-4 text-amber-500' />}
+                  label={t('Tokens')}
+                  value={formatTokens(summary.tokens)}
+                />
+                <StatCard
+                  icon={<Zap className='size-4 text-amber-500' />}
+                  label={t('Prompt Tokens')}
+                  value={formatTokens(summary.prompt_tokens)}
+                />
+                <StatCard
+                  icon={<Zap className='size-4 text-violet-500' />}
+                  label={t('Completion Tokens')}
+                  value={formatTokens(summary.completion_tokens)}
+                />
+                <StatCard
+                  icon={<Coins className='size-4 text-yellow-500' />}
+                  label={t('Quota Used')}
+                  value={formatQuota(summary.quota)}
+                />
+                <StatCard
+                  icon={<Radio className='size-4 text-emerald-500' />}
+                  label={t('BYOG Requests')}
+                  value={formatNumber(summary.byog_requests)}
+                />
+                <StatCard
+                  icon={<Server className='size-4 text-cyan-500' />}
+                  label={t('Upstream Requests')}
+                  value={formatNumber(summary.upstream_requests)}
+                />
+                <StatCard
+                  icon={<AlertTriangle className='size-4 text-red-500' />}
+                  label={t('Errors')}
+                  value={formatNumber(summary.errors)}
+                />
+                <StatCard
+                  icon={<LogIn className='size-4 text-sky-500' />}
+                  label={t('Logins')}
+                  value={formatNumber(summary.logins)}
+                />
+                <StatCard
+                  icon={<UserPlus className='size-4 text-violet-500' />}
+                  label={t('Registrations')}
+                  value={formatNumber(summary.registrations)}
+                />
+                <StatCard
+                  icon={<Globe className='size-4 text-teal-500' />}
+                  label={t('BYOG Nodes Online')}
+                  value={
+                    counters
+                      ? `${formatNumber(counters.byog_nodes_online)} / ${formatNumber(counters.byog_nodes_total)}`
+                      : '-'
+                  }
+                />
               </div>
-            </CardHeader>
-            <CardContent>
-              {seriesData.length > 0 ? (
-                <div className='h-80'>
-                  <ResponsiveContainer width='100%' height='100%'>
-                    <AreaChart data={seriesData}>
-                      <defs>
-                        <linearGradient
-                          id='statsSeriesGradient'
-                          x1='0'
-                          y1='0'
-                          x2='0'
-                          y2='1'
-                        >
-                          <stop offset='5%' stopColor='#3b82f6' stopOpacity={0.4} />
-                          <stop offset='95%' stopColor='#3b82f6' stopOpacity={0.05} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray='3 3' className='stroke-muted' />
-                      <XAxis
-                        dataKey='label'
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fontSize: 11 }}
-                        minTickGap={24}
-                      />
-                      <YAxis
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fontSize: 11 }}
-                        width={56}
-                        tickFormatter={yAxisTick}
-                      />
-                      <Tooltip
-                        formatter={(value) => [
-                          tooltipValue(Number(value)),
-                          t(
-                            SERIES_METRICS.find((entry) => entry.value === metric)
-                              ?.labelKey ?? ''
-                          ),
-                        ]}
-                      />
-                      <Area
-                        type='monotone'
-                        dataKey={metric}
-                        stroke='#3b82f6'
-                        strokeWidth={2}
-                        fill='url(#statsSeriesGradient)'
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className='flex h-40 items-center justify-center text-sm text-muted-foreground'>
-                  {t('No Data')}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+            ) : null}
 
-          {/* Distributions */}
-          <div className='grid grid-cols-1 gap-4 lg:grid-cols-3'>
-            <Card>
-              <CardHeader className='pb-2'>
-                <CardTitle className='text-base'>{t('Hour of Day')}</CardTitle>
-                <CardDescription>{t('Requests')}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className='h-56'>
-                  <ResponsiveContainer width='100%' height='100%'>
-                    <BarChart data={hourOfDayData}>
-                      <CartesianGrid strokeDasharray='3 3' className='stroke-muted' />
-                      <XAxis
-                        dataKey='label'
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fontSize: 10 }}
-                        interval={1}
-                      />
-                      <YAxis
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fontSize: 11 }}
-                        width={44}
-                        tickFormatter={(value: number) =>
-                          formatCompactNumber(value)
-                        }
-                      />
-                      <Tooltip
-                        formatter={(value) => [
-                          formatNumber(Number(value)),
-                          t('Requests'),
-                        ]}
-                      />
-                      <Bar dataKey='count' fill='#3b82f6' radius={[3, 3, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className='pb-2'>
-                <CardTitle className='text-base'>{t('Weekday')}</CardTitle>
-                <CardDescription>{t('Requests')}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className='h-56'>
-                  <ResponsiveContainer width='100%' height='100%'>
-                    <BarChart data={weekdayData}>
-                      <CartesianGrid strokeDasharray='3 3' className='stroke-muted' />
-                      <XAxis
-                        dataKey='label'
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fontSize: 11 }}
-                      />
-                      <YAxis
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fontSize: 11 }}
-                        width={44}
-                        tickFormatter={(value: number) =>
-                          formatCompactNumber(value)
-                        }
-                      />
-                      <Tooltip
-                        formatter={(value) => [
-                          formatNumber(Number(value)),
-                          t('Requests'),
-                        ]}
-                      />
-                      <Bar dataKey='count' fill='#10b981' radius={[3, 3, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className='pb-2'>
-                <CardTitle className='text-base'>{t('Log Types')}</CardTitle>
-                <CardDescription>{t('Count')}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {logTypeData.length > 0 ? (
+            {/* Global counters */}
+            {counters ? (
+              <div className='grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5'>
+                <StatCard
+                  icon={<Users className='size-4 text-muted-foreground' />}
+                  label={t('Total Users')}
+                  value={formatNumber(counters.total_users)}
+                  description={`${t('Active Users')}: ${formatNumber(counters.active_users)}`}
+                />
+                <StatCard
+                  icon={<Network className='size-4 text-muted-foreground' />}
+                  label={t('Total Channels')}
+                  value={formatNumber(counters.total_channels)}
+                  description={`${t('Active Channels')}: ${formatNumber(counters.active_channels)}`}
+                />
+                <StatCard
+                  icon={<KeyRound className='size-4 text-muted-foreground' />}
+                  label={t('API Keys')}
+                  value={formatNumber(counters.total_api_tokens)}
+                  description={`${t('Active API Keys')}: ${formatNumber(counters.active_api_tokens)}`}
+                />
+                <StatCard
+                  icon={<Ticket className='size-4 text-muted-foreground' />}
+                  label={t('Redemption Codes')}
+                  value={formatNumber(counters.total_redemptions)}
+                  description={`${t('Unused Codes')}: ${formatNumber(counters.unused_redemptions)}`}
+                />
+                <StatCard
+                  icon={<Globe className='size-4 text-muted-foreground' />}
+                  label={t('BYOG Nodes')}
+                  value={formatNumber(counters.byog_nodes_total)}
+                  description={`${t('BYOG Nodes Online')}: ${formatNumber(counters.byog_nodes_online)}`}
+                />
+              </div>
+            ) : null}
+
+            {/* All time series are visible together. */}
+            <div className='grid grid-cols-1 gap-4 xl:grid-cols-2'>
+              {[
+                {
+                  title: t('Requests'),
+                  keys: [
+                    { key: 'requests', label: t('Requests'), color: '#3b82f6' },
+                  ],
+                },
+                {
+                  title: t('Tokens'),
+                  keys: [
+                    {
+                      key: 'prompt_tokens',
+                      label: t('Prompt Tokens'),
+                      color: '#8b5cf6',
+                    },
+                    {
+                      key: 'completion_tokens',
+                      label: t('Completion Tokens'),
+                      color: '#10b981',
+                    },
+                  ],
+                },
+                {
+                  title: t('Quota Used'),
+                  keys: [
+                    { key: 'quota', label: t('Quota Used'), color: '#f59e0b' },
+                  ],
+                },
+                {
+                  title: t('Unique Users'),
+                  keys: [
+                    {
+                      key: 'unique_users',
+                      label: t('Unique Users'),
+                      color: '#6366f1',
+                    },
+                  ],
+                },
+                {
+                  title: t('Errors'),
+                  keys: [
+                    { key: 'errors', label: t('Errors'), color: '#ef4444' },
+                  ],
+                },
+                {
+                  title: t('Registrations'),
+                  keys: [
+                    {
+                      key: 'registrations',
+                      label: t('Registrations'),
+                      color: '#14b8a6',
+                    },
+                  ],
+                },
+                {
+                  title: `${t('BYOG Requests')} / ${t('Upstream Requests')}`,
+                  keys: [
+                    {
+                      key: 'byog_requests',
+                      label: t('BYOG Requests'),
+                      color: '#10b981',
+                    },
+                    {
+                      key: 'upstream_requests',
+                      label: t('Upstream Requests'),
+                      color: '#3b82f6',
+                    },
+                  ],
+                },
+              ].map((chart) => (
+                <Card key={chart.title}>
+                  <CardHeader className='pb-2'>
+                    <CardTitle className='text-base'>{chart.title}</CardTitle>
+                    <CardDescription>{t('Traffic Over Time')}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {seriesData.length ? (
+                      <div className='h-64'>
+                        <ResponsiveContainer width='100%' height='100%'>
+                          <AreaChart data={seriesData}>
+                            <CartesianGrid
+                              strokeDasharray='3 3'
+                              className='stroke-muted'
+                            />
+                            <XAxis
+                              dataKey='label'
+                              tickLine={false}
+                              axisLine={false}
+                              tick={{ fontSize: 11 }}
+                              minTickGap={24}
+                            />
+                            <YAxis
+                              tickLine={false}
+                              axisLine={false}
+                              tick={{ fontSize: 11 }}
+                              width={56}
+                              tickFormatter={(value: number) =>
+                                chart.title === t('Quota Used')
+                                  ? formatQuota(value)
+                                  : formatCompactNumber(value)
+                              }
+                            />
+                            <Tooltip
+                              formatter={(value) =>
+                                chart.title === t('Quota Used')
+                                  ? formatQuota(Number(value))
+                                  : formatNumber(Number(value))
+                              }
+                            />
+                            {chart.keys.length > 1 && <Legend />}
+                            {chart.keys.map((entry) => (
+                              <Area
+                                key={entry.key}
+                                type='monotone'
+                                dataKey={entry.key}
+                                name={entry.label}
+                                stroke={entry.color}
+                                fill={entry.color}
+                                fillOpacity={0.25}
+                                stackId={
+                                  chart.keys.length > 1 ? 'stack' : undefined
+                                }
+                              />
+                            ))}
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    ) : (
+                      <div className='flex h-40 items-center justify-center text-sm text-muted-foreground'>
+                        {t('No Data')}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Distributions */}
+            <div className='grid grid-cols-1 gap-4 lg:grid-cols-3'>
+              <Card>
+                <CardHeader className='pb-2'>
+                  <CardTitle className='text-base'>
+                    {t('Hour of Day')}
+                  </CardTitle>
+                  <CardDescription>{t('Requests')}</CardDescription>
+                </CardHeader>
+                <CardContent>
                   <div className='h-56'>
                     <ResponsiveContainer width='100%' height='100%'>
-                      <PieChart>
-                        <Pie
-                          data={logTypeData}
-                          dataKey='value'
-                          nameKey='name'
-                          cx='50%'
-                          cy='50%'
-                          innerRadius={45}
-                          outerRadius={75}
-                          paddingAngle={2}
-                        >
-                          {logTypeData.map((entry, index) => (
-                            <Cell
-                              key={entry.name}
-                              fill={PIE_COLORS[index % PIE_COLORS.length]}
-                            />
-                          ))}
-                        </Pie>
+                      <BarChart data={hourOfDayData}>
+                        <CartesianGrid
+                          strokeDasharray='3 3'
+                          className='stroke-muted'
+                        />
+                        <XAxis
+                          dataKey='label'
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 10 }}
+                          interval={1}
+                        />
+                        <YAxis
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 11 }}
+                          width={44}
+                          tickFormatter={(value: number) =>
+                            formatCompactNumber(value)
+                          }
+                        />
                         <Tooltip
                           formatter={(value) => [
                             formatNumber(Number(value)),
-                            t('Count'),
+                            t('Requests'),
                           ]}
                         />
-                        <Legend
-                          verticalAlign='bottom'
-                          height={32}
-                          iconSize={8}
-                          formatter={(value) => (
-                            <span className='text-xs'>{value}</span>
-                          )}
+                        <Bar
+                          dataKey='count'
+                          fill='#3b82f6'
+                          radius={[3, 3, 0, 0]}
                         />
-                      </PieChart>
+                      </BarChart>
                     </ResponsiveContainer>
                   </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className='pb-2'>
+                  <CardTitle className='text-base'>{t('Weekday')}</CardTitle>
+                  <CardDescription>{t('Requests')}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className='h-56'>
+                    <ResponsiveContainer width='100%' height='100%'>
+                      <BarChart data={weekdayData}>
+                        <CartesianGrid
+                          strokeDasharray='3 3'
+                          className='stroke-muted'
+                        />
+                        <XAxis
+                          dataKey='label'
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 11 }}
+                        />
+                        <YAxis
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 11 }}
+                          width={44}
+                          tickFormatter={(value: number) =>
+                            formatCompactNumber(value)
+                          }
+                        />
+                        <Tooltip
+                          formatter={(value) => [
+                            formatNumber(Number(value)),
+                            t('Requests'),
+                          ]}
+                        />
+                        <Bar
+                          dataKey='count'
+                          fill='#10b981'
+                          radius={[3, 3, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className='pb-2'>
+                  <CardTitle className='text-base'>{t('Log Types')}</CardTitle>
+                  <CardDescription>{t('Count')}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {logTypeData.length > 0 ? (
+                    <div className='h-56'>
+                      <ResponsiveContainer width='100%' height='100%'>
+                        <PieChart>
+                          <Pie
+                            data={logTypeData}
+                            dataKey='value'
+                            nameKey='name'
+                            cx='50%'
+                            cy='50%'
+                            innerRadius={45}
+                            outerRadius={75}
+                            paddingAngle={2}
+                          >
+                            {logTypeData.map((entry, index) => (
+                              <Cell
+                                key={entry.name}
+                                fill={PIE_COLORS[index % PIE_COLORS.length]}
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            formatter={(value) => [
+                              formatNumber(Number(value)),
+                              t('Count'),
+                            ]}
+                          />
+                          <Legend
+                            verticalAlign='bottom'
+                            height={32}
+                            iconSize={8}
+                            formatter={(value) => (
+                              <span className='text-xs'>{value}</span>
+                            )}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <div className='flex h-56 items-center justify-center text-sm text-muted-foreground'>
+                      {t('No Data')}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className='grid grid-cols-1 gap-4 lg:grid-cols-2'>
+              {[
+                {
+                  title: t('BYOG Device Types'),
+                  rows: data?.distributions.byog_device_types ?? [],
+                },
+                {
+                  title: t('BYOG Countries'),
+                  rows: data?.distributions.byog_countries ?? [],
+                },
+              ].map((chart) => (
+                <Card key={chart.title}>
+                  <CardHeader>
+                    <CardTitle className='text-base'>{chart.title}</CardTitle>
+                    <CardDescription>
+                      {t('Global BYOG network (not affected by filters)')}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {chart.rows.length ? (
+                      <div className='h-56'>
+                        <ResponsiveContainer width='100%' height='100%'>
+                          <BarChart data={chart.rows}>
+                            <CartesianGrid
+                              strokeDasharray='3 3'
+                              className='stroke-muted'
+                            />
+                            <XAxis dataKey='name' tick={{ fontSize: 10 }} />
+                            <YAxis
+                              tickFormatter={(value: number) =>
+                                formatCompactNumber(value)
+                              }
+                            />
+                            <Tooltip />
+                            <Bar
+                              dataKey='count'
+                              name={t('Count')}
+                              fill='#10b981'
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    ) : (
+                      <div className='flex h-56 items-center justify-center text-sm text-muted-foreground'>
+                        {t('No Data')}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Rankings are simultaneously visible. */}
+            <div className='grid grid-cols-1 gap-4 xl:grid-cols-2'>
+              {[
+                { title: t('Users'), rows: userRows, header: t('User') },
+                { title: t('Models'), rows: modelRows, header: t('Model') },
+                {
+                  title: t('Channels'),
+                  rows: channelRows,
+                  header: t('Channel'),
+                },
+                { title: t('Clients'), rows: clientRows, header: t('Client') },
+                { title: t('Groups'), rows: groupRows, header: t('Group') },
+                {
+                  title: t('Addresses'),
+                  rows: ipRows,
+                  header: t('Address'),
+                  showQuota: false,
+                },
+              ].map((rank) => (
+                <Card key={rank.title}>
+                  <CardHeader>
+                    <CardTitle className='text-base'>{rank.title}</CardTitle>
+                  </CardHeader>
+                  <CardContent className='overflow-x-auto'>
+                    <RankTable
+                      rows={rank.rows}
+                      nameHeader={rank.header}
+                      showQuota={rank.showQuota}
+                    />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle className='text-base'>{t('BYOG Nodes')}</CardTitle>
+              </CardHeader>
+              <CardContent className='overflow-x-auto'>
+                {byogNodes.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('Device')}</TableHead>
+                        <TableHead>{t('Owner')}</TableHead>
+                        <TableHead>{t('Country')}</TableHead>
+                        <TableHead>{t('Status')}</TableHead>
+                        <TableHead className='text-right'>
+                          {t('Tokens')}
+                        </TableHead>
+                        <TableHead className='text-right'>
+                          {t('Uptime')}
+                        </TableHead>
+                        <TableHead className='text-right'>
+                          {t('Reputation')}
+                        </TableHead>
+                        <TableHead className='text-right'>
+                          {t('Credits')}
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {byogNodes.map((node) => (
+                        <TableRow key={node.node_id}>
+                          <TableCell>
+                            <div className='flex flex-col'>
+                              <span className='max-w-48 truncate font-medium'>
+                                {node.device_name || node.node_id}
+                              </span>
+                              <span className='text-xs text-muted-foreground'>
+                                {node.device_type}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {node.username || `#${node.user_id}`}
+                          </TableCell>
+                          <TableCell>
+                            {[node.city, node.country]
+                              .filter(Boolean)
+                              .join(', ') || '-'}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant='outline'
+                              className={
+                                node.status === 'online'
+                                  ? 'border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                                  : 'text-muted-foreground'
+                              }
+                            >
+                              {node.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className='text-right tabular-nums'>
+                            {formatCompactNumber(node.total_tokens_processed)}
+                          </TableCell>
+                          <TableCell className='text-right tabular-nums'>
+                            {formatUptime(node.uptime_seconds)}
+                          </TableCell>
+                          <TableCell className='text-right tabular-nums'>
+                            {node.reputation_score}
+                          </TableCell>
+                          <TableCell className='text-right tabular-nums'>
+                            {formatNumber(
+                              Math.round(node.total_earned_credits * 100) / 100,
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 ) : (
-                  <div className='flex h-56 items-center justify-center text-sm text-muted-foreground'>
+                  <div className='py-8 text-center text-sm text-muted-foreground'>
                     {t('No Data')}
                   </div>
                 )}
               </CardContent>
             </Card>
           </div>
-
-          {/* Rankings */}
-          <Card>
-            <CardHeader className='pb-2'>
-              <CardTitle className='text-base'>{t('Rankings')}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue='users'>
-                <TabsList className='flex flex-wrap'>
-                  <TabsTrigger value='users'>{t('Users')}</TabsTrigger>
-                  <TabsTrigger value='models'>{t('Models')}</TabsTrigger>
-                  <TabsTrigger value='channels'>{t('Channels')}</TabsTrigger>
-                  <TabsTrigger value='clients'>{t('Clients')}</TabsTrigger>
-                  <TabsTrigger value='groups'>{t('Groups')}</TabsTrigger>
-                  <TabsTrigger value='ips'>{t('Addresses')}</TabsTrigger>
-                  <TabsTrigger value='byog'>{t('BYOG Nodes')}</TabsTrigger>
-                </TabsList>
-                <TabsContent value='users'>
-                  <RankTable rows={userRows} nameHeader={t('User')} />
-                </TabsContent>
-                <TabsContent value='models'>
-                  <RankTable rows={modelRows} nameHeader={t('Model')} />
-                </TabsContent>
-                <TabsContent value='channels'>
-                  <RankTable rows={channelRows} nameHeader={t('Channel')} />
-                </TabsContent>
-                <TabsContent value='clients'>
-                  <RankTable rows={clientRows} nameHeader={t('Client')} />
-                </TabsContent>
-                <TabsContent value='groups'>
-                  <RankTable rows={groupRows} nameHeader={t('Group')} />
-                </TabsContent>
-                <TabsContent value='ips'>
-                  <RankTable
-                    rows={ipRows}
-                    nameHeader={t('Address')}
-                    showQuota={false}
-                  />
-                </TabsContent>
-                <TabsContent value='byog'>
-                  {byogNodes.length > 0 ? (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>{t('Device')}</TableHead>
-                          <TableHead>{t('Owner')}</TableHead>
-                          <TableHead>{t('Country')}</TableHead>
-                          <TableHead>{t('Status')}</TableHead>
-                          <TableHead className='text-right'>
-                            {t('Tokens')}
-                          </TableHead>
-                          <TableHead className='text-right'>
-                            {t('Uptime')}
-                          </TableHead>
-                          <TableHead className='text-right'>
-                            {t('Reputation')}
-                          </TableHead>
-                          <TableHead className='text-right'>
-                            {t('Credits')}
-                          </TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {byogNodes.map((node) => (
-                          <TableRow key={node.node_id}>
-                            <TableCell>
-                              <div className='flex flex-col'>
-                                <span className='max-w-48 truncate font-medium'>
-                                  {node.device_name || node.node_id}
-                                </span>
-                                <span className='text-xs text-muted-foreground'>
-                                  {node.device_type}
-                                </span>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              {node.username || `#${node.user_id}`}
-                            </TableCell>
-                            <TableCell>
-                              {[node.city, node.country]
-                                .filter(Boolean)
-                                .join(', ') || '-'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant='outline'
-                                className={
-                                  node.status === 'online'
-                                    ? 'border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
-                                    : 'text-muted-foreground'
-                                }
-                              >
-                                {node.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className='text-right tabular-nums'>
-                              {formatCompactNumber(node.total_tokens_processed)}
-                            </TableCell>
-                            <TableCell className='text-right tabular-nums'>
-                              {formatUptime(node.uptime_seconds)}
-                            </TableCell>
-                            <TableCell className='text-right tabular-nums'>
-                              {node.reputation_score}
-                            </TableCell>
-                            <TableCell className='text-right tabular-nums'>
-                              {formatNumber(
-                                Math.round(node.total_earned_credits * 100) / 100
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  ) : (
-                    <div className='py-8 text-center text-sm text-muted-foreground'>
-                      {t('No Data')}
-                    </div>
-                  )}
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>

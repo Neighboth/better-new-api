@@ -589,6 +589,12 @@ func SetApiRouter(router *gin.Engine) {
 				byogAdminRoute.DELETE("/nodes/:id", middleware.RequirePermission(authz.ByogWrite), controller.DeleteAdminByogNode)
 				byogAdminRoute.GET("/banned", middleware.RequirePermission(authz.ByogRead), controller.GetByogAdminBannedNodes)
 				byogAdminRoute.POST("/banned/:id/unban", middleware.RequirePermission(authz.ByogWrite), controller.UnbanByogAdminNode)
+				// The observability of the network: the health summary, the
+				// crash reports of the workers and the nodes that are stuck
+				// with a failed model or a failed transfer.
+				byogAdminRoute.GET("/observability/summary", middleware.RequirePermission(authz.ByogRead), controller.GetByogObservabilitySummary)
+				byogAdminRoute.GET("/observability/crash-reports", middleware.RequirePermission(authz.ByogRead), controller.GetByogCrashReports)
+				byogAdminRoute.GET("/observability/download-errors", middleware.RequirePermission(authz.ByogRead), controller.GetByogDownloadErrors)
 			}
 		}
 

@@ -22,8 +22,11 @@ import type {
   ByogAssignmentRule,
   ByogModel,
   ByogModelLora,
+  ByogCrashReportsPage,
+  ByogDownloadErrorItem,
   ByogNode,
   ByogNodeBan,
+  ByogObservabilitySummary,
   ByogRewardClaim,
   ByogRewardItem,
   ByogSetting,
@@ -68,7 +71,7 @@ export async function getUserPairingCode(): Promise<{
 
 export async function updateNode(
   nodeId: string,
-  data: Partial<ByogNode>
+  data: Partial<ByogNode>,
 ): Promise<ByogNode> {
   const res = await api.put(`/api/byog/user/nodes/${nodeId}`, data)
   return res.data.data
@@ -96,7 +99,7 @@ export async function claimReward(rewardId: number): Promise<ByogRewardClaim> {
 
 export async function submitBanAppeal(
   nodeId: string,
-  appealText: string
+  appealText: string,
 ): Promise<{ ticket_id: number }> {
   const res = await api.post('/api/byog/user/appeal', {
     node_id: nodeId,
@@ -115,7 +118,7 @@ export async function getAdminSettings(): Promise<ByogSetting> {
 }
 
 export async function updateAdminSettings(
-  settings: Partial<ByogSetting>
+  settings: Partial<ByogSetting>,
 ): Promise<ByogSetting> {
   const res = await api.post('/api/byog/admin/settings', settings)
   return res.data.data
@@ -127,7 +130,7 @@ export async function getAdminRewards(): Promise<ByogRewardItem[]> {
 }
 
 export async function createAdminReward(
-  reward: Partial<ByogRewardItem>
+  reward: Partial<ByogRewardItem>,
 ): Promise<ByogRewardItem> {
   const res = await api.post('/api/byog/admin/rewards', reward)
   return res.data.data
@@ -135,7 +138,7 @@ export async function createAdminReward(
 
 export async function updateAdminReward(
   id: number,
-  reward: Partial<ByogRewardItem>
+  reward: Partial<ByogRewardItem>,
 ): Promise<ByogRewardItem> {
   const res = await api.put(`/api/byog/admin/rewards/${id}`, reward)
   return res.data.data
@@ -146,7 +149,7 @@ export async function deleteAdminReward(id: number): Promise<void> {
 }
 
 export async function getAdminClaims(
-  status?: string
+  status?: string,
 ): Promise<ByogRewardClaim[]> {
   const res = await api.get('/api/byog/admin/claims', { params: { status } })
   return res.data.data
@@ -168,7 +171,7 @@ export async function getAdminRules(): Promise<ByogAssignmentRule[]> {
 }
 
 export async function createAdminRule(
-  rule: Partial<ByogAssignmentRule>
+  rule: Partial<ByogAssignmentRule>,
 ): Promise<ByogAssignmentRule> {
   const res = await api.post('/api/byog/admin/rules', rule)
   return res.data.data
@@ -176,7 +179,7 @@ export async function createAdminRule(
 
 export async function updateAdminRule(
   id: number,
-  rule: Partial<ByogAssignmentRule>
+  rule: Partial<ByogAssignmentRule>,
 ): Promise<ByogAssignmentRule> {
   const res = await api.put(`/api/byog/admin/rules/${id}`, rule)
   return res.data.data
@@ -195,7 +198,7 @@ export async function getAdminModels(): Promise<{
 }
 
 export async function createAdminModel(
-  model: Partial<ByogModel>
+  model: Partial<ByogModel>,
 ): Promise<ByogModel> {
   const res = await api.post('/api/byog/admin/models', model)
   return res.data.data
@@ -203,7 +206,7 @@ export async function createAdminModel(
 
 export async function updateAdminModel(
   id: number,
-  model: Partial<ByogModel>
+  model: Partial<ByogModel>,
 ): Promise<ByogModel> {
   const res = await api.put(`/api/byog/admin/models/${id}`, model)
   return res.data.data
@@ -215,7 +218,7 @@ export async function deleteAdminModel(id: number): Promise<void> {
 
 export async function createAdminLora(
   modelId: number,
-  lora: Partial<ByogModelLora>
+  lora: Partial<ByogModelLora>,
 ): Promise<ByogModelLora> {
   const res = await api.post(`/api/byog/admin/models/${modelId}/loras`, lora)
   return res.data.data
@@ -246,4 +249,51 @@ export async function unbanAdminNode(id: number): Promise<void> {
 
 export async function deleteAdminNode(nodeId: string): Promise<void> {
   await api.delete(`/api/byog/admin/nodes/${nodeId}`)
+}
+
+// Admin Observability Endpoints
+
+/**
+ * The health summary of the node network: the counts of the operational
+ * states and the noise of the crash reports.
+ */
+export async function getAdminObservabilitySummary(): Promise<ByogObservabilitySummary> {
+  const res = await api.get('/api/byog/admin/observability/summary')
+  if (!res.data.success || !res.data.data)
+    throw new Error(res.data.message || 'Failed to load')
+  return res.data.data
+}
+
+/**
+ * One page of the crash reports of the workers with the resolved names of
+ * the devices and of the users.
+ */
+export async function getAdminCrashReports(
+  params: {
+    page?: number
+    page_size?: number
+    node_id?: string
+    error_code?: string
+  } = {},
+): Promise<ByogCrashReportsPage> {
+  const res = await api.get('/api/byog/admin/observability/crash-reports', {
+    params,
+  })
+  if (!res.data.success || !res.data.data)
+    throw new Error(res.data.message || 'Failed to load')
+  return res.data.data
+}
+
+/**
+ * The nodes that are stuck with a failed model or a failed transfer.
+ */
+export async function getAdminDownloadErrors(
+  limit = 50,
+): Promise<{ items: ByogDownloadErrorItem[] }> {
+  const res = await api.get('/api/byog/admin/observability/download-errors', {
+    params: { limit },
+  })
+  if (!res.data.success || !res.data.data)
+    throw new Error(res.data.message || 'Failed to load')
+  return res.data.data
 }
