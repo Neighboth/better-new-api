@@ -516,3 +516,21 @@ func TestTaskWalletHoldReleaseAndReview(t *testing.T) {
 	require.NoError(t, model.DB.First(&hold, "id = ?", id).Error)
 	require.Equal(t, "resolved", hold.State)
 }
+
+func TestLegacyTaskGuardProtectsTerminalSettlementWindow(t *testing.T) {
+	truncate(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Redemption{}, &model.UserBalancePackage{}))
+	seedUser(t, 981, 100)
+	t.Cleanup(func() { model.DB.Unscoped().Where("user_id = ?", 981).Delete(&model.Redemption{}) })
+	task := makeTask(981, 0, 10, 0, BillingSourceWallet, 0)
+	require.NoError(t, model.DB.Create(task).Error)
+	id, err := beginLegacyTaskWalletHold(task)
+	require.NoError(t, err)
+	require.NotEmpty(t, id)
+	require.NoError(t, model.DB.Model(task).Update("status", model.TaskStatusSuccess).Error)
+	_, err = model.CreateResellerBalanceCodes(981, 10, 1, "while-settling")
+	require.Error(t, err)
+	releaseLegacyTaskWalletHold(context.Background(), task, id)
+	_, err = model.CreateResellerBalanceCodes(981, 10, 1, "settled")
+	require.NoError(t, err)
+}

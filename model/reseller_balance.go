@@ -80,6 +80,14 @@ func CreateResellerBalanceCodes(userID, amount, count int, name string) ([]strin
 		if holds > 0 {
 			return errors.New("reseller balance codes are unavailable while wallet operations are unresolved")
 		}
+		// Also protect tasks created before durable holds were introduced.
+		var unfinished int64
+		if err := tx.Model(&Task{}).Where("user_id = ? AND COALESCE(status, '') NOT IN ?", userID, []TaskStatus{TaskStatusSuccess, TaskStatusFailure}).Count(&unfinished).Error; err != nil {
+			return err
+		}
+		if unfinished > 0 {
+			return errors.New("reseller balance codes are unavailable while asynchronous tasks are unfinished")
+		}
 		// Model-restricted credit must not be turned into an unrestricted code.
 		// Until packages can be split/propagated, fail closed for such accounts.
 		var restricted int64

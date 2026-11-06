@@ -13,7 +13,7 @@ import (
 
 func TestWalletTransferGuardBlocksIssuanceAndReleasesOnReturn(t *testing.T) {
 	setupDashboardAuthMiddlewareTest(t)
-	require.NoError(t, model.DB.AutoMigrate(&model.WalletTransferHold{}, &model.Redemption{}, &model.UserBalancePackage{}))
+	require.NoError(t, model.DB.AutoMigrate(&model.WalletTransferHold{}, &model.Redemption{}, &model.UserBalancePackage{}, &model.Task{}))
 	user := createMiddlewarePATUser(t, "wallet-guard", "wallet-guard-token")
 	require.NoError(t, model.DB.Model(user).Update("quota", 100).Error)
 	oldBatch := common.BatchUpdateEnabled

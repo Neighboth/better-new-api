@@ -147,3 +147,19 @@ func TestResellerFailedIssuanceInvalidatesCache(t *testing.T) {
 	require.Equal(t, 100, cached.Quota)
 	require.Equal(t, 100, getUserQuotaFromDB(t, user.Id))
 }
+
+func TestResellerIssuanceWaitsForUnfinishedLegacyTasks(t *testing.T) {
+	truncateTables(t)
+	resetBatchUpdateTestState(t)
+	require.NoError(t, DB.AutoMigrate(&Redemption{}, &UserBalancePackage{}))
+	user := createReserveTestUser(t, 100)
+	t.Cleanup(func() { DB.Unscoped().Where("user_id = ?", user.Id).Delete(&Redemption{}) })
+	task := Task{UserId: user.Id, TaskID: "legacy-pending-" + common.GetRandomString(8), Status: TaskStatusInProgress}
+	require.NoError(t, DB.Create(&task).Error)
+	_, err := CreateResellerBalanceCodes(user.Id, 10, 1, "blocked")
+	require.Error(t, err)
+	require.Equal(t, 100, getUserQuotaFromDB(t, user.Id))
+	require.NoError(t, DB.Model(&task).Update("status", TaskStatusSuccess).Error)
+	_, err = CreateResellerBalanceCodes(user.Id, 10, 1, "after")
+	require.NoError(t, err)
+}

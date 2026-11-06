@@ -43,7 +43,7 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			initCol()
 			t.Cleanup(func() { DB = oldDB; common.SetMainDatabaseType(oldType); initCol() })
 			resetBatchUpdateTestState(t)
-			require.NoError(t, db.AutoMigrate(&User{}, &Redemption{}, &UserBalancePackage{}, &ByogPairingSession{}, &WalletTransferHold{}))
+			require.NoError(t, db.AutoMigrate(&User{}, &Redemption{}, &UserBalancePackage{}, &ByogPairingSession{}, &WalletTransferHold{}, &Task{}))
 			owner := createReserveTestUser(t, 100)
 			t.Cleanup(func() {
 				db.Unscoped().Where("user_id = ?", owner.Id).Delete(&Redemption{})
