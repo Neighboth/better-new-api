@@ -7,9 +7,9 @@ import (
 )
 
 func TestHuggingFaceParameterSize(t *testing.T) {
-	assert.Equal(t, "2B", huggingFaceParameterSize("vngrs/Kumru-2B", nil))
+	assert.Equal(t, "~2B", huggingFaceParameterSize("vngrs/Kumru-2B", nil))
 	assert.Equal(t, "1.6T", huggingFaceParameterSize("org/model", map[string]interface{}{"safetensors": map[string]interface{}{"total": 1.6e12}}))
-	assert.Equal(t, "120B", huggingFaceParameterSize("org/model-120B-Instruct", nil))
+	assert.Equal(t, "~120B", huggingFaceParameterSize("org/model-120B-Instruct", nil))
 	assert.Equal(t, "", huggingFaceParameterSize("org/Mixtral-8x7B", nil))
 	assert.Equal(t, "", huggingFaceParameterSize("org/unknown", nil))
 }

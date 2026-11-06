@@ -156,7 +156,7 @@ func huggingFaceParameterSize(repo string, data map[string]interface{}) string {
 	}
 	match := regexp.MustCompile(`(?i)(?:^|[-_ ])([0-9]+(?:\.[0-9]+)?)([bt])(?:$|[-_. ])`).FindStringSubmatch(name)
 	if len(match) == 3 {
-		return match[1] + strings.ToUpper(match[2])
+		return "~" + match[1] + strings.ToUpper(match[2])
 	}
 	return ""
 }
