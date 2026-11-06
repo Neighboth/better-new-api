@@ -1292,3 +1292,27 @@ func TestLegacyAndViolationWalletEventsAreIndependentlyIdempotent(t *testing.T) 
 	require.ErrorIs(t, err, model.ErrWalletHoldConflict)
 	require.NoError(t, model.ResolveWalletTransferHold(984, holdID, 0))
 }
+
+func TestMidjourneyChargeUsesRequestHoldJournal(t *testing.T) {
+	truncate(t)
+	seedUser(t, 985, 100)
+	holdID, err := model.BeginWalletTransferHold(985)
+	require.NoError(t, err)
+	info := &relaycommon.RelayInfo{UserId: 985, IsPlayground: true}
+	task := &model.Midjourney{UserId: 985, MjId: "journaled-mj"}
+	prepared, err := PrepareMidjourneyTaskBilling(info, task, 20, true)
+	require.NoError(t, err)
+	require.NoError(t, task.Insert())
+	applied, err := SettleMidjourneyTaskBillingWithHold(info, task, prepared, holdID)
+	require.NoError(t, err)
+	require.True(t, applied)
+	require.Equal(t, 80, getUserQuota(t, 985))
+	persisted := getMidjourneyTask(t, task.Id)
+	require.False(t, persisted.BillingPending)
+	var event model.WalletHoldEvent
+	require.NoError(t, model.DB.Where("hold_id = ? AND event_key = ?", holdID, "midjourney-charge").First(&event).Error)
+	require.Equal(t, -20, event.Delta)
+	require.True(t, RefundMidjourneyQuota(context.Background(), task, "failure"))
+	require.Equal(t, 100, getUserQuota(t, 985))
+	require.NoError(t, model.ResolveWalletTransferHold(985, holdID, 0))
+}

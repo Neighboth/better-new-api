@@ -64,6 +64,10 @@ func PrepareMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.
 
 // SettleMidjourneyTaskBilling charges a persisted legacy task and records the applied stages.
 func SettleMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.Midjourney, prepared bool) (bool, error) {
+	return SettleMidjourneyTaskBillingWithHold(relayInfo, task, prepared, "")
+}
+
+func SettleMidjourneyTaskBillingWithHold(relayInfo *relaycommon.RelayInfo, task *model.Midjourney, prepared bool, holdID string) (bool, error) {
 	if !prepared {
 		return false, nil
 	}
@@ -74,7 +78,7 @@ func SettleMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.M
 		return false, errors.New("Midjourney task must be persisted before billing")
 	}
 
-	result, billingErr := postConsumeQuotaWithResult(relayInfo, task.Quota, 0, true)
+	result, billingErr := postConsumeQuotaWithHold(relayInfo, task.Quota, 0, true, holdID, "midjourney-charge")
 	if !result.FundingApplied {
 		// A failed database acknowledgement can mean the debit committed. Keep
 		// the pending marker and quota instead of guessing and issuing a refund.
