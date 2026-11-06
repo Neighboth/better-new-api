@@ -503,7 +503,7 @@ func TestSettleMidjourneyTaskBillingFundingFailureRetainsPendingMarker(t *testin
 	assert.True(t, persisted.BillingPending)
 	assert.Zero(t, persisted.TokenId)
 	assert.Equal(t, channelID, persisted.BillingChannelId)
-	assert.False(t, RefundMidjourneyQuota(context.Background(), persisted, "uncertain charge"))
+	assert.False(t, RefundMidjourneyQuota(context.Background(), &persisted, "uncertain charge"))
 	assert.Equal(t, initialUserQuota, getUserQuota(t, userID))
 	usedQuota, requestCount := getUserUsageAccounting(t, userID)
 	assert.Zero(t, usedQuota)
