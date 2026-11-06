@@ -43,6 +43,10 @@ func TestMidjourneyWalletRefundAtomicAndStaleStatusUpdate(t *testing.T) {
 	var persisted Midjourney
 	require.NoError(t, DB.First(&persisted, task.Id).Error)
 	require.Zero(t, persisted.Quota)
+	stale.FailReason = "stale notification"
+	require.NoError(t, stale.Update())
+	require.NoError(t, DB.First(&persisted, task.Id).Error)
+	require.Zero(t, persisted.Quota)
 	amount, err := RefundMidjourneyWalletOnce(user.Id, task.Id)
 	require.NoError(t, err)
 	require.Zero(t, amount)
@@ -63,5 +67,11 @@ func TestMidjourneyPendingChargeCannotBeRefunded(t *testing.T) {
 	var persisted Midjourney
 	require.NoError(t, DB.First(&persisted, task.Id).Error)
 	require.Equal(t, 20, persisted.Quota)
+	require.True(t, persisted.BillingPending)
+	task.Progress = "100%"
+	task.Status = "FAILURE"
+	require.NoError(t, task.Update())
+	require.NoError(t, DB.First(&persisted, task.Id).Error)
+	require.NotEqual(t, "100%", persisted.Progress)
 	require.True(t, persisted.BillingPending)
 }

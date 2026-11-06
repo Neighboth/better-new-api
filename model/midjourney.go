@@ -177,9 +177,10 @@ func (midjourney *Midjourney) Insert() error {
 }
 
 func (midjourney *Midjourney) Update() error {
-	var err error
-	err = DB.Save(midjourney).Error
-	return err
+	// Provider status callbacks must not rewrite billing markers from a stale
+	// snapshot or complete a task while its charge outcome is uncertain.
+	return DB.Model(midjourney).Where("billing_pending = ?", false).
+		Select("*").Omit("Quota", "TokenId", "BillingChannelId", "BillingPending").Updates(midjourney).Error
 }
 
 func (midjourney *Midjourney) UpdateBillingState() error {
@@ -201,7 +202,7 @@ func (midjourney *Midjourney) GetBillingChannelId() int {
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).
 // Uses Model().Select("*").Updates() to avoid GORM Save()'s INSERT fallback.
 func (midjourney *Midjourney) UpdateWithStatus(fromStatus string) (bool, error) {
-	result := DB.Model(midjourney).Where("status = ?", fromStatus).Select("*").Omit("Quota", "TokenId", "BillingChannelId", "BillingPending").Updates(midjourney)
+	result := DB.Model(midjourney).Where("status = ? AND billing_pending = ?", fromStatus, false).Select("*").Omit("Quota", "TokenId", "BillingChannelId", "BillingPending").Updates(midjourney)
 	if result.Error != nil {
 		return false, result.Error
 	}
