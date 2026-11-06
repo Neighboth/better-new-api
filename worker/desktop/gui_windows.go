@@ -48,6 +48,7 @@ const (
 	wmDpiChanged    = 0x02E0
 	wmPaint         = 0x000F
 	wmTray          = 0x8000 + 1
+	wmWebViewFailed = 0x8000 + 2
 	notifyClick     = 0x40000000
 
 	csHRedraw = 0x0002
@@ -365,20 +366,26 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string, trayFlag bool
 	// The entries of the system carry the name and the icon of the installation
 	// from the first start.
 	fmt.Println("[GUI] Before updateInstallationBranding")
-	if os.Stdout != nil { _ = os.Stdout.Sync() }
+	if os.Stdout != nil {
+		_ = os.Stdout.Sync()
+	}
 	if config.SystemName != "" || config.AppName != "" {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
 					fmt.Printf("[GUI] updateInstallationBranding panic: %v\n", r)
-					if os.Stdout != nil { _ = os.Stdout.Sync() }
+					if os.Stdout != nil {
+						_ = os.Stdout.Sync()
+					}
 				}
 			}()
 			updateInstallationBranding(config.AppName, config.SystemName, config.FaviconBase64)
 		}()
 	}
 	fmt.Println("[GUI] After updateInstallationBranding")
-	if os.Stdout != nil { _ = os.Stdout.Sync() }
+	if os.Stdout != nil {
+		_ = os.Stdout.Sync()
+	}
 
 	fmt.Println("[GUI] Before window.create()")
 	window := &guiWindow{statusState: stateOffline, statusText: clientText("connecting"), hovered: -1, trayMode: trayFlag}
@@ -918,6 +925,22 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 		}
 		return 0
 
+	case wmWebViewFailed:
+		if window != nil {
+			window.mutex.Lock()
+			restore := window.embedCmd == nil && !window.embedClosing && !window.quitRequested
+			if restore {
+				window.embedFailed = true
+			}
+			window.mutex.Unlock()
+			if restore {
+				procShowWindow.Call(window.window, swRestore)
+				procSetForeground.Call(window.window)
+				procUpdateWindow.Call(window.window)
+			}
+		}
+		return 0
+
 	case wmTray:
 		if window != nil {
 			switch lparam {
@@ -1240,14 +1263,21 @@ func (w *guiWindow) openEmbeddedPage(page string) bool {
 	w.mutex.Unlock()
 
 	go func() {
-		<-done
+		err := <-done
 		w.mutex.Lock()
-		if w.embedCmd == command {
+		current := w.embedCmd == command
+		closing := w.embedClosing || w.quitRequested
+		if current {
 			w.embedCmd = nil
 		}
 		w.mutex.Unlock()
-		// When the WebView window is closed (e.g. by pressing X), the worker keeps
-		// running in the system tray. Never restore or pop up the legacy fallback window.
+		// A failed helper must not leave the worker hidden and inaccessible.
+		// A normal user close still leaves it in the notification area.
+		if current && !closing && err != nil {
+			// Post to the owning window thread; it is handled after the caller
+			// finishes hiding the fallback, avoiding a restore/hide race.
+			procPostMessage.Call(w.window, wmWebViewFailed, 0, 0)
+		}
 	}()
 	return true
 }
@@ -1257,7 +1287,7 @@ func (w *guiWindow) openEmbeddedPage(page string) bool {
 // The process of the window is the program of the client itself. The answer
 // tells whether the window is still open after the start, a runtime of WebView2
 // that is not complete ends the process at once.
-func startClientWindow(page string, title string, iconPath string) (*exec.Cmd, <-chan struct{}, bool) {
+func startClientWindow(page string, title string, iconPath string) (*exec.Cmd, <-chan error, bool) {
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, nil, false
@@ -1272,15 +1302,20 @@ func startClientWindow(page string, title string, iconPath string) (*exec.Cmd, <
 	if err := command.Start(); err != nil {
 		return nil, nil, false
 	}
-	done := make(chan struct{})
+	done := make(chan error, 1)
 	go func() {
 		err := command.Wait()
 		webViewLog(fmt.Sprintf("the process of the page ended: %v", err))
-		close(done)
+		done <- err
 	}()
 	select {
-	case <-done:
-		return nil, nil, false
+	case err := <-done:
+		if err != nil {
+			return nil, nil, false
+		}
+		// The user closed the helper before the startup grace period ended.
+		done <- nil
+		return command, done, true
 	case <-time.After(1600 * time.Millisecond):
 		return command, done, true
 	}
@@ -1321,6 +1356,9 @@ func (w *guiWindow) show() {
 		procShowWindow.Call(w.window, swHide)
 		return
 	}
+	procShowWindow.Call(w.window, swRestore)
+	procSetForeground.Call(w.window)
+	procUpdateWindow.Call(w.window)
 }
 
 // addTrayIcon shows the client in the notification area of the system.

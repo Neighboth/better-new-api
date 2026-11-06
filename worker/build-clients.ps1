@@ -13,8 +13,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent 
-Set-Location $PSScriptRoot
+$root = Split-Path -Parent $PSScriptRoot
+Set-Location $root
 $binaries = Join-Path $root "worker\binaries"
 
 New-Item -ItemType Directory -Force -Path $binaries | Out-Null
@@ -37,6 +37,7 @@ $env:GOARCH = "amd64"
 # program itself.
 $ldflags = "-s -w -H windowsgui"
 go build -trimpath -ldflags $ldflags -o (Join-Path $binaries "BYOG Worker.exe") ./worker/desktop
+if ($LASTEXITCODE -ne 0) { throw "Worker build failed" }
 
 # The scanners of the systems trust a program that is signed with the
 # certificate of the installation. The signature is written when the
@@ -76,6 +77,7 @@ Write-Host "BYOG Worker (Linux) derleniyor..."
 $env:GOOS = "linux"
 $env:GOARCH = "amd64"
 go build -trimpath -o (Join-Path $binaries "byog-worker-linux-amd64") ./worker/desktop
+if ($LASTEXITCODE -ne 0) { throw "Worker build failed" }
 
 # The small computers of the Raspberry family use the processors of ARM. The
 # two images of the systems cover the 64-bit systems and the older 32-bit
@@ -83,17 +85,20 @@ go build -trimpath -o (Join-Path $binaries "byog-worker-linux-amd64") ./worker/d
 Write-Host "BYOG Worker (Linux ARM64) derleniyor..."
 $env:GOARCH = "arm64"
 go build -trimpath -o (Join-Path $binaries "byog-worker-linux-arm64") ./worker/desktop
+if ($LASTEXITCODE -ne 0) { throw "Worker build failed" }
 
 Write-Host "BYOG Worker (Linux ARM 32-bit) derleniyor..."
 $env:GOARCH = "arm"
 $env:GOARM = "7"
 go build -trimpath -o (Join-Path $binaries "byog-worker-linux-arm") ./worker/desktop
+if ($LASTEXITCODE -ne 0) { throw "Worker build failed" }
 Remove-Item Env:GOARM
 
 Write-Host "BYOG Worker (macOS) derleniyor..."
 $env:GOOS = "darwin"
 $env:GOARCH = "arm64"
 go build -trimpath -ldflags "-s -w" -o (Join-Path $binaries "byog-worker-darwin-arm64") ./worker/desktop
+if ($LASTEXITCODE -ne 0) { throw "Worker build failed" }
 
 Remove-Item Env:GOOS
 Remove-Item Env:GOARCH
@@ -105,6 +110,7 @@ if (-not $SkipMobile) {
     $env:GOOS = "linux"
     $env:GOARCH = "arm64"
     go build -trimpath -ldflags "-s -w" -o (Join-Path $binaries "byog-worker-android-arm64") ./worker/mobile
+    if ($LASTEXITCODE -ne 0) { throw "Worker build failed" }
     Remove-Item Env:GOOS
     Remove-Item Env:GOARCH
     Remove-Item Env:CGO_ENABLED

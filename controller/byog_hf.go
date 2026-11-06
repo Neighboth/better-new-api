@@ -1,38 +1,40 @@
 package controller
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/gin-gonic/gin"
 )
 
 type HfRepoItem struct {
-	Id        string `json:"id"`
-	Author    string `json:"author"`
-	Downloads int    `json:"downloads"`
-	Likes     int    `json:"likes"`
-	Gated     bool   `json:"gated"`
-	Private   bool   `json:"private"`
+	Id            string `json:"id"`
+	Author        string `json:"author"`
+	Downloads     int    `json:"downloads"`
+	Likes         int    `json:"likes"`
+	Gated         bool   `json:"gated"`
+	Private       bool   `json:"private"`
+	ParameterSize string `json:"parameter_size"`
 }
 
 type HfFileDetail struct {
-	Filename       string  `json:"filename"`
-	Size           int64   `json:"size"`
-	SizeMB         int     `json:"size_mb"`
-	SizeGB         float64 `json:"size_gb"`
-	DownloadUrl    string  `json:"download_url"`
-	Quantization   string  `json:"quantization"`
-	RecommendedRam float64 `json:"recommended_ram_gb"`
-	RecommendedVram int    `json:"recommended_vram_gb"`
-	RecommendedCores int   `json:"recommended_cores"`
+	Filename         string  `json:"filename"`
+	Size             int64   `json:"size"`
+	SizeMB           int     `json:"size_mb"`
+	SizeGB           float64 `json:"size_gb"`
+	DownloadUrl      string  `json:"download_url"`
+	Quantization     string  `json:"quantization"`
+	RecommendedRam   float64 `json:"recommended_ram_gb"`
+	RecommendedVram  int     `json:"recommended_vram_gb"`
+	RecommendedCores int     `json:"recommended_cores"`
 }
 
 // SearchHuggingFaceModels proxies model search requests to Hugging Face API
@@ -43,7 +45,7 @@ func SearchHuggingFaceModels(c *gin.Context) {
 		query = "gguf"
 	}
 
-	hfApiUrl := fmt.Sprintf("https://huggingface.co/api/models?search=%s&limit=30&full=false", url.QueryEscape(query))
+	hfApiUrl := fmt.Sprintf("https://huggingface.co/api/models?search=%s&limit=30&full=true", url.QueryEscape(query))
 	client := &http.Client{Timeout: 12 * time.Second}
 
 	req, err := http.NewRequest("GET", hfApiUrl, nil)
@@ -75,7 +77,7 @@ func SearchHuggingFaceModels(c *gin.Context) {
 	}
 
 	var rawRepos []map[string]interface{}
-	if err := json.Unmarshal(body, &rawRepos); err != nil {
+	if err := common.Unmarshal(body, &rawRepos); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "JSON ayrıştırma hatası"})
 		return
 	}
@@ -114,12 +116,13 @@ func SearchHuggingFaceModels(c *gin.Context) {
 		}
 
 		results = append(results, HfRepoItem{
-			Id:        repoId,
-			Author:    author,
-			Downloads: downloads,
-			Likes:     likes,
-			Gated:     isGated,
-			Private:   isPrivate,
+			Id:            repoId,
+			Author:        author,
+			Downloads:     downloads,
+			Likes:         likes,
+			Gated:         isGated,
+			Private:       isPrivate,
+			ParameterSize: huggingFaceParameterSize(repoId, r),
 		})
 	}
 
@@ -129,27 +132,66 @@ func SearchHuggingFaceModels(c *gin.Context) {
 	})
 }
 
+// huggingFaceParameterSize prefers model metadata and falls back to a clearly
+// delimited size in the repository name. Missing or ambiguous sizes stay unknown.
+func huggingFaceParameterSize(repo string, data map[string]interface{}) string {
+	for _, field := range []string{"safetensors", "gguf"} {
+		metadata, ok := data[field].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		total, ok := metadata["total"].(float64)
+		if !ok || total <= 0 || math.IsInf(total, 0) || math.IsNaN(total) {
+			continue
+		}
+		unit, scale := "B", 1e9
+		if total >= 1e12 {
+			unit, scale = "T", 1e12
+		}
+		return strconv.FormatFloat(math.Round(total/scale*10)/10, 'f', -1, 64) + unit
+	}
+	name := repo
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	match := regexp.MustCompile(`(?i)(?:^|[-_ ])([0-9]+(?:\.[0-9]+)?)([bt])(?:$|[-_. ])`).FindStringSubmatch(name)
+	if len(match) == 3 {
+		return "~" + match[1] + strings.ToUpper(match[2])
+	}
+	return ""
+}
+
+// These are conservative planning estimates for a single file, not guarantees:
+// context, quantization, architecture, GPU offloading and other processes vary.
+// Unknown sizes must not be presented as a fabricated low requirement.
 func computeRecommendedSpecs(sizeGB float64) (recRam float64, recVram int, recCores int) {
 	if sizeGB <= 0 {
-		return 4.0, 2, 4
+		return 0, 0, 0
 	}
-	// RAM: Model file size in RAM + 25% KV cache overhead + 2 GB cushion, rounded up to 0.5 GB step (min 4.0 GB)
-	recRam = math.Max(math.Ceil((sizeGB*1.25+2.0)*2.0)/2.0, 4.0)
-	// VRAM: Model in VRAM + 2 GB buffer (min 2 GB)
-	recVram = int(math.Max(math.Ceil(sizeGB+2.0), 2.0))
-	// Cores: Scaled to model size for sufficient compute throughput
-	if sizeGB > 30.0 {
+	recRam = math.Max(math.Ceil((sizeGB*1.35+4)*2)/2, 8)
+	recVram = int(math.Max(math.Ceil(sizeGB*1.2+2), 4))
+	switch {
+	case sizeGB > 30:
 		recCores = 16
-	} else if sizeGB > 14.0 {
+	case sizeGB > 14:
 		recCores = 12
-	} else if sizeGB > 6.0 {
+	case sizeGB > 2:
 		recCores = 8
-	} else if sizeGB > 2.5 {
-		recCores = 6
-	} else {
+	default:
 		recCores = 4
 	}
-	return recRam, recVram, recCores
+	return
+}
+
+// A shard's size is not the size of the full model. Until all parts are
+// reliably collected and supported by the downloader, report no estimate.
+var hfShardPattern = regexp.MustCompile(`(?i)[-_][0-9]{5}-of-[0-9]{5}\.(gguf|safetensors|bin)$`)
+
+func recommendedSpecsForFile(name string, size int64) (float64, int, int) {
+	if hfShardPattern.MatchString(name) {
+		return 0, 0, 0
+	}
+	return computeRecommendedSpecs(float64(size) / (1024 * 1024 * 1024))
 }
 
 // GetHuggingFaceModelFiles retrieves available quantizations/GGUF files and recommended hardware
@@ -202,7 +244,7 @@ func GetHuggingFaceModelFiles(c *gin.Context) {
 		if resp.StatusCode == http.StatusOK {
 			body, err := io.ReadAll(resp.Body)
 			if err == nil {
-				if err := json.Unmarshal(body, &treeItems); err == nil && len(treeItems) > 0 {
+				if err := common.Unmarshal(body, &treeItems); err == nil && len(treeItems) > 0 {
 					treeSuccess = true
 					break
 				}
@@ -254,7 +296,7 @@ func GetHuggingFaceModelFiles(c *gin.Context) {
 			sizeMB := int(fileSize / (1024 * 1024))
 			sizeGB := math.Round((float64(fileSize)/(1024.0*1024.0*1024.0))*10.0) / 10.0
 
-			recRam, recVram, recCores := computeRecommendedSpecs(sizeGB)
+			recRam, recVram, recCores := recommendedSpecsForFile(fPath, fileSize)
 
 			files = append(files, HfFileDetail{
 				Filename:         fPath,
@@ -295,7 +337,7 @@ func GetHuggingFaceModelFiles(c *gin.Context) {
 				if resp.StatusCode == http.StatusOK {
 					body, _ := io.ReadAll(resp.Body)
 					var repoDetail map[string]interface{}
-					if json.Unmarshal(body, &repoDetail) == nil {
+					if common.Unmarshal(body, &repoDetail) == nil {
 						if gVal, ok := repoDetail["gated"]; ok && gVal != nil {
 							if gb, ok := gVal.(bool); ok {
 								isGated = gb
@@ -324,38 +366,10 @@ func GetHuggingFaceModelFiles(c *gin.Context) {
 								quant = strings.ToUpper(match)
 							}
 
-							// Estimate size from model name if tree wasn't available
-							sizeGB := 4.8
-							if strings.Contains(lower, "671b") || strings.Contains(lower, "deepseek-v3") || strings.Contains(lower, "deepseek-r1") && !strings.Contains(lower, "distill") {
-								sizeGB = 220.0
-							} else if strings.Contains(lower, "236b") {
-								sizeGB = 140.0
-							} else if strings.Contains(lower, "110b") || strings.Contains(lower, "120b") {
-								sizeGB = 65.0
-							} else if strings.Contains(lower, "70b") || strings.Contains(lower, "72b") {
-								sizeGB = 40.0
-							} else if strings.Contains(lower, "8x22b") {
-								sizeGB = 80.0
-							} else if strings.Contains(lower, "8x7b") {
-								sizeGB = 28.0
-							} else if strings.Contains(lower, "32b") || strings.Contains(lower, "33b") || strings.Contains(lower, "34b") {
-								sizeGB = 20.0
-							} else if strings.Contains(lower, "27b") {
-								sizeGB = 16.0
-							} else if strings.Contains(lower, "14b") {
-								sizeGB = 9.2
-							} else if strings.Contains(lower, "7b") || strings.Contains(lower, "8b") || strings.Contains(lower, "9b") {
-								sizeGB = 4.8
-							} else if strings.Contains(lower, "3b") || strings.Contains(lower, "4b") {
-								sizeGB = 2.6
-							} else if strings.Contains(lower, "1.5b") || strings.Contains(lower, "2b") {
-								sizeGB = 1.2
-							} else if strings.Contains(lower, "0.5b") {
-								sizeGB = 0.5
-							}
-							sizeMB := int(sizeGB * 1024)
-							fileSize := int64(sizeMB) * 1024 * 1024
-
+							// The metadata did not contain a file size. Do not invent one.
+							var fileSize int64
+							var sizeMB int
+							var sizeGB float64
 							recRam, recVram, recCores := computeRecommendedSpecs(sizeGB)
 
 							files = append(files, HfFileDetail{

@@ -44,6 +44,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
+  clearAdminCrashReports,
   getAdminCrashReports,
   getAdminDownloadErrors,
   getAdminObservabilitySummary,
@@ -56,9 +57,15 @@ import type {
 } from '@/features/byog/types'
 import dayjs from '@/lib/dayjs'
 import { formatNumber } from '@/lib/format'
+import { ADMIN_PERMISSION_RESOURCES, hasPermission } from '@/lib/admin-permissions'
+import { useAuthStore } from '@/stores/auth-store'
 
 export function ByogObservabilityTab() {
   const { t } = useTranslation()
+  const user = useAuthStore((state) => state.auth.user)
+  const canClear = hasPermission(user, ADMIN_PERMISSION_RESOURCES.BYOG, 'write')
+  const [clearing, setClearing] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
   const [summary, setSummary] = useState<ByogObservabilitySummary | null>(null)
   const [crashes, setCrashes] = useState<ByogCrashReportsPage | null>(null)
   const [errors, setErrors] = useState<ByogDownloadErrorItem[]>([])
@@ -173,6 +180,7 @@ export function ByogObservabilityTab() {
       <Card>
         <CardHeader>
           <CardTitle className='text-base'>{t('Crash Reports')}</CardTitle>
+          {canClear && <Button variant='destructive' size='sm' disabled={clearing || !crashes?.total} onClick={() => setConfirmClear(true)}>{t('Archive and delete crash reports')}</Button>}
           <CardDescription>
             {crashes ? `${t('Total')}: ${formatNumber(crashes.total)}` : ''}
           </CardDescription>
@@ -295,6 +303,25 @@ export function ByogObservabilityTab() {
           )}
         </CardContent>
       </Card>
+      <Dialog open={confirmClear} onOpenChange={setConfirmClear}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('Archive and delete crash reports')}</DialogTitle>
+            <DialogDescription>{t('All crash reports will be saved to the server log directory and deleted from the database. Live node errors are not cleared.')}</DialogDescription>
+          </DialogHeader>
+          <Button variant='destructive' disabled={clearing} onClick={async () => {
+            setClearing(true)
+            try {
+              await clearAdminCrashReports()
+              setConfirmClear(false)
+              setSelected(null)
+              if (page === 1) await load()
+              else setPage(1)
+            } catch { setFailed(true) }
+            finally { setClearing(false) }
+          }}>{t('Delete')}</Button>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={!!selected}
         onOpenChange={(open) => {

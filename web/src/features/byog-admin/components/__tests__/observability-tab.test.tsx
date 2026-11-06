@@ -1,8 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ByogObservabilityTab } from '../observability-tab'
+import { useAuthStore } from '@/stores/auth-store'
 
 vi.mock('@/features/byog/api', () => ({
+  clearAdminCrashReports: vi.fn(),
   getAdminObservabilitySummary: vi.fn(),
   getAdminCrashReports: vi.fn(),
   getAdminDownloadErrors: vi.fn(),
@@ -11,6 +13,7 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 import {
+  clearAdminCrashReports,
   getAdminCrashReports,
   getAdminDownloadErrors,
   getAdminObservabilitySummary,
@@ -18,6 +21,8 @@ import {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  useAuthStore.getState().auth.setUser(null)
+  vi.mocked(clearAdminCrashReports).mockResolvedValue(undefined)
   vi.mocked(getAdminObservabilitySummary).mockResolvedValue({
     node_health: {
       total: 2,
@@ -59,6 +64,21 @@ beforeEach(() => {
 })
 
 describe('BYOG observability', () => {
+  test('read-only administrators cannot delete crash reports', async () => {
+    render(<ByogObservabilityTab />)
+    await screen.findByText('Laptop')
+    expect(screen.queryByRole('button', { name: 'Archive and delete crash reports' })).not.toBeInTheDocument()
+  })
+  test('an administrator confirms before archiving and deleting reports', async () => {
+    useAuthStore.getState().auth.setUser({ id: 1, username: 'root', role: 100 })
+    render(<ByogObservabilityTab />)
+    await screen.findByText('Laptop')
+    fireEvent.click(screen.getByRole('button', { name: 'Archive and delete crash reports' }))
+    expect(screen.getByText(/saved to the server log directory/)).toBeInTheDocument()
+    expect(clearAdminCrashReports).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(clearAdminCrashReports).toHaveBeenCalledOnce())
+  })
   test('shows health and crash details', async () => {
     render(<ByogObservabilityTab />)
     expect(screen.getByRole('status')).toHaveTextContent('Loading...')

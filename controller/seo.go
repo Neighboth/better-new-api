@@ -225,41 +225,6 @@ func RenderIndexPage(indexPage []byte) []byte {
 	return RenderCustomIndexPage(indexPage, siteName, title, description, keywords, icon, socialImage)
 }
 
-func RenderResellerIndexPage(indexPage []byte, rc *model.ResellerConfig) []byte {
-	siteName := rc.SiteName
-	if siteName == "" {
-		siteName = common.SystemName
-		if siteName == "" {
-			siteName = "New API"
-		}
-	}
-	title := siteName
-	if rc.SeoTitle != "" {
-		title = siteName + " - " + rc.SeoTitle
-	}
-	desc := rc.SeoDescription
-	if desc == "" {
-		desc = seoOption("SEODescription")
-	}
-	keywords := rc.SeoKeywords
-	if keywords == "" {
-		keywords = seoOption("SEOKeywords")
-	}
-	icon := rc.Favicon
-	if icon == "" {
-		icon = rc.Logo
-	}
-	if icon == "" {
-		icon = common.Favicon
-	}
-	if icon == "" {
-		icon = common.Logo
-	}
-	if icon == "" {
-		icon = "/logo.png"
-	}
-	return RenderCustomIndexPage(indexPage, siteName, title, desc, keywords, icon, icon)
-}
 
 func RenderCustomIndexPage(indexPage []byte, siteName, title, description, keywords, icon, socialImage string) []byte {
 	page := string(indexPage)
@@ -643,11 +608,6 @@ func GetLegalContent(c *gin.Context) {
 // so there is no caching here beyond the caller's Cache-Control header.
 func ServeIndex(c *gin.Context, indexPage []byte) {
 	c.Header("Cache-Control", "no-cache")
-	host := strings.Split(c.Request.Host, ":")[0]
-	if rc, err := model.GetResellerConfigByDomain(host); err == nil && rc != nil && rc.ChildPanelEnabled {
-		c.Data(http.StatusOK, "text/html; charset=utf-8", RenderResellerIndexPage(indexPage, rc))
-		return
-	}
 	lang := resolveRequestLanguage(c)
 	c.Data(http.StatusOK, "text/html; charset=utf-8", RenderIndexPageForLocale(indexPage, lang, siteBaseURL(c), c.Request.URL.Path))
 }

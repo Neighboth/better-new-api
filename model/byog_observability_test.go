@@ -1,6 +1,8 @@
 package model
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -158,4 +160,29 @@ func TestListByogNodesWithErrors(t *testing.T) {
 	assert.Equal(t, 42, rows[0].DownloadProgress)
 	assert.Equal(t, "e-n1", rows[1].NodeId)
 	assert.Equal(t, "error", rows[1].ModelStatus)
+}
+
+func TestArchiveAndDeleteByogCrashReports(t *testing.T) {
+	require.NoError(t, DB.AutoMigrate(&ByogCrashReport{}))
+	cleanByogObservabilityTables(t)
+	require.NoError(t, DB.Create(&ByogCrashReport{NodeId: "test-node", ErrorCode: "oom", ErrorMessage: "test"}).Error)
+	count, err := ArchiveAndDeleteByogCrashReports("")
+	require.Error(t, err)
+	require.Zero(t, count)
+	remaining, err := CountByogCrashReports()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), remaining)
+	dir := t.TempDir()
+	count, err = ArchiveAndDeleteByogCrashReports(dir)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), count)
+	remaining, err = CountByogCrashReports()
+	require.NoError(t, err)
+	require.Zero(t, remaining)
+	files, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	data, err := os.ReadFile(filepath.Join(dir, files[0].Name()))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"error_code":"oom"`)
 }

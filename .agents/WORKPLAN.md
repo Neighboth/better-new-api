@@ -64,3 +64,10 @@
 - [ ] Full web lint is not clean (512 errors and 244 warnings across the repository); see /home/user/statistics-web-lint.log.
 - [x] Go vet, build and tests passed in GitHub CI for this follow-up (run 42161791322). The local sandbox has no Go toolchain; cross-database migrations and queries still need runtime validation.
 - [ ] The requested real-client, 30-minute runtime verification remains unperformed: the sandbox lacks a working browser, native client toolchains and devices. No live-client verification is claimed.
+
+## J. BYOG and reseller follow-up (session arena/fcb68de0)
+- In progress: HF parameter metadata and conservative, explicitly approximate resource estimates; no fabricated file sizes when metadata is unavailable.
+- In progress: Windows worker WebView failure fallback and WebSocket write serialization. The tracked Windows installer and executable were rebuilt on GitHub Actions, and their PE subsystems are GUI (2); real Windows runtime verification is still outstanding. Existing clients will not auto-update solely from this rebuild because the shared worker version was not bumped.
+- In progress: archive crash reports to the configured log directory before deleting their database rows; current node error states are not historical logs.
+- In progress: remove the reseller child-domain, branding, gateway UI, API and code. Existing databases retain the legacy configuration table and any secrets. Existing child-domain payments may be disrupted; reconciliation is needed before deployment.
+- Review found serious existing BYOG worker authentication gaps and reseller balance races/cache incoherence; the tunnel and telemetry endpoints trust node IDs without device authentication; concurrent reseller balance reservation/refund is unsafe, and customer-log access is too broad. They are not yet remediated. Real Android/Windows tests remain outstanding. Do not merge or delete branches while requested work is incomplete. GitHub Actions passed Go vet, build, tests, Windows cross-build, web typecheck and tests; local web production build and 330 tests passed.

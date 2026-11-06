@@ -259,8 +259,9 @@ func startHeartbeatLoop() {
 			"timestamp": time.Now().UnixMilli(),
 		}
 
-		_ = State.WsConn.WriteJSON(frame)
+		conn := State.WsConn
 		State.Mu.Unlock()
+		_ = sendWsFrame(conn, frame)
 	}
 }
 
@@ -1476,7 +1477,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 
 		switch frame.Type {
 		case "ping":
-			_ = conn.WriteJSON(map[string]string{"type": "pong"})
+			_ = sendWsFrame(conn, map[string]string{"type": "pong"})
 
 		case "device_removed", "pairing_revoked":
 			// The device was removed from the network, the pairing is dropped.
@@ -1493,7 +1494,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 				status.NodeId = ""
 			})
 			fmt.Println("[BYOG WORKER] The device was removed from the network, the pairing has to be done again")
-			_ = conn.WriteJSON(map[string]string{"type": "device_removed_ack"})
+			_ = sendWsFrame(conn, map[string]string{"type": "device_removed_ack"})
 			return
 
 		case "download_model":
@@ -1644,7 +1645,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 							"data_hex": "",
 							"error":    fmt.Sprintf("model file %s is not available", probe.ModelId),
 						})
-						_ = conn.WriteJSON(map[string]interface{}{
+						_ = sendWsFrame(conn, map[string]interface{}{
 							"type":    "byte_probe_response",
 							"id":      frame.Id,
 							"payload": json.RawMessage(respPayload),
@@ -1657,7 +1658,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 							"data_hex": "",
 							"error":    err.Error(),
 						})
-						_ = conn.WriteJSON(map[string]interface{}{
+						_ = sendWsFrame(conn, map[string]interface{}{
 							"type":    "byte_probe_response",
 							"id":      frame.Id,
 							"payload": json.RawMessage(respPayload),
@@ -1667,7 +1668,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 					respPayload, _ := json.Marshal(map[string]string{
 						"data_hex": hex.EncodeToString(buf),
 					})
-					_ = conn.WriteJSON(map[string]interface{}{
+					_ = sendWsFrame(conn, map[string]interface{}{
 						"type":    "byte_probe_response",
 						"id":      frame.Id,
 						"payload": json.RawMessage(respPayload),
@@ -1707,7 +1708,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 						resp["text"] = result.Text
 					}
 					respBytes, _ := json.Marshal(resp)
-					_ = conn.WriteJSON(map[string]interface{}{
+					_ = sendWsFrame(conn, map[string]interface{}{
 						"type":    "canary_response",
 						"id":      frame.Id,
 						"payload": json.RawMessage(respBytes),

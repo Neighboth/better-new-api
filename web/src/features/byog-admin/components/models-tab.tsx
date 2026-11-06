@@ -173,23 +173,7 @@ export function ByogModelsTab() {
       const parts = hfSelectedRepo.split('/')
       if (parts.length > 0) vendor = parts[0]
     }
-    let paramSize = '7B'
-    const lower = (file.filename + ' ' + (hfSelectedRepo || '')).toLowerCase()
-    if (lower.includes('0.5b')) paramSize = '0.5B'
-    else if (lower.includes('1.5b')) paramSize = '1.5B'
-    else if (lower.includes('3b')) paramSize = '3B'
-    else if (lower.includes('4b')) paramSize = '4B'
-    else if (lower.includes('7b') || lower.includes('8b')) paramSize = '7B'
-    else if (lower.includes('14b')) paramSize = '14B'
-    else if (lower.includes('32b') || lower.includes('33b')) paramSize = '32B'
-    else if (lower.includes('70b') || lower.includes('72b')) paramSize = '70B'
-    else if (file.size_gb >= 35) paramSize = '70B'
-    else if (file.size_gb >= 16) paramSize = '32B'
-    else if (file.size_gb >= 7) paramSize = '14B'
-    else if (file.size_gb >= 3.5) paramSize = '7B'
-    else if (file.size_gb >= 1.8) paramSize = '3B'
-    else if (file.size_gb >= 0.8) paramSize = '1.5B'
-    else if (file.size_gb > 0) paramSize = '0.5B'
+    const paramSize = hfRepos.find((r) => r.id === hfSelectedRepo)?.parameter_size || ''
 
     setEditingModel({
       ...editingModel,
@@ -1099,6 +1083,9 @@ export function ByogModelsTab() {
                             {t('byog.admin.hf_likes', 'Beğeni')}:{' '}
                             <strong>{repo.likes?.toLocaleString() || 0}</strong>
                           </span>
+                          <span>
+                            {t('byog.admin.param_size')}: <strong>{repo.parameter_size || '—'}</strong>
+                          </span>
                           {repo.gated ? (
                             <Badge variant='outline' className='text-[10px] border-amber-500/50 text-amber-500 bg-amber-500/10'>
                               {t('byog.admin.hf_gated_badge', 'Gated (Şartlı)')}
@@ -1179,28 +1166,30 @@ export function ByogModelsTab() {
 
                         <div className='text-xs text-muted-foreground font-medium'>
                           {t('byog.admin.hf_file_size', 'Dosya Boyutu')}:{' '}
-                          <strong className='text-foreground'>{file.size_gb} GB</strong>
+                          <strong className='text-foreground'>{file.size ? `${file.size_gb} GB` : '—'}</strong>
                         </div>
+
+                        <p className='text-xs text-muted-foreground'>{t('Estimates depend on context, quantization and runtime. VRAM assumes full GPU offload; CPU-only use may need no VRAM.')}</p>
 
                         {/* Hardware recommendations badge */}
                         <div className='bg-muted/50 rounded-lg p-2.5 text-[11px] text-muted-foreground grid grid-cols-3 gap-2 border'>
                           <div className='flex flex-col'>
                             <span className='text-[10px] text-muted-foreground/80'>
-                              {t('byog.admin.min_ram', 'Min RAM')}
+                              {t('Estimated RAM')}
                             </span>
-                            <strong className='text-foreground'>{file.recommended_ram_gb} GB</strong>
+                            <strong className='text-foreground'>{file.recommended_ram_gb ? `${file.recommended_ram_gb} GB` : '—'}</strong>
                           </div>
                           <div className='flex flex-col'>
                             <span className='text-[10px] text-muted-foreground/80'>
-                              {t('byog.admin.min_vram', 'Min VRAM')}
+                              {t('Estimated VRAM')}
                             </span>
-                            <strong className='text-emerald-500'>{file.recommended_vram_gb} GB</strong>
+                            <strong className='text-emerald-500'>{file.recommended_vram_gb ? `${file.recommended_vram_gb} GB` : '—'}</strong>
                           </div>
                           <div className='flex flex-col'>
                             <span className='text-[10px] text-muted-foreground/80'>
                               {t('byog.admin.cores', 'Çekirdek')}
                             </span>
-                            <strong className='text-foreground'>{file.recommended_cores} Core</strong>
+                            <strong className='text-foreground'>{file.recommended_cores || '—'}</strong>
                           </div>
                         </div>
 

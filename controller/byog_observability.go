@@ -194,3 +194,14 @@ func GetByogDownloadErrors(c *gin.Context) {
 	}
 	common.ApiSuccess(c, gin.H{"items": items})
 }
+
+// ClearByogCrashReports archives the reports to the configured log directory
+// before deleting them. Live node health and billing logs are not modified.
+func ClearByogCrashReports(c *gin.Context) {
+	count, err := model.ArchiveAndDeleteByogCrashReports(*common.LogDir)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"deleted": count})
+}
