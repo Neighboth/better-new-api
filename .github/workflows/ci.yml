@@ -111,6 +111,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          gofmt -w controller/byog_hf.go controller/byog_hf_test.go controller/byog_observability.go controller/reseller.go controller/reseller_validation_test.go controller/topup_gateway_auth_test.go model/byog_observability.go model/byog_observability_test.go worker/desktop/gui_windows.go worker/desktop/webview_windows.go
+          if ($LASTEXITCODE -ne 0) { throw 'gofmt failed' }
           $env:GOOS = 'windows'
           $env:GOARCH = 'amd64'
           $env:CGO_ENABLED = '0'
@@ -125,7 +127,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add 'worker/binaries/BYOG Worker.exe' 'worker/binaries/BYOG Worker Kurulumu.exe'
+          git add 'worker/binaries/BYOG Worker.exe' 'worker/binaries/BYOG Worker Kurulumu.exe' controller/byog_hf.go controller/byog_hf_test.go controller/byog_observability.go controller/reseller.go controller/reseller_validation_test.go controller/topup_gateway_auth_test.go model/byog_observability.go model/byog_observability_test.go worker/desktop/gui_windows.go worker/desktop/webview_windows.go
           git diff --cached --quiet
           if ($LASTEXITCODE -ne 0) {
             git commit -m 'build: windows istemcisini guncelle'
