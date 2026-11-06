@@ -183,6 +183,17 @@ func computeRecommendedSpecs(sizeGB float64) (recRam float64, recVram int, recCo
 	return
 }
 
+// A shard's size is not the size of the full model. Until all parts are
+// reliably collected and supported by the downloader, report no estimate.
+var hfShardPattern = regexp.MustCompile(`(?i)[-_][0-9]{5}-of-[0-9]{5}\.(gguf|safetensors|bin)$`)
+
+func recommendedSpecsForFile(name string, size int64) (float64, int, int) {
+	if hfShardPattern.MatchString(name) {
+		return 0, 0, 0
+	}
+	return computeRecommendedSpecs(float64(size) / (1024 * 1024 * 1024))
+}
+
 // GetHuggingFaceModelFiles retrieves available quantizations/GGUF files and recommended hardware
 func GetHuggingFaceModelFiles(c *gin.Context) {
 	repoId := strings.TrimSpace(c.Query("repo"))
@@ -285,7 +296,7 @@ func GetHuggingFaceModelFiles(c *gin.Context) {
 			sizeMB := int(fileSize / (1024 * 1024))
 			sizeGB := math.Round((float64(fileSize)/(1024.0*1024.0*1024.0))*10.0) / 10.0
 
-			recRam, recVram, recCores := computeRecommendedSpecs(float64(fileSize) / (1024 * 1024 * 1024))
+			recRam, recVram, recCores := recommendedSpecsForFile(fPath, fileSize)
 
 			files = append(files, HfFileDetail{
 				Filename:         fPath,

@@ -24,3 +24,14 @@ func TestRecommendedSpecsAreConservativeAndUnknownSizeIsUnknown(t *testing.T) {
 	assert.Zero(t, vram)
 	assert.Zero(t, cores)
 }
+
+func TestShardedFileDoesNotUnderstateWholeModelRequirements(t *testing.T) {
+	ram, vram, cores := recommendedSpecsForFile("model-00001-of-00004.gguf", 4*1024*1024*1024)
+	assert.Zero(t, ram)
+	assert.Zero(t, vram)
+	assert.Zero(t, cores)
+	ram, vram, cores = recommendedSpecsForFile("model-Q4_K_M.gguf", 4*1024*1024*1024)
+	assert.Greater(t, ram, 0.0)
+	assert.Greater(t, vram, 0)
+	assert.Greater(t, cores, 0)
+}
