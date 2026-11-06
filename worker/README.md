@@ -105,3 +105,9 @@ serve the APK rather than returning an APK with the wrong signer.
 Do not point `BYOG_APK_SIGNING_KEY` at the old public repository key or any
 copy of it. Key rotation changes Android's signing identity and requires an
 uninstall/reinstall; do not lose the new key after deployment.
+
+Pairing sessions use the shared database, but the live worker WebSocket hub is
+process-local. For a multi-instance installation, route all BYOG worker and
+BYOG inference/control traffic to the same coordinator process; shared SQL and
+signing keys alone do not provide cross-instance tunnel dispatch. A distributed
+hub and failover have not been implemented or validated.
