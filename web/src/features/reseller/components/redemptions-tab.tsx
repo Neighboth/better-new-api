@@ -124,7 +124,7 @@ export function RedemptionsTab() {
       // Refresh current user's profile to reflect deducted balance immediately
       await refreshUserQuota()
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       toast.error(err.message || t('Failed to create redemption codes'))
     },
   })
@@ -140,7 +140,7 @@ export function RedemptionsTab() {
       // Refresh current user's profile to reflect refunded quota immediately
       await refreshUserQuota()
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       toast.error(err.message || t('Failed to delete redemption code'))
     },
   })
@@ -218,7 +218,7 @@ export function RedemptionsTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading ? (
+                {isLoading && (
                   <TableRow>
                     <TableCell
                       colSpan={8}
@@ -227,7 +227,8 @@ export function RedemptionsTab() {
                       <Loader2 className='mx-auto h-6 w-6 animate-spin' />
                     </TableCell>
                   </TableRow>
-                ) : (data?.items?.length ?? 0) === 0 ? (
+                )}
+                {!isLoading && (data?.items?.length ?? 0) === 0 && (
                   <TableRow>
                     <TableCell
                       colSpan={8}
@@ -236,7 +237,8 @@ export function RedemptionsTab() {
                       {t('No redemption codes found.')}
                     </TableCell>
                   </TableRow>
-                ) : (
+                )}
+                {!isLoading &&
                   data?.items.map((item: ResellerRedemption) => (
                     <TableRow key={item.id}>
                       <TableCell className='font-mono text-xs'>
@@ -260,21 +262,23 @@ export function RedemptionsTab() {
                         {item.name}
                       </TableCell>
                       <TableCell>
-                        {item.type === 1 ? (
+                        {item.type === 1 && (
                           <Badge
                             variant='outline'
                             className='border-sky-500/20 bg-sky-500/10 text-[10px] text-sky-600'
                           >
                             {t('Requests')}
                           </Badge>
-                        ) : item.type === 2 ? (
+                        )}
+                        {item.type === 2 && (
                           <Badge
                             variant='outline'
                             className='border-amber-500/20 bg-amber-500/10 text-[10px] text-amber-600'
                           >
                             {t('Tokens')}
                           </Badge>
-                        ) : (
+                        )}
+                        {item.type !== 1 && item.type !== 2 && (
                           <Badge
                             variant='outline'
                             className='border-purple-500/20 bg-purple-500/10 text-[10px] text-purple-600'
@@ -330,8 +334,7 @@ export function RedemptionsTab() {
                         )}
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
+                  ))}
               </TableBody>
             </Table>
           </div>
@@ -418,7 +421,7 @@ export function RedemptionsTab() {
                   value={dollarAmount}
                   onChange={(e) =>
                     setDollarAmount(
-                      Math.max(0.01, parseFloat(e.target.value) || 0)
+                      Math.max(0.01, Number.parseFloat(e.target.value) || 0)
                     )
                   }
                 />
@@ -436,7 +439,10 @@ export function RedemptionsTab() {
                   value={codeCount}
                   onChange={(e) =>
                     setCodeCount(
-                      Math.min(100, Math.max(1, parseInt(e.target.value) || 1))
+                      Math.min(
+                        100,
+                        Math.max(1, Number.parseInt(e.target.value, 10) || 1)
+                      )
                     )
                   }
                 />
