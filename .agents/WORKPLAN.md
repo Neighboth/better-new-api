@@ -62,5 +62,5 @@
 - [x] Translate the statistics and administrator permission catalog strings across eight locales and run locale sync. Added a regression test for the covered translations; unrelated pre-existing translation debt remains.
 - [x] Web typecheck, build, and complete Vitest suite passed (55 files, 328 tests), including new statistics, ranking, picker, and locale coverage.
 - [ ] Full web lint is not clean (512 errors and 244 warnings across the repository); see /home/user/statistics-web-lint.log.
-- [ ] Run Go tests, build and vet for this follow-up in a Go-capable environment. Tests were added but not run locally because the sandbox has no Go toolchain. Cross-database migrations and queries also need runtime validation.
+- [x] Go vet, build and tests passed in GitHub CI for this follow-up (run 42161791322). The local sandbox has no Go toolchain; cross-database migrations and queries still need runtime validation.
 - [ ] The requested real-client, 30-minute runtime verification remains unperformed: the sandbox lacks a working browser, native client toolchains and devices. No live-client verification is claimed.
