@@ -199,6 +199,15 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 			if cacheErr := invalidateUserCache(id); cacheErr != nil {
 				common.SysError(fmt.Sprintf("failed to invalidate user quota after reservation failure: %v", cacheErr))
 			}
+			if dbErr == nil {
+				var count int64
+				if lookupErr := DB.Model(&User{}).Where("id = ?", id).Count(&count).Error; lookupErr != nil {
+					return false, lookupErr
+				}
+				if count == 0 {
+					return false, gorm.ErrRecordNotFound
+				}
+			}
 			return false, dbErr
 		}
 		return true, nil
