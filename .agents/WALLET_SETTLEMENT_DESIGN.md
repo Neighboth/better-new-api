@@ -23,10 +23,20 @@ been established. Do not deploy this as a completed financial redesign.
   terminal-processing hold. Task wallet adjustments use idempotent hold events
   in non-batch mode; terminal/refund failures retain the hold. Status changes,
   token accounting, logs and provider callbacks are not one SQL transaction.
-- Legacy `PostConsumeQuota`, realtime, direct BYOG, violation fees, Midjourney
-  and other paths still need a complete exact-once and error/crash review; not
-  every wallet mutation is journaled. In batch mode normal billing retains its
-  existing batch behavior, while reseller code issuance is rejected.
+- Non-batch legacy final settlement, violation fees, direct BYOG charges and
+  Midjourney submission charges now also journal their wallet delta when a
+  request hold is present. Midjourney submissions persist a pending-charge
+  marker before billing; pollers skip pending tasks and failed charges retain
+  their hold for investigation. A wallet refund consumes the persisted task
+  quota and credits the user in one transaction, and stale status updates cannot
+  restore that quota. This prevents duplicate wallet refunds by pollers. Token
+  refunds, usage statistics and logs remain separate, so a crash after the SQL
+  wallet refund can still leave those accounting records inconsistent. Batch
+  billing retains its existing behavior; reseller issuance is rejected in batch
+  mode. Existing pre-migration Midjourney records have no pending marker and must
+  be considered in rollout/reconciliation; no historical backfill is assumed.
+- Realtime, other unjournaled paths and every workflow above still need a full
+  exact-once and error/crash review; not every wallet mutation is journaled.
 - Existing billing permits actual usage to exceed a precharge and create debt.
   A hold prevents transfer *while* work is pending, not transferring first and
   then starting a new under-reserved operation. Preventing this without breaking
@@ -45,6 +55,9 @@ been established. Do not deploy this as a completed financial redesign.
    every related debit/refund and token adjustment. The journal covers only the
    paths listed above. An old hold is not proof the operation ended. Explicitly
    ensure it cannot still charge, refund, be retried or finish on another node.
+   For Midjourney inspect `billing_pending`, the persisted task quota and the
+   `midjourney-charge` event before any intervention; a pending marker does not
+   prove whether a debit committed. Do not clear it merely because it is old.
    If uncertain, **do not resolve**; escalate for reconciliation.
 3. Calculate any remaining signed SQL quota adjustment independently of already
    committed events. Only after the operation and all related work are provably
