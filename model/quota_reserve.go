@@ -188,6 +188,21 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 	if result == cacheQuotaInsufficient {
 		return false, nil
 	}
+	// In direct-write mode a cache entry can disappear and be rehydrated while
+	// another reservation has not reached SQL yet. The cache reservation is
+	// therefore advisory: SQL must independently enforce the balance condition.
+	if !common.BatchUpdateEnabled {
+		reserved, dbErr := reserveUserQuotaDB(id, quota)
+		if dbErr != nil || !reserved {
+			// The cache may have been rehydrated since our reservation. Adding a
+			// compensation delta could inflate it, so invalidate instead.
+			if cacheErr := invalidateUserCache(id); cacheErr != nil {
+				common.SysError(fmt.Sprintf("failed to invalidate user quota after reservation failure: %v", cacheErr))
+			}
+			return false, dbErr
+		}
+		return true, nil
+	}
 	if err = persistUserQuotaDelta(id, -quota); err != nil {
 		compensated, compensateErr := cacheApplyUserQuotaDelta(id, int64(quota))
 		if compensateErr != nil || compensated != cacheQuotaOK {

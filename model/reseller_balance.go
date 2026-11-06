@@ -16,7 +16,7 @@ var ErrResellerCodeUnavailable = errors.New("redemption code is unavailable")
 
 // CreateResellerBalanceCodes reserves the live Redis balance before the SQL
 // transaction when Redis is enabled. The SQL debit and creation of every code
-// are atomic; failure compensates the cache reservation. Fail closed on cache
+// are atomic; failure invalidates the cache reservation. Fail closed on cache
 // failures instead of spending a potentially stale database balance.
 func CreateResellerBalanceCodes(userID, amount, count int, name string) ([]string, error) {
 	if userID <= 0 || amount <= 0 || count <= 0 || count > 100 || amount > common.MaxQuota/count {
@@ -83,9 +83,10 @@ func CreateResellerBalanceCodes(userID, amount, count int, name string) ([]strin
 	})
 	if err != nil {
 		if cacheReserved {
-			result, restoreErr := cacheApplyUserQuotaDelta(userID, int64(total))
-			if restoreErr != nil || result != cacheQuotaOK {
-				common.SysError(fmt.Sprintf("reseller quota cache compensation failed for user %d: %v", userID, restoreErr))
+			// The reserved entry could have been evicted and rehydrated while SQL
+			// was pending; adding a delta could create phantom balance.
+			if cacheErr := invalidateUserCache(userID); cacheErr != nil {
+				common.SysError(fmt.Sprintf("reseller quota cache invalidation failed for user %d: %v", userID, cacheErr))
 			}
 		}
 		return nil, err

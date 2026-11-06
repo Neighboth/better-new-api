@@ -130,3 +130,20 @@ func TestResellerCannotLaunderModelRestrictedBalance(t *testing.T) {
 	require.NoError(t, DB.Model(&Redemption{}).Where("user_id = ?", user.Id).Count(&count).Error)
 	require.Zero(t, count)
 }
+
+func TestResellerFailedIssuanceInvalidatesCache(t *testing.T) {
+	truncateTables(t)
+	resetBatchUpdateTestState(t)
+	require.NoError(t, DB.AutoMigrate(&Redemption{}, &UserBalancePackage{}))
+	useUserCacheMiniRedis(t)
+	user := createReserveTestUser(t, 100)
+	t.Cleanup(func() { DB.Where("user_id = ?", user.Id).Delete(&UserBalancePackage{}) })
+	require.NoError(t, populateUserCache(user))
+	require.NoError(t, DB.Create(&UserBalancePackage{UserId: user.Id, Type: 0, RemainingAmount: 50, ModelFilterMode: "whitelist"}).Error)
+	_, err := CreateResellerBalanceCodes(user.Id, 25, 1, "test")
+	require.Error(t, err)
+	cached, err := GetUserCache(user.Id)
+	require.NoError(t, err)
+	require.Equal(t, 100, cached.Quota)
+	require.Equal(t, 100, getUserQuotaFromDB(t, user.Id))
+}

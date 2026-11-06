@@ -226,3 +226,21 @@ func TestTokenCacheInitPreservesLiveQuotaAndFenceBlocksStaleSnapshot(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, 100, cached.RemainQuota)
 }
+
+// A cache rehydrated from an older SQL snapshot must not authorize a second
+// spend once another operation has already committed its debit to SQL.
+func TestDirectRedisReservationAlsoChecksDatabaseBalance(t *testing.T) {
+	truncateTables(t)
+	resetBatchUpdateTestState(t)
+	useUserCacheMiniRedis(t)
+	user := createReserveTestUser(t, 10)
+	require.NoError(t, populateUserCache(user))
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", user.Id).Update("quota", 2).Error)
+	reserved, err := TryReserveUserQuota(user.Id, 6)
+	require.NoError(t, err)
+	assert.False(t, reserved)
+	assert.Equal(t, 2, getUserQuotaFromDB(t, user.Id))
+	cached, err := GetUserCache(user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, 2, cached.Quota)
+}

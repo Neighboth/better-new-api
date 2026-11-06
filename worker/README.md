@@ -101,3 +101,7 @@ old repository-shared APK signing key was public and must not be reused. The
 build script's local keystore signs only the intermediate base APK; it must not
 be published or committed. If branding or signing fails, the server refuses to
 serve the APK rather than returning an APK with the wrong signer.
+
+Do not point `BYOG_APK_SIGNING_KEY` at the old public repository key or any
+copy of it. Key rotation changes Android's signing identity and requires an
+uninstall/reinstall; do not lose the new key after deployment.
