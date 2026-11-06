@@ -92,3 +92,21 @@ func TestHeartbeatKeepsProgressWhenTotalIsUnknown(t *testing.T) {
 	assert.Equal(t, 64, updated.DownloadedMB)
 	assert.Equal(t, 16, updated.DownloadProgress)
 }
+
+func TestOldSessionCannotUnregisterReplacement(t *testing.T) {
+	oldDB := model.DB
+	model.DB = nil
+	t.Cleanup(func() { model.DB = oldDB })
+	hub := &Hub{}
+	old := &NodeSession{NodeId: "same-node"}
+	replacement := &NodeSession{NodeId: "same-node"}
+	hub.Register(old)
+	hub.Register(replacement)
+	hub.UnregisterSession(old)
+	current, ok := hub.GetSession("same-node")
+	require.True(t, ok)
+	assert.Same(t, replacement, current)
+	hub.UnregisterSession(replacement)
+	_, ok = hub.GetSession("same-node")
+	assert.False(t, ok)
+}

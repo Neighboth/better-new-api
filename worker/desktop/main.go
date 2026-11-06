@@ -45,6 +45,7 @@ type Config struct {
 	Language          string `json:"language"`
 	LegalAccepted     bool   `json:"legal_accepted"`
 	NodeId            string `json:"node_id"`
+	WorkerSecret      string `json:"worker_secret"`
 	PairingCode       string `json:"pairing_code"`
 	HWID              string `json:"hwid"`
 	DeviceName        string `json:"device_name"`
@@ -86,10 +87,10 @@ type WorkerState struct {
 	// coordinator that the progress of the node begins again.
 	DownloadStartedAt int64
 	DownloadError     string
-	AllocatedRamGB   float64
-	AllocatedVramGB  int
-	AllocatedCores   int
-	Disks            string
+	AllocatedRamGB    float64
+	AllocatedVramGB   int
+	AllocatedCores    int
+	Disks             string
 	Mu                sync.Mutex
 }
 
@@ -1372,7 +1373,14 @@ func reportCrash(errCode string, errMsg string, stackTrace string, modelId strin
 		"model_id":        modelId,
 	}
 	body, _ := json.Marshal(payload)
-	_, _ = http.Post(crashUrl, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, crashUrl, bytes.NewReader(body))
+	if err == nil {
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+State.Config.WorkerSecret)
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			resp.Body.Close()
+		}
+	}
 }
 
 // LocalTransformerEngine executes the inference with the local llama.cpp runtime.

@@ -52,12 +52,12 @@ type AppStatus struct {
 	// model of the memory when no download runs, the identity of the
 	// progress needs the honest value: an empty text means "no transfer".
 	DownloadModelId string
-	HotStartEnabled  bool
-	PairingCode  string
-	HasCode      bool
-	LastError    string
-	FaviconPath  string
-	Started      bool
+	HotStartEnabled bool
+	PairingCode     string
+	HasCode         bool
+	LastError       string
+	FaviconPath     string
+	Started         bool
 }
 
 var (
@@ -224,7 +224,8 @@ func installerLanguage() string {
 // saveConfig writes the configuration of the worker to the disk.
 func saveConfig(config Config) {
 	if data, err := json.MarshalIndent(config, "", "  "); err == nil {
-		_ = os.WriteFile(configPath(), data, 0644)
+		_ = os.WriteFile(configPath(), data, 0600)
+		_ = os.Chmod(configPath(), 0600)
 	}
 }
 
@@ -343,15 +344,16 @@ func registerWorker() (registerResult, error) {
 		Success bool   `json:"success"`
 		Message string `json:"message"`
 		Data    struct {
-			NodeId      string `json:"node_id"`
-			PairingCode string `json:"pairing_code"`
-			UserId      int    `json:"user_id"`
-			IsPaired    bool   `json:"is_paired"`
-			AppName     string `json:"app_name"`
-			SystemName  string `json:"system_name"`
-			Favicon     string `json:"favicon"`
-			FaviconB64  string `json:"favicon_base64"`
-			Assigned    []struct {
+			NodeId       string `json:"node_id"`
+			WorkerSecret string `json:"worker_secret"`
+			PairingCode  string `json:"pairing_code"`
+			UserId       int    `json:"user_id"`
+			IsPaired     bool   `json:"is_paired"`
+			AppName      string `json:"app_name"`
+			SystemName   string `json:"system_name"`
+			Favicon      string `json:"favicon"`
+			FaviconB64   string `json:"favicon_base64"`
+			Assigned     []struct {
 				ModelId     string `json:"model_id"`
 				DownloadUrl string `json:"download_url"`
 				FileSize    int64  `json:"file_size"`
@@ -374,6 +376,7 @@ func registerWorker() (registerResult, error) {
 
 	State.Mu.Lock()
 	State.Config.NodeId = payload.Data.NodeId
+	State.Config.WorkerSecret = payload.Data.WorkerSecret
 	if payload.Data.PairingCode != "" {
 		State.Config.PairingCode = payload.Data.PairingCode
 	}
@@ -452,6 +455,7 @@ func startConnectionWatchdog() {
 						fmt.Printf("[BYOG Worker] Watchdog detected node %s was unlinked/removed on server (HTTP %d). Resetting pairing...\n", nodeId, resp.StatusCode)
 						State.Mu.Lock()
 						State.Config.NodeId = ""
+						State.Config.WorkerSecret = ""
 						State.Config.PairingCode = ""
 						State.IsConnected = false
 						cfg := State.Config
@@ -483,12 +487,13 @@ func startTunnel() {
 			State.Mu.Lock()
 			serverUrl := strings.TrimRight(State.Config.ServerUrl, "/")
 			nodeId := State.Config.NodeId
+			secret := State.Config.WorkerSecret
 			State.Mu.Unlock()
 
 			if serverUrl != "" && nodeId != "" {
 				wsUrl := fmt.Sprintf("ws%s/api/v1/worker/tunnel?node_id=%s",
 					strings.TrimPrefix(serverUrl, "http"), nodeId)
-				conn, resp, err := websocket.DefaultDialer.Dial(wsUrl, nil)
+				conn, resp, err := websocket.DefaultDialer.Dial(wsUrl, http.Header{"Authorization": []string{"Bearer " + secret}})
 				if err != nil {
 					if resp != nil && (resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnauthorized) {
 						fmt.Println("[BYOG Worker] Device was removed on server (404/401). Resetting pairing...")

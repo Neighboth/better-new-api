@@ -540,7 +540,11 @@ func SetApiRouter(router *gin.Engine) {
 			byogUserRoute.Use(middleware.UserAuth())
 			{
 				byogUserRoute.GET("/nodes", controller.GetUserByogNodes)
-				byogUserRoute.POST("/nodes/pair", controller.PairByogNode)
+				ownerClient := byogUserRoute.Group("/client")
+				ownerClient.Use(func(c *gin.Context) { c.Set("byog_owner_access", true); c.Next() })
+				ownerClient.GET("/status", controller.GetByogWorkerStatus)
+				ownerClient.POST("/resources", controller.UpdateByogWorkerResources)
+				ownerClient.POST("/test-inference", controller.TestByogNodeInference)
 				byogUserRoute.GET("/pair/code", controller.GetUserPairingCode)
 				byogUserRoute.PUT("/nodes/:id", controller.UpdateUserByogNode)
 				byogUserRoute.DELETE("/nodes/:id", controller.DeleteUserByogNode)

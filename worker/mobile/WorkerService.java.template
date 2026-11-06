@@ -517,7 +517,7 @@ public class WorkerService extends Service {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
             sp.edit()
                     .putBoolean("is_paired", false)
-                    .putString("node_id", "")
+                    .putString("node_id", "").putString("worker_secret", "")
                     .putString("pairing_code", "")
                     .putString("device_removed_message", "Cihaz kaldırıldı")
                     .apply();
@@ -1643,6 +1643,7 @@ public class WorkerService extends Service {
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("Authorization", "Bearer " + stringPref(sp, "worker_secret", ""));
             conn.setConnectTimeout(6000);
             conn.setReadTimeout(6000);
             conn.setDoOutput(true);
@@ -1777,7 +1778,7 @@ public class WorkerService extends Service {
                 }
             } else if (resCode == 404 || resCode == 401) {
                 android.util.Log.w("BYOG_WORKER", "Server returned HTTP " + resCode + ", device unlinked or removed");
-                sp.edit().putBoolean("is_paired", false).putString("node_id", "").apply();
+                sp.edit().putBoolean("is_paired", false).putString("node_id", "").putString("worker_secret", "").apply();
                 handleDeviceRemoved();
                 conn.disconnect();
                 return;
@@ -1868,6 +1869,7 @@ public class WorkerService extends Service {
                             List<SNIServerName> sniNames = new ArrayList<>();
                             sniNames.add(new SNIHostName(host));
                             sslParams.setServerNames(sniNames);
+                            sslParams.setEndpointIdentificationAlgorithm("HTTPS");
                             sslSocket.setSSLParameters(sslParams);
                         } catch (Exception ignored) {}
                     }
@@ -1885,6 +1887,7 @@ public class WorkerService extends Service {
                 String hostHeader = host + (port != 80 && port != 443 ? (":" + port) : "");
                 String handshake = "GET " + path + " HTTP/1.1\r\n" +
                                    "Host: " + hostHeader + "\r\n" +
+                                   "Authorization: Bearer " + stringPref(getSharedPreferences("byog_prefs", MODE_PRIVATE), "worker_secret", "") + "\r\n" +
                                    "User-Agent: Mozilla/5.0 (Linux; Android) BYOG-Worker/1.0\r\n" +
                                    "Upgrade: websocket\r\n" +
                                    "Connection: Upgrade\r\n" +
@@ -2397,6 +2400,7 @@ public class WorkerService extends Service {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
             final String serverUrl = stringPref(sp, "server_url", "");
             final String nodeId = stringPref(sp, "node_id", "");
+            final String workerSecret = stringPref(sp, "worker_secret", "");
             if (serverUrl.isEmpty()) return;
             new Thread(new Runnable() {
                 @Override
@@ -2414,6 +2418,7 @@ public class WorkerService extends Service {
                         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                         conn.setRequestMethod("POST");
                         conn.setRequestProperty("Content-Type", "application/json");
+                        conn.setRequestProperty("Authorization", "Bearer " + workerSecret);
                         conn.setConnectTimeout(6000);
                         conn.setReadTimeout(6000);
                         conn.setDoOutput(true);

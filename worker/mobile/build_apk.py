@@ -2758,6 +2758,7 @@ public class MainActivity extends Activity {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
             final String serverUrl = WorkerService.stringPref(sp, "server_url", "");
             final String nodeId = WorkerService.stringPref(sp, "node_id", "");
+            final String workerSecret = WorkerService.stringPref(sp, "worker_secret", "");
             if (serverUrl.isEmpty()) return;
             new Thread(new Runnable() {
                 @Override
@@ -2774,6 +2775,7 @@ public class MainActivity extends Activity {
                         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                         conn.setRequestMethod("POST");
                         conn.setRequestProperty("Content-Type", "application/json");
+                        conn.setRequestProperty("Authorization", "Bearer " + workerSecret);
                         conn.setConnectTimeout(6000);
                         conn.setReadTimeout(6000);
                         conn.setDoOutput(true);
@@ -2892,6 +2894,46 @@ public class MainActivity extends Activity {
     }
 
     public class WebAppInterface {
+
+        // Only fixed worker operations are allowed; the credential never enters JS.
+        @JavascriptInterface
+        public String workerRequest(String operation, String input) {
+            HttpURLConnection conn = null;
+            try {
+                if (!"status".equals(operation) && !"resources".equals(operation)) return "{\\\"success\\\":false}";
+                SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+                String server = WorkerService.stringPref(sp, "server_url", "");
+                String node = WorkerService.stringPref(sp, "node_id", "");
+                String secret = WorkerService.stringPref(sp, "worker_secret", "");
+                if (server.isEmpty() || node.isEmpty() || secret.isEmpty()) return "{\\\"success\\\":false}";
+                while (server.endsWith("/")) server = server.substring(0, server.length() - 1);
+                String endpoint = server + "/api/v1/worker/" + operation;
+                if ("status".equals(operation)) endpoint += "?node_id=" + java.net.URLEncoder.encode(node, "UTF-8");
+                conn = (HttpURLConnection) new URL(endpoint).openConnection();
+                conn.setInstanceFollowRedirects(false);
+                conn.setConnectTimeout(8000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("Authorization", "Bearer " + secret);
+                if ("resources".equals(operation)) {
+                    JSONObject data = new JSONObject(input);
+                    data.put("node_id", node);
+                    conn.setRequestMethod("POST");
+                    conn.setRequestProperty("Content-Type", "application/json");
+                    conn.setDoOutput(true);
+                    OutputStream out = conn.getOutputStream();
+                    out.write(data.toString().getBytes("UTF-8"));
+                    out.close();
+                }
+                if (conn.getResponseCode() != 200) return "{\\\"success\\\":false}";
+                BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
+                StringBuilder result = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null && result.length() < 1048576) result.append(line);
+                reader.close();
+                return result.toString();
+            } catch (Exception ignored) { return "{\\\"success\\\":false}"; }
+            finally { if (conn != null) conn.disconnect(); }
+        }
         @JavascriptInterface
         public void showToast(final String msg) {
             if (msg == null || msg.trim().isEmpty()) return;
@@ -3320,6 +3362,7 @@ public class MainActivity extends Activity {
                         if (resultObj != null && resultObj.optBoolean("success")) {
                             JSONObject data = resultObj.getJSONObject("data");
                             final String returnedNodeId = data.optString("node_id");
+                            final String returnedWorkerSecret = data.optString("worker_secret");
                             final String returnedAppName = data.optString("app_name", "{app_name}");
                             final String returnedFavicon = data.optString("favicon", "logo.png");
                             final String returnedFaviconB64 = data.optString("favicon_base64", "");
@@ -3333,12 +3376,13 @@ public class MainActivity extends Activity {
                                 }
                             }
 
-                            if (isPaired && !returnedNodeId.isEmpty()) {
+                            if (isPaired && !returnedNodeId.isEmpty() && !returnedWorkerSecret.isEmpty()) {
                                 SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
                                 SharedPreferences.Editor ed = sp.edit()
                                   .putString("pairing_code", cleanCode)
                                   .putString("server_url", finalServerUrl)
                                   .putString("node_id", returnedNodeId)
+                                  .putString("worker_secret", returnedWorkerSecret)
                                   .putString("app_name", returnedAppName)
                                   .putString("favicon", returnedFavicon)
                                   .putString("assigned_model", assignedModel)
@@ -3471,7 +3515,7 @@ public class MainActivity extends Activity {
                 @Override
                 public void run() {
                     SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                    sp.edit().remove("node_id").remove("pairing_code").putBoolean("is_paired", false).apply();
+                    sp.edit().remove("node_id").remove("worker_secret").remove("pairing_code").putBoolean("is_paired", false).apply();
 
                     stopService(new Intent(MainActivity.this, WorkerService.class));
                     Toast.makeText(MainActivity.this, "Bağlantı kesildi", Toast.LENGTH_SHORT).show();

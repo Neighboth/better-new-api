@@ -5,9 +5,11 @@ package main
 // of the user gives the state of the client to the page.
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/worker/desktop/installer"
 )
@@ -32,19 +35,19 @@ type localBridge struct {
 
 // bridgeState is the state of the client that the page shows.
 type bridgeState struct {
-	NodeId           string  `json:"node_id"`
-	DeviceName       string  `json:"device_name"`
-	ServerUrl        string  `json:"server_url"`
-	AppName          string  `json:"app_name"`
-	SystemName       string  `json:"system_name"`
-	Language         string  `json:"language"`
-	PairingCode      string  `json:"pairing_code"`
-	Paired           bool    `json:"paired"`
-	Connected        bool    `json:"connected"`
-	ModelName        string  `json:"model_name"`
-	ModelStatus      string  `json:"model_status"`
-	DownloadProgress int     `json:"download_progress"`
-	CurrentTps       float64 `json:"current_tps"`
+	NodeId           string              `json:"node_id"`
+	DeviceName       string              `json:"device_name"`
+	ServerUrl        string              `json:"server_url"`
+	AppName          string              `json:"app_name"`
+	SystemName       string              `json:"system_name"`
+	Language         string              `json:"language"`
+	PairingCode      string              `json:"pairing_code"`
+	Paired           bool                `json:"paired"`
+	Connected        bool                `json:"connected"`
+	ModelName        string              `json:"model_name"`
+	ModelStatus      string              `json:"model_status"`
+	DownloadProgress int                 `json:"download_progress"`
+	CurrentTps       float64             `json:"current_tps"`
 	TotalTokens      int64               `json:"total_tokens"`
 	LastError        string              `json:"last_error"`
 	Disks            []DiskPartitionInfo `json:"disks"`
@@ -95,6 +98,8 @@ func startLocalBridge() (*localBridge, error) {
 	mux.HandleFunc("/disconnect", bridge.handleDisconnect)
 	mux.HandleFunc("/test", bridge.handleTest)
 	mux.HandleFunc("/settings", bridge.handleSettings)
+	mux.HandleFunc("/worker/status", bridge.handleWorkerProxy)
+	mux.HandleFunc("/worker/resources", bridge.handleWorkerProxy)
 	// The page of the first start is served by the client itself. The page of
 	// the installation is opened when the language and the policies are known.
 	mux.HandleFunc("/setup", bridge.handleSetupPage)
@@ -105,6 +110,67 @@ func startLocalBridge() (*localBridge, error) {
 		_ = bridge.server.Serve(listener)
 	}()
 	return bridge, nil
+}
+
+// handleWorkerProxy forwards only worker state and resource requests, keeping
+// the worker credential out of browser JavaScript and query strings.
+func (b *localBridge) handleWorkerProxy(w http.ResponseWriter, r *http.Request) {
+	if !b.allowed(w, r) {
+		return
+	}
+	endpoint := ""
+	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/worker/status":
+		endpoint = "/status"
+	case r.Method == http.MethodPost && r.URL.Path == "/worker/resources":
+		endpoint = "/resources"
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	State.Mu.Lock()
+	cfg := State.Config
+	State.Mu.Unlock()
+	if cfg.ServerUrl == "" || cfg.NodeId == "" || cfg.WorkerSecret == "" {
+		http.Error(w, "not paired", http.StatusUnauthorized)
+		return
+	}
+	var body io.Reader
+	if endpoint == "/resources" {
+		var payload map[string]interface{}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&payload); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		payload["node_id"] = cfg.NodeId
+		data, err := json.Marshal(payload)
+		if err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		body = bytes.NewReader(data)
+	}
+	url := strings.TrimRight(cfg.ServerUrl, "/") + "/api/v1/worker" + endpoint
+	if endpoint == "/status" {
+		url += "?node_id=" + cfg.NodeId
+	}
+	req, err := http.NewRequest(r.Method, url, body)
+	if err != nil {
+		http.Error(w, "invalid server", http.StatusBadGateway)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+cfg.WorkerSecret)
+	client := &http.Client{Timeout: 35 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, "server unavailable", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, io.LimitReader(resp.Body, 1<<20))
 }
 
 // pageAddress returns the address of the page of the client with the key of
@@ -243,6 +309,7 @@ func (b *localBridge) handlePair(writer http.ResponseWriter, request *http.Reque
 		State.Mu.Lock()
 		State.Config.PairingCode = ""
 		State.Config.NodeId = ""
+		State.Config.WorkerSecret = ""
 		State.Mu.Unlock()
 		saveConfig(State.Config)
 		updateStatus(func(status *AppStatus) {
@@ -302,6 +369,7 @@ func (b *localBridge) handleDisconnect(writer http.ResponseWriter, request *http
 	State.Mu.Lock()
 	State.Config.PairingCode = ""
 	State.Config.NodeId = ""
+	State.Config.WorkerSecret = ""
 	State.Mu.Unlock()
 	saveConfig(State.Config)
 	updateStatus(func(status *AppStatus) {

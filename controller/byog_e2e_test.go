@@ -56,6 +56,7 @@ func TestByogEndToEndLifecycle(t *testing.T) {
 
 	require.NoError(t, db.AutoMigrate(
 		&model.ByogNode{},
+		&model.ByogCrashReport{},
 		&model.ByogModel{},
 		&model.ByogSetting{},
 		&model.ByogNodeBan{},
@@ -98,6 +99,9 @@ func TestByogEndToEndLifecycle(t *testing.T) {
 	router := gin.New()
 	router.POST("/api/v1/worker/register", RegisterByogWorker)
 	router.GET("/api/v1/worker/tunnel", ByogWorkerTunnel)
+	router.POST("/api/v1/worker/telemetry/crash", ReportByogWorkerCrash)
+	router.GET("/api/v1/worker/status", GetByogWorkerStatus)
+	router.POST("/api/v1/worker/resources", UpdateByogWorkerResources)
 
 	// Relay endpoint with TryHandleByogRelay
 	router.POST("/v1/chat/completions", func(c *gin.Context) {
@@ -134,10 +138,6 @@ func TestByogEndToEndLifecycle(t *testing.T) {
 	userPairingSessionsMu.Lock()
 	testPairingCode := "BYOG-TEST-PAIR-9999"
 	cleanCode := strings.ReplaceAll(testPairingCode, "-", "")
-	userPairingSessions[testPairingCode] = userPairingSession{
-		UserId:    testUser.Id,
-		CreatedAt: time.Now().Unix(),
-	}
 	userPairingSessions[cleanCode] = userPairingSession{
 		UserId:    testUser.Id,
 		CreatedAt: time.Now().Unix(),
@@ -168,9 +168,10 @@ func TestByogEndToEndLifecycle(t *testing.T) {
 	var regResult struct {
 		Success bool `json:"success"`
 		Data    struct {
-			NodeId   string `json:"node_id"`
-			IsPaired bool   `json:"is_paired"`
-			UserId   int    `json:"user_id"`
+			NodeId       string `json:"node_id"`
+			WorkerSecret string `json:"worker_secret"`
+			IsPaired     bool   `json:"is_paired"`
+			UserId       int    `json:"user_id"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&regResult))
@@ -181,6 +182,25 @@ func TestByogEndToEndLifecycle(t *testing.T) {
 	require.True(t, regResult.Data.IsPaired)
 	require.Equal(t, testUser.Id, regResult.Data.UserId)
 	nodeId := regResult.Data.NodeId
+	require.Len(t, regResult.Data.WorkerSecret, 64)
+
+	// A known node ID or HWID is not a worker credential.
+	fakeReg, err := http.Post(server.URL+"/api/v1/worker/register", "application/json", strings.NewReader(`{"node_id":"`+nodeId+`","hwid":"`+testHwid+`"}`))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusUnauthorized, fakeReg.StatusCode)
+	fakeReg.Body.Close()
+	fakeCrash, err := http.Post(server.URL+"/api/v1/worker/telemetry/crash", "application/json", strings.NewReader(`{"node_id":"`+nodeId+`","error_code":"oom"}`))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusUnauthorized, fakeCrash.StatusCode)
+	fakeCrash.Body.Close()
+	status, err := http.Get(server.URL + "/api/v1/worker/status?node_id=" + nodeId)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusUnauthorized, status.StatusCode)
+	status.Body.Close()
+	resource, err := http.Post(server.URL+"/api/v1/worker/resources", "application/json", strings.NewReader(`{"node_id":"`+nodeId+`","allocated_cores":1}`))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusUnauthorized, resource.StatusCode)
+	resource.Body.Close()
 
 	// Verify node in DB
 	dbNode, err := model.GetByogNodeByNodeId(nodeId)
@@ -191,7 +211,12 @@ func TestByogEndToEndLifecycle(t *testing.T) {
 
 	// 5. Worker connects to WebSocket Tunnel
 	wsUrl := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/v1/worker/tunnel?node_id=" + nodeId
-	wsConn, wsResp, err := websocket.DefaultDialer.Dial(wsUrl, nil)
+	_, rejected, err := websocket.DefaultDialer.Dial(wsUrl, nil)
+	require.Error(t, err)
+	require.Equal(t, http.StatusUnauthorized, rejected.StatusCode)
+	rejected.Body.Close()
+	headers := http.Header{"Authorization": []string{"Bearer " + regResult.Data.WorkerSecret}}
+	wsConn, wsResp, err := websocket.DefaultDialer.Dial(wsUrl, headers)
 	require.NoError(t, err)
 	defer wsConn.Close()
 	require.Equal(t, http.StatusSwitchingProtocols, wsResp.StatusCode)
