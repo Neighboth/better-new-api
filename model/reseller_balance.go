@@ -23,8 +23,10 @@ func CreateResellerBalanceCodes(userID, amount, count int, name string) ([]strin
         return nil, errors.New("invalid reseller amount")
     }
     total := amount * count
-    if common.BatchUpdateEnabled && !common.RedisEnabled {
-        return nil, errors.New("reseller balance codes require Redis when batch updates are enabled")
+    // A Redis cache miss can rehydrate from a database that still has queued
+    // balance changes. Do not issue transferable value from that stale base.
+    if common.BatchUpdateEnabled {
+        return nil, errors.New("reseller balance codes are unavailable while batch quota updates are enabled")
     }
     cacheReserved := false
     if common.RedisEnabled {
