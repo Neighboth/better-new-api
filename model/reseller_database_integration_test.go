@@ -43,7 +43,7 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			initCol()
 			t.Cleanup(func() { DB = oldDB; common.SetMainDatabaseType(oldType); initCol() })
 			resetBatchUpdateTestState(t)
-			require.NoError(t, db.AutoMigrate(&User{}, &Redemption{}, &UserBalancePackage{}, &ByogPairingSession{}, &WalletTransferHold{}, &Task{}))
+			require.NoError(t, db.AutoMigrate(&User{}, &Redemption{}, &UserBalancePackage{}, &ByogPairingSession{}, &WalletTransferHold{}, &WalletHoldEvent{}, &Task{}))
 			owner := createReserveTestUser(t, 100)
 			t.Cleanup(func() {
 				db.Unscoped().Where("user_id = ?", owner.Id).Delete(&Redemption{})
@@ -98,6 +98,27 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			require.Equal(t, int32(10), settled.Load())
 			require.Equal(t, 35, getUserQuotaFromDB(t, owner.Id))
 			require.ErrorIs(t, ResolveWalletTransferHold(owner.Id, holdID, -6), ErrWalletHoldConflict)
+
+			journalHold, err := BeginWalletTransferHold(owner.Id)
+			require.NoError(t, err)
+			var eventSuccess atomic.Int32
+			for i := 0; i < 10; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					if ok, err := ReserveWalletHoldQuota(owner.Id, journalHold, "precharge", 5); err == nil && ok {
+						eventSuccess.Add(1)
+					}
+				}()
+			}
+			wg.Wait()
+			require.Equal(t, int32(10), eventSuccess.Load())
+			require.Equal(t, 30, getUserQuotaFromDB(t, owner.Id))
+			require.NoError(t, ApplyWalletHoldDelta(owner.Id, journalHold, "refund", 5))
+			require.NoError(t, ApplyWalletHoldDelta(owner.Id, journalHold, "refund", 5))
+			require.Equal(t, 35, getUserQuotaFromDB(t, owner.Id))
+			require.NoError(t, ResolveWalletTransferHold(owner.Id, journalHold, 0))
+			t.Cleanup(func() { db.Where("user_id = ?", owner.Id).Delete(&WalletHoldEvent{}) })
 
 			// Hold insertion and issuance must serialize across DB connections,
 			// including the interval before the hold transaction commits.

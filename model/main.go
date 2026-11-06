@@ -305,6 +305,7 @@ func migrateDB() error {
 		&TicketMessage{},
 		&UserBalancePackage{},
 		&WalletTransferHold{},
+		&WalletHoldEvent{},
 		&ByogSetting{},
 		&ByogRewardItem{},
 		&ByogRewardClaim{},

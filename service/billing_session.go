@@ -13,7 +13,6 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
-	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 )
 
@@ -113,9 +112,10 @@ func (s *BillingSession) Refund(c *gin.Context) {
 	subscriptionId := s.relayInfo.SubscriptionId
 	funding := s.funding
 
-	gopool.Go(func() {
+	func() {
 		// 1) 退还资金来源
 		if err := funding.Refund(); err != nil {
+			c.Set(common.WalletTransferHoldRetainContextKey, true)
 			common.SysLog("error refunding billing source: " + err.Error())
 		}
 		if extraReserved > 0 && funding.Source() == BillingSourceSubscription && subscriptionId > 0 {
@@ -129,7 +129,7 @@ func (s *BillingSession) Refund(c *gin.Context) {
 				common.SysLog("error refunding token quota: " + err.Error())
 			}
 		}
-	})
+	}()
 }
 
 // NeedsRefund 返回是否存在需要退还的预扣状态。
@@ -514,7 +514,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 
 		session := &BillingSession{
 			relayInfo:             relayInfo,
-			funding:               &WalletFunding{userId: relayInfo.UserId},
+			funding:               &WalletFunding{userId: relayInfo.UserId, holdID: c.GetString(common.WalletTransferHoldContextKey)},
 			modelBalanceAvailable: available,
 			hasModelBalanceLimit:  restricted,
 		}

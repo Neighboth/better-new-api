@@ -43,6 +43,7 @@ func TestMain(m *testing.M) {
 		&model.Task{},
 		&model.User{},
 		&model.WalletTransferHold{},
+		&model.WalletHoldEvent{},
 		&model.Token{},
 		&model.Log{},
 		&model.Channel{},
@@ -67,6 +68,7 @@ func truncate(t *testing.T) {
 	t.Cleanup(func() {
 		model.DB.Exec("DELETE FROM tasks")
 		model.DB.Exec("DELETE FROM wallet_transfer_holds")
+		model.DB.Exec("DELETE FROM wallet_hold_events")
 		model.DB.Exec("DELETE FROM users")
 		model.DB.Exec("DELETE FROM tokens")
 		model.DB.Exec("DELETE FROM logs")
@@ -1231,4 +1233,20 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+}
+
+func TestWalletFundingJournalPrechargeSettlementAndRetry(t *testing.T) {
+	truncate(t)
+	seedUser(t, 982, 100)
+	holdID, err := model.BeginWalletTransferHold(982)
+	require.NoError(t, err)
+	funding := &WalletFunding{userId: 982, holdID: holdID}
+	require.NoError(t, funding.PreConsume(60))
+	require.NoError(t, funding.PreConsume(60))
+	require.Equal(t, 40, getUserQuota(t, 982))
+	require.NoError(t, funding.Settle(10))
+	require.NoError(t, funding.Settle(10))
+	require.Equal(t, 30, getUserQuota(t, 982))
+	require.Error(t, funding.Settle(11))
+	require.NoError(t, model.ResolveWalletTransferHold(982, holdID, 0))
 }
