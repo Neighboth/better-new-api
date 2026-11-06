@@ -41,7 +41,7 @@ func TestResellerCannotRefundUsedCode(t *testing.T) {
     require.Equal(t, 100, getUserQuotaFromDB(t, user.Id))
 }
 
-func TestResellerRedisBatchReservesLiveBalance(t *testing.T) {
+func TestResellerRejectsBatchModeEvenWithRedis(t *testing.T) {
     truncateTables(t)
     resetBatchUpdateTestState(t)
     require.NoError(t, DB.AutoMigrate(&Redemption{}))
@@ -49,17 +49,9 @@ func TestResellerRedisBatchReservesLiveBalance(t *testing.T) {
     common.BatchUpdateEnabled = true
     user := createReserveTestUser(t, 100)
     t.Cleanup(func() { DB.Unscoped().Where("user_id = ?", user.Id).Delete(&Redemption{}) })
-    ok, err := TryReserveUserQuota(user.Id, 60)
-    require.NoError(t, err)
-    require.True(t, ok)
-    _, err = CreateResellerBalanceCodes(user.Id, 41, 1, "test")
-    require.ErrorIs(t, err, ErrResellerInsufficientBalance)
-    keys, err := CreateResellerBalanceCodes(user.Id, 40, 1, "test")
-    require.NoError(t, err)
-    require.Len(t, keys, 1)
-    ok, err = TryReserveUserQuota(user.Id, 1)
-    require.NoError(t, err)
-    require.False(t, ok)
+    _, err := CreateResellerBalanceCodes(user.Id, 1, 1, "test")
+    require.Error(t, err)
+    require.Equal(t, 100, getUserQuotaFromDB(t, user.Id))
 }
 
 func TestResellerConcurrentCreationDoesNotOverspend(t *testing.T) {
