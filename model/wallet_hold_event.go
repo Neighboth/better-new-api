@@ -33,15 +33,15 @@ func ApplyWalletHoldDelta(userID int, holdID, eventKey string, delta int) error 
 			return err
 		}
 		var previous WalletHoldEvent
-		lookup := tx.Where("hold_id = ? AND event_key = ?", holdID, eventKey).First(&previous)
-		if lookup.Error == nil {
+		lookup := tx.Where("hold_id = ? AND event_key = ?", holdID, eventKey).Limit(1).Find(&previous)
+		if lookup.Error != nil {
+			return lookup.Error
+		}
+		if lookup.RowsAffected > 0 {
 			if previous.UserID != userID || previous.Delta != delta {
 				return ErrWalletHoldConflict
 			}
 			return nil
-		}
-		if !errors.Is(lookup.Error, gorm.ErrRecordNotFound) {
-			return lookup.Error
 		}
 		if hold.State != "open" {
 			return errors.New("wallet hold is not open")
@@ -93,16 +93,16 @@ func ReserveWalletHoldQuota(userID int, holdID, eventKey string, amount int) (bo
 			return err
 		}
 		var previous WalletHoldEvent
-		lookup := tx.Where("hold_id = ? AND event_key = ?", holdID, eventKey).First(&previous)
-		if lookup.Error == nil {
+		lookup := tx.Where("hold_id = ? AND event_key = ?", holdID, eventKey).Limit(1).Find(&previous)
+		if lookup.Error != nil {
+			return lookup.Error
+		}
+		if lookup.RowsAffected > 0 {
 			if previous.UserID != userID || previous.Delta != -amount {
 				return ErrWalletHoldConflict
 			}
 			reserved = true
 			return nil
-		}
-		if !errors.Is(lookup.Error, gorm.ErrRecordNotFound) {
-			return lookup.Error
 		}
 		if hold.State != "open" {
 			return errors.New("wallet hold is not open")
