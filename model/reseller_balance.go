@@ -71,6 +71,15 @@ func CreateResellerBalanceCodes(userID, amount, count int, name string) ([]strin
 		if debit.RowsAffected != 1 {
 			return ErrResellerInsufficientBalance
 		}
+		// Both hold creation and this debit serialize on the user row. Never
+		// transfer value while a known charge has an unresolved final amount.
+		var holds int64
+		if err := tx.Model(&WalletTransferHold{}).Where("user_id = ? AND state = ?", userID, "open").Count(&holds).Error; err != nil {
+			return err
+		}
+		if holds > 0 {
+			return errors.New("reseller balance codes are unavailable while wallet operations are unresolved")
+		}
 		// Model-restricted credit must not be turned into an unrestricted code.
 		// Until packages can be split/propagated, fail closed for such accounts.
 		var restricted int64

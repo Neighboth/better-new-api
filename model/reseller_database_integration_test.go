@@ -43,7 +43,7 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			initCol()
 			t.Cleanup(func() { DB = oldDB; common.SetMainDatabaseType(oldType); initCol() })
 			resetBatchUpdateTestState(t)
-			require.NoError(t, db.AutoMigrate(&User{}, &Redemption{}, &UserBalancePackage{}, &ByogPairingSession{}))
+			require.NoError(t, db.AutoMigrate(&User{}, &Redemption{}, &UserBalancePackage{}, &ByogPairingSession{}, &WalletTransferHold{}))
 			owner := createReserveTestUser(t, 100)
 			t.Cleanup(func() {
 				db.Unscoped().Where("user_id = ?", owner.Id).Delete(&Redemption{})
@@ -79,6 +79,26 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			require.Equal(t, int32(1), refunded.Load())
 			require.Equal(t, 40, getUserQuotaFromDB(t, owner.Id))
 
+			holdID, err := BeginWalletTransferHold(owner.Id)
+			require.NoError(t, err)
+			t.Cleanup(func() { db.Where("user_id = ?", owner.Id).Delete(&WalletTransferHold{}) })
+			_, err = CreateResellerBalanceCodes(owner.Id, 10, 1, "blocked-by-hold")
+			require.Error(t, err)
+			var settled atomic.Int32
+			for i := 0; i < 10; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					if ResolveWalletTransferHold(owner.Id, holdID, -5) == nil {
+						settled.Add(1)
+					}
+				}()
+			}
+			wg.Wait()
+			require.Equal(t, int32(10), settled.Load())
+			require.Equal(t, 35, getUserQuotaFromDB(t, owner.Id))
+			require.ErrorIs(t, ResolveWalletTransferHold(owner.Id, holdID, -6), ErrWalletHoldConflict)
+
 			// Redeeming and refunding the same code must never both credit a wallet.
 			recipient := createReserveTestUser(t, 0)
 			t.Cleanup(func() { db.Unscoped().Where("id = ?", recipient.Id).Delete(&User{}) })
@@ -99,7 +119,7 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			close(start)
 			wg.Wait()
 			require.NotEqual(t, refundErr == nil, redeemErr == nil)
-			require.Equal(t, 40, getUserQuotaFromDB(t, owner.Id)+getUserQuotaFromDB(t, recipient.Id))
+			require.Equal(t, 35, getUserQuotaFromDB(t, owner.Id)+getUserQuotaFromDB(t, recipient.Id))
 
 			pairing := "test-" + common.GetRandomString(16)
 			require.NoError(t, CreateByogPairingSession(pairing, owner.Id, time.Now().Unix()+900))
