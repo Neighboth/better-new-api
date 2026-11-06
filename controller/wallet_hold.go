@@ -34,7 +34,7 @@ func GetOpenWalletHolds(c *gin.Context) {
 	}
 	items := make([]gin.H, 0, len(holds))
 	for _, hold := range holds {
-		items = append(items, gin.H{"id": hold.ID, "user_id": hold.UserID, "created_at": hold.CreatedAt})
+		items = append(items, gin.H{"id": hold.ID, "user_id": hold.UserID, "created_at": hold.CreatedAt, "source": hold.Source, "reference": hold.Reference})
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": items})
 }

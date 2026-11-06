@@ -711,7 +711,11 @@ func beginLegacyTaskWalletHold(task *model.Task) (string, error) {
 	if task.PrivateData.WalletHoldID != "" {
 		return "", nil
 	}
-	id, err := model.BeginWalletTransferHold(task.UserId)
+	reference := task.TaskID
+	if len(reference) > 191 {
+		reference = reference[:191]
+	}
+	id, err := model.BeginWalletTransferHoldWithReference(task.UserId, "legacy_task", reference)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", nil
 	} // deleted users cannot issue codes

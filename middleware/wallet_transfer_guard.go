@@ -18,7 +18,11 @@ func WalletTransferGuard() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "wallet identity unavailable"})
 			return
 		}
-		holdID, err := model.BeginWalletTransferHold(userID)
+		reference := c.GetString(common.RequestIdKey)
+		if len(reference) > 191 {
+			reference = reference[:191]
+		}
+		holdID, err := model.BeginWalletTransferHoldWithReference(userID, "relay", reference)
 		if err != nil {
 			common.SysError("wallet transfer hold creation failed: " + err.Error())
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "wallet accounting temporarily unavailable"})

@@ -23,6 +23,8 @@ type WalletTransferHold struct {
 	ID              string `gorm:"type:char(32);primaryKey" json:"-"`
 	UserID          int    `gorm:"index:idx_wallet_hold_user_state;not null" json:"-"`
 	State           string `gorm:"type:varchar(16);index:idx_wallet_hold_user_state;not null" json:"-"`
+	Source          string `gorm:"type:varchar(32)" json:"-"`
+	Reference       string `gorm:"type:varchar(191)" json:"-"`
 	CreatedAt       int64  `gorm:"not null" json:"-"`
 	ResolvedAt      int64  `json:"-"`
 	SettlementDelta int    `json:"-"`
@@ -35,6 +37,13 @@ var ErrWalletHoldConflict = errors.New("wallet hold is already resolved with a d
 // BeginWalletTransferHold serializes with issuance through the same user-row
 // lock. It must be called before initiating any potentially chargeable work.
 func BeginWalletTransferHold(userID int) (string, error) {
+	return BeginWalletTransferHoldWithReference(userID, "", "")
+}
+
+func BeginWalletTransferHoldWithReference(userID int, source, reference string) (string, error) {
+	if len(source) > 32 || len(reference) > 191 {
+		return "", gorm.ErrInvalidData
+	}
 	if userID <= 0 {
 		return "", gorm.ErrInvalidData
 	}
@@ -42,7 +51,7 @@ func BeginWalletTransferHold(userID int) (string, error) {
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", err
 	}
-	hold := WalletTransferHold{ID: hex.EncodeToString(raw[:]), UserID: userID, State: "open", CreatedAt: time.Now().Unix()}
+	hold := WalletTransferHold{ID: hex.EncodeToString(raw[:]), UserID: userID, State: "open", Source: source, Reference: reference, CreatedAt: time.Now().Unix()}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var user User
 		if err := lockForUpdate(tx).Select("id").Where("id = ?", userID).First(&user).Error; err != nil {
