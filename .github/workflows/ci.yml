@@ -62,7 +62,19 @@ jobs:
         run: go build ./...
 
       - name: Test root and relaykit modules
-        run: make test
+        run: |
+          set +e
+          make test > /tmp/test-output.txt 2>&1
+          result=$?
+          if [ "$result" -ne 0 ]; then
+            tail -100 /tmp/test-output.txt
+            message=$(grep -A 12 -B 3 -E -- '--- FAIL:|Error Trace:|panic:' /tmp/test-output.txt | tail -80 | head -c 12000)
+            message="${message//'%'/'%25'}"
+            message="${message//$'\n'/'%0A'}"
+            message="${message//$'\r'/'%0D'}"
+            echo "::error::$message"
+          fi
+          exit "$result"
 
   frontend:
     name: Frontend typecheck and test
