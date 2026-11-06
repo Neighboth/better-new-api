@@ -43,7 +43,7 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			initCol()
 			t.Cleanup(func() { DB = oldDB; common.SetMainDatabaseType(oldType); initCol() })
 			resetBatchUpdateTestState(t)
-			require.NoError(t, db.AutoMigrate(&User{}, &Redemption{}, &UserBalancePackage{}, &ByogPairingSession{}, &WalletTransferHold{}, &WalletHoldEvent{}, &Task{}))
+			require.NoError(t, db.AutoMigrate(&User{}, &Redemption{}, &UserBalancePackage{}, &ByogPairingSession{}, &WalletTransferHold{}, &WalletHoldEvent{}, &Task{}, &Midjourney{}))
 			owner := createReserveTestUser(t, 100)
 			t.Cleanup(func() {
 				db.Unscoped().Where("user_id = ?", owner.Id).Delete(&Redemption{})
@@ -119,6 +119,29 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			require.Equal(t, 35, getUserQuotaFromDB(t, owner.Id))
 			require.NoError(t, ResolveWalletTransferHold(owner.Id, journalHold, 0))
 			t.Cleanup(func() { db.Where("user_id = ?", owner.Id).Delete(&WalletHoldEvent{}) })
+
+			mj := Midjourney{UserId: owner.Id, MjId: "database-refund-test", Quota: 10, Status: "FAILURE"}
+			require.NoError(t, db.Create(&mj).Error)
+			t.Cleanup(func() { db.Where("id = ?", mj.Id).Delete(&Midjourney{}) })
+			var mjRefund atomic.Int32
+			var mjErrors atomic.Int32
+			for i := 0; i < 10; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					amount, err := RefundMidjourneyWalletOnce(owner.Id, mj.Id)
+					if err != nil {
+						mjErrors.Add(1)
+					} else {
+						mjRefund.Add(int32(amount))
+					}
+				}()
+			}
+			wg.Wait()
+			require.Zero(t, mjErrors.Load())
+			require.Equal(t, int32(10), mjRefund.Load())
+			require.Equal(t, 45, getUserQuotaFromDB(t, owner.Id))
+			require.NoError(t, db.Model(&User{}).Where("id = ?", owner.Id).Update("quota", 35).Error)
 
 			// Hold insertion and issuance must serialize across DB connections,
 			// including the interval before the hold transaction commits.

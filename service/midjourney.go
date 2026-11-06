@@ -39,6 +39,7 @@ func PrepareMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.
 	task.Quota = 0
 	task.TokenId = 0
 	task.BillingChannelId = 0
+	task.BillingPending = false
 	if !shouldBill {
 		return false, nil
 	}
@@ -53,6 +54,7 @@ func PrepareMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.
 	}
 
 	task.Quota = quota
+	task.BillingPending = true
 	task.BillingChannelId = task.ChannelId
 	if relayInfo.ChannelMeta != nil && relayInfo.ChannelId > 0 {
 		task.BillingChannelId = relayInfo.ChannelId
@@ -74,16 +76,13 @@ func SettleMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.M
 
 	result, billingErr := postConsumeQuotaWithResult(relayInfo, task.Quota, 0, true)
 	if !result.FundingApplied {
-		task.Quota = 0
-		task.TokenId = 0
-		task.BillingChannelId = 0
-		if updateErr := task.UpdateBillingState(); updateErr != nil {
-			return false, errors.Join(billingErr, fmt.Errorf("clear Midjourney billing state: %w", updateErr))
-		}
+		// A failed database acknowledgement can mean the debit committed. Keep
+		// the pending marker and quota instead of guessing and issuing a refund.
 		return false, billingErr
 	}
 
 	task.TokenId = 0
+	task.BillingPending = false
 	if result.TokenApplied {
 		task.TokenId = relayInfo.TokenId
 	}

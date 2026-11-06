@@ -32,8 +32,9 @@ type Midjourney struct {
 	Buttons     string `json:"buttons"`
 	Properties  string `json:"properties"`
 
-	TokenId          int `json:"-" gorm:"default:0"`
-	BillingChannelId int `json:"-" gorm:"default:0"`
+	TokenId          int  `json:"-" gorm:"default:0"`
+	BillingChannelId int  `json:"-" gorm:"default:0"`
+	BillingPending   bool `json:"-" gorm:"not null;default:false"`
 }
 
 // TaskQueryParams 用于包含所有搜索条件的结构体，可以根据需求添加更多字段
@@ -183,7 +184,7 @@ func (midjourney *Midjourney) Update() error {
 
 func (midjourney *Midjourney) UpdateBillingState() error {
 	return DB.Model(midjourney).
-		Select("quota", "token_id", "billing_channel_id").
+		Select("quota", "token_id", "billing_channel_id", "billing_pending").
 		Updates(midjourney).Error
 }
 
@@ -200,7 +201,7 @@ func (midjourney *Midjourney) GetBillingChannelId() int {
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).
 // Uses Model().Select("*").Updates() to avoid GORM Save()'s INSERT fallback.
 func (midjourney *Midjourney) UpdateWithStatus(fromStatus string) (bool, error) {
-	result := DB.Model(midjourney).Where("status = ?", fromStatus).Select("*").Omit("Quota", "TokenId", "BillingChannelId").Updates(midjourney)
+	result := DB.Model(midjourney).Where("status = ?", fromStatus).Select("*").Omit("Quota", "TokenId", "BillingChannelId", "BillingPending").Updates(midjourney)
 	if result.Error != nil {
 		return false, result.Error
 	}
@@ -270,8 +271,11 @@ func RefundMidjourneyWalletOnce(userID, taskID int) (int, error) {
 			return err
 		}
 		var task Midjourney
-		if err := lockForUpdate(tx).Select("id", "user_id", "quota").Where("id = ? AND user_id = ?", taskID, userID).First(&task).Error; err != nil {
+		if err := lockForUpdate(tx).Select("id", "user_id", "quota", "billing_pending").Where("id = ? AND user_id = ?", taskID, userID).First(&task).Error; err != nil {
 			return err
+		}
+		if task.BillingPending {
+			return errors.New("Midjourney charge is still pending reconciliation")
 		}
 		if task.Quota == 0 {
 			return nil

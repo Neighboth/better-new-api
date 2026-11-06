@@ -48,6 +48,11 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 	taskM := make(map[string]*model.Midjourney)
 	nullTaskIds := make([]int, 0)
 	for _, task := range tasks {
+		// The submitter has not durably recorded whether its charge applied.
+		// Polling/refunding it now could create an unearned wallet credit.
+		if task.BillingPending {
+			continue
+		}
 		if task.MjId == "" {
 			// 统计失败的未完成任务
 			nullTaskIds = append(nullTaskIds, task.Id)

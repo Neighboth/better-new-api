@@ -456,7 +456,7 @@ func TestMidjourneyRefundRestoresEveryAccountingElementOnBillingChannel(t *testi
 	assert.Equal(t, int64(1), countLogs(t))
 }
 
-func TestSettleMidjourneyTaskBillingFundingFailureClearsMarkers(t *testing.T) {
+func TestSettleMidjourneyTaskBillingFundingFailureRetainsPendingMarker(t *testing.T) {
 	truncate(t)
 
 	const userID, tokenID, channelID = 52, 52, 52
@@ -499,9 +499,12 @@ func TestSettleMidjourneyTaskBillingFundingFailureClearsMarkers(t *testing.T) {
 	assert.Equal(t, initialUserQuota, getUserQuota(t, userID))
 	assert.Equal(t, initialTokenQuota, getTokenRemainQuota(t, tokenID))
 	persisted := getMidjourneyTask(t, task.Id)
-	assert.Zero(t, persisted.Quota)
+	assert.Equal(t, chargedQuota, persisted.Quota)
+	assert.True(t, persisted.BillingPending)
 	assert.Zero(t, persisted.TokenId)
-	assert.Zero(t, persisted.BillingChannelId)
+	assert.Equal(t, channelID, persisted.BillingChannelId)
+	assert.False(t, RefundMidjourneyQuota(context.Background(), persisted, "uncertain charge"))
+	assert.Equal(t, initialUserQuota, getUserQuota(t, userID))
 	usedQuota, requestCount := getUserUsageAccounting(t, userID)
 	assert.Zero(t, usedQuota)
 	assert.Zero(t, requestCount)
