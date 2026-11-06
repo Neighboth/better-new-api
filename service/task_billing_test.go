@@ -1250,3 +1250,22 @@ func TestWalletFundingJournalPrechargeSettlementAndRetry(t *testing.T) {
 	require.Error(t, funding.Settle(11))
 	require.NoError(t, model.ResolveWalletTransferHold(982, holdID, 0))
 }
+
+func TestWalletExtraReservationAndRollbackAreJournaled(t *testing.T) {
+	truncate(t)
+	seedUser(t, 983, 100)
+	holdID, err := model.BeginWalletTransferHold(983)
+	require.NoError(t, err)
+	funding := &WalletFunding{userId: 983, holdID: holdID}
+	require.NoError(t, funding.PreConsume(20))
+	session := &BillingSession{funding: funding}
+	require.Nil(t, session.reserveFunding(10))
+	require.Equal(t, 70, getUserQuota(t, 983))
+	session.rollbackFundingReserve(10)
+	require.Equal(t, 80, getUserQuota(t, 983))
+	require.Nil(t, session.reserveFunding(15))
+	require.Equal(t, 65, getUserQuota(t, 983))
+	require.NoError(t, funding.Refund())
+	require.Equal(t, 100, getUserQuota(t, 983))
+	require.NoError(t, model.ResolveWalletTransferHold(983, holdID, 0))
+}

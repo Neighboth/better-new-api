@@ -34,9 +34,10 @@ type FundingSource interface {
 var ErrInsufficientWalletQuota = errors.New("wallet quota insufficient")
 
 type WalletFunding struct {
-	userId   int
-	consumed int // 实际预扣的用户额度
-	holdID   string
+	userId        int
+	consumed      int // 实际预扣的用户额度
+	holdID        string
+	markUncertain func()
 }
 
 func (w *WalletFunding) Source() string { return BillingSourceWallet }
@@ -53,6 +54,9 @@ func (w *WalletFunding) PreConsume(amount int) error {
 		reserved, err = model.TryReserveUserQuota(w.userId, amount)
 	}
 	if err != nil {
+		if w.holdID != "" && !common.BatchUpdateEnabled && w.markUncertain != nil {
+			w.markUncertain()
+		}
 		return err
 	}
 	if !reserved {

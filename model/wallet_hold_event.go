@@ -12,11 +12,11 @@ import (
 // WalletHoldEvent records an idempotent SQL wallet adjustment against an open
 // operation. Rows are retained so an ambiguous-commit retry cannot charge twice.
 type WalletHoldEvent struct {
-	HoldID    string `gorm:"type:char(32);primaryKey" json:"-"`
-	EventKey  string `gorm:"type:varchar(64);primaryKey" json:"-"`
-	UserID    int    `gorm:"index;not null" json:"-"`
-	Delta     int    `json:"-"`
-	CreatedAt int64  `json:"-"`
+	HoldID    string `gorm:"type:char(32);primaryKey" json:"hold_id"`
+	EventKey  string `gorm:"type:varchar(64);primaryKey" json:"event_key"`
+	UserID    int    `gorm:"index;not null" json:"user_id"`
+	Delta     int    `json:"delta"`
+	CreatedAt int64  `json:"created_at"`
 }
 
 func ApplyWalletHoldDelta(userID int, holdID, eventKey string, delta int) error {

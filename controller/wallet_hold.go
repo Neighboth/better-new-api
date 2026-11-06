@@ -18,6 +18,15 @@ func GetOpenWalletHolds(c *gin.Context) {
 	if value, err := strconv.Atoi(c.Query("limit")); err == nil && value > 0 && value <= 100 {
 		limit = value
 	}
+	offset := 0
+	if raw := c.Query("offset"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid offset"})
+			return
+		}
+		offset = value
+	}
 	query := model.DB.Model(&model.WalletTransferHold{}).Where("state = ?", "open")
 	if raw := strings.TrimSpace(c.Query("user_id")); raw != "" {
 		userID, err := strconv.Atoi(raw)
@@ -28,13 +37,28 @@ func GetOpenWalletHolds(c *gin.Context) {
 		query = query.Where("user_id = ?", userID)
 	}
 	var holds []model.WalletTransferHold
-	if err := query.Order("created_at asc").Limit(limit).Find(&holds).Error; err != nil {
+	if err := query.Order("created_at asc, id asc").Offset(offset).Limit(limit).Find(&holds).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
+	ids := make([]string, 0, len(holds))
+	for _, hold := range holds {
+		ids = append(ids, hold.ID)
+	}
+	eventsByHold := make(map[string][]model.WalletHoldEvent)
+	if len(ids) > 0 {
+		var events []model.WalletHoldEvent
+		if err := model.DB.Where("hold_id IN ?", ids).Order("created_at asc, event_key asc").Find(&events).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		for _, event := range events {
+			eventsByHold[event.HoldID] = append(eventsByHold[event.HoldID], event)
+		}
+	}
 	items := make([]gin.H, 0, len(holds))
 	for _, hold := range holds {
-		items = append(items, gin.H{"id": hold.ID, "user_id": hold.UserID, "created_at": hold.CreatedAt, "source": hold.Source, "reference": hold.Reference})
+		items = append(items, gin.H{"id": hold.ID, "user_id": hold.UserID, "created_at": hold.CreatedAt, "source": hold.Source, "reference": hold.Reference, "events": eventsByHold[hold.ID]})
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": items})
 }

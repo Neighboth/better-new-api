@@ -14,7 +14,7 @@ import (
 
 func TestWalletHoldReconciliationRequiresConfirmationAndRecordsActor(t *testing.T) {
 	db := setupManageUserTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.WalletTransferHold{}))
+	require.NoError(t, db.AutoMigrate(&model.WalletTransferHold{}, &model.WalletHoldEvent{}))
 	user := model.User{Username: "hold_user", Quota: 100, AffCode: "hold_user_aff"}
 	require.NoError(t, db.Create(&user).Error)
 	id, err := model.BeginWalletTransferHold(user.Id)
@@ -39,4 +39,25 @@ func TestWalletHoldReconciliationRequiresConfirmationAndRecordsActor(t *testing.
 	require.Equal(t, "checked provider logs", hold.ResolutionNote)
 	require.NoError(t, db.First(&user, user.Id).Error)
 	require.Equal(t, 90, user.Quota)
+}
+
+func TestWalletHoldListIncludesJournalEvidence(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.WalletTransferHold{}, &model.WalletHoldEvent{}))
+	user := model.User{Username: "hold_list", Quota: 100, AffCode: "hold_list_aff"}
+	require.NoError(t, db.Create(&user).Error)
+	id, err := model.BeginWalletTransferHoldWithReference(user.Id, "relay", "request-example")
+	require.NoError(t, err)
+	ok, err := model.ReserveWalletHoldQuota(user.Id, id, "relay-precharge", 20)
+	require.NoError(t, err)
+	require.True(t, ok)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/wallet-holds?user_id=%d&limit=1&offset=0", user.Id), nil)
+	GetOpenWalletHolds(c)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), id)
+	require.Contains(t, rec.Body.String(), "request-example")
+	require.Contains(t, rec.Body.String(), "relay-precharge")
+	require.Contains(t, rec.Body.String(), `"delta":-20`)
 }

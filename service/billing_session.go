@@ -34,6 +34,9 @@ type BillingSession struct {
 	fundingSettled        bool // funding.Settle 已成功，资金来源已提交
 	settled               bool // Settle 全部完成（资金 + 令牌）
 	refunded              bool // Refund 已调用
+	reserveSequence       uint64
+	reserveEvent          string
+	reserveUncertain      bool
 	mu                    sync.Mutex
 }
 
@@ -163,6 +166,9 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.reserveUncertain {
+		return errors.New("wallet reservation requires reconciliation")
+	}
 	if s.settled || s.refunded || s.trusted || targetQuota <= s.preConsumedQuota {
 		return nil
 	}
@@ -274,7 +280,19 @@ func (s *BillingSession) reserveFunding(delta int) error {
 		// 全额无条件扣减，余额不足的部分记为欠费（余额可为负），不中断请求，
 		// 保证日志记录的预扣额度与用户余额的实际变动始终对账一致。
 		// DecreaseUserQuota 仅在数据库错误时失败。
-		if err := model.DecreaseUserQuota(funding.userId, delta, false); err != nil {
+		var err error
+		if funding.holdID != "" && !common.BatchUpdateEnabled {
+			s.reserveSequence++
+			s.reserveEvent = fmt.Sprintf("relay-reserve-%d", s.reserveSequence)
+			err = model.ApplyWalletHoldDelta(funding.userId, funding.holdID, s.reserveEvent, -delta)
+		} else {
+			err = model.DecreaseUserQuota(funding.userId, delta, false)
+		}
+		if err != nil {
+			s.reserveUncertain = true
+			if funding.markUncertain != nil {
+				funding.markUncertain()
+			}
 			return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 		}
 		funding.consumed += delta
@@ -306,7 +324,17 @@ func (s *BillingSession) reserveFunding(delta int) error {
 func (s *BillingSession) rollbackFundingReserve(delta int) {
 	switch funding := s.funding.(type) {
 	case *WalletFunding:
-		if err := model.IncreaseUserQuota(funding.userId, delta, false); err != nil {
+		var err error
+		if funding.holdID != "" && !common.BatchUpdateEnabled {
+			err = model.ApplyWalletHoldDelta(funding.userId, funding.holdID, s.reserveEvent+"-rollback", delta)
+		} else {
+			err = model.IncreaseUserQuota(funding.userId, delta, false)
+		}
+		if err != nil {
+			s.reserveUncertain = true
+			if funding.markUncertain != nil {
+				funding.markUncertain()
+			}
 			common.SysLog("error rolling back wallet funding reserve: " + err.Error())
 		} else {
 			funding.consumed -= delta
@@ -514,7 +542,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 
 		session := &BillingSession{
 			relayInfo:             relayInfo,
-			funding:               &WalletFunding{userId: relayInfo.UserId, holdID: c.GetString(common.WalletTransferHoldContextKey)},
+			funding:               &WalletFunding{userId: relayInfo.UserId, holdID: c.GetString(common.WalletTransferHoldContextKey), markUncertain: func() { c.Set(common.WalletTransferHoldRetainContextKey, true) }},
 			modelBalanceAvailable: available,
 			hasModelBalanceLimit:  restricted,
 		}
