@@ -42,6 +42,8 @@ jobs:
           & ./worker/build-clients.ps1
           if (-not $?) { throw 'Client compilation failed' }
           if (-not (Test-Path 'worker/binaries/BYOG Worker Kurulumu.exe')) { throw 'Installer missing' }
+      - name: Install APK builder dependency
+        run: python -m pip install Pillow
       - name: Build signed Android APK
         shell: pwsh
         run: |

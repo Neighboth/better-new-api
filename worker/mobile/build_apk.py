@@ -1975,6 +1975,7 @@ public class MainActivity extends Activity {
             server = "http://10.0.2.2:3001";
         }
         while (server.endsWith("/")) server = server.substring(0, server.length() - 1);
+        if (!WorkerService.isSecureServerURL(server)) return "file:///android_asset/www/index.html";
         String lang = WorkerService.isTurkish() ? "tr" : "en";
         String url = server + "/client?lang=" + lang;
         String nodeId = WorkerService.stringPref(sp, "node_id", "");
@@ -2765,9 +2766,10 @@ public class MainActivity extends Activity {
     private void reportCrashToServer(final String errorCode, final String errorMessage, final String stackTrace) {
         try {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            final String serverUrl = WorkerService.stringPref(sp, "server_url", "");
-            final String nodeId = WorkerService.stringPref(sp, "node_id", "");
-            final String workerSecret = WorkerService.stringPref(sp, "worker_secret", "");
+            java.util.Map<String, ?> identity = sp.getAll();
+            final String serverUrl = WorkerService.normalizeServerUrl(WorkerService.snapshotString(identity, "server_url"));
+            final String nodeId = WorkerService.snapshotString(identity, "node_id");
+            final String workerSecret = WorkerService.snapshotString(identity, "worker_secret");
             if (!WorkerService.isSecureServerURL(serverUrl)) return;
             new Thread(new Runnable() {
                 @Override
@@ -2912,9 +2914,10 @@ public class MainActivity extends Activity {
             try {
                 if (!"status".equals(operation) && !"resources".equals(operation)) return "{\\\"success\\\":false}";
                 SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                String server = WorkerService.stringPref(sp, "server_url", "");
-                String node = WorkerService.stringPref(sp, "node_id", "");
-                String secret = WorkerService.stringPref(sp, "worker_secret", "");
+                java.util.Map<String, ?> identity = sp.getAll();
+                String server = WorkerService.normalizeServerUrl(WorkerService.snapshotString(identity, "server_url"));
+                String node = WorkerService.snapshotString(identity, "node_id");
+                String secret = WorkerService.snapshotString(identity, "worker_secret");
                 if (!WorkerService.isSecureServerURL(server) || node.isEmpty() || secret.isEmpty()) return "{\\\"success\\\":false}";
                 while (server.endsWith("/")) server = server.substring(0, server.length() - 1);
                 String endpoint = server + "/api/v1/worker/" + operation;

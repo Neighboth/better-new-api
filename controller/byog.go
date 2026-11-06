@@ -39,14 +39,22 @@ import (
 )
 
 // Generate pure random pairing code without prefix (Section 4.5 e.g. 9K4L-28XM-73PQ-51ZR)
-func generateRandomPairingCode() string {
+func generateRandomPairingCode() (string, error) {
 	const charset = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	for i := range b {
-		b[i] = charset[int(b[i])%len(charset)]
+	var raw [1]byte
+	code := make([]byte, 16)
+	for i := range code {
+		for {
+			if _, err := rand.Read(raw[:]); err != nil {
+				return "", err
+			}
+			if int(raw[0]) < 256-256%len(charset) {
+				code[i] = charset[int(raw[0])%len(charset)]
+				break
+			}
+		}
 	}
-	return fmt.Sprintf("%s-%s-%s-%s", string(b[0:4]), string(b[4:8]), string(b[8:12]), string(b[12:16]))
+	return fmt.Sprintf("%s-%s-%s-%s", code[0:4], code[4:8], code[8:12], code[12:16]), nil
 }
 
 // resolveNodeGeoIP accurately resolves the country, city, and coordinates of an IP.
@@ -337,16 +345,6 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 	return
 }
 
-type userPairingSession struct {
-	UserId    int
-	CreatedAt int64
-}
-
-var (
-	userPairingSessionsMu sync.RWMutex
-	userPairingSessions   = make(map[string]userPairingSession)
-)
-
 // GetUserPairingCode generates a temporary 15-minute pairing code for the authenticated user
 func GetUserPairingCode(c *gin.Context) {
 	userId := c.GetInt("id")
@@ -355,21 +353,15 @@ func GetUserPairingCode(c *gin.Context) {
 		return
 	}
 
-	code := generateRandomPairingCode()
-	cleanCode := strings.ReplaceAll(strings.ToUpper(code), "-", "")
-	now := time.Now().Unix()
-
-	userPairingSessionsMu.Lock()
-	for k, v := range userPairingSessions {
-		if now-v.CreatedAt > 1800 {
-			delete(userPairingSessions, k)
-		}
+	code, err := generateRandomPairingCode()
+	if err != nil {
+		common.ApiError(c, err)
+		return
 	}
-	userPairingSessions[cleanCode] = userPairingSession{
-		UserId:    userId,
-		CreatedAt: now,
+	if err := model.CreateByogPairingSession(code, userId, time.Now().Unix()+900); err != nil {
+		common.ApiError(c, err)
+		return
 	}
-	userPairingSessionsMu.Unlock()
 
 	scheme := "http"
 	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
@@ -1285,17 +1277,12 @@ func RegisterByogWorker(c *gin.Context) {
 		}
 		matchedUserId = node.UserId
 	} else {
-		code := strings.ToUpper(strings.TrimSpace(req.PairingCode))
-		cleanCode := strings.ReplaceAll(strings.ReplaceAll(code, "-", ""), " ", "")
-		userPairingSessionsMu.Lock()
-		sess, ok := userPairingSessions[cleanCode]
-		delete(userPairingSessions, cleanCode)
-		userPairingSessionsMu.Unlock()
-		if !ok || sess.UserId <= 0 || time.Now().Unix()-sess.CreatedAt > 900 || sess.CreatedAt > time.Now().Unix() {
+		matchedUserId, err = model.ConsumeByogPairingSession(req.PairingCode)
+		if err != nil || matchedUserId <= 0 {
 			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid or expired pairing code"})
 			return
 		}
-		matchedUserId = sess.UserId
+
 		issuedSecret, secretHash, err = newByogWorkerCredential()
 		if err != nil {
 			common.ApiError(c, err)

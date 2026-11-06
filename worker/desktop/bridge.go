@@ -184,6 +184,9 @@ func (b *localBridge) pageAddress(serverUrl string) string {
 	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
 		target = "http://" + target
 	}
+	if workerurl.Validate(target) != nil {
+		return ""
+	}
 	State.Mu.Lock()
 	lang := State.Config.Language
 	State.Mu.Unlock()

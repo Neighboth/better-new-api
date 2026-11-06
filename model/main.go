@@ -311,6 +311,7 @@ func migrateDB() error {
 		&ByogModel{},
 		&ByogModelLora{},
 		&ByogNode{},
+		&ByogPairingSession{},
 		&ByogNodeBan{},
 		&ByogCrashReport{},
 		&ByogP2PTracker{},

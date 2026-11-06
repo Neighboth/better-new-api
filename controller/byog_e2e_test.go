@@ -56,6 +56,7 @@ func TestByogEndToEndLifecycle(t *testing.T) {
 
 	require.NoError(t, db.AutoMigrate(
 		&model.ByogNode{},
+		&model.ByogPairingSession{},
 		&model.ByogCrashReport{},
 		&model.ByogModel{},
 		&model.ByogSetting{},
@@ -135,14 +136,8 @@ func TestByogEndToEndLifecycle(t *testing.T) {
 	defer server.Close()
 
 	// 3. User generates pairing code
-	userPairingSessionsMu.Lock()
 	testPairingCode := "BYOG-TEST-PAIR-9999"
-	cleanCode := strings.ReplaceAll(testPairingCode, "-", "")
-	userPairingSessions[cleanCode] = userPairingSession{
-		UserId:    testUser.Id,
-		CreatedAt: time.Now().Unix(),
-	}
-	userPairingSessionsMu.Unlock()
+	require.NoError(t, model.CreateByogPairingSession(testPairingCode, testUser.Id, time.Now().Unix()+900))
 
 	// 4. Worker Registers with Server
 	testHwid := "hwid-test-desktop-win-001"
@@ -189,9 +184,7 @@ func TestByogEndToEndLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, replay.StatusCode)
 	replay.Body.Close()
 
-	userPairingSessionsMu.Lock()
-	userPairingSessions["EXPIREDCODE"] = userPairingSession{UserId: testUser.Id, CreatedAt: time.Now().Unix() - 901}
-	userPairingSessionsMu.Unlock()
+	require.NoError(t, model.CreateByogPairingSession("EXPIRED-CODE", testUser.Id, time.Now().Unix()-1))
 	expired, err := http.Post(server.URL+"/api/v1/worker/register", "application/json", strings.NewReader(`{"hwid":"`+testHwid+`","pairing_code":"EXPIRED-CODE"}`))
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusUnauthorized, expired.StatusCode)

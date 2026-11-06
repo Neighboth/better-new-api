@@ -49,7 +49,7 @@ func byogApkSigningKeyPath() string {
 	if sqlitePath != "" && sqlitePath != ":memory:" {
 		directory = filepath.Dir(sqlitePath)
 	}
-	return filepath.Join(directory, "byog_apk_signing_key.pem")
+	return filepath.Join(directory, "byog_worker_apk_key_v2.pem")
 }
 
 // brandByogApk rewrites the launcher label and icon of the APK and signs it again.
