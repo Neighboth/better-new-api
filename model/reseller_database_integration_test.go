@@ -99,6 +99,39 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			require.Equal(t, 35, getUserQuotaFromDB(t, owner.Id))
 			require.ErrorIs(t, ResolveWalletTransferHold(owner.Id, holdID, -6), ErrWalletHoldConflict)
 
+			// Hold insertion and issuance must serialize across DB connections,
+			// including the interval before the hold transaction commits.
+			tx := db.Begin()
+			require.NoError(t, tx.Error)
+			var locked User
+			require.NoError(t, lockForUpdate(tx).Select("id").Where("id = ?", owner.Id).First(&locked).Error)
+			manual := WalletTransferHold{ID: "manual" + common.GetRandomString(26), UserID: owner.Id, State: "open", CreatedAt: time.Now().Unix()}
+			require.NoError(t, tx.Create(&manual).Error)
+			startIssue := make(chan struct{})
+			issueResult := make(chan error, 1)
+			go func() {
+				close(startIssue)
+				_, issueErr := CreateResellerBalanceCodes(owner.Id, 10, 1, "race-with-uncommitted-hold")
+				issueResult <- issueErr
+			}()
+			<-startIssue
+			early := false
+			var issueErr error
+			select {
+			case issueErr = <-issueResult:
+				early = true
+			case <-time.After(100 * time.Millisecond):
+			}
+			commitErr := tx.Commit().Error
+			if !early {
+				issueErr = <-issueResult
+			}
+			require.NoError(t, commitErr)
+			require.False(t, early, "issuance must wait for the in-progress user-row transaction")
+			require.Error(t, issueErr, "the committed open hold must prevent issuance")
+			require.Equal(t, 35, getUserQuotaFromDB(t, owner.Id))
+			require.NoError(t, ResolveWalletTransferHold(owner.Id, manual.ID, 0))
+
 			// Redeeming and refunding the same code must never both credit a wallet.
 			recipient := createReserveTestUser(t, 0)
 			t.Cleanup(func() { db.Unscoped().Where("id = ?", recipient.Id).Delete(&User{}) })

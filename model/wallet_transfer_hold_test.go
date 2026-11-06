@@ -61,3 +61,23 @@ func TestWalletHoldSettlementOutOfRangeStaysOpen(t *testing.T) {
 	require.Equal(t, "open", hold.State)
 	require.NoError(t, ResolveWalletTransferHold(user.Id, id, 0))
 }
+
+func TestWalletHoldRetryInvalidatesRehydratedCache(t *testing.T) {
+	truncateTables(t)
+	resetBatchUpdateTestState(t)
+	useUserCacheMiniRedis(t)
+	user := createReserveTestUser(t, 100)
+	t.Cleanup(func() { DB.Where("user_id = ?", user.Id).Delete(&WalletTransferHold{}) })
+	require.NoError(t, populateUserCache(user))
+	id, err := BeginWalletTransferHold(user.Id)
+	require.NoError(t, err)
+	require.NoError(t, ResolveWalletTransferHold(user.Id, id, -10))
+	// Simulate a stale rehydration after the SQL commit but before an
+	// ambiguous settlement acknowledgment was retried.
+	require.NoError(t, populateUserCache(user))
+	require.NoError(t, ResolveWalletTransferHold(user.Id, id, -10))
+	cached, err := GetUserCache(user.Id)
+	require.NoError(t, err)
+	require.Equal(t, 90, cached.Quota)
+	require.Equal(t, 90, getUserQuotaFromDB(t, user.Id))
+}
