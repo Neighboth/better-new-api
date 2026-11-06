@@ -62,7 +62,15 @@ jobs:
         run: go build ./...
 
       - name: Test root and relaykit modules
-        run: make test
+        run: |
+          make test > test-output.log 2>&1 || {
+            tail -n 120 test-output.log
+            tail -n 120 test-output.log | while IFS= read -r line; do
+              printf '::error::%s\n' "${line//%/%25}"
+            done
+            exit 1
+          }
+          tail -n 20 test-output.log
 
   frontend:
     name: Frontend typecheck and test
