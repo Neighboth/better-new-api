@@ -1272,3 +1272,23 @@ func TestWalletExtraReservationAndRollbackAreJournaled(t *testing.T) {
 	require.Equal(t, 100, getUserQuota(t, 983))
 	require.NoError(t, model.ResolveWalletTransferHold(983, holdID, 0))
 }
+
+func TestLegacyAndViolationWalletEventsAreIndependentlyIdempotent(t *testing.T) {
+	truncate(t)
+	seedUser(t, 984, 100)
+	holdID, err := model.BeginWalletTransferHold(984)
+	require.NoError(t, err)
+	info := &relaycommon.RelayInfo{UserId: 984, IsPlayground: true}
+	for i := 0; i < 2; i++ {
+		result, err := postConsumeQuotaWithHold(info, 20, 0, false, holdID, "legacy-settlement")
+		require.NoError(t, err)
+		require.True(t, result.FundingApplied)
+		result, err = postConsumeQuotaWithHold(info, 10, 0, false, holdID, "violation-fee")
+		require.NoError(t, err)
+		require.True(t, result.FundingApplied)
+	}
+	require.Equal(t, 70, getUserQuota(t, 984))
+	_, err = postConsumeQuotaWithHold(info, 11, 0, false, holdID, "violation-fee")
+	require.ErrorIs(t, err, model.ErrWalletHoldConflict)
+	require.NoError(t, model.ResolveWalletTransferHold(984, holdID, 0))
+}

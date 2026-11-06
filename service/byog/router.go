@@ -382,9 +382,18 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 					}
 
 					if quotaToDeduct > 0 {
-						if err := model.DecreaseUserQuota(userId, int(quotaToDeduct), true); err != nil {
+						var chargeErr error
+						holdID := c.GetString(common.WalletTransferHoldContextKey)
+						if quotaToDeduct > int64(common.MaxQuota) {
+							chargeErr = fmt.Errorf("BYOG wallet charge exceeds supported range")
+						} else if holdID != "" && !common.BatchUpdateEnabled {
+							chargeErr = model.ApplyWalletHoldDelta(userId, holdID, "byog-settlement", -int(quotaToDeduct))
+						} else {
+							chargeErr = model.DecreaseUserQuota(userId, int(quotaToDeduct), true)
+						}
+						if chargeErr != nil {
 							c.Set(common.WalletTransferHoldRetainContextKey, true)
-							common.SysError("BYOG wallet settlement failed: " + err.Error())
+							common.SysError("BYOG wallet settlement failed: " + chargeErr.Error())
 						}
 					}
 

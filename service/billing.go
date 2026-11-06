@@ -93,7 +93,7 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 	// 回退：无 BillingSession 时使用旧路径
 	quotaDelta := actualQuota - relayInfo.FinalPreConsumedQuota
 	if quotaDelta != 0 {
-		err := PostConsumeQuota(relayInfo, quotaDelta, relayInfo.FinalPreConsumedQuota, true)
+		_, err := postConsumeQuotaWithHold(relayInfo, quotaDelta, relayInfo.FinalPreConsumedQuota, true, ctx.GetString(common.WalletTransferHoldContextKey), "legacy-settlement")
 		if err != nil {
 			ctx.Set(common.WalletTransferHoldRetainContextKey, true)
 		}

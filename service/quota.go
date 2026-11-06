@@ -473,6 +473,10 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 }
 
 func postConsumeQuotaWithResult(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool) (result postConsumeQuotaResult, err error) {
+	return postConsumeQuotaWithHold(relayInfo, quota, preConsumedQuota, sendEmail, "", "")
+}
+
+func postConsumeQuotaWithHold(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool, holdID, eventKey string) (result postConsumeQuotaResult, err error) {
 
 	// 1) Consume from wallet quota OR subscription item
 	if relayInfo != nil && relayInfo.BillingSource == BillingSourceSubscription {
@@ -488,7 +492,9 @@ func postConsumeQuotaWithResult(relayInfo *relaycommon.RelayInfo, quota int, pre
 		}
 	} else {
 		// Wallet
-		if quota > 0 {
+		if holdID != "" && eventKey != "" && !common.BatchUpdateEnabled {
+			err = model.ApplyWalletHoldDelta(relayInfo.UserId, holdID, eventKey, -quota)
+		} else if quota > 0 {
 			err = model.DecreaseUserQuota(relayInfo.UserId, quota, false)
 		} else {
 			err = model.IncreaseUserQuota(relayInfo.UserId, -quota, false)
