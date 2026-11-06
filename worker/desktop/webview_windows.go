@@ -69,7 +69,7 @@ var (
 	webViewHandlers   []any
 	webViewLoaderDLL  *syscall.DLL
 	// webViewReady tells whether the page of the client is shown in the window.
-	webViewReady atomic.Bool
+	webViewReady      atomic.Bool
 	webViewUserClosed atomic.Bool
 )
 

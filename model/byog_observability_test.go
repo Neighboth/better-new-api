@@ -1,8 +1,8 @@
 package model
 
 import (
- "os"
- "path/filepath"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -163,26 +163,26 @@ func TestListByogNodesWithErrors(t *testing.T) {
 }
 
 func TestArchiveAndDeleteByogCrashReports(t *testing.T) {
-    require.NoError(t, DB.AutoMigrate(&ByogCrashReport{}))
-    cleanByogObservabilityTables(t)
-    require.NoError(t, DB.Create(&ByogCrashReport{NodeId: "test-node", ErrorCode: "oom", ErrorMessage: "test"}).Error)
-    count, err := ArchiveAndDeleteByogCrashReports("")
-    require.Error(t, err)
-    require.Zero(t, count)
-    remaining, err := CountByogCrashReports()
-    require.NoError(t, err)
-    require.Equal(t, int64(1), remaining)
-    dir := t.TempDir()
-    count, err = ArchiveAndDeleteByogCrashReports(dir)
-    require.NoError(t, err)
-    require.Equal(t, int64(1), count)
-    remaining, err = CountByogCrashReports()
-    require.NoError(t, err)
-    require.Zero(t, remaining)
-    files, err := os.ReadDir(dir)
-    require.NoError(t, err)
-    require.Len(t, files, 1)
-    data, err := os.ReadFile(filepath.Join(dir, files[0].Name()))
-    require.NoError(t, err)
-    assert.Contains(t, string(data), `"error_code":"oom"`)
+	require.NoError(t, DB.AutoMigrate(&ByogCrashReport{}))
+	cleanByogObservabilityTables(t)
+	require.NoError(t, DB.Create(&ByogCrashReport{NodeId: "test-node", ErrorCode: "oom", ErrorMessage: "test"}).Error)
+	count, err := ArchiveAndDeleteByogCrashReports("")
+	require.Error(t, err)
+	require.Zero(t, count)
+	remaining, err := CountByogCrashReports()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), remaining)
+	dir := t.TempDir()
+	count, err = ArchiveAndDeleteByogCrashReports(dir)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), count)
+	remaining, err = CountByogCrashReports()
+	require.NoError(t, err)
+	require.Zero(t, remaining)
+	files, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	data, err := os.ReadFile(filepath.Join(dir, files[0].Name()))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"error_code":"oom"`)
 }

@@ -1,7 +1,7 @@
 package controller
 
 import (
-		"fmt"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -11,30 +11,30 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/gin-gonic/gin"
 )
 
 type HfRepoItem struct {
-	Id        string `json:"id"`
-	Author    string `json:"author"`
-	Downloads int    `json:"downloads"`
-	Likes     int    `json:"likes"`
-	Gated     bool   `json:"gated"`
-	Private   bool   `json:"private"`
+	Id            string `json:"id"`
+	Author        string `json:"author"`
+	Downloads     int    `json:"downloads"`
+	Likes         int    `json:"likes"`
+	Gated         bool   `json:"gated"`
+	Private       bool   `json:"private"`
 	ParameterSize string `json:"parameter_size"`
 }
 
 type HfFileDetail struct {
-	Filename       string  `json:"filename"`
-	Size           int64   `json:"size"`
-	SizeMB         int     `json:"size_mb"`
-	SizeGB         float64 `json:"size_gb"`
-	DownloadUrl    string  `json:"download_url"`
-	Quantization   string  `json:"quantization"`
-	RecommendedRam float64 `json:"recommended_ram_gb"`
-	RecommendedVram int    `json:"recommended_vram_gb"`
-	RecommendedCores int   `json:"recommended_cores"`
+	Filename         string  `json:"filename"`
+	Size             int64   `json:"size"`
+	SizeMB           int     `json:"size_mb"`
+	SizeGB           float64 `json:"size_gb"`
+	DownloadUrl      string  `json:"download_url"`
+	Quantization     string  `json:"quantization"`
+	RecommendedRam   float64 `json:"recommended_ram_gb"`
+	RecommendedVram  int     `json:"recommended_vram_gb"`
+	RecommendedCores int     `json:"recommended_cores"`
 }
 
 // SearchHuggingFaceModels proxies model search requests to Hugging Face API
@@ -116,12 +116,12 @@ func SearchHuggingFaceModels(c *gin.Context) {
 		}
 
 		results = append(results, HfRepoItem{
-			Id:        repoId,
-			Author:    author,
-			Downloads: downloads,
-			Likes:     likes,
-			Gated:     isGated,
-			Private:   isPrivate,
+			Id:            repoId,
+			Author:        author,
+			Downloads:     downloads,
+			Likes:         likes,
+			Gated:         isGated,
+			Private:       isPrivate,
 			ParameterSize: huggingFaceParameterSize(repoId, r),
 		})
 	}
@@ -137,17 +137,27 @@ func SearchHuggingFaceModels(c *gin.Context) {
 func huggingFaceParameterSize(repo string, data map[string]interface{}) string {
 	for _, field := range []string{"safetensors", "gguf"} {
 		metadata, ok := data[field].(map[string]interface{})
-		if !ok { continue }
+		if !ok {
+			continue
+		}
 		total, ok := metadata["total"].(float64)
-		if !ok || total <= 0 || math.IsInf(total, 0) || math.IsNaN(total) { continue }
+		if !ok || total <= 0 || math.IsInf(total, 0) || math.IsNaN(total) {
+			continue
+		}
 		unit, scale := "B", 1e9
-		if total >= 1e12 { unit, scale = "T", 1e12 }
+		if total >= 1e12 {
+			unit, scale = "T", 1e12
+		}
 		return strconv.FormatFloat(math.Round(total/scale*10)/10, 'f', -1, 64) + unit
 	}
 	name := repo
-	if i := strings.LastIndex(name, "/"); i >= 0 { name = name[i+1:] }
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
 	match := regexp.MustCompile(`(?i)(?:^|[-_ ])([0-9]+(?:\.[0-9]+)?)([bt])(?:$|[-_. ])`).FindStringSubmatch(name)
-	if len(match) == 3 { return match[1] + strings.ToUpper(match[2]) }
+	if len(match) == 3 {
+		return match[1] + strings.ToUpper(match[2])
+	}
 	return ""
 }
 
@@ -155,14 +165,20 @@ func huggingFaceParameterSize(repo string, data map[string]interface{}) string {
 // context, quantization, architecture, GPU offloading and other processes vary.
 // Unknown sizes must not be presented as a fabricated low requirement.
 func computeRecommendedSpecs(sizeGB float64) (recRam float64, recVram int, recCores int) {
-	if sizeGB <= 0 { return 0, 0, 0 }
+	if sizeGB <= 0 {
+		return 0, 0, 0
+	}
 	recRam = math.Max(math.Ceil((sizeGB*1.35+4)*2)/2, 8)
 	recVram = int(math.Max(math.Ceil(sizeGB*1.2+2), 4))
 	switch {
-	case sizeGB > 30: recCores = 16
-	case sizeGB > 14: recCores = 12
-	case sizeGB > 2: recCores = 8
-	default: recCores = 4
+	case sizeGB > 30:
+		recCores = 16
+	case sizeGB > 14:
+		recCores = 12
+	case sizeGB > 2:
+		recCores = 8
+	default:
+		recCores = 4
 	}
 	return
 }

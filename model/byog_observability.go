@@ -1,12 +1,12 @@
 package model
 
 import (
- "errors"
- "os"
- "strings"
+	"errors"
+	"os"
+	"strings"
 
- "github.com/QuantumNous/new-api/common"
- "gorm.io/gorm"
+	"github.com/QuantumNous/new-api/common"
+	"gorm.io/gorm"
 )
 
 // The observability of the BYOG network for the administration.
@@ -185,34 +185,57 @@ func ArchiveAndDeleteByogCrashReports(directory string) (int64, error) {
 		return 0, err
 	}
 	file, err := os.CreateTemp(directory, "byog-crash-*.jsonl")
-	if err != nil { return 0, err }
+	if err != nil {
+		return 0, err
+	}
 	defer file.Close()
 	var lastID int
 	var ids []int
 	var maxID int
-	if err := DB.Model(&ByogCrashReport{}).Select("COALESCE(MAX(id), 0)").Scan(&maxID).Error; err != nil { return 0, err }
+	if err := DB.Model(&ByogCrashReport{}).Select("COALESCE(MAX(id), 0)").Scan(&maxID).Error; err != nil {
+		return 0, err
+	}
 	for {
 		var reports []ByogCrashReport
-		if err := DB.Where("id > ? AND id <= ?", lastID, maxID).Order("id ASC").Limit(500).Find(&reports).Error; err != nil { return 0, err }
-		if len(reports) == 0 { break }
+		if err := DB.Where("id > ? AND id <= ?", lastID, maxID).Order("id ASC").Limit(500).Find(&reports).Error; err != nil {
+			return 0, err
+		}
+		if len(reports) == 0 {
+			break
+		}
 		for _, report := range reports {
 			data, err := common.Marshal(report)
-			if err != nil { return 0, err }
-			if _, err := file.Write(append(data, '\n')); err != nil { return 0, err }
+			if err != nil {
+				return 0, err
+			}
+			if _, err := file.Write(append(data, '\n')); err != nil {
+				return 0, err
+			}
 			lastID = report.Id
 			ids = append(ids, report.Id)
 		}
 	}
-	if err := file.Sync(); err != nil { return 0, err }
-	if err := file.Close(); err != nil { return 0, err }
-	if len(ids) == 0 { _ = os.Remove(file.Name()); return 0, nil }
+	if err := file.Sync(); err != nil {
+		return 0, err
+	}
+	if err := file.Close(); err != nil {
+		return 0, err
+	}
+	if len(ids) == 0 {
+		_ = os.Remove(file.Name())
+		return 0, nil
+	}
 	var deleted int64
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		for start := 0; start < len(ids); start += 500 {
 			end := start + 500
-			if end > len(ids) { end = len(ids) }
+			if end > len(ids) {
+				end = len(ids)
+			}
 			result := tx.Where("id IN ?", ids[start:end]).Delete(&ByogCrashReport{})
-			if result.Error != nil { return result.Error }
+			if result.Error != nil {
+				return result.Error
+			}
 			deleted += result.RowsAffected
 		}
 		return nil

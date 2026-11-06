@@ -366,20 +366,26 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string, trayFlag bool
 	// The entries of the system carry the name and the icon of the installation
 	// from the first start.
 	fmt.Println("[GUI] Before updateInstallationBranding")
-	if os.Stdout != nil { _ = os.Stdout.Sync() }
+	if os.Stdout != nil {
+		_ = os.Stdout.Sync()
+	}
 	if config.SystemName != "" || config.AppName != "" {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
 					fmt.Printf("[GUI] updateInstallationBranding panic: %v\n", r)
-					if os.Stdout != nil { _ = os.Stdout.Sync() }
+					if os.Stdout != nil {
+						_ = os.Stdout.Sync()
+					}
 				}
 			}()
 			updateInstallationBranding(config.AppName, config.SystemName, config.FaviconBase64)
 		}()
 	}
 	fmt.Println("[GUI] After updateInstallationBranding")
-	if os.Stdout != nil { _ = os.Stdout.Sync() }
+	if os.Stdout != nil {
+		_ = os.Stdout.Sync()
+	}
 
 	fmt.Println("[GUI] Before window.create()")
 	window := &guiWindow{statusState: stateOffline, statusText: clientText("connecting"), hovered: -1, trayMode: trayFlag}
