@@ -498,7 +498,6 @@ func SetApiRouter(router *gin.Engine) {
 			resellerRoute.GET("/redemptions", controller.ResellerGetRedemptions)
 			resellerRoute.POST("/redemptions", controller.ResellerCreateRedemption)
 			resellerRoute.DELETE("/redemptions/:id", controller.ResellerDeleteRedemption)
-			resellerRoute.GET("/users/:userId/logs", controller.ResellerGetUserLogs)
 		}
 
 		// Deployments (model deployment management)

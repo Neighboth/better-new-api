@@ -13,6 +13,8 @@ import (
 func TestResellerRejectsOverflowAndInvalidBalanceTypes(t *testing.T) {
 	for _, body := range []string{
 		`{"quota":2147483647,"count":100,"type":0}`,
+		`{"quota":1,"count":1,"type":1}`,
+		`{"quota":1,"count":1,"type":2}`,
 		`{"quota":1,"count":1,"type":3}`,
 		`{"quota":1,"count":1,"type":-1}`,
 	} {
