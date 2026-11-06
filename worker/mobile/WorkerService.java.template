@@ -1863,16 +1863,19 @@ public class WorkerService extends Service {
                 if (isSsl) {
                     SSLSocket sslSocket = (SSLSocket) SSLSocketFactory.getDefault().createSocket();
                     sslSocket.connect(new InetSocketAddress(host, port), 10000);
+                    SSLParameters sslParams = sslSocket.getSSLParameters();
+                    // Certificate trust alone is not enough: verify the server hostname.
+                    sslParams.setEndpointIdentificationAlgorithm("HTTPS");
                     if (Build.VERSION.SDK_INT >= 24) {
                         try {
-                            SSLParameters sslParams = sslSocket.getSSLParameters();
                             List<SNIServerName> sniNames = new ArrayList<>();
                             sniNames.add(new SNIHostName(host));
                             sslParams.setServerNames(sniNames);
-                            sslParams.setEndpointIdentificationAlgorithm("HTTPS");
-                            sslSocket.setSSLParameters(sslParams);
-                        } catch (Exception ignored) {}
+                        } catch (IllegalArgumentException ignored) {
+                            // IP literals do not use SNI, but still require hostname verification.
+                        }
                     }
+                    sslSocket.setSSLParameters(sslParams);
                     sslSocket.startHandshake();
                     socket = sslSocket;
                 } else {
