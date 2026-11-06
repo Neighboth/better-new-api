@@ -250,6 +250,10 @@ export function useSidebarData(): SidebarData {
           activeUrls: ['/statistics'],
           icon: BarChart3,
           requiredRole: ROLE.ADMIN,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.STATISTICS,
+            action: 'read',
+          },
         },
         {
           title: t('System Info'),

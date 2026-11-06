@@ -497,6 +497,9 @@ func migrateClickHouseLogDB() error {
 	if err := LOG_DB.Exec(clickHouseLogCreateTableSQL(ttlDays)).Error; err != nil {
 		return err
 	}
+	if err := LOG_DB.Exec("ALTER TABLE logs ADD COLUMN IF NOT EXISTS client_name String DEFAULT ''").Error; err != nil {
+		return err
+	}
 	return syncClickHouseLogTTL(ttlDays)
 }
 
@@ -533,6 +536,7 @@ CREATE TABLE IF NOT EXISTS logs (
 	content String DEFAULT '',
 	username String DEFAULT '',
 	token_name String DEFAULT '',
+	client_name String DEFAULT '',
 	model_name String DEFAULT '',
 	quota Int32 DEFAULT 0,
 	prompt_tokens Int32 DEFAULT 0,

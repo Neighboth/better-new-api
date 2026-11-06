@@ -165,3 +165,30 @@ func TestGetSiteStatsByogDistributions(t *testing.T) {
 	assert.Equal(t, int64(2), countries[0].Count)
 	assert.Equal(t, "Turkey", countries[1].Name)
 }
+
+func TestGetSiteStatsTopClientsSeparatesApplicationsFromKeys(t *testing.T) {
+	require.NoError(t, DB.AutoMigrate(&Log{}))
+	cleanSiteStatsTables(t)
+	now := time.Now().Unix()
+	logs := []Log{
+		{UserId: 1, CreatedAt: now - 5, Type: LogTypeConsume, ModelName: "test", TokenName: "my-key", ClientName: "Roo Code", PromptTokens: 10, CompletionTokens: 5, Quota: 9},
+		{UserId: 1, CreatedAt: now - 4, Type: LogTypeConsume, ModelName: "test", TokenName: "my-key", ClientName: "Claude Code", PromptTokens: 20, CompletionTokens: 7, Quota: 8},
+		{UserId: 2, CreatedAt: now - 3, Type: LogTypeConsume, ModelName: "other", TokenName: "other-key", ClientName: "", PromptTokens: 2},
+	}
+	require.NoError(t, DB.Create(&logs).Error)
+	filter := SiteStatsFilter{StartTs: now - 60, EndTs: now + 60, UserIds: []int{1}}
+	clients, err := GetSiteStatsTopClients(filter, "tokens", "desc", 10)
+	require.NoError(t, err)
+	require.Len(t, clients, 2)
+	assert.Equal(t, "Claude Code", clients[0].ClientName)
+	assert.Equal(t, int64(27), clients[0].Tokens)
+	assert.Equal(t, "Roo Code", clients[1].ClientName)
+	keys, err := GetSiteStatsTopTokens(filter, "tokens", "desc", 10)
+	require.NoError(t, err)
+	require.Len(t, keys, 1)
+	assert.Equal(t, "my-key", keys[0].TokenName)
+	assert.Equal(t, int64(2), keys[0].Requests)
+	all, err := GetSiteStatsTopClients(SiteStatsFilter{StartTs: now - 60, EndTs: now + 60}, "requests", "desc", 10)
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+}

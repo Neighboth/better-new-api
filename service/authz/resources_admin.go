@@ -9,6 +9,7 @@ const (
 	ResourceSystemSetting = "system_setting"
 	ResourceTicket        = "ticket"
 	ResourceByog          = "byog"
+	ResourceStatistics    = "statistics"
 
 	ActionDelete = "delete"
 )
@@ -36,6 +37,8 @@ var (
 	TicketRead   = Permission{Resource: ResourceTicket, Action: ActionRead}
 	TicketWrite  = Permission{Resource: ResourceTicket, Action: ActionWrite}
 	TicketDelete = Permission{Resource: ResourceTicket, Action: ActionDelete}
+
+	StatisticsRead = Permission{Resource: ResourceStatistics, Action: ActionRead}
 
 	ByogRead  = Permission{Resource: ResourceByog, Action: ActionRead}
 	ByogWrite = Permission{Resource: ResourceByog, Action: ActionWrite}
@@ -204,6 +207,16 @@ func init() {
 				DefaultRoles:   []string{BuiltInRoleAdmin},
 			},
 		},
+	})
+	RegisterResource(ResourceDefinition{
+		Resource: ResourceStatistics,
+		LabelKey: "Statistics",
+		Actions: []ActionDefinition{{
+			Action:         ActionRead,
+			LabelKey:       "View statistics",
+			DescriptionKey: "View site-wide statistics and filter options.",
+			DefaultRoles:   []string{BuiltInRoleAdmin},
+		}},
 	})
 }
 
