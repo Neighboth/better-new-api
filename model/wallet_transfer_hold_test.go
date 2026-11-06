@@ -81,3 +81,23 @@ func TestWalletHoldRetryInvalidatesRehydratedCache(t *testing.T) {
 	require.Equal(t, 90, cached.Quota)
 	require.Equal(t, 90, getUserQuotaFromDB(t, user.Id))
 }
+
+func TestManualWalletHoldResolutionRecordsOperatorAtomically(t *testing.T) {
+	truncateTables(t)
+	resetBatchUpdateTestState(t)
+	user := createReserveTestUser(t, 100)
+	t.Cleanup(func() { DB.Where("user_id = ?", user.Id).Delete(&WalletTransferHold{}) })
+	id, err := BeginWalletTransferHold(user.Id)
+	require.NoError(t, err)
+	require.Error(t, ManuallyResolveWalletTransferHold(user.Id, id, -10, 42, "short"))
+	require.NoError(t, ManuallyResolveWalletTransferHold(user.Id, id, -10, 42, "Checked provider settlement 123"))
+	require.NoError(t, ManuallyResolveWalletTransferHold(user.Id, id, -10, 42, "Checked provider settlement 123"))
+	var hold WalletTransferHold
+	require.NoError(t, DB.First(&hold, "id = ?", id).Error)
+	require.Equal(t, "resolved", hold.State)
+	require.Equal(t, 42, hold.ResolvedBy)
+	require.Equal(t, "Checked provider settlement 123", hold.ResolutionNote)
+	require.Equal(t, -10, hold.SettlementDelta)
+	require.Equal(t, 90, getUserQuotaFromDB(t, user.Id))
+	require.ErrorIs(t, ManuallyResolveWalletTransferHold(user.Id, id, -11, 42, "Checked provider settlement 123"), ErrWalletHoldConflict)
+}

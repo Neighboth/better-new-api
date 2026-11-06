@@ -20,6 +20,8 @@ func SetApiRouter(router *gin.Engine) {
 	apiRouter.Use(middleware.GlobalAPIRateLimit())
 	anonymousRequestBodyLimit := middleware.AnonymousRequestBodyLimit()
 	{
+		apiRouter.GET("/wallet-holds", middleware.RootAuth(), controller.GetOpenWalletHolds)
+		apiRouter.POST("/wallet-holds/:id/resolve", middleware.RootAuth(), controller.ResolveWalletHold)
 		apiRouter.GET("/setup", controller.GetSetup)
 		apiRouter.POST("/setup", anonymousRequestBodyLimit, controller.PostSetup)
 		apiRouter.GET("/status", controller.GetStatus)

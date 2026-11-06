@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -25,6 +26,8 @@ type WalletTransferHold struct {
 	CreatedAt       int64  `gorm:"not null" json:"-"`
 	ResolvedAt      int64  `json:"-"`
 	SettlementDelta int    `json:"-"`
+	ResolvedBy      int    `json:"-"`
+	ResolutionNote  string `gorm:"type:varchar(500)" json:"-"`
 }
 
 var ErrWalletHoldConflict = errors.New("wallet hold is already resolved with a different settlement")
@@ -59,6 +62,20 @@ func BeginWalletTransferHold(userID int) (string, error) {
 // billing model's negative balances: prevention of unbounded debt must also be
 // addressed at authorization/usage-limit level before release.
 func ResolveWalletTransferHold(userID int, id string, delta int) error {
+	return resolveWalletTransferHold(userID, id, delta, 0, "")
+}
+
+// ManuallyResolveWalletTransferHold records the root operator and reason in the
+// same transaction as the wallet adjustment and hold state change.
+func ManuallyResolveWalletTransferHold(userID int, id string, delta, operatorID int, note string) error {
+	note = strings.TrimSpace(note)
+	if operatorID <= 0 || len(note) < 10 || len(note) > 500 {
+		return gorm.ErrInvalidData
+	}
+	return resolveWalletTransferHold(userID, id, delta, operatorID, note)
+}
+
+func resolveWalletTransferHold(userID int, id string, delta, operatorID int, note string) error {
 	if userID <= 0 || id == "" || int64(delta) > int64(common.MaxQuota) || int64(delta) < -int64(common.MaxQuota) {
 		return gorm.ErrInvalidData
 	}
@@ -93,7 +110,7 @@ func ResolveWalletTransferHold(userID int, id string, delta int) error {
 				return gorm.ErrRecordNotFound
 			}
 		}
-		result := tx.Model(&WalletTransferHold{}).Where("id = ? AND user_id = ? AND state = ?", id, userID, "open").Updates(map[string]any{"state": "resolved", "resolved_at": time.Now().Unix(), "settlement_delta": delta})
+		result := tx.Model(&WalletTransferHold{}).Where("id = ? AND user_id = ? AND state = ?", id, userID, "open").Updates(map[string]any{"state": "resolved", "resolved_at": time.Now().Unix(), "settlement_delta": delta, "resolved_by": operatorID, "resolution_note": note})
 		if result.Error != nil {
 			return result.Error
 		}
