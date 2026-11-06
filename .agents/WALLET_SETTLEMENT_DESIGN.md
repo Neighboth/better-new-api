@@ -1,72 +1,72 @@
-# Wallet transfer and settlement safety — work in progress
+# Wallet transfer and settlement — draft, not release-ready
 
-This document is an implementation checklist, not a claim that the current draft
-is safe to deploy. Reseller code issuance creates transferable value; it must not
-race an operation whose final wallet debit is still unresolved.
+Reseller code issuance transfers value. It must not race in-flight API charges,
+and a user must not be able to transfer the balance then incur an unbounded new
+bill. PR #45 is a draft: the latter invariant and full crash recovery have NOT
+been established. Do not deploy this as a completed financial redesign.
 
-## Invariants
+## Current implementation
 
-1. Every potentially wallet-charged operation obtains a durable, unique hold
-   **before** work capable of generating a debit begins. Holds survive process
-   crashes and do not expire automatically. Code issuance and hold creation
-   serialize on the same user row in the primary database.
-2. The final wallet delta and release of its hold commit in the same SQL
-   transaction. Retrying the same operation is idempotent, including an
-   ambiguous commit; a retry with a different amount fails. Token accounting,
-   restricted packages, logs and customer response require separate explicit
-   consistency/retry rules; a DB commit must never be inferred from a cache.
-3. An operation that hands off to an asynchronous task retains the same hold
-   until the task reaches terminal status **and** its wallet settlement/refund
-   is durably applied. Updating a task to SUCCESS before its final debit must
-   not create a gap. Failed settlement leaves a hold and a recoverable record.
-4. A hold is released only when all downstream charges (including possible
-   policy/violation fees) are known. A panic, machine loss, ambiguous upstream
-   result or failed settlement leaves it open for reconciliation. Recovery must
-   be authorized, auditable, idempotent, and must not guess that an expired
-   lease means no future charge can arrive.
-5. SQL is authoritative for transferable balance. Cache loss, invalidation,
-   delayed cache updates and Redis failover cannot create or repay money. Batch
-   mode currently fails closed for reseller issuance; do not remove that guard
-   until batch deltas and settlement are accounted for durably.
-6. Existing billing explicitly allows negative balance when actual cost exceeds
-   precharge. A hold prevents transfers *during* a charge but does not by itself
-   stop a user transferring value and then starting a new under-reserved charge.
-   Avoid claiming debt/overspend prevention until the billable maximum, usage
-   limits, trusted-user bypass and legacy paths have a coherent enforced policy.
+- Authenticated billable relay requests create a durable, non-expiring SQL hold
+  before the handler. Model-list routes are exempt. Creating a hold and issuing
+  a balance code serialize on the user row; issuance fails if the user has open
+  holds or unfinished legacy tasks. Batch quota mode and active model-restricted
+  balances fail closed for reseller issuance.
+- Synchronous wallet precharge, extra reserves/rollbacks, settlement and refund
+  use `wallet_hold_events`: each `(hold_id, event_key)` and its wallet delta are
+  committed together. An identical replay is a no-op, a contradictory replay
+  fails; closed records must not be deleted while a replay is possible. A hold
+  remains open after process failure, panic or known ambiguous accounting error.
+  Final event and hold closure are separate commits: a crash between them leaves
+  a hold for investigation, not an automatic recovery.
+- Submitted async tasks retain their request hold. Legacy in-flight tasks gain a
+  terminal-processing hold. Task wallet adjustments use idempotent hold events
+  in non-batch mode; terminal/refund failures retain the hold. Status changes,
+  token accounting, logs and provider callbacks are not one SQL transaction.
+- Legacy `PostConsumeQuota`, realtime, direct BYOG, violation fees, Midjourney
+  and other paths still need a complete exact-once and error/crash review; not
+  every wallet mutation is journaled. In batch mode normal billing retains its
+  existing batch behavior, while reseller code issuance is rejected.
+- Existing billing permits actual usage to exceed a precharge and create debt.
+  A hold prevents transfer *while* work is pending, not transferring first and
+  then starting a new under-reserved operation. Preventing this without breaking
+  API use needs a durable maximum-cost/usage-bound authorization policy for all
+  providers, streams, trusted-user bypasses and asynchronous jobs. A post hoc
+  SQL nonnegative check alone would deliver unpaid work and is not a solution.
 
-## Inventory requiring integration and tests
+## Root recovery runbook (high-risk)
 
-- `service/billing.go`, `service/billing_session.go` and
-  `service/funding_source.go`: precharge, reservation increases, trusted zero
-  precharge, settle/refund, token/pool fallback and errors after responses.
-- `controller/relay.go`, `relay/relay_task.go`, `service/task_billing.go`,
-  `service/task_polling.go`: async submission, insert failure, task completion,
-  timeout/failure, poll overlap, provider retries and task reconciliation.
-- `service/quota.go` / `relay/realtime`: legacy `PostConsumeQuota` and live
-  WebSocket per-usage billing; `service/violation_fee.go`: late penalty fees.
-- `middleware/distributor.go` / `service/byog/router.go`: BYOG dispatch and its
-  separate wallet debit; it must not ignore debit failures.
-- Administrative/manual balance adjustments, promotions into the reseller role,
-  restricted balance package insert/deduction, batch writes and multi-instance
-  deployment must follow the same authority/locking rules.
+1. Keep the reseller's transfers blocked. Page through root-only
+   `GET /api/wallet-holds?user_id=USER_ID&limit=50&offset=0` (limit 1–100;
+   increase offset to inspect further results). Results include source,
+   request/task reference and recorded SQL wallet events. Offset pagination is
+   not a consistent snapshot if records change; repeat the inspection as needed.
+2. Investigate the request/provider logs, task status, upstream completion and
+   every related debit/refund and token adjustment. The journal covers only the
+   paths listed above. An old hold is not proof the operation ended. Explicitly
+   ensure it cannot still charge, refund, be retried or finish on another node.
+   If uncertain, **do not resolve**; escalate for reconciliation.
+3. Calculate any remaining signed SQL quota adjustment independently of already
+   committed events. Only after the operation and all related work are provably
+   stopped/settled, root may call `POST /api/wallet-holds/HOLD_ID/resolve` with
+   `{"user_id": USER_ID, "delta": SIGNED_QUOTA_DELTA, "reason": "...", "confirmed": true}`.
+   The reason must be 10–500 characters. The operator ID, note, adjustment and
+   closure commit together; repeated identical resolution is idempotent.
+   Incorrect resolution can release funds while a real bill is still pending.
+4. Do not prune hold or event rows until a formally defined retention window
+   guarantees no retry, replay or reconciliation can reference them. Back up the
+   primary database; monitor open-hold age and blocked resellers. There is no
+   automatic timeout, recovery worker or end-user reconciliation interface.
 
-## Existing foundation (not wired into the above)
+## Remaining release gates
 
-`model/wallet_transfer_hold.go` provides SQL holds, user-row serialization,
-range-checked atomic settlement and replay detection; reseller issuance checks
-for open holds. It is deliberately not connected to a subset of live billing
-paths because partial coverage could be mistaken for complete protection. The
-model tests and MySQL/PostgreSQL integration tests establish only the foundation.
-
-## Release gates
-
-- Tests with explicit barriers for issuance versus every debit path and task
-  state transition; multiple nodes and genuine Redis loss/failover.
-- Kill/restart and ambiguous commit tests at every transition, including task
-  handoff and recovery; exact-once accounting or explicit safe manual recovery.
-- Bounds/authorization tests for maximum cost, streaming, unknown usage,
-  trusted users, async jobs and direct BYOG, plus restricted-package semantics.
-- Operational recovery UX/runbook and database retention/archiving that cannot
-  remove idempotency records while a retry remains possible; load/performance
-  assessment for SQL contention and per-request write volume.
-- Device and payment-provider tests remain independent release gates.
+- Durable authorization/usage bounds against transfer-before-new-debt; include
+  trusted, streaming, unlimited token, asynchronous and legacy provider paths.
+- Prove atomicity/idempotency and reconciliation for every wallet and token
+  mutation, task handoff/terminal transitions, cancellation, provider failures,
+  multiple pollers, cross-instance concurrency and ambiguous commits.
+- Process kill/restart fault injection across each boundary, real Redis loss and
+  failover, all three databases, load and SQL lock contention. CI concurrency
+  tests alone are not a substitute for these checks.
+- Independent real Windows/Android and payment-provider testing; BYOG live hub
+  still requires a single coordinator, even with shared-database pairing.
