@@ -435,6 +435,22 @@ public class WorkerService extends Service {
         return url;
     }
 
+    // HTTPS protects pairing codes and worker secrets. Plain HTTP is limited to
+    // loopback (or the Android emulator's explicit host loopback alias).
+    public static boolean isSecureServerURL(String value) {
+        try {
+            URL u = new URL(value);
+            if (u.getUserInfo() != null || u.getQuery() != null || u.getRef() != null || u.getHost().isEmpty()) return false;
+            if ("https".equalsIgnoreCase(u.getProtocol())) return true;
+            if (!"http".equalsIgnoreCase(u.getProtocol())) return false;
+            String host = u.getHost();
+            if ("localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host) || "[::1]".equals(host)) return true;
+            boolean emulator = Build.FINGERPRINT.startsWith("generic") || Build.FINGERPRINT.startsWith("unknown")
+                || Build.HARDWARE.contains("goldfish") || Build.HARDWARE.contains("ranchu");
+            return emulator && "10.0.2.2".equals(host);
+        } catch (Exception ignored) { return false; }
+    }
+
     /**
      * Reads a text of the settings, a value of another type is ignored.
      */
@@ -1568,7 +1584,7 @@ public class WorkerService extends Service {
             String serverUrl = stringPref(sp, "server_url", "");
             String nodeId = stringPref(sp, "node_id", "");
             String pairingCode = stringPref(sp, "pairing_code", "");
-            if (serverUrl.isEmpty()) return;
+            if (!isSecureServerURL(serverUrl)) return;
             while (serverUrl.endsWith("/")) serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
 
             ActivityManager actMgr = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
@@ -1641,6 +1657,7 @@ public class WorkerService extends Service {
 
             URL url = new URL(serverUrl + "/api/v1/worker/register");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setInstanceFollowRedirects(false);
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
             conn.setRequestProperty("Authorization", "Bearer " + stringPref(sp, "worker_secret", ""));
@@ -1854,6 +1871,7 @@ public class WorkerService extends Service {
 
         public void connect() {
             try {
+                if (!isSecureServerURL(serverUrl)) return;
                 URL u = new URL(serverUrl);
                 String host = u.getHost();
                 int port = u.getPort();
@@ -2404,7 +2422,7 @@ public class WorkerService extends Service {
             final String serverUrl = stringPref(sp, "server_url", "");
             final String nodeId = stringPref(sp, "node_id", "");
             final String workerSecret = stringPref(sp, "worker_secret", "");
-            if (serverUrl.isEmpty()) return;
+            if (!isSecureServerURL(serverUrl)) return;
             new Thread(new Runnable() {
                 @Override
                 public void run() {
@@ -2419,6 +2437,7 @@ public class WorkerService extends Service {
 
                         URL url = new URL(serverUrl + "/api/v1/worker/telemetry/crash");
                         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setInstanceFollowRedirects(false);
                         conn.setRequestMethod("POST");
                         conn.setRequestProperty("Content-Type", "application/json");
                         conn.setRequestProperty("Authorization", "Bearer " + workerSecret);

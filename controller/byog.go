@@ -642,9 +642,6 @@ func DeleteUserByogNode(c *gin.Context) {
 
 	// The device is told that it was removed before the session is closed, so the
 	// application can show the state instead of waiting for the next registration.
-	byogservice.NotifyDeviceRemoved(targetNodeId, "Cihaz kaldırıldı")
-	byogservice.GlobalHub.Unregister(targetNodeId)
-
 	if model.DB != nil {
 		if targetId > 0 {
 			if err := model.DB.Unscoped().Where("id = ?", targetId).Delete(&model.ByogNode{}).Error; err != nil {
@@ -656,6 +653,8 @@ func DeleteUserByogNode(c *gin.Context) {
 			_ = model.DB.Unscoped().Where("node_id = ?", targetNodeId).Delete(&model.ByogNode{}).Error
 		}
 	}
+	byogservice.NotifyDeviceRemoved(targetNodeId, "Cihaz kaldırıldı")
+	byogservice.GlobalHub.Unregister(targetNodeId)
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Device deleted"})
 }
@@ -1165,13 +1164,13 @@ func DeleteAdminByogNode(c *gin.Context) {
 		return
 	}
 
-	byogservice.NotifyDeviceRemoved(nodeId, "Cihaz kaldırıldı")
-	byogservice.GlobalHub.Unregister(nodeId)
 	err := model.DeleteByogNode(nodeId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
+	byogservice.NotifyDeviceRemoved(nodeId, "Cihaz kaldırıldı")
+	byogservice.GlobalHub.Unregister(nodeId)
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Node permanently deleted from network"})
 }
@@ -1424,7 +1423,7 @@ func RegisterByogWorker(c *gin.Context) {
 		}
 		node.UserId = matchedUserId
 		node.PairingCode = ""
-		if err := model.SaveByogNode(node); err != nil {
+		if err := model.SaveByogLiveNode(node); err != nil {
 			common.ApiError(c, err)
 			return
 		}
@@ -1584,7 +1583,7 @@ func RegisterByogWorker(c *gin.Context) {
 		if changed || ((node.DownloadQueue == "" || node.DownloadQueue == "[]") && len(queue) > 0) {
 			qBytes, _ := json.Marshal(queue)
 			node.DownloadQueue = string(qBytes)
-			_ = model.SaveByogNode(node)
+			_ = model.SaveByogLiveNode(node)
 		}
 	}
 
@@ -1601,7 +1600,7 @@ func RegisterByogWorker(c *gin.Context) {
 		if node.DownloadedMB > 0 && node.TotalMB > 0 {
 			node.DownloadProgress = int((float64(node.DownloadedMB) / float64(node.TotalMB)) * 100)
 		}
-		_ = model.SaveByogNode(node)
+		_ = model.SaveByogLiveNode(node)
 	}
 
 	type AssignedModelDetail struct {
@@ -1710,7 +1709,10 @@ func ByogWorkerTunnel(c *gin.Context) {
 		}
 	}
 
-	byogservice.GlobalHub.Register(session)
+	if !byogservice.GlobalHub.RegisterAuthenticated(session, node.WorkerSecretHash) {
+		_ = conn.Close()
+		return
+	}
 	defer byogservice.GlobalHub.UnregisterSession(session)
 
 	// A tunnel without a read deadline stays in the hub forever when the
@@ -2323,7 +2325,7 @@ func UpdateByogWorkerResources(c *gin.Context) {
 	}
 	node.UpdatedAt = time.Now().Unix()
 
-	if err := model.SaveByogNode(node); err != nil {
+	if err := model.SaveByogLiveNode(node); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
@@ -2442,7 +2444,7 @@ func GetByogWorkerVersion(c *gin.Context) {
 	apkUrl := "/api/v1/worker/download/android/apk"
 
 	c.JSON(http.StatusOK, gin.H{
-		"version":      "1.9.1",
+		"version":      "1.10.0",
 		"min_version":  "1.0.0",
 		"release_date": time.Now().Format("2006-01-02"),
 		"downloads": gin.H{

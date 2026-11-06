@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/pkg/embedcfg"
+	"github.com/QuantumNous/new-api/worker/workerurl"
 
 	"github.com/gorilla/websocket"
 )
@@ -293,6 +294,10 @@ func registerWorker() (registerResult, error) {
 		result.ServerError = "Sunucu adresi eksik"
 		return result, fmt.Errorf("%s", result.ServerError)
 	}
+	if err := workerurl.Validate(serverUrl); err != nil {
+		result.ServerError = err.Error()
+		return result, err
+	}
 	if pairingCode == "" {
 		result.ServerError = "Eşleştirme kodu eksik"
 		return result, fmt.Errorf("%s", result.ServerError)
@@ -446,7 +451,7 @@ func startConnectionWatchdog() {
 		recoverForever("connectionWatchdog", func() {
 			ticker := time.NewTicker(30 * time.Second)
 			defer ticker.Stop()
-			httpClient := &http.Client{Timeout: 10 * time.Second}
+			httpClient := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 			for range ticker.C {
 				State.Mu.Lock()
 				serverUrl := strings.TrimRight(State.Config.ServerUrl, "/")
@@ -454,7 +459,7 @@ func startConnectionWatchdog() {
 				secret := State.Config.WorkerSecret
 				State.Mu.Unlock()
 
-				if serverUrl == "" || nodeId == "" {
+				if serverUrl == "" || nodeId == "" || workerurl.Validate(serverUrl) != nil {
 					continue
 				}
 
@@ -505,7 +510,7 @@ func startTunnel() {
 			secret := State.Config.WorkerSecret
 			State.Mu.Unlock()
 
-			if serverUrl != "" && nodeId != "" {
+			if serverUrl != "" && nodeId != "" && workerurl.Validate(serverUrl) == nil {
 				wsUrl := fmt.Sprintf("ws%s/api/v1/worker/tunnel?node_id=%s",
 					strings.TrimPrefix(serverUrl, "http"), nodeId)
 				conn, resp, err := websocket.DefaultDialer.Dial(wsUrl, http.Header{"Authorization": []string{"Bearer " + secret}})

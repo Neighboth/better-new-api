@@ -644,9 +644,23 @@ func SaveByogNode(n *ByogNode) error {
 	now := time.Now().Unix()
 	if n.Id == 0 {
 		n.CreatedAt = now
+		n.UpdatedAt = now
+		return DB.Create(n).Error
 	}
 	n.UpdatedAt = now
-	return DB.Save(n).Error
+	// Updates never inserts a stale snapshot if the row was deleted.
+	return DB.Model(&ByogNode{}).Where("id = ?", n.Id).Select("*").Omit("id", "created_at").Updates(n).Error
+}
+
+// SaveByogLiveNode updates telemetry only while the node remains active. A
+// stale heartbeat cannot resurrect, unban, transfer ownership or rotate keys.
+func SaveByogLiveNode(n *ByogNode) error {
+	if n == nil || n.Id == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	n.UpdatedAt = time.Now().Unix()
+	return DB.Model(&ByogNode{}).Where("id = ? AND status <> ?", n.Id, "banned").
+		Select("*").Omit("id", "created_at", "node_id", "user_id", "hw_id", "worker_secret_hash").Updates(n).Error
 }
 
 func DeleteByogNode(nodeId string) error {
@@ -656,7 +670,7 @@ func DeleteByogNode(nodeId string) error {
 	if numId, err := strconv.Atoi(nodeId); err == nil && numId > 0 {
 		return DB.Unscoped().Where("id = ? OR node_id = ?", numId, nodeId).Delete(&ByogNode{}).Error
 	}
-	return DB.Unscoped().Where("node_id = ? OR hw_id = ?", nodeId, nodeId).Delete(&ByogNode{}).Error
+	return DB.Unscoped().Where("node_id = ?", nodeId).Delete(&ByogNode{}).Error
 }
 
 // Banned Nodes

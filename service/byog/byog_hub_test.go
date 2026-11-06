@@ -110,3 +110,21 @@ func TestOldSessionCannotUnregisterReplacement(t *testing.T) {
 	_, ok = hub.GetSession("same-node")
 	assert.False(t, ok)
 }
+
+func TestAuthenticatedHubRejectsRevokedNode(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	oldDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = oldDB })
+	require.NoError(t, db.AutoMigrate(&model.ByogNode{}))
+	node := &model.ByogNode{NodeId: "revoked-test", UserId: 2, DeviceName: "test", HWID: "hw", WorkerSecretHash: "hash", Status: "online"}
+	require.NoError(t, db.Create(node).Error)
+	hub := &Hub{}
+	session := &NodeSession{NodeId: node.NodeId, UserId: node.UserId}
+	require.False(t, hub.RegisterAuthenticated(session, "wrong"))
+	require.NoError(t, db.Delete(node).Error)
+	require.False(t, hub.RegisterAuthenticated(session, "hash"))
+	_, ok := hub.GetSession(node.NodeId)
+	require.False(t, ok)
+}

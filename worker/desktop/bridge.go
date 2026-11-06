@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/worker/desktop/installer"
+	"github.com/QuantumNous/new-api/worker/workerurl"
 )
 
 // localBridge gives the state of the client to the page of the client.
@@ -131,7 +132,7 @@ func (b *localBridge) handleWorkerProxy(w http.ResponseWriter, r *http.Request) 
 	State.Mu.Lock()
 	cfg := State.Config
 	State.Mu.Unlock()
-	if cfg.ServerUrl == "" || cfg.NodeId == "" || cfg.WorkerSecret == "" {
+	if cfg.ServerUrl == "" || cfg.NodeId == "" || cfg.WorkerSecret == "" || workerurl.Validate(cfg.ServerUrl) != nil {
 		http.Error(w, "not paired", http.StatusUnauthorized)
 		return
 	}
@@ -422,7 +423,12 @@ func (b *localBridge) handleSettings(writer http.ResponseWriter, request *http.R
 	}
 	changed := false
 	State.Mu.Lock()
-	if payload.ServerUrl != "" {
+	if payload.ServerUrl != "" && payload.ServerUrl != State.Config.ServerUrl {
+		if State.Config.WorkerSecret != "" || workerurl.Validate(payload.ServerUrl) != nil {
+			State.Mu.Unlock()
+			writeBridgeJSON(writer, map[string]any{"success": false, "message": "disconnect before changing server; HTTPS is required"})
+			return
+		}
 		State.Config.ServerUrl = payload.ServerUrl
 	}
 	if payload.Language != "" {

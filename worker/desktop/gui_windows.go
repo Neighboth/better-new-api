@@ -330,13 +330,20 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string, trayFlag bool
 	if serverUrl, systemName, appName, faviconBase64, ok := embeddedSettings(); ok {
 		// The program carries the settings of the installation, they are used
 		// before the user does anything.
-		config.ServerUrl = serverUrl
+		if config.WorkerSecret == "" {
+			config.ServerUrl = serverUrl
+		}
 		config.SystemName = systemName
 		config.AppName = appName
 		config.FaviconBase64 = faviconBase64
 		writeApplicationIcon(faviconBase64)
 	}
 	if serverFlag != "" {
+		if serverFlag != config.ServerUrl {
+			config.NodeId = ""
+			config.WorkerSecret = ""
+			config.PairingCode = ""
+		}
 		config.ServerUrl = serverFlag
 	}
 	if codeFlag != "" {

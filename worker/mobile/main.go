@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/worker/llama"
+	"github.com/QuantumNous/new-api/worker/workerurl"
 	"github.com/gorilla/websocket"
 )
 
@@ -578,6 +579,9 @@ func main() {
 	}
 
 	// Reverse Tunnel loop
+	if workerurl.Validate(serverUrl) != nil {
+		return
+	}
 	wsUrl := fmt.Sprintf("ws%s/api/v1/worker/tunnel?node_id=%s", strings.TrimPrefix(serverUrl, "http"), State.Config.NodeId)
 	for {
 		conn, _, err := websocket.DefaultDialer.Dial(wsUrl, http.Header{"Authorization": []string{"Bearer " + State.Config.WorkerSecret}})
@@ -668,7 +672,7 @@ func registerWithServer() bool {
 	mem := State.Memory
 	State.Mu.Unlock()
 
-	if pairingCode == "" {
+	if pairingCode == "" || workerurl.Validate(serverUrl) != nil {
 		return false
 	}
 

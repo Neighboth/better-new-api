@@ -187,6 +187,24 @@ var GlobalHub = &Hub{}
 func (h *Hub) Register(session *NodeSession) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.registerLocked(session)
+}
+
+// RegisterAuthenticated rechecks revocation while synchronizing with session
+// removal. Deletion commits before Unregister, so either order closes the race.
+func (h *Hub) RegisterAuthenticated(session *NodeSession, secretHash string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var count int64
+	if model.DB == nil || model.DB.Model(&model.ByogNode{}).
+		Where("node_id = ? AND user_id = ? AND worker_secret_hash = ? AND status <> ?", session.NodeId, session.UserId, secretHash, "banned").Count(&count).Error != nil || count != 1 {
+		return false
+	}
+	h.registerLocked(session)
+	return true
+}
+
+func (h *Hub) registerLocked(session *NodeSession) {
 	if old, loaded := h.sessions.Swap(session.NodeId, session); loaded {
 		previous := old.(*NodeSession)
 		if previous != session {
@@ -202,7 +220,7 @@ func (h *Hub) Register(session *NodeSession) {
 	common.SysLog(fmt.Sprintf("[BYOG] Node connected: %s (User: %d)", session.NodeId, session.UserId))
 	if model.DB != nil {
 		_ = model.DB.Model(&model.ByogNode{}).
-			Where("node_id = ?", session.NodeId).
+			Where("node_id = ? AND status <> ?", session.NodeId, "banned").
 			Updates(map[string]interface{}{
 				"status":            "online",
 				"last_heartbeat_at": time.Now().Unix(),
@@ -457,7 +475,7 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 				}
 			}
 
-			_ = model.SaveByogNode(node)
+			_ = model.SaveByogLiveNode(node)
 
 			// Ack back with active multiplier
 			ackPayload, _ := json.Marshal(map[string]interface{}{

@@ -27,11 +27,12 @@ import (
 
 	"github.com/QuantumNous/new-api/worker/desktop/installer"
 	"github.com/QuantumNous/new-api/worker/llama"
+	"github.com/QuantumNous/new-api/worker/workerurl"
 	"github.com/gorilla/websocket"
 )
 
 const (
-	WorkerVersion       = "1.9.1"
+	WorkerVersion       = "1.10.0"
 	DefaultServerUrl    = "http://localhost:3000"
 	DefaultChunkSize    = 4194304 // 4 MB
 	ParallelConnections = 16
@@ -1222,6 +1223,9 @@ func versionGreater(candidate string, current string) bool {
 
 // Self-Updater Engine with Windows File-Lock Workaround (Section 5.5)
 func checkSelfUpdate() {
+	if workerurl.Validate(State.Config.ServerUrl) != nil {
+		return
+	}
 	versionUrl := fmt.Sprintf("%s/api/v1/worker/version", State.Config.ServerUrl)
 	resp, err := http.Get(versionUrl)
 	if err != nil {
@@ -1363,6 +1367,9 @@ func startAndVerifyUpdate(executable string, previous string) error {
 
 // Crash Telemetry Reporter (Section 5.6)
 func reportCrash(errCode string, errMsg string, stackTrace string, modelId string) {
+	if workerurl.Validate(State.Config.ServerUrl) != nil {
+		return
+	}
 	crashUrl := fmt.Sprintf("%s/api/v1/worker/telemetry/crash", State.Config.ServerUrl)
 	payload := map[string]interface{}{
 		"node_id":         State.Config.NodeId,
@@ -1377,7 +1384,7 @@ func reportCrash(errCode string, errMsg string, stackTrace string, modelId strin
 	if err == nil {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+State.Config.WorkerSecret)
-		if resp, err := http.DefaultClient.Do(req); err == nil {
+		if resp, err := (&http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req); err == nil {
 			resp.Body.Close()
 		}
 	}
@@ -2015,6 +2022,11 @@ func runConsole(serverFlag string, codeFlag string, deviceFlag string) {
 
 	config := loadConfig()
 	if serverFlag != "" {
+		if serverFlag != config.ServerUrl {
+			config.NodeId = ""
+			config.WorkerSecret = ""
+			config.PairingCode = ""
+		}
 		config.ServerUrl = serverFlag
 	}
 	if codeFlag != "" {
