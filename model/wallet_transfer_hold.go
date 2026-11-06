@@ -62,7 +62,6 @@ func ResolveWalletTransferHold(userID int, id string, delta int) error {
 	if userID <= 0 || id == "" || int64(delta) > int64(common.MaxQuota) || int64(delta) < -int64(common.MaxQuota) {
 		return gorm.ErrInvalidData
 	}
-	changed := false
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var user User
 		if err := lockForUpdate(tx).Select("id", "quota").Where("id = ?", userID).First(&user).Error; err != nil {
@@ -101,13 +100,14 @@ func ResolveWalletTransferHold(userID int, id string, delta int) error {
 		if result.RowsAffected != 1 {
 			return errors.New("wallet hold changed during settlement")
 		}
-		changed = true
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	if changed && common.RedisEnabled {
+	// Invalidate even on an idempotent retry: the original commit may have
+	// succeeded while its acknowledgment or subsequent cache deletion failed.
+	if common.RedisEnabled {
 		if cacheErr := invalidateUserCache(userID); cacheErr != nil {
 			common.SysError(fmt.Sprintf("wallet hold settlement cache invalidation failed for user %d: %v", userID, cacheErr))
 		}

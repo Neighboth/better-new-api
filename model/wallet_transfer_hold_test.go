@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,4 +44,20 @@ func TestWalletHoldBlocksTransfersAndSettlementIsIdempotent(t *testing.T) {
 	_, err = CreateResellerBalanceCodes(user.Id, 70, 1, "after-settlement")
 	require.NoError(t, err)
 	require.Equal(t, 0, getUserQuotaFromDB(t, user.Id))
+}
+
+func TestWalletHoldSettlementOutOfRangeStaysOpen(t *testing.T) {
+	truncateTables(t)
+	resetBatchUpdateTestState(t)
+	require.NoError(t, DB.AutoMigrate(&Redemption{}, &UserBalancePackage{}))
+	user := createReserveTestUser(t, common.MaxQuota)
+	t.Cleanup(func() { DB.Where("user_id = ?", user.Id).Delete(&WalletTransferHold{}) })
+	id, err := BeginWalletTransferHold(user.Id)
+	require.NoError(t, err)
+	require.Error(t, ResolveWalletTransferHold(user.Id, id, 1))
+	require.Equal(t, common.MaxQuota, getUserQuotaFromDB(t, user.Id))
+	var hold WalletTransferHold
+	require.NoError(t, DB.First(&hold, "id = ?", id).Error)
+	require.Equal(t, "open", hold.State)
+	require.NoError(t, ResolveWalletTransferHold(user.Id, id, 0))
 }
