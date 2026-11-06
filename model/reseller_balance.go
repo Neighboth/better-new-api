@@ -73,7 +73,7 @@ func RefundResellerCode(userID, codeID int) error {
     err := DB.Transaction(func(tx *gorm.DB) error {
         if err := lockForUpdate(tx).Where("id = ? AND user_id = ?", codeID, userID).First(&code).Error; err != nil { return ErrResellerCodeUnavailable }
         if code.Quota <= 0 || code.Status == common.RedemptionCodeStatusUsed || code.UsedUserId != 0 { return ErrResellerCodeUnavailable }
-        claimed := tx.Where("id = ? AND user_id = ? AND status = ? AND used_user_id = ?", codeID, userID, code.Status, 0).Delete(&Redemption{})
+        claimed := tx.Where("id = ? AND user_id = ? AND status = ? AND COALESCE(used_user_id, 0) = 0", codeID, userID, code.Status).Delete(&Redemption{})
         if claimed.Error != nil { return claimed.Error }
         if claimed.RowsAffected != 1 { return ErrResellerCodeUnavailable }
         column := "quota"
