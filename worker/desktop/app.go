@@ -283,6 +283,8 @@ func registerWorker() (registerResult, error) {
 	State.Mu.Lock()
 	serverUrl := strings.TrimRight(State.Config.ServerUrl, "/")
 	pairingCode := State.Config.PairingCode
+	nodeId := State.Config.NodeId
+	secret := State.Config.WorkerSecret
 	deviceName := State.Config.DeviceName
 	hwid := State.Config.HWID
 	State.Mu.Unlock()
@@ -304,6 +306,7 @@ func registerWorker() (registerResult, error) {
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"hwid":                hwid,
+		"node_id":             nodeId,
 		"pairing_code":        pairingCode,
 		"os":                  runtime.GOOS,
 		"arch":                runtime.GOARCH,
@@ -329,11 +332,15 @@ func registerWorker() (registerResult, error) {
 		"hot_start_enabled":   State.HotStartEnabled,
 	})
 
-	response, err := http.Post(
-		fmt.Sprintf("%s/api/v1/worker/register", serverUrl),
-		"application/json",
-		bytes.NewReader(body),
-	)
+	request, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/worker/register", serverUrl), bytes.NewReader(body))
+	if err != nil {
+		return result, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	if secret != "" {
+		request.Header.Set("Authorization", "Bearer "+secret)
+	}
+	response, err := (&http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(request)
 	if err != nil {
 		result.ServerError = "Sunucuya ulaşılamadı: " + err.Error()
 		return result, err
@@ -376,7 +383,9 @@ func registerWorker() (registerResult, error) {
 
 	State.Mu.Lock()
 	State.Config.NodeId = payload.Data.NodeId
-	State.Config.WorkerSecret = payload.Data.WorkerSecret
+	if payload.Data.WorkerSecret != "" {
+		State.Config.WorkerSecret = payload.Data.WorkerSecret
+	}
 	if payload.Data.PairingCode != "" {
 		State.Config.PairingCode = payload.Data.PairingCode
 	}
@@ -442,6 +451,7 @@ func startConnectionWatchdog() {
 				State.Mu.Lock()
 				serverUrl := strings.TrimRight(State.Config.ServerUrl, "/")
 				nodeId := State.Config.NodeId
+				secret := State.Config.WorkerSecret
 				State.Mu.Unlock()
 
 				if serverUrl == "" || nodeId == "" {
@@ -449,7 +459,12 @@ func startConnectionWatchdog() {
 				}
 
 				checkUrl := fmt.Sprintf("%s/api/v1/worker/status?node_id=%s", serverUrl, nodeId)
-				resp, err := httpClient.Get(checkUrl)
+				req, err := http.NewRequest(http.MethodGet, checkUrl, nil)
+				if err != nil {
+					continue
+				}
+				req.Header.Set("Authorization", "Bearer "+secret)
+				resp, err := httpClient.Do(req)
 				if err == nil {
 					if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnauthorized {
 						fmt.Printf("[BYOG Worker] Watchdog detected node %s was unlinked/removed on server (HTTP %d). Resetting pairing...\n", nodeId, resp.StatusCode)
@@ -499,6 +514,7 @@ func startTunnel() {
 						fmt.Println("[BYOG Worker] Device was removed on server (404/401). Resetting pairing...")
 						State.Mu.Lock()
 						State.Config.NodeId = ""
+						State.Config.WorkerSecret = ""
 						State.Config.PairingCode = ""
 						State.IsConnected = false
 						cfg := State.Config

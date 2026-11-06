@@ -237,7 +237,7 @@ func (h *Hub) closeSession(session *NodeSession) {
 	session.FailPendingRequests("the connection of the worker closed while the request was running")
 	common.SysLog(fmt.Sprintf("[BYOG] Node disconnected: %s", session.NodeId))
 	if model.DB != nil {
-		_ = model.DB.Model(&model.ByogNode{}).Where("node_id = ?", session.NodeId).Updates(map[string]interface{}{"status": "offline"})
+		_ = model.DB.Model(&model.ByogNode{}).Where("node_id = ? AND status <> ?", session.NodeId, "banned").Updates(map[string]interface{}{"status": "offline"})
 	}
 }
 

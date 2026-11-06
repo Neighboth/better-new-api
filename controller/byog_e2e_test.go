@@ -183,12 +183,44 @@ func TestByogEndToEndLifecycle(t *testing.T) {
 	require.Equal(t, testUser.Id, regResult.Data.UserId)
 	nodeId := regResult.Data.NodeId
 	require.Len(t, regResult.Data.WorkerSecret, 64)
+	// Pairing codes are single-use, including when formatted differently.
+	replay, err := http.Post(server.URL+"/api/v1/worker/register", "application/json", strings.NewReader(`{"hwid":"`+testHwid+`","pairing_code":"`+strings.ReplaceAll(testPairingCode, "-", "")+`"}`))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusUnauthorized, replay.StatusCode)
+	replay.Body.Close()
+
+	userPairingSessionsMu.Lock()
+	userPairingSessions["EXPIREDCODE"] = userPairingSession{UserId: testUser.Id, CreatedAt: time.Now().Unix() - 901}
+	userPairingSessionsMu.Unlock()
+	expired, err := http.Post(server.URL+"/api/v1/worker/register", "application/json", strings.NewReader(`{"hwid":"`+testHwid+`","pairing_code":"EXPIRED-CODE"}`))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusUnauthorized, expired.StatusCode)
+	expired.Body.Close()
 
 	// A known node ID or HWID is not a worker credential.
 	fakeReg, err := http.Post(server.URL+"/api/v1/worker/register", "application/json", strings.NewReader(`{"node_id":"`+nodeId+`","hwid":"`+testHwid+`"}`))
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusUnauthorized, fakeReg.StatusCode)
 	fakeReg.Body.Close()
+	refreshReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/v1/worker/register", strings.NewReader(`{"node_id":"`+nodeId+`","hwid":"`+testHwid+`","device_type":"desktop"}`))
+	require.NoError(t, err)
+	refreshReq.Header.Set("Content-Type", "application/json")
+	refreshReq.Header.Set("Authorization", "Bearer "+regResult.Data.WorkerSecret)
+	refresh, err := http.DefaultClient.Do(refreshReq)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, refresh.StatusCode)
+	var refreshPayload struct {
+		Success bool `json:"success"`
+		Data    struct {
+			NodeId       string `json:"node_id"`
+			WorkerSecret string `json:"worker_secret"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.NewDecoder(refresh.Body).Decode(&refreshPayload))
+	refresh.Body.Close()
+	assert.True(t, refreshPayload.Success)
+	assert.Equal(t, nodeId, refreshPayload.Data.NodeId)
+	assert.Empty(t, refreshPayload.Data.WorkerSecret)
 	fakeCrash, err := http.Post(server.URL+"/api/v1/worker/telemetry/crash", "application/json", strings.NewReader(`{"node_id":"`+nodeId+`","error_code":"oom"}`))
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusUnauthorized, fakeCrash.StatusCode)

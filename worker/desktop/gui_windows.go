@@ -1190,6 +1190,8 @@ func (w *guiWindow) connect() {
 
 	State.Mu.Lock()
 	State.Config.PairingCode = strings.ToUpper(code)
+	State.Config.NodeId = ""
+	State.Config.WorkerSecret = ""
 	if server != "" {
 		State.Config.ServerUrl = server
 	}

@@ -325,6 +325,8 @@ func (b *localBridge) handlePair(writer http.ResponseWriter, request *http.Reque
 	}
 	State.Mu.Lock()
 	State.Config.PairingCode = code
+	State.Config.NodeId = ""
+	State.Config.WorkerSecret = ""
 	if payload.ServerUrl != "" {
 		State.Config.ServerUrl = payload.ServerUrl
 	}

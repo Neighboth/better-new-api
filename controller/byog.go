@@ -639,7 +639,6 @@ func DeleteUserByogNode(c *gin.Context) {
 
 	targetNodeId := node.NodeId
 	targetId := node.Id
-	hwid := node.HWID
 
 	// The device is told that it was removed before the session is closed, so the
 	// application can show the state instead of waiting for the next registration.
@@ -655,9 +654,6 @@ func DeleteUserByogNode(c *gin.Context) {
 		}
 		if targetNodeId != "" {
 			_ = model.DB.Unscoped().Where("node_id = ?", targetNodeId).Delete(&model.ByogNode{}).Error
-		}
-		if hwid != "" {
-			_ = model.DB.Unscoped().Where("hw_id = ?", hwid).Delete(&model.ByogNode{}).Error
 		}
 	}
 
