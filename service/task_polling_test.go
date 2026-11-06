@@ -496,3 +496,23 @@ func TestSweepTimedOutTasksHonorsRefundRolloutBoundary(t *testing.T) {
 	assert.Equal(t, initialQuota+modernTaskQuota, getUserQuota(t, userID))
 	assert.Equal(t, int64(1), countLogs(t))
 }
+
+func TestTaskWalletHoldReleaseAndReview(t *testing.T) {
+	truncate(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.WalletTransferHold{}))
+	seedUser(t, 980, 100)
+	t.Cleanup(func() { model.DB.Where("user_id = ?", 980).Delete(&model.WalletTransferHold{}) })
+	id, err := model.BeginWalletTransferHold(980)
+	require.NoError(t, err)
+	task := makeTask(980, 0, 0, 0, BillingSourceWallet, 0)
+	task.PrivateData.WalletHoldID = id
+	task.PrivateData.WalletHoldNeedsReview = true
+	releaseTaskWalletHold(context.Background(), task)
+	var hold model.WalletTransferHold
+	require.NoError(t, model.DB.First(&hold, "id = ?", id).Error)
+	require.Equal(t, "open", hold.State)
+	task.PrivateData.WalletHoldNeedsReview = false
+	releaseTaskWalletHold(context.Background(), task)
+	require.NoError(t, model.DB.First(&hold, "id = ?", id).Error)
+	require.Equal(t, "resolved", hold.State)
+}

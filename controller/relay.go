@@ -844,12 +844,19 @@ func RelayTask(c *gin.Context) {
 
 	// ── 成功：结算 + 日志 + 插入任务 ──
 	if taskErr == nil {
+		// The request's durable hold transfers to the async task. Retain it
+		// even if submission accounting or task insertion fails.
+		c.Set(common.WalletTransferHoldRetainContextKey, true)
+		settlementNeedsReview := false
 		if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
+			settlementNeedsReview = true
 			common.SysError("settle task billing error: " + settleErr.Error())
 		}
 		service.LogTaskConsumption(c, relayInfo)
 
 		task := model.InitTask(result.Platform, relayInfo)
+		task.PrivateData.WalletHoldID = c.GetString(common.WalletTransferHoldContextKey)
+		task.PrivateData.WalletHoldNeedsReview = settlementNeedsReview
 		task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
 		task.PrivateData.BillingSource = relayInfo.BillingSource
 		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId

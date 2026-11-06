@@ -82,8 +82,8 @@ func sweepTimedOutTasks(ctx context.Context) {
 			continue
 		}
 		timedOutCount++
-		if !isLegacy && task.Quota != 0 {
-			RefundTaskQuota(ctx, task, reason)
+		if isLegacy || task.Quota == 0 || RefundTaskQuota(ctx, task, reason) {
+			releaseTaskWalletHold(ctx, task)
 		}
 	}
 
@@ -303,8 +303,12 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 			logger.LogError(ctx, fmt.Sprintf("UpdateSunoTask task %s error: %v", task.TaskID, err))
 		} else if !won {
 			logger.LogWarn(ctx, fmt.Sprintf("Task %s CAS lost or no-op update, skip billing", task.TaskID))
-		} else if isFailure && prevStatus != model.TaskStatusFailure && task.Quota != 0 {
-			RefundTaskQuota(ctx, task, task.FailReason)
+		} else if isFailure && prevStatus != model.TaskStatusFailure {
+			if task.Quota == 0 || RefundTaskQuota(ctx, task, task.FailReason) {
+				releaseTaskWalletHold(ctx, task)
+			}
+		} else if responseItem.Status == model.TaskStatusSuccess {
+			releaseTaskWalletHold(ctx, task)
 		}
 	}
 	return nil
@@ -571,6 +575,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
+	terminalTransition := false
 	if isDone && snap.Status != task.Status {
 		won, err := task.UpdateWithStatus(snap.Status)
 		if err != nil {
@@ -581,6 +586,8 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			logger.LogWarn(ctx, fmt.Sprintf("Task %s CAS lost or no-op update, skip billing", task.TaskID))
 			shouldRefund = false
 			shouldSettle = false
+		} else {
+			terminalTransition = true
 		}
 	} else if !snap.Equal(task.Snapshot()) {
 		if _, err := task.UpdateWithStatus(snap.Status); err != nil {
@@ -591,11 +598,11 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		logger.LogDebug(ctx, "No update needed for task %s", task.TaskID)
 	}
 
-	if shouldSettle {
-		settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+	if terminalTransition && shouldSettle && settleTaskBillingOnComplete(ctx, adaptor, task, taskResult) {
+		releaseTaskWalletHold(ctx, task)
 	}
-	if shouldRefund {
-		RefundTaskQuota(ctx, task, task.FailReason)
+	if terminalTransition && task.Status == model.TaskStatusFailure && (!shouldRefund || RefundTaskQuota(ctx, task, task.FailReason)) {
+		releaseTaskWalletHold(ctx, task)
 	}
 
 	return nil
@@ -640,21 +647,29 @@ func truncateBase64(s string) string {
 //
 //  2. taskResult.TotalTokens > 0 → 按 token 重算
 //  3. 都不满足 → 保持预扣额度不变
-func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) {
+func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) bool {
 	// 0. 按次计费的任务不做差额结算
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
-		return
+		return true
 	}
 	// 1. 优先让 adaptor 决定最终额度
 	if actualQuota := adaptor.AdjustBillingOnComplete(task, taskResult); actualQuota > 0 {
-		RecalculateTaskQuota(ctx, task, actualQuota, "adaptor计费调整")
-		return
+		return RecalculateTaskQuota(ctx, task, actualQuota, "adaptor计费调整")
 	}
 	// 2. 回退到 token 重算
 	if taskResult.TotalTokens > 0 {
-		RecalculateTaskQuotaByTokens(ctx, task, taskResult.TotalTokens)
-		return
+		return RecalculateTaskQuotaByTokens(ctx, task, taskResult.TotalTokens)
 	}
 	// 3. 无调整，保持预扣额度
+	return true
+}
+
+func releaseTaskWalletHold(ctx context.Context, task *model.Task) {
+	if task.PrivateData.WalletHoldID == "" || task.PrivateData.WalletHoldNeedsReview {
+		return
+	}
+	if err := model.ResolveWalletTransferHold(task.UserId, task.PrivateData.WalletHoldID, 0); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("task %s wallet hold release failed: %v", task.TaskID, err))
+	}
 }
