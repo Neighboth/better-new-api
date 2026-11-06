@@ -70,6 +70,7 @@ var (
 	webViewLoaderDLL  *syscall.DLL
 	// webViewReady tells whether the page of the client is shown in the window.
 	webViewReady atomic.Bool
+	webViewUserClosed atomic.Bool
 )
 
 // runWebViewHelper shows the page of the client in the window of the client.
@@ -133,7 +134,7 @@ func runWebViewHelper(url string, title string, iconPath string) (code int) {
 
 	webViewMessageLoop()
 	webViewLog("end")
-	if !webViewReady.Load() {
+	if !webViewReady.Load() && !webViewUserClosed.Load() {
 		return 3
 	}
 	return 0
@@ -237,6 +238,7 @@ func webViewWindowProcedure(hwnd uintptr, message uint32, wParam uintptr, lParam
 	case wmSysCommand:
 		if wParam == scClose {
 			webViewLog("the window of the page is closed by the user")
+			webViewUserClosed.Store(true)
 			procDestroyWindow.Call(hwnd)
 			return 0
 		}

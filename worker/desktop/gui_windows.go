@@ -48,6 +48,7 @@ const (
 	wmDpiChanged    = 0x02E0
 	wmPaint         = 0x000F
 	wmTray          = 0x8000 + 1
+	wmWebViewFailed = 0x8000 + 2
 	notifyClick     = 0x40000000
 
 	csHRedraw = 0x0002
@@ -918,6 +919,22 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 		}
 		return 0
 
+	case wmWebViewFailed:
+		if window != nil {
+			window.mutex.Lock()
+			restore := window.embedCmd == nil && !window.embedClosing && !window.quitRequested
+			if restore {
+				window.embedFailed = true
+			}
+			window.mutex.Unlock()
+			if restore {
+				procShowWindow.Call(window.window, swRestore)
+				procSetForeground.Call(window.window)
+				procUpdateWindow.Call(window.window)
+			}
+		}
+		return 0
+
 	case wmTray:
 		if window != nil {
 			switch lparam {
@@ -1251,9 +1268,9 @@ func (w *guiWindow) openEmbeddedPage(page string) bool {
 		// A failed helper must not leave the worker hidden and inaccessible.
 		// A normal user close still leaves it in the notification area.
 		if current && !closing && err != nil {
-			procShowWindow.Call(w.window, swRestore)
-			procSetForeground.Call(w.window)
-			procUpdateWindow.Call(w.window)
+			// Post to the owning window thread; it is handled after the caller
+			// finishes hiding the fallback, avoiding a restore/hide race.
+			procPostMessage.Call(w.window, wmWebViewFailed, 0, 0)
 		}
 	}()
 	return true
@@ -1286,8 +1303,13 @@ func startClientWindow(page string, title string, iconPath string) (*exec.Cmd, <
 		done <- err
 	}()
 	select {
-	case <-done:
-		return nil, nil, false
+	case err := <-done:
+		if err != nil {
+			return nil, nil, false
+		}
+		// The user closed the helper before the startup grace period ended.
+		done <- nil
+		return command, done, true
 	case <-time.After(1600 * time.Millisecond):
 		return command, done, true
 	}
