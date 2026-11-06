@@ -40,7 +40,8 @@ type siteStatsRankings struct {
 	Users     []model.SiteStatsTopUser         `json:"users"`
 	Models    []model.SiteStatsTopModel        `json:"models"`
 	Channels  []siteStatsChannelRank           `json:"channels"`
-	Tokens    []model.SiteStatsTopToken        `json:"clients"`
+	Tokens    []model.SiteStatsTopToken        `json:"api_keys"`
+	Clients   []model.SiteStatsTopClient       `json:"clients"`
 	Groups    []model.SiteStatsTopGroup        `json:"groups"`
 	Ips       []model.SiteStatsTopIp           `json:"ips"`
 	ByogNodes []siteStatsByogNodeRank          `json:"byog_nodes"`
@@ -470,6 +471,9 @@ func GetSiteStatistics(c *gin.Context) {
 				Quota:       row.Quota,
 			})
 		}
+	}
+	if clients, err := model.GetSiteStatsTopClients(filter, sortKey, order, limit); err == nil {
+		rankings.Clients = clients
 	}
 	if tokens, err := model.GetSiteStatsTopTokens(filter, sortKey, order, limit); err == nil {
 		rankings.Tokens = tokens

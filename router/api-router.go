@@ -392,9 +392,12 @@ func SetApiRouter(router *gin.Engine) {
 		// The site wide statistics of the administration: the time series,
 		// the distributions and the rankings of the whole installation.
 		statisticsRoute := apiRouter.Group("/statistics")
-		statisticsRoute.Use(middleware.AdminAuth())
+		statisticsRoute.Use(middleware.AdminAuth(), middleware.RequirePermission(authz.StatisticsRead))
 		{
 			statisticsRoute.GET("/site", controller.GetSiteStatistics)
+			statisticsRoute.GET("/site/users", controller.SearchSiteStatsUsers)
+			statisticsRoute.GET("/site/channels", controller.SearchSiteStatsChannels)
+			statisticsRoute.GET("/site/groups", controller.GetGroups)
 		}
 
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())

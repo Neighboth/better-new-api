@@ -223,3 +223,12 @@ func TestCapabilitiesUseCatalogShape(t *testing.T) {
 	assert.False(t, capabilities[ResourceChannel][ActionSensitiveWrite])
 	assert.False(t, capabilities[ResourceChannel][ActionSecretView])
 }
+
+func TestStatisticsPermissionCanBeRevoked(t *testing.T) {
+	db := newAuthzTestDB(t)
+	require.NoError(t, Init(db))
+	assert.True(t, Can(42, common.RoleAdminUser, StatisticsRead))
+	require.NoError(t, SetUserPermissions(42, PermissionsMap{ResourceStatistics: {ActionRead: false}}))
+	assert.False(t, Can(42, common.RoleAdminUser, StatisticsRead))
+	assert.True(t, Can(1, common.RoleRootUser, StatisticsRead))
+}

@@ -101,7 +101,7 @@ type siteStatsEnvelope struct {
 			Clients []struct {
 				TokenName string `json:"token_name"`
 				Requests  int64  `json:"requests"`
-			} `json:"clients"`
+			} `json:"api_keys"`
 			Ips []struct {
 				Ip       string `json:"ip"`
 				Requests int64  `json:"requests"`
@@ -381,4 +381,27 @@ func TestGetSiteStatisticsGranularityAndRange(t *testing.T) {
 	require.True(t, env.Success, env.Message)
 	assert.Equal(t, now-7200, env.Data.Range.Start)
 	assert.Equal(t, int64(2), env.Data.Summary.Requests)
+}
+
+func TestSiteStatsUserOptionsPrioritizeExactNameAndFindID(t *testing.T) {
+	fixture := setupSiteStatsTestDB(t)
+	// Both searches must find the exact match beyond the first page of similar names.
+	for i := 0; i < 60; i++ {
+		user := model.User{Username: "alice-" + strconv.Itoa(fixture.AliceId) + "-" + strconv.Itoa(i), AffCode: "aff-extra-" + strconv.Itoa(i), Status: 1}
+		require.NoError(t, model.DB.Create(&user).Error)
+	}
+	for _, tc := range []struct{ query, first string }{{"alice", "alice"}, {strconv.Itoa(fixture.AliceId), "alice"}} {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest("GET", "/api/statistics/site/users?keyword="+tc.query, nil)
+		SearchSiteStatsUsers(c)
+		var body struct {
+			Success bool              `json:"success"`
+			Data    []siteStatsOption `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
+		require.True(t, body.Success)
+		require.NotEmpty(t, body.Data)
+		assert.Equal(t, tc.first, body.Data[0].Name)
+	}
 }

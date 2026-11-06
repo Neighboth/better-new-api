@@ -54,3 +54,13 @@
 - [ ] Real browser and all-client end-to-end run: sandbox Chromium launch failed due to missing libnspr4/libnss3; Android/desktop toolchains and devices unavailable. A 30-minute all-client live test has not been performed.
 - [ ] Translation and real-runtime validation requirements remain outstanding; the user requested merging the partial work with these limitations.
 - [ ] Verify picker authorization for delegated admins: user/channel search endpoints require their respective read permissions, whereas site statistics uses AdminAuth alone. Avoid broadening access without a deliberate permission decision.
+
+## I. Statistics authorization, client attribution and translations (session arena/db0a5b41)
+- [x] Register `statistics:read`, restrict site statistics and its minimal filter-option endpoints, and guard the frontend route and sidebar without granting user/channel management access.
+- [x] Return API-key rankings separately from application rankings. Client names are best-effort, optional client-supplied headers; historical or unidentified requests remain unknown and headers can be spoofed.
+- [x] Preserve translated, user-friendly labels in closed selects; prioritize exact usernames and numeric user IDs before the 50-result search limit.
+- [x] Translate the statistics and administrator permission catalog strings across eight locales and run locale sync. Added a regression test for the covered translations; unrelated pre-existing translation debt remains.
+- [x] Web typecheck, build, and complete Vitest suite passed (55 files, 328 tests), including new statistics, ranking, picker, and locale coverage.
+- [ ] Full web lint is not clean (512 errors and 244 warnings across the repository); see /home/user/statistics-web-lint.log.
+- [ ] Run Go tests, build and vet for this follow-up in a Go-capable environment. Tests were added but not run locally because the sandbox has no Go toolchain. Cross-database migrations and queries also need runtime validation.
+- [ ] The requested real-client, 30-minute runtime verification remains unperformed: the sandbox lacks a working browser, native client toolchains and devices. No live-client verification is claimed.

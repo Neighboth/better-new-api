@@ -33,6 +33,7 @@ export const ADMIN_PERMISSION_RESOURCES = {
   SYSTEM_SETTING: 'system_setting',
   TICKET: 'ticket',
   BYOG: 'byog',
+  STATISTICS: 'statistics',
 } as const
 
 export const ADMIN_PERMISSION_ACTIONS = {

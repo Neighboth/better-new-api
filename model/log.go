@@ -64,6 +64,7 @@ type Log struct {
 	Content           string `json:"content"`
 	Username          string `json:"username" gorm:"index;index:index_username_model_name,priority:2;default:''"`
 	TokenName         string `json:"token_name" gorm:"index;default:''"`
+	ClientName        string `json:"client_name" gorm:"type:varchar(80);default:''"`
 	ModelName         string `json:"model_name" gorm:"index;index:index_username_model_name,priority:1;default:''"`
 	Quota             int    `json:"quota" gorm:"default:0"`
 	PromptTokens      int    `json:"prompt_tokens" gorm:"default:0"`
@@ -357,6 +358,10 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 			needRecordIp = true
 		}
 	}
+	clientName := ""
+	if c.Request != nil {
+		clientName = requestClientName(c.Request.Header)
+	}
 	log := &Log{
 		UserId:           userId,
 		Username:         username,
@@ -366,6 +371,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		PromptTokens:     params.PromptTokens,
 		CompletionTokens: params.CompletionTokens,
 		TokenName:        params.TokenName,
+		ClientName:       clientName,
 		ModelName:        params.ModelName,
 		Quota:            params.Quota,
 		ChannelId:        params.ChannelId,

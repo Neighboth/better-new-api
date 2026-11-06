@@ -414,6 +414,25 @@ func GetSiteStatsTopTokens(f SiteStatsFilter, sort string, order string, limit i
 	return rows, err
 }
 
+// SiteStatsTopClient summarizes the application identity supplied with requests.
+// Empty names represent historical or unidentified clients.
+type SiteStatsTopClient struct {
+	ClientName string `gorm:"column:client_name" json:"client_name"`
+	Requests   int64  `gorm:"column:requests" json:"requests"`
+	Tokens     int64  `gorm:"column:tokens" json:"tokens"`
+	Quota      int64  `gorm:"column:quota" json:"quota"`
+}
+
+func GetSiteStatsTopClients(f SiteStatsFilter, sort string, order string, limit int) ([]SiteStatsTopClient, error) {
+	var rows []SiteStatsTopClient
+	tx := LOG_DB.Table("logs").Select("COALESCE(client_name, '') AS client_name, COUNT(*) AS requests, " +
+		"COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens, COALESCE(SUM(quota), 0) AS quota").
+		Where("type = ?", LogTypeConsume)
+	tx = f.applyLogsRequest(tx)
+	err := tx.Group("COALESCE(client_name, '')").Order(rankingOrder(sort, order)).Limit(rankingLimit(limit)).Scan(&rows).Error
+	return rows, err
+}
+
 // GetSiteStatsTopGroups returns the ranking of the groups of the range.
 func GetSiteStatsTopGroups(f SiteStatsFilter, sort string, order string, limit int) ([]SiteStatsTopGroup, error) {
 	var rows []SiteStatsTopGroup

@@ -71,12 +71,18 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
   TableBody,
@@ -85,14 +91,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
-import { Skeleton } from '@/components/ui/skeleton'
-import { searchUsers } from '@/features/users/api'
-import { searchChannels } from '@/features/channels/api'
 import dayjs from '@/lib/dayjs'
 import {
   formatCompactNumber,
@@ -105,6 +103,7 @@ import {
 import {
   getSiteStatistics,
   getSiteStatsGroupOptions,
+  searchSiteStatsOptions,
   type SiteStatisticsResponse,
   type SiteStatsGranularity,
   type SiteStatsRangePreset,
@@ -185,7 +184,7 @@ function StatCard({ icon, label, value, description }: StatCardProps) {
   return (
     <Card>
       <CardHeader className='pb-2'>
-        <CardTitle className='flex items-center gap-2 text-sm font-medium text-muted-foreground'>
+        <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
           <span className='flex size-4 shrink-0 items-center justify-center'>
             {icon}
           </span>
@@ -195,7 +194,7 @@ function StatCard({ icon, label, value, description }: StatCardProps) {
       <CardContent>
         <div className='truncate text-2xl font-bold tabular-nums'>{value}</div>
         {description ? (
-          <p className='mt-1 truncate text-xs text-muted-foreground'>
+          <p className='text-muted-foreground mt-1 truncate text-xs'>
             {description}
           </p>
         ) : null}
@@ -224,7 +223,7 @@ function RankTable({ rows, nameHeader, showQuota = true }: RankTableProps) {
   const max = Math.max(1, ...rows.map((row) => row.requests))
   if (rows.length === 0) {
     return (
-      <div className='py-8 text-center text-sm text-muted-foreground'>
+      <div className='text-muted-foreground py-8 text-center text-sm'>
         {t('No Data')}
       </div>
     )
@@ -245,7 +244,7 @@ function RankTable({ rows, nameHeader, showQuota = true }: RankTableProps) {
       <TableBody>
         {rows.map((row, index) => (
           <TableRow key={row.key}>
-            <TableCell className='tabular-nums text-muted-foreground'>
+            <TableCell className='text-muted-foreground tabular-nums'>
               {index + 1}
             </TableCell>
             <TableCell>
@@ -254,7 +253,7 @@ function RankTable({ rows, nameHeader, showQuota = true }: RankTableProps) {
                   {row.name}
                 </span>
                 {row.detail ? (
-                  <span className='text-xs text-muted-foreground'>
+                  <span className='text-muted-foreground text-xs'>
                     {row.detail}
                   </span>
                 ) : null}
@@ -262,7 +261,7 @@ function RankTable({ rows, nameHeader, showQuota = true }: RankTableProps) {
             </TableCell>
             <TableCell>
               <div className='flex items-center gap-2'>
-                <div className='h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-muted'>
+                <div className='bg-muted h-1.5 w-20 shrink-0 overflow-hidden rounded-full'>
                   <div
                     className='h-full rounded-full bg-blue-500'
                     style={{ width: `${(row.requests / max) * 100}%` }}
@@ -315,25 +314,10 @@ function NamePicker({
     setPending(true)
     const timer = setTimeout(async () => {
       try {
-        const res =
-          kind === 'user'
-            ? await searchUsers({ keyword: query, page_size: 50 })
-            : await searchChannels({ keyword: query, page_size: 50 })
-        if (!res.success) throw new Error(res.message)
+        const items = await searchSiteStatsOptions(kind, query)
         if (!active) return
-        const items = res.data?.items ?? []
         setOptions(
-          items.map((item) => ({
-            id: String(item.id),
-            name:
-              kind === 'user'
-                ? 'username' in item
-                  ? item.username
-                  : ''
-                : 'name' in item
-                  ? item.name
-                  : '',
-          })),
+          items.map((item) => ({ id: String(item.id), name: item.name }))
         )
         setFailed(false)
       } catch {
@@ -352,7 +336,7 @@ function NamePicker({
   }, [open, query, kind])
   return (
     <div className='space-y-1'>
-      <span className='text-xs text-muted-foreground'>{label}</span>
+      <span className='text-muted-foreground text-xs'>{label}</span>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
           render={
@@ -395,11 +379,11 @@ function NamePicker({
             {pending ? (
               <p className='p-2 text-sm'>{t('Loading...')}</p>
             ) : failed ? (
-              <p className='p-2 text-sm text-destructive'>
+              <p className='text-destructive p-2 text-sm'>
                 {t('Failed to load')}
               </p>
             ) : options.length === 0 ? (
-              <p className='p-2 text-sm text-muted-foreground'>
+              <p className='text-muted-foreground p-2 text-sm'>
                 {t('No Data')}
               </p>
             ) : (
@@ -407,14 +391,14 @@ function NamePicker({
                 <button
                   type='button'
                   key={item.id}
-                  className='w-full rounded px-2 py-2 text-left text-sm hover:bg-muted'
+                  className='hover:bg-muted w-full rounded px-2 py-2 text-left text-sm'
                   onClick={() => {
                     onChange(
                       multiple
                         ? selected.some((x) => x.id === item.id)
                           ? selected.filter((x) => x.id !== item.id)
                           : [...selected, item]
-                        : [item],
+                        : [item]
                     )
                     if (!multiple) setOpen(false)
                   }}
@@ -441,7 +425,7 @@ export function SiteStatistics() {
   // apply button so that typing does not fire a request per keystroke.
   const [rangePreset, setRangePreset] = useState<SiteStatsRangePreset>('30d')
   const [granularity, setGranularity] = useState<'auto' | SiteStatsGranularity>(
-    'auto',
+    'auto'
   )
   const [sort, setSort] = useState<'requests' | 'tokens' | 'quota'>('requests')
   const [order, setOrder] = useState<'asc' | 'desc'>('desc')
@@ -579,13 +563,22 @@ export function SiteStatistics() {
     tokens: row.tokens,
     quota: row.quota,
   }))
-  const clientRows: RankRow[] = (data?.rankings.clients ?? []).map((row) => ({
+  const clientRows: RankRow[] = (data?.rankings.api_keys ?? []).map((row) => ({
     key: `client-${row.token_name}`,
     name: row.token_name || t('Unknown'),
     requests: row.requests,
     tokens: row.tokens,
     quota: row.quota,
   }))
+  const applicationRows: RankRow[] = (data?.rankings.clients ?? []).map(
+    (row) => ({
+      key: `application-${row.client_name}`,
+      name: row.client_name || t('Unknown'),
+      requests: row.requests,
+      tokens: row.tokens,
+      quota: row.quota,
+    })
+  )
   const groupRows: RankRow[] = (data?.rankings.groups ?? []).map((row) => ({
     key: `group-${row.group_name}`,
     name: row.group_name || t('Unknown'),
@@ -613,7 +606,7 @@ export function SiteStatistics() {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='space-y-4'>
-          <p className='text-sm text-muted-foreground'>
+          <p className='text-muted-foreground text-sm'>
             {t('Site-wide statistics of the whole installation.')}
           </p>
 
@@ -628,7 +621,7 @@ export function SiteStatistics() {
             <CardContent className='space-y-3'>
               <div className='grid grid-cols-2 gap-3 md:grid-cols-5'>
                 <div className='space-y-1'>
-                  <label className='text-xs text-muted-foreground'>
+                  <label className='text-muted-foreground text-xs'>
                     {t('Time Range')}
                   </label>
                   <Select
@@ -638,7 +631,9 @@ export function SiteStatistics() {
                     }
                   >
                     <SelectTrigger className='w-full'>
-                      <SelectValue />
+                      <SelectValue>
+                        {t(RANGE_LABEL_KEYS[rangePreset])}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {RANGE_PRESETS.map((preset) => (
@@ -650,7 +645,7 @@ export function SiteStatistics() {
                   </Select>
                 </div>
                 <div className='space-y-1'>
-                  <label className='text-xs text-muted-foreground'>
+                  <label className='text-muted-foreground text-xs'>
                     {t('Granularity')}
                   </label>
                   <Select
@@ -660,7 +655,19 @@ export function SiteStatistics() {
                     }
                   >
                     <SelectTrigger className='w-full'>
-                      <SelectValue />
+                      <SelectValue>
+                        {t(
+                          (
+                            {
+                              auto: 'Auto',
+                              hour: 'Hour',
+                              day: 'Day',
+                              week: 'Week',
+                              month: 'Month',
+                            } as const
+                          )[granularity]
+                        )}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value='auto'>{t('Auto')}</SelectItem>
@@ -672,7 +679,7 @@ export function SiteStatistics() {
                   </Select>
                 </div>
                 <div className='space-y-1'>
-                  <label className='text-xs text-muted-foreground'>
+                  <label className='text-muted-foreground text-xs'>
                     {t('Sort')}
                   </label>
                   <Select
@@ -682,7 +689,17 @@ export function SiteStatistics() {
                     }
                   >
                     <SelectTrigger className='w-full'>
-                      <SelectValue />
+                      <SelectValue>
+                        {t(
+                          (
+                            {
+                              requests: 'Requests',
+                              tokens: 'Tokens',
+                              quota: 'Quota Used',
+                            } as const
+                          )[sort]
+                        )}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value='requests'>{t('Requests')}</SelectItem>
@@ -692,7 +709,7 @@ export function SiteStatistics() {
                   </Select>
                 </div>
                 <div className='space-y-1'>
-                  <label className='text-xs text-muted-foreground'>
+                  <label className='text-muted-foreground text-xs'>
                     {t('Sort Order')}
                   </label>
                   <Select
@@ -700,7 +717,9 @@ export function SiteStatistics() {
                     onValueChange={(value) => setOrder(value as 'asc' | 'desc')}
                   >
                     <SelectTrigger className='w-full'>
-                      <SelectValue />
+                      <SelectValue>
+                        {t(order === 'desc' ? 'Descending' : 'Ascending')}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value='desc'>{t('Descending')}</SelectItem>
@@ -709,7 +728,7 @@ export function SiteStatistics() {
                   </Select>
                 </div>
                 <div className='space-y-1'>
-                  <label className='text-xs text-muted-foreground'>
+                  <label className='text-muted-foreground text-xs'>
                     {t('Top Count')}
                   </label>
                   <Select
@@ -717,7 +736,7 @@ export function SiteStatistics() {
                     onValueChange={(value) => setLimit(Number(value))}
                   >
                     <SelectTrigger className='w-full'>
-                      <SelectValue />
+                      <SelectValue>{String(limit)}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {[10, 20, 50, 100].map((value) => (
@@ -747,7 +766,7 @@ export function SiteStatistics() {
                 <div className='space-y-1'>
                   <label
                     htmlFor='stats-model'
-                    className='text-xs text-muted-foreground'
+                    className='text-muted-foreground text-xs'
                   >
                     {t('Model')}
                   </label>
@@ -767,7 +786,7 @@ export function SiteStatistics() {
                   onChange={setChannel}
                 />
                 <div className='space-y-1'>
-                  <label className='text-xs text-muted-foreground'>
+                  <label className='text-muted-foreground text-xs'>
                     {t('Group')}
                   </label>
                   <Select
@@ -780,7 +799,9 @@ export function SiteStatistics() {
                     }
                   >
                     <SelectTrigger className='w-full'>
-                      <SelectValue />
+                      <SelectValue>
+                        {textDrafts.group || t('All Groups')}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value='__all__'>{t('All Groups')}</SelectItem>
@@ -817,7 +838,7 @@ export function SiteStatistics() {
           {loading && (
             <div
               role='status'
-              className='flex items-center gap-2 text-sm text-muted-foreground'
+              className='text-muted-foreground flex items-center gap-2 text-sm'
             >
               <RefreshCw className='size-4 animate-spin' />
               {t('Loading...')}
@@ -826,7 +847,7 @@ export function SiteStatistics() {
           {error && (
             <div
               role='alert'
-              className='flex items-center gap-3 text-destructive'
+              className='text-destructive flex items-center gap-3'
             >
               {t('Failed to load statistics')}{' '}
               <Button variant='outline' size='sm' onClick={load}>
@@ -922,31 +943,31 @@ export function SiteStatistics() {
             {counters ? (
               <div className='grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5'>
                 <StatCard
-                  icon={<Users className='size-4 text-muted-foreground' />}
+                  icon={<Users className='text-muted-foreground size-4' />}
                   label={t('Total Users')}
                   value={formatNumber(counters.total_users)}
                   description={`${t('Active Users')}: ${formatNumber(counters.active_users)}`}
                 />
                 <StatCard
-                  icon={<Network className='size-4 text-muted-foreground' />}
+                  icon={<Network className='text-muted-foreground size-4' />}
                   label={t('Total Channels')}
                   value={formatNumber(counters.total_channels)}
                   description={`${t('Active Channels')}: ${formatNumber(counters.active_channels)}`}
                 />
                 <StatCard
-                  icon={<KeyRound className='size-4 text-muted-foreground' />}
+                  icon={<KeyRound className='text-muted-foreground size-4' />}
                   label={t('API Keys')}
                   value={formatNumber(counters.total_api_tokens)}
                   description={`${t('Active API Keys')}: ${formatNumber(counters.active_api_tokens)}`}
                 />
                 <StatCard
-                  icon={<Ticket className='size-4 text-muted-foreground' />}
+                  icon={<Ticket className='text-muted-foreground size-4' />}
                   label={t('Redemption Codes')}
                   value={formatNumber(counters.total_redemptions)}
                   description={`${t('Unused Codes')}: ${formatNumber(counters.unused_redemptions)}`}
                 />
                 <StatCard
-                  icon={<Globe className='size-4 text-muted-foreground' />}
+                  icon={<Globe className='text-muted-foreground size-4' />}
                   label={t('BYOG Nodes')}
                   value={formatNumber(counters.byog_nodes_total)}
                   description={`${t('BYOG Nodes Online')}: ${formatNumber(counters.byog_nodes_online)}`}
@@ -1084,7 +1105,7 @@ export function SiteStatistics() {
                         </ResponsiveContainer>
                       </div>
                     ) : (
-                      <div className='flex h-40 items-center justify-center text-sm text-muted-foreground'>
+                      <div className='text-muted-foreground flex h-40 items-center justify-center text-sm'>
                         {t('No Data')}
                       </div>
                     )}
@@ -1231,7 +1252,7 @@ export function SiteStatistics() {
                       </ResponsiveContainer>
                     </div>
                   ) : (
-                    <div className='flex h-56 items-center justify-center text-sm text-muted-foreground'>
+                    <div className='text-muted-foreground flex h-56 items-center justify-center text-sm'>
                       {t('No Data')}
                     </div>
                   )}
@@ -1282,7 +1303,7 @@ export function SiteStatistics() {
                         </ResponsiveContainer>
                       </div>
                     ) : (
-                      <div className='flex h-56 items-center justify-center text-sm text-muted-foreground'>
+                      <div className='text-muted-foreground flex h-56 items-center justify-center text-sm'>
                         {t('No Data')}
                       </div>
                     )}
@@ -1301,7 +1322,24 @@ export function SiteStatistics() {
                   rows: channelRows,
                   header: t('Channel'),
                 },
-                { title: t('Clients'), rows: clientRows, header: t('Client') },
+                {
+                  title: t('API Keys'),
+                  rows: clientRows,
+                  header: t('API Key'),
+                },
+                {
+                  title: t('Clients'),
+                  rows: applicationRows,
+                  header: t('Client'),
+                  description:
+                    t(
+                      'Client names come from request headers; older requests may be unknown.'
+                    ) +
+                    ' ' +
+                    t(
+                      'Client headers can be spoofed and are not proof of identity.'
+                    ),
+                },
                 { title: t('Groups'), rows: groupRows, header: t('Group') },
                 {
                   title: t('Addresses'),
@@ -1313,6 +1351,9 @@ export function SiteStatistics() {
                 <Card key={rank.title}>
                   <CardHeader>
                     <CardTitle className='text-base'>{rank.title}</CardTitle>
+                    {rank.description && (
+                      <CardDescription>{rank.description}</CardDescription>
+                    )}
                   </CardHeader>
                   <CardContent className='overflow-x-auto'>
                     <RankTable
@@ -1359,7 +1400,7 @@ export function SiteStatistics() {
                               <span className='max-w-48 truncate font-medium'>
                                 {node.device_name || node.node_id}
                               </span>
-                              <span className='text-xs text-muted-foreground'>
+                              <span className='text-muted-foreground text-xs'>
                                 {node.device_type}
                               </span>
                             </div>
@@ -1395,7 +1436,7 @@ export function SiteStatistics() {
                           </TableCell>
                           <TableCell className='text-right tabular-nums'>
                             {formatNumber(
-                              Math.round(node.total_earned_credits * 100) / 100,
+                              Math.round(node.total_earned_credits * 100) / 100
                             )}
                           </TableCell>
                         </TableRow>
@@ -1403,7 +1444,7 @@ export function SiteStatistics() {
                     </TableBody>
                   </Table>
                 ) : (
-                  <div className='py-8 text-center text-sm text-muted-foreground'>
+                  <div className='text-muted-foreground py-8 text-center text-sm'>
                     {t('No Data')}
                   </div>
                 )}

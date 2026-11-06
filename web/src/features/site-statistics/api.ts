@@ -23,7 +23,14 @@ import { api } from '@/lib/api'
 // ---------------------------------------------------------------------------
 
 export type SiteStatsRangePreset =
-  'today' | '24h' | '7d' | '30d' | '90d' | '180d' | '365d' | 'all'
+  | 'today'
+  | '24h'
+  | '7d'
+  | '30d'
+  | '90d'
+  | '180d'
+  | '365d'
+  | 'all'
 
 export type SiteStatsGranularity = 'hour' | 'day' | 'week' | 'month'
 
@@ -191,11 +198,38 @@ export interface SiteStatsLogTypeCount {
   count: number
 }
 
+export interface SiteStatsApplication {
+  client_name: string
+  requests: number
+  tokens: number
+  quota: number
+}
+
+export interface SiteStatsOption {
+  id: number
+  name: string
+}
+
+export async function searchSiteStatsOptions(
+  kind: 'user' | 'channel',
+  keyword: string
+): Promise<SiteStatsOption[]> {
+  const res = await api.get(
+    `/api/statistics/site/${kind === 'user' ? 'users' : 'channels'}`,
+    { params: { keyword } }
+  )
+  if (!res.data.success || !Array.isArray(res.data.data)) {
+    throw new Error(res.data.message || 'Failed to load')
+  }
+  return res.data.data
+}
+
 export interface SiteStatsRankings {
   users: SiteStatsTopUser[]
   models: SiteStatsTopModel[]
   channels: SiteStatsTopChannel[]
-  clients: SiteStatsTopClient[]
+  api_keys: SiteStatsTopClient[]
+  clients: SiteStatsApplication[]
   groups: SiteStatsTopGroup[]
   ips: SiteStatsTopIp[]
   byog_nodes: SiteStatsByogNodeRank[]
@@ -216,11 +250,12 @@ export interface SiteStatisticsResponse {
 // ---------------------------------------------------------------------------
 
 export async function getSiteStatistics(
-  params: SiteStatsQuery,
+  params: SiteStatsQuery
 ): Promise<SiteStatisticsResponse> {
   const res = await api.get('/api/statistics/site', { params })
-  if (!res.data.success || !res.data.data)
+  if (!res.data.success || !res.data.data) {
     throw new Error(res.data.message || 'Failed to load statistics')
+  }
   return res.data.data as SiteStatisticsResponse
 }
 
@@ -228,8 +263,9 @@ export async function getSiteStatistics(
  * The group names of the installation for the filter picker.
  */
 export async function getSiteStatsGroupOptions(): Promise<string[]> {
-  const res = await api.get('/api/group/')
-  if (!res.data.success || !Array.isArray(res.data.data))
+  const res = await api.get('/api/statistics/site/groups')
+  if (!res.data.success || !Array.isArray(res.data.data)) {
     throw new Error(res.data.message || 'Failed to load groups')
+  }
   return res.data.data as string[]
 }
