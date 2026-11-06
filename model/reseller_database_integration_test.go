@@ -78,6 +78,24 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			wg.Wait()
 			require.Equal(t, int32(1), refunded.Load())
 			require.Equal(t, 40, getUserQuotaFromDB(t, owner.Id))
+
+			// Redeeming and refunding the same code must never both credit a wallet.
+			recipient := createReserveTestUser(t, 0)
+			t.Cleanup(func() { db.Unscoped().Where("id = ?", recipient.Id).Delete(&User{}) })
+			keys, err := CreateResellerBalanceCodes(owner.Id, 20, 1, "refund-redeem-race")
+			require.NoError(t, err)
+			var raceCode Redemption
+			require.NoError(t, db.Where("user_id = ? AND name = ?", owner.Id, "refund-redeem-race").First(&raceCode).Error)
+			start := make(chan struct{})
+			var refundErr, redeemErr error
+			wg.Add(2)
+			go func() { defer wg.Done(); <-start; refundErr = RefundResellerCode(owner.Id, raceCode.Id) }()
+			go func() { defer wg.Done(); <-start; _, redeemErr = Redeem(keys[0], recipient.Id) }()
+			close(start)
+			wg.Wait()
+			require.NotEqual(t, refundErr == nil, redeemErr == nil)
+			require.Equal(t, 40, getUserQuotaFromDB(t, owner.Id)+getUserQuotaFromDB(t, recipient.Id))
+
 			pairing := "test-" + common.GetRandomString(16)
 			require.NoError(t, CreateByogPairingSession(pairing, owner.Id, time.Now().Unix()+900))
 			var claimed atomic.Int32
