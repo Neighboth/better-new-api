@@ -85,3 +85,19 @@ python worker\mobile\build_apk.py
 The version of the application follows `WorkerVersion` in
 `worker/desktop/main.go`, the update check of the application compares the
 version of the server with the version of the application.
+
+### Security and Android signing
+
+Worker connections require HTTPS (HTTP is allowed only for loopback development;
+Android emulators may use `10.0.2.2`). The private per-device token is issued
+once at pairing; save and restore the worker's private configuration securely.
+Deploy a trusted TLS certificate. Existing workers must be paired again.
+
+The server re-signs each downloadable APK with an installation-specific private
+key. Set `BYOG_APK_SIGNING_KEY` to a protected path on persistent storage; all
+server instances serving the same installation must share that key. Keep secure
+backups: changing or losing it requires Android clients to be reinstalled. The
+old repository-shared APK signing key was public and must not be reused. The
+build script's local keystore signs only the intermediate base APK; it must not
+be published or committed. If branding or signing fails, the server refuses to
+serve the APK rather than returning an APK with the wrong signer.

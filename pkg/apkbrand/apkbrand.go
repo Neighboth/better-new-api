@@ -154,23 +154,42 @@ func LoadSigner(path string) (*Signer, error) {
 		return nil, errors.New("apkbrand: signing key path is required")
 	}
 	raw, err := os.ReadFile(path)
-	if err == nil && len(raw) > 0 {
+	if err == nil {
 		return parseSignerPEM(raw)
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-
 	signer, err := GenerateSigner()
 	if err != nil {
 		return nil, err
 	}
-	if dir := filepath.Dir(path); dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, err
-		}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
 	}
-	if err := os.WriteFile(path, signerPEM(signer), 0o600); err != nil {
+	// Publish a fully written private key atomically. Multiple processes may
+	// race to initialize the same persistent path: exactly one wins.
+	tmp, err := os.CreateTemp(dir, ".byog-signing-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(signerPEM(signer)); err != nil {
+		tmp.Close()
+		return nil, err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return nil, err
+	}
+	if err := tmp.Close(); err != nil {
+		return nil, err
+	}
+	if err := os.Link(tmp.Name(), path); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return LoadSigner(path)
+		}
 		return nil, err
 	}
 	return signer, nil

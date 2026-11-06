@@ -1164,13 +1164,27 @@ func DeleteAdminByogNode(c *gin.Context) {
 		return
 	}
 
-	err := model.DeleteByogNode(nodeId)
+	node, err := model.GetByogNodeByNodeId(nodeId)
+	if err != nil && model.DB != nil {
+		if numeric, convErr := strconv.Atoi(nodeId); convErr == nil && numeric > 0 {
+			var candidate model.ByogNode
+			if model.DB.First(&candidate, numeric).Error == nil {
+				node = &candidate
+				err = nil
+			}
+		}
+	}
+	if err != nil || node == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Device not found"})
+		return
+	}
+	err = model.DeleteByogNode(node.NodeId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-	byogservice.NotifyDeviceRemoved(nodeId, "Cihaz kaldırıldı")
-	byogservice.GlobalHub.Unregister(nodeId)
+	byogservice.NotifyDeviceRemoved(node.NodeId, "Cihaz kaldırıldı")
+	byogservice.GlobalHub.Unregister(node.NodeId)
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Node permanently deleted from network"})
 }
@@ -2868,16 +2882,19 @@ func DownloadByogWorker(c *gin.Context) {
 					branded, err := brandByogApk(raw, appName, faviconBase64)
 					if err != nil {
 						common.SysError(fmt.Sprintf("[BYOG] APK branding failed: %v", err))
-					} else {
-						raw = branded
-					}
-
-					if customizedApk, err := injectApkConfig(raw, asciiJSON(cfgPayload)); err == nil {
-						c.Data(http.StatusOK, "application/vnd.android.package-archive", customizedApk)
+						c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "APK signing failed"})
 						return
 					}
+					customizedApk, err := injectApkConfig(branded, asciiJSON(cfgPayload))
+					if err != nil {
+						common.SysError(fmt.Sprintf("[BYOG] APK configuration failed: %v", err))
+						c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "APK configuration failed"})
+						return
+					}
+					c.Data(http.StatusOK, "application/vnd.android.package-archive", customizedApk)
+					return
 				}
-				c.File(p)
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "APK could not be read"})
 				return
 			}
 			c.Header("Content-Type", "application/octet-stream")

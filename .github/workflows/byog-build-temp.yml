@@ -1,0 +1,65 @@
+name: Build BYOG clients (temporary)
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: write
+jobs:
+  build:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'arena/0112f587-better-new-api'
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Prepare Android SDK
+        shell: pwsh
+        run: |
+          $sdk = $env:ANDROID_HOME
+          if (-not $sdk) { $sdk = $env:ANDROID_SDK_ROOT }
+          if (-not $sdk) { throw "Android SDK unavailable" }
+          $manager = Join-Path $sdk 'cmdline-tools\latest\bin\sdkmanager.bat'
+          if (-not (Test-Path $manager)) { throw "sdkmanager not found: $manager" }
+          & $manager "platforms;android-34" "build-tools;35.0.0"
+          if ($LASTEXITCODE -ne 0) { throw 'Android SDK install failed' }
+          "ANDROID_BUILD_TOOLS=$sdk\build-tools\35.0.0" >> $env:GITHUB_ENV
+          "ANDROID_PLATFORM_JAR=$sdk\platforms\android-34\android.jar" >> $env:GITHUB_ENV
+          "JAVA_KEYTOOL=$env:JAVA_HOME\bin\keytool.exe" >> $env:GITHUB_ENV
+      - name: Build desktop workers and installer
+        shell: pwsh
+        run: |
+          $iscc = @("C:\Program Files (x86)\Inno Setup 6\ISCC.exe", "C:\Program Files\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { choco install innosetup -y --no-progress; if ($LASTEXITCODE -ne 0) { throw 'Inno Setup install failed' } }
+          & ./worker/build-clients.ps1
+          if (-not $?) { throw 'Client compilation failed' }
+          if (-not (Test-Path 'worker/binaries/BYOG Worker Kurulumu.exe')) { throw 'Installer missing' }
+      - name: Build signed Android APK
+        shell: pwsh
+        run: |
+          python worker/mobile/build_apk.py > apk-build.log 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            $message = (Get-Content apk-build.log -Tail 40) -join '%0A'
+            Write-Output "::error::$message"
+            throw 'APK build failed'
+          }
+          Get-Content apk-build.log -Tail 8
+      - name: Publish binaries to current PR branch
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- worker/binaries
+          git diff --cached --stat
+          git commit -m 'Build authenticated BYOG client artifacts'
+          if ($LASTEXITCODE -ne 0) { throw 'No binaries committed' }
+          git push origin HEAD:arena/0112f587-better-new-api
+          if ($LASTEXITCODE -ne 0) { throw 'Artifact push failed' }
