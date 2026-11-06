@@ -28,11 +28,7 @@ func ResellerGetRedemptions(c *gin.Context) {
 
 	var redemptions []*model.Redemption
 	var total int64
-	query := model.DB.Model(&model.Redemption{}).Where("user_id = ?", userId)
-	keyword := strings.TrimSpace(c.Query("keyword"))
-	if keyword != "" {
-		query = query.Where("name LIKE ? OR key LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
-	}
+	query := model.QueryResellerRedemptions(userId, c.Query("keyword"))
 	if err := query.Count(&total).Error; err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
@@ -79,7 +75,7 @@ type ResellerCreateRedemptionRequest struct {
 	Type  int    `json:"type"` // only balance codes can be newly created
 }
 
-// ResellerCreateRedemption creates redemption codes using the reseller's available quota/requests/tokens.
+// ResellerCreateRedemption creates balance-only codes using the reseller's quota.
 func ResellerCreateRedemption(c *gin.Context) {
 	userId := c.GetInt("id")
 	var req ResellerCreateRedemptionRequest

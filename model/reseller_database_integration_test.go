@@ -84,6 +84,11 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			t.Cleanup(func() { db.Unscoped().Where("id = ?", recipient.Id).Delete(&User{}) })
 			keys, err := CreateResellerBalanceCodes(owner.Id, 20, 1, "refund-redeem-race")
 			require.NoError(t, err)
+			var found []Redemption
+			require.NoError(t, QueryResellerRedemptions(owner.Id, keys[0]).Find(&found).Error)
+			require.Len(t, found, 1)
+			require.NoError(t, QueryResellerRedemptions(recipient.Id, keys[0]).Find(&found).Error)
+			require.Empty(t, found, "a reseller must not search another reseller's codes")
 			var raceCode Redemption
 			require.NoError(t, db.Where("user_id = ? AND name = ?", owner.Id, "refund-redeem-race").First(&raceCode).Error)
 			start := make(chan struct{})

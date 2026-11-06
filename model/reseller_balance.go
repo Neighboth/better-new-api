@@ -6,13 +6,28 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var ErrResellerInsufficientBalance = errors.New("insufficient reseller balance")
 var ErrResellerCodeUnavailable = errors.New("redemption code is unavailable")
+
+// QueryResellerRedemptions safely quotes the code column on every dialect.
+func QueryResellerRedemptions(userID int, keyword string) *gorm.DB {
+	query := DB.Model(&Redemption{}).Where("user_id = ?", userID)
+	if keyword = strings.TrimSpace(keyword); keyword != "" {
+		pattern := "%" + keyword + "%"
+		query = query.Where(clause.Or(
+			clause.Like{Column: clause.Column{Name: "name"}, Value: pattern},
+			clause.Like{Column: clause.Column{Name: "key"}, Value: pattern},
+		))
+	}
+	return query
+}
 
 // CreateResellerBalanceCodes reserves the live Redis balance before the SQL
 // transaction when Redis is enabled. The SQL debit and creation of every code
