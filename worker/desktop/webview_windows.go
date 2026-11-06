@@ -133,6 +133,9 @@ func runWebViewHelper(url string, title string, iconPath string) (code int) {
 
 	webViewMessageLoop()
 	webViewLog("end")
+	if !webViewReady.Load() {
+		return 3
+	}
 	return 0
 }
 

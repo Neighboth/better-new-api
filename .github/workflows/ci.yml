@@ -50,6 +50,13 @@ jobs:
       - name: Build root module
         run: go build ./...
 
+      - name: Cross-build Windows BYOG worker
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -o /tmp/byog-worker.exe ./worker/desktop
+
       - name: Build relaykit independently
         working-directory: relaykit
         run: go build ./...

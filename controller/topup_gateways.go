@@ -45,17 +45,6 @@ type GatewayTopUpRequest struct {
 	Amount int64 `json:"amount"`
 }
 
-func resolveChildPanelConfig(c *gin.Context) *model.ResellerConfig {
-	host := c.Request.Host
-	if idx := strings.Index(host, ":"); idx != -1 {
-		host = host[:idx]
-	}
-	rc, err := model.GetResellerConfigByDomain(host)
-	if err == nil && rc != nil && rc.ChildPanelEnabled {
-		return rc
-	}
-	return nil
-}
 
 // ---------------------------------------------------------------------------
 // Shopier
@@ -90,13 +79,6 @@ func RequestShopier(c *gin.Context) {
 	apiKey := setting.ShopierApiKey
 	apiSecret := setting.ShopierApiSecret
 	websiteIndex := setting.ShopierWebsiteIndex
-	if rc := resolveChildPanelConfig(c); rc != nil && rc.ShopierApiKey != "" && rc.ShopierApiSecret != "" {
-		apiKey = rc.ShopierApiKey
-		apiSecret = rc.ShopierApiSecret
-		if rc.ShopierWebsiteIndex != "" {
-			websiteIndex = rc.ShopierWebsiteIndex
-		}
-	}
 
 	if apiKey == "" || apiSecret == "" {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "Shopier is not configured"})
@@ -181,18 +163,16 @@ func ShopierNotify(c *gin.Context) {
 
 	// Verify signature
 	apiSecret := setting.ShopierApiSecret
-	if rc := resolveChildPanelConfig(c); rc != nil && rc.ShopierApiSecret != "" {
-		apiSecret = rc.ShopierApiSecret
-	}
 
 	expectedMac := randomNr + platformOrderId
 	h := hmac.New(sha256.New, []byte(apiSecret))
 	h.Write([]byte(expectedMac))
 	expectedSig := base64.StdEncoding.EncodeToString(h.Sum(nil))
 
-	if signature != expectedSig {
+	if apiSecret == "" || !hmac.Equal([]byte(signature), []byte(expectedSig)) {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Shopier signature mismatch: order=%s", platformOrderId))
-		// Still allow processing if signature matches standard shopier response format
+		c.String(http.StatusUnauthorized, "Invalid signature")
+		return
 	}
 
 	if strings.ToLower(status) == "success" {
@@ -240,12 +220,6 @@ func RequestPayTR(c *gin.Context) {
 	merchantSalt := setting.PayTRMerchantSalt
 	testMode := setting.PayTRTestMode
 
-	if rc := resolveChildPanelConfig(c); rc != nil && rc.PayTRMerchantId != "" && rc.PayTRMerchantKey != "" {
-		merchantId = rc.PayTRMerchantId
-		merchantKey = rc.PayTRMerchantKey
-		merchantSalt = rc.PayTRMerchantSalt
-		testMode = rc.PayTRTestMode
-	}
 
 	if merchantId == "" || merchantKey == "" || merchantSalt == "" {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "PayTR is not configured"})
@@ -355,10 +329,6 @@ func PayTRNotify(c *gin.Context) {
 
 	merchantKey := setting.PayTRMerchantKey
 	merchantSalt := setting.PayTRMerchantSalt
-	if rc := resolveChildPanelConfig(c); rc != nil && rc.PayTRMerchantKey != "" {
-		merchantKey = rc.PayTRMerchantKey
-		merchantSalt = rc.PayTRMerchantSalt
-	}
 
 	expectedHashStr := fmt.Sprintf("%s%s%s%s", merchantOid, merchantSalt, status, totalAmount)
 	h := hmac.New(sha256.New, []byte(merchantKey))
@@ -448,13 +418,6 @@ func RequestPayPal(c *gin.Context) {
 	clientSecret := setting.PayPalClientSecret
 	mode := setting.PayPalMode
 
-	if rc := resolveChildPanelConfig(c); rc != nil && rc.PayPalClientId != "" && rc.PayPalClientSecret != "" {
-		clientId = rc.PayPalClientId
-		clientSecret = rc.PayPalClientSecret
-		if rc.PayPalMode != "" {
-			mode = rc.PayPalMode
-		}
-	}
 
 	if clientId == "" || clientSecret == "" {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "PayPal is not configured"})
@@ -557,13 +520,6 @@ func PayPalCapture(c *gin.Context) {
 	clientId := setting.PayPalClientId
 	clientSecret := setting.PayPalClientSecret
 	mode := setting.PayPalMode
-	if rc := resolveChildPanelConfig(c); rc != nil && rc.PayPalClientId != "" {
-		clientId = rc.PayPalClientId
-		clientSecret = rc.PayPalClientSecret
-		if rc.PayPalMode != "" {
-			mode = rc.PayPalMode
-		}
-	}
 
 	baseUrl := getPayPalBaseUrl(mode)
 	accessToken, err := getPayPalAccessToken(clientId, clientSecret, baseUrl)
@@ -646,13 +602,6 @@ func RequestIyzico(c *gin.Context) {
 	secretKey := setting.IyzicoSecretKey
 	baseUrl := normalizeIyzicoBaseUrl(setting.IyzicoBaseUrl)
 
-	if rc := resolveChildPanelConfig(c); rc != nil && rc.IyzicoApiKey != "" && rc.IyzicoSecretKey != "" {
-		apiKey = rc.IyzicoApiKey
-		secretKey = rc.IyzicoSecretKey
-		if rc.IyzicoBaseUrl != "" {
-			baseUrl = normalizeIyzicoBaseUrl(rc.IyzicoBaseUrl)
-		}
-	}
 
 	if apiKey == "" || secretKey == "" {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "iyzico is not configured"})
@@ -803,10 +752,6 @@ func RequestShopify(c *gin.Context) {
 
 	storeDomain := setting.ShopifyStoreDomain
 	accessToken := setting.ShopifyAccessToken
-	if rc := resolveChildPanelConfig(c); rc != nil && rc.ShopifyStoreDomain != "" && rc.ShopifyAccessToken != "" {
-		storeDomain = rc.ShopifyStoreDomain
-		accessToken = rc.ShopifyAccessToken
-	}
 
 	if storeDomain == "" || accessToken == "" {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "Shopify is not configured"})
@@ -887,19 +832,18 @@ func ShopifyWebhook(c *gin.Context) {
 	}
 
 	webhookSecret := setting.ShopifyWebhookSecret
-	if rc := resolveChildPanelConfig(c); rc != nil && rc.ShopifyWebhookSecret != "" {
-		webhookSecret = rc.ShopifyWebhookSecret
-	}
 
-	if webhookSecret != "" && hmacHeader != "" {
-		h := hmac.New(sha256.New, []byte(webhookSecret))
-		h.Write(data)
-		expectedHmac := base64.StdEncoding.EncodeToString(h.Sum(nil))
-		if hmacHeader != expectedHmac {
-			logger.LogError(c.Request.Context(), "Shopify webhook HMAC mismatch")
-			c.String(http.StatusUnauthorized, "HMAC mismatch")
-			return
-		}
+	if webhookSecret == "" || hmacHeader == "" {
+		c.String(http.StatusUnauthorized, "Missing webhook authentication")
+		return
+	}
+	h := hmac.New(sha256.New, []byte(webhookSecret))
+	h.Write(data)
+	expectedHmac := base64.StdEncoding.EncodeToString(h.Sum(nil))
+	if !hmac.Equal([]byte(hmacHeader), []byte(expectedHmac)) {
+		logger.LogError(c.Request.Context(), "Shopify webhook HMAC mismatch")
+		c.String(http.StatusUnauthorized, "HMAC mismatch")
+		return
 	}
 
 	var orderEvent struct {
@@ -924,13 +868,5 @@ func ShopifyWebhook(c *gin.Context) {
 }
 
 func serviceGetCallbackUrl(c *gin.Context) string {
-	if rc := resolveChildPanelConfig(c); rc != nil {
-		if rc.EpayCallbackUrl != "" {
-			return rc.EpayCallbackUrl
-		}
-		if rc.CustomDomain != "" {
-			return "https://" + rc.CustomDomain
-		}
-	}
 	return service.GetCallbackAddress()
 }

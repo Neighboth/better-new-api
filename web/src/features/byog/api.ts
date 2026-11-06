@@ -297,3 +297,8 @@ export async function getAdminDownloadErrors(
     throw new Error(res.data.message || 'Failed to load')
   return res.data.data
 }
+
+export async function clearAdminCrashReports(): Promise<void> {
+  const res = await api.delete('/api/byog/admin/observability/crash-reports')
+  if (!res.data.success) throw new Error(res.data.message || 'Failed to delete')
+}

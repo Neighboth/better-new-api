@@ -28,7 +28,6 @@ import {
   ShieldAlert,
   Link2,
   CreditCard,
-  Store,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -60,7 +59,6 @@ import {
 } from '../constants'
 import { getUserActionMessage } from '../lib'
 import type { User, ManageUserAction } from '../types'
-import { ResellerManageDialog } from './dialogs/reseller-manage-dialog'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
 import { useUsers } from './users-provider'
 
@@ -79,7 +77,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
-  const [resellerManageOpen, setResellerManageOpen] = useState(false)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -170,20 +167,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         ariaLabel={t('Open menu')}
         contentClassName='w-48'
       >
-        {user.role === USER_ROLE.RESELLER && (
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault()
-              setResellerManageOpen(true)
-            }}
-          >
-            {t('Manage Reseller')}
-            <DropdownMenuShortcut>
-              <Store size={16} />
-            </DropdownMenuShortcut>
-          </DropdownMenuItem>
-        )}
-
         {canWrite && isDisabled && (
           <DropdownMenuItem onClick={() => handleManage('enable')}>
             {t('Enable')}
@@ -330,11 +313,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         onSuccess={triggerRefresh}
       />
 
-      <ResellerManageDialog
-        open={resellerManageOpen}
-        onOpenChange={setResellerManageOpen}
-        user={user}
-      />
     </div>
   )
 }

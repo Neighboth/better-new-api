@@ -1240,14 +1240,21 @@ func (w *guiWindow) openEmbeddedPage(page string) bool {
 	w.mutex.Unlock()
 
 	go func() {
-		<-done
+		err := <-done
 		w.mutex.Lock()
-		if w.embedCmd == command {
+		current := w.embedCmd == command
+		closing := w.embedClosing || w.quitRequested
+		if current {
 			w.embedCmd = nil
 		}
 		w.mutex.Unlock()
-		// When the WebView window is closed (e.g. by pressing X), the worker keeps
-		// running in the system tray. Never restore or pop up the legacy fallback window.
+		// A failed helper must not leave the worker hidden and inaccessible.
+		// A normal user close still leaves it in the notification area.
+		if current && !closing && err != nil {
+			procShowWindow.Call(w.window, swRestore)
+			procSetForeground.Call(w.window)
+			procUpdateWindow.Call(w.window)
+		}
 	}()
 	return true
 }
@@ -1257,7 +1264,7 @@ func (w *guiWindow) openEmbeddedPage(page string) bool {
 // The process of the window is the program of the client itself. The answer
 // tells whether the window is still open after the start, a runtime of WebView2
 // that is not complete ends the process at once.
-func startClientWindow(page string, title string, iconPath string) (*exec.Cmd, <-chan struct{}, bool) {
+func startClientWindow(page string, title string, iconPath string) (*exec.Cmd, <-chan error, bool) {
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, nil, false
@@ -1272,11 +1279,11 @@ func startClientWindow(page string, title string, iconPath string) (*exec.Cmd, <
 	if err := command.Start(); err != nil {
 		return nil, nil, false
 	}
-	done := make(chan struct{})
+	done := make(chan error, 1)
 	go func() {
 		err := command.Wait()
 		webViewLog(fmt.Sprintf("the process of the page ended: %v", err))
-		close(done)
+		done <- err
 	}()
 	select {
 	case <-done:
@@ -1321,6 +1328,9 @@ func (w *guiWindow) show() {
 		procShowWindow.Call(w.window, swHide)
 		return
 	}
+	procShowWindow.Call(w.window, swRestore)
+	procSetForeground.Call(w.window)
+	procUpdateWindow.Call(w.window)
 }
 
 // addTrayIcon shows the client in the notification area of the system.

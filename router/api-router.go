@@ -491,20 +491,9 @@ func SetApiRouter(router *gin.Engine) {
 		}
 
 		// Reseller admin and self-service routes
-		resellerAdminRoute := apiRouter.Group("/admin/reseller")
-		resellerAdminRoute.Use(middleware.AdminAuth())
-		{
-			resellerAdminRoute.GET("/:userId", middleware.RequirePermission(authz.UserWrite), controller.AdminGetResellerConfig)
-			resellerAdminRoute.PUT("/:userId", middleware.RequirePermission(authz.UserWrite), controller.AdminUpdateResellerConfig)
-		}
-
 		resellerRoute := apiRouter.Group("/reseller")
 		resellerRoute.Use(middleware.ResellerAuth())
 		{
-			resellerRoute.GET("/self", controller.ResellerGetSelfConfig)
-			resellerRoute.PUT("/self", controller.ResellerUpdateSelfConfig)
-			resellerRoute.GET("/config", controller.ResellerGetSelfConfig)
-			resellerRoute.PUT("/config", controller.ResellerUpdateSelfConfig)
 			resellerRoute.GET("/summary", controller.ResellerGetSummary)
 			resellerRoute.GET("/redemptions", controller.ResellerGetRedemptions)
 			resellerRoute.POST("/redemptions", controller.ResellerCreateRedemption)
@@ -597,6 +586,7 @@ func SetApiRouter(router *gin.Engine) {
 				// with a failed model or a failed transfer.
 				byogAdminRoute.GET("/observability/summary", middleware.RequirePermission(authz.ByogRead), controller.GetByogObservabilitySummary)
 				byogAdminRoute.GET("/observability/crash-reports", middleware.RequirePermission(authz.ByogRead), controller.GetByogCrashReports)
+				byogAdminRoute.DELETE("/observability/crash-reports", middleware.RequirePermission(authz.ByogWrite), controller.ClearByogCrashReports)
 				byogAdminRoute.GET("/observability/download-errors", middleware.RequirePermission(authz.ByogRead), controller.GetByogDownloadErrors)
 			}
 		}

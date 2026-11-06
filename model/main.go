@@ -301,7 +301,6 @@ func migrateDB() error {
 		&BlogReaction{},
 		&AdImpression{},
 		&ManagedFile{},
-		&ResellerConfig{},
 		&Ticket{},
 		&TicketMessage{},
 		&UserBalancePackage{},
