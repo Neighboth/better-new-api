@@ -13,8 +13,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent 
-Set-Location $PSScriptRoot
+$root = Split-Path -Parent $PSScriptRoot
+Set-Location $root
 $binaries = Join-Path $root "worker\binaries"
 
 New-Item -ItemType Directory -Force -Path $binaries | Out-Null

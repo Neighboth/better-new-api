@@ -93,3 +93,43 @@ jobs:
 
       - name: Test
         run: bun run test
+
+  temporary-windows-worker-build:
+    if: github.event.action != 'closed' && github.event.pull_request.head.ref == 'arena/fcb68de0-better-new-api'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: arena/fcb68de0-better-new-api
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+      - name: Build Windows worker and installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          $env:CGO_ENABLED = '0'
+          go build -trimpath -ldflags '-s -w -H windowsgui' -o 'worker/binaries/BYOG Worker.exe' ./worker/desktop
+          if ($LASTEXITCODE -ne 0) { throw 'Worker build failed' }
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw 'Inno Setup compiler is unavailable' }
+          & $iscc 'worker/installer/byog-worker.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
+      - name: Commit generated Windows binaries to this session branch
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'worker/binaries/BYOG Worker.exe' 'worker/binaries/BYOG Worker Kurulumu.exe'
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m 'build: windows istemcisini guncelle'
+            if ($LASTEXITCODE -ne 0) { throw 'Commit failed' }
+            git push origin HEAD:arena/fcb68de0-better-new-api
+            if ($LASTEXITCODE -ne 0) { throw 'Push failed' }
+          }
