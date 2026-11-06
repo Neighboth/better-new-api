@@ -258,14 +258,17 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 		mjResp.StatusCode == http.StatusOK && midjResponse.Code == 1,
 	)
 	if billingErr != nil {
+		c.Set(common.WalletTransferHoldRetainContextKey, true)
 		common.SysLog("error consuming Midjourney quota: " + billingErr.Error())
 	}
 	err = midjourneyTask.Insert()
 	if err != nil {
+		c.Set(common.WalletTransferHoldRetainContextKey, true)
 		return service.MidjourneyErrorWrapper(constant.MjRequestError, "insert_midjourney_task_failed")
 	}
 	billingApplied, billingErr := service.SettleMidjourneyTaskBilling(info, midjourneyTask, billingPrepared)
 	if billingErr != nil {
+		c.Set(common.WalletTransferHoldRetainContextKey, true)
 		common.SysLog("error settling Midjourney quota: " + billingErr.Error())
 	}
 	if billingApplied {
@@ -620,10 +623,12 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		consumeQuota && midjResponseWithStatus.StatusCode == http.StatusOK,
 	)
 	if billingErr != nil {
+		c.Set(common.WalletTransferHoldRetainContextKey, true)
 		common.SysLog("error consuming Midjourney quota: " + billingErr.Error())
 	}
 	err = midjourneyTask.Insert()
 	if err != nil {
+		c.Set(common.WalletTransferHoldRetainContextKey, true)
 		return &dto.MidjourneyResponse{
 			Code:        4,
 			Description: "insert_midjourney_task_failed",
@@ -631,6 +636,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 	}
 	billingApplied, billingErr := service.SettleMidjourneyTaskBilling(relayInfo, midjourneyTask, billingPrepared)
 	if billingErr != nil {
+		c.Set(common.WalletTransferHoldRetainContextKey, true)
 		common.SysLog("error settling Midjourney quota: " + billingErr.Error())
 	}
 	if billingApplied {

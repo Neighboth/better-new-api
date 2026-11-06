@@ -1,5 +1,13 @@
 package model
 
+import (
+	"errors"
+	"fmt"
+
+	"github.com/QuantumNous/new-api/common"
+	"gorm.io/gorm"
+)
+
 type Midjourney struct {
 	Id          int    `json:"id"`
 	Code        int    `json:"code"`
@@ -192,7 +200,7 @@ func (midjourney *Midjourney) GetBillingChannelId() int {
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).
 // Uses Model().Select("*").Updates() to avoid GORM Save()'s INSERT fallback.
 func (midjourney *Midjourney) UpdateWithStatus(fromStatus string) (bool, error) {
-	result := DB.Model(midjourney).Where("status = ?", fromStatus).Select("*").Updates(midjourney)
+	result := DB.Model(midjourney).Where("status = ?", fromStatus).Select("*").Omit("Quota", "TokenId", "BillingChannelId").Updates(midjourney)
 	if result.Error != nil {
 		return false, result.Error
 	}
@@ -246,4 +254,57 @@ func CountAllUserTask(userId int, queryParams TaskQueryParams) int64 {
 	}
 	_ = query.Count(&total).Error
 	return total
+}
+
+// RefundMidjourneyWalletOnce atomically consumes the task's refund marker and
+// credits the user. The persisted quota is authoritative, not a poller's stale
+// task snapshot. The user-first lock order matches reseller issuance.
+func RefundMidjourneyWalletOnce(userID, taskID int) (int, error) {
+	if userID <= 0 || taskID <= 0 {
+		return 0, gorm.ErrInvalidData
+	}
+	amount := 0
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := lockForUpdate(tx).Select("id", "quota").Where("id = ?", userID).First(&user).Error; err != nil {
+			return err
+		}
+		var task Midjourney
+		if err := lockForUpdate(tx).Select("id", "user_id", "quota").Where("id = ? AND user_id = ?", taskID, userID).First(&task).Error; err != nil {
+			return err
+		}
+		if task.Quota == 0 {
+			return nil
+		}
+		if task.Quota < 0 || int64(user.Quota)+int64(task.Quota) > int64(common.MaxQuota) {
+			return errors.New("Midjourney refund exceeds supported quota")
+		}
+		res := tx.Model(&Midjourney{}).Where("id = ? AND user_id = ? AND quota = ?", taskID, userID, task.Quota).Update("quota", 0)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return errors.New("Midjourney refund marker changed")
+		}
+		res = tx.Model(&User{}).Where("id = ?", userID).Update("quota", gorm.Expr("quota + ?", task.Quota))
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		amount = task.Quota
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	// Also invalidate on replay: the first commit may have succeeded while the
+	// acknowledgement or its cache invalidation was lost.
+	if common.RedisEnabled {
+		if err := invalidateUserCache(userID); err != nil {
+			common.SysError(fmt.Sprintf("Midjourney refund cache invalidation failed for user %d: %v", userID, err))
+		}
+	}
+	return amount, nil
 }
