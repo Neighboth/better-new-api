@@ -76,7 +76,7 @@ type ResellerCreateRedemptionRequest struct {
 	Name  string `json:"name"`
 	Quota int    `json:"quota"`
 	Count int    `json:"count"`
-	Type  int    `json:"type"` // 0: Quota, 1: Requests, 2: Tokens
+	Type  int    `json:"type"` // only balance codes can be newly created
 }
 
 // ResellerCreateRedemption creates redemption codes using the reseller's available quota/requests/tokens.
@@ -99,92 +99,17 @@ func ResellerCreateRedemption(c *gin.Context) {
 		return
 	}
 
-	if req.Type < 0 || req.Type > 2 || req.Quota > common.MaxQuota/req.Count {
+	if req.Type != 0 || req.Quota > common.MaxQuota/req.Count {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid balance type or amount"})
 		return
 	}
 
-	totalQuotaNeeded := req.Quota * req.Count
-
-	var user model.User
-	tx := model.DB.Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
-
-	if err := tx.Where("id = ?", userId).First(&user).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "User not found"})
-		return
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = fmt.Sprintf("Reseller Code - %s", time.Now().Format("2006-01-02"))
 	}
-
-	switch req.Type {
-	case 1: // Requests
-		if user.RequestsBalance < totalQuotaNeeded {
-			tx.Rollback()
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": fmt.Sprintf("Insufficient requests balance. Needed: %d, Available: %d", totalQuotaNeeded, user.RequestsBalance),
-			})
-			return
-		}
-		user.RequestsBalance -= totalQuotaNeeded
-	case 2: // Tokens
-		if user.TokensBalance < int64(totalQuotaNeeded) {
-			tx.Rollback()
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": fmt.Sprintf("Insufficient tokens balance. Needed: %d, Available: %d", totalQuotaNeeded, user.TokensBalance),
-			})
-			return
-		}
-		user.TokensBalance -= int64(totalQuotaNeeded)
-	default: // Quota
-		if user.Quota < totalQuotaNeeded {
-			tx.Rollback()
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": fmt.Sprintf("Insufficient quota. Needed: %d, Available: %d", totalQuotaNeeded, user.Quota),
-			})
-			return
-		}
-		user.Quota -= totalQuotaNeeded
-	}
-
-	if err := tx.Save(&user).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to update balance"})
-		return
-	}
-
-	now := time.Now().Unix()
-	var createdKeys []string
-	for i := 0; i < req.Count; i++ {
-		key := "cdk_" + common.GetRandomString(28)
-		name := req.Name
-		if name == "" {
-			name = fmt.Sprintf("Reseller Code - %s", time.Now().Format("2006-01-02"))
-		}
-		redemption := model.Redemption{
-			UserId:      userId,
-			Name:        name,
-			Key:         key,
-			Quota:       req.Quota,
-			Type:        req.Type,
-			CreatedTime: now,
-			Status:      common.RedemptionCodeStatusEnabled,
-		}
-		if err := tx.Create(&redemption).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to generate redemption code"})
-			return
-		}
-		createdKeys = append(createdKeys, key)
-	}
-
-	if err := tx.Commit().Error; err != nil {
+	createdKeys, err := model.CreateResellerBalanceCodes(userId, req.Quota, req.Count, name)
+	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
@@ -208,101 +133,12 @@ func ResellerDeleteRedemption(c *gin.Context) {
 		return
 	}
 
-	tx := model.DB.Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
-
-	var redemption model.Redemption
-	if err := tx.Where("id = ? AND user_id = ?", id, userId).First(&redemption).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Code not found or access denied"})
-		return
-	}
-
-	if redemption.Status == common.RedemptionCodeStatusUsed {
-		tx.Rollback()
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Cannot delete already redeemed code"})
-		return
-	}
-
-	// Refund balance according to type
-	var user model.User
-	if err := tx.Where("id = ?", userId).First(&user).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "User not found"})
-		return
-	}
-
-	switch redemption.Type {
-	case 1:
-		user.RequestsBalance += redemption.Quota
-	case 2:
-		user.TokensBalance += int64(redemption.Quota)
-	default:
-		user.Quota += redemption.Quota
-	}
-
-	if err := tx.Save(&user).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to refund balance"})
-		return
-	}
-
-	if err := tx.Delete(&redemption).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to delete redemption code"})
-		return
-	}
-
-	if err := tx.Commit().Error; err != nil {
+	if err := model.RefundResellerCode(userId, id); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Code deleted and quota refunded"})
-}
-
-// ResellerGetUserLogs allows a reseller to view usage logs of a user who redeemed their code.
-func ResellerGetUserLogs(c *gin.Context) {
-	resellerId := c.GetInt("id")
-	targetUserId, err := strconv.Atoi(c.Param("userId"))
-	if err != nil || targetUserId <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid user ID"})
-		return
-	}
-
-	// Verify the target user redeemed a code belonging to this reseller
-	var count int64
-	if err := model.DB.Model(&model.Redemption{}).Where("user_id = ? AND used_user_id = ?", resellerId, targetUserId).Count(&count).Error; err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
-		return
-	}
-	if count == 0 {
-		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "You do not have permission to view logs for this user"})
-		return
-	}
-
-	pageInfo := common.GetPageQuery(c)
-	logType, _ := strconv.Atoi(c.Query("type"))
-	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
-	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
-	tokenName := c.Query("token_name")
-	modelName := c.Query("model_name")
-	group := c.Query("group")
-	requestId := c.Query("request_id")
-	upstreamRequestId := c.Query("upstream_request_id")
-
-	logs, total, err := model.GetUserLogs(targetUserId, logType, startTimestamp, endTimestamp, modelName, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), group, requestId, upstreamRequestId)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(logs)
-	common.ApiSuccess(c, pageInfo)
 }
 
 // ResellerGetSummary returns aggregate metrics for the calling reseller.
