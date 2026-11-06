@@ -380,6 +380,8 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	const publicTaskID, upstreamTaskID = "suno_public_refund_once", "suno_upstream_refund_once"
 
 	seedUser(t, userID, initialUserQuota)
+	holdID, err := model.BeginWalletTransferHold(userID)
+	require.NoError(t, err)
 	seedToken(t, tokenID, userID, "sk-suno-refund-once", initialTokenQuota)
 	baseURL := "https://suno.invalid"
 	require.NoError(t, model.DB.Create(&model.Channel{
@@ -398,6 +400,7 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	task.Progress = "50%"
 	task.SubmitTime = time.Now().Unix()
 	task.PrivateData.UpstreamTaskID = upstreamTaskID
+	task.PrivateData.WalletHoldID = holdID
 	require.NoError(t, model.DB.Create(task).Error)
 
 	var firstPollTask model.Task
@@ -424,6 +427,9 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	assert.Equal(t, initialUserQuota+taskQuota, getUserQuota(t, userID))
 	assert.Equal(t, initialTokenQuota+taskQuota, getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, int64(1), countLogs(t))
+	var hold model.WalletTransferHold
+	require.NoError(t, model.DB.First(&hold, "id = ?", holdID).Error)
+	require.Equal(t, "resolved", hold.State)
 }
 
 func TestRunTaskPollingOnceDoesNotRefundHistoricalFailedTask(t *testing.T) {
