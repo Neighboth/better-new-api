@@ -382,7 +382,10 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 					}
 
 					if quotaToDeduct > 0 {
-						_ = model.DecreaseUserQuota(userId, int(quotaToDeduct), true)
+						if err := model.DecreaseUserQuota(userId, int(quotaToDeduct), true); err != nil {
+							c.Set(common.WalletTransferHoldRetainContextKey, true)
+							common.SysError("BYOG wallet settlement failed: " + err.Error())
+						}
 					}
 
 					tokenId := c.GetInt("token_id")

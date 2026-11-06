@@ -509,7 +509,11 @@ func TokenAuth() func(c *gin.Context) {
 		if err != nil {
 			return
 		}
-		c.Next()
+		if c.GetString(RouteTagKey) == "relay" {
+			WalletTransferGuard()(c)
+		} else {
+			c.Next()
+		}
 	}
 }
 

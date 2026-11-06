@@ -31,14 +31,14 @@ type TokenDetails struct {
 }
 
 type QuotaInfo struct {
-	InputDetails   TokenDetails
-	OutputDetails  TokenDetails
-	ModelName      string
-	UsePrice       bool
-	ModelPrice     float64
-	ModelRatio     float64
-	GroupRatio     float64
-	UseTimeSeconds int64
+	InputDetails           TokenDetails
+	OutputDetails          TokenDetails
+	ModelName              string
+	UsePrice               bool
+	ModelPrice             float64
+	ModelRatio             float64
+	GroupRatio             float64
+	UseTimeSeconds         int64
 	BillingDurationSeconds float64
 	BillingCharacters      int
 }
@@ -195,6 +195,7 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 
 	err = PostConsumeQuota(relayInfo, quota, 0, false)
 	if err != nil {
+		ctx.Set(common.WalletTransferHoldRetainContextKey, true)
 		return err
 	}
 	logger.LogInfo(ctx, "realtime streaming consume quota success, quota: "+fmt.Sprintf("%d", quota))
@@ -366,11 +367,11 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 			TextTokens:  textOutTokens,
 			AudioTokens: audioOutTokens,
 		},
-		ModelName:      relayInfo.OriginModelName,
-		UsePrice:       usePrice,
-		ModelRatio:     modelRatio,
-		GroupRatio:     groupRatio,
-		UseTimeSeconds: useTimeSeconds,
+		ModelName:              relayInfo.OriginModelName,
+		UsePrice:               usePrice,
+		ModelRatio:             modelRatio,
+		GroupRatio:             groupRatio,
+		UseTimeSeconds:         useTimeSeconds,
 		BillingDurationSeconds: relayInfo.BillingDurationSeconds,
 		BillingCharacters:      relayInfo.BillingCharacters,
 	}
