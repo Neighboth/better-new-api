@@ -84,3 +84,39 @@ func TestResellerConcurrentCreationDoesNotOverspend(t *testing.T) {
     require.NoError(t, DB.Model(&Redemption{}).Where("user_id = ?", user.Id).Count(&count).Error)
     require.Equal(t, int64(3), count)
 }
+
+func TestResellerRefundAndRedeemCannotBothSucceed(t *testing.T) {
+    truncateTables(t)
+    resetBatchUpdateTestState(t)
+    require.NoError(t, DB.AutoMigrate(&Redemption{}))
+    owner := createReserveTestUser(t, 80)
+    recipient := createReserveTestUser(t, 0)
+    t.Cleanup(func() { DB.Unscoped().Where("user_id = ?", owner.Id).Delete(&Redemption{}) })
+    code := Redemption{UserId: owner.Id, Name: "race", Key: "race-" + common.GetRandomString(12), Quota:20, Status:common.RedemptionCodeStatusEnabled}
+    require.NoError(t, DB.Create(&code).Error)
+    start := make(chan struct{})
+    var refundErr, redeemErr error
+    var wg sync.WaitGroup
+    wg.Add(2)
+    go func() { defer wg.Done(); <-start; refundErr = RefundResellerCode(owner.Id, code.Id) }()
+    go func() { defer wg.Done(); <-start; _, redeemErr = Redeem(code.Key, recipient.Id) }()
+    close(start)
+    wg.Wait()
+    require.NotEqual(t, refundErr == nil, redeemErr == nil)
+    require.Equal(t, 100, getUserQuotaFromDB(t, owner.Id) + getUserQuotaFromDB(t, recipient.Id))
+}
+
+func TestResellerCanRefundLegacyRequestCode(t *testing.T) {
+    truncateTables(t)
+    resetBatchUpdateTestState(t)
+    require.NoError(t, DB.AutoMigrate(&Redemption{}))
+    user := createReserveTestUser(t, 100)
+    t.Cleanup(func() { DB.Unscoped().Where("user_id = ?", user.Id).Delete(&Redemption{}) })
+    code := Redemption{UserId:user.Id, Name:"legacy", Key:"legacy-"+common.GetRandomString(8), Quota:20, Type:1, Status:common.RedemptionCodeStatusEnabled}
+    require.NoError(t, DB.Create(&code).Error)
+    require.NoError(t, RefundResellerCode(user.Id, code.Id))
+    var reloaded User
+    require.NoError(t, DB.First(&reloaded, user.Id).Error)
+    require.Equal(t, 20, reloaded.RequestsBalance)
+    require.Equal(t, 100, reloaded.Quota)
+}
