@@ -202,7 +202,10 @@ func TestByogEndToEndLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusUnauthorized, fakeReg.StatusCode)
 	fakeReg.Body.Close()
-	refreshReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/v1/worker/register", strings.NewReader(`{"node_id":"`+nodeId+`","hwid":"`+testHwid+`","device_type":"desktop"}`))
+	regPayload["node_id"] = nodeId
+	refreshBytes, err := json.Marshal(regPayload)
+	require.NoError(t, err)
+	refreshReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/v1/worker/register", bytes.NewReader(refreshBytes))
 	require.NoError(t, err)
 	refreshReq.Header.Set("Content-Type", "application/json")
 	refreshReq.Header.Set("Authorization", "Bearer "+regResult.Data.WorkerSecret)
