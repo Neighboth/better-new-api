@@ -146,3 +146,69 @@ func TestPaidByogReservesBeforeDispatchAndSettlesBoundedUsage(t *testing.T) {
 	require.False(t, ctx.GetBool(common.WalletTransferHoldRetainContextKey))
 	require.NoError(t, model.ResolveWalletTransferHold(2, hold, 0))
 }
+
+func TestPaidByogRejectsInsufficientMaximumBeforeDispatch(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	oldDB, oldRedis, oldBatch := model.DB, common.RedisEnabled, common.BatchUpdateEnabled
+	model.DB, common.RedisEnabled, common.BatchUpdateEnabled = db, false, false
+	t.Cleanup(func() { model.DB, common.RedisEnabled, common.BatchUpdateEnabled = oldDB, oldRedis, oldBatch })
+	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
+	node := model.ByogNode{NodeId: "insufficient-max", UserId: 1, DeviceType: "desktop"}
+	require.NoError(t, db.Create(&node).Error)
+	require.NoError(t, db.Create(&model.User{Id: 2, Username: "small-wallet", Quota: 1, AffCode: "small-aff"}).Error)
+	hold, err := model.BeginWalletTransferHold(2)
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Set("id", 2)
+	ctx.Set(common.WalletTransferHoldContextKey, hold)
+	err = (&Router{}).DispatchInference(ctx, &NodeSession{NodeId: node.NodeId}, &model.ByogModel{ModelId: "unknown-byog-model", PricingTier: 2}, InferencePayload{Prompt: "hi", MaxTokens: 100})
+	require.Error(t, err)
+	require.Equal(t, http.StatusPaymentRequired, rec.Code)
+	require.False(t, ctx.GetBool(common.WalletTransferHoldRetainContextKey))
+	quota, err := model.GetUserQuota(2, true)
+	require.NoError(t, err)
+	require.Equal(t, 1, quota)
+	var events int64
+	require.NoError(t, db.Model(&model.WalletHoldEvent{}).Where("hold_id = ?", hold).Count(&events).Error)
+	require.Zero(t, events)
+	require.NoError(t, model.ResolveWalletTransferHold(2, hold, 0))
+}
+
+func TestPaidByogRetainsReserveWhenDispatchOutcomeIsUnknown(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	oldDB, oldRedis, oldBatch := model.DB, common.RedisEnabled, common.BatchUpdateEnabled
+	model.DB, common.RedisEnabled, common.BatchUpdateEnabled = db, false, false
+	t.Cleanup(func() { model.DB, common.RedisEnabled, common.BatchUpdateEnabled = oldDB, oldRedis, oldBatch })
+	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
+	node := model.ByogNode{NodeId: "ambiguous-max", UserId: 1, DeviceType: "desktop"}
+	require.NoError(t, db.Create(&node).Error)
+	require.NoError(t, db.Create(&model.User{Id: 2, Username: "funded-wallet", Quota: 10000, AffCode: "funded-aff"}).Error)
+	hold, err := model.BeginWalletTransferHold(2)
+	require.NoError(t, err)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Set("id", 2)
+	ctx.Set(common.WalletTransferHoldContextKey, hold)
+	err = (&Router{}).DispatchInference(ctx, &NodeSession{NodeId: node.NodeId}, &model.ByogModel{ModelId: "unknown-byog-model", PricingTier: 2}, InferencePayload{Prompt: "hi", MaxTokens: 100})
+	require.Error(t, err)
+	require.True(t, ctx.GetBool(common.WalletTransferHoldRetainContextKey))
+	var event model.WalletHoldEvent
+	require.NoError(t, db.Where("hold_id = ? AND event_key = ?", hold, "byog-precharge").First(&event).Error)
+	require.Less(t, event.Delta, 0)
+	quota, err := model.GetUserQuota(2, true)
+	require.NoError(t, err)
+	require.Equal(t, 10000+event.Delta, quota)
+	// This test is only cleanup; production operators must reconcile first.
+	require.NoError(t, model.ApplyWalletHoldDelta(2, hold, "test-refund", -event.Delta))
+	require.NoError(t, model.ResolveWalletTransferHold(2, hold, 0))
+}
