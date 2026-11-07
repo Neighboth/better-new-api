@@ -74,12 +74,16 @@ been established. Do not deploy this as a completed financial redesign.
   The worker can still lie about usage *within* the accepted bound and forge
   output chunks; this is not a trustworthy tokenizer or anti-farming proof.
   Provider rewards, logs and hold closure are separate from the balance commit.
-- Existing billing permits actual usage to exceed a precharge and create debt.
-  A hold prevents transfer *while* work is pending, not transferring first and
-  then starting a new under-reserved operation. Preventing this without breaking
-  API use needs a durable maximum-cost/usage-bound authorization policy for all
-  providers, streams, trusted-user bypasses and asynchronous jobs. A post hoc
-  SQL nonnegative check alone would deliver unpaid work and is not a solution.
+- Existing billing permits actual usage to exceed a precharge and create debt;
+  this was already true on main, independently of the reseller feature. It is
+  distinct from a transfer racing an already-running request. A hold prevents
+  that race, but does not prevent transferring first and then starting a new
+  under-reserved operation. `TestWalletChargeAfterCodeIssuanceCanExceedPrecharge`
+  characterizes this remaining behavior, rather than asserting that it is a new
+  regression. Preventing it without breaking API use needs a durable maximum-cost/
+  usage-bound authorization policy for providers, streams and asynchronous jobs.
+  A post hoc SQL nonnegative check alone would deliver unpaid work and is not a
+  solution.
 
 ## Root recovery runbook (high-risk)
 

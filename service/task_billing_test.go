@@ -1242,6 +1242,36 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 	assert.Equal(t, model.LogTypeRefund, log.Type)
 }
 
+// Characterization of existing billing: a request begun after a transfer can
+// cost more than its precharge. The excess is recorded as negative balance.
+// This is distinct from transferring funds while an earlier request is active.
+func TestWalletChargeAfterCodeIssuanceCanExceedPrecharge(t *testing.T) {
+	truncate(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Redemption{}, &model.UserBalancePackage{}))
+	const userID = 973
+	seedUser(t, userID, 100)
+	t.Cleanup(func() {
+		model.DB.Unscoped().Where("user_id = ?", userID).Delete(&model.Redemption{})
+		model.DB.Where("user_id = ?", userID).Delete(&model.UserBalancePackage{})
+	})
+	keys, err := model.CreateResellerBalanceCodes(userID, 90, 1, "before-request")
+	require.NoError(t, err)
+	require.Len(t, keys, 1)
+	require.Equal(t, 10, getUserQuota(t, userID))
+	hold, err := model.BeginWalletTransferHold(userID)
+	require.NoError(t, err)
+	funding := &WalletFunding{userId: userID, holdID: hold}
+	require.NoError(t, funding.PreConsume(10))
+	require.Equal(t, 0, getUserQuota(t, userID))
+	require.NoError(t, funding.Settle(10))
+	require.Equal(t, -10, getUserQuota(t, userID))
+	require.NoError(t, model.ResolveWalletTransferHold(userID, hold, 0))
+	var code model.Redemption
+	require.NoError(t, model.DB.Where("user_id = ?", userID).First(&code).Error)
+	require.Equal(t, 90, code.Quota)
+	require.Equal(t, common.RedemptionCodeStatusEnabled, code.Status)
+}
+
 func TestWalletFundingJournalPrechargeSettlementAndRetry(t *testing.T) {
 	truncate(t)
 	seedUser(t, 982, 100)
