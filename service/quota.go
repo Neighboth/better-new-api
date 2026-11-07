@@ -136,16 +136,6 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	if relayInfo.UsePrice {
 		return nil
 	}
-	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
-	if err != nil {
-		return err
-	}
-
-	token, err := model.GetTokenByKey(strings.TrimPrefix(relayInfo.TokenKey, "sk-"), false)
-	if err != nil {
-		return err
-	}
-
 	modelName := relayInfo.OriginModelName
 	textInputTokens := usage.InputTokenDetails.TextTokens
 	textOutTokens := usage.OutputTokenDetails.TextTokens
@@ -185,24 +175,47 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	quota, clamp := calculateAudioQuota(quotaInfo)
 	noteQuotaClamp(relayInfo, clamp)
 
-	if userQuota < quota {
-		return fmt.Errorf("user quota is not enough, user quota: %s, need quota: %s", logger.FormatQuota(userQuota), logger.FormatQuota(quota))
+	// Realtime turns are part of the same billing session. Reserve the
+	// cumulative amount, rather than independently charging each turn and
+	// then charging it again at the final settlement.
+	previous := ctx.GetInt("wallet_realtime_reserved_quota")
+	if quota < 0 || previous < 0 || quota > common.MaxQuota-previous {
+		return fmt.Errorf("realtime quota exceeds supported range")
 	}
-
-	if !token.UnlimitedQuota && token.RemainQuota < quota {
-		return fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(token.RemainQuota), logger.FormatQuota(quota))
+	total := previous + quota
+	if relayInfo.Billing != nil {
+		if err := relayInfo.Billing.Reserve(total); err != nil {
+			return err
+		}
+	} else {
+		userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+		if err != nil {
+			return err
+		}
+		token, err := model.GetTokenByKey(strings.TrimPrefix(relayInfo.TokenKey, "sk-"), false)
+		if err != nil {
+			return err
+		}
+		if userQuota < quota {
+			return fmt.Errorf("user quota is not enough, user quota: %s, need quota: %s", logger.FormatQuota(userQuota), logger.FormatQuota(quota))
+		}
+		if !token.UnlimitedQuota && token.RemainQuota < quota {
+			return fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(token.RemainQuota), logger.FormatQuota(quota))
+		}
+		sequence := ctx.GetInt("wallet_realtime_event_sequence") + 1
+		ctx.Set("wallet_realtime_event_sequence", sequence)
+		_, err = postConsumeQuotaWithHold(relayInfo, quota, 0, false, ctx.GetString(common.WalletTransferHoldContextKey), fmt.Sprintf("realtime-%d", sequence))
+		if err != nil {
+			ctx.Set(common.WalletTransferHoldRetainContextKey, true)
+			return err
+		}
+		if relayInfo.FinalPreConsumedQuota > common.MaxQuota-quota {
+			ctx.Set(common.WalletTransferHoldRetainContextKey, true)
+			return fmt.Errorf("realtime pre-consumed quota exceeds supported range")
+		}
+		relayInfo.FinalPreConsumedQuota += quota
 	}
-
-	// The target reader processes turns serially; final partial usage is
-	// charged only after that reader has stopped. Each turn gets a distinct
-	// durable event so an ambiguous wallet commit can be investigated.
-	sequence := ctx.GetInt("wallet_realtime_event_sequence") + 1
-	ctx.Set("wallet_realtime_event_sequence", sequence)
-	_, err = postConsumeQuotaWithHold(relayInfo, quota, 0, false, ctx.GetString(common.WalletTransferHoldContextKey), fmt.Sprintf("realtime-%d", sequence))
-	if err != nil {
-		ctx.Set(common.WalletTransferHoldRetainContextKey, true)
-		return err
-	}
+	ctx.Set("wallet_realtime_reserved_quota", total)
 	logger.LogInfo(ctx, "realtime streaming consume quota success, quota: "+fmt.Sprintf("%d", quota))
 	return nil
 }
@@ -280,7 +293,11 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
 	}
 
-	if err := SettleBilling(ctx, relayInfo, quota); err != nil {
+	if ctx.GetBool(common.WalletTransferHoldRetainContextKey) {
+		// A previous realtime adjustment may have committed without an
+		// acknowledgement. Do not issue another, potentially duplicate debit.
+		logger.LogError(ctx, "realtime billing requires reconciliation; final settlement skipped")
+	} else if err := SettleBilling(ctx, relayInfo, quota); err != nil {
 		logger.LogError(ctx, "error settling billing: "+err.Error())
 	}
 

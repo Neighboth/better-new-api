@@ -289,6 +289,9 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 	stopping.Store(true)
 	_ = clientConn.UnderlyingConn().SetReadDeadline(time.Now())
 	_ = targetConn.UnderlyingConn().SetReadDeadline(time.Now())
+	// A reader may itself be blocked writing to an unresponsive peer.
+	_ = clientConn.UnderlyingConn().SetWriteDeadline(time.Now().Add(2 * time.Second))
+	_ = targetConn.UnderlyingConn().SetWriteDeadline(time.Now().Add(2 * time.Second))
 	readers.Wait()
 
 	// The end of the turn that waits for the usage of the upstream is sent now.

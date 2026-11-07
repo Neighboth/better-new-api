@@ -49,6 +49,9 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	if s.settled {
 		return nil
 	}
+	if s.reserveUncertain {
+		return errors.New("wallet reservation requires reconciliation")
+	}
 	delta := actualQuota - s.preConsumedQuota
 	if s.hasModelBalanceLimit && (s.funding.Source() == BillingSourceWallet || s.funding.Source() == BillingSourceTokens) && int64(actualQuota) > s.modelBalanceAvailable {
 		return fmt.Errorf("model %s is restricted to the available redemption balance", s.relayInfo.OriginModelName)
@@ -123,12 +126,14 @@ func (s *BillingSession) Refund(c *gin.Context) {
 		}
 		if extraReserved > 0 && funding.Source() == BillingSourceSubscription && subscriptionId > 0 {
 			if err := model.PostConsumeUserSubscriptionDelta(subscriptionId, -int64(extraReserved)); err != nil {
+				c.Set(common.WalletTransferHoldRetainContextKey, true)
 				common.SysLog("error refunding subscription extra reserved quota: " + err.Error())
 			}
 		}
 		// 2) 退还令牌额度
 		if tokenConsumed > 0 && !isPlayground {
 			if err := model.IncreaseTokenQuota(tokenId, tokenKey, tokenConsumed); err != nil {
+				c.Set(common.WalletTransferHoldRetainContextKey, true)
 				common.SysLog("error refunding token quota: " + err.Error())
 			}
 		}
@@ -188,6 +193,10 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 		return err
 	}
 	if err := s.reserveToken(delta); err != nil {
+		s.reserveUncertain = true
+		if funding, ok := s.funding.(*WalletFunding); ok && funding.markUncertain != nil {
+			funding.markUncertain()
+		}
 		s.rollbackFundingReserve(delta)
 		return err
 	}
@@ -220,6 +229,7 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 	// ---- 1) 预扣令牌额度 ----
 	if effectiveQuota > 0 {
 		if err := PreConsumeTokenQuota(s.relayInfo, effectiveQuota); err != nil {
+			c.Set(common.WalletTransferHoldRetainContextKey, true)
 			return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
 		s.tokenConsumed = effectiveQuota
@@ -230,6 +240,7 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 		// 预扣费失败，回滚令牌额度
 		if s.tokenConsumed > 0 && !s.relayInfo.IsPlayground {
 			if rollbackErr := model.IncreaseTokenQuota(s.relayInfo.TokenId, s.relayInfo.TokenKey, s.tokenConsumed); rollbackErr != nil {
+				c.Set(common.WalletTransferHoldRetainContextKey, true)
 				common.SysLog(fmt.Sprintf("error rolling back token quota (userId=%d, tokenId=%d, amount=%d, fundingErr=%s): %s",
 					s.relayInfo.UserId, s.relayInfo.TokenId, s.tokenConsumed, err.Error(), rollbackErr.Error()))
 			}

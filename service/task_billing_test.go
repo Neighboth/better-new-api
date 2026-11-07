@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -12,7 +13,9 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -1315,4 +1318,34 @@ func TestMidjourneyChargeUsesRequestHoldJournal(t *testing.T) {
 	require.True(t, RefundMidjourneyQuota(context.Background(), task, "failure"))
 	require.Equal(t, 100, getUserQuota(t, 985))
 	require.NoError(t, model.ResolveWalletTransferHold(985, holdID, 0))
+}
+
+func TestRealtimeReservationsAndFinalSettlementChargeOnlyOnce(t *testing.T) {
+	truncate(t)
+	seedUser(t, 986, 10000)
+	holdID, err := model.BeginWalletTransferHold(986)
+	require.NoError(t, err)
+	funding := &WalletFunding{userId: 986, holdID: holdID}
+	require.NoError(t, funding.PreConsume(50))
+	info := &relaycommon.RelayInfo{UserId: 986, IsPlayground: true, OriginModelName: "realtime-test-model", UsingGroup: "default"}
+	session := &BillingSession{relayInfo: info, funding: funding, preConsumedQuota: 50, tokenConsumed: 50}
+	info.Billing = session
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/realtime", nil)
+	usage := &dto.RealtimeUsage{TotalTokens: 10, InputTokens: 10, InputTokenDetails: dto.InputTokenDetails{TextTokens: 10}}
+	require.NoError(t, PreWssConsumeQuota(ctx, info, usage))
+	first := ctx.GetInt("wallet_realtime_reserved_quota")
+	require.Positive(t, first)
+	require.NoError(t, PreWssConsumeQuota(ctx, info, usage))
+	total := ctx.GetInt("wallet_realtime_reserved_quota")
+	require.Equal(t, 2*first, total)
+	require.Equal(t, 10000-max(50, total), getUserQuota(t, 986))
+	require.NoError(t, session.Settle(total))
+	require.Equal(t, 10000-total, getUserQuota(t, 986), "the per-turn reserve must not be charged again at final settlement")
+	require.NoError(t, model.ResolveWalletTransferHold(986, holdID, 0))
+}
+
+func TestUncertainReservationPreventsFinalSettlement(t *testing.T) {
+	session := &BillingSession{reserveUncertain: true}
+	require.Error(t, session.Settle(10))
 }
