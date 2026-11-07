@@ -163,3 +163,22 @@ func TestResellerIssuanceWaitsForUnfinishedLegacyTasks(t *testing.T) {
 	_, err = CreateResellerBalanceCodes(user.Id, 10, 1, "after")
 	require.NoError(t, err)
 }
+
+func TestResellerIssuanceRejectsPendingLegacyMidjourneyCharge(t *testing.T) {
+	truncateTables(t)
+	resetBatchUpdateTestState(t)
+	require.NoError(t, DB.AutoMigrate(&Redemption{}, &UserBalancePackage{}, &Midjourney{}))
+	user := createReserveTestUser(t, 100)
+	t.Cleanup(func() {
+		DB.Unscoped().Where("user_id = ?", user.Id).Delete(&Redemption{})
+		DB.Where("user_id = ?", user.Id).Delete(&Midjourney{})
+	})
+	task := Midjourney{UserId: user.Id, MjId: "legacy-pending-charge", Quota: 30, BillingPending: true, Progress: "100%"}
+	require.NoError(t, DB.Create(&task).Error)
+	_, err := CreateResellerBalanceCodes(user.Id, 10, 1, "blocked")
+	require.Error(t, err)
+	require.Equal(t, 100, getUserQuotaFromDB(t, user.Id))
+	require.NoError(t, DB.Model(&task).Update("billing_pending", false).Error)
+	_, err = CreateResellerBalanceCodes(user.Id, 10, 1, "after")
+	require.NoError(t, err)
+}

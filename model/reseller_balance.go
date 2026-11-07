@@ -88,6 +88,15 @@ func CreateResellerBalanceCodes(userID, amount, count int, name string) ([]strin
 		if unfinished > 0 {
 			return errors.New("reseller balance codes are unavailable while asynchronous tasks are unfinished")
 		}
+		// Legacy Midjourney submissions have their own table. A pending charge
+		// may still debit the wallet even when its original hold is absent.
+		var pendingMidjourney int64
+		if err := tx.Model(&Midjourney{}).Where("user_id = ? AND billing_pending = ?", userID, true).Count(&pendingMidjourney).Error; err != nil {
+			return err
+		}
+		if pendingMidjourney > 0 {
+			return errors.New("reseller balance codes are unavailable while Midjourney charges are unresolved")
+		}
 		// Model-restricted credit must not be turned into an unrestricted code.
 		// Until packages can be split/propagated, fail closed for such accounts.
 		var restricted int64
