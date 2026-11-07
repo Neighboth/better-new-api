@@ -501,9 +501,17 @@ func postConsumeQuotaWithResult(relayInfo *relaycommon.RelayInfo, quota int, pre
 }
 
 func postConsumeQuotaWithHold(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool, holdID, eventKey string) (result postConsumeQuotaResult, err error) {
+	return postConsumeQuotaWithHoldAndReservation(relayInfo, quota, preConsumedQuota, sendEmail, holdID, eventKey, false)
+}
+
+func postConsumeQuotaWithHoldAndReservation(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool, holdID, eventKey string, walletReserved bool) (result postConsumeQuotaResult, err error) {
 
 	// 1) Consume from wallet quota OR subscription item
-	if relayInfo != nil && relayInfo.BillingSource == BillingSourceSubscription {
+	if walletReserved {
+		if relayInfo == nil || relayInfo.BillingSource == BillingSourceSubscription {
+			return result, errors.New("invalid wallet reservation funding source")
+		}
+	} else if relayInfo != nil && relayInfo.BillingSource == BillingSourceSubscription {
 		if relayInfo.SubscriptionId == 0 {
 			return result, errors.New("subscription id is missing")
 		}

@@ -211,7 +211,7 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 		}
 	}
 
-	userQuota, err := model.GetUserQuota(info.UserId, false)
+	userQuota, err := model.GetUserQuota(info.UserId, c.GetString(common.WalletTransferHoldContextKey) != "" && !common.BatchUpdateEnabled)
 	if err != nil {
 		return &dto.MidjourneyResponse{
 			Code:        4,
@@ -225,6 +225,16 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 			Description: "quota_not_enough",
 		}
 	}
+	reserved, reserveErr := service.ReserveMidjourneyRequest(c, info.UserId, priceData.Quota, true)
+	if reserveErr != nil {
+		return service.MidjourneyErrorWrapper(constant.MjRequestError, "quota_not_enough_or_unavailable")
+	}
+	reservationComplete := !reserved
+	defer func() {
+		if !reservationComplete {
+			c.Set(common.WalletTransferHoldRetainContextKey, true)
+		}
+	}()
 	requestURL := getMjRequestPath(c.Request.URL.String())
 	baseURL := c.GetString("base_url")
 	fullRequestURL := fmt.Sprintf("%s%s", baseURL, requestURL)
@@ -260,16 +270,23 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 	if billingErr != nil {
 		c.Set(common.WalletTransferHoldRetainContextKey, true)
 		common.SysLog("error consuming Midjourney quota: " + billingErr.Error())
+	} else if reserved && !billingPrepared {
+		if err := service.ReleaseMidjourneyRequestReservation(c, info.UserId, priceData.Quota); err != nil {
+			return service.MidjourneyErrorWrapper(constant.MjRequestError, "refund_midjourney_reservation_failed")
+		}
+		reservationComplete = true
 	}
 	err = midjourneyTask.Insert()
 	if err != nil {
 		c.Set(common.WalletTransferHoldRetainContextKey, true)
 		return service.MidjourneyErrorWrapper(constant.MjRequestError, "insert_midjourney_task_failed")
 	}
-	billingApplied, billingErr := service.SettleMidjourneyTaskBillingWithHold(info, midjourneyTask, billingPrepared, c.GetString(common.WalletTransferHoldContextKey))
+	billingApplied, billingErr := service.SettleMidjourneyTaskBillingReserved(info, midjourneyTask, billingPrepared, c.GetString(common.WalletTransferHoldContextKey), reserved)
 	if billingErr != nil {
 		c.Set(common.WalletTransferHoldRetainContextKey, true)
 		common.SysLog("error settling Midjourney quota: " + billingErr.Error())
+	} else if billingPrepared {
+		reservationComplete = true
 	}
 	if billingApplied {
 		billingChannelId := midjourneyTask.GetBillingChannelId()
@@ -527,7 +544,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		}
 	}
 
-	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+	userQuota, err := model.GetUserQuota(relayInfo.UserId, c.GetString(common.WalletTransferHoldContextKey) != "" && !common.BatchUpdateEnabled)
 	if err != nil {
 		return &dto.MidjourneyResponse{
 			Code:        4,
@@ -542,6 +559,16 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		}
 	}
 
+	reserved, reserveErr := service.ReserveMidjourneyRequest(c, relayInfo.UserId, priceData.Quota, consumeQuota)
+	if reserveErr != nil {
+		return service.MidjourneyErrorWrapper(constant.MjRequestError, "quota_not_enough_or_unavailable")
+	}
+	reservationComplete := !reserved
+	defer func() {
+		if !reservationComplete {
+			c.Set(common.WalletTransferHoldRetainContextKey, true)
+		}
+	}()
 	midjResponseWithStatus, responseBody, err := service.DoMidjourneyHttpRequest(c, time.Second*60, fullRequestURL)
 	if err != nil {
 		return &midjResponseWithStatus.Response
@@ -579,7 +606,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		if err != nil {
 			common.SysLog("get_channel_null: " + err.Error())
 		}
-		if channel.GetAutoBan() && common.AutomaticDisableChannelEnabled {
+		if channel != nil && channel.GetAutoBan() && common.AutomaticDisableChannelEnabled {
 			model.UpdateChannelStatus(midjourneyTask.ChannelId, "", 2, "No available account instance")
 		}
 	}
@@ -625,6 +652,11 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 	if billingErr != nil {
 		c.Set(common.WalletTransferHoldRetainContextKey, true)
 		common.SysLog("error consuming Midjourney quota: " + billingErr.Error())
+	} else if reserved && !billingPrepared {
+		if err := service.ReleaseMidjourneyRequestReservation(c, relayInfo.UserId, priceData.Quota); err != nil {
+			return service.MidjourneyErrorWrapper(constant.MjRequestError, "refund_midjourney_reservation_failed")
+		}
+		reservationComplete = true
 	}
 	err = midjourneyTask.Insert()
 	if err != nil {
@@ -634,10 +666,12 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 			Description: "insert_midjourney_task_failed",
 		}
 	}
-	billingApplied, billingErr := service.SettleMidjourneyTaskBillingWithHold(relayInfo, midjourneyTask, billingPrepared, c.GetString(common.WalletTransferHoldContextKey))
+	billingApplied, billingErr := service.SettleMidjourneyTaskBillingReserved(relayInfo, midjourneyTask, billingPrepared, c.GetString(common.WalletTransferHoldContextKey), reserved)
 	if billingErr != nil {
 		c.Set(common.WalletTransferHoldRetainContextKey, true)
 		common.SysLog("error settling Midjourney quota: " + billingErr.Error())
+	} else if billingPrepared {
+		reservationComplete = true
 	}
 	if billingApplied {
 		billingChannelId := midjourneyTask.GetBillingChannelId()

@@ -31,6 +31,37 @@ func CovertMjpActionToModelName(mjAction string) string {
 	return modelName
 }
 
+// ReserveMidjourneyRequest atomically reserves the known fixed wallet price
+// before submitting chargeable work. An uncertain commit retains the hold.
+func ReserveMidjourneyRequest(c *gin.Context, userID, quota int, charge bool) (bool, error) {
+	if !charge || quota <= 0 || common.BatchUpdateEnabled {
+		return false, nil
+	}
+	holdID := c.GetString(common.WalletTransferHoldContextKey)
+	if holdID == "" {
+		return false, nil
+	}
+	reserved, err := model.ReserveWalletHoldQuota(userID, holdID, "midjourney-precharge", quota)
+	if err != nil {
+		c.Set(common.WalletTransferHoldRetainContextKey, true)
+		return false, err
+	}
+	if !reserved {
+		return false, ErrInsufficientWalletQuota
+	}
+	return true, nil
+}
+
+// ReleaseMidjourneyRequestReservation is only for provider responses known not
+// to be chargeable. Network errors are ambiguous and require reconciliation.
+func ReleaseMidjourneyRequestReservation(c *gin.Context, userID, quota int) error {
+	err := model.ApplyWalletHoldDelta(userID, c.GetString(common.WalletTransferHoldContextKey), "midjourney-precharge-refund", quota)
+	if err != nil {
+		c.Set(common.WalletTransferHoldRetainContextKey, true)
+	}
+	return err
+}
+
 // PrepareMidjourneyTaskBilling sets the durable refund marker before the task is inserted.
 func PrepareMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.Midjourney, quota int, shouldBill bool) (bool, error) {
 	if task == nil {
@@ -68,6 +99,10 @@ func SettleMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.M
 }
 
 func SettleMidjourneyTaskBillingWithHold(relayInfo *relaycommon.RelayInfo, task *model.Midjourney, prepared bool, holdID string) (bool, error) {
+	return SettleMidjourneyTaskBillingReserved(relayInfo, task, prepared, holdID, false)
+}
+
+func SettleMidjourneyTaskBillingReserved(relayInfo *relaycommon.RelayInfo, task *model.Midjourney, prepared bool, holdID string, walletReserved bool) (bool, error) {
 	if !prepared {
 		return false, nil
 	}
@@ -77,8 +112,18 @@ func SettleMidjourneyTaskBillingWithHold(relayInfo *relaycommon.RelayInfo, task 
 	if task == nil || task.Id == 0 {
 		return false, errors.New("Midjourney task must be persisted before billing")
 	}
+	if walletReserved {
+		var count int64
+		err := model.DB.Model(&model.WalletHoldEvent{}).Where("hold_id = ? AND event_key = ? AND user_id = ? AND delta = ?", holdID, "midjourney-precharge", relayInfo.UserId, -task.Quota).Count(&count).Error
+		if err != nil {
+			return false, err
+		}
+		if count != 1 {
+			return false, errors.New("Midjourney wallet reservation not found")
+		}
+	}
 
-	result, billingErr := postConsumeQuotaWithHold(relayInfo, task.Quota, 0, true, holdID, "midjourney-charge")
+	result, billingErr := postConsumeQuotaWithHoldAndReservation(relayInfo, task.Quota, 0, true, holdID, "midjourney-charge", walletReserved)
 	if !result.FundingApplied {
 		// A failed database acknowledgement can mean the debit committed. Keep
 		// the pending marker and quota instead of guessing and issuing a refund.
