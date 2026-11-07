@@ -36,6 +36,18 @@ func RefundHeldTaskWalletOnce(userID int, taskID int64, holdID string) (int, err
 		if task.PrivateData.WalletHoldID != holdID || task.PrivateData.BillingSource != "wallet" || task.PrivateData.WalletHoldNeedsReview || task.Status != TaskStatusFailure {
 			return errors.New("task wallet refund requires reconciliation")
 		}
+		// A hold is only safe to close if no other potentially billable task
+		// points to it. JSON representation differs across supported SQL
+		// dialects, so check decoded private data rather than a JSON operator.
+		var related []Task
+		if err := tx.Select("id", "private_data").Where("user_id = ? AND id <> ? AND (quota <> ? OR refund_pending = ? OR status NOT IN ?)", userID, taskID, 0, true, []TaskStatus{TaskStatusSuccess, TaskStatusFailure}).Find(&related).Error; err != nil {
+			return err
+		}
+		for _, other := range related {
+			if other.PrivateData.WalletHoldID == holdID {
+				return errors.New("task hold is shared and requires reconciliation")
+			}
+		}
 		var old WalletHoldEvent
 		if err := tx.Where("hold_id = ? AND event_key = ?", holdID, "task-refund").First(&old).Error; err == nil {
 			return errors.New("legacy task refund requires reconciliation")
@@ -156,11 +168,11 @@ func tokenRefundDelta(tokenID, amount int) int {
 
 // PendingHeldTaskRefunds is intentionally bounded. Legacy terminal tasks do
 // not have a refund intent and must not be guessed or backfilled.
-func PendingHeldTaskRefunds(limit int) ([]*Task, error) {
-	if limit < 1 || limit > 1000 {
-		return nil, fmt.Errorf("invalid task refund recovery limit")
+func PendingHeldTaskRefunds(limit int, afterID int64) ([]*Task, error) {
+	if limit < 1 || limit > 1000 || afterID < 0 {
+		return nil, fmt.Errorf("invalid task refund recovery cursor")
 	}
 	var tasks []*Task
-	err := DB.Where("refund_pending = ? AND status = ?", true, TaskStatusFailure).Order("id ASC").Limit(limit).Find(&tasks).Error
+	err := DB.Where("refund_pending = ? AND status = ? AND id > ?", true, TaskStatusFailure, afterID).Order("id ASC").Limit(limit).Find(&tasks).Error
 	return tasks, err
 }

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -715,16 +716,28 @@ func markHeldTaskRefundPending(task *model.Task) {
 	}
 }
 
+var taskRefundRecoveryCursor atomic.Int64
+
 func recoverPendingHeldTaskRefunds(ctx context.Context) {
 	if common.BatchUpdateEnabled {
 		return
 	}
-	tasks, err := model.PendingHeldTaskRefunds(100)
+	cursor := taskRefundRecoveryCursor.Load()
+	tasks, err := model.PendingHeldTaskRefunds(100, cursor)
 	if err != nil {
 		logger.LogError(ctx, "cannot read pending task refunds: "+err.Error())
 		return
 	}
+	if len(tasks) == 0 && cursor != 0 {
+		taskRefundRecoveryCursor.Store(0)
+		tasks, err = model.PendingHeldTaskRefunds(100, 0)
+		if err != nil {
+			logger.LogError(ctx, "cannot read pending task refunds: "+err.Error())
+			return
+		}
+	}
 	for _, task := range tasks {
+		taskRefundRecoveryCursor.Store(task.ID)
 		if ctx.Err() != nil {
 			return
 		}

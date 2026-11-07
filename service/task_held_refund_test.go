@@ -75,6 +75,31 @@ func TestHeldTaskRefundIsAtomicAndRecoversAfterRestart(t *testing.T) {
 	require.Equal(t, 100, getUserQuota(t, userID))
 }
 
+func TestHeldTaskRefundDoesNotReleaseSharedHold(t *testing.T) {
+	truncate(t)
+	const userID, tokenID, channelID = 998, 998, 998
+	seedUser(t, userID, 70)
+	seedToken(t, tokenID, userID, "held-shared-token", 70)
+	seedChannel(t, channelID)
+	seedChargedAccounting(t, userID, channelID, tokenID, 30, 1)
+	hold, err := model.BeginWalletTransferHold(userID)
+	require.NoError(t, err)
+	task := makeTask(userID, channelID, 30, tokenID, BillingSourceWallet, 0)
+	task.Status = model.TaskStatusFailure
+	task.RefundPending = true
+	task.PrivateData.WalletHoldID = hold
+	require.NoError(t, model.DB.Create(task).Error)
+	other := makeTask(userID, channelID, 10, tokenID, BillingSourceWallet, 0)
+	other.Status = model.TaskStatusInProgress
+	other.PrivateData.WalletHoldID = hold
+	require.NoError(t, model.DB.Create(other).Error)
+	require.False(t, RefundTaskQuota(context.Background(), task, "shared hold"))
+	require.Equal(t, 70, getUserQuota(t, userID))
+	var current model.WalletTransferHold
+	require.NoError(t, model.DB.First(&current, "id = ?", hold).Error)
+	require.Equal(t, "open", current.State)
+}
+
 func TestHeldTaskRefundRequiresIntentAndRejectsLegacyPartialRefund(t *testing.T) {
 	truncate(t)
 	const userID, tokenID, channelID = 997, 997, 997

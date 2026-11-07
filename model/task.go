@@ -449,13 +449,17 @@ func (t *Task) UpdateLegacyTimeoutWithStatus(fromStatus TaskStatus) (bool, error
 
 func (t *Task) updateWithStatus(fromStatus TaskStatus, updateQuota bool) (bool, error) {
 	query := DB.Model(t).Where("status = ?", fromStatus).Select("*")
+	omits := make([]string, 0, 2)
 	if !updateQuota {
-		query = query.Omit("quota")
+		omits = append(omits, "quota")
 	}
 	// Only the first failure transition may set the refund intent. A stale
 	// poller must never clear it after an accounting transaction has started.
 	if fromStatus == TaskStatusFailure || t.Status != TaskStatusFailure || !t.RefundPending {
-		query = query.Omit("refund_pending")
+		omits = append(omits, "refund_pending")
+	}
+	if len(omits) > 0 {
+		query = query.Omit(omits...)
 	}
 	result := query.Updates(t)
 	if result.Error != nil {
