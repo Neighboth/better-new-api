@@ -193,6 +193,17 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 	session.PendingRequests.Store(reqId, respChan)
 	defer session.PendingRequests.Delete(reqId)
 
+	// Once dispatch starts, a disconnect or timeout does not prove whether the
+	// worker performed chargeable work. Keep the transfer hold for review unless
+	// the terminal frame and accounting complete. Own-node inference is free.
+	dispatchCompleted := false
+	if userID := c.GetInt("id"); userID > 0 && userID != node.UserId {
+		defer func() {
+			if !dispatchCompleted {
+				c.Set(common.WalletTransferHoldRetainContextKey, true)
+			}
+		}()
+	}
 	// Send inference request frame to worker
 	rawPayload, _ := json.Marshal(payload)
 	err = session.WriteFrame(TunnelFrame{
@@ -456,6 +467,7 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 					}
 					c.JSON(http.StatusOK, openAiResp)
 				}
+				dispatchCompleted = true
 				return nil
 
 			case MsgTypeInferenceError:
