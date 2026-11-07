@@ -29,9 +29,11 @@ been established. Do not deploy this as a completed financial redesign.
   status updates cannot overwrite quota or clear the intent. The poller retries
   pending refunds with a rotating cursor; old failures without intent and old
   wallet-only partial refunds are deliberately not inferred. Logs remain outside
-  the transaction and may be lost. Other task sources and successful settlement are
-  not covered by this refund transaction; provider callbacks, task handoff and
-  their crash/error paths still require review.
+  the transaction and may be lost. A local timeout is not proof of provider
+  failure: held tasks timed out locally retain their charge and hold for manual
+  reconciliation, even if their quota is zero. Other task sources and successful
+  settlement are not covered by this refund transaction; provider callbacks, task
+  handoff and their crash/error paths still require review.
 - Non-batch legacy final settlement, violation fees, direct BYOG charges and
   Midjourney submission charges now also journal their wallet delta when a
   request hold is present. For held non-batch Midjourney requests the known

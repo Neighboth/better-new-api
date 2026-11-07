@@ -429,7 +429,15 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			require.Zero(t, taskRefundErrors.Load())
 			require.Equal(t, int32(1), taskRefunded.Load())
 			require.Equal(t, 100, getUserQuotaFromDB(t, refundUser.Id))
-			require.Equal(t, 100, getTokenFromDB(t, refundToken.Id).RemainQuota)
+			updatedToken := getTokenFromDB(t, refundToken.Id)
+			require.Equal(t, 100, updatedToken.RemainQuota)
+			require.Zero(t, updatedToken.UsedQuota)
+			var updatedUser User
+			require.NoError(t, db.First(&updatedUser, refundUser.Id).Error)
+			require.Zero(t, updatedUser.UsedQuota)
+			var updatedChannel Channel
+			require.NoError(t, db.First(&updatedChannel, refundChannel.Id).Error)
+			require.Zero(t, updatedChannel.UsedQuota)
 			var refundTaskAfter Task
 			require.NoError(t, db.First(&refundTaskAfter, refundTask.ID).Error)
 			require.False(t, refundTaskAfter.RefundPending)

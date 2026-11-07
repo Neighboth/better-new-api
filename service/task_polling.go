@@ -60,15 +60,21 @@ func sweepTimedOutTasks(ctx context.Context) {
 
 	for _, task := range tasks {
 		isLegacy := task.SubmitTime > 0 && task.SubmitTime < model.TaskRefundLegacyCutoff
+		// A local timeout does not prove that the provider stopped work or
+		// waived its charge. Keep held submissions for reconciliation rather
+		// than issuing a refund and making the same value transferable.
+		uncertainTimeout := task.PrivateData.WalletHoldID != ""
 
 		oldStatus := task.Status
 		task.Status = model.TaskStatusFailure
 		task.Progress = "100%"
 		task.FinishTime = now
-		if isLegacy {
+		if uncertainTimeout {
+			task.PrivateData.WalletHoldNeedsReview = true
+			task.FailReason = reason + " (provider outcome requires reconciliation)"
+		} else if isLegacy {
 			task.FailReason = legacyReason
-			// 旧系统任务明确不退款，随终态 CAS 一并清掉 quota，
-			// 避免留下可再次退款的计费状态。
+			// Historical unheld tasks are not automatically refunded.
 			task.Quota = 0
 		} else {
 			task.FailReason = reason
@@ -81,7 +87,7 @@ func sweepTimedOutTasks(ctx context.Context) {
 			continue
 		}
 		var won bool
-		if isLegacy {
+		if isLegacy && !uncertainTimeout {
 			won, err = task.UpdateLegacyTimeoutWithStatus(oldStatus)
 		} else {
 			won, err = task.UpdateWithStatus(oldStatus)
@@ -96,7 +102,7 @@ func sweepTimedOutTasks(ctx context.Context) {
 			continue
 		}
 		timedOutCount++
-		if isLegacy || task.Quota == 0 || RefundTaskQuota(ctx, task, reason) {
+		if !uncertainTimeout && (isLegacy || task.Quota == 0 || RefundTaskQuota(ctx, task, reason)) {
 			releaseTaskWalletHold(ctx, task)
 			releaseLegacyTaskWalletHold(ctx, task, legacyHold)
 		}
