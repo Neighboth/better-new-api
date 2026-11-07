@@ -117,12 +117,18 @@ func TestAuthenticatedHubRejectsRevokedNode(t *testing.T) {
 	oldDB := model.DB
 	model.DB = db
 	t.Cleanup(func() { model.DB = oldDB })
-	require.NoError(t, db.AutoMigrate(&model.ByogNode{}))
+	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogNodeBan{}))
 	node := &model.ByogNode{NodeId: "revoked-test", UserId: 2, DeviceName: "test", HWID: "hw", WorkerSecretHash: "hash", Status: "online"}
 	require.NoError(t, db.Create(node).Error)
 	hub := &Hub{}
 	session := &NodeSession{NodeId: node.NodeId, UserId: node.UserId}
 	require.False(t, hub.RegisterAuthenticated(session, "wrong"))
+	ban := model.ByogNodeBan{NodeId: "other-node", UserId: node.UserId, HWID: "other-hw", BanReason: "test", ViolationCode: "test", IsActive: true}
+	require.NoError(t, db.Create(&ban).Error)
+	require.False(t, hub.RegisterAuthenticated(session, "hash"))
+	require.NoError(t, db.Model(&ban).Update("is_active", false).Error)
+	require.True(t, hub.RegisterAuthenticated(session, "hash"))
+	hub.UnregisterSession(session)
 	require.NoError(t, db.Delete(node).Error)
 	require.False(t, hub.RegisterAuthenticated(session, "hash"))
 	_, ok := hub.GetSession(node.NodeId)

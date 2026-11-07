@@ -195,9 +195,15 @@ func (h *Hub) Register(session *NodeSession) {
 func (h *Hub) RegisterAuthenticated(session *NodeSession, secretHash string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	var count int64
-	if model.DB == nil || model.DB.Model(&model.ByogNode{}).
-		Where("node_id = ? AND user_id = ? AND worker_secret_hash = ? AND status <> ?", session.NodeId, session.UserId, secretHash, "banned").Count(&count).Error != nil || count != 1 {
+	if model.DB == nil || session == nil || session.UserId <= 0 || secretHash == "" {
+		return false
+	}
+	var node model.ByogNode
+	if err := model.DB.Where("node_id = ? AND user_id = ? AND worker_secret_hash = ? AND status <> ?", session.NodeId, session.UserId, secretHash, "banned").First(&node).Error; err != nil {
+		return false
+	}
+	banned, err := model.CheckByogBan(node.UserId, node.HWID)
+	if err != nil || banned {
 		return false
 	}
 	h.registerLocked(session)
