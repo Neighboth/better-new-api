@@ -120,6 +120,9 @@ func resolveWalletTransferHold(userID int, id string, delta, operatorID int, not
 			if finalized != 1 {
 				return errors.New("BYOG reservation must be finalized before resolving the hold")
 			}
+			if delta != 0 {
+				return errors.New("BYOG reservation cannot be resolved with a separate wallet-only adjustment")
+			}
 		}
 		if delta != 0 {
 			balance := int64(user.Quota) + int64(delta)

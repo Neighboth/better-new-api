@@ -42,6 +42,7 @@ func TestByogWalletAndTokenReservationAtomicAndReplay(t *testing.T) {
 	require.Equal(t, int32(10), successes.Load())
 	require.Equal(t, 80, getUserQuotaFromDB(t, user.Id))
 	require.Equal(t, 1, getTokenFromDB(t, token.Id).RemainQuota)
+	require.Error(t, ResolveWalletTransferHold(user.Id, hold, 0))
 	successes.Store(0)
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -60,6 +61,7 @@ func TestByogWalletAndTokenReservationAtomicAndReplay(t *testing.T) {
 	require.Equal(t, 7, finalToken.UsedQuota)
 	require.ErrorIs(t, FinalizeByogWalletAndToken(user.Id, hold, token.Id, 20, 8), ErrWalletHoldConflict)
 	require.ErrorIs(t, ApplyWalletHoldDelta(user.Id, hold, "byog-final", 13), ErrWalletHoldConflict)
+	require.Error(t, ResolveWalletTransferHold(user.Id, hold, 13))
 	require.NoError(t, ResolveWalletTransferHold(user.Id, hold, 0))
 }
 
