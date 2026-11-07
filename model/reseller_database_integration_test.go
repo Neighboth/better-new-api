@@ -67,6 +67,50 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			require.Equal(t, int32(3), tokenReservations.Load())
 			require.Equal(t, 1, getTokenFromDB(t, token.Id).RemainQuota)
 
+			byogHold, err := BeginWalletTransferHold(owner.Id)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				db.Where("hold_id = ?", byogHold).Delete(&WalletHoldEvent{})
+				db.Where("id = ?", byogHold).Delete(&WalletTransferHold{})
+			})
+			ok, err := ReserveByogWalletAndToken(owner.Id, byogHold, token.Id, 4)
+			require.NoError(t, err)
+			require.False(t, ok)
+			require.Equal(t, 100, getUserQuotaFromDB(t, owner.Id))
+			require.NoError(t, db.Model(&Token{}).Where("id = ?", token.Id).Update("remain_quota", 5).Error)
+			var byogSuccess atomic.Int32
+			for i := 0; i < 10; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					if ok, err := ReserveByogWalletAndToken(owner.Id, byogHold, token.Id, 4); err == nil && ok {
+						byogSuccess.Add(1)
+					}
+				}()
+			}
+			wg.Wait()
+			require.Equal(t, int32(10), byogSuccess.Load())
+			require.Equal(t, 96, getUserQuotaFromDB(t, owner.Id))
+			require.Equal(t, 1, getTokenFromDB(t, token.Id).RemainQuota)
+			byogSuccess.Store(0)
+			for i := 0; i < 10; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					if FinalizeByogWalletAndToken(owner.Id, byogHold, token.Id, 4, 2) == nil {
+						byogSuccess.Add(1)
+					}
+				}()
+			}
+			wg.Wait()
+			require.Equal(t, int32(10), byogSuccess.Load())
+			require.Equal(t, 98, getUserQuotaFromDB(t, owner.Id))
+			require.Equal(t, 3, getTokenFromDB(t, token.Id).RemainQuota)
+			require.ErrorIs(t, FinalizeByogWalletAndToken(owner.Id, byogHold, token.Id, 4, 3), ErrWalletHoldConflict)
+			require.NoError(t, ResolveWalletTransferHold(owner.Id, byogHold, 0))
+			require.NoError(t, db.Model(&User{}).Where("id = ?", owner.Id).Update("quota", 100).Error)
+			require.NoError(t, db.Model(&Token{}).Where("id = ?", token.Id).Updates(map[string]interface{}{"remain_quota": 1, "used_quota": 9}).Error)
+
 			var issued atomic.Int32
 			for i := 0; i < 10; i++ {
 				wg.Add(1)
