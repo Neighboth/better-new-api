@@ -411,23 +411,23 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 				db.Unscoped().Where("id = ?", refundUser.Id).Delete(&User{})
 			})
 			require.Error(t, ResolveWalletTransferHold(refundUser.Id, refundHold, 0))
-			var refunded, refundErrors atomic.Int32
+			var taskRefunded, taskRefundErrors atomic.Int32
 			for i := 0; i < 10; i++ {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
 					amount, err := RefundHeldTaskWalletOnce(refundUser.Id, refundTask.ID, refundHold)
 					if err != nil {
-						refundErrors.Add(1)
+						taskRefundErrors.Add(1)
 					}
 					if amount == 30 {
-						refunded.Add(1)
+						taskRefunded.Add(1)
 					}
 				}()
 			}
 			wg.Wait()
-			require.Zero(t, refundErrors.Load())
-			require.Equal(t, int32(1), refunded.Load())
+			require.Zero(t, taskRefundErrors.Load())
+			require.Equal(t, int32(1), taskRefunded.Load())
 			require.Equal(t, 100, getUserQuotaFromDB(t, refundUser.Id))
 			require.Equal(t, 100, getTokenFromDB(t, refundToken.Id).RemainQuota)
 			var refundTaskAfter Task
