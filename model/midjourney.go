@@ -32,10 +32,11 @@ type Midjourney struct {
 	Buttons     string `json:"buttons"`
 	Properties  string `json:"properties"`
 
-	TokenId          int  `json:"-" gorm:"default:0"`
-	BillingChannelId int  `json:"-" gorm:"default:0"`
-	BillingPending   bool `json:"-" gorm:"not null;default:false"`
-	RefundPending    bool `json:"-" gorm:"not null;default:false;index"`
+	TokenId          int    `json:"-" gorm:"default:0"`
+	BillingChannelId int    `json:"-" gorm:"default:0"`
+	BillingPending   bool   `json:"-" gorm:"not null;default:false"`
+	RefundPending    bool   `json:"-" gorm:"not null;default:false;index"`
+	WalletHoldID     string `json:"-" gorm:"type:varchar(32);index"`
 }
 
 // TaskQueryParams 用于包含所有搜索条件的结构体，可以根据需求添加更多字段
@@ -181,7 +182,7 @@ func (midjourney *Midjourney) Update() error {
 	// Provider status callbacks must not rewrite billing markers from a stale
 	// snapshot or complete a task while its charge outcome is uncertain.
 	return DB.Model(midjourney).Where("billing_pending = ?", false).
-		Select("*").Omit("Quota", "TokenId", "BillingChannelId", "BillingPending", "RefundPending").Updates(midjourney).Error
+		Select("*").Omit("Quota", "TokenId", "BillingChannelId", "BillingPending", "RefundPending", "WalletHoldID").Updates(midjourney).Error
 }
 
 func (midjourney *Midjourney) UpdateBillingState() error {
@@ -205,10 +206,10 @@ func (midjourney *Midjourney) GetBillingChannelId() int {
 func (midjourney *Midjourney) UpdateWithStatus(fromStatus string) (bool, error) {
 	query := DB.Model(midjourney).Where("status = ? AND billing_pending = ?", fromStatus, false).Select("*")
 	if midjourney.RefundPending {
-		query = query.Omit("Quota", "TokenId", "BillingChannelId", "BillingPending")
+		query = query.Omit("Quota", "TokenId", "BillingChannelId", "BillingPending", "WalletHoldID")
 	} else {
 		// An old poller must never erase another poller's pending refund.
-		query = query.Omit("Quota", "TokenId", "BillingChannelId", "BillingPending", "RefundPending")
+		query = query.Omit("Quota", "TokenId", "BillingChannelId", "BillingPending", "RefundPending", "WalletHoldID")
 	}
 	result := query.Updates(midjourney)
 	if result.Error != nil {

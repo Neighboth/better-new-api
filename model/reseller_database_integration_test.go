@@ -111,6 +111,47 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			require.NoError(t, db.Model(&User{}).Where("id = ?", owner.Id).Update("quota", 100).Error)
 			require.NoError(t, db.Model(&Token{}).Where("id = ?", token.Id).Updates(map[string]interface{}{"remain_quota": 1, "used_quota": 9}).Error)
 
+			mjHold, err := BeginWalletTransferHold(owner.Id)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				db.Where("hold_id = ?", mjHold).Delete(&WalletHoldEvent{})
+				db.Where("id = ?", mjHold).Delete(&WalletTransferHold{})
+				db.Where("wallet_hold_id = ?", mjHold).Delete(&Midjourney{})
+			})
+			require.NoError(t, db.Model(&Token{}).Where("id = ?", token.Id).Updates(map[string]interface{}{"remain_quota": 100, "used_quota": 0}).Error)
+			ok, err = ReserveMidjourneyWalletAndToken(owner.Id, mjHold, token.Id, 30)
+			require.NoError(t, err)
+			require.True(t, ok)
+			mjTask := Midjourney{UserId: owner.Id, WalletHoldID: mjHold, Quota: 30, BillingPending: true}
+			require.NoError(t, db.Create(&mjTask).Error)
+			var mjDecisions, mjDecisionErrors atomic.Int32
+			for i := 0; i < 10; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					fresh, err := FinalizeMidjourneyReservedTask(owner.Id, mjHold, mjTask.Id, token.Id, 30)
+					if err != nil {
+						mjDecisionErrors.Add(1)
+					}
+					if fresh {
+						mjDecisions.Add(1)
+					}
+				}()
+			}
+			wg.Wait()
+			require.Zero(t, mjDecisionErrors.Load())
+			require.Equal(t, int32(1), mjDecisions.Load())
+			require.Equal(t, 70, getUserQuotaFromDB(t, owner.Id))
+			require.Equal(t, 70, getTokenFromDB(t, token.Id).RemainQuota)
+			var chargedUser User
+			require.NoError(t, db.First(&chargedUser, owner.Id).Error)
+			require.Equal(t, 30, chargedUser.UsedQuota)
+			require.Equal(t, 1, chargedUser.RequestCount)
+			require.ErrorIs(t, ReleaseMidjourneyWalletAndToken(owner.Id, mjHold, token.Id, 30), ErrWalletHoldConflict)
+			require.NoError(t, ResolveWalletTransferHold(owner.Id, mjHold, 0))
+			require.NoError(t, db.Model(&User{}).Where("id = ?", owner.Id).Updates(map[string]interface{}{"quota": 100, "used_quota": 0, "request_count": 0}).Error)
+			require.NoError(t, db.Model(&Token{}).Where("id = ?", token.Id).Updates(map[string]interface{}{"remain_quota": 1, "used_quota": 9}).Error)
+
 			var issued atomic.Int32
 			for i := 0; i < 10; i++ {
 				wg.Add(1)

@@ -106,22 +106,24 @@ func resolveWalletTransferHold(userID int, id string, delta, operatorID int, not
 		if hold.State != "open" {
 			return errors.New("invalid wallet hold state")
 		}
-		// A BYOG reservation owns both wallet and token quota. Releasing only
-		// the wallet hold without a final event would strand the token or let a
-		// late worker outcome race a manual credit.
-		var precharge, finalized int64
-		if err := tx.Model(&WalletHoldEvent{}).Where("hold_id = ? AND event_key = ?", id, "byog-precharge").Count(&precharge).Error; err != nil {
-			return err
-		}
-		if precharge > 0 {
-			if err := tx.Model(&WalletHoldEvent{}).Where("hold_id = ? AND event_key = ?", id, "byog-final").Count(&finalized).Error; err != nil {
+		// Precharged BYOG and Midjourney work owns both wallet and token
+		// quota. Neither can be released until its decision is journaled.
+		for _, keys := range [][2]string{{"byog-precharge", "byog-final"}, {"midjourney-precharge", "midjourney-decision"}} {
+			var precharge, finalized int64
+			if err := tx.Model(&WalletHoldEvent{}).Where("hold_id = ? AND event_key = ?", id, keys[0]).Count(&precharge).Error; err != nil {
+				return err
+			}
+			if precharge == 0 {
+				continue
+			}
+			if err := tx.Model(&WalletHoldEvent{}).Where("hold_id = ? AND event_key = ?", id, keys[1]).Count(&finalized).Error; err != nil {
 				return err
 			}
 			if finalized != 1 {
-				return errors.New("BYOG reservation must be finalized before resolving the hold")
+				return errors.New("reservation must be finalized before resolving the hold")
 			}
 			if delta != 0 {
-				return errors.New("BYOG reservation cannot be resolved with a separate wallet-only adjustment")
+				return errors.New("reservation cannot be resolved with a separate wallet-only adjustment")
 			}
 		}
 		if delta != 0 {

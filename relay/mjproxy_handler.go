@@ -276,6 +276,9 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 		}
 		reservationComplete = true
 	}
+	if reserved && billingPrepared {
+		midjourneyTask.WalletHoldID = c.GetString(common.WalletTransferHoldContextKey)
+	}
 	err = midjourneyTask.Insert()
 	if err != nil {
 		c.Set(common.WalletTransferHoldRetainContextKey, true)
@@ -303,8 +306,10 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 			Group:     info.UsingGroup,
 			Other:     other,
 		})
-		model.UpdateUserUsedQuotaAndRequestCount(info.UserId, midjourneyTask.Quota)
-		model.UpdateChannelUsedQuota(billingChannelId, midjourneyTask.Quota)
+		if !reserved {
+			model.UpdateUserUsedQuotaAndRequestCount(info.UserId, midjourneyTask.Quota)
+			model.UpdateChannelUsedQuota(billingChannelId, midjourneyTask.Quota)
+		}
 	}
 	c.Writer.WriteHeader(mjResp.StatusCode)
 	respBody, err := json.Marshal(midjResponse)
@@ -658,6 +663,9 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		}
 		reservationComplete = true
 	}
+	if reserved && billingPrepared {
+		midjourneyTask.WalletHoldID = c.GetString(common.WalletTransferHoldContextKey)
+	}
 	err = midjourneyTask.Insert()
 	if err != nil {
 		c.Set(common.WalletTransferHoldRetainContextKey, true)
@@ -688,8 +696,10 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 			Group:     relayInfo.UsingGroup,
 			Other:     other,
 		})
-		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, midjourneyTask.Quota)
-		model.UpdateChannelUsedQuota(billingChannelId, midjourneyTask.Quota)
+		if !reserved {
+			model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, midjourneyTask.Quota)
+			model.UpdateChannelUsedQuota(billingChannelId, midjourneyTask.Quota)
+		}
 	}
 
 	if midjResponse.Code == 22 { //22-排队中，说明任务已存在

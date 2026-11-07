@@ -130,3 +130,49 @@ func FinalizeByogWalletHold(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
+
+// FinalizeMidjourneyWalletHold reconciles a stopped, ambiguous submission.
+// A billable result requires the durable pending task so later failure refunds
+// have authoritative accounting evidence. Root must verify the provider first.
+func FinalizeMidjourneyWalletHold(c *gin.Context) {
+	id := c.Param("id")
+	raw, err := hex.DecodeString(id)
+	if err != nil || len(raw) != 16 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid hold ID"})
+		return
+	}
+	var request struct {
+		UserID    int    `json:"user_id"`
+		Billable  *bool  `json:"billable"`
+		TaskID    int    `json:"task_id"`
+		Reason    string `json:"reason"`
+		Confirmed bool   `json:"confirmed"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil || request.UserID <= 0 || request.Billable == nil || (*request.Billable && request.TaskID <= 0) || !request.Confirmed || len(strings.TrimSpace(request.Reason)) < 10 || len(strings.TrimSpace(request.Reason)) > 500 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "User ID, billable decision, task ID for billable work, confirmation and a 10–500 character reason are required"})
+		return
+	}
+	var event model.WalletHoldEvent
+	if err := model.DB.Where("hold_id = ? AND event_key = ? AND user_id = ?", id, "midjourney-precharge", request.UserID).First(&event).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if event.Delta >= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid Midjourney reservation"})
+		return
+	}
+	if *request.Billable {
+		_, err = model.FinalizeMidjourneyReservedTask(request.UserID, id, request.TaskID, event.TokenID, -event.Delta)
+	} else {
+		err = model.ReleaseMidjourneyWalletAndToken(request.UserID, id, event.TokenID, -event.Delta)
+	}
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.ManuallyResolveWalletTransferHold(request.UserID, id, 0, c.GetInt("id"), request.Reason); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}

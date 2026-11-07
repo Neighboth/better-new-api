@@ -41,7 +41,7 @@ func ReserveMidjourneyRequest(c *gin.Context, userID, quota int, charge bool) (b
 	if holdID == "" {
 		return false, nil
 	}
-	reserved, err := model.ReserveWalletHoldQuota(userID, holdID, "midjourney-precharge", quota)
+	reserved, err := model.ReserveMidjourneyWalletAndToken(userID, holdID, c.GetInt("token_id"), quota)
 	if err != nil {
 		c.Set(common.WalletTransferHoldRetainContextKey, true)
 		return false, err
@@ -56,13 +56,13 @@ func ReserveMidjourneyRequest(c *gin.Context, userID, quota int, charge bool) (b
 // to be chargeable. Network errors are ambiguous and require reconciliation.
 func ReleaseMidjourneyRequestReservation(c *gin.Context, userID, quota int) error {
 	holdID := c.GetString(common.WalletTransferHoldContextKey)
-	var count int64
-	err := model.DB.Model(&model.WalletHoldEvent{}).Where("hold_id = ? AND event_key = ? AND user_id = ? AND delta = ?", holdID, "midjourney-precharge", userID, -quota).Count(&count).Error
-	if err == nil && (quota <= 0 || count != 1) {
-		err = errors.New("Midjourney wallet reservation not found")
+	var event model.WalletHoldEvent
+	err := model.DB.Where("hold_id = ? AND event_key = ? AND user_id = ? AND delta = ?", holdID, "midjourney-precharge", userID, -quota).First(&event).Error
+	if err == nil && quota <= 0 {
+		err = errors.New("invalid Midjourney reservation")
 	}
 	if err == nil {
-		err = model.ApplyWalletHoldDelta(userID, holdID, "midjourney-decision", quota)
+		err = model.ReleaseMidjourneyWalletAndToken(userID, holdID, event.TokenID, quota)
 	}
 	if err != nil {
 		c.Set(common.WalletTransferHoldRetainContextKey, true)
@@ -121,21 +121,24 @@ func SettleMidjourneyTaskBillingReserved(relayInfo *relaycommon.RelayInfo, task 
 		return false, errors.New("Midjourney task must be persisted before billing")
 	}
 	if walletReserved {
-		var count int64
-		err := model.DB.Model(&model.WalletHoldEvent{}).Where("hold_id = ? AND event_key = ? AND user_id = ? AND delta = ?", holdID, "midjourney-precharge", relayInfo.UserId, -task.Quota).Count(&count).Error
+		if relayInfo.BillingSource == BillingSourceSubscription || task.UserId != relayInfo.UserId {
+			return false, errors.New("invalid Midjourney wallet reservation")
+		}
+		tokenID := relayInfo.TokenId
+		if relayInfo.IsPlayground {
+			tokenID = 0
+		}
+		fresh, err := model.FinalizeMidjourneyReservedTask(relayInfo.UserId, holdID, task.Id, tokenID, task.Quota)
 		if err != nil {
 			return false, err
 		}
-		if count != 1 || task.UserId != relayInfo.UserId || task.Quota <= 0 {
-			return false, errors.New("Midjourney wallet reservation not found")
+		task.TokenId = tokenID
+		task.BillingPending = false
+		if fresh {
+			checkAndSendQuotaNotify(relayInfo, task.Quota, 0)
 		}
-		// Finalization and release compete on the same journal key. Exactly
-		// one decision can commit even if callers race across processes.
-		if err := model.ApplyWalletHoldDelta(relayInfo.UserId, holdID, "midjourney-decision", 0); err != nil {
-			return false, err
-		}
+		return true, nil
 	}
-
 	result, billingErr := postConsumeQuotaWithHoldAndReservation(relayInfo, task.Quota, 0, true, holdID, "midjourney-charge", walletReserved)
 	if !result.FundingApplied {
 		// A failed database acknowledgement can mean the debit committed. Keep

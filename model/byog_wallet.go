@@ -13,6 +13,14 @@ import (
 // TokenID 0 is used by the authenticated playground (which has no API token).
 // The immutable event is also the evidence used by the final settlement.
 func ReserveByogWalletAndToken(userID int, holdID string, tokenID, amount int) (bool, error) {
+	return reserveWalletAndToken(userID, holdID, tokenID, amount, "byog-precharge")
+}
+
+func ReserveMidjourneyWalletAndToken(userID int, holdID string, tokenID, amount int) (bool, error) {
+	return reserveWalletAndToken(userID, holdID, tokenID, amount, "midjourney-precharge")
+}
+
+func reserveWalletAndToken(userID int, holdID string, tokenID, amount int, eventKey string) (bool, error) {
 	if userID <= 0 || holdID == "" || tokenID < 0 || amount <= 0 || amount > common.MaxQuota {
 		return false, gorm.ErrInvalidData
 	}
@@ -35,7 +43,7 @@ func ReserveByogWalletAndToken(userID int, holdID string, tokenID, amount int) (
 			tokenKey = token.Key
 		}
 		var prev WalletHoldEvent
-		lookup := tx.Where("hold_id = ? AND event_key = ?", holdID, "byog-precharge").Limit(1).Find(&prev)
+		lookup := tx.Where("hold_id = ? AND event_key = ?", holdID, eventKey).Limit(1).Find(&prev)
 		if lookup.Error != nil {
 			return lookup.Error
 		}
@@ -58,16 +66,16 @@ func ReserveByogWalletAndToken(userID int, holdID string, tokenID, amount int) (
 		}
 		if tokenID > 0 {
 			if token.Status != common.TokenStatusEnabled || (token.ExpiredTime != -1 && token.ExpiredTime < common.GetTimestamp()) {
-				return errors.New("BYOG token is no longer valid")
+				return errors.New("reservation token is no longer valid")
 			}
 			if !token.UnlimitedQuota && token.RemainQuota < amount {
 				return nil
 			}
 			if int64(token.RemainQuota)-int64(amount) < int64(common.MinQuota) || int64(token.UsedQuota)+int64(amount) > int64(common.MaxQuota) {
-				return errors.New("BYOG token reservation exceeds supported range")
+				return errors.New("token reservation exceeds supported range")
 			}
 		}
-		ev := WalletHoldEvent{HoldID: holdID, EventKey: "byog-precharge", UserID: userID, Delta: -amount, TokenID: tokenID, TokenDelta: tokenDelta, CreatedAt: time.Now().Unix()}
+		ev := WalletHoldEvent{HoldID: holdID, EventKey: eventKey, UserID: userID, Delta: -amount, TokenID: tokenID, TokenDelta: tokenDelta, CreatedAt: time.Now().Unix()}
 		if err := tx.Create(&ev).Error; err != nil {
 			return err
 		}
@@ -76,7 +84,7 @@ func ReserveByogWalletAndToken(userID int, holdID string, tokenID, amount int) (
 			return result.Error
 		}
 		if result.RowsAffected != 1 {
-			return errors.New("BYOG wallet reservation changed")
+			return errors.New("wallet reservation changed")
 		}
 		if tokenID > 0 {
 			result = tx.Model(&Token{}).Where("id = ? AND user_id = ?", tokenID, userID).Updates(map[string]interface{}{"remain_quota": gorm.Expr("remain_quota - ?", amount), "used_quota": gorm.Expr("used_quota + ?", amount), "accessed_time": common.GetTimestamp()})
@@ -84,7 +92,7 @@ func ReserveByogWalletAndToken(userID int, holdID string, tokenID, amount int) (
 				return result.Error
 			}
 			if result.RowsAffected != 1 {
-				return errors.New("BYOG token reservation changed")
+				return errors.New("token reservation changed")
 			}
 		}
 		reserved = true
@@ -94,7 +102,7 @@ func ReserveByogWalletAndToken(userID int, holdID string, tokenID, amount int) (
 		return false, err
 	}
 	if reserved {
-		invalidateByogAccountingCaches(userID, tokenKey)
+		invalidateReservationCaches(userID, tokenKey)
 	}
 	return reserved, nil
 }
@@ -103,6 +111,41 @@ func ReserveByogWalletAndToken(userID int, holdID string, tokenID, amount int) (
 // the wallet and token. Replays with the same usage are no-ops; conflicting
 // usage is rejected. Both events are retained for ambiguous commit recovery.
 func FinalizeByogWalletAndToken(userID int, holdID string, tokenID, reserved, actual int) error {
+	return finalizeWalletAndToken(userID, holdID, tokenID, reserved, actual, "byog-precharge", "byog-final", nil)
+}
+
+// ReleaseMidjourneyWalletAndToken is only for work known not to be billable.
+func ReleaseMidjourneyWalletAndToken(userID int, holdID string, tokenID, reserved int) error {
+	return finalizeWalletAndToken(userID, holdID, tokenID, reserved, 0, "midjourney-precharge", "midjourney-decision", func(tx *gorm.DB) error {
+		var tasks []Midjourney
+		if err := lockForUpdate(tx).Where("user_id = ? AND wallet_hold_id = ?", userID, holdID).Limit(2).Find(&tasks).Error; err != nil {
+			return err
+		}
+		if len(tasks) > 1 {
+			return errors.New("multiple Midjourney tasks reference one reservation")
+		}
+		if len(tasks) == 0 {
+			return nil
+		}
+		task := tasks[0]
+		if !task.BillingPending && task.Quota == 0 {
+			return nil
+		}
+		if !task.BillingPending || task.Quota != reserved {
+			return ErrWalletHoldConflict
+		}
+		result := tx.Model(&Midjourney{}).Where("id = ? AND billing_pending = ? AND quota = ?", task.Id, true, reserved).Updates(map[string]interface{}{"quota": 0, "billing_pending": false, "token_id": 0})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return errors.New("Midjourney pending task changed")
+		}
+		return nil
+	})
+}
+
+func finalizeWalletAndToken(userID int, holdID string, tokenID, reserved, actual int, preKey, finalKey string, finish func(*gorm.DB) error) error {
 	if userID <= 0 || holdID == "" || tokenID < 0 || reserved <= 0 || reserved > common.MaxQuota || actual < 0 || actual > reserved {
 		return gorm.ErrInvalidData
 	}
@@ -125,7 +168,7 @@ func FinalizeByogWalletAndToken(userID int, holdID string, tokenID, reserved, ac
 			tokenKey = token.Key
 		}
 		var pre WalletHoldEvent
-		if err := tx.Where("hold_id = ? AND event_key = ?", holdID, "byog-precharge").First(&pre).Error; err != nil {
+		if err := tx.Where("hold_id = ? AND event_key = ?", holdID, preKey).First(&pre).Error; err != nil {
 			return err
 		}
 		tokenPre := 0
@@ -138,7 +181,7 @@ func FinalizeByogWalletAndToken(userID int, holdID string, tokenID, reserved, ac
 			return ErrWalletHoldConflict
 		}
 		var previous WalletHoldEvent
-		lookup := tx.Where("hold_id = ? AND event_key = ?", holdID, "byog-final").Limit(1).Find(&previous)
+		lookup := tx.Where("hold_id = ? AND event_key = ?", holdID, finalKey).Limit(1).Find(&previous)
 		if lookup.Error != nil {
 			return lookup.Error
 		}
@@ -146,18 +189,21 @@ func FinalizeByogWalletAndToken(userID int, holdID string, tokenID, reserved, ac
 			if previous.UserID != userID || previous.Delta != refund || previous.TokenID != tokenID || previous.TokenDelta != tokenRefund {
 				return ErrWalletHoldConflict
 			}
+			if finish != nil {
+				return finish(tx)
+			}
 			return nil
 		}
 		if hold.State != "open" {
 			return errors.New("wallet hold is not open")
 		}
 		if int64(user.Quota)+int64(refund) > int64(common.MaxQuota) {
-			return errors.New("BYOG wallet refund exceeds supported range")
+			return errors.New("wallet reservation refund exceeds supported range")
 		}
 		if tokenID > 0 && (int64(token.RemainQuota)+int64(refund) > int64(common.MaxQuota) || int64(token.UsedQuota)-int64(refund) < int64(common.MinQuota)) {
-			return errors.New("BYOG token refund exceeds supported range")
+			return errors.New("token reservation refund exceeds supported range")
 		}
-		event := WalletHoldEvent{HoldID: holdID, EventKey: "byog-final", UserID: userID, Delta: refund, TokenID: tokenID, TokenDelta: tokenRefund, CreatedAt: time.Now().Unix()}
+		event := WalletHoldEvent{HoldID: holdID, EventKey: finalKey, UserID: userID, Delta: refund, TokenID: tokenID, TokenDelta: tokenRefund, CreatedAt: time.Now().Unix()}
 		if err := tx.Create(&event).Error; err != nil {
 			return err
 		}
@@ -175,27 +221,30 @@ func FinalizeByogWalletAndToken(userID int, holdID string, tokenID, reserved, ac
 					return result.Error
 				}
 				if result.RowsAffected != 1 {
-					return errors.New("BYOG token refund changed")
+					return errors.New("token reservation refund changed")
 				}
 			}
+		}
+		if finish != nil {
+			return finish(tx)
 		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	invalidateByogAccountingCaches(userID, tokenKey)
+	invalidateReservationCaches(userID, tokenKey)
 	return nil
 }
 
-func invalidateByogAccountingCaches(userID int, tokenKey string) {
+func invalidateReservationCaches(userID int, tokenKey string) {
 	if !common.RedisEnabled {
 		return
 	}
 	if err := invalidateUserCache(userID); err != nil {
-		common.SysError(fmt.Sprintf("BYOG user cache invalidation failed for %d: %v", userID, err))
+		common.SysError(fmt.Sprintf("reservation user cache invalidation failed for %d: %v", userID, err))
 	}
 	if err := invalidateTokenCacheForMutation(tokenKey); err != nil {
-		common.SysError(fmt.Sprintf("BYOG token cache invalidation failed for %d: %v", userID, err))
+		common.SysError(fmt.Sprintf("reservation token cache invalidation failed for %d: %v", userID, err))
 	}
 }

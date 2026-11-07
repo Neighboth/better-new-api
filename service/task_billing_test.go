@@ -1409,7 +1409,7 @@ func TestMidjourneyFixedPriceIsReservedBeforeWorkAndNotChargedTwice(t *testing.T
 	require.False(t, other.GetBool(common.WalletTransferHoldRetainContextKey))
 	require.NoError(t, model.ResolveWalletTransferHold(988, second, 0))
 	info := &relaycommon.RelayInfo{UserId: 988, IsPlayground: true}
-	task := &model.Midjourney{UserId: 988, MjId: "preauthorized"}
+	task := &model.Midjourney{UserId: 988, MjId: "preauthorized", WalletHoldID: hold}
 	prepared, err := PrepareMidjourneyTaskBilling(info, task, 70, true)
 	require.NoError(t, err)
 	require.NoError(t, task.Insert())
@@ -1463,7 +1463,7 @@ func TestMidjourneyFinalizeAndReleaseAreMutuallyExclusive(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, reserved)
 	info := &relaycommon.RelayInfo{UserId: 991, IsPlayground: true}
-	task := &model.Midjourney{UserId: 991, MjId: "decision-race"}
+	task := &model.Midjourney{UserId: 991, MjId: "decision-race", WalletHoldID: hold}
 	prepared, err := PrepareMidjourneyTaskBilling(info, task, 70, true)
 	require.NoError(t, err)
 	require.NoError(t, task.Insert())
@@ -1554,4 +1554,77 @@ func TestMidjourneyTokenRefundOverflowKeepsEntireRefundPending(t *testing.T) {
 	require.True(t, RefundMidjourneyQuota(context.Background(), task, "retry"))
 	require.Equal(t, 100, getUserQuota(t, userID))
 	require.Equal(t, 100, getTokenRemainQuota(t, tokenID))
+}
+
+func TestMidjourneyReservationAtomicallyCoversTokenAndTask(t *testing.T) {
+	truncate(t)
+	const userID, tokenID, quota = 994, 994, 30
+	seedUser(t, userID, 100)
+	seedToken(t, tokenID, userID, "sk-mj-atomic", 29)
+	hold, err := model.BeginWalletTransferHold(userID)
+	require.NoError(t, err)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set(common.WalletTransferHoldContextKey, hold)
+	ctx.Set("token_id", tokenID)
+	reserved, err := ReserveMidjourneyRequest(ctx, userID, quota, true)
+	require.ErrorIs(t, err, ErrInsufficientWalletQuota)
+	require.False(t, reserved)
+	require.Equal(t, 100, getUserQuota(t, userID))
+	require.Equal(t, 29, getTokenRemainQuota(t, tokenID))
+	require.NoError(t, model.DB.Model(&model.Token{}).Where("id = ?", tokenID).Update("remain_quota", 100).Error)
+	reserved, err = ReserveMidjourneyRequest(ctx, userID, quota, true)
+	require.NoError(t, err)
+	require.True(t, reserved)
+	require.Equal(t, 70, getUserQuota(t, userID))
+	require.Equal(t, 70, getTokenRemainQuota(t, tokenID))
+	require.Error(t, model.ResolveWalletTransferHold(userID, hold, 0))
+	info := &relaycommon.RelayInfo{UserId: userID, TokenId: tokenID, TokenKey: "sk-mj-atomic", UserQuota: 1000000}
+	task := &model.Midjourney{UserId: userID, MjId: "atomic-reserved-task", WalletHoldID: hold}
+	prepared, err := PrepareMidjourneyTaskBilling(info, task, quota, true)
+	require.NoError(t, err)
+	require.NoError(t, task.Insert())
+	require.NoError(t, model.DB.Exec(`CREATE TRIGGER fail_mj_finalize BEFORE UPDATE ON midjourneys BEGIN SELECT RAISE(ABORT, 'injected marker failure'); END;`).Error)
+	t.Cleanup(func() { model.DB.Exec("DROP TRIGGER IF EXISTS fail_mj_finalize") })
+	applied, err := SettleMidjourneyTaskBillingReserved(info, task, prepared, hold, true)
+	require.Error(t, err)
+	require.False(t, applied)
+	require.True(t, getMidjourneyTask(t, task.Id).BillingPending)
+	var count int64
+	require.NoError(t, model.DB.Model(&model.WalletHoldEvent{}).Where("hold_id = ? AND event_key = ?", hold, "midjourney-decision").Count(&count).Error)
+	require.Zero(t, count)
+	require.NoError(t, model.DB.Exec("DROP TRIGGER fail_mj_finalize").Error)
+	for i := 0; i < 2; i++ {
+		applied, err = SettleMidjourneyTaskBillingReserved(info, task, prepared, hold, true)
+		require.NoError(t, err)
+		require.Equal(t, i == 0, applied)
+	}
+	require.Equal(t, 70, getUserQuota(t, userID))
+	require.Equal(t, 70, getTokenRemainQuota(t, tokenID))
+	require.Equal(t, quota, getTokenUsedQuota(t, tokenID))
+	persisted := getMidjourneyTask(t, task.Id)
+	require.False(t, persisted.BillingPending)
+	require.Equal(t, tokenID, persisted.TokenId)
+	require.NoError(t, model.ResolveWalletTransferHold(userID, hold, 0))
+}
+
+func TestMidjourneyUnbilledReleaseRestoresTokenAndWalletOnce(t *testing.T) {
+	truncate(t)
+	const userID, tokenID = 995, 995
+	seedUser(t, userID, 100)
+	seedToken(t, tokenID, userID, "sk-mj-release", 100)
+	hold, err := model.BeginWalletTransferHold(userID)
+	require.NoError(t, err)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set(common.WalletTransferHoldContextKey, hold)
+	ctx.Set("token_id", tokenID)
+	ok, err := ReserveMidjourneyRequest(ctx, userID, 30, true)
+	require.NoError(t, err)
+	require.True(t, ok)
+	for i := 0; i < 2; i++ {
+		require.NoError(t, ReleaseMidjourneyRequestReservation(ctx, userID, 30))
+	}
+	require.Equal(t, 100, getUserQuota(t, userID))
+	require.Equal(t, 100, getTokenRemainQuota(t, tokenID))
+	require.Zero(t, getTokenUsedQuota(t, tokenID))
+	require.NoError(t, model.ResolveWalletTransferHold(userID, hold, 0))
 }
