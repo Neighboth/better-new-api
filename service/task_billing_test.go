@@ -1349,3 +1349,30 @@ func TestUncertainReservationPreventsFinalSettlement(t *testing.T) {
 	session := &BillingSession{reserveUncertain: true}
 	require.Error(t, session.Settle(10))
 }
+
+func TestTokenShortageDoesNotLeaveAnUncertainWalletHold(t *testing.T) {
+	truncate(t)
+	seedUser(t, 987, 100)
+	seedToken(t, 987, 987, "short-token", 5)
+	holdID, err := model.BeginWalletTransferHold(987)
+	require.NoError(t, err)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{UserId: 987, TokenId: 987, TokenKey: "short-token"}
+	funding := &WalletFunding{userId: 987, holdID: holdID, markUncertain: func() { ctx.Set(common.WalletTransferHoldRetainContextKey, true) }}
+	session := &BillingSession{relayInfo: info, funding: funding}
+	apiErr := session.preConsume(ctx, 10)
+	require.ErrorIs(t, apiErr, ErrInsufficientTokenQuota)
+	require.False(t, ctx.GetBool(common.WalletTransferHoldRetainContextKey))
+	require.Equal(t, 100, getUserQuota(t, 987))
+
+	require.NoError(t, funding.PreConsume(10))
+	session.preConsumedQuota = 10
+	err = session.Reserve(20)
+	require.ErrorIs(t, err, ErrInsufficientTokenQuota)
+	require.False(t, session.reserveUncertain)
+	require.False(t, ctx.GetBool(common.WalletTransferHoldRetainContextKey))
+	require.Equal(t, 90, getUserQuota(t, 987), "failed token reservation rolls back its extra wallet debit")
+	require.NoError(t, funding.Refund())
+	require.NoError(t, model.ResolveWalletTransferHold(987, holdID, 0))
+}
