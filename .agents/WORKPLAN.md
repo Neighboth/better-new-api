@@ -110,3 +110,6 @@
 - Confirmed Midjourney poll failures persist a refund intent and retry after restart; non-batch wallet, token and usage counters refund in one SQL transaction. The separately stored refund log can still be lost and older failures without intent need review.
 
 - Held non-batch Midjourney submissions now atomically reserve wallet and token quota before provider dispatch, bind the task to the hold and finalize its decision, pending marker and usage counters together. A root-only evidence-based finalizer handles ambiguous reservations. Consume/refund logs remain separate; this does not close the ordinary API, realtime or async maximum-cost gaps. Verify CI for the actual final commit.
+
+- BYOG ban appeals now require matching ownership and commit the ticket, message and ban reference together; unbanning no longer changes unrelated owners' nodes sharing a HWID. Nodes return offline until they reconnect. Repeated unban can be needed after another active account/hardware ban is lifted. Wider concurrent ban/unban behavior still needs review.
+- Redemption now rolls back the code claim and restricted package if the target user is missing or the credit would exceed the SQL balance range. MySQL/PostgreSQL and SQLite test coverage was added.
