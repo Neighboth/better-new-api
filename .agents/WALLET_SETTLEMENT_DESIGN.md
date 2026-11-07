@@ -15,7 +15,9 @@ been established. Do not deploy this as a completed financial redesign.
 - Synchronous wallet precharge, extra reserves/rollbacks, settlement and refund
   use `wallet_hold_events`: each `(hold_id, event_key)` and its wallet delta are
   committed together. An identical replay is a no-op, a contradictory replay
-  fails; closed records must not be deleted while a replay is possible. A hold
+  fails; closed records must not be deleted while a replay is possible. Held,
+  non-batch wallet sessions read SQL balance and do not use the trusted-user
+  zero-precharge shortcut. A hold
   remains open after process failure, panic or known ambiguous accounting error.
   Final event and hold closure are separate commits: a crash between them leaves
   a hold for investigation, not an automatic recovery.
@@ -25,8 +27,11 @@ been established. Do not deploy this as a completed financial redesign.
   token accounting, logs and provider callbacks are not one SQL transaction.
 - Non-batch legacy final settlement, violation fees, direct BYOG charges and
   Midjourney submission charges now also journal their wallet delta when a
-  request hold is present. Midjourney submissions persist a pending-charge
-  marker before billing; pollers skip pending tasks and failed charges retain
+  request hold is present. For held non-batch Midjourney requests the known
+  fixed price is reserved before upstream submission; a shared decision event
+  makes finalization and release mutually exclusive. Ambiguous upstream errors
+  keep the hold and reservation for review. Midjourney submissions persist a
+  pending-charge marker before task billing; pollers skip pending tasks and failed charges retain
   their hold for investigation. A wallet refund consumes the persisted task
   quota and credits the user in one transaction, and stale status updates cannot
   restore that quota. This prevents duplicate wallet refunds by pollers. Token
@@ -44,6 +49,9 @@ been established. Do not deploy this as a completed financial redesign.
   These controls do not cap a provider's response cost before a turn starts.
 - Realtime, other unjournaled paths and every workflow above still need a full
   exact-once and error/crash review; not every wallet mutation is journaled.
+- Paid BYOG requests with a hold reject an empty SQL wallet before dispatch;
+  this is only a minimum check, not a maximum-cost reservation. A positive but
+  tiny balance can still start work whose final cost exceeds the balance.
 - Existing billing permits actual usage to exceed a precharge and create debt.
   A hold prevents transfer *while* work is pending, not transferring first and
   then starting a new under-reserved operation. Preventing this without breaking
@@ -63,7 +71,8 @@ been established. Do not deploy this as a completed financial redesign.
    paths listed above. An old hold is not proof the operation ended. Explicitly
    ensure it cannot still charge, refund, be retried or finish on another node.
    For Midjourney inspect `billing_pending`, the persisted task quota and the
-   `midjourney-charge` event before any intervention; a pending marker does not
+   `midjourney-precharge`, `midjourney-decision` and `midjourney-charge` events
+   before any intervention; a pending marker does not
    prove whether a debit committed. Do not clear it merely because it is old.
    If uncertain, **do not resolve**; escalate for reconciliation.
 3. Calculate any remaining signed SQL quota adjustment independently of already
