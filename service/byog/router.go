@@ -152,18 +152,6 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 		return fmt.Errorf("node not found: %s", session.NodeId)
 	}
 	userID := c.GetInt("id")
-	if userID > 0 && userID != node.UserId && c.GetString(common.WalletTransferHoldContextKey) != "" && !common.BatchUpdateEnabled {
-		// BYOG bypasses the ordinary BillingSession. At minimum, do not start
-		// paid work based on a stale pre-transfer cache when SQL is already empty.
-		quota, err := model.GetUserQuota(userID, true)
-		if err != nil {
-			return fmt.Errorf("cannot check BYOG wallet balance: %w", err)
-		}
-		if quota <= 0 {
-			c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{"error": gin.H{"message": "insufficient wallet balance", "type": "insufficient_quota"}})
-			return fmt.Errorf("insufficient BYOG wallet balance")
-		}
-	}
 
 	// Concurrency limiter check (Section 3.7) with queuing
 	queue := r.getNodeQueue(session.NodeId, node.DeviceType)

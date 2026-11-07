@@ -47,19 +47,22 @@ func TestPaidByogRejectsEmptySQLWalletBeforeDispatch(t *testing.T) {
 	old := model.DB
 	model.DB = db
 	t.Cleanup(func() { model.DB = old })
-	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.User{}))
+	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
 	node := model.ByogNode{NodeId: "paid-empty-wallet", UserId: 1, Status: "online", DeviceType: "desktop"}
 	require.NoError(t, db.Create(&node).Error)
 	require.NoError(t, db.Create(&model.User{Id: 2, Username: "empty-user", Quota: 0, AffCode: "empty-aff"}).Error)
+	hold, err := model.BeginWalletTransferHold(2)
+	require.NoError(t, err)
 	rec := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(rec)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	ctx.Set("id", 2)
-	ctx.Set(common.WalletTransferHoldContextKey, "hold")
-	err = (&Router{}).DispatchInference(ctx, &NodeSession{NodeId: node.NodeId}, &model.ByogModel{}, InferencePayload{})
+	ctx.Set(common.WalletTransferHoldContextKey, hold)
+	err = (&Router{}).DispatchInference(ctx, &NodeSession{NodeId: node.NodeId}, &model.ByogModel{ModelId: "unknown-byog-model", PricingTier: 2}, InferencePayload{})
 	require.Error(t, err)
 	require.Equal(t, http.StatusPaymentRequired, rec.Code)
 	require.False(t, ctx.GetBool(common.WalletTransferHoldRetainContextKey))
+	require.NoError(t, model.ResolveWalletTransferHold(2, hold, 0))
 }
 
 func TestPaidByogReservesBeforeDispatchAndSettlesBoundedUsage(t *testing.T) {
