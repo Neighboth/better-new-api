@@ -62,7 +62,22 @@ jobs:
         run: go build ./...
 
       - name: Test root and relaykit modules
-        run: make test
+        run: |
+          make test > test-output.log 2>&1 || {
+            python3 - <<'PYCODE'
+          import re
+          text = open("test-output.log", encoding="utf-8", errors="replace").read()
+          lines = text.splitlines()
+          selected = set()
+          for i, line in enumerate(lines):
+              if re.search(r'--- FAIL:|Error Trace:|Error:|panic:|^FAIL\b', line):
+                  selected.update(range(max(0, i-2), min(len(lines), i+15)))
+          report = "\n".join(lines[i] for i in sorted(selected))[-30000:]
+          print("::error::" + report.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"))
+          PYCODE
+            exit 1
+          }
+          tail -n 20 test-output.log
 
   frontend:
     name: Frontend typecheck and test
