@@ -43,7 +43,7 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			initCol()
 			t.Cleanup(func() { DB = oldDB; common.SetMainDatabaseType(oldType); initCol() })
 			resetBatchUpdateTestState(t)
-			require.NoError(t, db.AutoMigrate(&User{}, &Redemption{}, &UserBalancePackage{}, &ByogPairingSession{}, &WalletTransferHold{}, &WalletHoldEvent{}, &Task{}, &Midjourney{}, &Token{}))
+			require.NoError(t, db.AutoMigrate(&User{}, &Redemption{}, &UserBalancePackage{}, &ByogPairingSession{}, &WalletTransferHold{}, &WalletHoldEvent{}, &Task{}, &Midjourney{}, &Token{}, &Channel{}))
 			owner := createReserveTestUser(t, 100)
 			t.Cleanup(func() {
 				db.Unscoped().Where("user_id = ?", owner.Id).Delete(&Redemption{})
@@ -158,6 +158,44 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			require.Zero(t, mjErrors.Load())
 			require.Equal(t, int32(10), mjRefund.Load())
 			require.Equal(t, 45, getUserQuotaFromDB(t, owner.Id))
+			require.NoError(t, db.Model(&User{}).Where("id = ?", owner.Id).Updates(map[string]interface{}{"quota": 35, "used_quota": 10}).Error)
+			require.NoError(t, db.Model(&Token{}).Where("id = ?", token.Id).Update("used_quota", 10).Error)
+			channel := Channel{Name: "midjourney-refund-race", UsedQuota: 10}
+			require.NoError(t, db.Create(&channel).Error)
+			t.Cleanup(func() { db.Unscoped().Where("id = ?", channel.Id).Delete(&Channel{}) })
+			mjFull := Midjourney{UserId: owner.Id, MjId: "database-full-refund-test", Quota: 10, TokenId: token.Id, ChannelId: channel.Id, Status: "FAILURE", Progress: "100%", RefundPending: true}
+			require.NoError(t, db.Create(&mjFull).Error)
+			t.Cleanup(func() { db.Where("id = ?", mjFull.Id).Delete(&Midjourney{}) })
+			var fullRefund, fullErrors atomic.Int32
+			for i := 0; i < 10; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					amount, err := RefundMidjourneyAccountingOnce(owner.Id, mjFull.Id)
+					if err != nil {
+						fullErrors.Add(1)
+					} else {
+						fullRefund.Add(int32(amount))
+					}
+				}()
+			}
+			wg.Wait()
+			require.Zero(t, fullErrors.Load())
+			require.Equal(t, int32(10), fullRefund.Load())
+			require.Equal(t, 45, getUserQuotaFromDB(t, owner.Id))
+			var refundedUser User
+			require.NoError(t, db.First(&refundedUser, owner.Id).Error)
+			require.Zero(t, refundedUser.UsedQuota)
+			refundedToken := getTokenFromDB(t, token.Id)
+			require.Equal(t, 11, refundedToken.RemainQuota)
+			require.Zero(t, refundedToken.UsedQuota)
+			var refundedChannel Channel
+			require.NoError(t, db.First(&refundedChannel, channel.Id).Error)
+			require.Zero(t, refundedChannel.UsedQuota)
+			var refundedTask Midjourney
+			require.NoError(t, db.First(&refundedTask, mjFull.Id).Error)
+			require.Zero(t, refundedTask.Quota)
+			require.False(t, refundedTask.RefundPending)
 			require.NoError(t, db.Model(&User{}).Where("id = ?", owner.Id).Update("quota", 35).Error)
 
 			// Hold insertion and issuance must serialize across DB connections,
