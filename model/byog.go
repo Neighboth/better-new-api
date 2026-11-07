@@ -710,18 +710,30 @@ func IsUserBannedFromByog(userId int) (bool, *ByogNodeBan) {
 	return false, nil
 }
 
+// UnbanNode only changes the device and owner named by this ban. HWIDs can
+// be shared or spoofed, and must never be used to reactivate other nodes.
 func UnbanNode(banId int) error {
-	var ban ByogNodeBan
-	if err := DB.First(&ban, banId).Error; err != nil {
-		return err
-	}
-	ban.IsActive = false
-	if err := DB.Save(&ban).Error; err != nil {
-		return err
-	}
-	// Restore node status
-	DB.Model(&ByogNode{}).Where("hw_id = ?", ban.HWID).Update("status", "online")
-	return nil
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var ban ByogNodeBan
+		if err := lockForUpdate(tx).First(&ban, banId).Error; err != nil {
+			return err
+		}
+		if ban.IsActive {
+			if err := tx.Model(&ByogNodeBan{}).Where("id = ? AND is_active = ?", ban.Id, true).Update("is_active", false).Error; err != nil {
+				return err
+			}
+		}
+		// Another ban on this account or hardware still blocks reactivation.
+		var active int64
+		if err := tx.Model(&ByogNodeBan{}).Where("is_active = ? AND (user_id = ? OR hw_id = ?)", true, ban.UserId, ban.HWID).Count(&active).Error; err != nil {
+			return err
+		}
+		if active > 0 {
+			return nil
+		}
+		// A closed tunnel is not online until the worker authenticates again.
+		return tx.Model(&ByogNode{}).Where("node_id = ? AND user_id = ? AND status = ?", ban.NodeId, ban.UserId, "banned").Update("status", "offline").Error
+	})
 }
 
 // Crash reports

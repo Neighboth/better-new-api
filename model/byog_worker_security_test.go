@@ -80,3 +80,25 @@ func TestPairingSessionIsHashedExpiringAndSingleUse(t *testing.T) {
 	_, err = ConsumeByogPairingSession("EXPIRED")
 	require.Error(t, err)
 }
+
+func TestUnbanDoesNotReactivateOtherOwnersSharingHardware(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "unban.db")), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	old := DB
+	DB = db
+	t.Cleanup(func() { DB = old; _ = sqlDB.Close() })
+	require.NoError(t, db.AutoMigrate(&ByogNode{}, &ByogNodeBan{}))
+	one := ByogNode{NodeId: "owner-one", UserId: 1, HWID: "shared", Status: "banned"}
+	two := ByogNode{NodeId: "owner-two", UserId: 2, HWID: "shared", Status: "banned"}
+	require.NoError(t, db.Create(&one).Error)
+	require.NoError(t, db.Create(&two).Error)
+	ban := ByogNodeBan{NodeId: one.NodeId, UserId: one.UserId, HWID: one.HWID, BanReason: "reason", ViolationCode: "code", IsActive: true}
+	require.NoError(t, db.Create(&ban).Error)
+	require.NoError(t, UnbanNode(ban.Id))
+	require.NoError(t, db.First(&one, one.Id).Error)
+	require.NoError(t, db.First(&two, two.Id).Error)
+	require.Equal(t, "offline", one.Status)
+	require.Equal(t, "banned", two.Status)
+}
