@@ -548,6 +548,19 @@ func TestSweepTimedOutTasksHonorsRefundRolloutBoundary(t *testing.T) {
 	assert.Equal(t, int64(1), countLogs(t))
 }
 
+func TestBulkPollingFailureDoesNotOverwriteTerminalTask(t *testing.T) {
+	truncate(t)
+	seedUser(t, 407, 100)
+	task := makeTask(407, 0, 30, 0, BillingSourceWallet, 0)
+	task.Status = model.TaskStatusSuccess
+	require.NoError(t, model.DB.Create(task).Error)
+	require.NoError(t, model.TaskBulkUpdateByID([]int64{task.ID}, map[string]any{"status": model.TaskStatusFailure, "progress": "100%"}))
+	var stored model.Task
+	require.NoError(t, model.DB.First(&stored, task.ID).Error)
+	require.EqualValues(t, model.TaskStatusSuccess, stored.Status)
+	require.Equal(t, 30, stored.Quota)
+}
+
 func TestTimedOutHeldTaskRetainsFundsUntilProviderOutcomeIsKnown(t *testing.T) {
 	truncate(t)
 	const userID = 406

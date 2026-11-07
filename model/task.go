@@ -468,17 +468,15 @@ func (t *Task) updateWithStatus(fromStatus TaskStatus, updateQuota bool) (bool, 
 	return result.RowsAffected > 0, nil
 }
 
-// TaskBulkUpdateByID performs an unconditional bulk UPDATE by primary key IDs.
-// WARNING: This function has NO CAS (Compare-And-Swap) guard — it will overwrite
-// any concurrent status changes. DO NOT use in billing/quota lifecycle flows
-// (e.g., timeout, success, failure transitions that trigger refunds or settlements).
-// For status transitions that involve billing, use Task.UpdateWithStatus() instead.
+// TaskBulkUpdateByID marks unfinished tasks for which polling cannot proceed.
+// It must not overwrite an already-terminal result or perform accounting;
+// billing transitions require Task.UpdateWithStatus and explicit settlement.
 func TaskBulkUpdateByID(ids []int64, params map[string]any) error {
 	if len(ids) == 0 {
 		return nil
 	}
 	return DB.Model(&Task{}).
-		Where("id in (?)", ids).
+		Where("id in (?) AND status NOT IN ?", ids, []TaskStatus{TaskStatusSuccess, TaskStatusFailure}).
 		Updates(params).Error
 }
 
