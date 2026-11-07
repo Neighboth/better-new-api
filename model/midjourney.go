@@ -333,7 +333,7 @@ func RefundMidjourneyAccountingOnce(userID, taskID int) (int, error) {
 	tokenKey := ""
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var user User
-		if err := lockForUpdate(tx).Select("id", "quota").Where("id = ?", userID).First(&user).Error; err != nil {
+		if err := lockForUpdate(tx).Select("id", "quota", "used_quota").Where("id = ?", userID).First(&user).Error; err != nil {
 			return err
 		}
 		var task Midjourney
@@ -343,14 +343,16 @@ func RefundMidjourneyAccountingOnce(userID, taskID int) (int, error) {
 		if task.BillingPending {
 			return errors.New("Midjourney charge is still pending reconciliation")
 		}
+		var token Token
+		tokenExists := false
 		if task.TokenId > 0 {
-			var token Token
-			result := lockForUpdate(tx).Select("id", "user_id", "key").Where("id = ? AND user_id = ?", task.TokenId, userID).Limit(1).Find(&token)
+			result := lockForUpdate(tx).Select("id", "user_id", "key", "remain_quota", "used_quota").Where("id = ? AND user_id = ?", task.TokenId, userID).Limit(1).Find(&token)
 			if result.Error != nil {
 				return result.Error
 			}
 			if result.RowsAffected > 0 {
 				tokenKey = token.Key
+				tokenExists = true
 			}
 		}
 		if task.Quota == 0 {
@@ -359,8 +361,11 @@ func RefundMidjourneyAccountingOnce(userID, taskID int) (int, error) {
 			}
 			return nil
 		}
-		if task.Quota < 0 || int64(user.Quota)+int64(task.Quota) > int64(common.MaxQuota) {
+		if task.Quota < 0 || int64(user.Quota)+int64(task.Quota) > int64(common.MaxQuota) || int64(user.UsedQuota)-int64(task.Quota) < int64(common.MinQuota) {
 			return errors.New("Midjourney refund exceeds supported quota")
+		}
+		if tokenExists && (int64(token.RemainQuota)+int64(task.Quota) > int64(common.MaxQuota) || int64(token.UsedQuota)-int64(task.Quota) < int64(common.MinQuota)) {
+			return errors.New("Midjourney token refund exceeds supported quota")
 		}
 		res := tx.Model(&Midjourney{}).Where("id = ? AND user_id = ? AND quota = ? AND billing_pending = ?", taskID, userID, task.Quota, false).Updates(map[string]interface{}{"quota": 0, "refund_pending": false})
 		if res.Error != nil {
@@ -376,7 +381,7 @@ func RefundMidjourneyAccountingOnce(userID, taskID int) (int, error) {
 		if res.RowsAffected != 1 {
 			return gorm.ErrRecordNotFound
 		}
-		if tokenKey != "" {
+		if tokenExists {
 			res = tx.Model(&Token{}).Where("id = ? AND user_id = ?", task.TokenId, userID).Updates(map[string]interface{}{"remain_quota": gorm.Expr("remain_quota + ?", task.Quota), "used_quota": gorm.Expr("used_quota - ?", task.Quota), "accessed_time": common.GetTimestamp()})
 			if res.Error != nil {
 				return res.Error
