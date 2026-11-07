@@ -40,7 +40,7 @@ func TestRelayStopsBothReadersBeforeReturning(t *testing.T) {
 			target, targetPeer := websocketPair(t)
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			c.Request = httptest.NewRequest(http.MethodGet, "/v1/realtime", nil)
-			info := &relaycommon.RelayInfo{ClientWs: client, TargetWs: target}
+			info := &relaycommon.RelayInfo{ClientWs: client, TargetWs: target, ChannelMeta: &relaycommon.ChannelMeta{}}
 			finished := make(chan struct{})
 			go func() { Relay(c, info, DialectOpenAI); close(finished) }()
 			peer := clientPeer
