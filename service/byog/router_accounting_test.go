@@ -212,3 +212,72 @@ func TestPaidByogRetainsReserveWhenDispatchOutcomeIsUnknown(t *testing.T) {
 	require.NoError(t, model.ApplyWalletHoldDelta(2, hold, "test-refund", -event.Delta))
 	require.NoError(t, model.ResolveWalletTransferHold(2, hold, 0))
 }
+
+func TestPaidByogRejectsWorkerOutputPastAuthorizedLimit(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	oldDB, oldLogDB, oldRedis, oldBatch, oldConsume := model.DB, model.LOG_DB, common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled
+	model.DB, model.LOG_DB, common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = db, db, false, false, false
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB, common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = oldDB, oldLogDB, oldRedis, oldBatch, oldConsume
+	})
+	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
+	node := model.ByogNode{NodeId: "excess-worker", UserId: 1, DeviceType: "desktop"}
+	require.NoError(t, db.Create(&node).Error)
+	require.NoError(t, db.Create(&model.User{Id: 2, Username: "bounded-client", Quota: 10000, AffCode: "bounded-client-aff"}).Error)
+	hold, err := model.BeginWalletTransferHold(2)
+	require.NoError(t, err)
+	connections := make(chan *websocket.Conn, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err == nil {
+			connections <- conn
+		}
+	}))
+	t.Cleanup(server.Close)
+	client, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { client.Close() })
+	conn := <-connections
+	t.Cleanup(func() { conn.Close() })
+	session := &NodeSession{NodeId: node.NodeId, Conn: conn}
+	workerErr := make(chan error, 1)
+	go func() {
+		var request TunnelFrame
+		if err := client.ReadJSON(&request); err != nil {
+			workerErr <- err
+			return
+		}
+		value, ok := session.PendingRequests.Load(request.Id)
+		if !ok {
+			workerErr <- fmt.Errorf("request not registered")
+			return
+		}
+		ch := value.(chan *TunnelFrame)
+		for _, piece := range []string{"first-piece", "excess-piece"} {
+			payload, _ := json.Marshal(ChunkPayload{Content: piece})
+			ch <- &TunnelFrame{Type: MsgTypeInferenceChunk, Payload: payload}
+		}
+		workerErr <- nil
+	}()
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Set("id", 2)
+	ctx.Set(common.WalletTransferHoldContextKey, hold)
+	err = (&Router{}).DispatchInference(ctx, session, &model.ByogModel{ModelId: "unknown-byog-model", PricingTier: 2}, InferencePayload{RequestId: "excess", Prompt: "hi", MaxTokens: 1, Stream: true})
+	require.Error(t, err)
+	require.NoError(t, <-workerErr)
+	require.Contains(t, rec.Body.String(), "first-piece")
+	require.NotContains(t, rec.Body.String(), "excess-piece")
+	require.True(t, ctx.GetBool(common.WalletTransferHoldRetainContextKey))
+	var events []model.WalletHoldEvent
+	require.NoError(t, db.Where("hold_id = ?", hold).Find(&events).Error)
+	require.Len(t, events, 1)
+	require.Equal(t, "byog-precharge", events[0].EventKey)
+	require.NoError(t, model.ApplyWalletHoldDelta(2, hold, "test-refund", -events[0].Delta))
+	require.NoError(t, model.ResolveWalletTransferHold(2, hold, 0))
+}
