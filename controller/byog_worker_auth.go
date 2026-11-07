@@ -46,6 +46,10 @@ func authenticatedByogWorker(c *gin.Context, nodeID string) (*model.ByogNode, er
 	if subtle.ConstantTimeCompare(expected, digest[:]) != 1 {
 		return nil, errors.New("invalid worker credential")
 	}
+	banned, err := model.CheckByogBan(node.UserId, node.HWID)
+	if err != nil || banned {
+		return nil, errors.New("invalid worker credential")
+	}
 	return node, nil
 }
 

@@ -23,8 +23,8 @@ var GlobalAntiCheat = &AntiCheatManager{}
 // Verify HWID and detect Sybil / VM / Emulator
 func (ac *AntiCheatManager) ValidateHWID(hwid string, osName string, deviceType string, specs map[string]interface{}) (bool, string) {
 	// 1. Check if HWID is in banned table
-	if banned, banRecord := model.IsHWIDBanned(hwid); banned {
-		return false, fmt.Sprintf("HWID is banned: %s (Code: %s)", banRecord.BanReason, banRecord.ViolationCode)
+	if banned, _ := model.IsHWIDBanned(hwid); banned {
+		return false, "HWID is banned"
 	}
 
 	if !common.DebugEnabled && os.Getenv("BYOG_ALLOW_EMULATOR") != "true" {

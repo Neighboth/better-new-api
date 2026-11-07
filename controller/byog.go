@@ -354,6 +354,15 @@ func GetUserPairingCode(c *gin.Context) {
 		return
 	}
 
+	banned, err := model.CheckByogBan(userId, "")
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Worker authorization unavailable"})
+		return
+	}
+	if banned {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "BYOG account is banned"})
+		return
+	}
 	code, err := generateRandomPairingCode()
 	if err != nil {
 		common.ApiError(c, err)
@@ -1308,6 +1317,18 @@ func RegisterByogWorker(c *gin.Context) {
 			return
 		}
 		nodeId = hex.EncodeToString(idBytes)
+	}
+
+	// A valid pairing code or device credential must not bypass an account ban
+	// by presenting a different self-reported hardware ID.
+	banned, banErr := model.CheckByogBan(matchedUserId, req.HWID)
+	if banErr != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Worker authorization unavailable"})
+		return
+	}
+	if banned {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "Worker registration is banned"})
+		return
 	}
 
 	country, city, lat, lon := resolveNodeGeoIP(c.ClientIP())

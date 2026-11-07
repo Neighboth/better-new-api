@@ -692,6 +692,27 @@ func GetAllBannedNodes() ([]*ByogNodeBan, error) {
 	return bans, err
 }
 
+// CheckByogBan fails closed on database errors. Device-reported hardware IDs
+// are not identity proof; account bans must be checked independently as well.
+func CheckByogBan(userID int, hwid string) (bool, error) {
+	if DB == nil || (userID <= 0 && strings.TrimSpace(hwid) == "") {
+		return false, gorm.ErrInvalidData
+	}
+	query := DB.Model(&ByogNodeBan{}).Where("is_active = ?", true)
+	if userID > 0 && hwid != "" {
+		query = query.Where("user_id = ? OR hw_id = ?", userID, hwid)
+	} else if userID > 0 {
+		query = query.Where("user_id = ?", userID)
+	} else {
+		query = query.Where("hw_id = ?", hwid)
+	}
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func IsHWIDBanned(hwid string) (bool, *ByogNodeBan) {
 	var ban ByogNodeBan
 	err := DB.Where("hw_id = ? AND is_active = ?", hwid, true).First(&ban).Error
