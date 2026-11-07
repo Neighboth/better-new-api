@@ -442,6 +442,41 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			require.NoError(t, db.First(&refundTaskAfter, refundTask.ID).Error)
 			require.False(t, refundTaskAfter.RefundPending)
 			require.Zero(t, refundTaskAfter.Quota)
+
+			// Closing the hold and recording a new refund intent serialize even
+			// when separate coordinators race on the same user.
+			raceHold, err := BeginWalletTransferHold(refundUser.Id)
+			require.NoError(t, err)
+			raceTask := Task{TaskID: "intent-race-" + common.GetRandomString(12), UserId: refundUser.Id, Quota: 30, Status: TaskStatusInProgress, PrivateData: TaskPrivateData{WalletHoldID: raceHold, BillingSource: "wallet"}}
+			require.NoError(t, db.Create(&raceTask).Error)
+			t.Cleanup(func() {
+				db.Where("id = ?", raceTask.ID).Delete(&Task{})
+				db.Where("id = ?", raceHold).Delete(&WalletTransferHold{})
+			})
+			raceTask.Status = TaskStatusFailure
+			raceTask.RefundPending = true
+			raceStart := make(chan struct{})
+			var intentWon bool
+			var intentErr, resolveErr error
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				<-raceStart
+				intentWon, intentErr = raceTask.UpdateWithStatus(TaskStatusInProgress)
+			}()
+			go func() {
+				defer wg.Done()
+				<-raceStart
+				resolveErr = ResolveWalletTransferHold(refundUser.Id, raceHold, 0)
+			}()
+			close(raceStart)
+			wg.Wait()
+			require.NotEqual(t, intentErr == nil && intentWon, resolveErr == nil)
+			var intentAfter Task
+			var holdAfter WalletTransferHold
+			require.NoError(t, db.First(&intentAfter, raceTask.ID).Error)
+			require.NoError(t, db.First(&holdAfter, "id = ?", raceHold).Error)
+			require.False(t, intentAfter.RefundPending && holdAfter.State == "resolved")
 			var resolved WalletTransferHold
 			require.NoError(t, db.Where("id = ?", refundHold).First(&resolved).Error)
 			require.Equal(t, "resolved", resolved.State)

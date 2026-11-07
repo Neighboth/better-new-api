@@ -82,6 +82,27 @@ func TestHeldTaskRefundIsAtomicAndRecoversAfterRestart(t *testing.T) {
 	require.Equal(t, 100, getUserQuota(t, userID))
 }
 
+func TestHeldTaskRefundIntentCannotFollowHoldRelease(t *testing.T) {
+	truncate(t)
+	seedUser(t, 999, 70)
+	hold, err := model.BeginWalletTransferHold(999)
+	require.NoError(t, err)
+	task := makeTask(999, 0, 30, 0, BillingSourceWallet, 0)
+	task.PrivateData.WalletHoldID = hold
+	require.NoError(t, model.DB.Create(task).Error)
+	require.NoError(t, model.ResolveWalletTransferHold(999, hold, 0))
+	task.Status = model.TaskStatusFailure
+	markHeldTaskRefundPending(task)
+	won, err := task.UpdateWithStatus(model.TaskStatusInProgress)
+	require.Error(t, err)
+	require.False(t, won)
+	var stored model.Task
+	require.NoError(t, model.DB.First(&stored, task.ID).Error)
+	require.EqualValues(t, model.TaskStatusInProgress, stored.Status)
+	require.False(t, stored.RefundPending)
+	require.Equal(t, 70, getUserQuota(t, 999))
+}
+
 func TestHeldTaskRefundDoesNotReleaseSharedHold(t *testing.T) {
 	truncate(t)
 	const userID, tokenID, channelID = 998, 998, 998

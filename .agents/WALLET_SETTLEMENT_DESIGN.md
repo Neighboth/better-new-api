@@ -25,7 +25,8 @@ been established. Do not deploy this as a completed financial redesign.
   terminal-processing hold. For newly marked failed, held non-batch wallet tasks
   whose submission accounting is known, the failure transition persists a refund
   intent. Recovery atomically credits wallet and token, adjusts usage counters,
-  clears task quota and intent, journals the refund and closes the hold. Stale
+  clears task quota and intent, journals the refund and closes the hold. Creating
+  the intent serializes with hold resolution and requires an open hold. Stale
   status updates cannot overwrite quota or clear the intent. The poller retries
   pending refunds with a rotating cursor; old failures without intent and old
   wallet-only partial refunds are deliberately not inferred. Logs remain outside

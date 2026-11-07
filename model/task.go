@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -448,7 +449,44 @@ func (t *Task) UpdateLegacyTimeoutWithStatus(fromStatus TaskStatus) (bool, error
 }
 
 func (t *Task) updateWithStatus(fromStatus TaskStatus, updateQuota bool) (bool, error) {
-	query := DB.Model(t).Where("status = ?", fromStatus).Select("*")
+	setRefundIntent := fromStatus != TaskStatusFailure && t.Status == TaskStatusFailure && t.RefundPending
+	if !setRefundIntent {
+		return t.updateWithStatusDB(DB, fromStatus, updateQuota)
+	}
+	// A root reconciliation and this transition must serialize on the same
+	// user/hold locks: a refund intent cannot be created after its hold closes.
+	if t.PrivateData.WalletHoldID == "" {
+		return false, errors.New("task refund intent requires a wallet hold")
+	}
+	var won bool
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := lockForUpdate(tx).Select("id").First(&user, t.UserId).Error; err != nil {
+			return err
+		}
+		var hold WalletTransferHold
+		if err := lockForUpdate(tx).Where("id = ? AND user_id = ?", t.PrivateData.WalletHoldID, t.UserId).First(&hold).Error; err != nil {
+			return err
+		}
+		if hold.State != "open" {
+			var current Task
+			if err := tx.Select("id", "status").First(&current, t.ID).Error; err != nil {
+				return err
+			}
+			if current.Status != fromStatus {
+				return nil // a different poller already won the status CAS
+			}
+			return errors.New("task refund intent requires an open wallet hold")
+		}
+		var err error
+		won, err = t.updateWithStatusDB(tx, fromStatus, updateQuota)
+		return err
+	})
+	return won, err
+}
+
+func (t *Task) updateWithStatusDB(db *gorm.DB, fromStatus TaskStatus, updateQuota bool) (bool, error) {
+	query := db.Model(t).Where("status = ?", fromStatus).Select("*")
 	omits := make([]string, 0, 2)
 	if !updateQuota {
 		omits = append(omits, "quota")
