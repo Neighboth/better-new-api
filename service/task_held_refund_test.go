@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/stretchr/testify/require"
 )
@@ -30,6 +31,12 @@ func TestHeldTaskRefundIsAtomicAndRecoversAfterRestart(t *testing.T) {
 	var stale model.Task
 	require.NoError(t, model.DB.First(&stale, task.ID).Error)
 	require.Error(t, model.ResolveWalletTransferHold(userID, hold, 0))
+	oldBatch := common.BatchUpdateEnabled
+	t.Cleanup(func() { common.BatchUpdateEnabled = oldBatch })
+	common.BatchUpdateEnabled = true
+	require.False(t, RefundTaskQuota(context.Background(), task, "batch enabled after failure"))
+	common.BatchUpdateEnabled = oldBatch
+	require.Equal(t, 70, getUserQuota(t, userID))
 
 	// A token error must roll back wallet, marker, counters and journal.
 	require.NoError(t, model.DB.Exec(`CREATE TRIGGER fail_held_task_token BEFORE UPDATE ON tokens BEGIN SELECT RAISE(ABORT, 'injected'); END;`).Error)

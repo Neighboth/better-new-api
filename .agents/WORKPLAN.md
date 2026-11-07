@@ -116,3 +116,4 @@
 
 - User explicitly requested old PRs and branches be cleaned up first: PR #44 was closed and its old remote branch deleted. Current PR #45 and `main` remain. Earlier instructions in this plan to retain #44 are superseded.
 - BYOG account/hardware ban checks now fail closed during pairing, worker authentication and before routing/dispatch; another device of a banned account can no longer simply register under a different reported HWID. Active in-flight work and concurrent ban/revocation, shared hub deployment and economic trust in worker reports still require further review.
+- New non-batch held wallet task failure intents support restart recovery; wallet, token, usage, task marker and hold closure commit together. Historical partial refunds, non-wallet sources, successful task settlement and separate logs remain outside this guarantee. Transfer-before-underreserved-debt remains unresolved; retain the draft release gate.

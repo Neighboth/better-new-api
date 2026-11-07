@@ -22,9 +22,16 @@ been established. Do not deploy this as a completed financial redesign.
   Final event and hold closure are separate commits: a crash between them leaves
   a hold for investigation, not an automatic recovery.
 - Submitted async tasks retain their request hold. Legacy in-flight tasks gain a
-  terminal-processing hold. Task wallet adjustments use idempotent hold events
-  in non-batch mode; terminal/refund failures retain the hold. Status changes,
-  token accounting, logs and provider callbacks are not one SQL transaction.
+  terminal-processing hold. For newly marked failed, held non-batch wallet tasks
+  whose submission accounting is known, the failure transition persists a refund
+  intent. Recovery atomically credits wallet and token, adjusts usage counters,
+  clears task quota and intent, journals the refund and closes the hold. Stale
+  status updates cannot overwrite quota or clear the intent. The poller retries
+  pending refunds with a rotating cursor; old failures without intent and old
+  wallet-only partial refunds are deliberately not inferred. Logs remain outside
+  the transaction and may be lost. Other task sources and successful settlement are
+  not covered by this refund transaction; provider callbacks, task handoff and
+  their crash/error paths still require review.
 - Non-batch legacy final settlement, violation fees, direct BYOG charges and
   Midjourney submission charges now also journal their wallet delta when a
   request hold is present. For held non-batch Midjourney requests the known

@@ -181,6 +181,10 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 		logger.LogWarn(ctx, fmt.Sprintf("task %s requires submission accounting reconciliation", task.TaskID))
 		return false
 	}
+	if task.RefundPending && common.BatchUpdateEnabled {
+		logger.LogWarn(ctx, fmt.Sprintf("task %s refund is deferred while batch updates are enabled", task.TaskID))
+		return false
+	}
 	if task.PrivateData.WalletHoldID != "" && task.PrivateData.BillingSource == BillingSourceWallet && !common.BatchUpdateEnabled && !task.RefundPending && quota > 0 {
 		logger.LogWarn(ctx, fmt.Sprintf("task %s has no durable refund intent", task.TaskID))
 		return false
