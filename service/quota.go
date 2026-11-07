@@ -193,7 +193,12 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 		return fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(token.RemainQuota), logger.FormatQuota(quota))
 	}
 
-	err = PostConsumeQuota(relayInfo, quota, 0, false)
+	// The target reader processes turns serially; final partial usage is
+	// charged only after that reader has stopped. Each turn gets a distinct
+	// durable event so an ambiguous wallet commit can be investigated.
+	sequence := ctx.GetInt("wallet_realtime_event_sequence") + 1
+	ctx.Set("wallet_realtime_event_sequence", sequence)
+	_, err = postConsumeQuotaWithHold(relayInfo, quota, 0, false, ctx.GetString(common.WalletTransferHoldContextKey), fmt.Sprintf("realtime-%d", sequence))
 	if err != nil {
 		ctx.Set(common.WalletTransferHoldRetainContextKey, true)
 		return err

@@ -2,6 +2,9 @@ package realtime
 
 import (
 	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -32,6 +35,24 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 	clientClosed := make(chan struct{})
 	targetClosed := make(chan struct{})
 	errChan := make(chan error, 2)
+	var stopping atomic.Bool
+	reportErr := func(err error) {
+		c.Set(common.WalletTransferHoldRetainContextKey, true)
+		errChan <- err
+	}
+	var readers sync.WaitGroup
+	readers.Add(2)
+	var infoMu, clientWriteMu sync.Mutex
+	writeClient := func(message []byte) error {
+		clientWriteMu.Lock()
+		defer clientWriteMu.Unlock()
+		return helper.WssString(c, clientConn, string(message))
+	}
+	countEvent := func(event dto.RealtimeEvent) (int, int, error) {
+		infoMu.Lock()
+		defer infoMu.Unlock()
+		return service.CountTokenRealtime(info, event, info.UpstreamModelName)
+	}
 
 	sumUsage := &dto.RealtimeUsage{}
 	turnUsage := &dto.RealtimeUsage{}
@@ -49,9 +70,11 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 	}
 
 	gopool.Go(func() {
+		defer readers.Done()
+		defer close(clientClosed)
 		defer func() {
 			if r := recover(); r != nil {
-				errChan <- fmt.Errorf("panic in client reader: %v", r)
+				reportErr(fmt.Errorf("panic in client reader: %v", r))
 			}
 		}()
 		// The first message of the client may have been read before the channel
@@ -74,10 +97,9 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 				} else {
 					_, data, err := clientConn.ReadMessage()
 					if err != nil {
-						if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-							errChan <- fmt.Errorf("error reading from client: %v", err)
+						if !stopping.Load() && !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+							reportErr(fmt.Errorf("error reading from client: %v", err))
 						}
-						close(clientClosed)
 						return
 					}
 					message = data
@@ -93,12 +115,12 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 					for _, pending := range translator.setClientDialect(dialect) {
 						_, clientMessages, err := translator.upstreamToClient(pending)
 						if err != nil {
-							errChan <- fmt.Errorf("error translating message: %v", err)
+							reportErr(fmt.Errorf("error translating message: %v", err))
 							return
 						}
 						for _, clientMessage := range clientMessages {
-							if err := helper.WssString(c, clientConn, string(clientMessage)); err != nil {
-								errChan <- fmt.Errorf("error writing to client: %v", err)
+							if err := writeClient(clientMessage); err != nil {
+								reportErr(fmt.Errorf("error writing to client: %v", err))
 								return
 							}
 						}
@@ -107,7 +129,7 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 
 				openaiEvents, upstreamMessages, err := translator.clientToUpstream(message)
 				if err != nil {
-					errChan <- fmt.Errorf("error translating message: %v", err)
+					reportErr(fmt.Errorf("error translating message: %v", err))
 					return
 				}
 
@@ -119,11 +141,13 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 					if realtimeEvent.Type == dto.RealtimeEventTypeSessionUpdate &&
 						realtimeEvent.Session != nil &&
 						realtimeEvent.Session.Tools != nil {
+						infoMu.Lock()
 						info.RealtimeTools = realtimeEvent.Session.Tools
+						infoMu.Unlock()
 					}
-					textToken, audioToken, err := service.CountTokenRealtime(info, *realtimeEvent, info.UpstreamModelName)
+					textToken, audioToken, err := countEvent(*realtimeEvent)
 					if err != nil {
-						errChan <- fmt.Errorf("error counting text token: %v", err)
+						reportErr(fmt.Errorf("error counting text token: %v", err))
 						return
 					}
 					logger.LogInfo(c, fmt.Sprintf("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
@@ -135,7 +159,7 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 
 				for _, upstreamMessage := range upstreamMessages {
 					if err := helper.WssString(c, targetConn, string(upstreamMessage)); err != nil {
-						errChan <- fmt.Errorf("error writing to target: %v", err)
+						reportErr(fmt.Errorf("error writing to target: %v", err))
 						return
 					}
 				}
@@ -144,9 +168,11 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 	})
 
 	gopool.Go(func() {
+		defer readers.Done()
+		defer close(targetClosed)
 		defer func() {
 			if r := recover(); r != nil {
-				errChan <- fmt.Errorf("panic in target reader: %v", r)
+				reportErr(fmt.Errorf("panic in target reader: %v", r))
 			}
 		}()
 		for {
@@ -156,10 +182,9 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 			default:
 				_, message, err := targetConn.ReadMessage()
 				if err != nil {
-					if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-						errChan <- fmt.Errorf("error reading from target: %v", err)
+					if !stopping.Load() && !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+						reportErr(fmt.Errorf("error reading from target: %v", err))
 					}
-					close(targetClosed)
 					return
 				}
 				info.SetFirstResponseTime()
@@ -172,7 +197,7 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 
 				openaiEvents, clientMessages, err := translator.upstreamToClient(message)
 				if err != nil {
-					errChan <- fmt.Errorf("error translating message: %v", err)
+					reportErr(fmt.Errorf("error translating message: %v", err))
 					return
 				}
 
@@ -189,16 +214,17 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 						// The upstream tells the usage of the turn.
 						addUsage(sumUsage, realtimeEvent.Response.Usage)
 						if err := preConsumeUsage(c, info, realtimeEvent.Response.Usage, sumUsage); err != nil {
-							errChan <- fmt.Errorf("error consume usage: %v", err)
+							turnUsage = &dto.RealtimeUsage{}
+							reportErr(fmt.Errorf("error consume usage: %v", err))
 							return
 						}
 						turnUsage = &dto.RealtimeUsage{}
 					case realtimeEvent.Type == dto.RealtimeEventTypeResponseDone:
 						// The turn ends without the usage of it, the usage of
 						// Gemini comes with a message of its own.
-						textToken, audioToken, err := service.CountTokenRealtime(info, *realtimeEvent, info.UpstreamModelName)
+						textToken, audioToken, err := countEvent(*realtimeEvent)
 						if err != nil {
-							errChan <- fmt.Errorf("error counting text token: %v", err)
+							reportErr(fmt.Errorf("error counting text token: %v", err))
 							return
 						}
 						turnUsage.TotalTokens += textToken + audioToken
@@ -208,7 +234,9 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 						if upstream == DialectOpenAI {
 							addUsage(sumUsage, turnUsage)
 							if err := preConsumeUsage(c, info, turnUsage, sumUsage); err != nil {
-								errChan <- fmt.Errorf("error consume usage: %v", err)
+								// Do not retry an ambiguous wallet/token debit under a new event key.
+								turnUsage = &dto.RealtimeUsage{}
+								reportErr(fmt.Errorf("error consume usage: %v", err))
 								return
 							}
 							turnUsage = &dto.RealtimeUsage{}
@@ -217,13 +245,15 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 						realtimeEvent.Type == dto.RealtimeEventTypeSessionCreated:
 						// the format of the audio of the session
 						if realtimeEvent.Session != nil {
+							infoMu.Lock()
 							info.InputAudioFormat = common.GetStringIfEmpty(realtimeEvent.Session.InputAudioFormat, info.InputAudioFormat)
 							info.OutputAudioFormat = common.GetStringIfEmpty(realtimeEvent.Session.OutputAudioFormat, info.OutputAudioFormat)
+							infoMu.Unlock()
 						}
 					default:
-						textToken, audioToken, err := service.CountTokenRealtime(info, *realtimeEvent, info.UpstreamModelName)
+						textToken, audioToken, err := countEvent(*realtimeEvent)
 						if err != nil {
-							errChan <- fmt.Errorf("error counting text token: %v", err)
+							reportErr(fmt.Errorf("error counting text token: %v", err))
 							return
 						}
 						logger.LogInfo(c, fmt.Sprintf("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
@@ -235,8 +265,8 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 				}
 
 				for _, clientMessage := range clientMessages {
-					if err := helper.WssString(c, clientConn, string(clientMessage)); err != nil {
-						errChan <- fmt.Errorf("error writing to client: %v", err)
+					if err := writeClient(clientMessage); err != nil {
+						reportErr(fmt.Errorf("error writing to client: %v", err))
 						return
 					}
 				}
@@ -251,6 +281,15 @@ func Relay(c *gin.Context, info *relaycommon.RelayInfo, upstream Dialect) (*type
 		logger.LogError(c, "realtime error: "+err.Error())
 	case <-c.Done():
 	}
+
+	// Unblock both readers and wait for all in-flight billing before returning.
+	// Closing a transfer hold while a reader can still debit the wallet permits
+	// a concurrent reseller transfer to race that late debit. Set deadlines on
+	// the underlying net.Conn, which is safe concurrently with WebSocket reads.
+	stopping.Store(true)
+	_ = clientConn.UnderlyingConn().SetReadDeadline(time.Now())
+	_ = targetConn.UnderlyingConn().SetReadDeadline(time.Now())
+	readers.Wait()
 
 	// The end of the turn that waits for the usage of the upstream is sent now.
 	if pending := translator.flushTurnEnd(); pending != nil {
@@ -290,5 +329,11 @@ func preConsumeUsage(ctx *gin.Context, info *relaycommon.RelayInfo, usage *dto.R
 	if usage == nil || totalUsage == nil {
 		return fmt.Errorf("invalid usage pointer")
 	}
-	return service.PreWssConsumeQuota(ctx, info, usage)
+	if err := service.PreWssConsumeQuota(ctx, info, usage); err != nil {
+		// Insufficient quota and accounting errors can both happen after the
+		// upstream produced chargeable usage. Preserve evidence for review.
+		ctx.Set(common.WalletTransferHoldRetainContextKey, true)
+		return err
+	}
+	return nil
 }
