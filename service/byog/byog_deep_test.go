@@ -564,6 +564,7 @@ func TestMultiNodeLoadBalancingAndConcurrencyLimiter(t *testing.T) {
 
 	node1 := &model.ByogNode{
 		NodeId:          "node-fast-ping",
+		UserId:          41,
 		DeviceName:      "Fast GPU",
 		DeviceType:      "desktop",
 		Status:          "online",
@@ -572,6 +573,7 @@ func TestMultiNodeLoadBalancingAndConcurrencyLimiter(t *testing.T) {
 	}
 	node2 := &model.ByogNode{
 		NodeId:          "node-slow-ping",
+		UserId:          42,
 		DeviceName:      "Slow GPU",
 		DeviceType:      "desktop",
 		Status:          "online",

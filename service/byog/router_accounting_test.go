@@ -23,7 +23,7 @@ func TestUncertainDispatchRetainsPaidUserHold(t *testing.T) {
 	old := model.DB
 	model.DB = db
 	t.Cleanup(func() { model.DB = old })
-	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.User{}))
+	require.NoError(t, db.AutoMigrate(&model.ByogNodeBan{}, &model.ByogNode{}, &model.User{}))
 	node := model.ByogNode{NodeId: "dispatch-no-tunnel", UserId: 1, Status: "online", DeviceType: "desktop"}
 	require.NoError(t, db.Create(&node).Error)
 	require.NoError(t, db.Create(&model.User{Id: 2, Username: "paid-user", Quota: 1, AffCode: "paid-aff"}).Error)
@@ -47,7 +47,7 @@ func TestPaidByogRejectsEmptySQLWalletBeforeDispatch(t *testing.T) {
 	oldDB, oldRedis, oldBatch := model.DB, common.RedisEnabled, common.BatchUpdateEnabled
 	model.DB, common.RedisEnabled, common.BatchUpdateEnabled = db, false, false
 	t.Cleanup(func() { model.DB, common.RedisEnabled, common.BatchUpdateEnabled = oldDB, oldRedis, oldBatch })
-	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
+	require.NoError(t, db.AutoMigrate(&model.ByogNodeBan{}, &model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
 	node := model.ByogNode{NodeId: "paid-empty-wallet", UserId: 1, Status: "online", DeviceType: "desktop"}
 	require.NoError(t, db.Create(&node).Error)
 	require.NoError(t, db.Create(&model.User{Id: 2, Username: "empty-user", Quota: 0, AffCode: "empty-aff"}).Error)
@@ -76,7 +76,7 @@ func TestPaidByogReservesBeforeDispatchAndSettlesBoundedUsage(t *testing.T) {
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB, common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = oldDB, oldLogDB, oldRedis, oldBatch, oldConsume
 	})
-	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}, &model.Token{}))
+	require.NoError(t, db.AutoMigrate(&model.ByogNodeBan{}, &model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}, &model.Token{}))
 	node := model.ByogNode{NodeId: "bounded-dispatch", UserId: 1, Status: "online", DeviceType: "desktop"}
 	require.NoError(t, db.Create(&node).Error)
 	require.NoError(t, db.Create(&model.User{Id: 2, Username: "bounded-user", Quota: 10000, AffCode: "bounded-aff"}).Error)
@@ -170,7 +170,7 @@ func TestPaidByogRejectsInsufficientMaximumBeforeDispatch(t *testing.T) {
 	oldDB, oldRedis, oldBatch := model.DB, common.RedisEnabled, common.BatchUpdateEnabled
 	model.DB, common.RedisEnabled, common.BatchUpdateEnabled = db, false, false
 	t.Cleanup(func() { model.DB, common.RedisEnabled, common.BatchUpdateEnabled = oldDB, oldRedis, oldBatch })
-	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
+	require.NoError(t, db.AutoMigrate(&model.ByogNodeBan{}, &model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
 	node := model.ByogNode{NodeId: "insufficient-max", UserId: 1, DeviceType: "desktop"}
 	require.NoError(t, db.Create(&node).Error)
 	require.NoError(t, db.Create(&model.User{Id: 2, Username: "small-wallet", Quota: 1, AffCode: "small-aff"}).Error)
@@ -203,7 +203,7 @@ func TestPaidByogRetainsReserveWhenDispatchOutcomeIsUnknown(t *testing.T) {
 	oldDB, oldRedis, oldBatch := model.DB, common.RedisEnabled, common.BatchUpdateEnabled
 	model.DB, common.RedisEnabled, common.BatchUpdateEnabled = db, false, false
 	t.Cleanup(func() { model.DB, common.RedisEnabled, common.BatchUpdateEnabled = oldDB, oldRedis, oldBatch })
-	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
+	require.NoError(t, db.AutoMigrate(&model.ByogNodeBan{}, &model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
 	node := model.ByogNode{NodeId: "ambiguous-max", UserId: 1, DeviceType: "desktop"}
 	require.NoError(t, db.Create(&node).Error)
 	require.NoError(t, db.Create(&model.User{Id: 2, Username: "funded-wallet", Quota: 10000, AffCode: "funded-aff"}).Error)
@@ -238,7 +238,7 @@ func TestPaidByogRejectsWorkerOutputPastAuthorizedLimit(t *testing.T) {
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB, common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = oldDB, oldLogDB, oldRedis, oldBatch, oldConsume
 	})
-	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
+	require.NoError(t, db.AutoMigrate(&model.ByogNodeBan{}, &model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
 	node := model.ByogNode{NodeId: "excess-worker", UserId: 1, DeviceType: "desktop"}
 	require.NoError(t, db.Create(&node).Error)
 	require.NoError(t, db.Create(&model.User{Id: 2, Username: "bounded-client", Quota: 10000, AffCode: "bounded-client-aff"}).Error)
@@ -294,4 +294,29 @@ func TestPaidByogRejectsWorkerOutputPastAuthorizedLimit(t *testing.T) {
 	require.Equal(t, "byog-precharge", events[0].EventKey)
 	require.NoError(t, model.FinalizeByogWalletAndToken(2, hold, 0, -events[0].Delta, 0))
 	require.NoError(t, model.ResolveWalletTransferHold(2, hold, 0))
+}
+
+func TestByogDispatchRejectsBannedWorkerAccountBeforeCharging(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	old := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = old })
+	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogNodeBan{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
+	node := model.ByogNode{NodeId: "other-node", UserId: 1, HWID: "other-hardware", Status: "online", DeviceType: "desktop"}
+	require.NoError(t, db.Create(&node).Error)
+	require.NoError(t, db.Create(&model.ByogNodeBan{NodeId: "banned-node", UserId: 1, HWID: "banned-hardware", BanReason: "reason", ViolationCode: "code", IsActive: true}).Error)
+	require.NoError(t, db.Create(&model.User{Id: 2, Username: "buyer", Quota: 100, AffCode: "buyer-aff"}).Error)
+	hold, err := model.BeginWalletTransferHold(2)
+	require.NoError(t, err)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Set("id", 2)
+	ctx.Set(common.WalletTransferHoldContextKey, hold)
+	err = (&Router{}).DispatchInference(ctx, &NodeSession{NodeId: node.NodeId}, &model.ByogModel{}, InferencePayload{})
+	require.Error(t, err)
+	require.False(t, ctx.GetBool(common.WalletTransferHoldRetainContextKey))
+	var count int64
+	require.NoError(t, db.Model(&model.WalletHoldEvent{}).Where("hold_id = ?", hold).Count(&count).Error)
+	require.Zero(t, count)
 }

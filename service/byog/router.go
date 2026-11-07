@@ -64,6 +64,13 @@ func (r *Router) SelectNodeForRequest(modelId string, conversationId string, pro
 		if err != nil || n == nil {
 			continue
 		}
+		if n.UserId <= 0 || n.Status == "banned" {
+			continue
+		}
+		banned, banErr := model.CheckByogBan(n.UserId, n.HWID)
+		if banErr != nil || banned {
+			continue
+		}
 		if n.DeviceType == "mobile" || n.DeviceType == "tablet" {
 			if GlobalScheduler.IsModelSafeForMobile(n, modelId) {
 				capableSessions = append(capableSessions, s)
@@ -181,6 +188,17 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 		atomic.AddInt32(&queue.ActiveCount, -1)
 		queue.Lock.Unlock()
 	}()
+
+	// A worker may have been banned or removed while queued. Recheck the
+	// authoritative account and hardware before reserving or dispatching.
+	node, err = model.GetByogNodeByNodeId(session.NodeId)
+	if err != nil || node == nil || node.UserId <= 0 || node.Status == "banned" {
+		return fmt.Errorf("BYOG worker is unavailable")
+	}
+	banned, banErr := model.CheckByogBan(node.UserId, node.HWID)
+	if banErr != nil || banned {
+		return fmt.Errorf("BYOG worker authorization unavailable")
+	}
 
 	// Setup response channels
 	startTime := time.Now()
