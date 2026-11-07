@@ -111,3 +111,16 @@ process-local. For a multi-instance installation, route all BYOG worker and
 BYOG inference/control traffic to the same coordinator process; shared SQL and
 signing keys alone do not provide cross-instance tunnel dispatch. A distributed
 hub and failover have not been implemented or validated.
+
+## Ücretli BYOG kullanım sınırları
+
+Başka bir kullanıcının cihazında çalışan ve kalıcı cüzdan hold'u kullanan
+ücretli, toplu-güncelleme dışı isteklerde sunucu işe başlamadan önce cüzdan
+ve API anahtarı kotasından azami tutarı ayırır; kullanılmayan kısım işlem
+sonunda iade edilir. `max_tokens` belirtilmezse 4096 kullanılır; 32768'in
+üzerindeki değerler reddedilir. İleti ve promptun birleşik boyutu 8 MiB ile
+sınırlıdır. İstenen azami tutar için bakiye yoksa daha küçük bir `max_tokens`
+ile tekrar denenebilir. Kullanıcının kendi cihazındaki ücretsiz kullanım bu
+sınırlandırılmış ücretli yolun dışındadır. Ağ kesilmesi veya geçersiz worker
+kullanım bildirimi belirsiz işlem olarak yöneticinin incelemesini gerektirebilir.
+Bu sınırlar worker'ın model token sayısını dürüst bildirdiğinin kanıtı değildir.

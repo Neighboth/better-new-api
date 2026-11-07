@@ -33,13 +33,15 @@ been established. Do not deploy this as a completed financial redesign.
   keep the hold and reservation for review. Midjourney submissions persist a
   pending-charge marker before task billing; pollers skip pending tasks and failed charges retain
   their hold for investigation. A wallet refund consumes the persisted task
-  quota and credits the user in one transaction, and stale status updates cannot
-  restore that quota. This prevents duplicate wallet refunds by pollers. Token
-  refunds, usage statistics and logs remain separate, so a crash after the SQL
-  wallet refund can still leave those accounting records inconsistent. Batch
-  billing retains its existing behavior; reseller issuance is rejected in batch
-  mode. Existing pre-migration Midjourney records have no pending marker and must
-  be considered in rollout/reconciliation; no historical backfill is assumed.
+  quota, credits the user, restores token quota and adjusts SQL usage counters in
+  one transaction. The poller commits `refund_pending` with a provider-confirmed
+  failure status and retries marked refunds after a process restart. Stale status
+  updates cannot restore quota or clear this marker. Refund logs still use a
+  potentially separate log database and are not atomic with the financial commit;
+  a crash can lose that log. Batch billing retains its older non-atomic behavior;
+  reseller issuance is rejected in batch mode. Pre-migration failures have no
+  refund-intent marker and require explicit rollout/reconciliation; no historical
+  backfill is assumed. Issuance also rejects pending Midjourney charges.
 - Realtime now waits for both WebSocket readers (including in-flight billing)
   before the request can release its hold, serializes writes to the client and
   reserves cumulative turn usage against the billing session instead of
@@ -49,9 +51,17 @@ been established. Do not deploy this as a completed financial redesign.
   These controls do not cap a provider's response cost before a turn starts.
 - Realtime, other unjournaled paths and every workflow above still need a full
   exact-once and error/crash review; not every wallet mutation is journaled.
-- Paid BYOG requests with a hold reject an empty SQL wallet before dispatch;
-  this is only a minimum check, not a maximum-cost reservation. A positive but
-  tiny balance can still start work whose final cost exceeds the balance.
+- Held, non-batch paid BYOG inference snapshots its price and atomically reserves
+  the maximum authorized amount from both SQL wallet and API token before worker
+  dispatch. It defaults missing/unlimited `max_tokens` to 4096, rejects values
+  above 32768, bounds prompt bytes, validates reported input usage, and rejects
+  output chunks beyond the authorized count/byte limit before delivering them.
+  Unused authorization is returned to wallet and token in one replay-safe SQL
+  transaction. Unknown outcomes retain both reservation and hold. Own-node free
+  inference and batch/legacy no-hold paths are not covered by this authorization.
+  The worker can still lie about usage *within* the accepted bound and forge
+  output chunks; this is not a trustworthy tokenizer or anti-farming proof.
+  Provider rewards, logs and hold closure are separate from the balance commit.
 - Existing billing permits actual usage to exceed a precharge and create debt.
   A hold prevents transfer *while* work is pending, not transferring first and
   then starting a new under-reserved operation. Preventing this without breaking
@@ -74,6 +84,15 @@ been established. Do not deploy this as a completed financial redesign.
    `midjourney-precharge`, `midjourney-decision` and `midjourney-charge` events
    before any intervention; a pending marker does not
    prove whether a debit committed. Do not clear it merely because it is old.
+   For BYOG inspect both `byog-precharge` and `byog-final`, including their
+   wallet and token deltas. The worker may still be running: this API does not
+   verify worker termination. After proving it stopped and determining the final
+   cost, root can call `POST /api/wallet-holds/HOLD_ID/byog-finalize` with
+   `{"user_id": USER_ID, "actual_quota": ACTUAL, "reason": "...", "confirmed": true}`.
+   Actual must be between zero and the reserved amount. The wallet and token
+   settlement is replay-safe; hold closure is a separate replay-safe commit.
+   Generic hold resolution rejects an unfinished BYOG reservation and does not
+   allow a separate wallet-only adjustment for a BYOG hold.
    If uncertain, **do not resolve**; escalate for reconciliation.
 3. Calculate any remaining signed SQL quota adjustment independently of already
    committed events. Only after the operation and all related work are provably
