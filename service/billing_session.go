@@ -13,7 +13,6 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
-	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 )
 
@@ -35,6 +34,9 @@ type BillingSession struct {
 	fundingSettled        bool // funding.Settle 已成功，资金来源已提交
 	settled               bool // Settle 全部完成（资金 + 令牌）
 	refunded              bool // Refund 已调用
+	reserveSequence       uint64
+	reserveEvent          string
+	reserveUncertain      bool
 	mu                    sync.Mutex
 }
 
@@ -46,6 +48,9 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	defer s.mu.Unlock()
 	if s.settled {
 		return nil
+	}
+	if s.reserveUncertain {
+		return errors.New("wallet reservation requires reconciliation")
 	}
 	delta := actualQuota - s.preConsumedQuota
 	if s.hasModelBalanceLimit && (s.funding.Source() == BillingSourceWallet || s.funding.Source() == BillingSourceTokens) && int64(actualQuota) > s.modelBalanceAvailable {
@@ -113,23 +118,26 @@ func (s *BillingSession) Refund(c *gin.Context) {
 	subscriptionId := s.relayInfo.SubscriptionId
 	funding := s.funding
 
-	gopool.Go(func() {
+	func() {
 		// 1) 退还资金来源
 		if err := funding.Refund(); err != nil {
+			c.Set(common.WalletTransferHoldRetainContextKey, true)
 			common.SysLog("error refunding billing source: " + err.Error())
 		}
 		if extraReserved > 0 && funding.Source() == BillingSourceSubscription && subscriptionId > 0 {
 			if err := model.PostConsumeUserSubscriptionDelta(subscriptionId, -int64(extraReserved)); err != nil {
+				c.Set(common.WalletTransferHoldRetainContextKey, true)
 				common.SysLog("error refunding subscription extra reserved quota: " + err.Error())
 			}
 		}
 		// 2) 退还令牌额度
 		if tokenConsumed > 0 && !isPlayground {
 			if err := model.IncreaseTokenQuota(tokenId, tokenKey, tokenConsumed); err != nil {
+				c.Set(common.WalletTransferHoldRetainContextKey, true)
 				common.SysLog("error refunding token quota: " + err.Error())
 			}
 		}
-	})
+	}()
 }
 
 // NeedsRefund 返回是否存在需要退还的预扣状态。
@@ -163,6 +171,9 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.reserveUncertain {
+		return errors.New("wallet reservation requires reconciliation")
+	}
 	if s.settled || s.refunded || s.trusted || targetQuota <= s.preConsumedQuota {
 		return nil
 	}
@@ -182,6 +193,12 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 		return err
 	}
 	if err := s.reserveToken(delta); err != nil {
+		if !errors.Is(err, ErrInsufficientTokenQuota) {
+			s.reserveUncertain = true
+			if funding, ok := s.funding.(*WalletFunding); ok && funding.markUncertain != nil {
+				funding.markUncertain()
+			}
+		}
 		s.rollbackFundingReserve(delta)
 		return err
 	}
@@ -214,6 +231,9 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 	// ---- 1) 预扣令牌额度 ----
 	if effectiveQuota > 0 {
 		if err := PreConsumeTokenQuota(s.relayInfo, effectiveQuota); err != nil {
+			if !errors.Is(err, ErrInsufficientTokenQuota) {
+				c.Set(common.WalletTransferHoldRetainContextKey, true)
+			}
 			return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
 		s.tokenConsumed = effectiveQuota
@@ -224,6 +244,7 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 		// 预扣费失败，回滚令牌额度
 		if s.tokenConsumed > 0 && !s.relayInfo.IsPlayground {
 			if rollbackErr := model.IncreaseTokenQuota(s.relayInfo.TokenId, s.relayInfo.TokenKey, s.tokenConsumed); rollbackErr != nil {
+				c.Set(common.WalletTransferHoldRetainContextKey, true)
 				common.SysLog(fmt.Sprintf("error rolling back token quota (userId=%d, tokenId=%d, amount=%d, fundingErr=%s): %s",
 					s.relayInfo.UserId, s.relayInfo.TokenId, s.tokenConsumed, err.Error(), rollbackErr.Error()))
 			}
@@ -274,7 +295,19 @@ func (s *BillingSession) reserveFunding(delta int) error {
 		// 全额无条件扣减，余额不足的部分记为欠费（余额可为负），不中断请求，
 		// 保证日志记录的预扣额度与用户余额的实际变动始终对账一致。
 		// DecreaseUserQuota 仅在数据库错误时失败。
-		if err := model.DecreaseUserQuota(funding.userId, delta, false); err != nil {
+		var err error
+		if funding.holdID != "" && !common.BatchUpdateEnabled {
+			s.reserveSequence++
+			s.reserveEvent = fmt.Sprintf("relay-reserve-%d", s.reserveSequence)
+			err = model.ApplyWalletHoldDelta(funding.userId, funding.holdID, s.reserveEvent, -delta)
+		} else {
+			err = model.DecreaseUserQuota(funding.userId, delta, false)
+		}
+		if err != nil {
+			s.reserveUncertain = true
+			if funding.markUncertain != nil {
+				funding.markUncertain()
+			}
 			return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 		}
 		funding.consumed += delta
@@ -306,7 +339,17 @@ func (s *BillingSession) reserveFunding(delta int) error {
 func (s *BillingSession) rollbackFundingReserve(delta int) {
 	switch funding := s.funding.(type) {
 	case *WalletFunding:
-		if err := model.IncreaseUserQuota(funding.userId, delta, false); err != nil {
+		var err error
+		if funding.holdID != "" && !common.BatchUpdateEnabled {
+			err = model.ApplyWalletHoldDelta(funding.userId, funding.holdID, s.reserveEvent+"-rollback", delta)
+		} else {
+			err = model.IncreaseUserQuota(funding.userId, delta, false)
+		}
+		if err != nil {
+			s.reserveUncertain = true
+			if funding.markUncertain != nil {
+				funding.markUncertain()
+			}
 			common.SysLog("error rolling back wallet funding reserve: " + err.Error())
 		} else {
 			funding.consumed -= delta
@@ -338,6 +381,12 @@ func (s *BillingSession) reserveToken(delta int) error {
 
 // shouldTrust 统一信任额度检查，适用于钱包和订阅。
 func (s *BillingSession) shouldTrust(c *gin.Context) bool {
+	// A wallet hold protects against transfers only after it exists; a cached
+	// pre-transfer balance must never authorize the zero-precharge bypass.
+	// Use the ordinary SQL-backed precharge for held wallet operations.
+	if wallet, ok := s.funding.(*WalletFunding); ok && wallet.holdID != "" && !common.BatchUpdateEnabled {
+		return false
+	}
 	// 异步任务（ForcePreConsume=true）必须预扣全额，不允许信任旁路
 	if s.relayInfo.ForcePreConsume {
 		return false
@@ -487,7 +536,10 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		if !model.IsBillingWalletEnabled() || !model.IsModelAllowedInPool("wallet", relayInfo.OriginModelName) {
 			return nil, types.NewErrorWithStatusCode(fmt.Errorf("wallet billing disabled or model %s not allowed", relayInfo.OriginModelName), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
 		}
-		userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+		// A stale cache may reflect funds already converted into codes. Once a
+		// durable request hold exists the SQL user row is the spending authority.
+		fromDB := c.GetString(common.WalletTransferHoldContextKey) != "" && !common.BatchUpdateEnabled
+		userQuota, err := model.GetUserQuota(relayInfo.UserId, fromDB)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 		}
@@ -514,7 +566,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 
 		session := &BillingSession{
 			relayInfo:             relayInfo,
-			funding:               &WalletFunding{userId: relayInfo.UserId},
+			funding:               &WalletFunding{userId: relayInfo.UserId, holdID: c.GetString(common.WalletTransferHoldContextKey), markUncertain: func() { c.Set(common.WalletTransferHoldRetainContextKey, true) }},
 			modelBalanceAvailable: available,
 			hasModelBalanceLimit:  restricted,
 		}

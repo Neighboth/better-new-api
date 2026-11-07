@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/pkg/embedcfg"
+	"github.com/QuantumNous/new-api/worker/workerurl"
 
 	"github.com/gorilla/websocket"
 )
@@ -52,12 +53,12 @@ type AppStatus struct {
 	// model of the memory when no download runs, the identity of the
 	// progress needs the honest value: an empty text means "no transfer".
 	DownloadModelId string
-	HotStartEnabled  bool
-	PairingCode  string
-	HasCode      bool
-	LastError    string
-	FaviconPath  string
-	Started      bool
+	HotStartEnabled bool
+	PairingCode     string
+	HasCode         bool
+	LastError       string
+	FaviconPath     string
+	Started         bool
 }
 
 var (
@@ -224,7 +225,8 @@ func installerLanguage() string {
 // saveConfig writes the configuration of the worker to the disk.
 func saveConfig(config Config) {
 	if data, err := json.MarshalIndent(config, "", "  "); err == nil {
-		_ = os.WriteFile(configPath(), data, 0644)
+		_ = os.WriteFile(configPath(), data, 0600)
+		_ = os.Chmod(configPath(), 0600)
 	}
 }
 
@@ -282,6 +284,8 @@ func registerWorker() (registerResult, error) {
 	State.Mu.Lock()
 	serverUrl := strings.TrimRight(State.Config.ServerUrl, "/")
 	pairingCode := State.Config.PairingCode
+	nodeId := State.Config.NodeId
+	secret := State.Config.WorkerSecret
 	deviceName := State.Config.DeviceName
 	hwid := State.Config.HWID
 	State.Mu.Unlock()
@@ -289,6 +293,10 @@ func registerWorker() (registerResult, error) {
 	if serverUrl == "" {
 		result.ServerError = "Sunucu adresi eksik"
 		return result, fmt.Errorf("%s", result.ServerError)
+	}
+	if err := workerurl.Validate(serverUrl); err != nil {
+		result.ServerError = err.Error()
+		return result, err
 	}
 	if pairingCode == "" {
 		result.ServerError = "Eşleştirme kodu eksik"
@@ -303,6 +311,7 @@ func registerWorker() (registerResult, error) {
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"hwid":                hwid,
+		"node_id":             nodeId,
 		"pairing_code":        pairingCode,
 		"os":                  runtime.GOOS,
 		"arch":                runtime.GOARCH,
@@ -328,11 +337,15 @@ func registerWorker() (registerResult, error) {
 		"hot_start_enabled":   State.HotStartEnabled,
 	})
 
-	response, err := http.Post(
-		fmt.Sprintf("%s/api/v1/worker/register", serverUrl),
-		"application/json",
-		bytes.NewReader(body),
-	)
+	request, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/worker/register", serverUrl), bytes.NewReader(body))
+	if err != nil {
+		return result, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	if secret != "" {
+		request.Header.Set("Authorization", "Bearer "+secret)
+	}
+	response, err := (&http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(request)
 	if err != nil {
 		result.ServerError = "Sunucuya ulaşılamadı: " + err.Error()
 		return result, err
@@ -343,15 +356,16 @@ func registerWorker() (registerResult, error) {
 		Success bool   `json:"success"`
 		Message string `json:"message"`
 		Data    struct {
-			NodeId      string `json:"node_id"`
-			PairingCode string `json:"pairing_code"`
-			UserId      int    `json:"user_id"`
-			IsPaired    bool   `json:"is_paired"`
-			AppName     string `json:"app_name"`
-			SystemName  string `json:"system_name"`
-			Favicon     string `json:"favicon"`
-			FaviconB64  string `json:"favicon_base64"`
-			Assigned    []struct {
+			NodeId       string `json:"node_id"`
+			WorkerSecret string `json:"worker_secret"`
+			PairingCode  string `json:"pairing_code"`
+			UserId       int    `json:"user_id"`
+			IsPaired     bool   `json:"is_paired"`
+			AppName      string `json:"app_name"`
+			SystemName   string `json:"system_name"`
+			Favicon      string `json:"favicon"`
+			FaviconB64   string `json:"favicon_base64"`
+			Assigned     []struct {
 				ModelId     string `json:"model_id"`
 				DownloadUrl string `json:"download_url"`
 				FileSize    int64  `json:"file_size"`
@@ -374,6 +388,9 @@ func registerWorker() (registerResult, error) {
 
 	State.Mu.Lock()
 	State.Config.NodeId = payload.Data.NodeId
+	if payload.Data.WorkerSecret != "" {
+		State.Config.WorkerSecret = payload.Data.WorkerSecret
+	}
 	if payload.Data.PairingCode != "" {
 		State.Config.PairingCode = payload.Data.PairingCode
 	}
@@ -434,24 +451,31 @@ func startConnectionWatchdog() {
 		recoverForever("connectionWatchdog", func() {
 			ticker := time.NewTicker(30 * time.Second)
 			defer ticker.Stop()
-			httpClient := &http.Client{Timeout: 10 * time.Second}
+			httpClient := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 			for range ticker.C {
 				State.Mu.Lock()
 				serverUrl := strings.TrimRight(State.Config.ServerUrl, "/")
 				nodeId := State.Config.NodeId
+				secret := State.Config.WorkerSecret
 				State.Mu.Unlock()
 
-				if serverUrl == "" || nodeId == "" {
+				if serverUrl == "" || nodeId == "" || workerurl.Validate(serverUrl) != nil {
 					continue
 				}
 
 				checkUrl := fmt.Sprintf("%s/api/v1/worker/status?node_id=%s", serverUrl, nodeId)
-				resp, err := httpClient.Get(checkUrl)
+				req, err := http.NewRequest(http.MethodGet, checkUrl, nil)
+				if err != nil {
+					continue
+				}
+				req.Header.Set("Authorization", "Bearer "+secret)
+				resp, err := httpClient.Do(req)
 				if err == nil {
 					if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnauthorized {
 						fmt.Printf("[BYOG Worker] Watchdog detected node %s was unlinked/removed on server (HTTP %d). Resetting pairing...\n", nodeId, resp.StatusCode)
 						State.Mu.Lock()
 						State.Config.NodeId = ""
+						State.Config.WorkerSecret = ""
 						State.Config.PairingCode = ""
 						State.IsConnected = false
 						cfg := State.Config
@@ -483,17 +507,19 @@ func startTunnel() {
 			State.Mu.Lock()
 			serverUrl := strings.TrimRight(State.Config.ServerUrl, "/")
 			nodeId := State.Config.NodeId
+			secret := State.Config.WorkerSecret
 			State.Mu.Unlock()
 
-			if serverUrl != "" && nodeId != "" {
+			if serverUrl != "" && nodeId != "" && workerurl.Validate(serverUrl) == nil {
 				wsUrl := fmt.Sprintf("ws%s/api/v1/worker/tunnel?node_id=%s",
 					strings.TrimPrefix(serverUrl, "http"), nodeId)
-				conn, resp, err := websocket.DefaultDialer.Dial(wsUrl, nil)
+				conn, resp, err := websocket.DefaultDialer.Dial(wsUrl, http.Header{"Authorization": []string{"Bearer " + secret}})
 				if err != nil {
 					if resp != nil && (resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnauthorized) {
 						fmt.Println("[BYOG Worker] Device was removed on server (404/401). Resetting pairing...")
 						State.Mu.Lock()
 						State.Config.NodeId = ""
+						State.Config.WorkerSecret = ""
 						State.Config.PairingCode = ""
 						State.IsConnected = false
 						cfg := State.Config

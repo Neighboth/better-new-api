@@ -64,6 +64,14 @@ jobs:
       - name: Test root and relaykit modules
         run: make test
 
+      - name: Test realtime concurrency with the race detector
+        run: go test -race ./relay/realtime
+
+      - name: Test BYOG wallet and worker concurrency with the race detector
+        run: |
+          go test -race ./model -run 'TestByogWallet|TestByogToken|TestMidjourney'
+          go test -race ./service/byog -run 'TestPaidByog|TestByogPrice|TestByogAuthorization'
+
   frontend:
     name: Frontend typecheck and test
     if: github.event.action != 'closed' || github.event.pull_request.merged == true

@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
+
 import type { ResellerRedemption, ResellerSummary } from './types'
 
 export async function fetchResellerSummary(): Promise<ResellerSummary> {
@@ -68,21 +69,3 @@ export async function deleteResellerRedemption(id: number): Promise<void> {
     throw new Error(res.data?.message || 'Failed to delete redemption code')
   }
 }
-
-export async function fetchRedeemedUserLogs(
-  userId: number,
-  page: number = 1,
-  pageSize: number = 10
-): Promise<{ items: any[]; total: number }> {
-  const res = await api.get(`/api/reseller/users/${userId}/logs`, {
-    params: { p: page, page_size: pageSize },
-  })
-  if (!res.data?.success) {
-    throw new Error(res.data?.message || 'Failed to fetch user logs')
-  }
-  return {
-    items: res.data.data?.items || [],
-    total: res.data.data?.total || 0,
-  }
-}
-

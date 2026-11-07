@@ -31,14 +31,14 @@ type TokenDetails struct {
 }
 
 type QuotaInfo struct {
-	InputDetails   TokenDetails
-	OutputDetails  TokenDetails
-	ModelName      string
-	UsePrice       bool
-	ModelPrice     float64
-	ModelRatio     float64
-	GroupRatio     float64
-	UseTimeSeconds int64
+	InputDetails           TokenDetails
+	OutputDetails          TokenDetails
+	ModelName              string
+	UsePrice               bool
+	ModelPrice             float64
+	ModelRatio             float64
+	GroupRatio             float64
+	UseTimeSeconds         int64
 	BillingDurationSeconds float64
 	BillingCharacters      int
 }
@@ -136,16 +136,6 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	if relayInfo.UsePrice {
 		return nil
 	}
-	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
-	if err != nil {
-		return err
-	}
-
-	token, err := model.GetTokenByKey(strings.TrimPrefix(relayInfo.TokenKey, "sk-"), false)
-	if err != nil {
-		return err
-	}
-
 	modelName := relayInfo.OriginModelName
 	textInputTokens := usage.InputTokenDetails.TextTokens
 	textOutTokens := usage.OutputTokenDetails.TextTokens
@@ -185,18 +175,47 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	quota, clamp := calculateAudioQuota(quotaInfo)
 	noteQuotaClamp(relayInfo, clamp)
 
-	if userQuota < quota {
-		return fmt.Errorf("user quota is not enough, user quota: %s, need quota: %s", logger.FormatQuota(userQuota), logger.FormatQuota(quota))
+	// Realtime turns are part of the same billing session. Reserve the
+	// cumulative amount, rather than independently charging each turn and
+	// then charging it again at the final settlement.
+	previous := ctx.GetInt("wallet_realtime_reserved_quota")
+	if quota < 0 || previous < 0 || quota > common.MaxQuota-previous {
+		return fmt.Errorf("realtime quota exceeds supported range")
 	}
-
-	if !token.UnlimitedQuota && token.RemainQuota < quota {
-		return fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(token.RemainQuota), logger.FormatQuota(quota))
+	total := previous + quota
+	if relayInfo.Billing != nil {
+		if err := relayInfo.Billing.Reserve(total); err != nil {
+			return err
+		}
+	} else {
+		userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+		if err != nil {
+			return err
+		}
+		token, err := model.GetTokenByKey(strings.TrimPrefix(relayInfo.TokenKey, "sk-"), false)
+		if err != nil {
+			return err
+		}
+		if userQuota < quota {
+			return fmt.Errorf("user quota is not enough, user quota: %s, need quota: %s", logger.FormatQuota(userQuota), logger.FormatQuota(quota))
+		}
+		if !token.UnlimitedQuota && token.RemainQuota < quota {
+			return fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(token.RemainQuota), logger.FormatQuota(quota))
+		}
+		sequence := ctx.GetInt("wallet_realtime_event_sequence") + 1
+		ctx.Set("wallet_realtime_event_sequence", sequence)
+		_, err = postConsumeQuotaWithHold(relayInfo, quota, 0, false, ctx.GetString(common.WalletTransferHoldContextKey), fmt.Sprintf("realtime-%d", sequence))
+		if err != nil {
+			ctx.Set(common.WalletTransferHoldRetainContextKey, true)
+			return err
+		}
+		if relayInfo.FinalPreConsumedQuota > common.MaxQuota-quota {
+			ctx.Set(common.WalletTransferHoldRetainContextKey, true)
+			return fmt.Errorf("realtime pre-consumed quota exceeds supported range")
+		}
+		relayInfo.FinalPreConsumedQuota += quota
 	}
-
-	err = PostConsumeQuota(relayInfo, quota, 0, false)
-	if err != nil {
-		return err
-	}
+	ctx.Set("wallet_realtime_reserved_quota", total)
 	logger.LogInfo(ctx, "realtime streaming consume quota success, quota: "+fmt.Sprintf("%d", quota))
 	return nil
 }
@@ -274,7 +293,11 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
 	}
 
-	if err := SettleBilling(ctx, relayInfo, quota); err != nil {
+	if ctx.GetBool(common.WalletTransferHoldRetainContextKey) {
+		// A previous realtime adjustment may have committed without an
+		// acknowledgement. Do not issue another, potentially duplicate debit.
+		logger.LogError(ctx, "realtime billing requires reconciliation; final settlement skipped")
+	} else if err := SettleBilling(ctx, relayInfo, quota); err != nil {
 		logger.LogError(ctx, "error settling billing: "+err.Error())
 	}
 
@@ -366,11 +389,11 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 			TextTokens:  textOutTokens,
 			AudioTokens: audioOutTokens,
 		},
-		ModelName:      relayInfo.OriginModelName,
-		UsePrice:       usePrice,
-		ModelRatio:     modelRatio,
-		GroupRatio:     groupRatio,
-		UseTimeSeconds: useTimeSeconds,
+		ModelName:              relayInfo.OriginModelName,
+		UsePrice:               usePrice,
+		ModelRatio:             modelRatio,
+		GroupRatio:             groupRatio,
+		UseTimeSeconds:         useTimeSeconds,
 		BillingDurationSeconds: relayInfo.BillingDurationSeconds,
 		BillingCharacters:      relayInfo.BillingCharacters,
 	}
@@ -439,6 +462,8 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 	})
 }
 
+var ErrInsufficientTokenQuota = errors.New("token quota is not enough")
+
 func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")
@@ -456,7 +481,7 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 		if token, tokenErr := model.GetTokenByKey(relayInfo.TokenKey, false); tokenErr == nil && token != nil {
 			remainQuota = token.RemainQuota
 		}
-		return fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(remainQuota), logger.FormatQuota(quota))
+		return fmt.Errorf("%w, token remain quota: %s, need quota: %s", ErrInsufficientTokenQuota, logger.FormatQuota(remainQuota), logger.FormatQuota(quota))
 	}
 	return nil
 }
@@ -472,9 +497,21 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 }
 
 func postConsumeQuotaWithResult(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool) (result postConsumeQuotaResult, err error) {
+	return postConsumeQuotaWithHold(relayInfo, quota, preConsumedQuota, sendEmail, "", "")
+}
+
+func postConsumeQuotaWithHold(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool, holdID, eventKey string) (result postConsumeQuotaResult, err error) {
+	return postConsumeQuotaWithHoldAndReservation(relayInfo, quota, preConsumedQuota, sendEmail, holdID, eventKey, false)
+}
+
+func postConsumeQuotaWithHoldAndReservation(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool, holdID, eventKey string, walletReserved bool) (result postConsumeQuotaResult, err error) {
 
 	// 1) Consume from wallet quota OR subscription item
-	if relayInfo != nil && relayInfo.BillingSource == BillingSourceSubscription {
+	if walletReserved {
+		if relayInfo == nil || relayInfo.BillingSource == BillingSourceSubscription {
+			return result, errors.New("invalid wallet reservation funding source")
+		}
+	} else if relayInfo != nil && relayInfo.BillingSource == BillingSourceSubscription {
 		if relayInfo.SubscriptionId == 0 {
 			return result, errors.New("subscription id is missing")
 		}
@@ -487,7 +524,9 @@ func postConsumeQuotaWithResult(relayInfo *relaycommon.RelayInfo, quota int, pre
 		}
 	} else {
 		// Wallet
-		if quota > 0 {
+		if holdID != "" && eventKey != "" && !common.BatchUpdateEnabled {
+			err = model.ApplyWalletHoldDelta(relayInfo.UserId, holdID, eventKey, -quota)
+		} else if quota > 0 {
 			err = model.DecreaseUserQuota(relayInfo.UserId, quota, false)
 		} else {
 			err = model.IncreaseUserQuota(relayInfo.UserId, -quota, false)

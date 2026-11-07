@@ -24,9 +24,9 @@ type ByogSetting struct {
 	MaxColdStartTimeout  int     `json:"max_cold_start_timeout" gorm:"default:120"` // Max wait seconds for cold provisioning
 	NightOwlSurgeEnabled bool    `json:"night_owl_surge_enabled" gorm:"default:true"`
 	WeekendCrunchEnabled bool    `json:"weekend_crunch_enabled" gorm:"default:true"`
-	HardwareBackends     string  `json:"hardware_backends" gorm:"type:text"` // JSON object of toggled backends
-	MultipliersConfig        string  `json:"multipliers_config" gorm:"type:text"` // JSON object of custom multiplier percentages
-	CreatedAt                int64   `json:"created_at" gorm:"bigint"`
+	HardwareBackends     string  `json:"hardware_backends" gorm:"type:text"`  // JSON object of toggled backends
+	MultipliersConfig    string  `json:"multipliers_config" gorm:"type:text"` // JSON object of custom multiplier percentages
+	CreatedAt            int64   `json:"created_at" gorm:"bigint"`
 	UpdatedAt            int64   `json:"updated_at" gorm:"bigint"`
 }
 
@@ -105,60 +105,60 @@ type ByogRewardClaim struct {
 
 // Rule-Based Hardware Assignment Matrix
 type ByogAssignmentRule struct {
-	Id                    int    `json:"id" gorm:"primaryKey"`
-	Name                  string `json:"name" gorm:"type:varchar(255);not null"`
-	DeviceClass           string `json:"device_class" gorm:"type:varchar(64);default:'all'"` // desktop_server, laptop, mobile_tablet, all
-	MinVramMB             int    `json:"min_vram_mb" gorm:"default:0"`
-	MinPhysicalRamMB      int    `json:"min_physical_ram_mb" gorm:"default:0"` // Strictly Physical RAM, excluding swap/zram
-	HardwareFamily        string `json:"hardware_family" gorm:"type:varchar(64);default:'all'"` // cuda, rocm, intel_arc, metal, adreno_hexagon, mali, cpu, all
-	MinCores              int    `json:"min_cores" gorm:"default:0"`
-	VectorInstructionSet  string `json:"vector_instruction_set" gorm:"type:varchar(64);default:'all'"` // avx2, avx512, neon, dotprod, all
-	TargetModels          string `json:"target_models" gorm:"type:text"` // JSON array of model IDs
-	TargetLoras           string `json:"target_loras" gorm:"type:text"` // JSON array of LoRA IDs
-	KvCacheType           string `json:"kv_cache_type" gorm:"type:varchar(32);default:'off'"` // off (f16), q8_0, q4_0
-	Priority              int    `json:"priority" gorm:"default:10"`
-	IsEnabled             bool   `json:"is_enabled" gorm:"default:true"`
-	CreatedAt             int64  `json:"created_at" gorm:"bigint"`
-	UpdatedAt             int64  `json:"updated_at" gorm:"bigint"`
+	Id                   int    `json:"id" gorm:"primaryKey"`
+	Name                 string `json:"name" gorm:"type:varchar(255);not null"`
+	DeviceClass          string `json:"device_class" gorm:"type:varchar(64);default:'all'"` // desktop_server, laptop, mobile_tablet, all
+	MinVramMB            int    `json:"min_vram_mb" gorm:"default:0"`
+	MinPhysicalRamMB     int    `json:"min_physical_ram_mb" gorm:"default:0"`                  // Strictly Physical RAM, excluding swap/zram
+	HardwareFamily       string `json:"hardware_family" gorm:"type:varchar(64);default:'all'"` // cuda, rocm, intel_arc, metal, adreno_hexagon, mali, cpu, all
+	MinCores             int    `json:"min_cores" gorm:"default:0"`
+	VectorInstructionSet string `json:"vector_instruction_set" gorm:"type:varchar(64);default:'all'"` // avx2, avx512, neon, dotprod, all
+	TargetModels         string `json:"target_models" gorm:"type:text"`                               // JSON array of model IDs
+	TargetLoras          string `json:"target_loras" gorm:"type:text"`                                // JSON array of LoRA IDs
+	KvCacheType          string `json:"kv_cache_type" gorm:"type:varchar(32);default:'off'"`          // off (f16), q8_0, q4_0
+	Priority             int    `json:"priority" gorm:"default:10"`
+	IsEnabled            bool   `json:"is_enabled" gorm:"default:true"`
+	CreatedAt            int64  `json:"created_at" gorm:"bigint"`
+	UpdatedAt            int64  `json:"updated_at" gorm:"bigint"`
 }
 
 // Base Model Definition
 type ByogModel struct {
-	Id                     int     `json:"id" gorm:"primaryKey"`
-	ModelId                string  `json:"model_id" gorm:"type:varchar(128);uniqueIndex;not null"`
-	ModelType              string  `json:"model_type" gorm:"type:varchar(64);default:'llm'"` // llm, embedding, reranker, vision, image_gen, video, 3d
-	Vendor                 string  `json:"vendor" gorm:"type:varchar(64);default:'community'"`
-	Description            string  `json:"description" gorm:"type:text"`
-	ParamSize              string  `json:"param_size" gorm:"type:varchar(32);default:'7B'"` // 0.5B, 1B, 1.5B, 3B, 7B, 13B, 70B
-	PricingTier            int     `json:"pricing_tier" gorm:"default:2"` // 1: Turbo, 2: Standard, 3: Eco
-	DownloadUrl            string  `json:"download_url" gorm:"type:varchar(1024);not null"`
-	FileSize               int64   `json:"file_size" gorm:"default:0"`
-	ChunkSize              int     `json:"chunk_size" gorm:"default:4194304"` // 4MB default chunk size
-	ChunkManifest          string  `json:"chunk_manifest" gorm:"type:longtext"` // JSON array of SHA-256 chunk hashes
-	ModalitiesInput        string  `json:"modalities_input" gorm:"type:varchar(255);default:'text'"` // JSON array: text, image, video, audio, document, 3d
-	ModalitiesOutput       string  `json:"modalities_output" gorm:"type:varchar(255);default:'text'"` // JSON array: text, image, video, audio, 3d
-	VisionMmprojUrl        string  `json:"vision_mmproj_url" gorm:"type:varchar(1024)"`
-	Tags                   string  `json:"tags" gorm:"type:varchar(255);default:'byog'"`
-	ContextLength          int     `json:"context_length" gorm:"default:4096"`
-	
+	Id               int    `json:"id" gorm:"primaryKey"`
+	ModelId          string `json:"model_id" gorm:"type:varchar(128);uniqueIndex;not null"`
+	ModelType        string `json:"model_type" gorm:"type:varchar(64);default:'llm'"` // llm, embedding, reranker, vision, image_gen, video, 3d
+	Vendor           string `json:"vendor" gorm:"type:varchar(64);default:'community'"`
+	Description      string `json:"description" gorm:"type:text"`
+	ParamSize        string `json:"param_size" gorm:"type:varchar(32);default:'7B'"` // 0.5B, 1B, 1.5B, 3B, 7B, 13B, 70B
+	PricingTier      int    `json:"pricing_tier" gorm:"default:2"`                   // 1: Turbo, 2: Standard, 3: Eco
+	DownloadUrl      string `json:"download_url" gorm:"type:varchar(1024);not null"`
+	FileSize         int64  `json:"file_size" gorm:"default:0"`
+	ChunkSize        int    `json:"chunk_size" gorm:"default:4194304"`                         // 4MB default chunk size
+	ChunkManifest    string `json:"chunk_manifest" gorm:"type:longtext"`                       // JSON array of SHA-256 chunk hashes
+	ModalitiesInput  string `json:"modalities_input" gorm:"type:varchar(255);default:'text'"`  // JSON array: text, image, video, audio, document, 3d
+	ModalitiesOutput string `json:"modalities_output" gorm:"type:varchar(255);default:'text'"` // JSON array: text, image, video, audio, 3d
+	VisionMmprojUrl  string `json:"vision_mmproj_url" gorm:"type:varchar(1024)"`
+	Tags             string `json:"tags" gorm:"type:varchar(255);default:'byog'"`
+	ContextLength    int    `json:"context_length" gorm:"default:4096"`
+
 	// Anti-Cheat Exam / Canary Settings
-	AntiCheatLogicPrompt   string  `json:"anti_cheat_logic_prompt" gorm:"type:text"`
-	AntiCheatLogicTemp     float64 `json:"anti_cheat_logic_temp" gorm:"default:0"`
-	AntiCheatLogicSeed     int64   `json:"anti_cheat_logic_seed" gorm:"default:42"`
-	AntiCheatLogicExpected string  `json:"anti_cheat_logic_expected" gorm:"type:text"`
-	AntiCheatLogicLogprob  float64 `json:"anti_cheat_logic_logprob" gorm:"default:0"`
+	AntiCheatLogicPrompt    string  `json:"anti_cheat_logic_prompt" gorm:"type:text"`
+	AntiCheatLogicTemp      float64 `json:"anti_cheat_logic_temp" gorm:"default:0"`
+	AntiCheatLogicSeed      int64   `json:"anti_cheat_logic_seed" gorm:"default:42"`
+	AntiCheatLogicExpected  string  `json:"anti_cheat_logic_expected" gorm:"type:text"`
+	AntiCheatLogicLogprob   float64 `json:"anti_cheat_logic_logprob" gorm:"default:0"`
 	AntiCheatLogicTolerance float64 `json:"anti_cheat_logic_tolerance" gorm:"default:0.005"`
 
-	AntiCheatSigPrompt     string  `json:"anti_cheat_sig_prompt" gorm:"type:text"`
-	AntiCheatSigTemp       float64 `json:"anti_cheat_sig_temp" gorm:"default:0"`
-	AntiCheatSigSeed       int64   `json:"anti_cheat_sig_seed" gorm:"default:8472910482910482"`
-	AntiCheatSigExpected   string  `json:"anti_cheat_sig_expected" gorm:"type:text"`
-	AntiCheatSigLogprob    float64 `json:"anti_cheat_sig_logprob" gorm:"default:-0.0124"`
-	AntiCheatSigTolerance  float64 `json:"anti_cheat_sig_tolerance" gorm:"default:0.0020"`
+	AntiCheatSigPrompt    string  `json:"anti_cheat_sig_prompt" gorm:"type:text"`
+	AntiCheatSigTemp      float64 `json:"anti_cheat_sig_temp" gorm:"default:0"`
+	AntiCheatSigSeed      int64   `json:"anti_cheat_sig_seed" gorm:"default:8472910482910482"`
+	AntiCheatSigExpected  string  `json:"anti_cheat_sig_expected" gorm:"type:text"`
+	AntiCheatSigLogprob   float64 `json:"anti_cheat_sig_logprob" gorm:"default:-0.0124"`
+	AntiCheatSigTolerance float64 `json:"anti_cheat_sig_tolerance" gorm:"default:0.0020"`
 
-	IsEnabled              bool    `json:"is_enabled" gorm:"default:true"`
-	CreatedAt              int64   `json:"created_at" gorm:"bigint"`
-	UpdatedAt              int64   `json:"updated_at" gorm:"bigint"`
+	IsEnabled bool  `json:"is_enabled" gorm:"default:true"`
+	CreatedAt int64 `json:"created_at" gorm:"bigint"`
+	UpdatedAt int64 `json:"updated_at" gorm:"bigint"`
 }
 
 // Multi-LoRA Adapter Definition under Base Model
@@ -182,122 +182,123 @@ type ByogModelLora struct {
 
 // Node Record (Desktop & Mobile)
 type ByogNode struct {
-	Id                    int     `json:"id" gorm:"primaryKey"`
-	NodeId                string  `json:"node_id" gorm:"type:varchar(128);uniqueIndex;not null"`
-	UserId                int     `json:"user_id" gorm:"index;not null"`
-	PairingCode           string  `json:"pairing_code" gorm:"type:varchar(64);index"` // e.g. 9K4L-28XM-73PQ-51ZR
-	DeviceName            string  `json:"device_name" gorm:"type:varchar(128);not null"`
-	DeviceType            string  `json:"device_type" gorm:"type:varchar(32);default:'desktop';index"` // desktop, laptop, mobile, tablet
-	OS                    string  `json:"os" gorm:"type:varchar(32)"` // windows, linux, darwin, android, ios
-	Arch                  string  `json:"arch" gorm:"type:varchar(32)"` // amd64, arm64
-	HWID                  string  `json:"hwid" gorm:"column:hw_id;type:varchar(255);index;not null"` // Salted cryptographic HWID
-	CpuModel              string  `json:"cpu_model" gorm:"type:varchar(255)"`
-	CpuCores              int     `json:"cpu_cores" gorm:"default:0"`
-	GpuModel              string  `json:"gpu_model" gorm:"type:varchar(255)"`
-	NpuModel              string  `json:"npu_model" gorm:"type:varchar(255)"`
-	PhysicalRamMB         int     `json:"physical_ram_mb" gorm:"default:0"` // Strictly Physical RAM
-	SwapRamMB             int     `json:"swap_ram_mb" gorm:"default:0"` // Virtual RAM / ZRAM
-	VramMB                int     `json:"vram_mb" gorm:"default:0"`
-	SharedVramMB          int     `json:"shared_vram_mb" gorm:"default:0"`
-	TeeSupported          bool    `json:"tee_supported" gorm:"default:false"`
-	TeeType               string  `json:"tee_type" gorm:"type:varchar(64);default:'none'"` // sgx, sev, trustzone, none
-	BandwidthDownMbps     float64 `json:"bandwidth_down_mbps" gorm:"default:0"`
-	BandwidthUpMbps       float64 `json:"bandwidth_up_mbps" gorm:"default:0"`
-	PingMs                int     `json:"ping_ms" gorm:"default:50"`
-	NetworkType           string  `json:"network_type" gorm:"type:varchar(32);default:'ethernet'"` // ethernet, wifi, cellular
-	IpAddress             string  `json:"ip_address" gorm:"type:varchar(64)"`
-	IpType                string  `json:"ip_type" gorm:"type:varchar(32);default:'residential'"` // residential, datacenter
-	Country               string  `json:"country" gorm:"type:varchar(64);default:'Unknown'"`
-	City                  string  `json:"city" gorm:"type:varchar(64);default:'Unknown'"`
-	Latitude              float64 `json:"latitude" gorm:"default:0"`
-	Longitude             float64 `json:"longitude" gorm:"default:0"`
-	Status                string  `json:"status" gorm:"type:varchar(32);default:'online';index"` // online, offline, paused, gamer_mode, throttled, banned, updating
-	OperatingMode         string  `json:"operating_mode" gorm:"type:varchar(32);default:'mode_b'"` // mode_b (community pool), mode_a (private)
-	PowerProfile          string  `json:"power_profile" gorm:"type:varchar(32);default:'full_power'"` // full_power, half_power, active_hours, dual_schedule
-	ScheduleConfig        string  `json:"schedule_config" gorm:"type:text"` // JSON object for hourly power distribution
-	AllocatedDiskGB       int     `json:"allocated_disk_gb" gorm:"default:40"`
-	TotalDiskGB           int     `json:"total_disk_gb" gorm:"default:0"`
-	FreeDiskGB            int     `json:"free_disk_gb" gorm:"default:0"`
-	Disks                 string  `json:"disks" gorm:"type:text"` // JSON array of DiskPartitionInfo
-	AllocatedVramGB       int     `json:"allocated_vram_gb" gorm:"default:6"`
-	AllocatedRamGB        float64 `json:"allocated_ram_gb" gorm:"type:double;default:8"`
-	AllocatedCores        int     `json:"allocated_cores" gorm:"default:4"`
-	HotStartEnabled       bool    `json:"hot_start_enabled" gorm:"default:false"`
-	KvCacheType           string  `json:"kv_cache_type" gorm:"type:varchar(32);default:'off'"` // off, q8_0, q4_0
+	Id                int     `json:"id" gorm:"primaryKey"`
+	NodeId            string  `json:"node_id" gorm:"type:varchar(128);uniqueIndex;not null"`
+	WorkerSecretHash  string  `json:"-" gorm:"type:char(64)"`
+	UserId            int     `json:"user_id" gorm:"index;not null"`
+	PairingCode       string  `json:"pairing_code" gorm:"type:varchar(64);index"` // e.g. 9K4L-28XM-73PQ-51ZR
+	DeviceName        string  `json:"device_name" gorm:"type:varchar(128);not null"`
+	DeviceType        string  `json:"device_type" gorm:"type:varchar(32);default:'desktop';index"` // desktop, laptop, mobile, tablet
+	OS                string  `json:"os" gorm:"type:varchar(32)"`                                  // windows, linux, darwin, android, ios
+	Arch              string  `json:"arch" gorm:"type:varchar(32)"`                                // amd64, arm64
+	HWID              string  `json:"hwid" gorm:"column:hw_id;type:varchar(255);index;not null"`   // Salted cryptographic HWID
+	CpuModel          string  `json:"cpu_model" gorm:"type:varchar(255)"`
+	CpuCores          int     `json:"cpu_cores" gorm:"default:0"`
+	GpuModel          string  `json:"gpu_model" gorm:"type:varchar(255)"`
+	NpuModel          string  `json:"npu_model" gorm:"type:varchar(255)"`
+	PhysicalRamMB     int     `json:"physical_ram_mb" gorm:"default:0"` // Strictly Physical RAM
+	SwapRamMB         int     `json:"swap_ram_mb" gorm:"default:0"`     // Virtual RAM / ZRAM
+	VramMB            int     `json:"vram_mb" gorm:"default:0"`
+	SharedVramMB      int     `json:"shared_vram_mb" gorm:"default:0"`
+	TeeSupported      bool    `json:"tee_supported" gorm:"default:false"`
+	TeeType           string  `json:"tee_type" gorm:"type:varchar(64);default:'none'"` // sgx, sev, trustzone, none
+	BandwidthDownMbps float64 `json:"bandwidth_down_mbps" gorm:"default:0"`
+	BandwidthUpMbps   float64 `json:"bandwidth_up_mbps" gorm:"default:0"`
+	PingMs            int     `json:"ping_ms" gorm:"default:50"`
+	NetworkType       string  `json:"network_type" gorm:"type:varchar(32);default:'ethernet'"` // ethernet, wifi, cellular
+	IpAddress         string  `json:"ip_address" gorm:"type:varchar(64)"`
+	IpType            string  `json:"ip_type" gorm:"type:varchar(32);default:'residential'"` // residential, datacenter
+	Country           string  `json:"country" gorm:"type:varchar(64);default:'Unknown'"`
+	City              string  `json:"city" gorm:"type:varchar(64);default:'Unknown'"`
+	Latitude          float64 `json:"latitude" gorm:"default:0"`
+	Longitude         float64 `json:"longitude" gorm:"default:0"`
+	Status            string  `json:"status" gorm:"type:varchar(32);default:'online';index"`      // online, offline, paused, gamer_mode, throttled, banned, updating
+	OperatingMode     string  `json:"operating_mode" gorm:"type:varchar(32);default:'mode_b'"`    // mode_b (community pool), mode_a (private)
+	PowerProfile      string  `json:"power_profile" gorm:"type:varchar(32);default:'full_power'"` // full_power, half_power, active_hours, dual_schedule
+	ScheduleConfig    string  `json:"schedule_config" gorm:"type:text"`                           // JSON object for hourly power distribution
+	AllocatedDiskGB   int     `json:"allocated_disk_gb" gorm:"default:40"`
+	TotalDiskGB       int     `json:"total_disk_gb" gorm:"default:0"`
+	FreeDiskGB        int     `json:"free_disk_gb" gorm:"default:0"`
+	Disks             string  `json:"disks" gorm:"type:text"` // JSON array of DiskPartitionInfo
+	AllocatedVramGB   int     `json:"allocated_vram_gb" gorm:"default:6"`
+	AllocatedRamGB    float64 `json:"allocated_ram_gb" gorm:"type:double;default:8"`
+	AllocatedCores    int     `json:"allocated_cores" gorm:"default:4"`
+	HotStartEnabled   bool    `json:"hot_start_enabled" gorm:"default:false"`
+	KvCacheType       string  `json:"kv_cache_type" gorm:"type:varchar(32);default:'off'"` // off, q8_0, q4_0
 
 	// Mobile specific settings & defaults
-	WifiOnlyDownload      bool    `json:"wifi_only_download" gorm:"default:true"` // DEFAULT TRUE
-	MonthlyDataLimitMB    int64   `json:"monthly_data_limit_mb" gorm:"default:0"` // 0 = UNLIMITED (DEFAULT)
-	MonthlyDataUsedMB     int64   `json:"monthly_data_used_mb" gorm:"default:0"`
-	RunOnlyWhileCharging  bool    `json:"run_only_while_charging" gorm:"default:false"` // DEFAULT FALSE
-	BatteryCutoffEnabled  bool    `json:"battery_cutoff_enabled" gorm:"default:false"` // DEFAULT FALSE
-	BatteryCutoffPercent  int     `json:"battery_cutoff_percent" gorm:"default:20"` // 5-50% range
-	MaxBatteryTemp        float64 `json:"max_battery_temp" gorm:"default:50.0"` // DEFAULT 50°C (Active if sensor present)
-	BatteryTempSupported  bool    `json:"battery_temp_supported" gorm:"default:true"`
+	WifiOnlyDownload     bool    `json:"wifi_only_download" gorm:"default:true"` // DEFAULT TRUE
+	MonthlyDataLimitMB   int64   `json:"monthly_data_limit_mb" gorm:"default:0"` // 0 = UNLIMITED (DEFAULT)
+	MonthlyDataUsedMB    int64   `json:"monthly_data_used_mb" gorm:"default:0"`
+	RunOnlyWhileCharging bool    `json:"run_only_while_charging" gorm:"default:false"` // DEFAULT FALSE
+	BatteryCutoffEnabled bool    `json:"battery_cutoff_enabled" gorm:"default:false"`  // DEFAULT FALSE
+	BatteryCutoffPercent int     `json:"battery_cutoff_percent" gorm:"default:20"`     // 5-50% range
+	MaxBatteryTemp       float64 `json:"max_battery_temp" gorm:"default:50.0"`         // DEFAULT 50°C (Active if sensor present)
+	BatteryTempSupported bool    `json:"battery_temp_supported" gorm:"default:true"`
 
 	// Live Telemetry
-	CpuTemp               float64 `json:"cpu_temp" gorm:"default:45.0"`
-	GpuTemp               float64 `json:"gpu_temp" gorm:"default:50.0"`
-	BatteryTemp           float64 `json:"battery_temp" gorm:"default:32.0"`
-	FanSpeed              int     `json:"fan_speed" gorm:"default:1500"`
-	BatteryPercent        int     `json:"battery_percent" gorm:"default:100"`
-	IsCharging            bool    `json:"is_charging" gorm:"default:true"`
-	CurrentTps            float64 `json:"current_tps" gorm:"default:0"`
-	CurrentTtftMs         int     `json:"current_ttft_ms" gorm:"default:0"`
-	TotalTokensProcessed  int64   `json:"total_tokens_processed" gorm:"default:0"`
-	TotalEarnedCredits    float64 `json:"total_earned_credits" gorm:"default:0"`
-	UptimeSeconds         int64   `json:"uptime_seconds" gorm:"default:0"`
-	ReputationScore       int     `json:"reputation_score" gorm:"default:50"` // 0 - 100
-	ActiveMultipliers     string  `json:"active_multipliers" gorm:"type:text"` // JSON array of active multiplier keys
-	InstalledModels       string  `json:"installed_models" gorm:"type:text"` // JSON array of local models/chunks
-	DownloadQueue         string  `json:"download_queue" gorm:"type:text"` // JSON array of models to download
-	ModelStatus           string  `json:"model_status" gorm:"type:varchar(32);default:'idle'"`
-	DownloadStatus        string  `json:"download_status" gorm:"type:varchar(32);default:''"`
-	DownloadedMB          int     `json:"downloaded_mb" gorm:"default:0"`
-	TotalMB               int     `json:"total_mb" gorm:"default:0"`
-	DownloadProgress      int     `json:"download_progress" gorm:"default:0"`
+	CpuTemp              float64 `json:"cpu_temp" gorm:"default:45.0"`
+	GpuTemp              float64 `json:"gpu_temp" gorm:"default:50.0"`
+	BatteryTemp          float64 `json:"battery_temp" gorm:"default:32.0"`
+	FanSpeed             int     `json:"fan_speed" gorm:"default:1500"`
+	BatteryPercent       int     `json:"battery_percent" gorm:"default:100"`
+	IsCharging           bool    `json:"is_charging" gorm:"default:true"`
+	CurrentTps           float64 `json:"current_tps" gorm:"default:0"`
+	CurrentTtftMs        int     `json:"current_ttft_ms" gorm:"default:0"`
+	TotalTokensProcessed int64   `json:"total_tokens_processed" gorm:"default:0"`
+	TotalEarnedCredits   float64 `json:"total_earned_credits" gorm:"default:0"`
+	UptimeSeconds        int64   `json:"uptime_seconds" gorm:"default:0"`
+	ReputationScore      int     `json:"reputation_score" gorm:"default:50"`  // 0 - 100
+	ActiveMultipliers    string  `json:"active_multipliers" gorm:"type:text"` // JSON array of active multiplier keys
+	InstalledModels      string  `json:"installed_models" gorm:"type:text"`   // JSON array of local models/chunks
+	DownloadQueue        string  `json:"download_queue" gorm:"type:text"`     // JSON array of models to download
+	ModelStatus          string  `json:"model_status" gorm:"type:varchar(32);default:'idle'"`
+	DownloadStatus       string  `json:"download_status" gorm:"type:varchar(32);default:''"`
+	DownloadedMB         int     `json:"downloaded_mb" gorm:"default:0"`
+	TotalMB              int     `json:"total_mb" gorm:"default:0"`
+	DownloadProgress     int     `json:"download_progress" gorm:"default:0"`
 	// The model of the progress above. A node downloads one model at a time,
 	// the model names the transfer that the progress belongs to so that the
 	// progress of two models is never mixed.
-	DownloadModelId       string  `json:"download_model_id" gorm:"type:varchar(128);default:''"`
-	DownloadSpeedBps      float64 `json:"download_speed_bps" gorm:"default:0"`
-	EtaSeconds            int     `json:"eta_seconds" gorm:"default:0"`
+	DownloadModelId  string  `json:"download_model_id" gorm:"type:varchar(128);default:''"`
+	DownloadSpeedBps float64 `json:"download_speed_bps" gorm:"default:0"`
+	EtaSeconds       int     `json:"eta_seconds" gorm:"default:0"`
 	// The moment the current attempt of the transfer of the model started.
 	// A transfer that is retried starts from the first byte, the moment tells
 	// the panel that the progress begins again.
-	DownloadStartedAt     int64   `json:"download_started_at" gorm:"bigint;default:0"`
-	ActiveVramModel       string  `json:"active_vram_model" gorm:"type:varchar(128);default:''"`
-	LastHeartbeatAt       int64   `json:"last_heartbeat_at" gorm:"bigint"`
-	CreatedAt             int64   `json:"created_at" gorm:"bigint"`
-	UpdatedAt             int64   `json:"updated_at" gorm:"bigint"`
+	DownloadStartedAt int64  `json:"download_started_at" gorm:"bigint;default:0"`
+	ActiveVramModel   string `json:"active_vram_model" gorm:"type:varchar(128);default:''"`
+	LastHeartbeatAt   int64  `json:"last_heartbeat_at" gorm:"bigint"`
+	CreatedAt         int64  `json:"created_at" gorm:"bigint"`
+	UpdatedAt         int64  `json:"updated_at" gorm:"bigint"`
 
 	// Virtual fields
-	UserName              string  `json:"user_name,omitempty" gorm:"-"`
-	UserEmail             string  `json:"user_email,omitempty" gorm:"-"`
+	UserName  string `json:"user_name,omitempty" gorm:"-"`
+	UserEmail string `json:"user_email,omitempty" gorm:"-"`
 }
 
 // Banned Node Record
 type ByogNodeBan struct {
-	Id               int     `json:"id" gorm:"primaryKey"`
-	NodeId           string  `json:"node_id" gorm:"type:varchar(128);index;not null"`
-	UserId           int     `json:"user_id" gorm:"index;not null"`
-	HWID             string  `json:"hwid" gorm:"column:hw_id;type:varchar(255);index;not null"`
-	BanReason        string  `json:"ban_reason" gorm:"type:varchar(255);not null"`
-	ViolationCode    string  `json:"violation_code" gorm:"type:varchar(64);not null"` // e.g. #SEC-LOGPROB-492
-	TestId           string  `json:"test_id" gorm:"type:varchar(64)"`
-	TestPrompt       string  `json:"test_prompt" gorm:"type:text"`
-	ExpectedLogprob  float64 `json:"expected_logprob"`
-	ActualLogprob    float64 `json:"actual_logprob"`
-	Tolerance        float64 `json:"tolerance"`
-	DetailedLogs     string  `json:"detailed_logs" gorm:"type:text"`
-	IsActive         bool    `json:"is_active" gorm:"default:true;index"`
-	BannedAt         int64   `json:"banned_at" gorm:"bigint"`
-	AppealedAt       int64   `json:"appealed_at" gorm:"bigint;default:0"`
-	AppealTicketId   int     `json:"appeal_ticket_id" gorm:"default:0"`
+	Id              int     `json:"id" gorm:"primaryKey"`
+	NodeId          string  `json:"node_id" gorm:"type:varchar(128);index;not null"`
+	UserId          int     `json:"user_id" gorm:"index;not null"`
+	HWID            string  `json:"hwid" gorm:"column:hw_id;type:varchar(255);index;not null"`
+	BanReason       string  `json:"ban_reason" gorm:"type:varchar(255);not null"`
+	ViolationCode   string  `json:"violation_code" gorm:"type:varchar(64);not null"` // e.g. #SEC-LOGPROB-492
+	TestId          string  `json:"test_id" gorm:"type:varchar(64)"`
+	TestPrompt      string  `json:"test_prompt" gorm:"type:text"`
+	ExpectedLogprob float64 `json:"expected_logprob"`
+	ActualLogprob   float64 `json:"actual_logprob"`
+	Tolerance       float64 `json:"tolerance"`
+	DetailedLogs    string  `json:"detailed_logs" gorm:"type:text"`
+	IsActive        bool    `json:"is_active" gorm:"default:true;index"`
+	BannedAt        int64   `json:"banned_at" gorm:"bigint"`
+	AppealedAt      int64   `json:"appealed_at" gorm:"bigint;default:0"`
+	AppealTicketId  int     `json:"appeal_ticket_id" gorm:"default:0"`
 
 	// Virtual fields
-	UserName         string  `json:"user_name,omitempty" gorm:"-"`
-	DeviceName       string  `json:"device_name,omitempty" gorm:"-"`
+	UserName   string `json:"user_name,omitempty" gorm:"-"`
+	DeviceName string `json:"device_name,omitempty" gorm:"-"`
 }
 
 // Crash Report & Telemetry
@@ -643,9 +644,23 @@ func SaveByogNode(n *ByogNode) error {
 	now := time.Now().Unix()
 	if n.Id == 0 {
 		n.CreatedAt = now
+		n.UpdatedAt = now
+		return DB.Create(n).Error
 	}
 	n.UpdatedAt = now
-	return DB.Save(n).Error
+	// Updates never inserts a stale snapshot if the row was deleted.
+	return DB.Model(&ByogNode{}).Where("id = ?", n.Id).Select("*").Omit("id", "created_at").Updates(n).Error
+}
+
+// SaveByogLiveNode updates telemetry only while the node remains active. A
+// stale heartbeat cannot resurrect, unban, transfer ownership or rotate keys.
+func SaveByogLiveNode(n *ByogNode) error {
+	if n == nil || n.Id == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	n.UpdatedAt = time.Now().Unix()
+	return DB.Model(&ByogNode{}).Where("id = ? AND status <> ?", n.Id, "banned").
+		Select("*").Omit("id", "created_at", "node_id", "user_id", "hw_id", "worker_secret_hash").Updates(n).Error
 }
 
 func DeleteByogNode(nodeId string) error {
@@ -655,7 +670,7 @@ func DeleteByogNode(nodeId string) error {
 	if numId, err := strconv.Atoi(nodeId); err == nil && numId > 0 {
 		return DB.Unscoped().Where("id = ? OR node_id = ?", numId, nodeId).Delete(&ByogNode{}).Error
 	}
-	return DB.Unscoped().Where("node_id = ? OR hw_id = ?", nodeId, nodeId).Delete(&ByogNode{}).Error
+	return DB.Unscoped().Where("node_id = ?", nodeId).Delete(&ByogNode{}).Error
 }
 
 // Banned Nodes
@@ -767,104 +782,104 @@ func InitDefaultByogData() {
 	if count == 0 {
 		defaultModels := []*ByogModel{
 			{
-				ModelId:                "qwen-2.5-0.5b-instruct",
-				ModelType:              "llm",
-				Vendor:                 "Qwen",
-				Description:            "Ultra-lightweight 0.5B model ideal for entry-level mobile devices and low-spec systems.",
-				ParamSize:              "0.5B",
-				PricingTier:            3,
-				DownloadUrl:            "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-				FileSize:               491400032,
-				ChunkSize:              4194304,
-				ModalitiesInput:        `["text"]`,
-				ModalitiesOutput:       `["text"]`,
-				AntiCheatLogicPrompt:   "What is 2+2? Answer only with the number.",
-				AntiCheatLogicTemp:     0,
-				AntiCheatLogicSeed:     42,
-				AntiCheatLogicExpected: "4",
-				AntiCheatLogicLogprob:  -0.001,
+				ModelId:                 "qwen-2.5-0.5b-instruct",
+				ModelType:               "llm",
+				Vendor:                  "Qwen",
+				Description:             "Ultra-lightweight 0.5B model ideal for entry-level mobile devices and low-spec systems.",
+				ParamSize:               "0.5B",
+				PricingTier:             3,
+				DownloadUrl:             "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+				FileSize:                491400032,
+				ChunkSize:               4194304,
+				ModalitiesInput:         `["text"]`,
+				ModalitiesOutput:        `["text"]`,
+				AntiCheatLogicPrompt:    "What is 2+2? Answer only with the number.",
+				AntiCheatLogicTemp:      0,
+				AntiCheatLogicSeed:      42,
+				AntiCheatLogicExpected:  "4",
+				AntiCheatLogicLogprob:   -0.001,
 				AntiCheatLogicTolerance: 0.005,
-				AntiCheatSigPrompt:     "What is the capital of Turkey?",
-				AntiCheatSigTemp:       0,
-				AntiCheatSigSeed:       8472910482910482,
-				AntiCheatSigExpected:   " Ankara",
-				AntiCheatSigLogprob:    -0.015,
-				AntiCheatSigTolerance:  0.005,
-				IsEnabled:              true,
-				CreatedAt:              time.Now().Unix(),
-				UpdatedAt:              time.Now().Unix(),
+				AntiCheatSigPrompt:      "What is the capital of Turkey?",
+				AntiCheatSigTemp:        0,
+				AntiCheatSigSeed:        8472910482910482,
+				AntiCheatSigExpected:    " Ankara",
+				AntiCheatSigLogprob:     -0.015,
+				AntiCheatSigTolerance:   0.005,
+				IsEnabled:               true,
+				CreatedAt:               time.Now().Unix(),
+				UpdatedAt:               time.Now().Unix(),
 			},
 			{
-				ModelId:                "qwen-2.5-1.5b-instruct",
-				ModelType:              "llm",
-				Vendor:                 "Qwen",
-				Description:            "Compact 1.5B model for mid-range mobile phones and standard laptops.",
-				ParamSize:              "1.5B",
-				PricingTier:            2,
-				DownloadUrl:            "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
-				FileSize:               1117320736,
-				ChunkSize:              4194304,
-				ModalitiesInput:        `["text"]`,
-				ModalitiesOutput:       `["text"]`,
-				AntiCheatLogicPrompt:   "A barn has 4 chickens and 2 sheep. How many total legs? Number only.",
-				AntiCheatLogicTemp:     0,
-				AntiCheatLogicSeed:     42,
-				AntiCheatLogicExpected: "16",
-				AntiCheatLogicLogprob:  -0.008,
+				ModelId:                 "qwen-2.5-1.5b-instruct",
+				ModelType:               "llm",
+				Vendor:                  "Qwen",
+				Description:             "Compact 1.5B model for mid-range mobile phones and standard laptops.",
+				ParamSize:               "1.5B",
+				PricingTier:             2,
+				DownloadUrl:             "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+				FileSize:                1117320736,
+				ChunkSize:               4194304,
+				ModalitiesInput:         `["text"]`,
+				ModalitiesOutput:        `["text"]`,
+				AntiCheatLogicPrompt:    "A barn has 4 chickens and 2 sheep. How many total legs? Number only.",
+				AntiCheatLogicTemp:      0,
+				AntiCheatLogicSeed:      42,
+				AntiCheatLogicExpected:  "16",
+				AntiCheatLogicLogprob:   -0.008,
 				AntiCheatLogicTolerance: 0.004,
-				AntiCheatSigPrompt:     "What is the capital of France?",
-				AntiCheatSigTemp:       0,
-				AntiCheatSigSeed:       8472910482910482,
-				AntiCheatSigExpected:   " Paris",
-				AntiCheatSigLogprob:    -0.0124,
-				AntiCheatSigTolerance:  0.0020,
-				IsEnabled:              true,
-				CreatedAt:              time.Now().Unix(),
-				UpdatedAt:              time.Now().Unix(),
+				AntiCheatSigPrompt:      "What is the capital of France?",
+				AntiCheatSigTemp:        0,
+				AntiCheatSigSeed:        8472910482910482,
+				AntiCheatSigExpected:    " Paris",
+				AntiCheatSigLogprob:     -0.0124,
+				AntiCheatSigTolerance:   0.0020,
+				IsEnabled:               true,
+				CreatedAt:               time.Now().Unix(),
+				UpdatedAt:               time.Now().Unix(),
 			},
 			{
-				ModelId:                "qwen-2.5-7b-instruct",
-				ModelType:              "llm",
-				Vendor:                 "Qwen",
-				Description:            "Flagship 7B model for powerful desktop GPUs, Apple Silicon, and workstation hardware.",
-				ParamSize:              "7B",
-				PricingTier:            1,
-				DownloadUrl:            "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
-				FileSize:               4683074240,
-				ChunkSize:              16777216,
-				ModalitiesInput:        `["text","image"]`,
-				ModalitiesOutput:       `["text"]`,
-				AntiCheatLogicPrompt:   "Bir kümeste 4 tavuk ve 2 koyun var. Toplam kaç ayak vardır? Sadece rakam yaz.",
-				AntiCheatLogicTemp:     0,
-				AntiCheatLogicSeed:     42,
-				AntiCheatLogicExpected: "16",
-				AntiCheatLogicLogprob:  -0.008,
+				ModelId:                 "qwen-2.5-7b-instruct",
+				ModelType:               "llm",
+				Vendor:                  "Qwen",
+				Description:             "Flagship 7B model for powerful desktop GPUs, Apple Silicon, and workstation hardware.",
+				ParamSize:               "7B",
+				PricingTier:             1,
+				DownloadUrl:             "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+				FileSize:                4683074240,
+				ChunkSize:               16777216,
+				ModalitiesInput:         `["text","image"]`,
+				ModalitiesOutput:        `["text"]`,
+				AntiCheatLogicPrompt:    "Bir kümeste 4 tavuk ve 2 koyun var. Toplam kaç ayak vardır? Sadece rakam yaz.",
+				AntiCheatLogicTemp:      0,
+				AntiCheatLogicSeed:      42,
+				AntiCheatLogicExpected:  "16",
+				AntiCheatLogicLogprob:   -0.008,
 				AntiCheatLogicTolerance: 0.004,
-				AntiCheatSigPrompt:     "Türkiye'nin başkenti neresidir?",
-				AntiCheatSigTemp:       0,
-				AntiCheatSigSeed:       8472910482910482,
-				AntiCheatSigExpected:   " Ankara",
-				AntiCheatSigLogprob:    -0.0124,
-				AntiCheatSigTolerance:  0.0020,
-				IsEnabled:              true,
-				CreatedAt:              time.Now().Unix(),
-				UpdatedAt:              time.Now().Unix(),
+				AntiCheatSigPrompt:      "Türkiye'nin başkenti neresidir?",
+				AntiCheatSigTemp:        0,
+				AntiCheatSigSeed:        8472910482910482,
+				AntiCheatSigExpected:    " Ankara",
+				AntiCheatSigLogprob:     -0.0124,
+				AntiCheatSigTolerance:   0.0020,
+				IsEnabled:               true,
+				CreatedAt:               time.Now().Unix(),
+				UpdatedAt:               time.Now().Unix(),
 			},
 			{
-				ModelId:                "bge-large-en-v1.5",
-				ModelType:              "embedding",
-				Vendor:                 "BAAI",
-				Description:            "State of the art text embedding model running efficiently across edge nodes.",
-				ParamSize:              "0.3B",
-				PricingTier:            2,
-				DownloadUrl:            "https://huggingface.co/BAAI/bge-large-en-v1.5/resolve/main/model.safetensors",
-				FileSize:               1340616616,
-				ChunkSize:              8388608,
-				ModalitiesInput:        `["text"]`,
-				ModalitiesOutput:       `["text"]`,
-				IsEnabled:              true,
-				CreatedAt:              time.Now().Unix(),
-				UpdatedAt:              time.Now().Unix(),
+				ModelId:          "bge-large-en-v1.5",
+				ModelType:        "embedding",
+				Vendor:           "BAAI",
+				Description:      "State of the art text embedding model running efficiently across edge nodes.",
+				ParamSize:        "0.3B",
+				PricingTier:      2,
+				DownloadUrl:      "https://huggingface.co/BAAI/bge-large-en-v1.5/resolve/main/model.safetensors",
+				FileSize:         1340616616,
+				ChunkSize:        8388608,
+				ModalitiesInput:  `["text"]`,
+				ModalitiesOutput: `["text"]`,
+				IsEnabled:        true,
+				CreatedAt:        time.Now().Unix(),
+				UpdatedAt:        time.Now().Unix(),
 			},
 		}
 
@@ -911,7 +926,7 @@ func InitDefaultByogData() {
 			{
 				Name:                 "Desktop High-Performance CUDA/Metal Rule",
 				DeviceClass:          "desktop_server",
-				MinVramMB:            6144, // 6GB
+				MinVramMB:            6144,  // 6GB
 				MinPhysicalRamMB:     16384, // 16GB
 				HardwareFamily:       "all",
 				MinCores:             8,

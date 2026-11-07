@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -74,6 +75,7 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 		}
 
 		if err := relayInfo.Billing.Settle(actualQuota); err != nil {
+			ctx.Set(common.WalletTransferHoldRetainContextKey, true)
 			return err
 		}
 
@@ -91,7 +93,11 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 	// 回退：无 BillingSession 时使用旧路径
 	quotaDelta := actualQuota - relayInfo.FinalPreConsumedQuota
 	if quotaDelta != 0 {
-		return PostConsumeQuota(relayInfo, quotaDelta, relayInfo.FinalPreConsumedQuota, true)
+		_, err := postConsumeQuotaWithHold(relayInfo, quotaDelta, relayInfo.FinalPreConsumedQuota, true, ctx.GetString(common.WalletTransferHoldContextKey), "legacy-settlement")
+		if err != nil {
+			ctx.Set(common.WalletTransferHoldRetainContextKey, true)
+		}
+		return err
 	}
 	return nil
 }

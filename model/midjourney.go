@@ -1,5 +1,13 @@
 package model
 
+import (
+	"errors"
+	"fmt"
+
+	"github.com/QuantumNous/new-api/common"
+	"gorm.io/gorm"
+)
+
 type Midjourney struct {
 	Id          int    `json:"id"`
 	Code        int    `json:"code"`
@@ -24,8 +32,10 @@ type Midjourney struct {
 	Buttons     string `json:"buttons"`
 	Properties  string `json:"properties"`
 
-	TokenId          int `json:"-" gorm:"default:0"`
-	BillingChannelId int `json:"-" gorm:"default:0"`
+	TokenId          int  `json:"-" gorm:"default:0"`
+	BillingChannelId int  `json:"-" gorm:"default:0"`
+	BillingPending   bool `json:"-" gorm:"not null;default:false"`
+	RefundPending    bool `json:"-" gorm:"not null;default:false;index"`
 }
 
 // TaskQueryParams 用于包含所有搜索条件的结构体，可以根据需求添加更多字段
@@ -97,7 +107,7 @@ func GetAllUnFinishTasks() []*Midjourney {
 	var tasks []*Midjourney
 	var err error
 	// get all tasks progress is not 100%
-	err = DB.Where("progress != ?", "100%").Find(&tasks).Error
+	err = DB.Where("progress != ? OR (refund_pending = ? AND billing_pending = ?)", "100%", true, false).Find(&tasks).Error
 	if err != nil {
 		return nil
 	}
@@ -111,7 +121,7 @@ func GetAllUnFinishTasks() []*Midjourney {
 func HasUnfinishedMidjourneyTasks() bool {
 	var id int
 	err := DB.Model(&Midjourney{}).
-		Where("progress != ?", "100%").
+		Where("progress != ? OR (refund_pending = ? AND billing_pending = ?)", "100%", true, false).
 		Limit(1).
 		Pluck("id", &id).Error
 	return err == nil && id != 0
@@ -168,14 +178,15 @@ func (midjourney *Midjourney) Insert() error {
 }
 
 func (midjourney *Midjourney) Update() error {
-	var err error
-	err = DB.Save(midjourney).Error
-	return err
+	// Provider status callbacks must not rewrite billing markers from a stale
+	// snapshot or complete a task while its charge outcome is uncertain.
+	return DB.Model(midjourney).Where("billing_pending = ?", false).
+		Select("*").Omit("Quota", "TokenId", "BillingChannelId", "BillingPending", "RefundPending").Updates(midjourney).Error
 }
 
 func (midjourney *Midjourney) UpdateBillingState() error {
 	return DB.Model(midjourney).
-		Select("quota", "token_id", "billing_channel_id").
+		Select("quota", "token_id", "billing_channel_id", "billing_pending").
 		Updates(midjourney).Error
 }
 
@@ -192,7 +203,14 @@ func (midjourney *Midjourney) GetBillingChannelId() int {
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).
 // Uses Model().Select("*").Updates() to avoid GORM Save()'s INSERT fallback.
 func (midjourney *Midjourney) UpdateWithStatus(fromStatus string) (bool, error) {
-	result := DB.Model(midjourney).Where("status = ?", fromStatus).Select("*").Updates(midjourney)
+	query := DB.Model(midjourney).Where("status = ? AND billing_pending = ?", fromStatus, false).Select("*")
+	if midjourney.RefundPending {
+		query = query.Omit("Quota", "TokenId", "BillingChannelId", "BillingPending")
+	} else {
+		// An old poller must never erase another poller's pending refund.
+		query = query.Omit("Quota", "TokenId", "BillingChannelId", "BillingPending", "RefundPending")
+	}
+	result := query.Updates(midjourney)
 	if result.Error != nil {
 		return false, result.Error
 	}
@@ -246,4 +264,150 @@ func CountAllUserTask(userId int, queryParams TaskQueryParams) int64 {
 	}
 	_ = query.Count(&total).Error
 	return total
+}
+
+// RefundMidjourneyWalletOnce atomically consumes the task's refund marker and
+// credits the user. The persisted quota is authoritative, not a poller's stale
+// task snapshot. The user-first lock order matches reseller issuance.
+func RefundMidjourneyWalletOnce(userID, taskID int) (int, error) {
+	if userID <= 0 || taskID <= 0 {
+		return 0, gorm.ErrInvalidData
+	}
+	amount := 0
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := lockForUpdate(tx).Select("id", "quota").Where("id = ?", userID).First(&user).Error; err != nil {
+			return err
+		}
+		var task Midjourney
+		if err := lockForUpdate(tx).Select("id", "user_id", "quota", "billing_pending").Where("id = ? AND user_id = ?", taskID, userID).First(&task).Error; err != nil {
+			return err
+		}
+		if task.BillingPending {
+			return errors.New("Midjourney charge is still pending reconciliation")
+		}
+		if task.Quota == 0 {
+			return nil
+		}
+		if task.Quota < 0 || int64(user.Quota)+int64(task.Quota) > int64(common.MaxQuota) {
+			return errors.New("Midjourney refund exceeds supported quota")
+		}
+		res := tx.Model(&Midjourney{}).Where("id = ? AND user_id = ? AND quota = ?", taskID, userID, task.Quota).Update("quota", 0)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return errors.New("Midjourney refund marker changed")
+		}
+		res = tx.Model(&User{}).Where("id = ?", userID).Update("quota", gorm.Expr("quota + ?", task.Quota))
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		amount = task.Quota
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	// Also invalidate on replay: the first commit may have succeeded while the
+	// acknowledgement or its cache invalidation was lost.
+	if common.RedisEnabled {
+		if err := invalidateUserCache(userID); err != nil {
+			common.SysError(fmt.Sprintf("Midjourney refund cache invalidation failed for user %d: %v", userID, err))
+		}
+	}
+	return amount, nil
+}
+
+// RefundMidjourneyAccountingOnce commits wallet, token, usage counters and the
+// durable refund marker together. A retry after an ambiguous commit is a no-op.
+// Logs live in a potentially separate database and are not part of this commit.
+func RefundMidjourneyAccountingOnce(userID, taskID int) (int, error) {
+	if userID <= 0 || taskID <= 0 {
+		return 0, gorm.ErrInvalidData
+	}
+	amount := 0
+	tokenKey := ""
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := lockForUpdate(tx).Select("id", "quota", "used_quota").Where("id = ?", userID).First(&user).Error; err != nil {
+			return err
+		}
+		var task Midjourney
+		if err := lockForUpdate(tx).Where("id = ? AND user_id = ?", taskID, userID).First(&task).Error; err != nil {
+			return err
+		}
+		if task.BillingPending {
+			return errors.New("Midjourney charge is still pending reconciliation")
+		}
+		var token Token
+		tokenExists := false
+		if task.TokenId > 0 {
+			result := lockForUpdate(tx).Select("id", "user_id", "key", "remain_quota", "used_quota").Where("id = ? AND user_id = ?", task.TokenId, userID).Limit(1).Find(&token)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected > 0 {
+				tokenKey = token.Key
+				tokenExists = true
+			}
+		}
+		if task.Quota == 0 {
+			if task.RefundPending {
+				return tx.Model(&Midjourney{}).Where("id = ?", taskID).Update("refund_pending", false).Error
+			}
+			return nil
+		}
+		if task.Quota < 0 || int64(user.Quota)+int64(task.Quota) > int64(common.MaxQuota) || int64(user.UsedQuota)-int64(task.Quota) < int64(common.MinQuota) {
+			return errors.New("Midjourney refund exceeds supported quota")
+		}
+		if tokenExists && (int64(token.RemainQuota)+int64(task.Quota) > int64(common.MaxQuota) || int64(token.UsedQuota)-int64(task.Quota) < int64(common.MinQuota)) {
+			return errors.New("Midjourney token refund exceeds supported quota")
+		}
+		res := tx.Model(&Midjourney{}).Where("id = ? AND user_id = ? AND quota = ? AND billing_pending = ?", taskID, userID, task.Quota, false).Updates(map[string]interface{}{"quota": 0, "refund_pending": false})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return errors.New("Midjourney refund marker changed")
+		}
+		res = tx.Model(&User{}).Where("id = ?", userID).Updates(map[string]interface{}{"quota": gorm.Expr("quota + ?", task.Quota), "used_quota": gorm.Expr("used_quota - ?", task.Quota)})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		if tokenExists {
+			res = tx.Model(&Token{}).Where("id = ? AND user_id = ?", task.TokenId, userID).Updates(map[string]interface{}{"remain_quota": gorm.Expr("remain_quota + ?", task.Quota), "used_quota": gorm.Expr("used_quota - ?", task.Quota), "accessed_time": common.GetTimestamp()})
+			if res.Error != nil {
+				return res.Error
+			}
+			if res.RowsAffected != 1 {
+				return errors.New("Midjourney refund token changed")
+			}
+		}
+		if channelID := task.GetBillingChannelId(); channelID > 0 {
+			if err := tx.Model(&Channel{}).Where("id = ?", channelID).Update("used_quota", gorm.Expr("used_quota - ?", task.Quota)).Error; err != nil {
+				return err
+			}
+		}
+		amount = task.Quota
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	if common.RedisEnabled {
+		if err := invalidateUserCache(userID); err != nil {
+			common.SysError(fmt.Sprintf("Midjourney refund user cache invalidation failed for user %d: %v", userID, err))
+		}
+		if err := invalidateTokenCacheForMutation(tokenKey); err != nil {
+			common.SysError(fmt.Sprintf("Midjourney refund token cache invalidation failed for user %d: %v", userID, err))
+		}
+	}
+	return amount, nil
 }

@@ -51,6 +51,14 @@ func SetWebRouter(router *gin.Engine, assets WebAssets) {
 			controller.RelayNotFound(c)
 			return
 		}
+		secureWorkerClientPage(c)
 		controller.ServeIndex(c, assets.IndexPage)
 	})
+}
+
+// secureWorkerClientPage prevents child frames from accessing the native BYOG bridge.
+func secureWorkerClientPage(c *gin.Context) {
+	if c.Request.URL.Path == "/client" {
+		c.Header("Content-Security-Policy", "frame-src 'none'; object-src 'none'; base-uri 'self'")
+	}
 }

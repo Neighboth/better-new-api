@@ -380,6 +380,8 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	const publicTaskID, upstreamTaskID = "suno_public_refund_once", "suno_upstream_refund_once"
 
 	seedUser(t, userID, initialUserQuota)
+	holdID, err := model.BeginWalletTransferHold(userID)
+	require.NoError(t, err)
 	seedToken(t, tokenID, userID, "sk-suno-refund-once", initialTokenQuota)
 	baseURL := "https://suno.invalid"
 	require.NoError(t, model.DB.Create(&model.Channel{
@@ -398,6 +400,7 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	task.Progress = "50%"
 	task.SubmitTime = time.Now().Unix()
 	task.PrivateData.UpstreamTaskID = upstreamTaskID
+	task.PrivateData.WalletHoldID = holdID
 	require.NoError(t, model.DB.Create(task).Error)
 
 	var firstPollTask model.Task
@@ -424,6 +427,9 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	assert.Equal(t, initialUserQuota+taskQuota, getUserQuota(t, userID))
 	assert.Equal(t, initialTokenQuota+taskQuota, getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, int64(1), countLogs(t))
+	var hold model.WalletTransferHold
+	require.NoError(t, model.DB.First(&hold, "id = ?", holdID).Error)
+	require.Equal(t, "resolved", hold.State)
 }
 
 func TestRunTaskPollingOnceDoesNotRefundHistoricalFailedTask(t *testing.T) {
@@ -495,4 +501,42 @@ func TestSweepTimedOutTasksHonorsRefundRolloutBoundary(t *testing.T) {
 	assert.Contains(t, reloadedModern.FailReason, "任务超时")
 	assert.Equal(t, initialQuota+modernTaskQuota, getUserQuota(t, userID))
 	assert.Equal(t, int64(1), countLogs(t))
+}
+
+func TestTaskWalletHoldReleaseAndReview(t *testing.T) {
+	truncate(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.WalletTransferHold{}))
+	seedUser(t, 980, 100)
+	t.Cleanup(func() { model.DB.Where("user_id = ?", 980).Delete(&model.WalletTransferHold{}) })
+	id, err := model.BeginWalletTransferHold(980)
+	require.NoError(t, err)
+	task := makeTask(980, 0, 0, 0, BillingSourceWallet, 0)
+	task.PrivateData.WalletHoldID = id
+	task.PrivateData.WalletHoldNeedsReview = true
+	releaseTaskWalletHold(context.Background(), task)
+	var hold model.WalletTransferHold
+	require.NoError(t, model.DB.First(&hold, "id = ?", id).Error)
+	require.Equal(t, "open", hold.State)
+	task.PrivateData.WalletHoldNeedsReview = false
+	releaseTaskWalletHold(context.Background(), task)
+	require.NoError(t, model.DB.First(&hold, "id = ?", id).Error)
+	require.Equal(t, "resolved", hold.State)
+}
+
+func TestLegacyTaskGuardProtectsTerminalSettlementWindow(t *testing.T) {
+	truncate(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Redemption{}, &model.UserBalancePackage{}))
+	seedUser(t, 981, 100)
+	t.Cleanup(func() { model.DB.Unscoped().Where("user_id = ?", 981).Delete(&model.Redemption{}) })
+	task := makeTask(981, 0, 10, 0, BillingSourceWallet, 0)
+	require.NoError(t, model.DB.Create(task).Error)
+	id, err := beginLegacyTaskWalletHold(task)
+	require.NoError(t, err)
+	require.NotEmpty(t, id)
+	require.NoError(t, model.DB.Model(task).Update("status", model.TaskStatusSuccess).Error)
+	_, err = model.CreateResellerBalanceCodes(981, 10, 1, "while-settling")
+	require.Error(t, err)
+	releaseLegacyTaskWalletHold(context.Background(), task, id)
+	_, err = model.CreateResellerBalanceCodes(981, 10, 1, "settled")
+	require.NoError(t, err)
 }

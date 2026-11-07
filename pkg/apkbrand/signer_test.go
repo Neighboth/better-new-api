@@ -4,64 +4,75 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestRebrandKeepsTheSignerOfTheApk protects the update of an installed application.
-//
-// Android refuses to install an APK whose signer differs from the one of the
-// installed application ("App not installed"). The server signs the rebranded APK
-// with the key of the repository, therefore the signer of the result has to be the
-// same as the signer of the APK that was built from the sources.
-func TestRebrandKeepsTheSignerOfTheApk(t *testing.T) {
+func TestRebrandUsesStableInstallationSigner(t *testing.T) {
 	path := baseAPKPath()
 	if path == "" {
 		t.Skip("prebuilt APK not available")
 	}
 	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
-
-	keyPath := filepath.Join("..", "..", "worker", "mobile", "apk_signing_key.pem")
+	keyPath := filepath.Join(t.TempDir(), "private.pem")
 	signer, err := LoadSigner(keyPath)
-	if err != nil {
-		t.Skipf("the shared signing key is not available: %v", err)
-	}
-
-	baseChain, err := signerCertificates(raw)
 	require.NoError(t, err)
-	require.NotEmpty(t, baseChain)
-
 	icon, err := RenderIcon(testIconPNG(t), 192)
 	require.NoError(t, err)
-
-	rebranded, err := Rebrand(raw, Branding{Label: testLabel, IconPNG: icon}, signer)
+	first, err := Rebrand(raw, Branding{Label: testLabel, IconPNG: icon}, signer)
 	require.NoError(t, err)
-
-	rebrandedChain, err := signerCertificates(rebranded)
+	nextSigner, err := LoadSigner(keyPath)
 	require.NoError(t, err)
-	require.NotEmpty(t, rebrandedChain)
-	assert.Equal(t, baseChain, rebrandedChain, "the signer of the APK changed, an installed application could not be updated")
-}
-
-// TestSigningKeyBundleIsUsable makes sure that the key file of the repository can be
-// read by the server and by the build script.
-func TestSigningKeyBundleIsUsable(t *testing.T) {
-	keyPath := filepath.Join("..", "..", "worker", "mobile", "apk_signing_key.pem")
-	raw, err := os.ReadFile(keyPath)
-	if err != nil {
-		t.Skip("the shared signing key is not available")
-	}
-
-	signer, err := parseSignerPEM(raw)
+	second, err := Rebrand(raw, Branding{Label: "Updated label", IconPNG: icon}, nextSigner)
 	require.NoError(t, err)
-	require.NotNil(t, signer.Cert)
-	assert.NotEmpty(t, signer.Cert.Raw)
-
-	privateKey, certificate, err := SplitSignerPEM(raw)
+	firstChain, err := signerCertificates(first)
+	require.NoError(t, err)
+	secondChain, err := signerCertificates(second)
+	require.NoError(t, err)
+	require.NotEmpty(t, firstChain)
+	assert.Equal(t, firstChain, secondChain, "updates for one installation must have the same signer")
+	privateKey, certificate, err := SplitSignerPEM(mustRead(t, keyPath))
 	require.NoError(t, err)
 	assert.True(t, bytes.Contains(privateKey, []byte("PRIVATE KEY")))
 	assert.True(t, bytes.Contains(certificate, []byte("CERTIFICATE")))
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return data
+}
+
+func TestConcurrentSignerCreationUsesOneKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keys", "private.pem")
+	const workers = 5
+	certs := make([][]byte, workers)
+	errs := make([]error, workers)
+	var wg sync.WaitGroup
+	for i := range certs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			signer, err := LoadSigner(path)
+			errs[i] = err
+			if err == nil {
+				certs[i] = signer.Cert.Raw
+			}
+		}(i)
+	}
+	wg.Wait()
+	for i := range certs {
+		require.NoError(t, errs[i])
+		require.Equal(t, certs[0], certs[i])
+	}
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	if os.PathSeparator != '\\' {
+		require.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	}
 }

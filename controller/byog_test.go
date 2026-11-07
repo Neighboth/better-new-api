@@ -199,6 +199,7 @@ func TestResolveNodeGeoIP(t *testing.T) {
 }
 
 func TestDownloadByogWorkerEndpoints(t *testing.T) {
+	t.Setenv("BYOG_APK_SIGNING_KEY", filepath.Join(t.TempDir(), "private.pem"))
 	gin.SetMode(gin.TestMode)
 	common.SystemName = "TestPlatform"
 	common.Favicon = "/favicon.ico"
@@ -260,6 +261,7 @@ func TestDownloadByogWorkerEndpoints(t *testing.T) {
 }
 
 func TestDynamicApkBrandingAndFavicon(t *testing.T) {
+	t.Setenv("BYOG_APK_SIGNING_KEY", filepath.Join(t.TempDir(), "private.pem"))
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.GET("/api/v1/worker/download/:platform/:arch", DownloadByogWorker)

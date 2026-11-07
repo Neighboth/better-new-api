@@ -151,6 +151,7 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 	if err != nil || node == nil {
 		return fmt.Errorf("node not found: %s", session.NodeId)
 	}
+	userID := c.GetInt("id")
 
 	// Concurrency limiter check (Section 3.7) with queuing
 	queue := r.getNodeQueue(session.NodeId, node.DeviceType)
@@ -193,6 +194,38 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 	session.PendingRequests.Store(reqId, respChan)
 	defer session.PendingRequests.Delete(reqId)
 
+	var authorization *byogAuthorization
+	holdID := c.GetString(common.WalletTransferHoldContextKey)
+	if userID > 0 && userID != node.UserId && holdID != "" && !common.BatchUpdateEnabled {
+		authorization, err = newByogAuthorization(modelDef, &payload)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": err.Error(), "type": "byog_authorization_error"}})
+			return err
+		}
+		if authorization.reserved > 0 {
+			reserved, reserveErr := model.ReserveByogWalletAndToken(userID, holdID, c.GetInt("token_id"), authorization.reserved)
+			if reserveErr != nil {
+				c.Set(common.WalletTransferHoldRetainContextKey, true)
+				return fmt.Errorf("BYOG reservation failed: %w", reserveErr)
+			}
+			if !reserved {
+				c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{"error": gin.H{"message": "insufficient wallet balance for BYOG maximum cost", "type": "insufficient_quota"}})
+				return fmt.Errorf("insufficient BYOG wallet balance for reservation")
+			}
+		}
+	}
+
+	// Once dispatch starts, a disconnect or timeout does not prove whether the
+	// worker performed chargeable work. Keep the transfer hold for review unless
+	// the terminal frame and accounting complete. Own-node inference is free.
+	dispatchCompleted := false
+	if userID := c.GetInt("id"); userID > 0 && userID != node.UserId {
+		defer func() {
+			if !dispatchCompleted {
+				c.Set(common.WalletTransferHoldRetainContextKey, true)
+			}
+		}()
+	}
 	// Send inference request frame to worker
 	rawPayload, _ := json.Marshal(payload)
 	err = session.WriteFrame(TunnelFrame{
@@ -225,6 +258,7 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 	defer timeoutTicker.Stop()
 
 	var totalTokensGenerated int
+	var totalOutputBytes int
 	var receivedFirstChunk bool
 	var fullNonStreamContent strings.Builder
 
@@ -267,6 +301,16 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 					if chunk.Content == "" {
 						continue
 					}
+					if authorization != nil {
+						// Enforce both the billed chunk limit and a bounded byte size
+						// before exposing the next chunk to the client.
+						maxBytes := authorization.outputLimit*256 + 4096
+						if totalTokensGenerated >= authorization.outputLimit || len(chunk.Content) > maxBytes-totalOutputBytes {
+							streamError("BYOG worker exceeded the authorized output limit", "byog_usage_exceeded")
+							return fmt.Errorf("BYOG worker exceeded authorized output")
+						}
+						totalOutputBytes += len(chunk.Content)
+					}
 					totalTokensGenerated++
 					if payload.Stream {
 						// Stream OpenAI compatible chunk
@@ -301,7 +345,10 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 
 			case MsgTypeInferenceDone:
 				var done DonePayload
-				_ = json.Unmarshal(frame.Payload, &done)
+				if err := json.Unmarshal(frame.Payload, &done); err != nil && authorization != nil {
+					streamError("BYOG worker sent invalid usage", "byog_usage_invalid")
+					return fmt.Errorf("invalid BYOG completion payload: %w", err)
+				}
 
 				// The done frame reports total_tokens as the sum of the prompt
 				// and the generation of the worker, so it must not replace the
@@ -311,6 +358,27 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 				if done.Error != "" && totalTokensGenerated == 0 {
 					streamError(done.Error, "byog_worker_error")
 					return fmt.Errorf("worker reported error: %s", done.Error)
+				}
+
+				var authorizedCharge int
+				if authorization != nil {
+					if done.PromptTokens < 0 || done.PromptTokens > authorization.inputLimit {
+						streamError("BYOG worker reported usage outside the authorized range", "byog_usage_exceeded")
+						return fmt.Errorf("BYOG worker reported invalid prompt usage")
+					}
+					authorizedCharge, err = authorization.price.quota(done.PromptTokens, totalTokensGenerated, false)
+					if err != nil || authorizedCharge > authorization.reserved {
+						streamError("BYOG accounting could not be settled", "byog_accounting_error")
+						return fmt.Errorf("BYOG charge exceeds reservation")
+					}
+					// The price snapshot and bounded usage guarantee this delta is
+					// nonnegative. Replay cannot refund the reservation twice.
+					if authorization.reserved > 0 {
+						if err = model.FinalizeByogWalletAndToken(userID, holdID, c.GetInt("token_id"), authorization.reserved, authorizedCharge); err != nil {
+							streamError("BYOG accounting could not be settled", "byog_accounting_error")
+							return fmt.Errorf("settle BYOG reservation: %w", err)
+						}
+					}
 				}
 
 				// Calculate multipliers & credit tokens
@@ -381,8 +449,24 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 						quotaToDeduct = int64(float64(totalTokens) * quotaPerToken)
 					}
 
-					if quotaToDeduct > 0 {
-						_ = model.DecreaseUserQuota(userId, int(quotaToDeduct), true)
+					if authorization != nil {
+						// Wallet was reserved and settled using the immutable price snapshot.
+						quotaToDeduct = int64(authorizedCharge)
+					}
+					if quotaToDeduct > 0 && authorization == nil {
+						var chargeErr error
+						holdID := c.GetString(common.WalletTransferHoldContextKey)
+						if quotaToDeduct > int64(common.MaxQuota) {
+							chargeErr = fmt.Errorf("BYOG wallet charge exceeds supported range")
+						} else if holdID != "" && !common.BatchUpdateEnabled {
+							chargeErr = model.ApplyWalletHoldDelta(userId, holdID, "byog-settlement", -int(quotaToDeduct))
+						} else {
+							chargeErr = model.DecreaseUserQuota(userId, int(quotaToDeduct), true)
+						}
+						if chargeErr != nil {
+							c.Set(common.WalletTransferHoldRetainContextKey, true)
+							common.SysError("BYOG wallet settlement failed: " + chargeErr.Error())
+						}
 					}
 
 					tokenId := c.GetInt("token_id")
@@ -444,6 +528,7 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 					}
 					c.JSON(http.StatusOK, openAiResp)
 				}
+				dispatchCompleted = true
 				return nil
 
 			case MsgTypeInferenceError:

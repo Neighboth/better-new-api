@@ -27,11 +27,12 @@ import (
 
 	"github.com/QuantumNous/new-api/worker/desktop/installer"
 	"github.com/QuantumNous/new-api/worker/llama"
+	"github.com/QuantumNous/new-api/worker/workerurl"
 	"github.com/gorilla/websocket"
 )
 
 const (
-	WorkerVersion       = "1.9.1"
+	WorkerVersion       = "1.10.0"
 	DefaultServerUrl    = "http://localhost:3000"
 	DefaultChunkSize    = 4194304 // 4 MB
 	ParallelConnections = 16
@@ -45,6 +46,7 @@ type Config struct {
 	Language          string `json:"language"`
 	LegalAccepted     bool   `json:"legal_accepted"`
 	NodeId            string `json:"node_id"`
+	WorkerSecret      string `json:"worker_secret"`
 	PairingCode       string `json:"pairing_code"`
 	HWID              string `json:"hwid"`
 	DeviceName        string `json:"device_name"`
@@ -86,10 +88,10 @@ type WorkerState struct {
 	// coordinator that the progress of the node begins again.
 	DownloadStartedAt int64
 	DownloadError     string
-	AllocatedRamGB   float64
-	AllocatedVramGB  int
-	AllocatedCores   int
-	Disks            string
+	AllocatedRamGB    float64
+	AllocatedVramGB   int
+	AllocatedCores    int
+	Disks             string
 	Mu                sync.Mutex
 }
 
@@ -1221,6 +1223,9 @@ func versionGreater(candidate string, current string) bool {
 
 // Self-Updater Engine with Windows File-Lock Workaround (Section 5.5)
 func checkSelfUpdate() {
+	if workerurl.Validate(State.Config.ServerUrl) != nil {
+		return
+	}
 	versionUrl := fmt.Sprintf("%s/api/v1/worker/version", State.Config.ServerUrl)
 	resp, err := http.Get(versionUrl)
 	if err != nil {
@@ -1362,6 +1367,9 @@ func startAndVerifyUpdate(executable string, previous string) error {
 
 // Crash Telemetry Reporter (Section 5.6)
 func reportCrash(errCode string, errMsg string, stackTrace string, modelId string) {
+	if workerurl.Validate(State.Config.ServerUrl) != nil {
+		return
+	}
 	crashUrl := fmt.Sprintf("%s/api/v1/worker/telemetry/crash", State.Config.ServerUrl)
 	payload := map[string]interface{}{
 		"node_id":         State.Config.NodeId,
@@ -1372,7 +1380,14 @@ func reportCrash(errCode string, errMsg string, stackTrace string, modelId strin
 		"model_id":        modelId,
 	}
 	body, _ := json.Marshal(payload)
-	_, _ = http.Post(crashUrl, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, crashUrl, bytes.NewReader(body))
+	if err == nil {
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+State.Config.WorkerSecret)
+		if resp, err := (&http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req); err == nil {
+			resp.Body.Close()
+		}
+	}
 }
 
 // LocalTransformerEngine executes the inference with the local llama.cpp runtime.
@@ -2007,6 +2022,11 @@ func runConsole(serverFlag string, codeFlag string, deviceFlag string) {
 
 	config := loadConfig()
 	if serverFlag != "" {
+		if serverFlag != config.ServerUrl {
+			config.NodeId = ""
+			config.WorkerSecret = ""
+			config.PairingCode = ""
+		}
 		config.ServerUrl = serverFlag
 	}
 	if codeFlag != "" {

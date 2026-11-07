@@ -1,0 +1,40 @@
+name: Reseller database concurrency
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  database-tests:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-password
+          MYSQL_ROOT_HOST: '%'
+          MYSQL_DATABASE: reseller_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptest-password"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: reseller_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U postgres -d reseller_test"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Test MySQL and PostgreSQL concurrency
+        env:
+          TEST_MYSQL_DSN: 'root:test-password@tcp(127.0.0.1:3306)/reseller_test?parseTime=true'
+          TEST_POSTGRES_DSN: 'postgres://postgres:test-password@127.0.0.1:5432/reseller_test?sslmode=disable'
+        run: go test ./model -run '^TestResellerAndPairingOnConfiguredDatabases$' -count=1 -v

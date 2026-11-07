@@ -20,6 +20,9 @@ func SetApiRouter(router *gin.Engine) {
 	apiRouter.Use(middleware.GlobalAPIRateLimit())
 	anonymousRequestBodyLimit := middleware.AnonymousRequestBodyLimit()
 	{
+		apiRouter.GET("/wallet-holds", middleware.RootAuth(), controller.GetOpenWalletHolds)
+		apiRouter.POST("/wallet-holds/:id/resolve", middleware.RootAuth(), controller.ResolveWalletHold)
+		apiRouter.POST("/wallet-holds/:id/byog-finalize", middleware.RootAuth(), controller.FinalizeByogWalletHold)
 		apiRouter.GET("/setup", controller.GetSetup)
 		apiRouter.POST("/setup", anonymousRequestBodyLimit, controller.PostSetup)
 		apiRouter.GET("/status", controller.GetStatus)
@@ -498,7 +501,6 @@ func SetApiRouter(router *gin.Engine) {
 			resellerRoute.GET("/redemptions", controller.ResellerGetRedemptions)
 			resellerRoute.POST("/redemptions", controller.ResellerCreateRedemption)
 			resellerRoute.DELETE("/redemptions/:id", controller.ResellerDeleteRedemption)
-			resellerRoute.GET("/users/:userId/logs", controller.ResellerGetUserLogs)
 		}
 
 		// Deployments (model deployment management)
@@ -541,7 +543,11 @@ func SetApiRouter(router *gin.Engine) {
 			byogUserRoute.Use(middleware.UserAuth())
 			{
 				byogUserRoute.GET("/nodes", controller.GetUserByogNodes)
-				byogUserRoute.POST("/nodes/pair", controller.PairByogNode)
+				ownerClient := byogUserRoute.Group("/client")
+				ownerClient.Use(func(c *gin.Context) { c.Set("byog_owner_access", true); c.Next() })
+				ownerClient.GET("/status", controller.GetByogWorkerStatus)
+				ownerClient.POST("/resources", controller.UpdateByogWorkerResources)
+				ownerClient.POST("/test-inference", controller.TestByogNodeInference)
 				byogUserRoute.GET("/pair/code", controller.GetUserPairingCode)
 				byogUserRoute.PUT("/nodes/:id", controller.UpdateUserByogNode)
 				byogUserRoute.DELETE("/nodes/:id", controller.DeleteUserByogNode)
