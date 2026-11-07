@@ -88,3 +88,45 @@ func ResolveWalletHold(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
+
+// FinalizeByogWalletHold is a root-only reconciliation path for a stopped
+// BYOG operation. The operator must investigate provider evidence first; this
+// endpoint cannot prove that a worker has stopped on another coordinator.
+func FinalizeByogWalletHold(c *gin.Context) {
+	id := c.Param("id")
+	raw, err := hex.DecodeString(id)
+	if err != nil || len(raw) != 16 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid hold ID"})
+		return
+	}
+	var request struct {
+		UserID      int    `json:"user_id"`
+		ActualQuota *int   `json:"actual_quota"`
+		Reason      string `json:"reason"`
+		Confirmed   bool   `json:"confirmed"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil || request.UserID <= 0 || request.ActualQuota == nil || *request.ActualQuota < 0 || !request.Confirmed || len(strings.TrimSpace(request.Reason)) < 10 || len(strings.TrimSpace(request.Reason)) > 500 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "User ID, actual quota, confirmation and a 10–500 character reason are required"})
+		return
+	}
+	var event model.WalletHoldEvent
+	if err := model.DB.Where("hold_id = ? AND event_key = ? AND user_id = ?", id, "byog-precharge", request.UserID).First(&event).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if event.Delta >= 0 || *request.ActualQuota > -event.Delta {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Actual quota exceeds the BYOG reservation"})
+		return
+	}
+	if err := model.FinalizeByogWalletAndToken(request.UserID, id, event.TokenID, -event.Delta, *request.ActualQuota); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	// Separate commits are replay-safe: an interrupted call can be retried
+	// with the same amount and reason without double-crediting either balance.
+	if err := model.ManuallyResolveWalletTransferHold(request.UserID, id, 0, c.GetInt("id"), request.Reason); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}

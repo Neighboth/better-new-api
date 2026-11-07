@@ -215,7 +215,7 @@ func TestPaidByogRetainsReserveWhenDispatchOutcomeIsUnknown(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 10000+event.Delta, quota)
 	// This test is only cleanup; production operators must reconcile first.
-	require.NoError(t, model.ApplyWalletHoldDelta(2, hold, "test-refund", -event.Delta))
+	require.NoError(t, model.FinalizeByogWalletAndToken(2, hold, 0, -event.Delta, 0))
 	require.NoError(t, model.ResolveWalletTransferHold(2, hold, 0))
 }
 
@@ -284,6 +284,6 @@ func TestPaidByogRejectsWorkerOutputPastAuthorizedLimit(t *testing.T) {
 	require.NoError(t, db.Where("hold_id = ?", hold).Find(&events).Error)
 	require.Len(t, events, 1)
 	require.Equal(t, "byog-precharge", events[0].EventKey)
-	require.NoError(t, model.ApplyWalletHoldDelta(2, hold, "test-refund", -events[0].Delta))
+	require.NoError(t, model.FinalizeByogWalletAndToken(2, hold, 0, -events[0].Delta, 0))
 	require.NoError(t, model.ResolveWalletTransferHold(2, hold, 0))
 }

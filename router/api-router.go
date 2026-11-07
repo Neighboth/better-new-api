@@ -22,6 +22,7 @@ func SetApiRouter(router *gin.Engine) {
 	{
 		apiRouter.GET("/wallet-holds", middleware.RootAuth(), controller.GetOpenWalletHolds)
 		apiRouter.POST("/wallet-holds/:id/resolve", middleware.RootAuth(), controller.ResolveWalletHold)
+		apiRouter.POST("/wallet-holds/:id/byog-finalize", middleware.RootAuth(), controller.FinalizeByogWalletHold)
 		apiRouter.GET("/setup", controller.GetSetup)
 		apiRouter.POST("/setup", anonymousRequestBodyLimit, controller.PostSetup)
 		apiRouter.GET("/status", controller.GetStatus)
