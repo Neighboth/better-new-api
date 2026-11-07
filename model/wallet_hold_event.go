@@ -12,11 +12,13 @@ import (
 // WalletHoldEvent records an idempotent SQL wallet adjustment against an open
 // operation. Rows are retained so an ambiguous-commit retry cannot charge twice.
 type WalletHoldEvent struct {
-	HoldID    string `gorm:"type:char(32);primaryKey" json:"hold_id"`
-	EventKey  string `gorm:"type:varchar(64);primaryKey" json:"event_key"`
-	UserID    int    `gorm:"index;not null" json:"user_id"`
-	Delta     int    `json:"delta"`
-	CreatedAt int64  `json:"created_at"`
+	HoldID     string `gorm:"type:char(32);primaryKey" json:"hold_id"`
+	EventKey   string `gorm:"type:varchar(64);primaryKey" json:"event_key"`
+	UserID     int    `gorm:"index;not null" json:"user_id"`
+	Delta      int    `json:"delta"`
+	TokenID    int    `gorm:"not null;default:0" json:"token_id,omitempty"`
+	TokenDelta int    `gorm:"not null;default:0" json:"token_delta,omitempty"`
+	CreatedAt  int64  `json:"created_at"`
 }
 
 func ApplyWalletHoldDelta(userID int, holdID, eventKey string, delta int) error {
@@ -38,7 +40,7 @@ func ApplyWalletHoldDelta(userID int, holdID, eventKey string, delta int) error 
 			return lookup.Error
 		}
 		if lookup.RowsAffected > 0 {
-			if previous.UserID != userID || previous.Delta != delta {
+			if previous.UserID != userID || previous.Delta != delta || previous.TokenID != 0 || previous.TokenDelta != 0 {
 				return ErrWalletHoldConflict
 			}
 			return nil
@@ -98,7 +100,7 @@ func ReserveWalletHoldQuota(userID int, holdID, eventKey string, amount int) (bo
 			return lookup.Error
 		}
 		if lookup.RowsAffected > 0 {
-			if previous.UserID != userID || previous.Delta != -amount {
+			if previous.UserID != userID || previous.Delta != -amount || previous.TokenID != 0 || previous.TokenDelta != 0 {
 				return ErrWalletHoldConflict
 			}
 			reserved = true

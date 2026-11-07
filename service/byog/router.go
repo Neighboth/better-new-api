@@ -215,7 +215,7 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 			return err
 		}
 		if authorization.reserved > 0 {
-			reserved, reserveErr := model.ReserveWalletHoldQuota(userID, holdID, "byog-precharge", authorization.reserved)
+			reserved, reserveErr := model.ReserveByogWalletAndToken(userID, holdID, c.GetInt("token_id"), authorization.reserved)
 			if reserveErr != nil {
 				c.Set(common.WalletTransferHoldRetainContextKey, true)
 				return fmt.Errorf("BYOG reservation failed: %w", reserveErr)
@@ -385,9 +385,11 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 					}
 					// The price snapshot and bounded usage guarantee this delta is
 					// nonnegative. Replay cannot refund the reservation twice.
-					if err = model.ApplyWalletHoldDelta(userID, holdID, "byog-final", authorization.reserved-authorizedCharge); err != nil {
-						streamError("BYOG accounting could not be settled", "byog_accounting_error")
-						return fmt.Errorf("settle BYOG reservation: %w", err)
+					if authorization.reserved > 0 {
+						if err = model.FinalizeByogWalletAndToken(userID, holdID, c.GetInt("token_id"), authorization.reserved, authorizedCharge); err != nil {
+							streamError("BYOG accounting could not be settled", "byog_accounting_error")
+							return fmt.Errorf("settle BYOG reservation: %w", err)
+						}
 					}
 				}
 

@@ -73,10 +73,11 @@ func TestPaidByogReservesBeforeDispatchAndSettlesBoundedUsage(t *testing.T) {
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB, common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = oldDB, oldLogDB, oldRedis, oldBatch, oldConsume
 	})
-	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
+	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}, &model.Token{}))
 	node := model.ByogNode{NodeId: "bounded-dispatch", UserId: 1, Status: "online", DeviceType: "desktop"}
 	require.NoError(t, db.Create(&node).Error)
 	require.NoError(t, db.Create(&model.User{Id: 2, Username: "bounded-user", Quota: 10000, AffCode: "bounded-aff"}).Error)
+	require.NoError(t, db.Create(&model.Token{Id: 2, UserId: 2, Key: "bounded-test-token", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 10000}).Error)
 	hold, err := model.BeginWalletTransferHold(2)
 	require.NoError(t, err)
 	connections := make(chan *websocket.Conn, 1)
@@ -115,6 +116,7 @@ func TestPaidByogReservesBeforeDispatchAndSettlesBoundedUsage(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	ctx.Set("id", 2)
+	ctx.Set("token_id", 2)
 	ctx.Set(common.WalletTransferHoldContextKey, hold)
 	payload := InferencePayload{RequestId: "bounded-request", Prompt: "hi", Messages: json.RawMessage(`[]`), MaxTokens: 2}
 	modelDef := &model.ByogModel{ModelId: "unknown-byog-model", PricingTier: 2}
@@ -143,6 +145,10 @@ func TestPaidByogReservesBeforeDispatchAndSettlesBoundedUsage(t *testing.T) {
 	quota, err := model.GetUserQuota(2, true)
 	require.NoError(t, err)
 	require.Equal(t, 10000+pre+final, quota)
+	var token model.Token
+	require.NoError(t, db.First(&token, 2).Error)
+	require.Equal(t, 10000-expected, token.RemainQuota)
+	require.Equal(t, expected, token.UsedQuota)
 	require.False(t, ctx.GetBool(common.WalletTransferHoldRetainContextKey))
 	require.NoError(t, model.ResolveWalletTransferHold(2, hold, 0))
 }
