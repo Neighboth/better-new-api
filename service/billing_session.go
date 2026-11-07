@@ -193,9 +193,11 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 		return err
 	}
 	if err := s.reserveToken(delta); err != nil {
-		s.reserveUncertain = true
-		if funding, ok := s.funding.(*WalletFunding); ok && funding.markUncertain != nil {
-			funding.markUncertain()
+		if !errors.Is(err, ErrInsufficientTokenQuota) {
+			s.reserveUncertain = true
+			if funding, ok := s.funding.(*WalletFunding); ok && funding.markUncertain != nil {
+				funding.markUncertain()
+			}
 		}
 		s.rollbackFundingReserve(delta)
 		return err
@@ -229,7 +231,9 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 	// ---- 1) 预扣令牌额度 ----
 	if effectiveQuota > 0 {
 		if err := PreConsumeTokenQuota(s.relayInfo, effectiveQuota); err != nil {
-			c.Set(common.WalletTransferHoldRetainContextKey, true)
+			if !errors.Is(err, ErrInsufficientTokenQuota) {
+				c.Set(common.WalletTransferHoldRetainContextKey, true)
+			}
 			return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
 		s.tokenConsumed = effectiveQuota
