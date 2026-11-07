@@ -85,20 +85,32 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string, trayFlag bool
 		startBackgroundTasks()
 	}()
 
-	go openInterface(bridge.address + "/")
+	go func() {
+		target := bridge.pageAddress(config.ServerUrl)
+		if target == "" {
+			target = strings.TrimRight(config.ServerUrl, "/") + "/client"
+		}
+		openInterface(target)
+	}()
 
 	server := &http.Server{Handler: interfaceHandler(bridge)}
 	_ = server.Serve(listener)
 }
 
-// interfaceHandler sends the page of the client to the server of the state.
-//
-// The page of the first start and the page of the installation are served by
-// the server of the state. The server of the page stays for the addresses that
-// are already known to the user.
+// interfaceHandler sends the page of the client to the site /client page.
 func interfaceHandler(bridge *localBridge) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		http.Redirect(writer, request, bridge.address+"/", http.StatusSeeOther)
+		State.Mu.Lock()
+		serverUrl := State.Config.ServerUrl
+		State.Mu.Unlock()
+		if serverUrl == "" {
+			serverUrl = DefaultServerUrl
+		}
+		target := bridge.pageAddress(serverUrl)
+		if target == "" {
+			target = strings.TrimRight(serverUrl, "/") + "/client"
+		}
+		http.Redirect(writer, request, target, http.StatusSeeOther)
 	})
 }
 

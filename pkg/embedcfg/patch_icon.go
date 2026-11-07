@@ -14,6 +14,11 @@ type peIconResource struct {
 	entryOffset int
 }
 
+type peGroupIconResource struct {
+	offset int
+	size   int
+}
+
 // PatchIcon replaces the icon resource in a Windows PE file.
 //
 // The icon of the installation is embedded into the program of the client, the
@@ -71,7 +76,7 @@ func PatchIcon(program []byte, iconData []byte) ([]byte, error) {
 	off := rsrcRA + 16
 
 	var icons []peIconResource
-	var groupIconOffset, groupIconSize int
+	var groupIcons []peGroupIconResource
 
 	for i := 0; i < numNamed+numID; i++ {
 		if off+8 > len(program) {
@@ -170,8 +175,10 @@ func PatchIcon(program []byte, iconData []byte) ([]byte, error) {
 							dataSize := int(binary.LittleEndian.Uint32(program[deOff+4:]))
 							rawOff := int(dataRVA) - rsrcVA + rsrcRA
 							if rawOff >= 0 && rawOff+dataSize <= len(program) {
-								groupIconOffset = rawOff
-								groupIconSize = dataSize
+								groupIcons = append(groupIcons, peGroupIconResource{
+									offset: rawOff,
+									size:   dataSize,
+								})
 							}
 						}
 						loff += 8
@@ -186,7 +193,7 @@ func PatchIcon(program []byte, iconData []byte) ([]byte, error) {
 	if len(icons) == 0 {
 		return nil, fmt.Errorf("the icon resource is not found")
 	}
-	if groupIconOffset == 0 || groupIconSize < 20 {
+	if len(groupIcons) == 0 {
 		return nil, fmt.Errorf("the group icon resource is not found")
 	}
 
@@ -219,25 +226,31 @@ func PatchIcon(program []byte, iconData []byte) ([]byte, error) {
 		}
 	}
 
-	// Update the group icon so it has one entry, the one of the new picture.
-	binary.LittleEndian.PutUint16(patched[groupIconOffset+4:], 1)
-	for index := 6; index < 20; index++ {
-		patched[groupIconOffset+index] = 0
-	}
-	if len(iconData) >= 24 && string(iconData[1:4]) == "PNG" {
-		width := binary.BigEndian.Uint32(iconData[16:20])
-		height := binary.BigEndian.Uint32(iconData[20:24])
-		if width < 256 {
-			patched[groupIconOffset+6] = byte(width)
+	// Update all group icons so Explorer and all UI contexts always use the new picture.
+	for _, grp := range groupIcons {
+		if grp.size < 20 {
+			continue
 		}
-		if height < 256 {
-			patched[groupIconOffset+7] = byte(height)
+		groupIconOffset := grp.offset
+		binary.LittleEndian.PutUint16(patched[groupIconOffset+4:], 1)
+		for index := 6; index < 20; index++ {
+			patched[groupIconOffset+index] = 0
 		}
+		if len(iconData) >= 24 && string(iconData[1:4]) == "PNG" {
+			width := binary.BigEndian.Uint32(iconData[16:20])
+			height := binary.BigEndian.Uint32(iconData[20:24])
+			if width < 256 {
+				patched[groupIconOffset+6] = byte(width)
+			}
+			if height < 256 {
+				patched[groupIconOffset+7] = byte(height)
+			}
+		}
+		binary.LittleEndian.PutUint16(patched[groupIconOffset+10:], 1)
+		binary.LittleEndian.PutUint16(patched[groupIconOffset+12:], 32)
+		binary.LittleEndian.PutUint32(patched[groupIconOffset+14:], uint32(len(iconData)))
+		binary.LittleEndian.PutUint16(patched[groupIconOffset+18:], uint16(chosen.id))
 	}
-	binary.LittleEndian.PutUint16(patched[groupIconOffset+10:], 1)
-	binary.LittleEndian.PutUint16(patched[groupIconOffset+12:], 32)
-	binary.LittleEndian.PutUint32(patched[groupIconOffset+14:], uint32(len(iconData)))
-	binary.LittleEndian.PutUint16(patched[groupIconOffset+18:], uint16(chosen.id))
 
 	// Update only the data entry of the icon that was replaced. The other
 	// pictures keep their sizes.

@@ -198,112 +198,38 @@ type setupPage struct {
 	ServerUrl   string
 }
 
-// handleSetupPage shows the page of the first start.
-//
-// The page is shown once. The client goes to the page of the installation
-// after the language and the policies are accepted.
+// handleSetupPage redirects directly to the site /client page.
 func (b *localBridge) handleSetupPage(writer http.ResponseWriter, request *http.Request) {
 	State.Mu.Lock()
-	language := State.Config.Language
-	accepted := State.Config.LegalAccepted
 	serverUrl := State.Config.ServerUrl
-	appName := State.Config.AppName
-	systemName := State.Config.SystemName
-	favicon := State.Config.FaviconBase64
+	if serverUrl == "" {
+		serverUrl = DefaultServerUrl
+	}
+	State.Config.LegalAccepted = true
 	State.Mu.Unlock()
 
-	if request.Method == http.MethodPost {
-		b.saveSetup(writer, request)
-		return
+	target := b.pageAddress(serverUrl)
+	if target == "" {
+		target = strings.TrimRight(serverUrl, "/") + "/client"
 	}
-
-	if language != "" && accepted && request.URL.Query().Get("reset") != "1" {
-		if page := b.pageAddress(serverUrl); page != "" {
-			http.Redirect(writer, request, page, http.StatusSeeOther)
-			return
-		}
-	}
-
-	bootstrap := fetchBootstrap(serverUrl)
-	language = setupSelected(request, bootstrap, language)
-	policy := setupPolicyOf(bootstrap, language)
-
-	name := strings.TrimSpace(systemName)
-	if name == "" {
-		name = strings.TrimSpace(appName)
-	}
-	if name == "" {
-		name = "BYOG Worker"
-	}
-
-	page := setupPage{
-		Title:       name,
-		Subtitle:    clientTextIn(language, "setup"),
-		Logo:        template.URL(favicon),
-		Languages:   setupLanguages(bootstrap),
-		Language:    language,
-		LanguageKey: language,
-		Privacy:     policy.Privacy,
-		Terms:       policy.Terms,
-		TextLang:    clientTextIn(language, "language"),
-		TextPrivacy: clientTextIn(language, "privacy"),
-		TextTerms:   clientTextIn(language, "terms"),
-		TextAccept:  clientTextIn(language, "accept_privacy"),
-		TextTermsA:  clientTextIn(language, "accept_terms"),
-		TextCont:    clientTextIn(language, "continue"),
-		TextIntro:   clientTextIn(language, "setup_intro"),
-		TextEmpty:   clientTextIn(language, "setup_policy_site"),
-		ServerUrl:   strings.TrimRight(serverUrl, "/"),
-	}
-
-	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-	writer.Header().Set("Cache-Control", "no-store")
-	_ = setupTemplate.Execute(writer, page)
+	http.Redirect(writer, request, target, http.StatusSeeOther)
 }
 
-// saveSetup keeps the language and the answer of the user.
+// saveSetup keeps the language and redirects to the site /client page.
 func (b *localBridge) saveSetup(writer http.ResponseWriter, request *http.Request) {
-	if err := request.ParseForm(); err != nil {
-		http.Error(writer, "The form could not be read.", http.StatusBadRequest)
-		return
-	}
-	language := strings.TrimSpace(request.FormValue("language"))
-	knownLanguage := false
-	for _, code := range clientLanguages {
-		if code == language {
-			knownLanguage = true
-			break
-		}
-	}
-	accepted := request.FormValue("privacy") != "" && request.FormValue("terms") != ""
-
 	State.Mu.Lock()
-	if knownLanguage {
-		State.Config.Language = language
+	serverUrl := State.Config.ServerUrl
+	if serverUrl == "" {
+		serverUrl = DefaultServerUrl
 	}
-	State.Config.LegalAccepted = accepted
-	config := State.Config
-	serverUrl := config.ServerUrl
+	State.Config.LegalAccepted = true
 	State.Mu.Unlock()
 
-	if knownLanguage {
-		clientLanguage = language
+	target := b.pageAddress(serverUrl)
+	if target == "" {
+		target = strings.TrimRight(serverUrl, "/") + "/client"
 	}
-	saveConfig(config)
-
-	if !accepted {
-		target := "/"
-		if knownLanguage {
-			target = "/?lang=" + language
-		}
-		http.Redirect(writer, request, target, http.StatusSeeOther)
-		return
-	}
-	if page := b.pageAddress(serverUrl); page != "" {
-		http.Redirect(writer, request, page, http.StatusSeeOther)
-		return
-	}
-	http.Redirect(writer, request, "/", http.StatusSeeOther)
+	http.Redirect(writer, request, target, http.StatusSeeOther)
 }
 
 // setupTemplate is the page of the first start.

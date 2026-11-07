@@ -1140,36 +1140,7 @@ func speedDescription(status AppStatus) string {
 // The page of the first start is opened again, the language of the user is used
 // by the texts of the interface and it is kept for the next start of the client.
 func (w *guiWindow) changeLanguage() {
-	if w.bridge == nil {
-		return
-	}
-	w.mutex.Lock()
-	closing := w.embedCmd != nil
-	if closing {
-		w.embedClosing = true
-	}
-	w.mutex.Unlock()
-	if closing {
-		// The page of the first start is shown in the window of WebView2. The
-		// window that shows the page of the client is closed first, the class
-		// of the window names only one window.
-		closeWebViewWindow()
-		// The runtime of WebView2 locks the directory of the page while the
-		// process lives. A new process cannot start before the old one ends,
-		// therefore the end of the process is waited for.
-		for attempt := 0; attempt < 50; attempt++ {
-			w.mutex.Lock()
-			ended := w.embedCmd == nil
-			w.mutex.Unlock()
-			if ended {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
-	if !w.openEmbeddedPage(w.bridge.address + "/?reset=1") {
-		w.showMessage(windowTitle(), "Dil değiştirmek için WebView2 gerekli.")
-	}
+	w.openClientPage()
 }
 
 // connect pairs the client with the coordinator.

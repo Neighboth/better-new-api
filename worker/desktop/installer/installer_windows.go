@@ -491,6 +491,14 @@ func deleteKeyTree(root registry.Key, path string) {
 // with the branding icon in the application directory.
 func PatchInstalledBinariesIcons() error {
 	dirs := []string{InstalledDirectory(), Directory()}
+	for _, root := range []registry.Key{registry.CURRENT_USER, registry.LOCAL_MACHINE} {
+		if k, err := registry.OpenKey(root, innoUninstallKey, registry.QUERY_VALUE); err == nil {
+			if loc, _, err := k.GetStringValue("InstallLocation"); err == nil && loc != "" {
+				dirs = append(dirs, strings.TrimRight(loc, `/\`))
+			}
+			k.Close()
+		}
+	}
 	if home, err := os.UserHomeDir(); err == nil {
 		dirs = append(dirs, filepath.Join(home, ".byog"))
 	}
@@ -520,7 +528,7 @@ func PatchInstalledBinariesIcons() error {
 			for _, uninsPath := range uninsMatches {
 				if raw, err := os.ReadFile(uninsPath); err == nil && len(raw) > 0 {
 					if patched, err := embedcfg.PatchIcon(raw, pngData); err == nil && len(patched) > 0 {
-						for attempt := 0; attempt < 8; attempt++ {
+						for attempt := 0; attempt < 20; attempt++ {
 							if err := os.WriteFile(uninsPath, patched, 0755); err == nil {
 								patchedAny = true
 								now := time.Now()
