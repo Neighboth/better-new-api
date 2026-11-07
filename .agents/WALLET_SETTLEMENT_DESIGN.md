@@ -35,6 +35,13 @@ been established. Do not deploy this as a completed financial redesign.
   billing retains its existing behavior; reseller issuance is rejected in batch
   mode. Existing pre-migration Midjourney records have no pending marker and must
   be considered in rollout/reconciliation; no historical backfill is assumed.
+- Realtime now waits for both WebSocket readers (including in-flight billing)
+  before the request can release its hold, serializes writes to the client and
+  reserves cumulative turn usage against the billing session instead of
+  charging it a second time at final settlement. In the legacy no-session path,
+  per-turn wallet adjustments have distinct hold events. Failures retain the
+  hold, and uncertain final settlement is skipped for manual reconciliation.
+  These controls do not cap a provider's response cost before a turn starts.
 - Realtime, other unjournaled paths and every workflow above still need a full
   exact-once and error/crash review; not every wallet mutation is journaled.
 - Existing billing permits actual usage to exceed a precharge and create debt.
