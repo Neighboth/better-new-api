@@ -185,12 +185,48 @@ type Hub struct {
 var GlobalHub = &Hub{}
 
 func (h *Hub) Register(session *NodeSession) {
-	h.sessions.Store(session.NodeId, session)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.registerLocked(session)
+}
+
+// RegisterAuthenticated rechecks revocation while synchronizing with session
+// removal. Deletion commits before Unregister, so either order closes the race.
+func (h *Hub) RegisterAuthenticated(session *NodeSession, secretHash string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if model.DB == nil || session == nil || session.UserId <= 0 || secretHash == "" {
+		return false
+	}
+	var node model.ByogNode
+	if err := model.DB.Where("node_id = ? AND user_id = ? AND worker_secret_hash = ? AND status <> ?", session.NodeId, session.UserId, secretHash, "banned").First(&node).Error; err != nil {
+		return false
+	}
+	banned, err := model.CheckByogBan(node.UserId, node.HWID)
+	if err != nil || banned {
+		return false
+	}
+	h.registerLocked(session)
+	return true
+}
+
+func (h *Hub) registerLocked(session *NodeSession) {
+	if old, loaded := h.sessions.Swap(session.NodeId, session); loaded {
+		previous := old.(*NodeSession)
+		if previous != session {
+			previous.Mu.Lock()
+			if previous.Conn != nil {
+				_ = previous.Conn.Close()
+			}
+			previous.Mu.Unlock()
+			previous.FailPendingRequests("the worker reconnected")
+		}
+	}
 	// Update Node Status in DB
 	common.SysLog(fmt.Sprintf("[BYOG] Node connected: %s (User: %d)", session.NodeId, session.UserId))
 	if model.DB != nil {
 		_ = model.DB.Model(&model.ByogNode{}).
-			Where("node_id = ?", session.NodeId).
+			Where("node_id = ? AND status <> ?", session.NodeId, "banned").
 			Updates(map[string]interface{}{
 				"status":            "online",
 				"last_heartbeat_at": time.Now().Unix(),
@@ -198,25 +234,34 @@ func (h *Hub) Register(session *NodeSession) {
 	}
 }
 
+// Unregister removes the current session (for example on administrative removal).
 func (h *Hub) Unregister(nodeId string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if val, ok := h.sessions.LoadAndDelete(nodeId); ok {
-		session := val.(*NodeSession)
-		session.Mu.Lock()
-		if session.Conn != nil {
-			_ = session.Conn.Close()
-		}
-		session.Mu.Unlock()
-		// Requests that wait for the answers of the node are failed at once,
-		// the caller must not wait for the timeout of a device that is gone.
-		session.FailPendingRequests("the connection of the worker closed while the request was running")
-		common.SysLog(fmt.Sprintf("[BYOG] Node disconnected: %s", nodeId))
-		if model.DB != nil {
-			_ = model.DB.Model(&model.ByogNode{}).
-				Where("node_id = ?", nodeId).
-				Updates(map[string]interface{}{
-					"status": "offline",
-				})
-		}
+		h.closeSession(val.(*NodeSession))
+	}
+}
+
+// UnregisterSession must not remove a newer connection for the same node.
+func (h *Hub) UnregisterSession(session *NodeSession) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.sessions.CompareAndDelete(session.NodeId, session) {
+		h.closeSession(session)
+	}
+}
+
+func (h *Hub) closeSession(session *NodeSession) {
+	session.Mu.Lock()
+	if session.Conn != nil {
+		_ = session.Conn.Close()
+	}
+	session.Mu.Unlock()
+	session.FailPendingRequests("the connection of the worker closed while the request was running")
+	common.SysLog(fmt.Sprintf("[BYOG] Node disconnected: %s", session.NodeId))
+	if model.DB != nil {
+		_ = model.DB.Model(&model.ByogNode{}).Where("node_id = ? AND status <> ?", session.NodeId, "banned").Updates(map[string]interface{}{"status": "offline"})
 	}
 }
 
@@ -337,17 +382,17 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 				}
 			}
 			model.ApplyDownloadTelemetry(node, model.DownloadTelemetry{
-				ModelId:     telemetry.DownloadModelId,
-				StartedAt:   telemetry.DownloadStartedAt,
-				HasProgress: telemetry.DownloadModelId != "" || telemetry.DownloadedMB > 0 || telemetry.TotalMB > 0 || telemetry.DownloadProgress > 0,
-				DownloadedMB: telemetry.DownloadedMB,
-				TotalMB:      telemetry.TotalMB,
-				Progress:     telemetry.DownloadProgress,
-				SpeedBps:     telemetry.DownloadSpeedBps,
-				EtaSeconds:   telemetry.EtaSeconds,
-				ModelStatus:  telemetry.ModelStatus,
+				ModelId:        telemetry.DownloadModelId,
+				StartedAt:      telemetry.DownloadStartedAt,
+				HasProgress:    telemetry.DownloadModelId != "" || telemetry.DownloadedMB > 0 || telemetry.TotalMB > 0 || telemetry.DownloadProgress > 0,
+				DownloadedMB:   telemetry.DownloadedMB,
+				TotalMB:        telemetry.TotalMB,
+				Progress:       telemetry.DownloadProgress,
+				SpeedBps:       telemetry.DownloadSpeedBps,
+				EtaSeconds:     telemetry.EtaSeconds,
+				ModelStatus:    telemetry.ModelStatus,
 				DownloadStatus: telemetry.DownloadStatus,
-				QueueJSON:    queueJSON,
+				QueueJSON:      queueJSON,
 			})
 			if telemetry.ActiveVramModel != "" {
 				node.ActiveVramModel = telemetry.ActiveVramModel
@@ -436,7 +481,7 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 				}
 			}
 
-			_ = model.SaveByogNode(node)
+			_ = model.SaveByogLiveNode(node)
 
 			// Ack back with active multiplier
 			ackPayload, _ := json.Marshal(map[string]interface{}{
@@ -460,7 +505,6 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 		}
 	}
 }
-
 
 // WebSocket upgrader
 var Upgrader = websocket.Upgrader{

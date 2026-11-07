@@ -31,6 +31,45 @@ func CovertMjpActionToModelName(mjAction string) string {
 	return modelName
 }
 
+// ReserveMidjourneyRequest atomically reserves the known fixed wallet price
+// before submitting chargeable work. An uncertain commit retains the hold.
+func ReserveMidjourneyRequest(c *gin.Context, userID, quota int, charge bool) (bool, error) {
+	if !charge || quota <= 0 || common.BatchUpdateEnabled {
+		return false, nil
+	}
+	holdID := c.GetString(common.WalletTransferHoldContextKey)
+	if holdID == "" {
+		return false, nil
+	}
+	reserved, err := model.ReserveMidjourneyWalletAndToken(userID, holdID, c.GetInt("token_id"), quota)
+	if err != nil {
+		c.Set(common.WalletTransferHoldRetainContextKey, true)
+		return false, err
+	}
+	if !reserved {
+		return false, ErrInsufficientWalletQuota
+	}
+	return true, nil
+}
+
+// ReleaseMidjourneyRequestReservation is only for provider responses known not
+// to be chargeable. Network errors are ambiguous and require reconciliation.
+func ReleaseMidjourneyRequestReservation(c *gin.Context, userID, quota int) error {
+	holdID := c.GetString(common.WalletTransferHoldContextKey)
+	var event model.WalletHoldEvent
+	err := model.DB.Where("hold_id = ? AND event_key = ? AND user_id = ? AND delta = ?", holdID, "midjourney-precharge", userID, -quota).First(&event).Error
+	if err == nil && quota <= 0 {
+		err = errors.New("invalid Midjourney reservation")
+	}
+	if err == nil {
+		err = model.ReleaseMidjourneyWalletAndToken(userID, holdID, event.TokenID, quota)
+	}
+	if err != nil {
+		c.Set(common.WalletTransferHoldRetainContextKey, true)
+	}
+	return err
+}
+
 // PrepareMidjourneyTaskBilling sets the durable refund marker before the task is inserted.
 func PrepareMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.Midjourney, quota int, shouldBill bool) (bool, error) {
 	if task == nil {
@@ -39,6 +78,7 @@ func PrepareMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.
 	task.Quota = 0
 	task.TokenId = 0
 	task.BillingChannelId = 0
+	task.BillingPending = false
 	if !shouldBill {
 		return false, nil
 	}
@@ -53,6 +93,7 @@ func PrepareMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.
 	}
 
 	task.Quota = quota
+	task.BillingPending = true
 	task.BillingChannelId = task.ChannelId
 	if relayInfo.ChannelMeta != nil && relayInfo.ChannelId > 0 {
 		task.BillingChannelId = relayInfo.ChannelId
@@ -62,6 +103,14 @@ func PrepareMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.
 
 // SettleMidjourneyTaskBilling charges a persisted legacy task and records the applied stages.
 func SettleMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.Midjourney, prepared bool) (bool, error) {
+	return SettleMidjourneyTaskBillingWithHold(relayInfo, task, prepared, "")
+}
+
+func SettleMidjourneyTaskBillingWithHold(relayInfo *relaycommon.RelayInfo, task *model.Midjourney, prepared bool, holdID string) (bool, error) {
+	return SettleMidjourneyTaskBillingReserved(relayInfo, task, prepared, holdID, false)
+}
+
+func SettleMidjourneyTaskBillingReserved(relayInfo *relaycommon.RelayInfo, task *model.Midjourney, prepared bool, holdID string, walletReserved bool) (bool, error) {
 	if !prepared {
 		return false, nil
 	}
@@ -71,19 +120,35 @@ func SettleMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.M
 	if task == nil || task.Id == 0 {
 		return false, errors.New("Midjourney task must be persisted before billing")
 	}
-
-	result, billingErr := postConsumeQuotaWithResult(relayInfo, task.Quota, 0, true)
-	if !result.FundingApplied {
-		task.Quota = 0
-		task.TokenId = 0
-		task.BillingChannelId = 0
-		if updateErr := task.UpdateBillingState(); updateErr != nil {
-			return false, errors.Join(billingErr, fmt.Errorf("clear Midjourney billing state: %w", updateErr))
+	if walletReserved {
+		if relayInfo.BillingSource == BillingSourceSubscription || task.UserId != relayInfo.UserId {
+			return false, errors.New("invalid Midjourney wallet reservation")
 		}
+		tokenID := relayInfo.TokenId
+		if relayInfo.IsPlayground {
+			tokenID = 0
+		}
+		fresh, err := model.FinalizeMidjourneyReservedTask(relayInfo.UserId, holdID, task.Id, tokenID, task.Quota)
+		if err != nil {
+			return false, err
+		}
+		task.TokenId = tokenID
+		task.BillingPending = false
+		if fresh {
+			checkAndSendQuotaNotify(relayInfo, task.Quota, 0)
+		}
+		// Only a fresh decision should emit the separate consume log.
+		return fresh, nil
+	}
+	result, billingErr := postConsumeQuotaWithHoldAndReservation(relayInfo, task.Quota, 0, true, holdID, "midjourney-charge", walletReserved)
+	if !result.FundingApplied {
+		// A failed database acknowledgement can mean the debit committed. Keep
+		// the pending marker and quota instead of guessing and issuing a refund.
 		return false, billingErr
 	}
 
 	task.TokenId = 0
+	task.BillingPending = false
 	if result.TokenApplied {
 		task.TokenId = relayInfo.TokenId
 	}
@@ -96,16 +161,37 @@ func SettleMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.M
 // RefundMidjourneyQuota reverses every accounting element recorded for a billed legacy task.
 func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason string) bool {
 	quota := task.Quota
-	if quota == 0 {
+	if quota == 0 && !task.RefundPending {
+		return true
+	}
+	if common.BatchUpdateEnabled && quota == 0 {
+		if err := model.DB.Model(&model.Midjourney{}).Where("id = ? AND quota = ?", task.Id, 0).Update("refund_pending", false).Error; err != nil {
+			return false
+		}
+		task.RefundPending = false
 		return true
 	}
 
-	if err := model.IncreaseUserQuota(task.UserId, quota, false); err != nil {
-		logger.LogWarn(ctx, fmt.Sprintf("退还 Midjourney 用户额度失败 task %s: %s", task.MjId, err.Error()))
-		return false
+	if common.BatchUpdateEnabled {
+		if err := model.IncreaseUserQuota(task.UserId, quota, false); err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("退还 Midjourney 用户额度失败 task %s: %s", task.MjId, err.Error()))
+			return false
+		}
+	} else {
+		var err error
+		quota, err = model.RefundMidjourneyAccountingOnce(task.UserId, task.Id)
+		if err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("退还 Midjourney 用户额度失败 task %s: %s", task.MjId, err.Error()))
+			return false
+		}
+		if quota == 0 {
+			task.Quota = 0
+			task.RefundPending = false
+			return true
+		}
 	}
 
-	if task.TokenId > 0 {
+	if common.BatchUpdateEnabled && task.TokenId > 0 {
 		tokenKey := resolveTokenKey(ctx, task.TokenId, task.MjId)
 		if tokenKey != "" {
 			if err := model.IncreaseTokenQuota(task.TokenId, tokenKey, quota); err != nil {
@@ -115,8 +201,10 @@ func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason s
 	}
 
 	billingChannelId := task.GetBillingChannelId()
-	model.UpdateUserUsedQuota(task.UserId, -quota)
-	model.UpdateChannelUsedQuota(billingChannelId, -quota)
+	if common.BatchUpdateEnabled {
+		model.UpdateUserUsedQuota(task.UserId, -quota)
+		model.UpdateChannelUsedQuota(billingChannelId, -quota)
+	}
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
 		UserId:    task.UserId,
 		LogType:   model.LogTypeRefund,
@@ -132,8 +220,15 @@ func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason s
 	})
 
 	task.Quota = 0
-	if err := task.UpdateBillingState(); err != nil {
-		logger.LogError(ctx, fmt.Sprintf("Midjourney 退款成功但清除 quota 失败 task %s: %s", task.MjId, err.Error()))
+	task.RefundPending = false
+	if common.BatchUpdateEnabled {
+		if err := task.UpdateBillingState(); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("Midjourney 退款成功但清除 quota 失败 task %s: %s", task.MjId, err.Error()))
+			return false
+		}
+		if err := model.DB.Model(&model.Midjourney{}).Where("id = ? AND quota = ?", task.Id, 0).Update("refund_pending", false).Error; err != nil {
+			return false
+		}
 	}
 	return true
 }

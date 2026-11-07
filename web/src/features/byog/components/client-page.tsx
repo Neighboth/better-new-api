@@ -44,6 +44,7 @@ import {
   Zap,
 } from 'lucide-react'
 
+import { getFreshAuthHeaders } from '@/lib/api'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { ThemeSwitch } from '@/components/theme-switch'
 import {
@@ -304,6 +305,7 @@ interface AndroidBridge {
   scanQrCode(): void
   isSystemDarkMode(): boolean
   testModelInference?(prompt: string): void
+  workerRequest?(operation: string, input: string): string
 }
 
 function getBridge(): AndroidBridge | null {
@@ -840,10 +842,16 @@ export function ClientPage() {
       return
     }
     try {
-      const response = await fetch(
-        `/api/v1/worker/status?node_id=${encodeURIComponent(targetNodeId)}`
-      )
-      const payload = await response.json()
+      let payload: { success: boolean; data?: Record<string, unknown>; code?: string }
+      if (bridge?.workerRequest) {
+        payload = JSON.parse(bridge.workerRequest('status', '{}'))
+      } else {
+        const url = localApi
+          ? `${localApi}/worker/status?token=${encodeURIComponent(localToken)}`
+          : `/api/byog/user/client/status?node_id=${encodeURIComponent(targetNodeId)}`
+        const response = await fetch(url, { headers: localApi ? {} : await getFreshAuthHeaders() })
+        payload = await response.json()
+      }
       if (payload.success && payload.data) {
         const remote = payload.data as Record<string, unknown>
         setState((prev) => {
@@ -907,7 +915,7 @@ export function ClientPage() {
           }
           return merged
         })
-      } else if (response.status === 404 && payload?.code === 'NODE_NOT_FOUND' && !bridge) {
+      } else if (payload?.code === 'NODE_NOT_FOUND' && !bridge) {
         // Node does not exist on server (database reset or unpaired)
         window.localStorage.removeItem('byog_node_id')
         setNodeId('')
@@ -942,23 +950,33 @@ export function ClientPage() {
       }
       const targetNodeId = nodeId || state?.node_id
       if (targetNodeId) {
-        const resp = await fetch('/api/v1/worker/resources', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            node_id: targetNodeId,
-            allocated_ram_gb: ramGB,
-            allocated_vram_gb: vramGB,
-            allocated_cores: cores,
-            allocated_disk_gb: diskGB,
-            hot_start_enabled: hotStart,
-            disks: Object.entries(diskAllocations).map(([drive, allocated]) => ({
-              drive,
-              allocated_gb: allocated,
-            })),
-          }),
-        })
-        const payload = await resp.json()
+        const resources = {
+          node_id: targetNodeId,
+          allocated_ram_gb: ramGB,
+          allocated_vram_gb: vramGB,
+          allocated_cores: cores,
+          allocated_disk_gb: diskGB,
+          hot_start_enabled: hotStart,
+          disks: Object.entries(diskAllocations).map(([drive, allocated]) => ({
+            drive,
+            allocated_gb: allocated,
+          })),
+        }
+        let payload: { success: boolean; message?: string }
+        if (bridge?.workerRequest) {
+          payload = JSON.parse(bridge.workerRequest('resources', JSON.stringify(resources)))
+        } else {
+          const url = localApi
+            ? `${localApi}/worker/resources?token=${encodeURIComponent(localToken)}`
+            : '/api/byog/user/client/resources'
+          const headers = localApi ? {} : await getFreshAuthHeaders()
+          const resp = await fetch(url, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(resources),
+          })
+          payload = await resp.json()
+        }
         if (payload.success) {
           setSaveSuccessMsg(t('byog.resources_saved', 'Kaynak ayarları başarıyla kaydedildi'))
           setTimeout(() => setSaveSuccessMsg(''), 4000)
@@ -972,7 +990,7 @@ export function ClientPage() {
     } finally {
       setSavingResources(false)
     }
-  }, [cores, diskAllocations, diskGB, hotStart, loadState, localApi, localToken, nodeId, ramGB, state?.node_id, t, vramGB])
+  }, [bridge, cores, diskAllocations, diskGB, hotStart, loadState, localApi, localToken, nodeId, ramGB, state?.node_id, t, vramGB])
 
   const handleVramChange = (val: number) => {
     lastUserEditTimeRef.current = Date.now()
@@ -1222,9 +1240,9 @@ export function ClientPage() {
           body: JSON.stringify({ prompt }),
         })
       } else {
-        response = await fetch('/api/v1/worker/test-inference', {
+        response = await fetch('/api/byog/user/client/test-inference', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { ...(await getFreshAuthHeaders()), 'Content-Type': 'application/json' },
           body: JSON.stringify({
             node_id: nodeId,
             prompt,

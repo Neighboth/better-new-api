@@ -92,3 +92,45 @@ func TestHeartbeatKeepsProgressWhenTotalIsUnknown(t *testing.T) {
 	assert.Equal(t, 64, updated.DownloadedMB)
 	assert.Equal(t, 16, updated.DownloadProgress)
 }
+
+func TestOldSessionCannotUnregisterReplacement(t *testing.T) {
+	oldDB := model.DB
+	model.DB = nil
+	t.Cleanup(func() { model.DB = oldDB })
+	hub := &Hub{}
+	old := &NodeSession{NodeId: "same-node"}
+	replacement := &NodeSession{NodeId: "same-node"}
+	hub.Register(old)
+	hub.Register(replacement)
+	hub.UnregisterSession(old)
+	current, ok := hub.GetSession("same-node")
+	require.True(t, ok)
+	assert.Same(t, replacement, current)
+	hub.UnregisterSession(replacement)
+	_, ok = hub.GetSession("same-node")
+	assert.False(t, ok)
+}
+
+func TestAuthenticatedHubRejectsRevokedNode(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	oldDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = oldDB })
+	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogNodeBan{}))
+	node := &model.ByogNode{NodeId: "revoked-test", UserId: 2, DeviceName: "test", HWID: "hw", WorkerSecretHash: "hash", Status: "online"}
+	require.NoError(t, db.Create(node).Error)
+	hub := &Hub{}
+	session := &NodeSession{NodeId: node.NodeId, UserId: node.UserId}
+	require.False(t, hub.RegisterAuthenticated(session, "wrong"))
+	ban := model.ByogNodeBan{NodeId: "other-node", UserId: node.UserId, HWID: "other-hw", BanReason: "test", ViolationCode: "test", IsActive: true}
+	require.NoError(t, db.Create(&ban).Error)
+	require.False(t, hub.RegisterAuthenticated(session, "hash"))
+	require.NoError(t, db.Model(&ban).Update("is_active", false).Error)
+	require.True(t, hub.RegisterAuthenticated(session, "hash"))
+	hub.UnregisterSession(session)
+	require.NoError(t, db.Delete(node).Error)
+	require.False(t, hub.RegisterAuthenticated(session, "hash"))
+	_, ok := hub.GetSession(node.NodeId)
+	require.False(t, ok)
+}

@@ -34,38 +34,13 @@ func byogApkSigner() (*apkbrand.Signer, error) {
 	return apkbrand.CachedSigner(byogApkSigningKeyPath())
 }
 
-// byogApkSigningKeyPath returns the location of the APK signing key.
-//
-// The key of the repository is used so that the APK the server hands out carries the
-// same signer as the APK that was built from the sources. An application can only be
-// updated when the signer stays the same, otherwise the installation fails with
-// "App not installed". The location can be overwritten with BYOG_APK_SIGNING_KEY.
+// byogApkSigningKeyPath returns a private, installation-specific signing key.
+// BYOG_APK_SIGNING_KEY should point to persistent shared storage in multi-instance
+// deployments. Never fall back to the publicly distributed historical key.
 func byogApkSigningKeyPath() string {
 	if path := strings.TrimSpace(os.Getenv("BYOG_APK_SIGNING_KEY")); path != "" {
 		return path
 	}
-
-	candidates := []string{
-		filepath.Join("worker", "mobile", "apk_signing_key.pem"),
-		filepath.Join("..", "worker", "mobile", "apk_signing_key.pem"),
-		filepath.Join("/worker", "mobile", "apk_signing_key.pem"),
-		filepath.Join("/data", "worker", "mobile", "apk_signing_key.pem"),
-	}
-	if execPath, err := os.Executable(); err == nil {
-		base := filepath.Dir(execPath)
-		candidates = append(candidates,
-			filepath.Join(base, "worker", "mobile", "apk_signing_key.pem"),
-			filepath.Join(base, "..", "worker", "mobile", "apk_signing_key.pem"),
-		)
-	}
-	for _, candidate := range candidates {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate
-		}
-	}
-
-	// Without the shared key a new one is created next to the database. The
-	// application then has to be installed again once.
 	directory := "."
 	sqlitePath := common.SQLitePath
 	if index := strings.Index(sqlitePath, "?"); index >= 0 {
@@ -74,7 +49,7 @@ func byogApkSigningKeyPath() string {
 	if sqlitePath != "" && sqlitePath != ":memory:" {
 		directory = filepath.Dir(sqlitePath)
 	}
-	return filepath.Join(directory, "byog_apk_signing_key.pem")
+	return filepath.Join(directory, "byog_worker_apk_key_v2.pem")
 }
 
 // brandByogApk rewrites the launcher label and icon of the APK and signs it again.
@@ -91,7 +66,7 @@ func brandByogApk(raw []byte, label string, faviconBase64 string) ([]byte, error
 		common.SysError(fmt.Sprintf("[BYOG] launcher icon could not be rendered: %v", err))
 	}
 
-	key := fmt.Sprintf("%x|%s|%x", sha256.Sum256(raw), label, sha256.Sum256(icon))
+	key := fmt.Sprintf("%x|%s|%x|%s", sha256.Sum256(raw), label, sha256.Sum256(icon), byogApkSigningKeyPath())
 	byogApkCacheMu.Lock()
 	if byogApkCacheKey == key && len(byogApkCacheData) > 0 {
 		cached := byogApkCacheData

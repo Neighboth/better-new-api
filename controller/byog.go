@@ -9,10 +9,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/image/bmp"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
-	"golang.org/x/image/bmp"
 	"io"
 	"math"
 	"mime"
@@ -29,24 +29,33 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/QuantumNous/new-api/pkg/embedcfg"
 	"github.com/QuantumNous/new-api/pkg/icon"
 	"github.com/QuantumNous/new-api/pkg/markdownrtf"
 	byogservice "github.com/QuantumNous/new-api/service/byog"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"gorm.io/gorm"
 )
 
 // Generate pure random pairing code without prefix (Section 4.5 e.g. 9K4L-28XM-73PQ-51ZR)
-func generateRandomPairingCode() string {
+func generateRandomPairingCode() (string, error) {
 	const charset = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	for i := range b {
-		b[i] = charset[int(b[i])%len(charset)]
+	var raw [1]byte
+	code := make([]byte, 16)
+	for i := range code {
+		for {
+			if _, err := rand.Read(raw[:]); err != nil {
+				return "", err
+			}
+			if int(raw[0]) < 256-256%len(charset) {
+				code[i] = charset[int(raw[0])%len(charset)]
+				break
+			}
+		}
 	}
-	return fmt.Sprintf("%s-%s-%s-%s", string(b[0:4]), string(b[4:8]), string(b[8:12]), string(b[12:16]))
+	return fmt.Sprintf("%s-%s-%s-%s", code[0:4], code[4:8], code[8:12], code[12:16]), nil
 }
 
 // resolveNodeGeoIP accurately resolves the country, city, and coordinates of an IP.
@@ -337,16 +346,6 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 	return
 }
 
-type userPairingSession struct {
-	UserId    int
-	CreatedAt int64
-}
-
-var (
-	userPairingSessionsMu sync.RWMutex
-	userPairingSessions   = make(map[string]userPairingSession)
-)
-
 // GetUserPairingCode generates a temporary 15-minute pairing code for the authenticated user
 func GetUserPairingCode(c *gin.Context) {
 	userId := c.GetInt("id")
@@ -355,25 +354,24 @@ func GetUserPairingCode(c *gin.Context) {
 		return
 	}
 
-	code := generateRandomPairingCode()
-	cleanCode := strings.ReplaceAll(strings.ToUpper(code), "-", "")
-	now := time.Now().Unix()
-
-	userPairingSessionsMu.Lock()
-	for k, v := range userPairingSessions {
-		if now-v.CreatedAt > 1800 {
-			delete(userPairingSessions, k)
-		}
+	banned, err := model.CheckByogBan(userId, "")
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Worker authorization unavailable"})
+		return
 	}
-	userPairingSessions[code] = userPairingSession{
-		UserId:    userId,
-		CreatedAt: now,
+	if banned {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "BYOG account is banned"})
+		return
 	}
-	userPairingSessions[cleanCode] = userPairingSession{
-		UserId:    userId,
-		CreatedAt: now,
+	code, err := generateRandomPairingCode()
+	if err != nil {
+		common.ApiError(c, err)
+		return
 	}
-	userPairingSessionsMu.Unlock()
+	if err := model.CreateByogPairingSession(code, userId, time.Now().Unix()+900); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 
 	scheme := "http"
 	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
@@ -643,13 +641,9 @@ func DeleteUserByogNode(c *gin.Context) {
 
 	targetNodeId := node.NodeId
 	targetId := node.Id
-	hwid := node.HWID
 
 	// The device is told that it was removed before the session is closed, so the
 	// application can show the state instead of waiting for the next registration.
-	byogservice.NotifyDeviceRemoved(targetNodeId, "Cihaz kaldırıldı")
-	byogservice.GlobalHub.Unregister(targetNodeId)
-
 	if model.DB != nil {
 		if targetId > 0 {
 			if err := model.DB.Unscoped().Where("id = ?", targetId).Delete(&model.ByogNode{}).Error; err != nil {
@@ -660,10 +654,9 @@ func DeleteUserByogNode(c *gin.Context) {
 		if targetNodeId != "" {
 			_ = model.DB.Unscoped().Where("node_id = ?", targetNodeId).Delete(&model.ByogNode{}).Error
 		}
-		if hwid != "" {
-			_ = model.DB.Unscoped().Where("hw_id = ?", hwid).Delete(&model.ByogNode{}).Error
-		}
 	}
+	byogservice.NotifyDeviceRemoved(targetNodeId, "Cihaz kaldırıldı")
+	byogservice.GlobalHub.Unregister(targetNodeId)
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Device deleted"})
 }
@@ -764,44 +757,57 @@ func SubmitBanAppeal(c *gin.Context) {
 		return
 	}
 
-	var ban model.ByogNodeBan
-	err := model.DB.Where("node_id = ? AND is_active = ?", req.NodeId, true).First(&ban).Error
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "No active ban found for this device"})
+	if userId <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Authentication required"})
 		return
 	}
 
-	// Create appeal support ticket
-	ticket := &model.Ticket{
-		UserId:      userId,
-		Title:       fmt.Sprintf("[BYOG Ban Appeal] Device %s - %s", req.NodeId, ban.ViolationCode),
-		Category:    "technical",
-		Priority:    "urgent",
-		Status:      "open",
-		CreatedAt:   time.Now().Unix(),
-		UpdatedAt:   time.Now().Unix(),
-		LastReplyAt: time.Now().Unix(),
-	}
-	_ = model.DB.Create(ticket)
-
-	msg := &model.TicketMessage{
-		TicketId:  ticket.Id,
-		UserId:    userId,
-		IsAdmin:   false,
-		Content:   fmt.Sprintf("Appeal: %s\n\nSecurity Details:\nViolation Code: %s\nReason: %s\nExpected Logprob: %f\nActual Logprob: %f\nTimestamp: %s", req.AppealText, ban.ViolationCode, ban.BanReason, ban.ExpectedLogprob, ban.ActualLogprob, time.Unix(ban.BannedAt, 0).Format(time.RFC3339)),
-		CreatedAt: time.Now().Unix(),
-	}
-	_ = model.DB.Create(msg)
-
-	ban.AppealedAt = time.Now().Unix()
-	ban.AppealTicketId = ticket.Id
-	_ = model.DB.Save(&ban)
-
-	c.JSON(http.StatusOK, gin.H{
-		"success":   true,
-		"ticket_id": ticket.Id,
-		"message":   "Appeal submitted. A support ticket has been created.",
+	var ticket model.Ticket
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		var ban model.ByogNodeBan
+		// Node IDs are not credentials. Never disclose another owner's ban
+		// details or attach an appeal to their record.
+		if err := tx.Where("node_id = ? AND user_id = ? AND is_active = ?", req.NodeId, userId, true).First(&ban).Error; err != nil {
+			return err
+		}
+		now := time.Now().Unix()
+		ticket = model.Ticket{
+			UserId: userId, Title: fmt.Sprintf("[BYOG Ban Appeal] Device %s - %s", req.NodeId, ban.ViolationCode),
+			Category: "technical", Priority: "urgent", Status: "open",
+			CreatedAt: now, UpdatedAt: now, LastReplyAt: now,
+		}
+		if err := tx.Create(&ticket).Error; err != nil {
+			return err
+		}
+		msg := model.TicketMessage{
+			TicketId: ticket.Id, UserId: userId, IsAdmin: false,
+			Content:   fmt.Sprintf("Appeal: %s\n\nSecurity Details:\nViolation Code: %s\nReason: %s\nExpected Logprob: %f\nActual Logprob: %f\nTimestamp: %s", req.AppealText, ban.ViolationCode, ban.BanReason, ban.ExpectedLogprob, ban.ActualLogprob, time.Unix(ban.BannedAt, 0).Format(time.RFC3339)),
+			CreatedAt: now,
+		}
+		if err := tx.Create(&msg).Error; err != nil {
+			return err
+		}
+		// Never Save a stale ban: an admin may have revoked it concurrently.
+		result := tx.Model(&model.ByogNodeBan{}).Where("id = ? AND user_id = ? AND is_active = ?", ban.Id, userId, true).
+			Updates(map[string]interface{}{"appealed_at": now, "appeal_ticket_id": ticket.Id})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
 	})
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "No active ban found for this device"})
+		} else {
+			common.SysError("BYOG appeal creation failed: " + err.Error())
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Unable to submit appeal"})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "ticket_id": ticket.Id, "message": "Appeal submitted. A support ticket has been created."})
 }
 
 // ----------------- ADMIN CONTROLLERS -----------------
@@ -1173,13 +1179,27 @@ func DeleteAdminByogNode(c *gin.Context) {
 		return
 	}
 
-	byogservice.NotifyDeviceRemoved(nodeId, "Cihaz kaldırıldı")
-	byogservice.GlobalHub.Unregister(nodeId)
-	err := model.DeleteByogNode(nodeId)
+	node, err := model.GetByogNodeByNodeId(nodeId)
+	if err != nil && model.DB != nil {
+		if numeric, convErr := strconv.Atoi(nodeId); convErr == nil && numeric > 0 {
+			var candidate model.ByogNode
+			if model.DB.First(&candidate, numeric).Error == nil {
+				node = &candidate
+				err = nil
+			}
+		}
+	}
+	if err != nil || node == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Device not found"})
+		return
+	}
+	err = model.DeleteByogNode(node.NodeId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
+	byogservice.NotifyDeviceRemoved(node.NodeId, "Cihaz kaldırıldı")
+	byogservice.GlobalHub.Unregister(node.NodeId)
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Node permanently deleted from network"})
 }
@@ -1266,76 +1286,49 @@ func RegisterByogWorker(c *gin.Context) {
 		return
 	}
 
-	// Generate salt and node ID
-	hash := sha256.Sum256([]byte(req.HWID + common.SessionSecret))
-	nodeId := hex.EncodeToString(hash[:16])
-
-	var matchedUserId int
-	if req.PairingCode != "" {
-		codeUpper := strings.ToUpper(strings.TrimSpace(req.PairingCode))
-		codeClean := strings.ReplaceAll(strings.ReplaceAll(codeUpper, "-", ""), " ", "")
-		userPairingSessionsMu.Lock()
-		if sess, ok := userPairingSessions[codeUpper]; ok {
-			matchedUserId = sess.UserId
-			delete(userPairingSessions, codeUpper)
-			delete(userPairingSessions, codeClean)
-		} else if sess, ok := userPairingSessions[codeClean]; ok {
-			matchedUserId = sess.UserId
-			delete(userPairingSessions, codeUpper)
-			delete(userPairingSessions, codeClean)
-		}
-		userPairingSessionsMu.Unlock()
-
-		if matchedUserId == 0 {
-			if existingNode, _ := model.GetByogNodeByPairingCode(codeUpper); existingNode != nil && existingNode.UserId > 0 {
-				matchedUserId = existingNode.UserId
-			} else if existingNode, _ := model.GetByogNodeByPairingCode(codeClean); existingNode != nil && existingNode.UserId > 0 {
-				matchedUserId = existingNode.UserId
-			}
-		}
-
-		if matchedUserId == 0 {
-			if req.NodeId != "" {
-				if existingNode, _ := model.GetByogNodeByNodeId(req.NodeId); existingNode != nil && existingNode.UserId > 0 {
-					matchedUserId = existingNode.UserId
-				}
-			}
-			if matchedUserId == 0 {
-				if existingNode, _ := model.GetByogNodeByHWID(req.HWID); existingNode != nil && existingNode.UserId > 0 {
-					matchedUserId = existingNode.UserId
-				}
-			}
-			if matchedUserId == 0 {
-				c.JSON(http.StatusBadRequest, gin.H{
-					"success": false,
-					"message": "Geçersiz veya süresi dolmuş eşleştirme kodu. Lütfen siteden yeni kod alıp tekrar deneyiniz.",
-				})
-				return
-			}
-		}
-	}
-
+	// Existing nodes may only re-register with their own credential. A new
+	// pairing starts a new node; HWID and node IDs are not proof of identity.
 	var node *model.ByogNode
 	var err error
+	var matchedUserId int
+	var issuedSecret, secretHash, nodeId string
 	if req.NodeId != "" {
-		node, err = model.GetByogNodeByNodeId(req.NodeId)
-	}
-	if node == nil {
-		node, err = model.GetByogNodeByHWID(req.HWID)
-	}
-	// If unpaired and not providing valid pairing code, reject to prevent ghost node creation
-	if matchedUserId == 0 {
-		if node == nil || node.UserId == 0 {
-			if node != nil && node.UserId == 0 {
-				_ = model.DeleteByogNode(node.NodeId)
-			}
-			c.JSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"message": "Cihaz henüz bir kullanıcı hesabıyla eşleştirilmemiş. Lütfen eşleştirme kodunu girin.",
-			})
+		var ok bool
+		node, ok = requireByogWorker(c, req.NodeId)
+		if !ok {
 			return
 		}
 		matchedUserId = node.UserId
+	} else {
+		matchedUserId, err = model.ConsumeByogPairingSession(req.PairingCode)
+		if err != nil || matchedUserId <= 0 {
+			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid or expired pairing code"})
+			return
+		}
+
+		issuedSecret, secretHash, err = newByogWorkerCredential()
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		idBytes := make([]byte, 16)
+		if _, err = rand.Read(idBytes); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		nodeId = hex.EncodeToString(idBytes)
+	}
+
+	// A valid pairing code or device credential must not bypass an account ban
+	// by presenting a different self-reported hardware ID.
+	banned, banErr := model.CheckByogBan(matchedUserId, req.HWID)
+	if banErr != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Worker authorization unavailable"})
+		return
+	}
+	if banned {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "Worker registration is banned"})
+		return
 	}
 
 	country, city, lat, lon := resolveNodeGeoIP(c.ClientIP())
@@ -1466,7 +1459,10 @@ func RegisterByogWorker(c *gin.Context) {
 		}
 		node.UserId = matchedUserId
 		node.PairingCode = ""
-		_ = model.SaveByogNode(node)
+		if err := model.SaveByogLiveNode(node); err != nil {
+			common.ApiError(c, err)
+			return
+		}
 	} else {
 		// New node
 		initialBatteryPercent := 100
@@ -1516,6 +1512,7 @@ func RegisterByogWorker(c *gin.Context) {
 
 		node = &model.ByogNode{
 			NodeId:               nodeId,
+			WorkerSecretHash:     secretHash,
 			UserId:               matchedUserId,
 			PairingCode:          "",
 			DeviceName:           req.DeviceName,
@@ -1577,7 +1574,10 @@ func RegisterByogWorker(c *gin.Context) {
 			CreatedAt:            time.Now().Unix(),
 			UpdatedAt:            time.Now().Unix(),
 		}
-		_ = model.SaveByogNode(node)
+		if err := model.SaveByogNode(node); err != nil {
+			common.ApiError(c, err)
+			return
+		}
 	}
 
 	assignedModels, _ := byogservice.GlobalScheduler.EvaluateNodeModelAssignment(node)
@@ -1619,7 +1619,7 @@ func RegisterByogWorker(c *gin.Context) {
 		if changed || ((node.DownloadQueue == "" || node.DownloadQueue == "[]") && len(queue) > 0) {
 			qBytes, _ := json.Marshal(queue)
 			node.DownloadQueue = string(qBytes)
-			_ = model.SaveByogNode(node)
+			_ = model.SaveByogLiveNode(node)
 		}
 	}
 
@@ -1636,7 +1636,7 @@ func RegisterByogWorker(c *gin.Context) {
 		if node.DownloadedMB > 0 && node.TotalMB > 0 {
 			node.DownloadProgress = int((float64(node.DownloadedMB) / float64(node.TotalMB)) * 100)
 		}
-		_ = model.SaveByogNode(node)
+		_ = model.SaveByogLiveNode(node)
 	}
 
 	type AssignedModelDetail struct {
@@ -1689,6 +1689,7 @@ func RegisterByogWorker(c *gin.Context) {
 		"success": true,
 		"data": gin.H{
 			"node_id":                node.NodeId,
+			"worker_secret":          issuedSecret,
 			"pairing_code":           node.PairingCode,
 			"user_id":                node.UserId,
 			"is_paired":              node.UserId > 0,
@@ -1712,9 +1713,8 @@ func ByogWorkerTunnel(c *gin.Context) {
 		return
 	}
 
-	node, err := model.GetByogNodeByNodeId(nodeId)
-	if err != nil || node == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+	node, ok := requireByogWorker(c, nodeId)
+	if !ok {
 		return
 	}
 
@@ -1745,8 +1745,11 @@ func ByogWorkerTunnel(c *gin.Context) {
 		}
 	}
 
-	byogservice.GlobalHub.Register(session)
-	defer byogservice.GlobalHub.Unregister(nodeId)
+	if !byogservice.GlobalHub.RegisterAuthenticated(session, node.WorkerSecretHash) {
+		_ = conn.Close()
+		return
+	}
+	defer byogservice.GlobalHub.UnregisterSession(session)
 
 	// A tunnel without a read deadline stays in the hub forever when the
 	// device loses the network without a FIN packet. The coordinator would
@@ -1834,6 +1837,13 @@ func ReportByogWorkerCrash(c *gin.Context) {
 		return
 	}
 
+	if _, ok := requireByogWorker(c, report.NodeId); !ok {
+		return
+	}
+	// Never trust an ID or timestamp supplied by a worker.
+	report.Id = 0
+	report.CreatedAt = time.Now().Unix()
+
 	// Automatic Recommendation based on error code (Section 5.6)
 	if strings.Contains(strings.ToLower(report.ErrorCode), "oom") || strings.Contains(strings.ToLower(report.ErrorMessage), "out of memory") {
 		report.Recommendation = "Bellek yetersizliği (OOM) sebebiyle işlem sonlandırıldı. Önerilen: Daha küçük bir model seçin veya RAM bütçesini artırın."
@@ -1843,7 +1853,10 @@ func ReportByogWorkerCrash(c *gin.Context) {
 		report.Recommendation = "Sistem çökmesi kaydedildi. Sürücülerinizi ve motor bileşenlerinizi güncelleyin."
 	}
 
-	_ = model.SaveCrashReport(&report)
+	if err := model.SaveCrashReport(&report); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 
 	// Update node status
 	_ = model.DB.Model(&model.ByogNode{}).
@@ -2043,11 +2056,11 @@ func GetByogWorkerStatus(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "node_id is required"})
 		return
 	}
-	node, err := model.GetByogNodeByNodeId(nodeId)
-	if err != nil || node == nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "the client is not known"})
+	node, ok := requireByogWorker(c, nodeId)
+	if !ok {
 		return
 	}
+
 	var disksArr []any
 	if node.Disks != "" {
 		_ = json.Unmarshal([]byte(node.Disks), &disksArr)
@@ -2058,28 +2071,28 @@ func GetByogWorkerStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"node_id":           node.NodeId,
-			"device_name":       node.DeviceName,
-			"device_type":       node.DeviceType,
-			"status":            node.Status,
-			"model_status":      node.ModelStatus,
-			"download_status":   node.DownloadStatus,
-			"download_progress": node.DownloadProgress,
-			"download_model_id": node.DownloadModelId,
-			"download_speed_bps": node.DownloadSpeedBps,
-			"eta_seconds":       node.EtaSeconds,
-			"downloaded_mb":     node.DownloadedMB,
-			"total_mb":          node.TotalMB,
-			"current_tps":       node.CurrentTps,
-			"models":            node.InstalledModels,
-			"assigned_model":    node.ActiveVramModel,
-			"cpu_model":         node.CpuModel,
-			"gpu_model":         node.GpuModel,
-			"cpu_cores":         node.CpuCores,
-			"physical_ram_mb":   node.PhysicalRamMB,
-			"swap_ram_mb":       node.SwapRamMB,
-			"vram_mb":           node.VramMB,
-			"shared_vram_mb":    node.SharedVramMB,
+			"node_id":             node.NodeId,
+			"device_name":         node.DeviceName,
+			"device_type":         node.DeviceType,
+			"status":              node.Status,
+			"model_status":        node.ModelStatus,
+			"download_status":     node.DownloadStatus,
+			"download_progress":   node.DownloadProgress,
+			"download_model_id":   node.DownloadModelId,
+			"download_speed_bps":  node.DownloadSpeedBps,
+			"eta_seconds":         node.EtaSeconds,
+			"downloaded_mb":       node.DownloadedMB,
+			"total_mb":            node.TotalMB,
+			"current_tps":         node.CurrentTps,
+			"models":              node.InstalledModels,
+			"assigned_model":      node.ActiveVramModel,
+			"cpu_model":           node.CpuModel,
+			"gpu_model":           node.GpuModel,
+			"cpu_cores":           node.CpuCores,
+			"physical_ram_mb":     node.PhysicalRamMB,
+			"swap_ram_mb":         node.SwapRamMB,
+			"vram_mb":             node.VramMB,
+			"shared_vram_mb":      node.SharedVramMB,
 			"bandwidth_down_mbps": node.BandwidthDownMbps,
 			"bandwidth_up_mbps":   node.BandwidthUpMbps,
 			"ping_ms":             node.PingMs,
@@ -2248,9 +2261,8 @@ func UpdateByogWorkerResources(c *gin.Context) {
 		return
 	}
 
-	node, err := model.GetByogNodeByNodeId(req.NodeId)
-	if err != nil || node == nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Node not found"})
+	node, ok := requireByogWorker(c, req.NodeId)
+	if !ok {
 		return
 	}
 
@@ -2349,7 +2361,7 @@ func UpdateByogWorkerResources(c *gin.Context) {
 	}
 	node.UpdatedAt = time.Now().Unix()
 
-	if err := model.SaveByogNode(node); err != nil {
+	if err := model.SaveByogLiveNode(node); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
@@ -2468,7 +2480,7 @@ func GetByogWorkerVersion(c *gin.Context) {
 	apkUrl := "/api/v1/worker/download/android/apk"
 
 	c.JSON(http.StatusOK, gin.H{
-		"version":      "1.9.1",
+		"version":      "1.10.0",
 		"min_version":  "1.0.0",
 		"release_date": time.Now().Format("2006-01-02"),
 		"downloads": gin.H{
@@ -2892,16 +2904,19 @@ func DownloadByogWorker(c *gin.Context) {
 					branded, err := brandByogApk(raw, appName, faviconBase64)
 					if err != nil {
 						common.SysError(fmt.Sprintf("[BYOG] APK branding failed: %v", err))
-					} else {
-						raw = branded
-					}
-
-					if customizedApk, err := injectApkConfig(raw, asciiJSON(cfgPayload)); err == nil {
-						c.Data(http.StatusOK, "application/vnd.android.package-archive", customizedApk)
+						c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "APK signing failed"})
 						return
 					}
+					customizedApk, err := injectApkConfig(branded, asciiJSON(cfgPayload))
+					if err != nil {
+						common.SysError(fmt.Sprintf("[BYOG] APK configuration failed: %v", err))
+						c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "APK configuration failed"})
+						return
+					}
+					c.Data(http.StatusOK, "application/vnd.android.package-archive", customizedApk)
+					return
 				}
-				c.File(p)
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "APK could not be read"})
 				return
 			}
 			c.Header("Content-Type", "application/octet-stream")
@@ -2931,15 +2946,8 @@ func TestByogNodeInference(c *gin.Context) {
 		return
 	}
 
-	var node *model.ByogNode
-	if req.NodeId != "" {
-		node, _ = model.GetByogNodeByNodeId(req.NodeId)
-	}
-	if node == nil && req.HWID != "" {
-		node, _ = model.GetByogNodeByHWID(req.HWID)
-	}
-	if node == nil {
-		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "Unregistered device"})
+	node, ok := requireByogWorker(c, req.NodeId)
+	if !ok {
 		return
 	}
 

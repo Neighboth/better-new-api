@@ -85,3 +85,42 @@ python worker\mobile\build_apk.py
 The version of the application follows `WorkerVersion` in
 `worker/desktop/main.go`, the update check of the application compares the
 version of the server with the version of the application.
+
+### Security and Android signing
+
+Worker connections require HTTPS (HTTP is allowed only for loopback development;
+Android emulators may use `10.0.2.2`). The private per-device token is issued
+once at pairing; save and restore the worker's private configuration securely.
+Deploy a trusted TLS certificate. Existing workers must be paired again.
+
+The server re-signs each downloadable APK with an installation-specific private
+key. Set `BYOG_APK_SIGNING_KEY` to a protected path on persistent storage; all
+server instances serving the same installation must share that key. Keep secure
+backups: changing or losing it requires Android clients to be reinstalled. The
+old repository-shared APK signing key was public and must not be reused. The
+build script's local keystore signs only the intermediate base APK; it must not
+be published or committed. If branding or signing fails, the server refuses to
+serve the APK rather than returning an APK with the wrong signer.
+
+Do not point `BYOG_APK_SIGNING_KEY` at the old public repository key or any
+copy of it. Key rotation changes Android's signing identity and requires an
+uninstall/reinstall; do not lose the new key after deployment.
+
+Pairing sessions use the shared database, but the live worker WebSocket hub is
+process-local. For a multi-instance installation, route all BYOG worker and
+BYOG inference/control traffic to the same coordinator process; shared SQL and
+signing keys alone do not provide cross-instance tunnel dispatch. A distributed
+hub and failover have not been implemented or validated.
+
+## Ücretli BYOG kullanım sınırları
+
+Başka bir kullanıcının cihazında çalışan ve kalıcı cüzdan hold'u kullanan
+ücretli, toplu-güncelleme dışı isteklerde sunucu işe başlamadan önce cüzdan
+ve API anahtarı kotasından azami tutarı ayırır; kullanılmayan kısım işlem
+sonunda iade edilir. `max_tokens` belirtilmezse 4096 kullanılır; 32768'in
+üzerindeki değerler reddedilir. İleti ve promptun birleşik boyutu 8 MiB ile
+sınırlıdır. İstenen azami tutar için bakiye yoksa daha küçük bir `max_tokens`
+ile tekrar denenebilir. Kullanıcının kendi cihazındaki ücretsiz kullanım bu
+sınırlandırılmış ücretli yolun dışındadır. Ağ kesilmesi veya geçersiz worker
+kullanım bildirimi belirsiz işlem olarak yöneticinin incelemesini gerektirebilir.
+Bu sınırlar worker'ın model token sayısını dürüst bildirdiğinin kanıtı değildir.

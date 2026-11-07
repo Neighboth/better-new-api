@@ -30,12 +30,14 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/worker/llama"
+	"github.com/QuantumNous/new-api/worker/workerurl"
 	"github.com/gorilla/websocket"
 )
 
 type MobileConfig struct {
 	ServerUrl            string  `json:"server_url"`
 	NodeId               string  `json:"node_id"`
+	WorkerSecret         string  `json:"worker_secret"`
 	PairingCode          string  `json:"pairing_code"`
 	DeviceName           string  `json:"device_name"`
 	WifiOnlyDownload     bool    `json:"wifi_only_download"`      // DEFAULT TRUE (Section 6.3)
@@ -577,9 +579,12 @@ func main() {
 	}
 
 	// Reverse Tunnel loop
+	if workerurl.Validate(serverUrl) != nil {
+		return
+	}
 	wsUrl := fmt.Sprintf("ws%s/api/v1/worker/tunnel?node_id=%s", strings.TrimPrefix(serverUrl, "http"), State.Config.NodeId)
 	for {
-		conn, _, err := websocket.DefaultDialer.Dial(wsUrl, nil)
+		conn, _, err := websocket.DefaultDialer.Dial(wsUrl, http.Header{"Authorization": []string{"Bearer " + State.Config.WorkerSecret}})
 		if err == nil {
 			State.Mu.Lock()
 			State.WsConn = conn
@@ -626,6 +631,7 @@ func main() {
 					// The device was removed from the network, the pairing is dropped.
 					State.Mu.Lock()
 					State.Config.NodeId = ""
+					State.Config.WorkerSecret = ""
 					State.Config.PairingCode = ""
 					State.Mu.Unlock()
 					fmt.Println("[BYOG MOBILE] The device was removed from the network, the pairing has to be done again")
@@ -666,13 +672,14 @@ func registerWithServer() bool {
 	mem := State.Memory
 	State.Mu.Unlock()
 
-	if pairingCode == "" {
+	if pairingCode == "" || workerurl.Validate(serverUrl) != nil {
 		return false
 	}
 
 	regUrl := fmt.Sprintf("%s/api/v1/worker/register", serverUrl)
 	regBody, _ := json.Marshal(map[string]interface{}{
 		"hwid":                hwid,
+		"pairing_code":        pairingCode,
 		"os":                  "android",
 		"arch":                runtime.GOARCH,
 		"device_name":         State.Config.DeviceName,
@@ -705,14 +712,16 @@ func registerWithServer() bool {
 		var regResp struct {
 			Success bool `json:"success"`
 			Data    struct {
-				NodeId      string          `json:"node_id"`
-				PairingCode string          `json:"pairing_code"`
-				Assigned    []assignedModel `json:"assigned_model_details"`
+				NodeId       string          `json:"node_id"`
+				WorkerSecret string          `json:"worker_secret"`
+				PairingCode  string          `json:"pairing_code"`
+				Assigned     []assignedModel `json:"assigned_model_details"`
 			} `json:"data"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&regResp)
 		resp.Body.Close()
 		State.Config.NodeId = regResp.Data.NodeId
+		State.Config.WorkerSecret = regResp.Data.WorkerSecret
 		if regResp.Data.PairingCode != "" {
 			State.Config.PairingCode = regResp.Data.PairingCode
 		}

@@ -30,6 +30,11 @@ func runGui(serverFlag string, codeFlag string, deviceFlag string, trayFlag bool
 
 	config := loadConfig()
 	if serverFlag != "" {
+		if serverFlag != config.ServerUrl {
+			config.NodeId = ""
+			config.WorkerSecret = ""
+			config.PairingCode = ""
+		}
 		config.ServerUrl = serverFlag
 	}
 	if codeFlag != "" {

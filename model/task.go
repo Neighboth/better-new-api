@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -46,24 +49,27 @@ const (
 const TaskRefundLegacyCutoff int64 = 1771718400 // 2026-02-22 00:00:00 UTC
 
 type Task struct {
-	ID         int64                 `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
-	CreatedAt  int64                 `json:"created_at" gorm:"index"`
-	UpdatedAt  int64                 `json:"updated_at"`
-	TaskID     string                `json:"task_id" gorm:"type:varchar(191);index"` // 第三方id，不一定有/ song id\ Task id
-	Platform   constant.TaskPlatform `json:"platform" gorm:"type:varchar(30);index"` // 平台
-	UserId     int                   `json:"user_id" gorm:"index"`
-	Group      string                `json:"group" gorm:"type:varchar(50)"` // 修正计费用
-	ChannelId  int                   `json:"channel_id" gorm:"index"`
-	Quota      int                   `json:"quota"`
-	Action     string                `json:"action" gorm:"type:varchar(40);index"` // 任务类型, song, lyrics, description-mode
-	Status     TaskStatus            `json:"status" gorm:"type:varchar(20);index"` // 任务状态
-	FailReason string                `json:"fail_reason"`
-	SubmitTime int64                 `json:"submit_time" gorm:"index"`
-	StartTime  int64                 `json:"start_time" gorm:"index"`
-	FinishTime int64                 `json:"finish_time" gorm:"index"`
-	Progress   string                `json:"progress" gorm:"type:varchar(20);index"`
-	Properties Properties            `json:"properties" gorm:"type:json"`
-	Username   string                `json:"username,omitempty" gorm:"-"`
+	ID        int64                 `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
+	CreatedAt int64                 `json:"created_at" gorm:"index"`
+	UpdatedAt int64                 `json:"updated_at"`
+	TaskID    string                `json:"task_id" gorm:"type:varchar(191);index"` // 第三方id，不一定有/ song id\ Task id
+	Platform  constant.TaskPlatform `json:"platform" gorm:"type:varchar(30);index"` // 平台
+	UserId    int                   `json:"user_id" gorm:"index"`
+	Group     string                `json:"group" gorm:"type:varchar(50)"` // 修正计费用
+	ChannelId int                   `json:"channel_id" gorm:"index"`
+	Quota     int                   `json:"quota"`
+	// RefundPending is durable evidence that a held wallet task reached a
+	// refundable terminal state but its accounting has not finished yet.
+	RefundPending bool       `json:"-" gorm:"not null;default:false;index"`
+	Action        string     `json:"action" gorm:"type:varchar(40);index"` // 任务类型, song, lyrics, description-mode
+	Status        TaskStatus `json:"status" gorm:"type:varchar(20);index"` // 任务状态
+	FailReason    string     `json:"fail_reason"`
+	SubmitTime    int64      `json:"submit_time" gorm:"index"`
+	StartTime     int64      `json:"start_time" gorm:"index"`
+	FinishTime    int64      `json:"finish_time" gorm:"index"`
+	Progress      string     `json:"progress" gorm:"type:varchar(20);index"`
+	Properties    Properties `json:"properties" gorm:"type:json"`
+	Username      string     `json:"username,omitempty" gorm:"-"`
 	// 禁止返回给用户，内部可能包含key等隐私信息
 	PrivateData TaskPrivateData `json:"-" gorm:"column:private_data;type:json"`
 	Data        json.RawMessage `json:"data" gorm:"type:json"`
@@ -101,9 +107,11 @@ func (m Properties) Value() (driver.Value, error) {
 }
 
 type TaskPrivateData struct {
-	Key            string `json:"key,omitempty"`
-	UpstreamTaskID string `json:"upstream_task_id,omitempty"` // 上游真实 task ID
-	ResultURL      string `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	Key                   string `json:"key,omitempty"`
+	WalletHoldID          string `json:"wallet_hold_id,omitempty"`
+	WalletHoldNeedsReview bool   `json:"wallet_hold_needs_review,omitempty"`
+	UpstreamTaskID        string `json:"upstream_task_id,omitempty"` // 上游真实 task ID
+	ResultURL             string `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
@@ -408,7 +416,17 @@ func (Task *Task) Update() error {
 }
 
 func (t *Task) UpdateQuota() error {
-	return DB.Model(t).Update("quota", t.Quota).Error
+	if t.ID <= 0 {
+		return gorm.ErrInvalidData
+	}
+	result := DB.Model(t).Update("quota", t.Quota)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).
@@ -421,24 +439,82 @@ func (t *Task) UpdateQuota() error {
 // falls back to INSERT ON CONFLICT when the WHERE-guarded UPDATE matches
 // zero rows, which silently bypasses the CAS guard.
 func (t *Task) UpdateWithStatus(fromStatus TaskStatus) (bool, error) {
-	result := DB.Model(t).Where("status = ?", fromStatus).Select("*").Updates(t)
+	return t.updateWithStatus(fromStatus, false)
+}
+
+// UpdateLegacyTimeoutWithStatus retains the existing policy of clearing the
+// quota for old timed-out tasks that must not receive an automatic refund.
+func (t *Task) UpdateLegacyTimeoutWithStatus(fromStatus TaskStatus) (bool, error) {
+	return t.updateWithStatus(fromStatus, true)
+}
+
+func (t *Task) updateWithStatus(fromStatus TaskStatus, updateQuota bool) (bool, error) {
+	setRefundIntent := fromStatus != TaskStatusFailure && t.Status == TaskStatusFailure && t.RefundPending
+	if !setRefundIntent {
+		return t.updateWithStatusDB(DB, fromStatus, updateQuota)
+	}
+	// A root reconciliation and this transition must serialize on the same
+	// user/hold locks: a refund intent cannot be created after its hold closes.
+	if t.PrivateData.WalletHoldID == "" {
+		return false, errors.New("task refund intent requires a wallet hold")
+	}
+	var won bool
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := lockForUpdate(tx).Select("id").First(&user, t.UserId).Error; err != nil {
+			return err
+		}
+		var hold WalletTransferHold
+		if err := lockForUpdate(tx).Where("id = ? AND user_id = ?", t.PrivateData.WalletHoldID, t.UserId).First(&hold).Error; err != nil {
+			return err
+		}
+		if hold.State != "open" {
+			var current Task
+			if err := tx.Select("id", "status").First(&current, t.ID).Error; err != nil {
+				return err
+			}
+			if current.Status != fromStatus {
+				return nil // a different poller already won the status CAS
+			}
+			return errors.New("task refund intent requires an open wallet hold")
+		}
+		var err error
+		won, err = t.updateWithStatusDB(tx, fromStatus, updateQuota)
+		return err
+	})
+	return won, err
+}
+
+func (t *Task) updateWithStatusDB(db *gorm.DB, fromStatus TaskStatus, updateQuota bool) (bool, error) {
+	query := db.Model(t).Where("status = ?", fromStatus).Select("*")
+	omits := make([]string, 0, 2)
+	if !updateQuota {
+		omits = append(omits, "quota")
+	}
+	// Only the first failure transition may set the refund intent. A stale
+	// poller must never clear it after an accounting transaction has started.
+	if fromStatus == TaskStatusFailure || t.Status != TaskStatusFailure || !t.RefundPending {
+		omits = append(omits, "refund_pending")
+	}
+	if len(omits) > 0 {
+		query = query.Omit(omits...)
+	}
+	result := query.Updates(t)
 	if result.Error != nil {
 		return false, result.Error
 	}
 	return result.RowsAffected > 0, nil
 }
 
-// TaskBulkUpdateByID performs an unconditional bulk UPDATE by primary key IDs.
-// WARNING: This function has NO CAS (Compare-And-Swap) guard — it will overwrite
-// any concurrent status changes. DO NOT use in billing/quota lifecycle flows
-// (e.g., timeout, success, failure transitions that trigger refunds or settlements).
-// For status transitions that involve billing, use Task.UpdateWithStatus() instead.
+// TaskBulkUpdateByID marks unfinished tasks for which polling cannot proceed.
+// It must not overwrite an already-terminal result or perform accounting;
+// billing transitions require Task.UpdateWithStatus and explicit settlement.
 func TaskBulkUpdateByID(ids []int64, params map[string]any) error {
 	if len(ids) == 0 {
 		return nil
 	}
 	return DB.Model(&Task{}).
-		Where("id in (?)", ids).
+		Where("id in (?) AND status NOT IN ?", ids, []TaskStatus{TaskStatusSuccess, TaskStatusFailure}).
 		Updates(params).Error
 }
 

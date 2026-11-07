@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
+	"gorm.io/gorm"
 )
 
 // TaskPollingAdaptor 定义轮询所需的最小适配器接口，避免 service -> relay 的循环依赖
@@ -58,32 +60,51 @@ func sweepTimedOutTasks(ctx context.Context) {
 
 	for _, task := range tasks {
 		isLegacy := task.SubmitTime > 0 && task.SubmitTime < model.TaskRefundLegacyCutoff
+		// A local timeout does not prove that the provider stopped work or
+		// waived its charge. Keep held submissions for reconciliation rather
+		// than issuing a refund and making the same value transferable.
+		uncertainTimeout := task.PrivateData.WalletHoldID != ""
 
 		oldStatus := task.Status
 		task.Status = model.TaskStatusFailure
 		task.Progress = "100%"
 		task.FinishTime = now
-		if isLegacy {
+		if uncertainTimeout {
+			task.PrivateData.WalletHoldNeedsReview = true
+			task.FailReason = reason + " (provider outcome requires reconciliation)"
+		} else if isLegacy {
 			task.FailReason = legacyReason
-			// 旧系统任务明确不退款，随终态 CAS 一并清掉 quota，
-			// 避免留下可再次退款的计费状态。
+			// Historical unheld tasks are not automatically refunded.
 			task.Quota = 0
 		} else {
 			task.FailReason = reason
+			markHeldTaskRefundPending(task)
 		}
 
-		won, err := task.UpdateWithStatus(oldStatus)
+		legacyHold, err := beginLegacyTaskWalletHold(task)
 		if err != nil {
-			logger.LogError(ctx, fmt.Sprintf("sweepTimedOutTasks CAS update error for task %s: %v", task.TaskID, err))
+			logger.LogError(ctx, fmt.Sprintf("task %s wallet guard failed: %v", task.TaskID, err))
 			continue
 		}
+		var won bool
+		if isLegacy && !uncertainTimeout {
+			won, err = task.UpdateLegacyTimeoutWithStatus(oldStatus)
+		} else {
+			won, err = task.UpdateWithStatus(oldStatus)
+		}
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf("sweepTimedOutTasks CAS update error for task %s: %v", task.TaskID, err))
+			continue // ambiguous write: retain the guard
+		}
 		if !won {
+			releaseLegacyTaskWalletHold(ctx, task, legacyHold)
 			logger.LogInfo(ctx, fmt.Sprintf("sweepTimedOutTasks: task %s already transitioned, skip", task.TaskID))
 			continue
 		}
 		timedOutCount++
-		if !isLegacy && task.Quota != 0 {
-			RefundTaskQuota(ctx, task, reason)
+		if !uncertainTimeout && (isLegacy || task.Quota == 0 || RefundTaskQuota(ctx, task, reason)) {
+			releaseTaskWalletHold(ctx, task)
+			releaseLegacyTaskWalletHold(ctx, task, legacyHold)
 		}
 	}
 
@@ -107,11 +128,12 @@ type TaskPollSummary struct {
 // adaptor factory has not been wired yet, to avoid a nil call during startup.
 func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) TaskPollSummary {
 	summary := TaskPollSummary{}
-	if GetTaskAdaptorFunc == nil {
-		return summary
-	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	recoverPendingHeldTaskRefunds(ctx)
+	if GetTaskAdaptorFunc == nil {
+		return summary
 	}
 
 	common.SysLog("任务进度轮询开始")
@@ -291,20 +313,41 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 			logger.LogInfo(ctx, task.TaskID+" 构建失败，"+task.FailReason)
 			task.Status = model.TaskStatusFailure
 			task.Progress = "100%"
+			if prevStatus != model.TaskStatusFailure {
+				markHeldTaskRefundPending(task)
+			}
 		}
 		if responseItem.Status == model.TaskStatusSuccess {
 			task.Progress = "100%"
 		}
 		task.Data = responseItem.Data
 
+		// Before moving a legacy task into a terminal state, acquire a durable
+		// guard so code issuance cannot race the later settlement/refund.
+		legacyHold := ""
+		if task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure {
+			var holdErr error
+			legacyHold, holdErr = beginLegacyTaskWalletHold(task)
+			if holdErr != nil {
+				logger.LogError(ctx, fmt.Sprintf("task %s wallet guard failed: %v", task.TaskID, holdErr))
+				continue
+			}
+		}
 		// 持久化走 CAS，防止重叠轮询/sweep/多实例/持久化失败重试导致重复退款或覆盖终态。
 		won, err := task.UpdateWithStatus(prevStatus)
 		if err != nil {
 			logger.LogError(ctx, fmt.Sprintf("UpdateSunoTask task %s error: %v", task.TaskID, err))
 		} else if !won {
+			releaseLegacyTaskWalletHold(ctx, task, legacyHold)
 			logger.LogWarn(ctx, fmt.Sprintf("Task %s CAS lost or no-op update, skip billing", task.TaskID))
-		} else if isFailure && prevStatus != model.TaskStatusFailure && task.Quota != 0 {
-			RefundTaskQuota(ctx, task, task.FailReason)
+		} else if isFailure && prevStatus != model.TaskStatusFailure {
+			if task.Quota == 0 || RefundTaskQuota(ctx, task, task.FailReason) {
+				releaseTaskWalletHold(ctx, task)
+				releaseLegacyTaskWalletHold(ctx, task, legacyHold)
+			}
+		} else if responseItem.Status == model.TaskStatusSuccess {
+			releaseTaskWalletHold(ctx, task)
+			releaseLegacyTaskWalletHold(ctx, task, legacyHold)
 		}
 	}
 	return nil
@@ -562,6 +605,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		taskResult.Progress = taskcommon.ProgressComplete
 		if quota != 0 {
 			shouldRefund = true
+			markHeldTaskRefundPending(task)
 		}
 	default:
 		return fmt.Errorf("unknown task status %s for task %s", taskResult.Status, task.TaskID)
@@ -571,16 +615,26 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
+	terminalTransition := false
+	legacyHold := ""
 	if isDone && snap.Status != task.Status {
+		var holdErr error
+		legacyHold, holdErr = beginLegacyTaskWalletHold(task)
+		if holdErr != nil {
+			return fmt.Errorf("task %s wallet guard: %w", task.TaskID, holdErr)
+		}
 		won, err := task.UpdateWithStatus(snap.Status)
 		if err != nil {
 			logger.LogError(ctx, fmt.Sprintf("UpdateWithStatus failed for task %s: %s", task.TaskID, err.Error()))
 			shouldRefund = false
 			shouldSettle = false
 		} else if !won {
+			releaseLegacyTaskWalletHold(ctx, task, legacyHold)
 			logger.LogWarn(ctx, fmt.Sprintf("Task %s CAS lost or no-op update, skip billing", task.TaskID))
 			shouldRefund = false
 			shouldSettle = false
+		} else {
+			terminalTransition = true
 		}
 	} else if !snap.Equal(task.Snapshot()) {
 		if _, err := task.UpdateWithStatus(snap.Status); err != nil {
@@ -591,11 +645,13 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		logger.LogDebug(ctx, "No update needed for task %s", task.TaskID)
 	}
 
-	if shouldSettle {
-		settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+	if terminalTransition && shouldSettle && settleTaskBillingOnComplete(ctx, adaptor, task, taskResult) {
+		releaseTaskWalletHold(ctx, task)
+		releaseLegacyTaskWalletHold(ctx, task, legacyHold)
 	}
-	if shouldRefund {
-		RefundTaskQuota(ctx, task, task.FailReason)
+	if terminalTransition && task.Status == model.TaskStatusFailure && (!shouldRefund || RefundTaskQuota(ctx, task, task.FailReason)) {
+		releaseTaskWalletHold(ctx, task)
+		releaseLegacyTaskWalletHold(ctx, task, legacyHold)
 	}
 
 	return nil
@@ -640,21 +696,94 @@ func truncateBase64(s string) string {
 //
 //  2. taskResult.TotalTokens > 0 → 按 token 重算
 //  3. 都不满足 → 保持预扣额度不变
-func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) {
+func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) bool {
 	// 0. 按次计费的任务不做差额结算
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
-		return
+		return true
 	}
 	// 1. 优先让 adaptor 决定最终额度
 	if actualQuota := adaptor.AdjustBillingOnComplete(task, taskResult); actualQuota > 0 {
-		RecalculateTaskQuota(ctx, task, actualQuota, "adaptor计费调整")
-		return
+		return RecalculateTaskQuota(ctx, task, actualQuota, "adaptor计费调整")
 	}
 	// 2. 回退到 token 重算
 	if taskResult.TotalTokens > 0 {
-		RecalculateTaskQuotaByTokens(ctx, task, taskResult.TotalTokens)
-		return
+		return RecalculateTaskQuotaByTokens(ctx, task, taskResult.TotalTokens)
 	}
 	// 3. 无调整，保持预扣额度
+	return true
+}
+
+// Only submission accounting known to be complete may produce a new refund
+// intent. Old failures without a marker are never guessed or backfilled.
+func markHeldTaskRefundPending(task *model.Task) {
+	if task != nil && task.Quota > 0 && task.PrivateData.WalletHoldID != "" && task.PrivateData.BillingSource == BillingSourceWallet && !task.PrivateData.WalletHoldNeedsReview && !common.BatchUpdateEnabled {
+		task.RefundPending = true
+	}
+}
+
+var taskRefundRecoveryCursor atomic.Int64
+
+func recoverPendingHeldTaskRefunds(ctx context.Context) {
+	if common.BatchUpdateEnabled {
+		return
+	}
+	cursor := taskRefundRecoveryCursor.Load()
+	tasks, err := model.PendingHeldTaskRefunds(100, cursor)
+	if err != nil {
+		logger.LogError(ctx, "cannot read pending task refunds: "+err.Error())
+		return
+	}
+	if len(tasks) == 0 && cursor != 0 {
+		taskRefundRecoveryCursor.Store(0)
+		tasks, err = model.PendingHeldTaskRefunds(100, 0)
+		if err != nil {
+			logger.LogError(ctx, "cannot read pending task refunds: "+err.Error())
+			return
+		}
+	}
+	for _, task := range tasks {
+		taskRefundRecoveryCursor.Store(task.ID)
+		if ctx.Err() != nil {
+			return
+		}
+		if RefundTaskQuota(ctx, task, task.FailReason) {
+			releaseTaskWalletHold(ctx, task)
+		}
+	}
+}
+
+func releaseTaskWalletHold(ctx context.Context, task *model.Task) {
+	if task.PrivateData.WalletHoldID == "" || task.PrivateData.WalletHoldNeedsReview {
+		return
+	}
+	if err := model.ResolveWalletTransferHold(task.UserId, task.PrivateData.WalletHoldID, 0); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("task %s wallet hold release failed: %v", task.TaskID, err))
+	}
+}
+
+// Legacy tasks predate holds. Their pending status blocks issuance, and this
+// additional guard spans the terminal status update and subsequent billing.
+func beginLegacyTaskWalletHold(task *model.Task) (string, error) {
+	if task.PrivateData.WalletHoldID != "" {
+		return "", nil
+	}
+	reference := task.TaskID
+	if len(reference) > 191 {
+		reference = reference[:191]
+	}
+	id, err := model.BeginWalletTransferHoldWithReference(task.UserId, "legacy_task", reference)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", nil
+	} // deleted users cannot issue codes
+	return id, err
+}
+
+func releaseLegacyTaskWalletHold(ctx context.Context, task *model.Task, id string) {
+	if id == "" {
+		return
+	}
+	if err := model.ResolveWalletTransferHold(task.UserId, id, 0); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("legacy task %s wallet guard release failed: %v", task.TaskID, err))
+	}
 }

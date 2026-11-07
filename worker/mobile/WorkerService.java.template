@@ -415,6 +415,13 @@ public class WorkerService extends Service {
         }
     }
 
+    // Read server, node and secret from one SharedPreferences snapshot: a
+    // concurrent re-pair must never send a new secret to the previous server.
+    public static String snapshotString(Map<String, ?> snapshot, String key) {
+        Object value = snapshot.get(key);
+        return value instanceof String ? (String) value : "";
+    }
+
     /**
      * Reads a text of the settings, a value of another type is ignored.
      */
@@ -433,6 +440,22 @@ public class WorkerService extends Service {
             url = url.replace("://127.0.0.1", "://10.0.2.2").replace("://localhost", "://10.0.2.2");
         }
         return url;
+    }
+
+    // HTTPS protects pairing codes and worker secrets. Plain HTTP is limited to
+    // loopback (or the Android emulator's explicit host loopback alias).
+    public static boolean isSecureServerURL(String value) {
+        try {
+            URL u = new URL(value);
+            if (u.getUserInfo() != null || u.getQuery() != null || u.getRef() != null || u.getHost().isEmpty()) return false;
+            if ("https".equalsIgnoreCase(u.getProtocol())) return true;
+            if (!"http".equalsIgnoreCase(u.getProtocol())) return false;
+            String host = u.getHost();
+            if ("localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host) || "[::1]".equals(host)) return true;
+            boolean emulator = Build.FINGERPRINT.startsWith("generic") || Build.FINGERPRINT.startsWith("unknown")
+                || Build.HARDWARE.contains("goldfish") || Build.HARDWARE.contains("ranchu");
+            return emulator && "10.0.2.2".equals(host);
+        } catch (Exception ignored) { return false; }
     }
 
     /**
@@ -517,7 +540,7 @@ public class WorkerService extends Service {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
             sp.edit()
                     .putBoolean("is_paired", false)
-                    .putString("node_id", "")
+                    .putString("node_id", "").putString("worker_secret", "")
                     .putString("pairing_code", "")
                     .putString("device_removed_message", "Cihaz kaldırıldı")
                     .apply();
@@ -832,11 +855,13 @@ public class WorkerService extends Service {
                     try {
                         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
                         if (sp == null || !boolPref(sp, "is_paired", false)) break;
-                        String serverUrl = stringPref(sp, "server_url", "");
-                        String nodeId = stringPref(sp, "node_id", "");
-                        if (!serverUrl.isEmpty() && !nodeId.isEmpty()) {
+                        Map<String, ?> identity = sp.getAll();
+                        String serverUrl = normalizeServerUrl(snapshotString(identity, "server_url"));
+                        String nodeId = snapshotString(identity, "node_id");
+                        String secret = snapshotString(identity, "worker_secret");
+                        if (!serverUrl.isEmpty() && !nodeId.isEmpty() && !secret.isEmpty()) {
                             while (serverUrl.endsWith("/")) serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
-                            tunnelWs = new TunnelWebSocket(serverUrl, nodeId);
+                            tunnelWs = new TunnelWebSocket(serverUrl, nodeId, secret);
                             tunnelWs.connect();
                         }
                     } catch (Exception ignored) {}
@@ -1565,10 +1590,12 @@ public class WorkerService extends Service {
     private void doHttpHeartbeatAndSync(String statusDesc) {
         try {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            String serverUrl = stringPref(sp, "server_url", "");
-            String nodeId = stringPref(sp, "node_id", "");
-            String pairingCode = stringPref(sp, "pairing_code", "");
-            if (serverUrl.isEmpty()) return;
+            Map<String, ?> identity = sp.getAll();
+            String serverUrl = normalizeServerUrl(snapshotString(identity, "server_url"));
+            String nodeId = snapshotString(identity, "node_id");
+            String pairingCode = snapshotString(identity, "pairing_code");
+            String secret = snapshotString(identity, "worker_secret");
+            if (!isSecureServerURL(serverUrl) || nodeId.isEmpty() || secret.isEmpty()) return;
             while (serverUrl.endsWith("/")) serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
 
             ActivityManager actMgr = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
@@ -1641,8 +1668,10 @@ public class WorkerService extends Service {
 
             URL url = new URL(serverUrl + "/api/v1/worker/register");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setInstanceFollowRedirects(false);
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("Authorization", "Bearer " + secret);
             conn.setConnectTimeout(6000);
             conn.setReadTimeout(6000);
             conn.setDoOutput(true);
@@ -1777,7 +1806,7 @@ public class WorkerService extends Service {
                 }
             } else if (resCode == 404 || resCode == 401) {
                 android.util.Log.w("BYOG_WORKER", "Server returned HTTP " + resCode + ", device unlinked or removed");
-                sp.edit().putBoolean("is_paired", false).putString("node_id", "").apply();
+                sp.edit().putBoolean("is_paired", false).putString("node_id", "").putString("worker_secret", "").apply();
                 handleDeviceRemoved();
                 conn.disconnect();
                 return;
@@ -1845,14 +1874,17 @@ public class WorkerService extends Service {
         public volatile boolean connected = false;
         private final String serverUrl;
         private final String nodeId;
+        private final String secret;
 
-        public TunnelWebSocket(String serverUrl, String nodeId) {
+        public TunnelWebSocket(String serverUrl, String nodeId, String secret) {
             this.serverUrl = serverUrl;
             this.nodeId = nodeId;
+            this.secret = secret;
         }
 
         public void connect() {
             try {
+                if (!isSecureServerURL(serverUrl)) return;
                 URL u = new URL(serverUrl);
                 String host = u.getHost();
                 int port = u.getPort();
@@ -1862,15 +1894,19 @@ public class WorkerService extends Service {
                 if (isSsl) {
                     SSLSocket sslSocket = (SSLSocket) SSLSocketFactory.getDefault().createSocket();
                     sslSocket.connect(new InetSocketAddress(host, port), 10000);
+                    SSLParameters sslParams = sslSocket.getSSLParameters();
+                    // Certificate trust alone is not enough: verify the server hostname.
+                    sslParams.setEndpointIdentificationAlgorithm("HTTPS");
                     if (Build.VERSION.SDK_INT >= 24) {
                         try {
-                            SSLParameters sslParams = sslSocket.getSSLParameters();
                             List<SNIServerName> sniNames = new ArrayList<>();
                             sniNames.add(new SNIHostName(host));
                             sslParams.setServerNames(sniNames);
-                            sslSocket.setSSLParameters(sslParams);
-                        } catch (Exception ignored) {}
+                        } catch (IllegalArgumentException ignored) {
+                            // IP literals do not use SNI, but still require hostname verification.
+                        }
                     }
+                    sslSocket.setSSLParameters(sslParams);
                     sslSocket.startHandshake();
                     socket = sslSocket;
                 } else {
@@ -1885,6 +1921,7 @@ public class WorkerService extends Service {
                 String hostHeader = host + (port != 80 && port != 443 ? (":" + port) : "");
                 String handshake = "GET " + path + " HTTP/1.1\r\n" +
                                    "Host: " + hostHeader + "\r\n" +
+                                   "Authorization: Bearer " + secret + "\r\n" +
                                    "User-Agent: Mozilla/5.0 (Linux; Android) BYOG-Worker/1.0\r\n" +
                                    "Upgrade: websocket\r\n" +
                                    "Connection: Upgrade\r\n" +
@@ -2395,9 +2432,11 @@ public class WorkerService extends Service {
     void reportCrash(final String errorCode, final String errorMessage, final String stackTrace) {
         try {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            final String serverUrl = stringPref(sp, "server_url", "");
-            final String nodeId = stringPref(sp, "node_id", "");
-            if (serverUrl.isEmpty()) return;
+            Map<String, ?> identity = sp.getAll();
+            final String serverUrl = normalizeServerUrl(snapshotString(identity, "server_url"));
+            final String nodeId = snapshotString(identity, "node_id");
+            final String workerSecret = snapshotString(identity, "worker_secret");
+            if (!isSecureServerURL(serverUrl)) return;
             new Thread(new Runnable() {
                 @Override
                 public void run() {
@@ -2412,8 +2451,10 @@ public class WorkerService extends Service {
 
                         URL url = new URL(serverUrl + "/api/v1/worker/telemetry/crash");
                         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setInstanceFollowRedirects(false);
                         conn.setRequestMethod("POST");
                         conn.setRequestProperty("Content-Type", "application/json");
+                        conn.setRequestProperty("Authorization", "Bearer " + workerSecret);
                         conn.setConnectTimeout(6000);
                         conn.setReadTimeout(6000);
                         conn.setDoOutput(true);

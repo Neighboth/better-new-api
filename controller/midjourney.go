@@ -48,6 +48,18 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 	taskM := make(map[string]*model.Midjourney)
 	nullTaskIds := make([]int, 0)
 	for _, task := range tasks {
+		// The submitter has not durably recorded whether its charge applied.
+		// Polling/refunding it now could create an unearned wallet credit.
+		if task.BillingPending {
+			continue
+		}
+		// A previous poller may have persisted the terminal failure and then
+		// crashed. The explicit marker is only set for failures confirmed by
+		// the provider; do not infer refundability from arbitrary old statuses.
+		if task.RefundPending {
+			service.RefundMidjourneyQuota(ctx, task, "provider failure recovery")
+			continue
+		}
 		if task.MjId == "" {
 			// 统计失败的未完成任务
 			nullTaskIds = append(nullTaskIds, task.Id)
@@ -209,6 +221,9 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 					shouldReturnQuota = true
 				}
 			}
+			// Commit the refund intent in the same status CAS so a crash before
+			// the refund cannot make this terminal task disappear from polling.
+			task.RefundPending = shouldReturnQuota
 			won, err := task.UpdateWithStatus(preStatus)
 			if err != nil {
 				logger.LogError(ctx, "UpdateMidjourneyTask task error: "+err.Error())

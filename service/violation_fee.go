@@ -123,7 +123,8 @@ func ChargeViolationFeeIfNeeded(ctx *gin.Context, relayInfo *relaycommon.RelayIn
 		return false
 	}
 
-	if err := PostConsumeQuota(relayInfo, feeQuota, 0, true); err != nil {
+	if _, err := postConsumeQuotaWithHold(relayInfo, feeQuota, 0, true, ctx.GetString(common.WalletTransferHoldContextKey), "violation-fee"); err != nil {
+		ctx.Set(common.WalletTransferHoldRetainContextKey, true)
 		logger.LogError(ctx, fmt.Sprintf("failed to charge violation fee: %s", err.Error()))
 		return false
 	}

@@ -110,7 +110,7 @@ func setupRedeemFixture(t *testing.T, quota int) (userId int, key string) {
 		DB.Exec("DELETE FROM logs")
 	})
 
-	user := &User{Username: "redeem-user", Password: "password", Status: common.UserStatusEnabled, Quota: 0}
+	user := &User{Username: "redeem-" + common.GetRandomString(12), AffCode: common.GetRandomString(12), Password: "password", Status: common.UserStatusEnabled, Quota: 0}
 	require.NoError(t, DB.Create(user).Error)
 
 	key = "10000000000000000000000000000001"
@@ -213,4 +213,32 @@ func TestUserBalancePackageAvailabilityKeepsRedemptionRestrictionsSeparate(t *te
 	availableB, _, err := UserBalancePackageAvailable(user.Id, "model-b", 0, 750)
 	require.NoError(t, err)
 	assert.EqualValues(t, 750, availableB, "model B retains its separate 300 package")
+}
+
+func TestRedeemFailedCreditLeavesCodeUsable(t *testing.T) {
+	userID, key := setupRedeemFixture(t, 100)
+	require.NoError(t, DB.AutoMigrate(&UserBalancePackage{}))
+	// Even restricted package creation must roll back with the failed credit.
+	require.NoError(t, DB.Model(&Redemption{}).Where("key = ?", key).Updates(map[string]interface{}{"model_filter_mode": "whitelist", "models": "model-a"}).Error)
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", userID).Update("quota", common.MaxQuota-50).Error)
+	_, err := Redeem(key, userID)
+	require.Error(t, err)
+	var code Redemption
+	require.NoError(t, DB.Where("key = ?", key).First(&code).Error)
+	require.Equal(t, common.RedemptionCodeStatusEnabled, code.Status)
+	require.Zero(t, code.UsedUserId)
+	var packages int64
+	require.NoError(t, DB.Model(&UserBalancePackage{}).Where("redemption_id = ?", code.Id).Count(&packages).Error)
+	require.Zero(t, packages)
+	t.Cleanup(func() { DB.Where("redemption_id = ?", code.Id).Delete(&UserBalancePackage{}) })
+	// A missing user must likewise not consume a valid code.
+	_, err = Redeem(key, common.MaxQuota)
+	require.Error(t, err)
+	require.NoError(t, DB.Where("key = ?", key).First(&code).Error)
+	require.Equal(t, common.RedemptionCodeStatusEnabled, code.Status)
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", userID).Update("quota", common.MaxQuota-100).Error)
+	quota, err := Redeem(key, userID)
+	require.NoError(t, err)
+	require.Equal(t, 100, quota)
+	require.Equal(t, common.MaxQuota, getUserQuotaFromDB(t, userID))
 }

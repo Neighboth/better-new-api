@@ -9,18 +9,21 @@ import urllib.request
 import re
 import io
 
-BUILD_TOOLS = r"C:\Users\simse\AppData\Local\Android\Sdk\build-tools\37.0.0"
-PLATFORM_JAR = r"C:\Users\simse\AppData\Local\Android\Sdk\platforms\android-34\android.jar"
-KEYTOOL = r"C:\Program Files\Java\jdk-21.0.10\bin\keytool.exe"
+# Environment overrides make reproducible builds possible on CI and developer machines.
+# The legacy defaults remain for existing Windows installations.
+BUILD_TOOLS = os.environ.get("ANDROID_BUILD_TOOLS", r"C:\Users\simse\AppData\Local\Android\Sdk\build-tools\37.0.0")
+PLATFORM_JAR = os.environ.get("ANDROID_PLATFORM_JAR", r"C:\Users\simse\AppData\Local\Android\Sdk\platforms\android-34\android.jar")
+KEYTOOL = os.environ.get("JAVA_KEYTOOL", r"C:\Program Files\Java\jdk-21.0.10\bin\keytool.exe")
 AAPT2 = os.path.join(BUILD_TOOLS, "aapt2.exe")
 D8 = os.path.join(BUILD_TOOLS, "d8.bat")
 ZIPALIGN = os.path.join(BUILD_TOOLS, "zipalign.exe")
 APKSIGNER = os.path.join(BUILD_TOOLS, "apksigner.bat")
 
-ZXING_JAR = os.path.abspath(r"Z:\better-new-api\worker\mobile\zxing-core.jar")
-LLAMA_JAR = os.path.abspath(r"Z:\better-new-api\worker\mobile\llama.jar")
-WORKDIR = os.path.abspath(r"Z:\better-new-api\worker\mobile\build_tmp")
-OUTPUT_APK = os.path.abspath(r"Z:\better-new-api\worker\binaries\byog-worker.apk")
+MOBILE_DIR = os.path.dirname(os.path.abspath(__file__))
+ZXING_JAR = os.path.join(MOBILE_DIR, "zxing-core.jar")
+LLAMA_JAR = os.path.join(MOBILE_DIR, "llama.jar")
+WORKDIR = os.path.join(MOBILE_DIR, "build_tmp")
+OUTPUT_APK = os.path.abspath(os.path.join(MOBILE_DIR, "..", "binaries", "byog-worker.apk"))
 
 parser = argparse.ArgumentParser(description="BYOG Mobile APK Builder")
 parser.add_argument("--system-name", type=str, default="", help="Custom system branding name (e.g. MyBrand)")
@@ -1972,6 +1975,7 @@ public class MainActivity extends Activity {
             server = "http://10.0.2.2:3001";
         }
         while (server.endsWith("/")) server = server.substring(0, server.length() - 1);
+        if (!WorkerService.isSecureServerURL(server)) return "file:///android_asset/www/index.html";
         String lang = WorkerService.isTurkish() ? "tr" : "en";
         String url = server + "/client?lang=" + lang;
         String nodeId = WorkerService.stringPref(sp, "node_id", "");
@@ -1991,7 +1995,8 @@ public class MainActivity extends Activity {
                 JSONObject obj = new JSONObject(embedded);
                 SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
                 SharedPreferences.Editor ed = sp.edit();
-                if (obj.has("server_url")) ed.putString("server_url", obj.getString("server_url"));
+                if (obj.has("server_url") && WorkerService.stringPref(sp, "worker_secret", "").isEmpty())
+                    ed.putString("server_url", obj.getString("server_url"));
                 if (obj.has("app_name")) {
                     appName = obj.getString("app_name");
                     ed.putString("app_name", appName);
@@ -2033,46 +2038,51 @@ public class MainActivity extends Activity {
         ws.setDomStorageEnabled(true);
         ws.setAllowFileAccess(true);
         ws.setAllowContentAccess(true);
-        ws.setAllowFileAccessFromFileURLs(true);
-        ws.setAllowUniversalAccessFromFileURLs(true);
+        ws.setAllowFileAccessFromFileURLs(false);
+        ws.setAllowUniversalAccessFromFileURLs(false);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+            ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         }
         webView.setWebChromeClient(new WebChromeClient());
         webView.setBackgroundColor(0x00000000);
         webView.setWebViewClient(new WebViewClient() {
+            private boolean isTrustedPage(Uri uri) {
+                try {
+                    Uri trusted = Uri.parse(clientPageUrl());
+                    if (uri == null || trusted.getHost() == null || uri.getHost() == null) return false;
+                    int port = uri.getPort() != -1 ? uri.getPort() : ("https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80);
+                    int trustedPort = trusted.getPort() != -1 ? trusted.getPort() : ("https".equalsIgnoreCase(trusted.getScheme()) ? 443 : 80);
+                    return ("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme()))
+                        && uri.getScheme().equalsIgnoreCase(trusted.getScheme())
+                        && uri.getHost().equalsIgnoreCase(trusted.getHost()) && port == trustedPort
+                        && "/client".equals(uri.getPath());
+                } catch (Exception ignored) { return false; }
+            }
+
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                if (url != null && (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file:///"))) {
-                    return false;
-                }
-                try {
-                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                    startActivity(intent);
-                } catch (Exception ignored) {}
+                Uri uri = Uri.parse(url == null ? "" : url);
+                if (isTrustedPage(uri)) return false;
+                try { startActivity(new Intent(Intent.ACTION_VIEW, uri)); } catch (Exception ignored) {}
                 return true;
             }
 
             @TargetApi(Build.VERSION_CODES.N)
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                if (request != null && request.getUrl() != null) {
-                    String url = request.getUrl().toString();
-                    if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file:///")) {
-                        return false;
-                    }
-                    try {
-                        Intent intent = new Intent(Intent.ACTION_VIEW, request.getUrl());
-                        startActivity(intent);
-                    } catch (Exception ignored) {}
-                    return true;
+                if (request == null || request.getUrl() == null) return true;
+                Uri uri = request.getUrl();
+                if (request.isForMainFrame() && isTrustedPage(uri)) return false;
+                if (request.isForMainFrame()) {
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, uri)); } catch (Exception ignored) {}
                 }
-                return false;
+                // The worker page does not use child frames; never expose the bridge to one.
+                return true;
             }
 
             @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                handler.proceed();
+                handler.cancel();
             }
 
             @Override
@@ -2756,9 +2766,11 @@ public class MainActivity extends Activity {
     private void reportCrashToServer(final String errorCode, final String errorMessage, final String stackTrace) {
         try {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            final String serverUrl = WorkerService.stringPref(sp, "server_url", "");
-            final String nodeId = WorkerService.stringPref(sp, "node_id", "");
-            if (serverUrl.isEmpty()) return;
+            java.util.Map<String, ?> identity = sp.getAll();
+            final String serverUrl = WorkerService.normalizeServerUrl(WorkerService.snapshotString(identity, "server_url"));
+            final String nodeId = WorkerService.snapshotString(identity, "node_id");
+            final String workerSecret = WorkerService.snapshotString(identity, "worker_secret");
+            if (!WorkerService.isSecureServerURL(serverUrl)) return;
             new Thread(new Runnable() {
                 @Override
                 public void run() {
@@ -2772,8 +2784,10 @@ public class MainActivity extends Activity {
 
                         URL url = new URL(serverUrl + "/api/v1/worker/telemetry/crash");
                         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                        conn.setInstanceFollowRedirects(false);
                         conn.setRequestMethod("POST");
                         conn.setRequestProperty("Content-Type", "application/json");
+                        conn.setRequestProperty("Authorization", "Bearer " + workerSecret);
                         conn.setConnectTimeout(6000);
                         conn.setReadTimeout(6000);
                         conn.setDoOutput(true);
@@ -2892,6 +2906,47 @@ public class MainActivity extends Activity {
     }
 
     public class WebAppInterface {
+
+        // Only fixed worker operations are allowed; the credential never enters JS.
+        @JavascriptInterface
+        public String workerRequest(String operation, String input) {
+            HttpURLConnection conn = null;
+            try {
+                if (!"status".equals(operation) && !"resources".equals(operation)) return "{\\\"success\\\":false}";
+                SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+                java.util.Map<String, ?> identity = sp.getAll();
+                String server = WorkerService.normalizeServerUrl(WorkerService.snapshotString(identity, "server_url"));
+                String node = WorkerService.snapshotString(identity, "node_id");
+                String secret = WorkerService.snapshotString(identity, "worker_secret");
+                if (!WorkerService.isSecureServerURL(server) || node.isEmpty() || secret.isEmpty()) return "{\\\"success\\\":false}";
+                while (server.endsWith("/")) server = server.substring(0, server.length() - 1);
+                String endpoint = server + "/api/v1/worker/" + operation;
+                if ("status".equals(operation)) endpoint += "?node_id=" + java.net.URLEncoder.encode(node, "UTF-8");
+                conn = (HttpURLConnection) new URL(endpoint).openConnection();
+                conn.setInstanceFollowRedirects(false);
+                conn.setConnectTimeout(8000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("Authorization", "Bearer " + secret);
+                if ("resources".equals(operation)) {
+                    JSONObject data = new JSONObject(input);
+                    data.put("node_id", node);
+                    conn.setRequestMethod("POST");
+                    conn.setRequestProperty("Content-Type", "application/json");
+                    conn.setDoOutput(true);
+                    OutputStream out = conn.getOutputStream();
+                    out.write(data.toString().getBytes("UTF-8"));
+                    out.close();
+                }
+                if (conn.getResponseCode() != 200) return "{\\\"success\\\":false}";
+                BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
+                StringBuilder result = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null && result.length() < 1048576) result.append(line);
+                reader.close();
+                return result.toString();
+            } catch (Exception ignored) { return "{\\\"success\\\":false}"; }
+            finally { if (conn != null) conn.disconnect(); }
+        }
         @JavascriptInterface
         public void showToast(final String msg) {
             if (msg == null || msg.trim().isEmpty()) return;
@@ -3157,9 +3212,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void connect(final String rawPairingCode, String rawServerUrl) {
             SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-            if (rawServerUrl != null && !rawServerUrl.trim().isEmpty()) {
-                sp.edit().putString("server_url", rawServerUrl.trim()).apply();
-            } else {
+            if (rawServerUrl == null || rawServerUrl.trim().isEmpty()) {
                 rawServerUrl = WorkerService.stringPref(sp, "server_url", "");
             }
             if (rawServerUrl == null || rawServerUrl.trim().isEmpty() || rawServerUrl.startsWith("{")) {
@@ -3169,17 +3222,16 @@ public class MainActivity extends Activity {
                 } else {
                     rawServerUrl = "http://10.0.2.2:3000";
                 }
-                sp.edit().putString("server_url", rawServerUrl).apply();
             }
             rawServerUrl = WorkerService.normalizeServerUrl(rawServerUrl);
             final String finalServerUrl = rawServerUrl;
             final String cleanCode = rawPairingCode != null ? rawPairingCode.trim().toUpperCase() : "";
 
-            if (finalServerUrl.isEmpty()) {
+            if (!WorkerService.isSecureServerURL(finalServerUrl)) {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        String msg = "Lütfen sunucu adresini içeren QR kodu tarayın veya sunucudan indirilmiş APK kullanın";
+                        String msg = "Güvenli bir HTTPS sunucu adresi gereklidir";
                         if (webView != null) {
                             safeEvalJs("window.setConnectingState(false); if (window.onPairError) window.onPairError(" + org.json.JSONObject.quote(msg) + ");");
                         }
@@ -3285,6 +3337,7 @@ public class MainActivity extends Activity {
                             try {
                                 URL url = new URL(ep);
                                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                                conn.setInstanceFollowRedirects(false);
                                 conn.setRequestMethod("POST");
                                 conn.setRequestProperty("Content-Type", "application/json");
                                 conn.setConnectTimeout(8000);
@@ -3320,6 +3373,7 @@ public class MainActivity extends Activity {
                         if (resultObj != null && resultObj.optBoolean("success")) {
                             JSONObject data = resultObj.getJSONObject("data");
                             final String returnedNodeId = data.optString("node_id");
+                            final String returnedWorkerSecret = data.optString("worker_secret");
                             final String returnedAppName = data.optString("app_name", "{app_name}");
                             final String returnedFavicon = data.optString("favicon", "logo.png");
                             final String returnedFaviconB64 = data.optString("favicon_base64", "");
@@ -3333,12 +3387,13 @@ public class MainActivity extends Activity {
                                 }
                             }
 
-                            if (isPaired && !returnedNodeId.isEmpty()) {
+                            if (isPaired && !returnedNodeId.isEmpty() && !returnedWorkerSecret.isEmpty()) {
                                 SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
                                 SharedPreferences.Editor ed = sp.edit()
                                   .putString("pairing_code", cleanCode)
                                   .putString("server_url", finalServerUrl)
                                   .putString("node_id", returnedNodeId)
+                                  .putString("worker_secret", returnedWorkerSecret)
                                   .putString("app_name", returnedAppName)
                                   .putString("favicon", returnedFavicon)
                                   .putString("assigned_model", assignedModel)
@@ -3471,7 +3526,7 @@ public class MainActivity extends Activity {
                 @Override
                 public void run() {
                     SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
-                    sp.edit().remove("node_id").remove("pairing_code").putBoolean("is_paired", false).apply();
+                    sp.edit().remove("node_id").remove("worker_secret").remove("pairing_code").putBoolean("is_paired", false).apply();
 
                     stopService(new Intent(MainActivity.this, WorkerService.class));
                     Toast.makeText(MainActivity.this, "Bağlantı kesildi", Toast.LENGTH_SHORT).show();

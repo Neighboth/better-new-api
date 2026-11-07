@@ -509,7 +509,12 @@ func TokenAuth() func(c *gin.Context) {
 		if err != nil {
 			return
 		}
-		c.Next()
+		readOnlyModelList := c.Request.Method == http.MethodGet && (c.FullPath() == "/v1/models" || c.FullPath() == "/v1/models/:model" || c.FullPath() == "/v1beta/models" || c.FullPath() == "/v1beta/openai/models")
+		if c.GetString(RouteTagKey) == "relay" && !readOnlyModelList {
+			WalletTransferGuard()(c)
+		} else {
+			c.Next()
+		}
 	}
 }
 

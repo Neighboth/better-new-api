@@ -188,6 +188,30 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 	if result == cacheQuotaInsufficient {
 		return false, nil
 	}
+	// In direct-write mode a cache entry can disappear and be rehydrated while
+	// another reservation has not reached SQL yet. The cache reservation is
+	// therefore advisory: SQL must independently enforce the balance condition.
+	if !common.BatchUpdateEnabled {
+		reserved, dbErr := reserveUserQuotaDB(id, quota)
+		if dbErr != nil || !reserved {
+			// The cache may have been rehydrated since our reservation. Adding a
+			// compensation delta could inflate it, so invalidate instead.
+			if cacheErr := invalidateUserCache(id); cacheErr != nil {
+				common.SysError(fmt.Sprintf("failed to invalidate user quota after reservation failure: %v", cacheErr))
+			}
+			if dbErr == nil {
+				var count int64
+				if lookupErr := DB.Model(&User{}).Where("id = ?", id).Count(&count).Error; lookupErr != nil {
+					return false, lookupErr
+				}
+				if count == 0 {
+					return false, gorm.ErrRecordNotFound
+				}
+			}
+			return false, dbErr
+		}
+		return true, nil
+	}
 	if err = persistUserQuotaDelta(id, -quota); err != nil {
 		compensated, compensateErr := cacheApplyUserQuotaDelta(id, int64(quota))
 		if compensateErr != nil || compensated != cacheQuotaOK {
@@ -228,6 +252,28 @@ func TryReserveTokenQuota(id int, key string, quota int, unlimited bool) (bool, 
 	}
 	if result == cacheQuotaInsufficient {
 		return false, nil
+	}
+	// As with wallet reservations, a rehydrated stale cache may authorize a
+	// second reservation. Direct-write mode must enforce the limit in SQL.
+	if !common.BatchUpdateEnabled {
+		reserved, dbErr := reserveTokenQuotaDB(id, quota)
+		if dbErr != nil || !reserved {
+			// Compensation could inflate an independently rehydrated cache.
+			if cacheErr := invalidateTokenCacheForMutation(key); cacheErr != nil {
+				common.SysError(fmt.Sprintf("failed to invalidate token quota after reservation failure: %v", cacheErr))
+			}
+			if dbErr == nil {
+				var count int64
+				if lookupErr := DB.Model(&Token{}).Where("id = ?", id).Count(&count).Error; lookupErr != nil {
+					return false, lookupErr
+				}
+				if count == 0 {
+					return false, gorm.ErrRecordNotFound
+				}
+			}
+			return false, dbErr
+		}
+		return true, nil
 	}
 	if err = persistTokenQuotaDelta(id, -quota); err != nil {
 		compensated, compensateErr := cacheApplyTokenQuotaDelta(id, key, int64(quota))

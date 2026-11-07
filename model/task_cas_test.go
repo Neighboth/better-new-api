@@ -36,7 +36,10 @@ func TestMain(m *testing.M) {
 
 	if err := db.AutoMigrate(
 		&Task{},
+		&Midjourney{},
 		&User{},
+		&WalletTransferHold{},
+		&WalletHoldEvent{},
 		&UserSession{},
 		&AuthFlow{},
 		&ExternalIdentityClaim{},

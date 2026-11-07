@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 )
 
@@ -33,8 +34,10 @@ type FundingSource interface {
 var ErrInsufficientWalletQuota = errors.New("wallet quota insufficient")
 
 type WalletFunding struct {
-	userId   int
-	consumed int // 实际预扣的用户额度
+	userId        int
+	consumed      int // 实际预扣的用户额度
+	holdID        string
+	markUncertain func()
 }
 
 func (w *WalletFunding) Source() string { return BillingSourceWallet }
@@ -43,8 +46,17 @@ func (w *WalletFunding) PreConsume(amount int) error {
 	if amount <= 0 {
 		return nil
 	}
-	reserved, err := model.TryReserveUserQuota(w.userId, amount)
+	var reserved bool
+	var err error
+	if w.holdID != "" && !common.BatchUpdateEnabled {
+		reserved, err = model.ReserveWalletHoldQuota(w.userId, w.holdID, "relay-precharge", amount)
+	} else {
+		reserved, err = model.TryReserveUserQuota(w.userId, amount)
+	}
 	if err != nil {
+		if w.holdID != "" && !common.BatchUpdateEnabled && w.markUncertain != nil {
+			w.markUncertain()
+		}
 		return err
 	}
 	if !reserved {
@@ -58,6 +70,9 @@ func (w *WalletFunding) Settle(delta int) error {
 	if delta == 0 {
 		return nil
 	}
+	if w.holdID != "" && !common.BatchUpdateEnabled {
+		return model.ApplyWalletHoldDelta(w.userId, w.holdID, "relay-final", -delta)
+	}
 	if delta > 0 {
 		return model.DecreaseUserQuota(w.userId, delta, false)
 	}
@@ -70,6 +85,9 @@ func (w *WalletFunding) Refund() error {
 	}
 	// IncreaseUserQuota 是 quota += N 的非幂等操作，不能重试，否则会多退额度。
 	// 订阅的 RefundSubscriptionPreConsume 有 requestId 幂等保护所以可以重试。
+	if w.holdID != "" && !common.BatchUpdateEnabled {
+		return model.ApplyWalletHoldDelta(w.userId, w.holdID, "relay-refund", w.consumed)
+	}
 	return model.IncreaseUserQuota(w.userId, w.consumed, false)
 }
 
@@ -237,4 +255,3 @@ func (t *TokensFunding) Refund() error {
 	}
 	return model.IncreaseUserTokens(t.userId, t.consumed)
 }
-
