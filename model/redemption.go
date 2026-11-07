@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -144,7 +145,7 @@ func Redeem(key string, userId int) (quota int, err error) {
 	if key == "" {
 		return 0, errors.New("未提供兑换码")
 	}
-	if userId == 0 {
+	if userId <= 0 {
 		return 0, errors.New("无效的 user id")
 	}
 	redemption := &Redemption{}
@@ -164,6 +165,9 @@ func Redeem(key string, userId int) (quota int, err error) {
 		}
 		if redemption.ExpiredTime != 0 && redemption.ExpiredTime < common.GetTimestamp() {
 			return errors.New("该兑换码已过期")
+		}
+		if redemption.Quota <= 0 || redemption.Quota > common.MaxQuota || redemption.Type < 0 || redemption.Type > 2 {
+			return errors.New("invalid redemption amount or type")
 		}
 		// Compare-and-swap on status: only the transaction that flips
 		// enabled -> used may credit quota, so a concurrent redeem of the
@@ -200,14 +204,26 @@ func Redeem(key string, userId int) (quota int, err error) {
 			}
 		}
 
+		// Claiming a code without actually crediting an existing user loses
+		// transferable value. Guard the SQL addition against overflow and
+		// roll back the claim and any restricted package when credit fails.
+		column := "quota"
+		max := int64(common.MaxQuota)
 		switch redemption.Type {
 		case 1:
-			return tx.Model(&User{}).Where("id = ?", userId).Update("requests_balance", gorm.Expr("requests_balance + ?", redemption.Quota)).Error
+			column = "requests_balance"
 		case 2:
-			return tx.Model(&User{}).Where("id = ?", userId).Update("tokens_balance", gorm.Expr("tokens_balance + ?", redemption.Quota)).Error
-		default:
-			return tx.Model(&User{}).Where("id = ?", userId).Update("quota", gorm.Expr("quota + ?", redemption.Quota)).Error
+			column = "tokens_balance"
+			max = math.MaxInt64
 		}
+		credit := tx.Model(&User{}).Where("id = ? AND "+column+" <= ?", userId, max-int64(redemption.Quota)).Update(column, gorm.Expr(column+" + ?", redemption.Quota))
+		if credit.Error != nil {
+			return credit.Error
+		}
+		if credit.RowsAffected != 1 {
+			return errors.New("redemption balance limit exceeded or user not found")
+		}
+		return nil
 	})
 	if err != nil {
 		common.SysError("redemption failed: " + err.Error())

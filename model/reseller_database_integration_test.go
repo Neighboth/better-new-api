@@ -338,6 +338,25 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			require.NotEqual(t, refundErr == nil, redeemErr == nil)
 			require.Equal(t, 35, getUserQuotaFromDB(t, owner.Id)+getUserQuotaFromDB(t, recipient.Id))
 
+			// Failed credits cannot burn issued codes, including on SQL dialects
+			// that enforce 32-bit integer overflow differently.
+			overflowCode := Redemption{UserId: owner.Id, Name: "overflow", Key: "overflow-" + common.GetRandomString(16), Quota: 20, Status: common.RedemptionCodeStatusEnabled, ModelFilterMode: "whitelist", Models: "model-a"}
+			require.NoError(t, db.Create(&overflowCode).Error)
+			t.Cleanup(func() { db.Where("redemption_id = ?", overflowCode.Id).Delete(&UserBalancePackage{}) })
+			require.NoError(t, db.Model(&User{}).Where("id = ?", recipient.Id).Update("quota", common.MaxQuota-10).Error)
+			_, err = Redeem(overflowCode.Key, recipient.Id)
+			require.Error(t, err)
+			var unchanged Redemption
+			require.NoError(t, db.First(&unchanged, overflowCode.Id).Error)
+			require.Equal(t, common.RedemptionCodeStatusEnabled, unchanged.Status)
+			var packages int64
+			require.NoError(t, db.Model(&UserBalancePackage{}).Where("redemption_id = ?", overflowCode.Id).Count(&packages).Error)
+			require.Zero(t, packages)
+			require.NoError(t, db.Model(&User{}).Where("id = ?", recipient.Id).Update("quota", common.MaxQuota-20).Error)
+			_, err = Redeem(overflowCode.Key, recipient.Id)
+			require.NoError(t, err)
+			require.Equal(t, common.MaxQuota, getUserQuotaFromDB(t, recipient.Id))
+
 			pairing := "test-" + common.GetRandomString(16)
 			require.NoError(t, CreateByogPairingSession(pairing, owner.Id, time.Now().Unix()+900))
 			var claimed atomic.Int32
