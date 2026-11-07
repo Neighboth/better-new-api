@@ -1536,3 +1536,22 @@ func TestMidjourneyRefundIntentSurvivesCrashAndAtomicFailure(t *testing.T) {
 	require.True(t, RefundMidjourneyQuota(context.Background(), &restarted, "replay"))
 	require.Equal(t, 100, getUserQuota(t, userID))
 }
+
+func TestMidjourneyTokenRefundOverflowKeepsEntireRefundPending(t *testing.T) {
+	truncate(t)
+	const userID, tokenID, channelID, quota = 993, 993, 993, 30
+	seedUser(t, userID, 70)
+	seedToken(t, tokenID, userID, "sk-overflow-refund", common.MaxQuota)
+	seedChannel(t, channelID)
+	seedChargedAccounting(t, userID, channelID, tokenID, quota, 1)
+	task := &model.Midjourney{UserId: userID, MjId: "overflow-recovery", Status: "FAILURE", Progress: "100%", Quota: quota, TokenId: tokenID, ChannelId: channelID, RefundPending: true}
+	require.NoError(t, task.Insert())
+	require.False(t, RefundMidjourneyQuota(context.Background(), task, "overflow"))
+	require.Equal(t, 70, getUserQuota(t, userID))
+	require.Equal(t, common.MaxQuota, getTokenRemainQuota(t, tokenID))
+	require.True(t, getMidjourneyTask(t, task.Id).RefundPending)
+	require.NoError(t, model.DB.Model(&model.Token{}).Where("id = ?", tokenID).Update("remain_quota", 70).Error)
+	require.True(t, RefundMidjourneyQuota(context.Background(), task, "retry"))
+	require.Equal(t, 100, getUserQuota(t, userID))
+	require.Equal(t, 100, getTokenRemainQuota(t, tokenID))
+}
