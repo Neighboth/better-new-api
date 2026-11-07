@@ -28,11 +28,13 @@ been established. Do not deploy this as a completed financial redesign.
 - Non-batch legacy final settlement, violation fees, direct BYOG charges and
   Midjourney submission charges now also journal their wallet delta when a
   request hold is present. For held non-batch Midjourney requests the known
-  fixed price is reserved before upstream submission; a shared decision event
-  makes finalization and release mutually exclusive. Ambiguous upstream errors
-  keep the hold and reservation for review. Midjourney submissions persist a
-  pending-charge marker before task billing; pollers skip pending tasks and failed charges retain
-  their hold for investigation. A wallet refund consumes the persisted task
+  fixed price is atomically reserved from SQL wallet and API token before
+  upstream submission; a shared decision event makes finalization and release
+  mutually exclusive. A hold-linked task, pending marker and SQL usage counters
+  finalize in the same transaction as the billable decision. Nonbillable release
+  restores wallet and token and clears any linked pending task atomically.
+  Ambiguous upstream errors keep the hold and reservation for review. Pollers
+  skip pending tasks and failed charges retain their hold for investigation. A wallet refund consumes the persisted task
   quota, credits the user, restores token quota and adjusts SQL usage counters in
   one transaction. The poller commits `refund_pending` with a provider-confirmed
   failure status and retries marked refunds after a process restart. Stale status
@@ -81,9 +83,16 @@ been established. Do not deploy this as a completed financial redesign.
    paths listed above. An old hold is not proof the operation ended. Explicitly
    ensure it cannot still charge, refund, be retried or finish on another node.
    For Midjourney inspect `billing_pending`, the persisted task quota and the
-   `midjourney-precharge`, `midjourney-decision` and `midjourney-charge` events
-   before any intervention; a pending marker does not
-   prove whether a debit committed. Do not clear it merely because it is old.
+   `midjourney-precharge` and `midjourney-decision` events, including both wallet
+   and token deltas, before any intervention. A pending marker does not prove
+   whether upstream work completed. After proving the operation stopped and
+   gathering provider evidence, root can call
+   `POST /api/wallet-holds/HOLD_ID/midjourney-finalize` with
+   `{"user_id": USER_ID, "billable": true_or_false, "task_id": TASK_ID, "reason": "...", "confirmed": true}`.
+   Billable finalization requires a matching pending task. Generic hold resolution
+   rejects unfinished Midjourney reservations and wallet-only adjustments.
+   Manual finalization does not guarantee a consume log; logs are separate.
+   Do not clear a pending marker merely because it is old.
    For BYOG inspect both `byog-precharge` and `byog-final`, including their
    wallet and token deltas. The worker may still be running: this API does not
    verify worker termination. After proving it stopped and determining the final

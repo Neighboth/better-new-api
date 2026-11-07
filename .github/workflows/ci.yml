@@ -62,18 +62,7 @@ jobs:
         run: go build ./...
 
       - name: Test root and relaykit modules
-        run: |
-          if ! make test > /tmp/test-output.log 2>&1; then
-            python3 - <<'PYCODE'
-          from pathlib import Path
-          output = Path('/tmp/test-output.log').read_text(errors='replace')
-          start = output.find('--- FAIL:')
-          if start < 0: start = output.find('panic:')
-          output = output[start:start+3500] if start >= 0 else output[-3500:]
-          print('::error title=Test output::' + output.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
-          PYCODE
-            exit 1
-          fi
+        run: make test
 
       - name: Test realtime concurrency with the race detector
         run: go test -race ./relay/realtime

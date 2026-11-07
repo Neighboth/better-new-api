@@ -137,7 +137,8 @@ func SettleMidjourneyTaskBillingReserved(relayInfo *relaycommon.RelayInfo, task 
 		if fresh {
 			checkAndSendQuotaNotify(relayInfo, task.Quota, 0)
 		}
-		return true, nil
+		// Only a fresh decision should emit the separate consume log.
+		return fresh, nil
 	}
 	result, billingErr := postConsumeQuotaWithHoldAndReservation(relayInfo, task.Quota, 0, true, holdID, "midjourney-charge", walletReserved)
 	if !result.FundingApplied {
