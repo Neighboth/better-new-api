@@ -69,17 +69,8 @@ jobs:
 
       - name: Test BYOG wallet and worker concurrency with the race detector
         run: |
-          for cmd in "./model TestByogWallet\|TestByogToken\|TestMidjourney" "./service/byog TestPaidByog\|TestByogPrice"; do
-            pkg="${cmd%% *}"; pattern="${cmd#* }"; pattern="${pattern//\\|/|}"
-            if ! go test -race "$pkg" -run "$pattern" > /tmp/race-output.log 2>&1; then
-              python3 - <<'PYCODE'
-          from pathlib import Path
-          output = Path('/tmp/race-output.log').read_text(errors='replace')[-18000:]
-          print('::error title=Race test output::' + output.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
-          PYCODE
-              exit 1
-            fi
-          done
+          go test -race ./model -run 'TestByogWallet|TestByogToken|TestMidjourney'
+          go test -race ./service/byog -run 'TestPaidByog|TestByogPrice|TestByogAuthorization'
 
   frontend:
     name: Frontend typecheck and test
