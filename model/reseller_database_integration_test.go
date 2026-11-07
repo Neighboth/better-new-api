@@ -43,7 +43,7 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			initCol()
 			t.Cleanup(func() { DB = oldDB; common.SetMainDatabaseType(oldType); initCol() })
 			resetBatchUpdateTestState(t)
-			require.NoError(t, db.AutoMigrate(&User{}, &Redemption{}, &UserBalancePackage{}, &ByogPairingSession{}, &WalletTransferHold{}, &WalletHoldEvent{}, &Task{}, &Midjourney{}, &Token{}, &Channel{}))
+			require.NoError(t, db.AutoMigrate(&User{}, &Redemption{}, &UserBalancePackage{}, &ByogPairingSession{}, &ByogNodeBan{}, &WalletTransferHold{}, &WalletHoldEvent{}, &Task{}, &Midjourney{}, &Token{}, &Channel{}))
 			owner := createReserveTestUser(t, 100)
 			t.Cleanup(func() {
 				db.Unscoped().Where("user_id = ?", owner.Id).Delete(&Redemption{})
@@ -356,6 +356,24 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			_, err = Redeem(overflowCode.Key, recipient.Id)
 			require.NoError(t, err)
 			require.Equal(t, common.MaxQuota, getUserQuotaFromDB(t, recipient.Id))
+
+			// Account and hardware bans must both match on every SQL dialect.
+			ban := ByogNodeBan{NodeId: "integration-banned-node", UserId: owner.Id, HWID: "integration-banned-hardware", BanReason: "test", ViolationCode: "test", IsActive: true}
+			require.NoError(t, db.Create(&ban).Error)
+			t.Cleanup(func() { db.Where("id = ?", ban.Id).Delete(&ByogNodeBan{}) })
+			blocked, err := CheckByogBan(owner.Id, "different-hardware")
+			require.NoError(t, err)
+			require.True(t, blocked)
+			blocked, err = CheckByogBan(recipient.Id, ban.HWID)
+			require.NoError(t, err)
+			require.True(t, blocked)
+			blocked, err = CheckByogBan(recipient.Id, "different-hardware")
+			require.NoError(t, err)
+			require.False(t, blocked)
+			require.NoError(t, db.Model(&ban).Update("is_active", false).Error)
+			blocked, err = CheckByogBan(owner.Id, ban.HWID)
+			require.NoError(t, err)
+			require.False(t, blocked)
 
 			pairing := "test-" + common.GetRandomString(16)
 			require.NoError(t, CreateByogPairingSession(pairing, owner.Id, time.Now().Unix()+900))
