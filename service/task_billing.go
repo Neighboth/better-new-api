@@ -177,6 +177,34 @@ func taskModelName(task *model.Task) string {
 // 返回资金来源是否已成功退还；失败时保留 quota，供显式重试或人工对账。
 func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool {
 	quota := task.Quota
+	if task.PrivateData.WalletHoldID != "" && task.PrivateData.WalletHoldNeedsReview {
+		logger.LogWarn(ctx, fmt.Sprintf("task %s requires submission accounting reconciliation", task.TaskID))
+		return false
+	}
+	if task.PrivateData.WalletHoldID != "" && task.PrivateData.BillingSource == BillingSourceWallet && !common.BatchUpdateEnabled && !task.RefundPending && quota > 0 {
+		logger.LogWarn(ctx, fmt.Sprintf("task %s has no durable refund intent", task.TaskID))
+		return false
+	}
+	if task.RefundPending && task.PrivateData.WalletHoldID != "" && task.PrivateData.BillingSource == BillingSourceWallet && !common.BatchUpdateEnabled {
+		refunded, err := model.RefundHeldTaskWalletOnce(task.UserId, task.ID, task.PrivateData.WalletHoldID)
+		if err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("task %s atomic refund failed: %v", task.TaskID, err))
+			return false
+		}
+		task.Quota = 0
+		task.RefundPending = false
+		if refunded > 0 {
+			other := taskBillingOther(task)
+			other["task_id"] = task.TaskID
+			other["reason"] = reason
+			model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+				UserId: task.UserId, LogType: model.LogTypeRefund, ChannelId: task.ChannelId,
+				ModelName: taskModelName(task), Quota: refunded, TokenId: task.PrivateData.TokenId,
+				Group: task.Group, Other: other,
+			})
+		}
+		return true
+	}
 	if quota == 0 {
 		return true
 	}

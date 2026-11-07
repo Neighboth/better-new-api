@@ -47,7 +47,7 @@ func TestPaidByogRejectsEmptySQLWalletBeforeDispatch(t *testing.T) {
 	oldDB, oldRedis, oldBatch := model.DB, common.RedisEnabled, common.BatchUpdateEnabled
 	model.DB, common.RedisEnabled, common.BatchUpdateEnabled = db, false, false
 	t.Cleanup(func() { model.DB, common.RedisEnabled, common.BatchUpdateEnabled = oldDB, oldRedis, oldBatch })
-	require.NoError(t, db.AutoMigrate(&model.ByogNodeBan{}, &model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
+	require.NoError(t, db.AutoMigrate(&model.Task{}, &model.ByogNodeBan{}, &model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
 	node := model.ByogNode{NodeId: "paid-empty-wallet", UserId: 1, Status: "online", DeviceType: "desktop"}
 	require.NoError(t, db.Create(&node).Error)
 	require.NoError(t, db.Create(&model.User{Id: 2, Username: "empty-user", Quota: 0, AffCode: "empty-aff"}).Error)
@@ -76,7 +76,7 @@ func TestPaidByogReservesBeforeDispatchAndSettlesBoundedUsage(t *testing.T) {
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB, common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = oldDB, oldLogDB, oldRedis, oldBatch, oldConsume
 	})
-	require.NoError(t, db.AutoMigrate(&model.ByogNodeBan{}, &model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}, &model.Token{}))
+	require.NoError(t, db.AutoMigrate(&model.Task{}, &model.ByogNodeBan{}, &model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}, &model.Token{}))
 	node := model.ByogNode{NodeId: "bounded-dispatch", UserId: 1, Status: "online", DeviceType: "desktop"}
 	require.NoError(t, db.Create(&node).Error)
 	require.NoError(t, db.Create(&model.User{Id: 2, Username: "bounded-user", Quota: 10000, AffCode: "bounded-aff"}).Error)
@@ -170,7 +170,7 @@ func TestPaidByogRejectsInsufficientMaximumBeforeDispatch(t *testing.T) {
 	oldDB, oldRedis, oldBatch := model.DB, common.RedisEnabled, common.BatchUpdateEnabled
 	model.DB, common.RedisEnabled, common.BatchUpdateEnabled = db, false, false
 	t.Cleanup(func() { model.DB, common.RedisEnabled, common.BatchUpdateEnabled = oldDB, oldRedis, oldBatch })
-	require.NoError(t, db.AutoMigrate(&model.ByogNodeBan{}, &model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
+	require.NoError(t, db.AutoMigrate(&model.Task{}, &model.ByogNodeBan{}, &model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
 	node := model.ByogNode{NodeId: "insufficient-max", UserId: 1, DeviceType: "desktop"}
 	require.NoError(t, db.Create(&node).Error)
 	require.NoError(t, db.Create(&model.User{Id: 2, Username: "small-wallet", Quota: 1, AffCode: "small-aff"}).Error)
@@ -203,7 +203,7 @@ func TestPaidByogRetainsReserveWhenDispatchOutcomeIsUnknown(t *testing.T) {
 	oldDB, oldRedis, oldBatch := model.DB, common.RedisEnabled, common.BatchUpdateEnabled
 	model.DB, common.RedisEnabled, common.BatchUpdateEnabled = db, false, false
 	t.Cleanup(func() { model.DB, common.RedisEnabled, common.BatchUpdateEnabled = oldDB, oldRedis, oldBatch })
-	require.NoError(t, db.AutoMigrate(&model.ByogNodeBan{}, &model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
+	require.NoError(t, db.AutoMigrate(&model.Task{}, &model.ByogNodeBan{}, &model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
 	node := model.ByogNode{NodeId: "ambiguous-max", UserId: 1, DeviceType: "desktop"}
 	require.NoError(t, db.Create(&node).Error)
 	require.NoError(t, db.Create(&model.User{Id: 2, Username: "funded-wallet", Quota: 10000, AffCode: "funded-aff"}).Error)
@@ -238,7 +238,7 @@ func TestPaidByogRejectsWorkerOutputPastAuthorizedLimit(t *testing.T) {
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB, common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = oldDB, oldLogDB, oldRedis, oldBatch, oldConsume
 	})
-	require.NoError(t, db.AutoMigrate(&model.ByogNodeBan{}, &model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
+	require.NoError(t, db.AutoMigrate(&model.Task{}, &model.ByogNodeBan{}, &model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
 	node := model.ByogNode{NodeId: "excess-worker", UserId: 1, DeviceType: "desktop"}
 	require.NoError(t, db.Create(&node).Error)
 	require.NoError(t, db.Create(&model.User{Id: 2, Username: "bounded-client", Quota: 10000, AffCode: "bounded-client-aff"}).Error)

@@ -106,6 +106,17 @@ func resolveWalletTransferHold(userID int, id string, delta, operatorID int, not
 		if hold.State != "open" {
 			return errors.New("invalid wallet hold state")
 		}
+		// Do not release transferable value while a linked task's durable
+		// failure refund is still waiting for wallet/token accounting.
+		var pendingTasks []Task
+		if err := tx.Where("user_id = ? AND refund_pending = ?", userID, true).Find(&pendingTasks).Error; err != nil {
+			return err
+		}
+		for _, task := range pendingTasks {
+			if task.PrivateData.WalletHoldID == id {
+				return errors.New("pending task refund must be reconciled before resolving the hold")
+			}
+		}
 		// Precharged BYOG and Midjourney work owns both wallet and token
 		// quota. Neither can be released until its decision is journaled.
 		for _, keys := range [][2]string{{"byog-precharge", "byog-final"}, {"midjourney-precharge", "midjourney-decision"}} {

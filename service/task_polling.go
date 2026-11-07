@@ -71,6 +71,7 @@ func sweepTimedOutTasks(ctx context.Context) {
 			task.Quota = 0
 		} else {
 			task.FailReason = reason
+			markHeldTaskRefundPending(task)
 		}
 
 		legacyHold, err := beginLegacyTaskWalletHold(task)
@@ -78,7 +79,12 @@ func sweepTimedOutTasks(ctx context.Context) {
 			logger.LogError(ctx, fmt.Sprintf("task %s wallet guard failed: %v", task.TaskID, err))
 			continue
 		}
-		won, err := task.UpdateWithStatus(oldStatus)
+		var won bool
+		if isLegacy {
+			won, err = task.UpdateLegacyTimeoutWithStatus(oldStatus)
+		} else {
+			won, err = task.UpdateWithStatus(oldStatus)
+		}
 		if err != nil {
 			logger.LogError(ctx, fmt.Sprintf("sweepTimedOutTasks CAS update error for task %s: %v", task.TaskID, err))
 			continue // ambiguous write: retain the guard
@@ -115,11 +121,12 @@ type TaskPollSummary struct {
 // adaptor factory has not been wired yet, to avoid a nil call during startup.
 func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) TaskPollSummary {
 	summary := TaskPollSummary{}
-	if GetTaskAdaptorFunc == nil {
-		return summary
-	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	recoverPendingHeldTaskRefunds(ctx)
+	if GetTaskAdaptorFunc == nil {
+		return summary
 	}
 
 	common.SysLog("任务进度轮询开始")
@@ -299,6 +306,9 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 			logger.LogInfo(ctx, task.TaskID+" 构建失败，"+task.FailReason)
 			task.Status = model.TaskStatusFailure
 			task.Progress = "100%"
+			if prevStatus != model.TaskStatusFailure {
+				markHeldTaskRefundPending(task)
+			}
 		}
 		if responseItem.Status == model.TaskStatusSuccess {
 			task.Progress = "100%"
@@ -588,6 +598,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		taskResult.Progress = taskcommon.ProgressComplete
 		if quota != 0 {
 			shouldRefund = true
+			markHeldTaskRefundPending(task)
 		}
 	default:
 		return fmt.Errorf("unknown task status %s for task %s", taskResult.Status, task.TaskID)
@@ -694,6 +705,33 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 	}
 	// 3. 无调整，保持预扣额度
 	return true
+}
+
+// Only submission accounting known to be complete may produce a new refund
+// intent. Old failures without a marker are never guessed or backfilled.
+func markHeldTaskRefundPending(task *model.Task) {
+	if task != nil && task.Quota > 0 && task.PrivateData.WalletHoldID != "" && task.PrivateData.BillingSource == BillingSourceWallet && !task.PrivateData.WalletHoldNeedsReview && !common.BatchUpdateEnabled {
+		task.RefundPending = true
+	}
+}
+
+func recoverPendingHeldTaskRefunds(ctx context.Context) {
+	if common.BatchUpdateEnabled {
+		return
+	}
+	tasks, err := model.PendingHeldTaskRefunds(100)
+	if err != nil {
+		logger.LogError(ctx, "cannot read pending task refunds: "+err.Error())
+		return
+	}
+	for _, task := range tasks {
+		if ctx.Err() != nil {
+			return
+		}
+		if RefundTaskQuota(ctx, task, task.FailReason) {
+			releaseTaskWalletHold(ctx, task)
+		}
+	}
 }
 
 func releaseTaskWalletHold(ctx context.Context, task *model.Task) {

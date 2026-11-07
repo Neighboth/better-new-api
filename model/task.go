@@ -48,24 +48,27 @@ const (
 const TaskRefundLegacyCutoff int64 = 1771718400 // 2026-02-22 00:00:00 UTC
 
 type Task struct {
-	ID         int64                 `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
-	CreatedAt  int64                 `json:"created_at" gorm:"index"`
-	UpdatedAt  int64                 `json:"updated_at"`
-	TaskID     string                `json:"task_id" gorm:"type:varchar(191);index"` // 第三方id，不一定有/ song id\ Task id
-	Platform   constant.TaskPlatform `json:"platform" gorm:"type:varchar(30);index"` // 平台
-	UserId     int                   `json:"user_id" gorm:"index"`
-	Group      string                `json:"group" gorm:"type:varchar(50)"` // 修正计费用
-	ChannelId  int                   `json:"channel_id" gorm:"index"`
-	Quota      int                   `json:"quota"`
-	Action     string                `json:"action" gorm:"type:varchar(40);index"` // 任务类型, song, lyrics, description-mode
-	Status     TaskStatus            `json:"status" gorm:"type:varchar(20);index"` // 任务状态
-	FailReason string                `json:"fail_reason"`
-	SubmitTime int64                 `json:"submit_time" gorm:"index"`
-	StartTime  int64                 `json:"start_time" gorm:"index"`
-	FinishTime int64                 `json:"finish_time" gorm:"index"`
-	Progress   string                `json:"progress" gorm:"type:varchar(20);index"`
-	Properties Properties            `json:"properties" gorm:"type:json"`
-	Username   string                `json:"username,omitempty" gorm:"-"`
+	ID        int64                 `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
+	CreatedAt int64                 `json:"created_at" gorm:"index"`
+	UpdatedAt int64                 `json:"updated_at"`
+	TaskID    string                `json:"task_id" gorm:"type:varchar(191);index"` // 第三方id，不一定有/ song id\ Task id
+	Platform  constant.TaskPlatform `json:"platform" gorm:"type:varchar(30);index"` // 平台
+	UserId    int                   `json:"user_id" gorm:"index"`
+	Group     string                `json:"group" gorm:"type:varchar(50)"` // 修正计费用
+	ChannelId int                   `json:"channel_id" gorm:"index"`
+	Quota     int                   `json:"quota"`
+	// RefundPending is durable evidence that a held wallet task reached a
+	// refundable terminal state but its accounting has not finished yet.
+	RefundPending bool       `json:"-" gorm:"not null;default:false;index"`
+	Action        string     `json:"action" gorm:"type:varchar(40);index"` // 任务类型, song, lyrics, description-mode
+	Status        TaskStatus `json:"status" gorm:"type:varchar(20);index"` // 任务状态
+	FailReason    string     `json:"fail_reason"`
+	SubmitTime    int64      `json:"submit_time" gorm:"index"`
+	StartTime     int64      `json:"start_time" gorm:"index"`
+	FinishTime    int64      `json:"finish_time" gorm:"index"`
+	Progress      string     `json:"progress" gorm:"type:varchar(20);index"`
+	Properties    Properties `json:"properties" gorm:"type:json"`
+	Username      string     `json:"username,omitempty" gorm:"-"`
 	// 禁止返回给用户，内部可能包含key等隐私信息
 	PrivateData TaskPrivateData `json:"-" gorm:"column:private_data;type:json"`
 	Data        json.RawMessage `json:"data" gorm:"type:json"`
@@ -435,7 +438,26 @@ func (t *Task) UpdateQuota() error {
 // falls back to INSERT ON CONFLICT when the WHERE-guarded UPDATE matches
 // zero rows, which silently bypasses the CAS guard.
 func (t *Task) UpdateWithStatus(fromStatus TaskStatus) (bool, error) {
-	result := DB.Model(t).Where("status = ?", fromStatus).Select("*").Updates(t)
+	return t.updateWithStatus(fromStatus, false)
+}
+
+// UpdateLegacyTimeoutWithStatus retains the existing policy of clearing the
+// quota for old timed-out tasks that must not receive an automatic refund.
+func (t *Task) UpdateLegacyTimeoutWithStatus(fromStatus TaskStatus) (bool, error) {
+	return t.updateWithStatus(fromStatus, true)
+}
+
+func (t *Task) updateWithStatus(fromStatus TaskStatus, updateQuota bool) (bool, error) {
+	query := DB.Model(t).Where("status = ?", fromStatus).Select("*")
+	if !updateQuota {
+		query = query.Omit("quota")
+	}
+	// Only the first failure transition may set the refund intent. A stale
+	// poller must never clear it after an accounting transaction has started.
+	if fromStatus == TaskStatusFailure || t.Status != TaskStatusFailure || !t.RefundPending {
+		query = query.Omit("refund_pending")
+	}
+	result := query.Updates(t)
 	if result.Error != nil {
 		return false, result.Error
 	}

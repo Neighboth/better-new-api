@@ -389,6 +389,54 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			}
 			wg.Wait()
 			require.Equal(t, int32(1), claimed.Load())
+
+			// Concurrent recovery of the same held task must refund wallet,
+			// token and counters once and close its hold atomically.
+			refundUser := createReserveTestUser(t, 70)
+			refundToken := Token{UserId: refundUser.Id, Key: "task-refund-" + common.GetRandomString(12), Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 70, UsedQuota: 30}
+			require.NoError(t, db.Create(&refundToken).Error)
+			refundChannel := Channel{Name: "task-refund-channel", Key: "test", UsedQuota: 30}
+			require.NoError(t, db.Create(&refundChannel).Error)
+			require.NoError(t, db.Model(&User{}).Where("id = ?", refundUser.Id).Update("used_quota", 30).Error)
+			refundHold, err := BeginWalletTransferHold(refundUser.Id)
+			require.NoError(t, err)
+			refundTask := Task{TaskID: "held-refund-" + common.GetRandomString(12), UserId: refundUser.Id, ChannelId: refundChannel.Id, Quota: 30, Status: TaskStatusFailure, RefundPending: true, PrivateData: TaskPrivateData{WalletHoldID: refundHold, BillingSource: "wallet", TokenId: refundToken.Id}}
+			require.NoError(t, db.Create(&refundTask).Error)
+			t.Cleanup(func() {
+				db.Where("hold_id = ?", refundHold).Delete(&WalletHoldEvent{})
+				db.Where("id = ?", refundHold).Delete(&WalletTransferHold{})
+				db.Where("id = ?", refundTask.ID).Delete(&Task{})
+				db.Unscoped().Where("id = ?", refundToken.Id).Delete(&Token{})
+				db.Unscoped().Where("id = ?", refundChannel.Id).Delete(&Channel{})
+				db.Unscoped().Where("id = ?", refundUser.Id).Delete(&User{})
+			})
+			require.Error(t, ResolveWalletTransferHold(refundUser.Id, refundHold, 0))
+			var refunded, refundErrors atomic.Int32
+			for i := 0; i < 10; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					amount, err := RefundHeldTaskWalletOnce(refundUser.Id, refundTask.ID, refundHold)
+					if err != nil {
+						refundErrors.Add(1)
+					}
+					if amount == 30 {
+						refunded.Add(1)
+					}
+				}()
+			}
+			wg.Wait()
+			require.Zero(t, refundErrors.Load())
+			require.Equal(t, int32(1), refunded.Load())
+			require.Equal(t, 100, getUserQuotaFromDB(t, refundUser.Id))
+			require.Equal(t, 100, getTokenFromDB(t, refundToken.Id).RemainQuota)
+			var refundTaskAfter Task
+			require.NoError(t, db.First(&refundTaskAfter, refundTask.ID).Error)
+			require.False(t, refundTaskAfter.RefundPending)
+			require.Zero(t, refundTaskAfter.Quota)
+			var resolved WalletTransferHold
+			require.NoError(t, db.Where("id = ?", refundHold).First(&resolved).Error)
+			require.Equal(t, "resolved", resolved.State)
 		})
 	}
 }
