@@ -783,7 +783,9 @@ export function ClientPage() {
       }
     } else if (localApi) {
       try {
-        const response = await fetch(`${localApi}/state?token=${localToken}`)
+        const response = await fetch(`${localApi}/state?token=${localToken}`, {
+          signal: AbortSignal.timeout(5000),
+        })
         const payload = (await response.json()) as Record<string, unknown>
         if (typeof payload.server_url === 'string' && payload.server_url) {
           setServerUrl(payload.server_url)
@@ -849,7 +851,10 @@ export function ClientPage() {
         const url = localApi
           ? `${localApi}/worker/status?token=${encodeURIComponent(localToken)}`
           : `/api/byog/user/client/status?node_id=${encodeURIComponent(targetNodeId)}`
-        const response = await fetch(url, { headers: localApi ? {} : await getFreshAuthHeaders() })
+        const response = await fetch(url, {
+          headers: localApi ? {} : await getFreshAuthHeaders(),
+          signal: AbortSignal.timeout(6000),
+        })
         payload = await response.json()
       }
       if (payload.success && payload.data) {
@@ -935,6 +940,7 @@ export function ClientPage() {
         await fetch(`${localApi}/settings?token=${localToken}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(6000),
           body: JSON.stringify({
             allocated_ram_gb: ramGB,
             allocated_vram_gb: vramGB,
@@ -973,6 +979,7 @@ export function ClientPage() {
           const resp = await fetch(url, {
             method: 'POST',
             headers: { ...headers, 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(8000),
             body: JSON.stringify(resources),
           })
           payload = await resp.json()
@@ -1128,14 +1135,19 @@ export function ClientPage() {
 
   useEffect(() => {
     void loadState()
-    const timer = setInterval(() => void loadState(), 4000)
+    const isDownloading = state?.model_status === 'downloading'
+    const intervalMs = isDownloading ? 1000 : 4000
+    const timer = setInterval(() => void loadState(), intervalMs)
     return () => clearInterval(timer)
-  }, [loadState])
+  }, [loadState, state?.model_status])
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true)
-    await loadState()
-    setTimeout(() => setIsRefreshing(false), 600)
+    try {
+      await loadState()
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 400)
+    }
   }
 
   const pair = async () => {

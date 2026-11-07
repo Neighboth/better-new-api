@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/windows/registry"
 
@@ -490,6 +491,9 @@ func deleteKeyTree(root registry.Key, path string) {
 // with the branding icon in the application directory.
 func PatchInstalledBinariesIcons() error {
 	dirs := []string{InstalledDirectory(), Directory()}
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, ".byog"))
+	}
 	var icoData []byte
 	for _, d := range dirs {
 		candidate := filepath.Join(d, "byog.ico")
@@ -516,8 +520,14 @@ func PatchInstalledBinariesIcons() error {
 			for _, uninsPath := range uninsMatches {
 				if raw, err := os.ReadFile(uninsPath); err == nil && len(raw) > 0 {
 					if patched, err := embedcfg.PatchIcon(raw, pngData); err == nil && len(patched) > 0 {
-						if err := os.WriteFile(uninsPath, patched, 0755); err == nil {
-							patchedAny = true
+						for attempt := 0; attempt < 8; attempt++ {
+							if err := os.WriteFile(uninsPath, patched, 0755); err == nil {
+								patchedAny = true
+								now := time.Now()
+								_ = os.Chtimes(uninsPath, now, now)
+								break
+							}
+							time.Sleep(250 * time.Millisecond)
 						}
 					}
 				}
@@ -534,23 +544,27 @@ func PatchInstalledBinariesIcons() error {
 					_ = os.Remove(oldPath)
 					if err := os.Rename(workerPath, oldPath); err == nil {
 						_ = os.WriteFile(workerPath, patched, 0755)
+						now := time.Now()
+						_ = os.Chtimes(workerPath, now, now)
 						patchedAny = true
 					}
 				} else {
+					now := time.Now()
+					_ = os.Chtimes(workerPath, now, now)
 					patchedAny = true
 				}
 			}
 		}
 	}
-
 	if patchedAny {
-		// SHCNE_ASSOCCHANGED (0x08000000), SHCNF_IDLIST (0)
-		// Forces Windows Explorer to invalidate and refresh shell icon cache immediately
-		shell32 := syscall.NewLazyDLL("shell32.dll")
-		shChangeNotify := shell32.NewProc("SHChangeNotify")
-		_, _, _ = shChangeNotify.Call(0x08000000, 0, 0, 0)
+		notifyShellIconChange()
 	}
-
 	return nil
+}
+
+func notifyShellIconChange() {
+	shell32 := syscall.NewLazyDLL("shell32.dll")
+	procSHChangeNotify := shell32.NewProc("SHChangeNotify")
+	procSHChangeNotify.Call(0x08000000, 0, 0, 0) // SHCNE_ASSOCCHANGED, SHCNF_IDLIST
 }
 

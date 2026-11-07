@@ -165,8 +165,8 @@ func startHeartbeatLoop() {
 	defer ticker.Stop()
 
 	// While a model is downloaded the progress is reported more often so that the
-	// panel follows the transfer.
-	downloadTicker := time.NewTicker(3 * time.Second)
+	// panel follows the transfer in real time without lag.
+	downloadTicker := time.NewTicker(1 * time.Second)
 	defer downloadTicker.Stop()
 
 	for {
@@ -319,6 +319,52 @@ func getSystemModelDirName() string {
 	return sysName + " BYOG Models"
 }
 
+func pruneDriveModels(driveRoot string) {
+	driveRoot = strings.TrimSpace(driveRoot)
+	if driveRoot == "" {
+		return
+	}
+	if strings.HasSuffix(driveRoot, ":") {
+		driveRoot += `\`
+	} else if !strings.HasSuffix(driveRoot, `\`) && !strings.HasSuffix(driveRoot, `/`) {
+		driveRoot += `\`
+	}
+	name := getSystemModelDirName()
+	candidates := []string{
+		filepath.Join(driveRoot, "models"),
+		filepath.Join(driveRoot, name),
+		filepath.Join(driveRoot, "PixRouter BYOG Models"),
+		filepath.Join(driveRoot, "BYOG Models"),
+	}
+	for _, c := range candidates {
+		_ = removeDirectoryRobust(c)
+	}
+}
+
+func pruneAllModelsIfZeroDisk() {
+	State.Mu.Lock()
+	maxDisk := State.Config.MaxDiskGB
+	disksJson := State.Disks
+	State.Mu.Unlock()
+	totalAlloc := maxDisk
+	if disksJson != "" {
+		var disks []DiskPartitionInfo
+		if err := json.Unmarshal([]byte(disksJson), &disks); err == nil && len(disks) > 0 {
+			totalAlloc = 0
+			for _, d := range disks {
+				if d.AllocatedGB > 0 {
+					totalAlloc += d.AllocatedGB
+				} else {
+					pruneDriveModels(d.Drive)
+				}
+			}
+		}
+	}
+	if totalAlloc <= 0 {
+		_ = removeDirectoryRobust(modelDirectory())
+	}
+}
+
 func candidateModelDirs() []string {
 	dirs := []string{}
 	if State.Config.StorageDir != "" {
@@ -351,8 +397,8 @@ func candidateModelDirs() []string {
 		}
 		dir := filepath.Join(driveRoot, name)
 		if d.AllocatedGB <= 0 {
-			// User set this drive to 0 GB: prune model directory if it exists and skip
-			_ = removeDirectoryRobust(dir)
+			// User set this drive to 0 GB: prune model directory and models folder robustly
+			pruneDriveModels(driveRoot)
 			continue
 		}
 		_ = os.MkdirAll(dir, 0755)
@@ -360,6 +406,7 @@ func candidateModelDirs() []string {
 		dirs = append(dirs, dir)
 	}
 	if len(dirs) == 0 {
+		pruneAllModelsIfZeroDisk()
 		dirs = append(dirs, modelDirectory())
 	}
 	return dirs
@@ -1613,19 +1660,12 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 					}
 					var disks []DiskPartitionInfo
 					if err := json.Unmarshal([]byte(disksStr), &disks); err == nil {
-						name := getSystemModelDirName()
 						for _, d := range disks {
 							if d.AllocatedGB <= 0 {
-								driveRoot := strings.TrimSpace(d.Drive)
-								if strings.HasSuffix(driveRoot, ":") {
-									driveRoot += `\`
-								} else if !strings.HasSuffix(driveRoot, `\`) && !strings.HasSuffix(driveRoot, `/`) {
-									driveRoot += `\`
-								}
-								dir := filepath.Join(driveRoot, name)
-								_ = removeDirectoryRobust(dir)
+								pruneDriveModels(d.Drive)
 							}
 						}
+						pruneAllModelsIfZeroDisk()
 					}
 				}
 				State.Mu.Unlock()

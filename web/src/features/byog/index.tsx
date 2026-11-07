@@ -125,8 +125,10 @@ export function ByogUserDashboard() {
   }, [fetchData])
 
   // The nodes report their download progress through the telemetry, therefore the
-  // panel refreshes itself so that the progress stays visible.
+  // panel refreshes itself so that the progress stays visible in real time.
   useEffect(() => {
+    const isAnyDownloading = nodes.some((n: ByogNode) => n.model_status === 'downloading')
+    const intervalMs = isAnyDownloading ? 1000 : 4000
     const timer = setInterval(async () => {
       try {
         const userNodes = await getUserNodes()
@@ -140,9 +142,9 @@ export function ByogUserDashboard() {
       } catch {
         // A failing background refresh must not interrupt the user.
       }
-    }, 4000)
+    }, intervalMs)
     return () => clearInterval(timer)
-  }, [selectedNode, isSaving])
+  }, [nodes, selectedNode, isSaving])
 
   // If user is banned from BYOG, show Section 3.8 Banned Screen
   if (statusData?.is_banned) {

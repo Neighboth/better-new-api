@@ -12,8 +12,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -162,7 +160,7 @@ func (b *localBridge) handleWorkerProxy(w http.ResponseWriter, r *http.Request) 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.WorkerSecret)
-	client := &http.Client{Timeout: 35 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := client.Do(req)
 	if err != nil {
 		http.Error(w, "server unavailable", http.StatusBadGateway)
@@ -239,17 +237,10 @@ func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Requ
 			hardware.Disks[i].AllocatedGB = hardware.Disks[i].FreeGB / 2
 		}
 		if hardware.Disks[i].AllocatedGB <= 0 {
-			name := getSystemModelDirName()
-			driveRoot := hardware.Disks[i].Drive
-			if strings.HasSuffix(driveRoot, ":") {
-				driveRoot += `\`
-			} else if !strings.HasSuffix(driveRoot, `\`) && !strings.HasSuffix(driveRoot, `/`) {
-				driveRoot += `\`
-			}
-			dir := filepath.Join(driveRoot, name)
-			_ = os.RemoveAll(dir)
+			pruneDriveModels(hardware.Disks[i].Drive)
 		}
 	}
+	pruneAllModelsIfZeroDisk()
 	writeBridgeJSON(writer, bridgeState{
 		NodeId:           status.NodeId,
 		DeviceName:       status.DeviceName,
@@ -415,10 +406,14 @@ func (b *localBridge) handleSettings(writer http.ResponseWriter, request *http.R
 		return
 	}
 	var payload struct {
-		ServerUrl       string `json:"server_url"`
-		Language        string `json:"language"`
-		AllocatedDiskGB *int   `json:"allocated_disk_gb"`
-		HotStartEnabled *bool  `json:"hot_start_enabled"`
+		ServerUrl       string              `json:"server_url"`
+		Language        string              `json:"language"`
+		AllocatedDiskGB *int                `json:"allocated_disk_gb"`
+		AllocatedRamGB  *float64            `json:"allocated_ram_gb"`
+		AllocatedVramGB *int                `json:"allocated_vram_gb"`
+		AllocatedCores  *int                `json:"allocated_cores"`
+		HotStartEnabled *bool               `json:"hot_start_enabled"`
+		Disks           []DiskPartitionInfo `json:"disks"`
 	}
 	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 		writeBridgeJSON(writer, map[string]any{"success": false, "message": err.Error()})
@@ -439,11 +434,36 @@ func (b *localBridge) handleSettings(writer http.ResponseWriter, request *http.R
 		clientLanguage = payload.Language
 		installer.UpdateUninstallerLanguage(payload.Language)
 	}
-	// The page of the client and the window of the client show the same
-	// settings. A setting that the page changes is applied by the client at
-	// once, the coordinator learns it with the next heartbeat.
-	if payload.AllocatedDiskGB != nil && *payload.AllocatedDiskGB >= 0 {
+	if payload.AllocatedRamGB != nil && *payload.AllocatedRamGB >= 0 {
+		State.AllocatedRamGB = *payload.AllocatedRamGB
+		changed = true
+	}
+	if payload.AllocatedVramGB != nil && *payload.AllocatedVramGB >= 0 {
+		State.AllocatedVramGB = *payload.AllocatedVramGB
+		changed = true
+	}
+	if payload.AllocatedCores != nil && *payload.AllocatedCores >= 0 {
+		State.AllocatedCores = *payload.AllocatedCores
+		changed = true
+	}
+	if len(payload.Disks) > 0 {
+		totalDisk := 0
+		for _, d := range payload.Disks {
+			totalDisk += d.AllocatedGB
+			if d.AllocatedGB <= 0 {
+				pruneDriveModels(d.Drive)
+			}
+		}
+		if b, err := json.Marshal(payload.Disks); err == nil {
+			State.Disks = string(b)
+		}
+		State.Config.MaxDiskGB = totalDisk
+		changed = true
+	} else if payload.AllocatedDiskGB != nil && *payload.AllocatedDiskGB >= 0 {
 		State.Config.MaxDiskGB = *payload.AllocatedDiskGB
+		if *payload.AllocatedDiskGB == 0 {
+			pruneAllModelsIfZeroDisk()
+		}
 		changed = true
 	}
 	if payload.HotStartEnabled != nil {
@@ -451,8 +471,9 @@ func (b *localBridge) handleSettings(writer http.ResponseWriter, request *http.R
 		changed = true
 	}
 	State.Mu.Unlock()
-	saveConfig(State.Config)
 	if changed {
+		pruneAllModelsIfZeroDisk()
+		saveConfig(State.Config)
 		triggerHeartbeat()
 	}
 	writeBridgeJSON(writer, map[string]any{"success": true})

@@ -649,16 +649,11 @@ func (w *guiWindow) create() {
 	procSetTimer.Call(w.window, 1, 1000, 0)
 	w.startBridge()
 
-	// The page of the client of the installation is the interface of the
-	// client, it uses the theme of the site. The window of the program stays
-	// as the fallback of it, it is shown only when the page cannot be opened.
+	// The client window always opens the site (/client) via WebView2.
+	// The Win32 window stays permanently hidden in the background for tray and IPC.
 	procShowWindow.Call(w.window, swHide)
 	if !w.trayMode {
-		if !w.openClientPage() {
-			procShowWindow.Call(w.window, swRestore)
-			procSetForeground.Call(w.window)
-			procUpdateWindow.Call(w.window)
-		}
+		w.openClientPage()
 	}
 }
 
@@ -935,16 +930,9 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 	case wmWebViewFailed:
 		if window != nil {
 			window.mutex.Lock()
-			restore := window.embedCmd == nil && !window.embedClosing && !window.quitRequested
-			if restore {
-				window.embedFailed = true
-			}
+			window.embedCmd = nil
+			window.embedFailed = false
 			window.mutex.Unlock()
-			if restore {
-				procShowWindow.Call(window.window, swRestore)
-				procSetForeground.Call(window.window)
-				procUpdateWindow.Call(window.window)
-			}
 		}
 		return 0
 
@@ -1237,7 +1225,7 @@ func (w *guiWindow) openClientPage() bool {
 	status := readStatus()
 	target := strings.TrimRight(status.ServerUrl, "/")
 	if target == "" {
-		return false
+		target = DefaultServerUrl
 	}
 	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
 		target = "http://" + target
@@ -1245,24 +1233,29 @@ func (w *guiWindow) openClientPage() bool {
 
 	page := target + "/client"
 	if w.bridge != nil {
-		page = w.bridge.address + "/"
+		page = w.bridge.pageAddress(target)
+		if page == "" {
+			page = target + "/client"
+		}
 	}
 	return w.openEmbeddedPage(page)
 }
 
 // openEmbeddedPage shows a page of the installation in the window of WebView2.
-//
-// The window runs in a process of its own, a runtime of WebView2 that is not
-// complete on the computer cannot stop the worker. The window of the program
-// shows the state of the worker when the window of WebView2 cannot be started,
-// the client never opens a browser.
 func (w *guiWindow) openEmbeddedPage(page string) bool {
-	if w.embedFailed {
-		return false
+	w.mutex.Lock()
+	if w.embedCmd != nil && w.embedCmd.Process != nil {
+		w.mutex.Unlock()
+		if showWebViewWindow() {
+			return true
+		}
+		w.mutex.Lock()
 	}
+	w.embedFailed = false
+	w.mutex.Unlock()
+
 	command, done, ok := startClientWindow(page, windowTitle(), applicationIconPath())
 	if !ok {
-		w.embedFailed = true
 		return false
 	}
 
@@ -1272,21 +1265,12 @@ func (w *guiWindow) openEmbeddedPage(page string) bool {
 	w.mutex.Unlock()
 
 	go func() {
-		err := <-done
+		_ = <-done
 		w.mutex.Lock()
-		current := w.embedCmd == command
-		closing := w.embedClosing || w.quitRequested
-		if current {
+		if w.embedCmd == command {
 			w.embedCmd = nil
 		}
 		w.mutex.Unlock()
-		// A failed helper must not leave the worker hidden and inaccessible.
-		// A normal user close still leaves it in the notification area.
-		if current && !closing && err != nil {
-			// Post to the owning window thread; it is handled after the caller
-			// finishes hiding the fallback, avoiding a restore/hide race.
-			procPostMessage.Call(w.window, wmWebViewFailed, 0, 0)
-		}
 	}()
 	return true
 }
@@ -1361,13 +1345,7 @@ func (w *guiWindow) show() {
 	w.mutex.Lock()
 	w.embedFailed = false
 	w.mutex.Unlock()
-	if w.openClientPage() {
-		procShowWindow.Call(w.window, swHide)
-		return
-	}
-	procShowWindow.Call(w.window, swRestore)
-	procSetForeground.Call(w.window)
-	procUpdateWindow.Call(w.window)
+	w.openClientPage()
 }
 
 // addTrayIcon shows the client in the notification area of the system.
@@ -1408,6 +1386,9 @@ func (w *guiWindow) removeTrayIcon() {
 func updateInstallationBranding(appName string, systemName string, faviconBase64 string) {
 	writeApplicationIcon(faviconBase64)
 	_ = installer.UpdateBranding(installationDisplayName(appName, systemName), WorkerVersion)
+	go func() {
+		_ = installer.PatchInstalledBinariesIcons()
+	}()
 }
 
 // showTrayMenu shows the menu of the icon in the notification area.
@@ -1508,4 +1489,7 @@ func writeApplicationIcon(base64Image string) {
 	if installer.IsInstalled() {
 		_ = os.WriteFile(filepath.Join(installer.InstalledDirectory(), "byog.ico"), iconData, 0644)
 	}
+	go func() {
+		_ = installer.PatchInstalledBinariesIcons()
+	}()
 }

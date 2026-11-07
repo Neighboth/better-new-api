@@ -1346,13 +1346,23 @@ func RegisterByogWorker(c *gin.Context) {
 		node.NpuModel = req.NpuModel
 		node.PhysicalRamMB = req.PhysicalRam
 		node.SwapRamMB = req.SwapRam
-		if req.CpuCores > 0 {
-			node.AllocatedCores = allocatedCores(req.CpuCores)
+		if node.AllocatedCores <= 0 && req.CpuCores > 0 {
+			node.AllocatedCores = int(math.Max(1, math.Floor(float64(req.CpuCores)*0.5)))
+		} else if req.CpuCores > 0 && node.AllocatedCores > req.CpuCores {
+			node.AllocatedCores = req.CpuCores
+		}
+		if node.AllocatedRamGB <= 0 && req.PhysicalRam > 0 {
+			node.AllocatedRamGB = math.Round((float64(req.PhysicalRam)/2048.0)*10) / 10
+			if node.AllocatedRamGB < 1.0 {
+				node.AllocatedRamGB = 1.0
+			}
 		}
 		node.VramMB = req.VramMB
 		node.SharedVramMB = req.SharedVramMB
 		if isMobile {
 			node.AllocatedVramGB = 0
+		} else if node.AllocatedVramGB <= 0 && req.VramMB >= 512 {
+			node.AllocatedVramGB = int(float64(req.VramMB) / 2048.0)
 		}
 		node.TeeSupported = req.TeeSupported
 		node.TeeType = req.TeeType
@@ -1445,7 +1455,20 @@ func RegisterByogWorker(c *gin.Context) {
 				// report of the client: the client knows the free space of the
 				// partitions, the panel knows how much of it is shared.
 				node.Disks = mergeDiskAllocation(reported, node.Disks)
+				var parsedDisks []map[string]interface{}
+				if err := json.Unmarshal([]byte(node.Disks), &parsedDisks); err == nil && len(parsedDisks) > 0 {
+					diskSum := 0
+					for _, pd := range parsedDisks {
+						if agb, ok := pd["allocated_gb"].(float64); ok {
+							diskSum += int(agb)
+						}
+					}
+					node.AllocatedDiskGB = diskSum
+				}
 			}
+		}
+		if node.AllocatedDiskGB <= 0 && req.FreeDiskGB > 0 {
+			node.AllocatedDiskGB = int(float64(req.FreeDiskGB) * 0.5)
 		}
 		node.CurrentTps = req.CurrentTps
 		if node.ModelStatus == "ready" || node.ModelStatus == "idle" || node.ModelStatus == "downloading" {
@@ -2121,20 +2144,33 @@ func mergeDiskAllocation(reportedJSON string, allocatedJSON string) string {
 		return reportedJSON
 	}
 	allocated := map[string]float64{}
+	hasStored := false
 	if allocatedJSON != "" {
 		var stored []map[string]interface{}
-		if err := json.Unmarshal([]byte(allocatedJSON), &stored); err == nil {
+		if err := json.Unmarshal([]byte(allocatedJSON), &stored); err == nil && len(stored) > 0 {
 			for _, disk := range stored {
 				drive, _ := disk["drive"].(string)
-				value, _ := disk["allocated_gb"].(float64)
-				allocated[strings.ToUpper(strings.TrimSpace(drive))] = value
+				if val, ok := disk["allocated_gb"].(float64); ok {
+					allocated[strings.ToUpper(strings.TrimSpace(drive))] = val
+					hasStored = true
+				}
 			}
 		}
 	}
 	for index, disk := range reported {
 		drive, _ := disk["drive"].(string)
-		value := allocated[strings.ToUpper(strings.TrimSpace(drive))]
+		key := strings.ToUpper(strings.TrimSpace(drive))
 		free, _ := disk["free_gb"].(float64)
+		var value float64
+		if val, exists := allocated[key]; exists {
+			value = val
+		} else if !hasStored {
+			// First time seeing disks or no prior allocation: default to 50%
+			value = math.Floor(free * 0.5)
+		} else {
+			// Partition wasn't allocated before
+			value = 0
+		}
 		if free > 0 && value > free {
 			value = free
 		}
@@ -2318,6 +2354,14 @@ func UpdateByogWorkerResources(c *gin.Context) {
 				allocation = 0
 			}
 			byDrive[strings.ToUpper(strings.TrimSpace(item.Drive))] = allocation
+		}
+		if len(stored) == 0 {
+			for _, item := range req.Disks {
+				stored = append(stored, map[string]interface{}{
+					"drive":        item.Drive,
+					"allocated_gb": item.AllocatedGB,
+				})
+			}
 		}
 		total := 0
 		for index, disk := range stored {

@@ -65,6 +65,7 @@ var (
 
 	webViewWindow     uintptr
 	webViewController uintptr
+	webViewPage       uintptr
 	webViewUrl        string
 	webViewHandlers   []any
 	webViewLoaderDLL  *syscall.DLL
@@ -122,21 +123,9 @@ func runWebViewHelper(url string, title string, iconPath string) (code int) {
 	}
 
 	// The page of the client is shown when the controller of the page is
-	// ready. A runtime that does not answer would leave a window without a
-	// page, the window is closed after a time and the window of the program
-	// shows the state of the worker.
-	time.AfterFunc(15*time.Second, func() {
-		if !webViewReady.Load() {
-			webViewLog("the page of the client is not ready")
-			procWebViewPostMessage.Call(webViewWindow, webViewMessageClose, 0, 0)
-		}
-	})
-
+	// ready.
 	webViewMessageLoop()
 	webViewLog("end")
-	if !webViewReady.Load() && !webViewUserClosed.Load() {
-		return 3
-	}
 	return 0
 }
 
@@ -465,6 +454,7 @@ func newWebViewControllerHandler() uintptr {
 				procWebViewPostMessage.Call(webViewWindow, webViewMessageClose, 0, 0)
 				return 0
 			}
+			webViewPage = page
 			webViewLog("the page of the client is available")
 			var settings uintptr
 			callWebViewMethod(page, 3, uintptr(unsafe.Pointer(&settings))) // get_Settings
@@ -505,6 +495,17 @@ func newWebViewControllerHandler() uintptr {
 	return uintptr(unsafe.Pointer(handler))
 }
 
+func navigateWebView(rawUrl string) {
+	if webViewPage == 0 || rawUrl == "" {
+		return
+	}
+	target, err := syscall.UTF16PtrFromString(rawUrl)
+	if err == nil {
+		callWebViewMethod(webViewPage, 5, uintptr(unsafe.Pointer(target))) // Navigate
+		runtime.KeepAlive(target)
+	}
+}
+
 // newWebViewNavigationHandler returns the object that receives the result of
 // the page navigation.
 func newWebViewNavigationHandler() uintptr {
@@ -513,8 +514,12 @@ func newWebViewNavigationHandler() uintptr {
 			var success int32
 			callWebViewMethod(args, 3, uintptr(unsafe.Pointer(&success))) // get_IsSuccess
 			if success == 0 {
-				webViewLog("the page of the client could not be loaded")
-				procWebViewPostMessage.Call(webViewWindow, webViewMessageClose, 0, 0)
+				webViewLog("the page of the client could not be loaded, retrying in 3s...")
+				time.AfterFunc(3*time.Second, func() {
+					if !webViewReady.Load() && !webViewUserClosed.Load() {
+						navigateWebView(webViewUrl)
+					}
+				})
 				return 0
 			}
 			webViewReady.Store(true)

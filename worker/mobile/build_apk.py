@@ -1975,7 +1975,7 @@ public class MainActivity extends Activity {
             server = "http://10.0.2.2:3001";
         }
         while (server.endsWith("/")) server = server.substring(0, server.length() - 1);
-        if (!WorkerService.isSecureServerURL(server)) return "file:///android_asset/www/index.html";
+        if (!server.startsWith("http://") && !server.startsWith("https://")) { server = "https://" + server; }
         String lang = WorkerService.isTurkish() ? "tr" : "en";
         String url = server + "/client?lang=" + lang;
         String nodeId = WorkerService.stringPref(sp, "node_id", "");
@@ -2088,6 +2088,12 @@ public class MainActivity extends Activity {
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
                 android.util.Log.w("BYOG_WEBVIEW", "Error " + errorCode + ": " + description + " for " + failingUrl);
+                view.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        view.loadUrl(clientPageUrl());
+                    }
+                }, 3000);
             }
 
             @TargetApi(Build.VERSION_CODES.O)

@@ -209,7 +209,6 @@ export function RedemptionsTab() {
                 <TableRow>
                   <TableHead>{t('Code / Key')}</TableHead>
                   <TableHead>{t('Name')}</TableHead>
-                  <TableHead>{t('Type')}</TableHead>
                   <TableHead>{t('Value')}</TableHead>
                   <TableHead>{t('Status')}</TableHead>
                   <TableHead>{t('Used By')}</TableHead>
@@ -221,7 +220,7 @@ export function RedemptionsTab() {
                 {isLoading && (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
+                      colSpan={7}
                       className='text-muted-foreground py-8 text-center'
                     >
                       <Loader2 className='mx-auto h-6 w-6 animate-spin' />
@@ -231,7 +230,7 @@ export function RedemptionsTab() {
                 {!isLoading && (data?.items?.length ?? 0) === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
+                      colSpan={7}
                       className='text-muted-foreground py-8 text-center'
                     >
                       {t('No redemption codes found.')}
@@ -261,47 +260,21 @@ export function RedemptionsTab() {
                       <TableCell className='text-xs font-medium'>
                         {item.name}
                       </TableCell>
-                      <TableCell>
-                        {item.type === 1 && (
-                          <Badge
-                            variant='outline'
-                            className='border-sky-500/20 bg-sky-500/10 text-[10px] text-sky-600'
-                          >
-                            {t('Requests')}
-                          </Badge>
-                        )}
-                        {item.type === 2 && (
-                          <Badge
-                            variant='outline'
-                            className='border-amber-500/20 bg-amber-500/10 text-[10px] text-amber-600'
-                          >
-                            {t('Tokens')}
-                          </Badge>
-                        )}
-                        {item.type !== 1 && item.type !== 2 && (
-                          <Badge
-                            variant='outline'
-                            className='border-purple-500/20 bg-purple-500/10 text-[10px] text-purple-600'
-                          >
-                            {t('Balance')}
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className='font-mono text-xs font-semibold text-emerald-600 dark:text-emerald-400'>
+                      <TableCell className='font-mono text-xs font-medium'>
                         {formatRedemptionQuota(item.quota, item.type, t)}
                       </TableCell>
                       <TableCell>
                         {item.status === 1 ? (
                           <Badge
                             variant='outline'
-                            className='border-emerald-500/20 bg-emerald-500/10 text-[10px] text-emerald-600'
+                            className='text-[10px]'
                           >
                             {t('Unused')}
                           </Badge>
                         ) : (
                           <Badge
-                            variant='outline'
-                            className='bg-muted text-muted-foreground text-[10px]'
+                            variant='secondary'
+                            className='text-[10px]'
                           >
                             {t('Redeemed')}
                           </Badge>

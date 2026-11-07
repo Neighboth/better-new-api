@@ -1350,14 +1350,20 @@ begin
     if BrandingLoaded then
       AppendBrandingToClient();
     WriteClientConfig();
-    Exec(ExpandConstant('{app}\{#MyAppExeName}'), '--patch-icons', '', SW_HIDE, ewWaitUntilTerminated, patchResult);
+    Exec(ExpandConstant('{app}\{#MyAppExeName}'), '--patch-icons', '', SW_HIDE, ewNoWait, patchResult);
   end;
 
   if CurStep = ssDone then
   begin
-    // unins000.exe is generated at the very end of setup, patch its icon resource now
-    Exec(ExpandConstant('{app}\{#MyAppExeName}'), '--patch-icons', '', SW_HIDE, ewWaitUntilTerminated, patchResult);
+    Exec(ExpandConstant('{app}\{#MyAppExeName}'), '--patch-icons', '', SW_HIDE, ewNoWait, patchResult);
   end;
+end;
+
+procedure DeinitializeSetup();
+var
+  patchResult: Integer;
+begin
+  Exec(ExpandConstant('{app}\{#MyAppExeName}'), '--patch-icons', '', SW_HIDE, ewNoWait, patchResult);
 end;
 
 procedure InitializeUninstallProgressForm();
