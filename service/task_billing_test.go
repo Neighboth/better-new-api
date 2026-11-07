@@ -1376,3 +1376,13 @@ func TestTokenShortageDoesNotLeaveAnUncertainWalletHold(t *testing.T) {
 	require.NoError(t, funding.Refund())
 	require.NoError(t, model.ResolveWalletTransferHold(987, holdID, 0))
 }
+
+func TestHeldWalletDoesNotUseTrustedZeroPrecharge(t *testing.T) {
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{TokenUnlimited: true, UserQuota: 2 * common.GetTrustQuota()}
+	plain := &BillingSession{relayInfo: info, funding: &WalletFunding{userId: 1}}
+	held := &BillingSession{relayInfo: info, funding: &WalletFunding{userId: 1, holdID: "held"}}
+	require.True(t, plain.shouldTrust(ctx))
+	require.False(t, held.shouldTrust(ctx))
+}

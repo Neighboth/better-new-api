@@ -381,6 +381,12 @@ func (s *BillingSession) reserveToken(delta int) error {
 
 // shouldTrust 统一信任额度检查，适用于钱包和订阅。
 func (s *BillingSession) shouldTrust(c *gin.Context) bool {
+	// A wallet hold protects against transfers only after it exists; a cached
+	// pre-transfer balance must never authorize the zero-precharge bypass.
+	// Use the ordinary SQL-backed precharge for held wallet operations.
+	if wallet, ok := s.funding.(*WalletFunding); ok && wallet.holdID != "" && !common.BatchUpdateEnabled {
+		return false
+	}
 	// 异步任务（ForcePreConsume=true）必须预扣全额，不允许信任旁路
 	if s.relayInfo.ForcePreConsume {
 		return false
@@ -530,7 +536,10 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		if !model.IsBillingWalletEnabled() || !model.IsModelAllowedInPool("wallet", relayInfo.OriginModelName) {
 			return nil, types.NewErrorWithStatusCode(fmt.Errorf("wallet billing disabled or model %s not allowed", relayInfo.OriginModelName), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
 		}
-		userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+		// A stale cache may reflect funds already converted into codes. Once a
+		// durable request hold exists the SQL user row is the spending authority.
+		fromDB := c.GetString(common.WalletTransferHoldContextKey) != "" && !common.BatchUpdateEnabled
+		userQuota, err := model.GetUserQuota(relayInfo.UserId, fromDB)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 		}
