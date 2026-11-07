@@ -180,10 +180,8 @@ func TestSynchronousReserveInvalidatesCacheWhenPersistenceFails(t *testing.T) {
 	reserved, err = TryReserveTokenQuota(token.Id, token.Key, 7, false)
 	assert.False(t, reserved)
 	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
-	cachedToken, cacheErr := cacheGetTokenByKey(token.Key)
-	require.NoError(t, cacheErr)
-	assert.Equal(t, 12, cachedToken.RemainQuota)
-	assert.Zero(t, cachedToken.UsedQuota)
+	_, cacheErr = cacheGetTokenByKey(token.Key)
+	require.Error(t, cacheErr, "a deleted token must not remain in cache")
 }
 
 func TestTokenCacheInitPreservesLiveQuotaAndFenceBlocksStaleSnapshot(t *testing.T) {
@@ -242,4 +240,23 @@ func TestDirectRedisReservationAlsoChecksDatabaseBalance(t *testing.T) {
 	cached, err := GetUserCache(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, 2, cached.Quota)
+}
+
+func TestDirectRedisTokenReservationAlsoChecksDatabaseBalance(t *testing.T) {
+	truncateTables(t)
+	resetBatchUpdateTestState(t)
+	useUserCacheMiniRedis(t)
+	token := createReserveTestToken(t, 10)
+	_, err := GetTokenByKey(token.Key, true)
+	require.NoError(t, err)
+	require.NoError(t, DB.Model(&Token{}).Where("id = ?", token.Id).Update("remain_quota", 2).Error)
+	reserved, err := TryReserveTokenQuota(token.Id, token.Key, 6, false)
+	require.NoError(t, err)
+	require.False(t, reserved)
+	require.Equal(t, 2, getTokenFromDB(t, token.Id).RemainQuota)
+	_, err = cacheGetTokenByKey(token.Key)
+	require.Error(t, err)
+	fresh, err := GetTokenByKey(token.Key, false)
+	require.NoError(t, err)
+	require.Equal(t, 2, fresh.RemainQuota)
 }
