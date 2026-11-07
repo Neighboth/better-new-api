@@ -1,14 +1,18 @@
 package byog
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -56,4 +60,89 @@ func TestPaidByogRejectsEmptySQLWalletBeforeDispatch(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, http.StatusPaymentRequired, rec.Code)
 	require.False(t, ctx.GetBool(common.WalletTransferHoldRetainContextKey))
+}
+
+func TestPaidByogReservesBeforeDispatchAndSettlesBoundedUsage(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	oldDB, oldLogDB, oldRedis, oldBatch, oldConsume := model.DB, model.LOG_DB, common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled
+	model.DB, model.LOG_DB, common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = db, db, false, false, false
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB, common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = oldDB, oldLogDB, oldRedis, oldBatch, oldConsume
+	})
+	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
+	node := model.ByogNode{NodeId: "bounded-dispatch", UserId: 1, Status: "online", DeviceType: "desktop"}
+	require.NoError(t, db.Create(&node).Error)
+	require.NoError(t, db.Create(&model.User{Id: 2, Username: "bounded-user", Quota: 10000, AffCode: "bounded-aff"}).Error)
+	hold, err := model.BeginWalletTransferHold(2)
+	require.NoError(t, err)
+	connections := make(chan *websocket.Conn, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, upgradeErr := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if upgradeErr == nil {
+			connections <- conn
+		}
+	}))
+	t.Cleanup(server.Close)
+	client, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { client.Close() })
+	serverConn := <-connections
+	t.Cleanup(func() { serverConn.Close() })
+	session := &NodeSession{NodeId: node.NodeId, Conn: serverConn}
+	workerErr := make(chan error, 1)
+	go func() {
+		var request TunnelFrame
+		if err := client.ReadJSON(&request); err != nil {
+			workerErr <- err
+			return
+		}
+		value, ok := session.PendingRequests.Load(request.Id)
+		if !ok {
+			workerErr <- fmt.Errorf("request not registered")
+			return
+		}
+		ch := value.(chan *TunnelFrame)
+		payload, _ := json.Marshal(ChunkPayload{Content: "Hi"})
+		ch <- &TunnelFrame{Type: MsgTypeInferenceChunk, Payload: payload}
+		payload, _ = json.Marshal(DonePayload{PromptTokens: 4})
+		ch <- &TunnelFrame{Type: MsgTypeInferenceDone, Payload: payload}
+		workerErr <- nil
+	}()
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Set("id", 2)
+	ctx.Set(common.WalletTransferHoldContextKey, hold)
+	payload := InferencePayload{RequestId: "bounded-request", Prompt: "hi", Messages: json.RawMessage(`[]`), MaxTokens: 2}
+	modelDef := &model.ByogModel{ModelId: "unknown-byog-model", PricingTier: 2}
+	price, err := snapshotByogPrice(modelDef)
+	require.NoError(t, err)
+	expected, err := price.quota(4, 1, false)
+	require.NoError(t, err)
+	err = (&Router{}).DispatchInference(ctx, session, modelDef, payload)
+	require.NoError(t, err)
+	require.NoError(t, <-workerErr)
+	var events []model.WalletHoldEvent
+	require.NoError(t, db.Where("hold_id = ?", hold).Find(&events).Error)
+	require.Len(t, events, 2)
+	var pre, final int
+	for _, event := range events {
+		if event.EventKey == "byog-precharge" {
+			pre = event.Delta
+		}
+		if event.EventKey == "byog-final" {
+			final = event.Delta
+		}
+	}
+	require.Less(t, pre, 0)
+	require.GreaterOrEqual(t, final, 0)
+	require.Equal(t, -expected, pre+final)
+	quota, err := model.GetUserQuota(2, true)
+	require.NoError(t, err)
+	require.Equal(t, 10000+pre+final, quota)
+	require.False(t, ctx.GetBool(common.WalletTransferHoldRetainContextKey))
+	require.NoError(t, model.ResolveWalletTransferHold(2, hold, 0))
 }
