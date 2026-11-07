@@ -711,8 +711,9 @@ func resolveRemoteFileSize(remoteUrl string) int64 {
 	response, err := client.Do(request)
 	if err == nil {
 		size := response.ContentLength
+		status := response.StatusCode
 		response.Body.Close()
-		if size > 0 {
+		if status == http.StatusOK && size > 0 {
 			return size
 		}
 	}
@@ -1034,16 +1035,20 @@ func performModelDownload(job downloadJob) {
 	}
 	if probeUrl != "" {
 		if realSize := resolveRemoteFileSize(probeUrl); realSize > 0 && realSize != job.FileSize {
-			if job.FileSize > 0 {
-				fmt.Printf("[BYOG IDM] The size of the assignment (%d) does not match the size of the host (%d), the size of the host is used\n", job.FileSize, realSize)
+			if realSize < 1024*1024 && job.FileSize >= 1024*1024 {
+				// Tiny responses are redirect or error HTML bodies; keep coordinator's file size.
+			} else {
+				if job.FileSize > 0 {
+					fmt.Printf("[BYOG IDM] The size of the assignment (%d) does not match the size of the host (%d), the size of the host is used\n", job.FileSize, realSize)
+				}
+				job.FileSize = realSize
+				totalMB := int(realSize / (1024 * 1024))
+				State.Mu.Lock()
+				State.TotalMB = totalMB
+				State.Mu.Unlock()
+				updateStatus(func(status *AppStatus) { status.TotalMB = totalMB })
 			}
-			job.FileSize = realSize
-			totalMB := int(realSize / (1024 * 1024))
-			State.Mu.Lock()
-			State.TotalMB = totalMB
-			State.Mu.Unlock()
-			updateStatus(func(status *AppStatus) { status.TotalMB = totalMB })
-		} else if realSize > 0 {
+		} else if realSize >= 1024*1024 {
 			job.FileSize = realSize
 		}
 	}
