@@ -110,7 +110,7 @@ func setupRedeemFixture(t *testing.T, quota int) (userId int, key string) {
 		DB.Exec("DELETE FROM logs")
 	})
 
-	user := &User{Username: "redeem-user", Password: "password", Status: common.UserStatusEnabled, Quota: 0}
+	user := &User{Username: "redeem-" + common.GetRandomString(12), AffCode: common.GetRandomString(12), Password: "password", Status: common.UserStatusEnabled, Quota: 0}
 	require.NoError(t, DB.Create(user).Error)
 
 	key = "10000000000000000000000000000001"
