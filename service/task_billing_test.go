@@ -1437,3 +1437,16 @@ func TestMidjourneyUnbilledResponseRefundsReservationIdempotently(t *testing.T) 
 	require.Equal(t, 100, getUserQuota(t, 989))
 	require.NoError(t, model.ResolveWalletTransferHold(989, hold, 0))
 }
+
+func TestMidjourneyCannotRefundMissingReservation(t *testing.T) {
+	truncate(t)
+	seedUser(t, 990, 100)
+	hold, err := model.BeginWalletTransferHold(990)
+	require.NoError(t, err)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set(common.WalletTransferHoldContextKey, hold)
+	require.Error(t, ReleaseMidjourneyRequestReservation(ctx, 990, 70))
+	require.True(t, ctx.GetBool(common.WalletTransferHoldRetainContextKey))
+	require.Equal(t, 100, getUserQuota(t, 990))
+	require.NoError(t, model.ResolveWalletTransferHold(990, hold, 0))
+}

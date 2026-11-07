@@ -55,7 +55,15 @@ func ReserveMidjourneyRequest(c *gin.Context, userID, quota int, charge bool) (b
 // ReleaseMidjourneyRequestReservation is only for provider responses known not
 // to be chargeable. Network errors are ambiguous and require reconciliation.
 func ReleaseMidjourneyRequestReservation(c *gin.Context, userID, quota int) error {
-	err := model.ApplyWalletHoldDelta(userID, c.GetString(common.WalletTransferHoldContextKey), "midjourney-precharge-refund", quota)
+	holdID := c.GetString(common.WalletTransferHoldContextKey)
+	var count int64
+	err := model.DB.Model(&model.WalletHoldEvent{}).Where("hold_id = ? AND event_key = ? AND user_id = ? AND delta = ?", holdID, "midjourney-precharge", userID, -quota).Count(&count).Error
+	if err == nil && (quota <= 0 || count != 1) {
+		err = errors.New("Midjourney wallet reservation not found")
+	}
+	if err == nil {
+		err = model.ApplyWalletHoldDelta(userID, holdID, "midjourney-precharge-refund", quota)
+	}
 	if err != nil {
 		c.Set(common.WalletTransferHoldRetainContextKey, true)
 	}
@@ -118,8 +126,15 @@ func SettleMidjourneyTaskBillingReserved(relayInfo *relaycommon.RelayInfo, task 
 		if err != nil {
 			return false, err
 		}
-		if count != 1 {
+		if count != 1 || task.UserId != relayInfo.UserId || task.Quota <= 0 {
 			return false, errors.New("Midjourney wallet reservation not found")
+		}
+		var refunded int64
+		if err := model.DB.Model(&model.WalletHoldEvent{}).Where("hold_id = ? AND event_key = ?", holdID, "midjourney-precharge-refund").Count(&refunded).Error; err != nil {
+			return false, err
+		}
+		if refunded != 0 {
+			return false, errors.New("Midjourney wallet reservation was already released")
 		}
 	}
 
