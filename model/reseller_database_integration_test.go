@@ -43,14 +43,31 @@ func TestResellerAndPairingOnConfiguredDatabases(t *testing.T) {
 			initCol()
 			t.Cleanup(func() { DB = oldDB; common.SetMainDatabaseType(oldType); initCol() })
 			resetBatchUpdateTestState(t)
-			require.NoError(t, db.AutoMigrate(&User{}, &Redemption{}, &UserBalancePackage{}, &ByogPairingSession{}, &WalletTransferHold{}, &WalletHoldEvent{}, &Task{}, &Midjourney{}))
+			require.NoError(t, db.AutoMigrate(&User{}, &Redemption{}, &UserBalancePackage{}, &ByogPairingSession{}, &WalletTransferHold{}, &WalletHoldEvent{}, &Task{}, &Midjourney{}, &Token{}))
 			owner := createReserveTestUser(t, 100)
 			t.Cleanup(func() {
 				db.Unscoped().Where("user_id = ?", owner.Id).Delete(&Redemption{})
 				db.Unscoped().Where("id = ?", owner.Id).Delete(&User{})
 			})
-			var issued atomic.Int32
 			var wg sync.WaitGroup
+			token := Token{UserId: owner.Id, Key: "db-reserve-" + common.GetRandomString(16), Name: "database-race", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 10}
+			require.NoError(t, db.Create(&token).Error)
+			t.Cleanup(func() { db.Unscoped().Where("id = ?", token.Id).Delete(&Token{}) })
+			var tokenReservations atomic.Int32
+			for i := 0; i < 10; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					if reserved, err := TryReserveTokenQuota(token.Id, token.Key, 3, false); err == nil && reserved {
+						tokenReservations.Add(1)
+					}
+				}()
+			}
+			wg.Wait()
+			require.Equal(t, int32(3), tokenReservations.Load())
+			require.Equal(t, 1, getTokenFromDB(t, token.Id).RemainQuota)
+
+			var issued atomic.Int32
 			for i := 0; i < 10; i++ {
 				wg.Add(1)
 				go func() {
