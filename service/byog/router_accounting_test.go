@@ -44,9 +44,9 @@ func TestUncertainDispatchRetainsPaidUserHold(t *testing.T) {
 func TestPaidByogRejectsEmptySQLWalletBeforeDispatch(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	old := model.DB
-	model.DB = db
-	t.Cleanup(func() { model.DB = old })
+	oldDB, oldRedis, oldBatch := model.DB, common.RedisEnabled, common.BatchUpdateEnabled
+	model.DB, common.RedisEnabled, common.BatchUpdateEnabled = db, false, false
+	t.Cleanup(func() { model.DB, common.RedisEnabled, common.BatchUpdateEnabled = oldDB, oldRedis, oldBatch })
 	require.NoError(t, db.AutoMigrate(&model.ByogNode{}, &model.ByogSetting{}, &model.User{}, &model.WalletTransferHold{}, &model.WalletHoldEvent{}))
 	node := model.ByogNode{NodeId: "paid-empty-wallet", UserId: 1, Status: "online", DeviceType: "desktop"}
 	require.NoError(t, db.Create(&node).Error)
