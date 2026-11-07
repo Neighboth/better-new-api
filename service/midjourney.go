@@ -157,7 +157,14 @@ func SettleMidjourneyTaskBillingReserved(relayInfo *relaycommon.RelayInfo, task 
 // RefundMidjourneyQuota reverses every accounting element recorded for a billed legacy task.
 func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason string) bool {
 	quota := task.Quota
-	if quota == 0 {
+	if quota == 0 && !task.RefundPending {
+		return true
+	}
+	if common.BatchUpdateEnabled && quota == 0 {
+		if err := model.DB.Model(&model.Midjourney{}).Where("id = ? AND quota = ?", task.Id, 0).Update("refund_pending", false).Error; err != nil {
+			return false
+		}
+		task.RefundPending = false
 		return true
 	}
 
@@ -168,18 +175,19 @@ func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason s
 		}
 	} else {
 		var err error
-		quota, err = model.RefundMidjourneyWalletOnce(task.UserId, task.Id)
+		quota, err = model.RefundMidjourneyAccountingOnce(task.UserId, task.Id)
 		if err != nil {
 			logger.LogWarn(ctx, fmt.Sprintf("退还 Midjourney 用户额度失败 task %s: %s", task.MjId, err.Error()))
 			return false
 		}
 		if quota == 0 {
 			task.Quota = 0
+			task.RefundPending = false
 			return true
 		}
 	}
 
-	if task.TokenId > 0 {
+	if common.BatchUpdateEnabled && task.TokenId > 0 {
 		tokenKey := resolveTokenKey(ctx, task.TokenId, task.MjId)
 		if tokenKey != "" {
 			if err := model.IncreaseTokenQuota(task.TokenId, tokenKey, quota); err != nil {
@@ -189,8 +197,10 @@ func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason s
 	}
 
 	billingChannelId := task.GetBillingChannelId()
-	model.UpdateUserUsedQuota(task.UserId, -quota)
-	model.UpdateChannelUsedQuota(billingChannelId, -quota)
+	if common.BatchUpdateEnabled {
+		model.UpdateUserUsedQuota(task.UserId, -quota)
+		model.UpdateChannelUsedQuota(billingChannelId, -quota)
+	}
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
 		UserId:    task.UserId,
 		LogType:   model.LogTypeRefund,
@@ -206,9 +216,13 @@ func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason s
 	})
 
 	task.Quota = 0
+	task.RefundPending = false
 	if common.BatchUpdateEnabled {
 		if err := task.UpdateBillingState(); err != nil {
 			logger.LogError(ctx, fmt.Sprintf("Midjourney 退款成功但清除 quota 失败 task %s: %s", task.MjId, err.Error()))
+			return false
+		}
+		if err := model.DB.Model(&model.Midjourney{}).Where("id = ? AND quota = ?", task.Id, 0).Update("refund_pending", false).Error; err != nil {
 			return false
 		}
 	}

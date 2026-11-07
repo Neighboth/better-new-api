@@ -1487,3 +1487,52 @@ func TestMidjourneyFinalizeAndReleaseAreMutuallyExclusive(t *testing.T) {
 	}
 	require.NoError(t, model.ResolveWalletTransferHold(991, hold, 0))
 }
+
+func TestMidjourneyRefundIntentSurvivesCrashAndAtomicFailure(t *testing.T) {
+	truncate(t)
+	const userID, tokenID, channelID, quota = 992, 992, 992, 30
+	seedUser(t, userID, 70)
+	seedToken(t, tokenID, userID, "sk-refund-recovery", 70)
+	seedChannel(t, channelID)
+	seedChargedAccounting(t, userID, channelID, tokenID, quota, 1)
+	task := &model.Midjourney{UserId: userID, MjId: "refund-recovery", Status: "IN_PROGRESS", Progress: "10%", Quota: quota, TokenId: tokenID, ChannelId: channelID}
+	require.NoError(t, task.Insert())
+	task.Status = "FAILURE"
+	task.Progress = "100%"
+	task.RefundPending = true
+	won, err := task.UpdateWithStatus("IN_PROGRESS")
+	require.NoError(t, err)
+	require.True(t, won)
+	// Simulate a process dying after its status commit and a stale poller.
+	stale := *task
+	stale.RefundPending = false
+	won, err = stale.UpdateWithStatus("FAILURE")
+	require.NoError(t, err)
+	require.True(t, won)
+	require.True(t, getMidjourneyTask(t, task.Id).RefundPending)
+	require.True(t, model.HasUnfinishedMidjourneyTasks())
+	require.Len(t, model.GetAllUnFinishTasks(), 1)
+
+	require.NoError(t, model.DB.Exec(`CREATE TRIGGER fail_refund_token BEFORE UPDATE ON tokens WHEN OLD.id = 992 BEGIN SELECT RAISE(ABORT, 'forced token refund failure'); END;`).Error)
+	t.Cleanup(func() { model.DB.Exec("DROP TRIGGER IF EXISTS fail_refund_token") })
+	restarted := getMidjourneyTask(t, task.Id)
+	require.False(t, RefundMidjourneyQuota(context.Background(), &restarted, "recovery"))
+	require.Equal(t, 70, getUserQuota(t, userID))
+	require.Equal(t, 70, getTokenRemainQuota(t, tokenID))
+	require.True(t, getMidjourneyTask(t, task.Id).RefundPending)
+	require.NoError(t, model.DB.Exec("DROP TRIGGER fail_refund_token").Error)
+	restarted = getMidjourneyTask(t, task.Id)
+	require.True(t, RefundMidjourneyQuota(context.Background(), &restarted, "recovery"))
+	require.Equal(t, 100, getUserQuota(t, userID))
+	require.Equal(t, 100, getTokenRemainQuota(t, tokenID))
+	used, count := getUserUsageAccounting(t, userID)
+	require.Zero(t, used)
+	require.Equal(t, 1, count)
+	require.Zero(t, getChannelUsedQuota(t, channelID))
+	persisted := getMidjourneyTask(t, task.Id)
+	require.Zero(t, persisted.Quota)
+	require.False(t, persisted.RefundPending)
+	require.False(t, model.HasUnfinishedMidjourneyTasks())
+	require.True(t, RefundMidjourneyQuota(context.Background(), &restarted, "replay"))
+	require.Equal(t, 100, getUserQuota(t, userID))
+}

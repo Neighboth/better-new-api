@@ -53,6 +53,13 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 		if task.BillingPending {
 			continue
 		}
+		// A previous poller may have persisted the terminal failure and then
+		// crashed. The explicit marker is only set for failures confirmed by
+		// the provider; do not infer refundability from arbitrary old statuses.
+		if task.RefundPending {
+			service.RefundMidjourneyQuota(ctx, task, "provider failure recovery")
+			continue
+		}
 		if task.MjId == "" {
 			// 统计失败的未完成任务
 			nullTaskIds = append(nullTaskIds, task.Id)
@@ -214,6 +221,9 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 					shouldReturnQuota = true
 				}
 			}
+			// Commit the refund intent in the same status CAS so a crash before
+			// the refund cannot make this terminal task disappear from polling.
+			task.RefundPending = shouldReturnQuota
 			won, err := task.UpdateWithStatus(preStatus)
 			if err != nil {
 				logger.LogError(ctx, "UpdateMidjourneyTask task error: "+err.Error())
