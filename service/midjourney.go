@@ -62,7 +62,7 @@ func ReleaseMidjourneyRequestReservation(c *gin.Context, userID, quota int) erro
 		err = errors.New("Midjourney wallet reservation not found")
 	}
 	if err == nil {
-		err = model.ApplyWalletHoldDelta(userID, holdID, "midjourney-precharge-refund", quota)
+		err = model.ApplyWalletHoldDelta(userID, holdID, "midjourney-decision", quota)
 	}
 	if err != nil {
 		c.Set(common.WalletTransferHoldRetainContextKey, true)
@@ -129,12 +129,10 @@ func SettleMidjourneyTaskBillingReserved(relayInfo *relaycommon.RelayInfo, task 
 		if count != 1 || task.UserId != relayInfo.UserId || task.Quota <= 0 {
 			return false, errors.New("Midjourney wallet reservation not found")
 		}
-		var refunded int64
-		if err := model.DB.Model(&model.WalletHoldEvent{}).Where("hold_id = ? AND event_key = ?", holdID, "midjourney-precharge-refund").Count(&refunded).Error; err != nil {
+		// Finalization and release compete on the same journal key. Exactly
+		// one decision can commit even if callers race across processes.
+		if err := model.ApplyWalletHoldDelta(relayInfo.UserId, holdID, "midjourney-decision", 0); err != nil {
 			return false, err
-		}
-		if refunded != 0 {
-			return false, errors.New("Midjourney wallet reservation was already released")
 		}
 	}
 

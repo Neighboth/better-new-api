@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -1449,4 +1450,40 @@ func TestMidjourneyCannotRefundMissingReservation(t *testing.T) {
 	require.True(t, ctx.GetBool(common.WalletTransferHoldRetainContextKey))
 	require.Equal(t, 100, getUserQuota(t, 990))
 	require.NoError(t, model.ResolveWalletTransferHold(990, hold, 0))
+}
+
+func TestMidjourneyFinalizeAndReleaseAreMutuallyExclusive(t *testing.T) {
+	truncate(t)
+	seedUser(t, 991, 100)
+	hold, err := model.BeginWalletTransferHold(991)
+	require.NoError(t, err)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set(common.WalletTransferHoldContextKey, hold)
+	reserved, err := ReserveMidjourneyRequest(ctx, 991, 70, true)
+	require.NoError(t, err)
+	require.True(t, reserved)
+	info := &relaycommon.RelayInfo{UserId: 991, IsPlayground: true}
+	task := &model.Midjourney{UserId: 991, MjId: "decision-race"}
+	prepared, err := PrepareMidjourneyTaskBilling(info, task, 70, true)
+	require.NoError(t, err)
+	require.NoError(t, task.Insert())
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	var finalErr, releaseErr error
+	go func() {
+		defer wg.Done()
+		<-start
+		_, finalErr = SettleMidjourneyTaskBillingReserved(info, task, prepared, hold, true)
+	}()
+	go func() { defer wg.Done(); <-start; releaseErr = ReleaseMidjourneyRequestReservation(ctx, 991, 70) }()
+	close(start)
+	wg.Wait()
+	require.NotEqual(t, finalErr == nil, releaseErr == nil)
+	if releaseErr == nil {
+		require.Equal(t, 100, getUserQuota(t, 991))
+	} else {
+		require.Equal(t, 30, getUserQuota(t, 991))
+	}
+	require.NoError(t, model.ResolveWalletTransferHold(991, hold, 0))
 }
