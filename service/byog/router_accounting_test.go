@@ -110,6 +110,11 @@ func TestPaidByogReservesBeforeDispatchAndSettlesBoundedUsage(t *testing.T) {
 			return
 		}
 		ch := value.(chan *TunnelFrame)
+		// Price changes after dispatch must not alter the reserved contract.
+		if err := db.Model(&model.ByogSetting{}).Where("1 = 1").Update("tier2_provider_price", 100.0).Error; err != nil {
+			workerErr <- err
+			return
+		}
 		payload, _ := json.Marshal(ChunkPayload{Content: "Hi"})
 		ch <- &TunnelFrame{Type: MsgTypeInferenceChunk, Payload: payload}
 		payload, _ = json.Marshal(DonePayload{PromptTokens: 4})
