@@ -2,9 +2,12 @@ package controller
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"html"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -13,6 +16,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/icon"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
@@ -220,7 +224,7 @@ func RenderIndexPage(indexPage []byte) []byte {
 		icon = common.Logo
 	}
 	if icon == "" {
-		icon = "/logo.png"
+		icon = "/favicon.ico"
 	}
 	return RenderCustomIndexPage(indexPage, siteName, title, description, keywords, icon, socialImage)
 }
@@ -237,9 +241,7 @@ func RenderCustomIndexPage(indexPage []byte, siteName, title, description, keywo
 	}
 
 	// Favicon and icon links.
-	if icon != "" {
-		page = replaceAllLinkHrefs(page, `rel="icon"`, html.EscapeString(icon))
-	}
+	page = updateFaviconLinks(page, icon)
 
 	// Dynamic Google Analytics
 	gaID := strings.TrimSpace(common.OptionMap["GoogleAnalyticsId"])
@@ -525,7 +527,7 @@ func RenderIndexPageForLocale(indexPage []byte, lang string, baseURL string, cur
 		icon = common.Logo
 	}
 	if icon == "" {
-		icon = "/logo.png"
+		icon = "/favicon.ico"
 	}
 	rendered := RenderCustomIndexPage(indexPage, siteName, title, description, keywords, icon, socialImage)
 	htmlLang := "en"
@@ -657,4 +659,90 @@ func ServeBlogIndex(c *gin.Context, indexPage []byte) {
 
 	c.Header("Cache-Control", "no-cache")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", bytes.TrimSpace([]byte(pageStr)))
+}
+
+func updateFaviconLinks(page, iconURL string) string {
+	if iconURL == "" {
+		iconURL = "/favicon.ico"
+	}
+	escapedIcon := html.EscapeString(iconURL)
+
+	reIcon := regexp.MustCompile(`(?is)<link\s+[^>]*?rel=["']?(?:shortcut\s+)?icon["']?[^>]*?>`)
+	reHref := regexp.MustCompile(`(?is)href=["'][^"']*["']`)
+
+	hasReplaced := false
+	page = reIcon.ReplaceAllStringFunc(page, func(tag string) string {
+		hasReplaced = true
+		if reHref.MatchString(tag) {
+			return reHref.ReplaceAllString(tag, fmt.Sprintf(`href="%s"`, escapedIcon))
+		}
+		return strings.TrimSuffix(tag, ">") + fmt.Sprintf(` href="%s">`, escapedIcon)
+	})
+
+	if !hasReplaced {
+		linkTag := fmt.Sprintf(`<link rel="icon" href="%s"><link rel="shortcut icon" href="%s">`, escapedIcon, escapedIcon)
+		if idx := strings.Index(strings.ToLower(page), "<head>"); idx >= 0 {
+			headEnd := idx + len("<head>")
+			page = page[:headEnd] + "\n    " + linkTag + page[headEnd:]
+		}
+	} else if !strings.Contains(strings.ToLower(page), `rel="shortcut icon"`) {
+		shortcutTag := fmt.Sprintf(`<link rel="shortcut icon" href="%s">`, escapedIcon)
+		if idx := strings.Index(strings.ToLower(page), "<head>"); idx >= 0 {
+			headEnd := idx + len("<head>")
+			page = page[:headEnd] + "\n    " + shortcutTag + page[headEnd:]
+		}
+	}
+	return page
+}
+
+func ServeFavicon(c *gin.Context) {
+	c.Header("Cache-Control", "public, max-age=86400")
+
+	scheme := "http"
+	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+	if system_setting.ServerAddress != "" && !strings.Contains(system_setting.ServerAddress, "localhost") {
+		serverUrl = strings.TrimRight(system_setting.ServerAddress, "/")
+	}
+
+	_, _, faviconUrl, faviconBase64 := getBranding(serverUrl)
+
+	if faviconBase64 != "" {
+		payload := faviconBase64
+		if index := strings.Index(payload, ","); index >= 0 {
+			payload = payload[index+1:]
+		}
+		if raw, err := base64.StdEncoding.DecodeString(payload); err == nil && len(raw) > 0 {
+			iconData := icon.FromImage(raw)
+			if len(iconData) > 0 {
+				c.Data(http.StatusOK, "image/x-icon", iconData)
+				return
+			}
+			mime := "image/png"
+			if strings.HasPrefix(faviconBase64, "data:image/x-icon") || strings.HasSuffix(strings.ToLower(faviconUrl), ".ico") {
+				mime = "image/x-icon"
+			} else if strings.HasPrefix(faviconBase64, "data:image/svg+xml") || strings.HasSuffix(strings.ToLower(faviconUrl), ".svg") {
+				mime = "image/svg+xml"
+			} else if strings.HasPrefix(faviconBase64, "data:image/jpeg") || strings.HasSuffix(strings.ToLower(faviconUrl), ".jpg") {
+				mime = "image/jpeg"
+			}
+			c.Data(http.StatusOK, mime, raw)
+			return
+		}
+	}
+
+	for _, p := range []string{
+		filepath.Join("web", "dist", "favicon.ico"),
+		filepath.Join("web", "public", "favicon.ico"),
+		"favicon.ico",
+	} {
+		if data, err := os.ReadFile(p); err == nil && len(data) > 0 {
+			c.Data(http.StatusOK, "image/x-icon", data)
+			return
+		}
+	}
+
+	c.Status(http.StatusNotFound)
 }
