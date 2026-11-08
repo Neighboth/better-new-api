@@ -58,6 +58,7 @@ type Config struct {
 	OperatingMode     string `json:"operating_mode"`
 	PowerProfile      string `json:"power_profile"`
 	ScheduleConfig    string `json:"schedule_config"`
+	ResourcesSet      bool   `json:"resources_set"`
 }
 
 type WorkerState struct {
@@ -218,20 +219,24 @@ func startHeartbeatLoop() {
 		hardware := readHardware()
 		network, _ := readBandwidth()
 
-		if State.AllocatedCores <= 0 && hardware.CpuCores > 0 {
-			State.AllocatedCores = hardware.CpuCores / 2
-			if State.AllocatedCores < 1 {
-				State.AllocatedCores = 1
+		if !State.Config.ResourcesSet {
+			if State.AllocatedCores <= 0 && hardware.CpuCores > 0 {
+				State.AllocatedCores = hardware.CpuCores / 2
+				if State.AllocatedCores < 1 {
+					State.AllocatedCores = 1
+				}
 			}
-		}
-		if State.AllocatedRamGB <= 0 && hardware.PhysicalRamMB > 0 {
-			State.AllocatedRamGB = math.Round(float64(hardware.PhysicalRamMB)/2048.0*10) / 10
-		}
-		if State.AllocatedVramGB <= 0 && hardware.VramMB > 512 {
-			State.AllocatedVramGB = (hardware.VramMB / 1024) / 2
-		}
-		if State.Config.MaxDiskGB <= 0 && hardware.FreeDiskGB > 0 {
-			State.Config.MaxDiskGB = hardware.FreeDiskGB / 2
+			if State.AllocatedRamGB <= 0 && hardware.PhysicalRamMB > 0 {
+				State.AllocatedRamGB = math.Round(float64(hardware.PhysicalRamMB)/2048.0*10) / 10
+			}
+			if State.AllocatedVramGB <= 0 && hardware.VramMB > 512 {
+				State.AllocatedVramGB = (hardware.VramMB / 1024) / 2
+			}
+			if State.Config.MaxDiskGB <= 0 && hardware.FreeDiskGB > 0 {
+				State.Config.MaxDiskGB = hardware.FreeDiskGB / 2
+			}
+			State.Config.ResourcesSet = true
+			saveConfig(State.Config)
 		}
 
 		payload := map[string]interface{}{

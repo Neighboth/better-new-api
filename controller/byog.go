@@ -207,7 +207,7 @@ func getFaviconBase64(faviconUrl string) string {
 		}
 
 		// Also check uploaded files stored directly in managed_files database table
-		if model.DB != nil {
+		if model.DB != nil && model.DB.Migrator().HasTable(&model.ManagedFile{}) {
 			var mf model.ManagedFile
 			if err := model.DB.Where("path = ? OR name = ?", cleanPath, filepath.Base(cleanPath)).First(&mf).Error; err == nil && len(mf.Content) > 0 {
 				mime := http.DetectContentType(mf.Content)
@@ -217,7 +217,7 @@ func getFaviconBase64(faviconUrl string) string {
 	}
 
 	// Also check database managed_files table for uploaded custom logo/favicon
-	if model.DB != nil {
+	if model.DB != nil && model.DB.Migrator().HasTable(&model.ManagedFile{}) {
 		var mf model.ManagedFile
 		if err := model.DB.Where("is_dir = 0 AND (path LIKE '%logo%' OR path LIKE '%favicon%' OR name LIKE '%logo%' OR name LIKE '%favicon%')").Order("id DESC").First(&mf).Error; err == nil && len(mf.Content) > 0 {
 			mime := http.DetectContentType(mf.Content)

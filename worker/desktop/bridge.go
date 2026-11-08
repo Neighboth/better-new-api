@@ -241,14 +241,16 @@ func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Requ
 		drv := strings.ToUpper(strings.TrimSpace(hardware.Disks[i].Drive))
 		if alloc, ok := allocMap[drv]; ok {
 			hardware.Disks[i].AllocatedGB = alloc
-		} else {
+		} else if !State.Config.ResourcesSet {
 			hardware.Disks[i].AllocatedGB = hardware.Disks[i].FreeGB / 2
+		} else {
+			hardware.Disks[i].AllocatedGB = 0
 		}
 		if hardware.Disks[i].AllocatedGB <= 0 {
-			pruneDriveModels(hardware.Disks[i].Drive)
+			go pruneDriveModels(hardware.Disks[i].Drive)
 		}
 	}
-	pruneAllModelsIfZeroDisk()
+	go pruneAllModelsIfZeroDisk()
 	writeBridgeJSON(writer, bridgeState{
 		NodeId:           status.NodeId,
 		DeviceName:       status.DeviceName,
@@ -505,9 +507,10 @@ func (b *localBridge) handleSettings(writer http.ResponseWriter, request *http.R
 		State.Config.AutoPauseOnGame = *payload.AutoPauseOnGame
 		changed = true
 	}
+	State.Config.ResourcesSet = true
 	State.Mu.Unlock()
 	if changed {
-		pruneAllModelsIfZeroDisk()
+		go pruneAllModelsIfZeroDisk()
 		saveConfig(State.Config)
 		triggerHeartbeat()
 	}

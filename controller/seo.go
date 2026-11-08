@@ -219,13 +219,7 @@ func RenderIndexPage(indexPage []byte) []byte {
 	description := seoOption("SEODescription")
 	keywords := seoOption("SEOKeywords")
 	socialImage := seoOption("SEOSocialImage")
-	icon := common.Favicon
-	if icon == "" {
-		icon = common.Logo
-	}
-	if icon == "" {
-		icon = "/favicon.ico"
-	}
+	icon := getEffectiveFaviconURL("")
 	return RenderCustomIndexPage(indexPage, siteName, title, description, keywords, icon, socialImage)
 }
 
@@ -522,13 +516,7 @@ func RenderIndexPageForLocale(indexPage []byte, lang string, baseURL string, cur
 	description := getLegalOption("SEODescription", lang)
 	keywords := getLegalOption("SEOKeywords", lang)
 	socialImage := seoOption("SEOSocialImage")
-	icon := common.Favicon
-	if icon == "" {
-		icon = common.Logo
-	}
-	if icon == "" {
-		icon = "/favicon.ico"
-	}
+	icon := getEffectiveFaviconURL(baseURL)
 	rendered := RenderCustomIndexPage(indexPage, siteName, title, description, keywords, icon, socialImage)
 	htmlLang := "en"
 	switch {
@@ -695,8 +683,52 @@ func updateFaviconLinks(page, iconURL string) string {
 	return page
 }
 
+func getEffectiveFaviconURL(serverUrl string) string {
+	common.OptionMapRWMutex.RLock()
+	var icon string
+	for _, k := range []string{"Favicon", "Logo", "LogoDark", "general_setting.favicon", "general_setting.logo"} {
+		if v := strings.TrimSpace(common.OptionMap[k]); v != "" && v != "/logo.png" && v != "logo.png" && v != "/favicon.ico" && v != "favicon.ico" {
+			icon = v
+			break
+		}
+	}
+	common.OptionMapRWMutex.RUnlock()
+
+	if icon == "" {
+		if v := strings.TrimSpace(common.Favicon); v != "" && v != "/logo.png" && v != "logo.png" && v != "/favicon.ico" && v != "favicon.ico" {
+			icon = v
+		} else if v := strings.TrimSpace(common.Logo); v != "" && v != "/logo.png" && v != "logo.png" {
+			icon = v
+		}
+	}
+
+	if icon == "" && model.DB != nil {
+		if opts, err := model.AllOption(); err == nil {
+			for _, o := range opts {
+				if (o.Key == "Favicon" || o.Key == "Logo" || o.Key == "LogoDark" || o.Key == "general_setting.favicon" || o.Key == "general_setting.logo") &&
+					strings.TrimSpace(o.Value) != "" && strings.TrimSpace(o.Value) != "/logo.png" && strings.TrimSpace(o.Value) != "logo.png" &&
+					strings.TrimSpace(o.Value) != "/favicon.ico" && strings.TrimSpace(o.Value) != "favicon.ico" {
+					icon = strings.TrimSpace(o.Value)
+					break
+				}
+			}
+		}
+	}
+
+	if icon == "" {
+		return "/favicon.ico"
+	}
+	if strings.HasPrefix(icon, "/") && serverUrl != "" && !strings.HasPrefix(icon, "//") {
+		cleanBase := strings.TrimRight(serverUrl, "/")
+		if cleanBase != "" {
+			return cleanBase + icon
+		}
+	}
+	return icon
+}
+
 func ServeFavicon(c *gin.Context) {
-	c.Header("Cache-Control", "public, max-age=86400")
+	c.Header("Cache-Control", "public, max-age=3600")
 
 	scheme := "http"
 	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
@@ -705,6 +737,14 @@ func ServeFavicon(c *gin.Context) {
 	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
 	if system_setting.ServerAddress != "" && !strings.Contains(system_setting.ServerAddress, "localhost") {
 		serverUrl = strings.TrimRight(system_setting.ServerAddress, "/")
+	}
+
+	effectiveFavicon := getEffectiveFaviconURL(serverUrl)
+	if effectiveFavicon != "" && effectiveFavicon != "/favicon.ico" && effectiveFavicon != "favicon.ico" {
+		if strings.HasPrefix(effectiveFavicon, "http://") || strings.HasPrefix(effectiveFavicon, "https://") {
+			c.Redirect(http.StatusTemporaryRedirect, effectiveFavicon)
+			return
+		}
 	}
 
 	_, _, faviconUrl, faviconBase64 := getBranding(serverUrl)
@@ -740,6 +780,57 @@ func ServeFavicon(c *gin.Context) {
 	} {
 		if data, err := os.ReadFile(p); err == nil && len(data) > 0 {
 			c.Data(http.StatusOK, "image/x-icon", data)
+			return
+		}
+	}
+
+	c.Status(http.StatusNotFound)
+}
+
+// ServeLogo serves or redirects to the configured site logo/favicon, falling back to the bundled logo.png.
+func ServeLogo(c *gin.Context) {
+	c.Header("Cache-Control", "public, max-age=3600")
+
+	scheme := "http"
+	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	serverUrl := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+	if system_setting.ServerAddress != "" && !strings.Contains(system_setting.ServerAddress, "localhost") {
+		serverUrl = strings.TrimRight(system_setting.ServerAddress, "/")
+	}
+
+	effectiveLogo := getEffectiveFaviconURL(serverUrl)
+	if effectiveLogo != "" && effectiveLogo != "/favicon.ico" && effectiveLogo != "favicon.ico" && effectiveLogo != "/logo.png" {
+		if strings.HasPrefix(effectiveLogo, "http://") || strings.HasPrefix(effectiveLogo, "https://") {
+			c.Redirect(http.StatusTemporaryRedirect, effectiveLogo)
+			return
+		}
+		if strings.HasPrefix(effectiveLogo, "data:") {
+			if idx := strings.Index(effectiveLogo, ","); idx >= 0 {
+				if raw, err := base64.StdEncoding.DecodeString(effectiveLogo[idx+1:]); err == nil && len(raw) > 0 {
+					mime := http.DetectContentType(raw)
+					c.Data(http.StatusOK, mime, raw)
+					return
+				}
+			}
+		}
+		clean := strings.TrimPrefix(effectiveLogo, "/")
+		for _, p := range []string{clean, filepath.Join("uploads", clean), filepath.Join("web", "public", clean)} {
+			if data, err := os.ReadFile(p); err == nil && len(data) > 0 {
+				c.Data(http.StatusOK, http.DetectContentType(data), data)
+				return
+			}
+		}
+	}
+
+	for _, p := range []string{
+		filepath.Join("web", "dist", "logo.png"),
+		filepath.Join("web", "public", "logo.png"),
+		"logo.png",
+	} {
+		if data, err := os.ReadFile(p); err == nil && len(data) > 0 {
+			c.Data(http.StatusOK, "image/png", data)
 			return
 		}
 	}

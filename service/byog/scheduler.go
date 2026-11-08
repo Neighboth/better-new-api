@@ -107,6 +107,11 @@ func (s *Scheduler) EvaluateNodeModelAssignment(node *model.ByogNode) ([]string,
 // The user gives a part of the memory of the device to the network, the models
 // are assigned with the memory that is given and not with the whole memory of
 // the device. The swap and the zram of the device are never counted.
+// AvailableRamMB returns the memory that the node can use for the models.
+func AvailableRamMB(node *model.ByogNode) int {
+	return availableRamMB(node)
+}
+
 func availableRamMB(node *model.ByogNode) int {
 	if node == nil {
 		return 0

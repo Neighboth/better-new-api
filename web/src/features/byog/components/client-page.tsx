@@ -921,18 +921,18 @@ export function ClientPage() {
               cleanModel(remote.assigned_model) ||
               cleanModel(prev?.models) ||
               '',
-            downloaded_mb: Math.max(
-              Number(prev?.downloaded_mb ?? 0),
-              Number(remote.downloaded_mb ?? 0)
-            ),
-            total_mb: Math.max(
-              Number(prev?.total_mb ?? 0),
-              Number(remote.total_mb ?? 0)
-            ),
-            download_progress: Math.max(
-              Number(prev?.download_progress ?? 0),
-              Number(remote.download_progress ?? 0)
-            ),
+            downloaded_mb:
+              (localApi || bridge) && prev?.downloaded_mb !== undefined
+                ? prev.downloaded_mb
+                : Number(remote.downloaded_mb ?? 0),
+            total_mb:
+              (localApi || bridge) && prev?.total_mb !== undefined && prev.total_mb > 0
+                ? prev.total_mb
+                : Number(remote.total_mb ?? 0),
+            download_progress:
+              (localApi || bridge) && prev?.download_progress !== undefined
+                ? prev.download_progress
+                : Number(remote.download_progress ?? 0),
           } as WorkerState
           merged.disks = mergeDiskReports(
             remote.disks as DiskInfo[] | undefined,

@@ -33,6 +33,7 @@ func SetWebRouter(router *gin.Engine, assets WebAssets) {
 	router.GET("/full-llms.txt", controller.GetLLMSFullTxt)
 	router.GET("/sitemap.xml", controller.GetSitemapXML)
 	router.GET("/favicon.ico", controller.ServeFavicon)
+	router.GET("/logo.png", controller.ServeLogo)
 	router.GET("/blog/:id", func(c *gin.Context) {
 		controller.ServeBlogIndex(c, assets.IndexPage)
 	})

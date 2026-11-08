@@ -130,7 +130,8 @@ if (!rootElement) {
       if (saved) {
         const s = JSON.parse(saved)
         if (s?.system_name) apply(s.system_name)
-        if (s?.favicon || s?.logo) applyFaviconToDom((s.favicon || s.logo) as string)
+        const customFavicon = s?.favicon || (s?.logo && s.logo !== '/logo.png' ? s.logo : '')
+        if (customFavicon) applyFaviconToDom(customFavicon as string)
       }
     } catch {
       /* empty */
@@ -146,7 +147,8 @@ if (!rootElement) {
             /* empty */
           }
         }
-        if (s?.favicon || s?.logo) applyFaviconToDom((s.favicon || s.logo) as string)
+        const customFavicon = s?.favicon || (s?.logo && s.logo !== '/logo.png' ? s.logo : '')
+        if (customFavicon) applyFaviconToDom(customFavicon as string)
       })
       .catch(() => {
         /* empty */

@@ -208,7 +208,14 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
   useEffect(() => {
     const { favicon } = config
 
-    applyFaviconToDom(favicon || activeLogo)
+    // Never apply the default placeholder logo (/logo.png) to the DOM favicon,
+    // which would cause an unwanted 1-second flicker of the default logo before
+    // the actual system settings arrive from /api/status.
+    const customIcon =
+      favicon || (activeLogo && activeLogo !== DEFAULT_LOGO ? activeLogo : '')
+    if (customIcon) {
+      applyFaviconToDom(customIcon)
+    }
 
     // Skip if logo is already loaded
     if (!activeLogo || activeLogo === loadedLogoUrl) return
