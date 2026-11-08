@@ -323,6 +323,27 @@ func GetHomePageContent(c *gin.Context) {
 	return
 }
 
+func GetHomePageContentRaw(c *gin.Context) {
+	lang := resolveRequestLanguage(c)
+	content := getLocalizedMiscOption("HomePageContent", lang)
+	if content == "" {
+		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(""))
+		return
+	}
+	// Safe navigation helper: makes sure normal links open in top window (_top)
+	// while preserving explicit target="_blank" links in new tabs.
+	// Does NOT inject any custom styling or CSS so user's own theme/layout is 100% intact.
+	safeNavScript := `<script>(function(){document.addEventListener('click',function(e){var a=e.target&&e.target.closest?e.target.closest('a'):null;if(!a||!a.href)return;var target=a.getAttribute('target');if(!target||target===''){a.target='_top';}},true);})();</script>`
+	if strings.Contains(strings.ToLower(content), "</body>") {
+		content = strings.Replace(content, "</body>", safeNavScript+"</body>", 1)
+	} else {
+		content += safeNavScript
+	}
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(content))
+}
+
 func SendEmailVerification(c *gin.Context) {
 	email := model.NormalizeEmail(c.Query("email"))
 	if err := common.Validate.Var(email, "required,email"); err != nil {

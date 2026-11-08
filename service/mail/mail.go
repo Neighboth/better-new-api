@@ -209,14 +209,25 @@ func WrapHTML(body string, language string, promotional bool, userId int) string
 }
 
 // BuildMessage writes the message of one reader.
+// Content is sent exactly as written by the administrator without outer card/box wrappers.
 func BuildMessage(subject string, body string, isHtml bool, promotional bool, recipient model.MailRecipient) common.MailMessage {
-	htmlBody := body
-	textBody := ""
+	var htmlBody string
+	var textBody string
 	if isHtml {
-		htmlBody = WrapHTML(body, recipient.Language, promotional, recipient.Id)
+		htmlBody = body
+		if promotional {
+			htmlBody += UnsubscribeFooter(recipient.Id, recipient.Language)
+		}
+		textBody = ""
 	} else {
 		textBody = body
-		htmlBody = WrapHTML(PlainBody(body), recipient.Language, promotional, recipient.Id)
+		escaped := html.EscapeString(body)
+		escapedWithBr := strings.ReplaceAll(strings.ReplaceAll(escaped, "\r\n", "<br>"), "\n", "<br>")
+		htmlBody = fmt.Sprintf("<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #111827;\">%s</div>", escapedWithBr)
+		if promotional {
+			textBody += "\n\n" + UnsubscribePageURL(recipient.Id)
+			htmlBody += UnsubscribeFooter(recipient.Id, recipient.Language)
+		}
 	}
 
 	message := common.MailMessage{

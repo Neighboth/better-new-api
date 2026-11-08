@@ -103,18 +103,33 @@ func BuildMailMessage(message MailMessage) ([]byte, error) {
 	for name, value := range message.Headers {
 		writeHeader(&builder, name, value)
 	}
-	writeHeader(&builder, "Content-Type", fmt.Sprintf("multipart/alternative; boundary=\"%s\"", boundary))
+	hasHtml := strings.TrimSpace(message.HTML) != ""
 
-	builder.WriteString("\r\n")
-	builder.WriteString("--" + boundary + "\r\n")
-	builder.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
-	builder.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
-	builder.WriteString(encodeBase64Body(text))
-	builder.WriteString("\r\n--" + boundary + "\r\n")
-	builder.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
-	builder.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
-	builder.WriteString(encodeBase64Body(message.HTML))
-	builder.WriteString("\r\n--" + boundary + "--\r\n")
+	if hasHtml && strings.TrimSpace(text) != "" {
+		writeHeader(&builder, "Content-Type", fmt.Sprintf("multipart/alternative; boundary=\"%s\"", boundary))
+		builder.WriteString("\r\n")
+		builder.WriteString("--" + boundary + "\r\n")
+		builder.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
+		builder.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
+		builder.WriteString(encodeBase64Body(text))
+		builder.WriteString("\r\n--" + boundary + "\r\n")
+		builder.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
+		builder.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
+		builder.WriteString(encodeBase64Body(message.HTML))
+		builder.WriteString("\r\n--" + boundary + "--\r\n")
+	} else if hasHtml {
+		writeHeader(&builder, "Content-Type", "text/html; charset=UTF-8")
+		writeHeader(&builder, "Content-Transfer-Encoding", "base64")
+		builder.WriteString("\r\n")
+		builder.WriteString(encodeBase64Body(message.HTML))
+		builder.WriteString("\r\n")
+	} else {
+		writeHeader(&builder, "Content-Type", "text/plain; charset=UTF-8")
+		writeHeader(&builder, "Content-Transfer-Encoding", "base64")
+		builder.WriteString("\r\n")
+		builder.WriteString(encodeBase64Body(text))
+		builder.WriteString("\r\n")
+	}
 
 	return []byte(builder.String()), nil
 }

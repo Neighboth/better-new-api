@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
+  Eye,
   Loader2,
   Mail,
   Search,
@@ -93,6 +94,7 @@ export function MailDialog({
   const [subject, setSubject] = useState('')
   const [content, setContent] = useState('')
   const [isHtml, setIsHtml] = useState(false)
+  const [previewMode, setPreviewMode] = useState(false)
   const [promotional, setPromotional] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [sending, setSending] = useState(false)
@@ -114,6 +116,7 @@ export function MailDialog({
     setSubject('')
     setContent('')
     setIsHtml(false)
+    setPreviewMode(false)
     setPromotional(false)
     setAdvancedOpen(false)
     setCampaign(null)
@@ -575,33 +578,69 @@ export function MailDialog({
             <div className='space-y-1.5'>
               <div className='flex items-center justify-between'>
                 <Label htmlFor='mail-content'>{t('Message')}</Label>
-                <label className='flex items-center gap-2 text-xs'>
-                  <Switch
-                    checked={isHtml}
-                    onCheckedChange={(value: boolean) => setIsHtml(value)}
-                  />
-                  {t('This is HTML')}
-                </label>
+                <div className='flex items-center gap-3'>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='h-7 px-2.5 text-xs gap-1.5'
+                    onClick={() => setPreviewMode((prev) => !prev)}
+                  >
+                    <Eye className='size-3.5' />
+                    {previewMode ? t('Edit') : t('Preview')}
+                  </Button>
+                  <label className='flex items-center gap-2 text-xs cursor-pointer select-none'>
+                    <Switch
+                      checked={isHtml}
+                      onCheckedChange={(value: boolean) => setIsHtml(value)}
+                    />
+                    {t('This is HTML')}
+                  </label>
+                </div>
               </div>
-              <Textarea
-                id='mail-content'
-                value={content}
-                onChange={(event) => setContent(event.target.value)}
-                rows={8}
-                className='font-mono text-xs'
-                placeholder={
-                  isHtml
-                    ? '<p>Hello <b>world</b></p>'
-                    : t('Write the text of the message…')
-                }
-              />
+
+              {previewMode ? (
+                <div className='min-h-[160px] max-h-[300px] overflow-auto rounded-md border p-3 bg-muted/20'>
+                  {isHtml ? (
+                    <div
+                      className='text-xs prose dark:prose-invert max-w-none break-words'
+                      dangerouslySetInnerHTML={{
+                        __html:
+                          content ||
+                          `<p class="text-muted-foreground italic">${t('Empty message')}</p>`,
+                      }}
+                    />
+                  ) : (
+                    <pre className='whitespace-pre-wrap font-sans text-xs text-foreground break-words'>
+                      {content || (
+                        <span className='text-muted-foreground italic'>
+                          {t('Empty message')}
+                        </span>
+                      )}
+                    </pre>
+                  )}
+                </div>
+              ) : (
+                <Textarea
+                  id='mail-content'
+                  value={content}
+                  onChange={(event) => setContent(event.target.value)}
+                  rows={8}
+                  className='font-mono text-xs'
+                  placeholder={
+                    isHtml
+                      ? '<p>Hello <b>world</b></p>'
+                      : t('Write the text of the message…')
+                  }
+                />
+              )}
               <p className='text-muted-foreground text-[11px]'>
                 {isHtml
                   ? t(
-                      'The message is sent as HTML. Escape the text that the readers write.'
+                      'The message is sent directly as raw HTML without any outer wrappers.'
                     )
                   : t(
-                      'The message is sent as text. The installation wraps it in the frame of the site.'
+                      'The message is sent directly as plain text without any outer box or system frame.'
                     )}
               </p>
             </div>
