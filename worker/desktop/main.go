@@ -382,6 +382,19 @@ func (w *progressWriter) Write(data []byte) (int, error) {
 	return written, err
 }
 
+type channelProgressWriter struct {
+	writer  io.Writer
+	onBytes func(n int)
+}
+
+func (w *channelProgressWriter) Write(data []byte) (int, error) {
+	written, err := w.writer.Write(data)
+	if written > 0 && w.onBytes != nil {
+		w.onBytes(written)
+	}
+	return written, err
+}
+
 // downloadJob is one model that the coordinator assigned to the client.
 type downloadJob struct {
 	ModelId     string
@@ -880,22 +893,20 @@ func resolveRemoteFileSize(remoteUrl string) int64 {
 // fetchChunkRange transfers one channel of the parallel download and appends
 // the bytes to the part file of the channel. A part that already holds bytes
 // resumes where it stopped.
-func fetchChunkRange(ctx context.Context, remoteUrl string, partPath string, start int64, end int64, counter *int64, mutex *sync.Mutex) error {
+func fetchChunkRange(ctx context.Context, remoteUrl string, partPath string, start int64, end int64, channelIdx int, channelBytes []int64, mutex *sync.Mutex) error {
 	have := int64(0)
 	if info, err := os.Stat(partPath); err == nil && info.Size() > 0 {
 		have = info.Size()
 	}
 	expected := end - start + 1
-	if have >= expected {
-		mutex.Lock()
-		*counter += have
-		mutex.Unlock()
-		return nil
+	if have > expected {
+		have = expected
 	}
-	if have > 0 {
-		mutex.Lock()
-		*counter += have
-		mutex.Unlock()
+	mutex.Lock()
+	channelBytes[channelIdx] = have
+	mutex.Unlock()
+	if have >= expected {
+		return nil
 	}
 
 	reqCtx, cancelReq := context.WithCancel(ctx)
@@ -948,13 +959,30 @@ func fetchChunkRange(ctx context.Context, remoteUrl string, partPath string, sta
 	watchdog := newWatchdogReader(response.Body, cancelReq, 25*time.Second)
 	defer watchdog.Close()
 
-	written, err := io.Copy(&progressWriter{writer: out, counter: counter, mutex: mutex}, watchdog)
+	currentChannelBytes := have
+	writer := &channelProgressWriter{
+		writer: out,
+		onBytes: func(n int) {
+			mutex.Lock()
+			currentChannelBytes += int64(n)
+			if currentChannelBytes > expected {
+				currentChannelBytes = expected
+			}
+			channelBytes[channelIdx] = currentChannelBytes
+			mutex.Unlock()
+		},
+	}
+
+	written, err := io.Copy(writer, watchdog)
 	if err != nil {
 		return err
 	}
 	if have+written != expected {
 		return fmt.Errorf("the piece of the file is incomplete: %d of %d bytes", have+written, expected)
 	}
+	mutex.Lock()
+	channelBytes[channelIdx] = expected
+	mutex.Unlock()
 	return nil
 }
 
@@ -982,7 +1010,7 @@ func downloadModelIDM(remoteUrl string, targetPath string, fileSize int64, model
 	var wg sync.WaitGroup
 	errs := make([]error, connections)
 
-	var downloaded int64
+	channelBytes := make([]int64, connections)
 	var downloadMutex sync.Mutex
 	meter := newDownloadMeter(modelId, fileSize)
 	progressDone := make(chan struct{})
@@ -995,8 +1023,14 @@ func downloadModelIDM(remoteUrl string, targetPath string, fileSize int64, model
 				return
 			case <-ticker.C:
 				downloadMutex.Lock()
-				current := downloaded
+				var current int64
+				for _, b := range channelBytes {
+					current += b
+				}
 				downloadMutex.Unlock()
+				if current > fileSize {
+					current = fileSize
+				}
 				meter.report(current)
 			}
 		}
@@ -1028,7 +1062,7 @@ func downloadModelIDM(remoteUrl string, targetPath string, fileSize int64, model
 					lastErr = ctx.Err()
 					break
 				}
-				lastErr = fetchChunkRange(ctx, remoteUrl, partFile, startByte, endByte, &downloaded, &downloadMutex)
+				lastErr = fetchChunkRange(ctx, remoteUrl, partFile, startByte, endByte, channelIdx, channelBytes, &downloadMutex)
 				if lastErr == nil {
 					return
 				}

@@ -301,10 +301,17 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 
 	// 4. Fallback if untouched
 	if systemName == "" || systemName == "New API" {
-		systemName = "BYOG Worker"
+		systemName = "BYOG"
 		appName = "BYOG Worker"
 	} else {
-		appName = fmt.Sprintf("%s BYOG", systemName)
+		lower := strings.ToLower(systemName)
+		if strings.HasSuffix(lower, "byog worker") {
+			appName = systemName
+		} else if strings.HasSuffix(lower, "byog") {
+			appName = systemName + " Worker"
+		} else {
+			appName = fmt.Sprintf("%s BYOG Worker", systemName)
+		}
 	}
 
 	// Favicon and Logo resolution:
@@ -2832,8 +2839,12 @@ func byogDisplayName(systemName string) string {
 	if name == "" || name == "New API" {
 		return "BYOG Worker"
 	}
-	if strings.HasSuffix(strings.ToLower(name), "byog worker") {
+	lower := strings.ToLower(name)
+	if strings.HasSuffix(lower, "byog worker") {
 		return name
+	}
+	if strings.HasSuffix(lower, "byog") {
+		return name + " Worker"
 	}
 	return name + " BYOG Worker"
 }

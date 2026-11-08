@@ -293,7 +293,13 @@ if not system_name or system_name.strip() in ("", "New API"):
     app_name = "BYOG Worker"
 else:
     system_name = system_name.strip()
-    app_name = f"{system_name} BYOG"
+    sn_lower = system_name.lower()
+    if sn_lower.endswith("byog worker"):
+        app_name = system_name
+    elif sn_lower.endswith("byog"):
+        app_name = f"{system_name} Worker"
+    else:
+        app_name = f"{system_name} BYOG Worker" 
 print(f"Building APK with Branding Name: '{app_name}'")
 
 if os.path.exists(WORKDIR):
@@ -1755,6 +1761,10 @@ public class MainActivity extends Activity {
                         if (!savedServer.isEmpty()) {
                             latestWorkerState.put("server_url", savedServer);
                         }
+                        String savedSysName = WorkerService.stringPref(sp, "system_name", "");
+                        if (!savedSysName.isEmpty()) {
+                            latestWorkerState.put("system_name", savedSysName);
+                        }
                     } catch (Exception ignored) {}
                     if (webView != null) {
                         runOnUiThread(new Runnable() {
@@ -2019,6 +2029,9 @@ public class MainActivity extends Activity {
                 SharedPreferences.Editor ed = sp.edit();
                 if (obj.has("server_url") && WorkerService.stringPref(sp, "worker_secret", "").isEmpty())
                     ed.putString("server_url", obj.getString("server_url"));
+                if (obj.has("system_name")) {
+                    ed.putString("system_name", obj.getString("system_name"));
+                }
                 if (obj.has("app_name")) {
                     appName = obj.getString("app_name");
                     ed.putString("app_name", appName);
@@ -3623,6 +3636,8 @@ public class MainActivity extends Activity {
                 String serverUrl = WorkerService.stringPref(sp, "server_url", "");
                 String appName = WorkerService.stringPref(sp, "app_name", "{app_name}");
                 String favicon = WorkerService.stringPref(sp, "favicon", "logo.png");
+                String systemName = WorkerService.stringPref(sp, "system_name", "{system_name}");
+                state.put("system_name", systemName);
                 String faviconBase64 = WorkerService.stringPref(sp, "favicon_base64", "");
                 boolean isPaired = WorkerService.boolPref(sp, "is_paired", false) && !nodeId.isEmpty();
 

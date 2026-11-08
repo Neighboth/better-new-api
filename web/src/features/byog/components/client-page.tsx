@@ -625,9 +625,7 @@ export function ClientPage() {
       if (new URLSearchParams(window.location.search).get('onboarding') === '1') {
         return false
       }
-      if ((window as unknown as Record<string, unknown>).AndroidBridge) {
-        return false
-      }
+      return localStorage.getItem('byog_onboarding_done') === '1'
     }
     return true
   })
@@ -840,10 +838,13 @@ export function ClientPage() {
           paired: Boolean(payload.paired),
           model_status: String(payload.model_status ?? ''),
           download_status: String(payload.model_status ?? ''),
-          download_progress: Math.max(
-            prev?.download_progress || 0,
-            Number(payload.download_progress ?? 0)
-          ),
+          download_progress: (() => {
+            const incoming = Number(payload.download_progress ?? 0)
+            const sameModel = prev?.download_model_id && payload.download_model_id === prev.download_model_id
+            return (sameModel && incoming > 0 && prev?.download_progress)
+              ? Math.max(prev.download_progress, incoming)
+              : incoming
+          })(),
           current_tps: Number(payload.current_tps ?? 0),
           models: String(payload.model_name ?? ''),
           disks: payload.disks as WorkerState['disks'],
@@ -858,8 +859,14 @@ export function ClientPage() {
           bandwidth_up_mbps: payload.bandwidth_up_mbps as number,
           ping_ms: payload.ping_ms as number,
           download_model_id: payload.download_model_id as string,
-          downloaded_mb: Math.max(prev?.downloaded_mb ?? 0, Number(payload.downloaded_mb ?? 0)),
-          total_mb: Math.max(prev?.total_mb ?? 0, Number(payload.total_mb ?? 0)),
+          downloaded_mb: (() => {
+            const incoming = Number(payload.downloaded_mb ?? 0)
+            const sameModel = prev?.download_model_id && payload.download_model_id === prev.download_model_id
+            return (sameModel && incoming > 0 && prev?.downloaded_mb)
+              ? Math.max(prev.downloaded_mb, incoming)
+              : incoming
+          })(),
+          total_mb: Number(payload.total_mb ?? 0) || prev?.total_mb || 0,
           download_speed_bps: payload.download_speed_bps as number,
           eta_seconds: payload.eta_seconds as number,
           download_queue: payload.download_queue as string[],
@@ -935,22 +942,12 @@ export function ClientPage() {
             // The client of the computer is the source of the live values, the
             // record of the node is the source of the allocation above.
             if (prev.download_status) merged.download_status = prev.download_status
-            if (prev.download_progress !== undefined) {
-              merged.download_progress = Math.max(prev.download_progress, Number(remote.download_progress ?? 0))
-            }
-            if (prev.downloaded_mb !== undefined && prev.downloaded_mb > 0) {
-              merged.downloaded_mb = Math.max(prev.downloaded_mb, Number(remote.downloaded_mb ?? 0))
-            }
-            if (prev.total_mb !== undefined && prev.total_mb > 0) {
-              merged.total_mb = Math.max(prev.total_mb, Number(remote.total_mb ?? 0))
-            }
+            if (prev.download_progress !== undefined) merged.download_progress = prev.download_progress
+            if (prev.downloaded_mb !== undefined) merged.downloaded_mb = prev.downloaded_mb
+            if (prev.total_mb !== undefined && prev.total_mb > 0) merged.total_mb = prev.total_mb
             if (prev.download_model_id) merged.download_model_id = prev.download_model_id
-            if (prev.download_speed_bps !== undefined && prev.download_speed_bps > 0) {
-              merged.download_speed_bps = prev.download_speed_bps
-            }
-            if (prev.eta_seconds !== undefined && prev.eta_seconds > 0) {
-              merged.eta_seconds = prev.eta_seconds
-            }
+            if (prev.download_speed_bps !== undefined) merged.download_speed_bps = prev.download_speed_bps
+            if (prev.eta_seconds !== undefined) merged.eta_seconds = prev.eta_seconds
             if (prev.current_tps !== undefined && prev.current_tps > 0) {
               merged.current_tps = prev.current_tps
             }
@@ -1416,24 +1413,40 @@ export function ClientPage() {
   const isPaired = Boolean(state?.paired || (state?.user_id && state.user_id > 0))
   const isModelReady = state?.model_status === 'ready' || (state && state.download_progress >= 100)
 
-  // Header Brand Logo: use custom site logo/favicon or favicon_base64
+  // Header Brand Logo: prioritize custom site logo/favicon or favicon_base64
   const brandLogo = useMemo(() => {
-    if (systemFavicon) {
-      return systemFavicon
-    }
     if (state?.favicon_base64) {
       return state.favicon_base64.startsWith('data:')
         ? state.favicon_base64
         : `data:image/png;base64,${state.favicon_base64}`
     }
+    if (state?.favicon && state.favicon !== '/logo.png' && state.favicon !== 'logo.png') {
+      return state.favicon
+    }
+    if (systemFavicon && systemFavicon !== '/favicon.ico' && systemFavicon !== 'favicon.ico') {
+      return systemFavicon
+    }
+    if (systemLogo && systemLogo !== '/logo.png' && systemLogo !== 'logo.png') {
+      return systemLogo
+    }
     if (state?.favicon) {
       return state.favicon
     }
-    if (systemLogo) {
-      return systemLogo
-    }
     return '/logo.png'
   }, [state?.favicon, state?.favicon_base64, systemFavicon, systemLogo])
+
+  const effectiveSystemName = useMemo(() => {
+    if (systemName && systemName !== 'New API' && systemName !== 'BYOG Worker') {
+      return systemName
+    }
+    if (state?.system_name && state.system_name !== 'New API' && state.system_name !== 'BYOG Worker') {
+      return state.system_name
+    }
+    if (state?.app_name && state.app_name !== 'New API') {
+      return state.app_name
+    }
+    return 'BYOG Worker'
+  }, [systemName, state?.system_name, state?.app_name])
 
   // --- VIEW 1: Onboarding / Permissions (Mobile only, shown sequentially before pairing) ---
   const isTestingOnboarding = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('onboarding') === '1'
@@ -1510,7 +1523,7 @@ export function ClientPage() {
               }}
             />
             <span className='text-sm font-semibold tracking-tight truncate max-w-[160px] sm:max-w-none'>
-              {systemName || state?.system_name || state?.app_name || 'BYOG Worker'}
+              {effectiveSystemName}
             </span>
           </div>
           <div className='flex items-center gap-1.5 shrink-0'>
@@ -1671,6 +1684,22 @@ export function ClientPage() {
                   </div>
                 </div>
               )}
+
+              <div className='pt-3 flex items-center justify-center border-t border-border/40'>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  onClick={() => {
+                    setOnboardingDone(true)
+                    if (typeof window !== 'undefined') {
+                      localStorage.setItem('byog_onboarding_done', '1')
+                    }
+                  }}
+                  className='text-xs text-muted-foreground hover:text-foreground'
+                >
+                  {t('byog.skip_to_pairing', 'Şimdilik Atla ve Eşleştirmeye Geç →')}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -1693,7 +1722,7 @@ export function ClientPage() {
             }}
           />
           <span className='text-sm font-semibold tracking-tight truncate max-w-[160px] sm:max-w-none'>
-            {systemName || state?.system_name || state?.app_name || 'BYOG Worker'}
+            {effectiveSystemName}
           </span>
         </div>
         <div className='flex items-center gap-1.5 shrink-0'>
@@ -1786,6 +1815,22 @@ export function ClientPage() {
                   {message}
                 </div>
               )}
+
+              <div className='pt-3 flex items-center justify-center border-t border-border/40'>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  onClick={() => {
+                    setOnboardingDone(true)
+                    if (typeof window !== 'undefined') {
+                      localStorage.setItem('byog_onboarding_done', '1')
+                    }
+                  }}
+                  className='text-xs text-muted-foreground hover:text-foreground'
+                >
+                  {t('byog.skip_to_pairing', 'Şimdilik Atla ve Eşleştirmeye Geç →')}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -1816,7 +1861,7 @@ export function ClientPage() {
               }}
             />
             <span className='text-sm font-semibold tracking-tight truncate max-w-[120px] sm:max-w-none'>
-              {systemName || state?.system_name || state?.app_name || 'BYOG Worker'}
+              {effectiveSystemName}
             </span>
           </div>
           <Badge
@@ -1881,7 +1926,7 @@ export function ClientPage() {
             </button>
 
             <div className='px-3 pt-2 text-xs text-muted-foreground border-t border-border/30'>
-              <div className='font-mono font-medium truncate'>{systemName || state?.system_name || state?.app_name || 'BYOG Worker'}</div>
+              <div className='font-mono font-medium truncate'>{effectiveSystemName}</div>
               <div className='text-[10px] opacity-70 font-mono truncate'>Node: {nodeId || state?.node_id || '—'}</div>
             </div>
           </SidebarFooter>

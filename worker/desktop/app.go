@@ -688,8 +688,18 @@ func installedModelsJSON() string {
 // the user knows the installation from the name of it.
 func installationDisplayName(appName string, systemName string) string {
 	name := strings.TrimSpace(systemName)
+	if name == "" || name == "New API" {
+		name = strings.TrimSpace(appName)
+	}
 	if name == "" {
-		return appName
+		return "BYOG Worker"
+	}
+	lower := strings.ToLower(name)
+	if strings.HasSuffix(lower, "byog worker") {
+		return name
+	}
+	if strings.HasSuffix(lower, "byog") {
+		return name + " Worker"
 	}
 	return name + " BYOG Worker"
 }

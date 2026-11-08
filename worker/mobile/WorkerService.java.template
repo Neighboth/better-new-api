@@ -148,16 +148,7 @@ public class WorkerService extends Service {
     private long cachedIconLastModified = 0;
 
     private int getSafeSmallIcon() {
-        try {
-            if (getApplicationInfo() != null && getApplicationInfo().icon != 0) {
-                return getApplicationInfo().icon;
-            }
-        } catch (Throwable ignored) {}
-        try {
-            int resId = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName());
-            if (resId != 0) return resId;
-        } catch (Throwable ignored) {}
-        return android.R.drawable.ic_dialog_info;
+        return android.R.drawable.stat_notify_sync;
     }
 
     @Override
@@ -619,6 +610,7 @@ public class WorkerService extends Service {
             state.put("node_id", stringPref(sp, "node_id", ""));
             state.put("server_url", stringPref(sp, "server_url", ""));
             state.put("app_name", stringPref(sp, "app_name", "{app_name}"));
+            state.put("system_name", stringPref(sp, "system_name", ""));
             state.put("favicon", stringPref(sp, "favicon", "logo.png"));
             state.put("battery_level", getSafeBatteryPercent());
             state.put("battery_temp", getSafeBatteryTemp());
@@ -961,9 +953,6 @@ public class WorkerService extends Service {
 
             if (bgRestricted) {
                 sp.edit().putBoolean("bgactivity_granted", false).apply();
-                Intent revIntent = new Intent("org.byog.worker.PERMISSION_REVOKED");
-                revIntent.setPackage(getPackageName());
-                sendBroadcast(revIntent);
             }
 
             String serverUrl = stringPref(sp, "server_url", "");
@@ -1052,6 +1041,7 @@ public class WorkerService extends Service {
             state.put("node_id", stringPref(sp, "node_id", ""));
             state.put("server_url", stringPref(sp, "server_url", ""));
             state.put("app_name", appName);
+            state.put("system_name", stringPref(sp, "system_name", ""));
             state.put("favicon", stringPref(sp, "favicon", "logo.png"));
             String b64 = stringPref(sp, "favicon_base64", "");
             if (!b64.isEmpty()) state.put("favicon_base64", b64);
@@ -1568,6 +1558,7 @@ public class WorkerService extends Service {
             state.put("node_id", stringPref(sp, "node_id", ""));
             state.put("server_url", stringPref(sp, "server_url", ""));
             state.put("app_name", appName);
+            state.put("system_name", stringPref(sp, "system_name", ""));
             state.put("favicon", stringPref(sp, "favicon", "logo.png"));
             String b64 = stringPref(sp, "favicon_base64", "");
             if (!b64.isEmpty()) state.put("favicon_base64", b64);
@@ -1620,6 +1611,7 @@ public class WorkerService extends Service {
             JSONObject state = new JSONObject();
             state.put("is_paired", true);
             state.put("app_name", stringPref(sp, "app_name", "{app_name}"));
+            state.put("system_name", stringPref(sp, "system_name", ""));
             state.put("favicon", stringPref(sp, "favicon", "logo.png"));
             String b64 = stringPref(sp, "favicon_base64", "");
             if (!b64.isEmpty()) state.put("favicon_base64", b64);
@@ -2797,7 +2789,17 @@ public class WorkerService extends Service {
                 statusSuffix = isTr ? "Bekliyor" : "Waiting";
             }
 
-            String notifTitle = sysName + " BYOG - " + statusSuffix;
+            String titlePrefix = sysName.trim();
+            if (titlePrefix.isEmpty() || titlePrefix.equalsIgnoreCase("New API")) titlePrefix = "BYOG";
+            String titleLower = titlePrefix.toLowerCase();
+            if (titleLower.endsWith("byog worker")) {
+                // already complete
+            } else if (titleLower.endsWith("byog")) {
+                titlePrefix = titlePrefix + " Worker";
+            } else {
+                titlePrefix = titlePrefix + " BYOG Worker";
+            }
+            String notifTitle = titlePrefix + " - " + statusSuffix;
 
             long totalTokens = sp != null ? sp.getLong("total_tokens_processed", 0) : 0;
             long dailyTokens = sp != null ? sp.getLong("daily_tokens_earned", 0) : 0;
