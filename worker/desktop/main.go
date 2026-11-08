@@ -54,6 +54,9 @@ type Config struct {
 	MaxDiskGB         int    `json:"max_disk_gb"`
 	AutoPauseOnGame   bool   `json:"auto_pause_on_game"`
 	ThermalGuardLimit int    `json:"thermal_guard_limit"` // e.g. 83°C
+	OperatingMode     string `json:"operating_mode"`
+	PowerProfile      string `json:"power_profile"`
+	ScheduleConfig    string `json:"schedule_config"`
 }
 
 type WorkerState struct {
@@ -92,6 +95,9 @@ type WorkerState struct {
 	AllocatedVramGB   int
 	AllocatedCores    int
 	Disks             string
+	OperatingMode     string
+	PowerProfile      string
+	ScheduleConfig    string
 	Mu                sync.Mutex
 }
 
@@ -246,12 +252,19 @@ func startHeartbeatLoop() {
 			"cpu_model":           hardware.CpuModel,
 			"gpu_model":           hardware.GpuModel,
 			"cpu_cores":           hardware.CpuCores,
-			"disks":               json.RawMessage(hardware.disksJSON()),
+			"disks":               json.RawMessage(disksWithAllocationsJSON(hardware.Disks, State.Disks)),
 			"total_disk_gb":       hardware.TotalDiskGB,
 			"free_disk_gb":        hardware.FreeDiskGB,
 			"bandwidth_down_mbps": network.DownMbps,
 			"bandwidth_up_mbps":   network.UpMbps,
 			"ping_ms":             network.PingMs,
+			"allocated_disk_gb":   State.Config.MaxDiskGB,
+			"allocated_ram_gb":    State.AllocatedRamGB,
+			"allocated_vram_gb":   State.AllocatedVramGB,
+			"allocated_cores":     State.AllocatedCores,
+			"operating_mode":      State.Config.OperatingMode,
+			"power_profile":       State.Config.PowerProfile,
+			"schedule_config":     State.Config.ScheduleConfig,
 		}
 
 		raw, _ := json.Marshal(payload)
@@ -264,6 +277,66 @@ func startHeartbeatLoop() {
 		conn := State.WsConn
 		State.Mu.Unlock()
 		_ = sendWsFrame(conn, frame)
+	}
+}
+
+// disksWithAllocationsJSON combines hardware partitions with saved user allocations.
+func disksWithAllocationsJSON(hardwareDisks []DiskPartitionInfo, disksJSON string) string {
+	payload := append([]DiskPartitionInfo{}, hardwareDisks...)
+	if disksJSON != "" {
+		var saved []DiskPartitionInfo
+		if err := json.Unmarshal([]byte(disksJSON), &saved); err == nil && len(saved) > 0 {
+			allocMap := make(map[string]int)
+			for _, sd := range saved {
+				allocMap[strings.ToUpper(strings.TrimSpace(sd.Drive))] = sd.AllocatedGB
+			}
+			for i := range payload {
+				drv := strings.ToUpper(strings.TrimSpace(payload[i].Drive))
+				if alloc, ok := allocMap[drv]; ok {
+					payload[i].AllocatedGB = alloc
+				}
+			}
+		}
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return "[]"
+	}
+	return string(raw)
+}
+
+// watchdogReader wraps an io.Reader and cancels context if no bytes are received within timeout.
+type watchdogReader struct {
+	reader  io.Reader
+	cancel  context.CancelFunc
+	timer   *time.Timer
+	timeout time.Duration
+}
+
+func newWatchdogReader(r io.Reader, cancel context.CancelFunc, timeout time.Duration) *watchdogReader {
+	wr := &watchdogReader{
+		reader:  r,
+		cancel:  cancel,
+		timeout: timeout,
+	}
+	wr.timer = time.AfterFunc(timeout, func() {
+		fmt.Printf("[BYOG IDM] Channel read stalled after %v without data; triggering auto-retry\n", timeout)
+		wr.cancel()
+	})
+	return wr
+}
+
+func (w *watchdogReader) Read(p []byte) (int, error) {
+	n, err := w.reader.Read(p)
+	if n > 0 && w.timer != nil {
+		w.timer.Reset(w.timeout)
+	}
+	return n, err
+}
+
+func (w *watchdogReader) Close() {
+	if w.timer != nil {
+		w.timer.Stop()
 	}
 }
 
@@ -336,8 +409,30 @@ func pruneDriveModels(driveRoot string) {
 		filepath.Join(driveRoot, "PixRouter BYOG Models"),
 		filepath.Join(driveRoot, "BYOG Models"),
 	}
+	State.Mu.Lock()
+	if State.Config.AppName != "" {
+		candidates = append(candidates, filepath.Join(driveRoot, State.Config.AppName+" BYOG Models"))
+	}
+	if State.Config.SystemName != "" {
+		candidates = append(candidates, filepath.Join(driveRoot, State.Config.SystemName+" BYOG Models"))
+	}
+	State.Mu.Unlock()
+
 	for _, c := range candidates {
 		_ = removeDirectoryRobust(c)
+	}
+
+	// Also scan drive root directly for any BYOG / models directory created under previous system names
+	if entries, err := os.ReadDir(driveRoot); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				lower := strings.ToLower(e.Name())
+				if lower == "models" || strings.Contains(lower, "byog") {
+					target := filepath.Join(driveRoot, e.Name())
+					_ = removeDirectoryRobust(target)
+				}
+			}
+		}
 	}
 }
 
@@ -766,18 +861,27 @@ func fetchChunkRange(ctx context.Context, remoteUrl string, partPath string, sta
 		mutex.Unlock()
 	}
 
+	reqCtx, cancelReq := context.WithCancel(ctx)
+	defer cancelReq()
+
 	request, err := http.NewRequest(http.MethodGet, remoteUrl, nil)
 	if err != nil {
 		return err
 	}
-	request = request.WithContext(ctx)
+	request = request.WithContext(reqCtx)
 	request.Header.Set("User-Agent", "BYOG-Worker/1.0")
 	request.Header.Set("Accept-Encoding", "identity")
 	request.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start+have, end))
 
-	// The transfer of a model takes minutes, the timeout covers the whole
-	// download and not a single read.
-	client := &http.Client{Timeout: 6 * time.Hour}
+	transport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		ResponseHeaderTimeout: 30 * time.Second,
+		IdleConnTimeout:       30 * time.Second,
+	}
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   6 * time.Hour,
+	}
 	response, err := client.Do(request)
 	if err != nil {
 		return err
@@ -804,7 +908,10 @@ func fetchChunkRange(ctx context.Context, remoteUrl string, partPath string, sta
 	}
 	defer out.Close()
 
-	written, err := io.Copy(&progressWriter{writer: out, counter: counter, mutex: mutex}, response.Body)
+	watchdog := newWatchdogReader(response.Body, cancelReq, 25*time.Second)
+	defer watchdog.Close()
+
+	written, err := io.Copy(&progressWriter{writer: out, counter: counter, mutex: mutex}, watchdog)
 	if err != nil {
 		return err
 	}
@@ -1132,7 +1239,10 @@ func downloadModelSingleAttempt(downloadUrl string, partFile string, targetPath 
 		have = info.Size()
 	}
 
-	request, err := http.NewRequest("GET", downloadUrl, nil)
+	reqCtx, cancelReq := context.WithCancel(context.Background())
+	defer cancelReq()
+
+	request, err := http.NewRequestWithContext(reqCtx, "GET", downloadUrl, nil)
 	if err != nil {
 		return err
 	}
@@ -1141,7 +1251,15 @@ func downloadModelSingleAttempt(downloadUrl string, partFile string, targetPath 
 	if have > 0 {
 		request.Header.Set("Range", fmt.Sprintf("bytes=%d-", have))
 	}
-	client := &http.Client{Timeout: 6 * time.Hour}
+	transport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		ResponseHeaderTimeout: 30 * time.Second,
+		IdleConnTimeout:       30 * time.Second,
+	}
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   6 * time.Hour,
+	}
 	response, err := client.Do(request)
 	if err != nil {
 		return err
@@ -1220,7 +1338,10 @@ func downloadModelSingleAttempt(downloadUrl string, partFile string, targetPath 
 			}
 		}
 	}()
-	_, copyErr := io.Copy(writer, response.Body)
+	watchdog := newWatchdogReader(response.Body, cancelReq, 25*time.Second)
+	defer watchdog.Close()
+
+	_, copyErr := io.Copy(writer, watchdog)
 	close(progressDone)
 	if copyErr != nil {
 		return copyErr

@@ -2290,6 +2290,9 @@ func UpdateByogWorkerResources(c *gin.Context) {
 		AllocatedDiskGB *int             `json:"allocated_disk_gb"`
 		HotStartEnabled *bool            `json:"hot_start_enabled"`
 		Disks           []diskAllocation `json:"disks"`
+		OperatingMode   string           `json:"operating_mode"`
+		PowerProfile    string           `json:"power_profile"`
+		ScheduleConfig  string           `json:"schedule_config"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -2338,6 +2341,15 @@ func UpdateByogWorkerResources(c *gin.Context) {
 	}
 	if req.HotStartEnabled != nil {
 		node.HotStartEnabled = *req.HotStartEnabled
+	}
+	if req.OperatingMode != "" {
+		node.OperatingMode = req.OperatingMode
+	}
+	if req.PowerProfile != "" {
+		node.PowerProfile = req.PowerProfile
+	}
+	if req.ScheduleConfig != "" {
+		node.ScheduleConfig = req.ScheduleConfig
 	}
 
 	// The allocation of the disk follows the partitions of the computer. A

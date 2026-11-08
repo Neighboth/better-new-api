@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -119,6 +120,13 @@ type TelemetryPayload struct {
 	BandwidthUpMbps   *float64        `json:"bandwidth_up_mbps,omitempty"`
 	PingMs            *int            `json:"ping_ms,omitempty"`
 	HotStartEnabled   *bool           `json:"hot_start_enabled,omitempty"`
+	AllocatedRamGB    *float64        `json:"allocated_ram_gb,omitempty"`
+	AllocatedVramGB   *int            `json:"allocated_vram_gb,omitempty"`
+	AllocatedCores    *int            `json:"allocated_cores,omitempty"`
+	AllocatedDiskGB   *int            `json:"allocated_disk_gb,omitempty"`
+	OperatingMode     string          `json:"operating_mode,omitempty"`
+	PowerProfile      string          `json:"power_profile,omitempty"`
+	ScheduleConfig    string          `json:"schedule_config,omitempty"`
 }
 
 // Inference Request Payload
@@ -432,11 +440,29 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 			if telemetry.HotStartEnabled != nil {
 				node.HotStartEnabled = *telemetry.HotStartEnabled
 			}
+			if telemetry.AllocatedRamGB != nil && *telemetry.AllocatedRamGB >= 0 {
+				node.AllocatedRamGB = *telemetry.AllocatedRamGB
+			}
+			if telemetry.AllocatedVramGB != nil && *telemetry.AllocatedVramGB >= 0 {
+				node.AllocatedVramGB = *telemetry.AllocatedVramGB
+			}
+			if telemetry.AllocatedCores != nil && *telemetry.AllocatedCores >= 0 {
+				node.AllocatedCores = *telemetry.AllocatedCores
+			}
+			if telemetry.AllocatedDiskGB != nil && *telemetry.AllocatedDiskGB >= 0 {
+				node.AllocatedDiskGB = *telemetry.AllocatedDiskGB
+			}
+			if telemetry.OperatingMode != "" {
+				node.OperatingMode = telemetry.OperatingMode
+			}
+			if telemetry.PowerProfile != "" {
+				node.PowerProfile = telemetry.PowerProfile
+			}
+			if telemetry.ScheduleConfig != "" {
+				node.ScheduleConfig = telemetry.ScheduleConfig
+			}
 			if len(telemetry.Disks) > 2 {
-				var disks []map[string]interface{}
-				if err := json.Unmarshal(telemetry.Disks, &disks); err == nil && len(disks) > 0 {
-					node.Disks = string(telemetry.Disks)
-				}
+				node.Disks = mergeDiskPartitions(node.Disks, telemetry.Disks)
 			}
 			if telemetry.TotalDiskGB > 0 {
 				node.TotalDiskGB = telemetry.TotalDiskGB
@@ -513,4 +539,76 @@ var Upgrader = websocket.Upgrader{
 	},
 	ReadBufferSize:  65536,
 	WriteBufferSize: 65536,
+}
+
+// mergeDiskPartitions combines newly measured partition free/total space with
+// previously saved allocations so that heartbeats do not overwrite user-assigned
+// storage quotas with zeros.
+func mergeDiskPartitions(existingJSON string, incomingRaw json.RawMessage) string {
+	if len(incomingRaw) <= 2 {
+		return existingJSON
+	}
+	var incoming []map[string]interface{}
+	if err := json.Unmarshal(incomingRaw, &incoming); err != nil || len(incoming) == 0 {
+		return existingJSON
+	}
+
+	existingAlloc := make(map[string]int)
+	if existingJSON != "" {
+		var existing []map[string]interface{}
+		if err := json.Unmarshal([]byte(existingJSON), &existing); err == nil {
+			for _, d := range existing {
+				drv, _ := d["drive"].(string)
+				drvKey := strings.ToUpper(strings.TrimSpace(drv))
+				if allocVal, ok := d["allocated_gb"]; ok && allocVal != nil {
+					switch v := allocVal.(type) {
+					case float64:
+						existingAlloc[drvKey] = int(v)
+					case int:
+						existingAlloc[drvKey] = v
+					}
+				}
+			}
+		}
+	}
+
+	merged := make([]map[string]interface{}, 0, len(incoming))
+	for _, inDisk := range incoming {
+		diskCopy := make(map[string]interface{})
+		for k, v := range inDisk {
+			diskCopy[k] = v
+		}
+		drv, _ := inDisk["drive"].(string)
+		drvKey := strings.ToUpper(strings.TrimSpace(drv))
+
+		hasAlloc := false
+		if rawAlloc, ok := inDisk["allocated_gb"]; ok && rawAlloc != nil {
+			switch v := rawAlloc.(type) {
+			case float64:
+				diskCopy["allocated_gb"] = int(v)
+				hasAlloc = true
+			case int:
+				diskCopy["allocated_gb"] = v
+				hasAlloc = true
+			}
+		}
+
+		if !hasAlloc {
+			if prevAlloc, exists := existingAlloc[drvKey]; exists {
+				diskCopy["allocated_gb"] = prevAlloc
+			} else {
+				freeGB := 0
+				if f, ok := inDisk["free_gb"].(float64); ok {
+					freeGB = int(f)
+				}
+				diskCopy["allocated_gb"] = freeGB / 2
+			}
+		}
+		merged = append(merged, diskCopy)
+	}
+
+	if out, err := json.Marshal(merged); err == nil {
+		return string(out)
+	}
+	return existingJSON
 }

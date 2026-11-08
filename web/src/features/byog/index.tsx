@@ -383,6 +383,7 @@ export function ByogUserDashboard() {
                 batteryCutoffPercent={selectedNode.battery_cutoff_percent}
                 maxBatteryTemp={selectedNode.max_battery_temp}
                 batteryTempSupported={selectedNode.battery_temp_supported}
+                autoPauseOnGame={selectedNode.auto_pause_on_game ?? true}
                 onWifiOnlyChange={(w) =>
                   setSelectedNode({ ...selectedNode, wifi_only_download: w })
                 }
@@ -412,6 +413,9 @@ export function ByogUserDashboard() {
                 }
                 onMaxBatteryTempChange={(mt) =>
                   setSelectedNode({ ...selectedNode, max_battery_temp: mt })
+                }
+                onAutoPauseOnGameChange={(ap) =>
+                  setSelectedNode({ ...selectedNode, auto_pause_on_game: ap })
                 }
               />
             </div>

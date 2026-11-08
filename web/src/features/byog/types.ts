@@ -81,6 +81,7 @@ export interface ByogNode {
   battery_cutoff_percent: number
   max_battery_temp: number
   battery_temp_supported: boolean
+  auto_pause_on_game?: boolean
 
   // Telemetry
   cpu_temp: number

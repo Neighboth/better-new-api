@@ -88,6 +88,7 @@ import { useSystemConfig } from '@/hooks/use-system-config'
 import { cn } from '@/lib/utils'
 
 import { ResourceSliders } from './resource-sliders'
+import { ScheduleMatrix } from './schedule-matrix'
 import { MobileSettingsCard } from './mobile-settings-card'
 import type { ByogNode } from '../types'
 
@@ -136,6 +137,10 @@ interface WorkerState {
   allocated_vram_gb?: number
   allocated_cores?: number
   allocated_disk_gb?: number
+  operating_mode?: string
+  power_profile?: string
+  schedule_config?: string
+  auto_pause_on_game?: boolean
   hot_start_enabled?: boolean
   favicon?: string
   favicon_base64?: string
@@ -643,6 +648,9 @@ export function ClientPage() {
   const [batteryCutoffPercent, setBatteryCutoffPercent] = useState(20)
   const [maxBatteryTemp, setMaxBatteryTemp] = useState(50)
   const [autoPauseOnGame, setAutoPauseOnGame] = useState(true)
+  const [operatingMode, setOperatingMode] = useState<'mode_a' | 'mode_b'>('mode_a')
+  const [powerProfile, setPowerProfile] = useState<'full_power' | 'half_power' | 'active_hours' | 'dual_schedule'>('half_power')
+  const [scheduleConfig, setScheduleConfig] = useState<string>('')
   const [qrModalOpen, setQrModalOpen] = useState(false)
   const [savingResources, setSavingResources] = useState(false)
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('')
@@ -659,14 +667,14 @@ export function ClientPage() {
     const isActivelyEditing = Date.now() - lastUserEditTimeRef.current < 3000
     if (isActivelyEditing) return
 
-    const effectiveRam = state.allocated_ram_gb && state.allocated_ram_gb > 0
+    const effectiveRam = state.allocated_ram_gb !== undefined && state.allocated_ram_gb !== null
       ? state.allocated_ram_gb
       : Math.round(((state.physical_ram_mb || 8192) / 2048) * 10) / 10
     if (effectiveRam !== ramGB) {
       setRamGB(effectiveRam)
     }
 
-    const effectiveCores = state.allocated_cores && state.allocated_cores > 0
+    const effectiveCores = state.allocated_cores !== undefined && state.allocated_cores !== null
       ? state.allocated_cores
       : Math.max(1, Math.floor((state.cpu_cores || 4) * 0.5))
     if (effectiveCores !== cores) {
@@ -675,7 +683,7 @@ export function ClientPage() {
 
     const maxDedicatedVram = (state.vram_mb && state.vram_mb >= 1024) ? Math.floor(state.vram_mb / 1024) : 0
     const effectiveVram = maxDedicatedVram > 0
-      ? (state.allocated_vram_gb && state.allocated_vram_gb > 0 ? state.allocated_vram_gb : Math.floor(maxDedicatedVram * 0.5))
+      ? (state.allocated_vram_gb !== undefined && state.allocated_vram_gb !== null ? state.allocated_vram_gb : Math.floor(maxDedicatedVram * 0.5))
       : 0
     if (effectiveVram !== vramGB) {
       setVramGB(effectiveVram)
@@ -685,11 +693,24 @@ export function ClientPage() {
       setHotStart(state.hot_start_enabled)
     }
 
+    if (state.operating_mode && (state.operating_mode === 'mode_a' || state.operating_mode === 'mode_b') && state.operating_mode !== operatingMode) {
+      setOperatingMode(state.operating_mode)
+    }
+    if (state.power_profile && state.power_profile !== powerProfile) {
+      setPowerProfile(state.power_profile as any)
+    }
+    if (state.schedule_config !== undefined && state.schedule_config !== scheduleConfig) {
+      setScheduleConfig(state.schedule_config)
+    }
+    if (state.auto_pause_on_game !== undefined && state.auto_pause_on_game !== autoPauseOnGame) {
+      setAutoPauseOnGame(state.auto_pause_on_game)
+    }
+
     if (state.disks && state.disks.length > 0) {
       const allocations: Record<string, number> = {}
       let anyAllocated = false
       for (const disk of state.disks) {
-        if (disk.allocated_gb !== undefined) {
+        if (disk.allocated_gb !== undefined && disk.allocated_gb !== null) {
           anyAllocated = true
           break
         }
@@ -706,10 +727,10 @@ export function ClientPage() {
       setDiskGB(state.allocated_disk_gb)
     }
 
-    if (!allocatedInitialized && (state.allocated_ram_gb || state.physical_ram_mb)) {
+    if (!allocatedInitialized && (state.allocated_ram_gb !== undefined || state.physical_ram_mb)) {
       setAllocatedInitialized(true)
     }
-  }, [allocatedInitialized, state, ramGB, vramGB, cores, diskGB, hotStart])
+  }, [allocatedInitialized, state, ramGB, vramGB, cores, diskGB, hotStart, operatingMode, powerProfile, scheduleConfig, autoPauseOnGame])
 
   // Load client state from Android bridge, local agent, or coordinator
   const loadState = useCallback(async () => {
@@ -821,12 +842,19 @@ export function ClientPage() {
           bandwidth_up_mbps: payload.bandwidth_up_mbps as number,
           ping_ms: payload.ping_ms as number,
           download_model_id: payload.download_model_id as string,
-          downloaded_mb: Number(payload.downloaded_mb ?? 0),
-          total_mb: Number(payload.total_mb ?? 0),
+          downloaded_mb: Math.max(prev?.downloaded_mb ?? 0, Number(payload.downloaded_mb ?? 0)),
+          total_mb: Math.max(prev?.total_mb ?? 0, Number(payload.total_mb ?? 0)),
           download_speed_bps: payload.download_speed_bps as number,
           eta_seconds: payload.eta_seconds as number,
           download_queue: payload.download_queue as string[],
           allocated_disk_gb: payload.allocated_disk_gb as number,
+          allocated_ram_gb: payload.allocated_ram_gb as number,
+          allocated_vram_gb: payload.allocated_vram_gb as number,
+          allocated_cores: payload.allocated_cores as number,
+          operating_mode: payload.operating_mode as string,
+          power_profile: payload.power_profile as string,
+          schedule_config: payload.schedule_config as string,
+          auto_pause_on_game: payload.auto_pause_on_game as boolean,
           hot_start_enabled: payload.hot_start_enabled as boolean,
           favicon_base64: (payload.favicon_base64 as string) || undefined,
         }))
@@ -853,7 +881,7 @@ export function ClientPage() {
           : `/api/byog/user/client/status?node_id=${encodeURIComponent(targetNodeId)}`
         const response = await fetch(url, {
           headers: localApi ? {} : await getFreshAuthHeaders(),
-          signal: AbortSignal.timeout(6000),
+          signal: AbortSignal.timeout(4000),
         })
         payload = await response.json()
       }
@@ -870,8 +898,18 @@ export function ClientPage() {
               cleanModel(remote.assigned_model) ||
               cleanModel(prev?.models) ||
               '',
-            downloaded_mb: Number(remote.downloaded_mb ?? prev?.downloaded_mb ?? 0),
-            total_mb: Number(remote.total_mb ?? prev?.total_mb ?? 0),
+            downloaded_mb: Math.max(
+              Number(prev?.downloaded_mb ?? 0),
+              Number(remote.downloaded_mb ?? 0)
+            ),
+            total_mb: Math.max(
+              Number(prev?.total_mb ?? 0),
+              Number(remote.total_mb ?? 0)
+            ),
+            download_progress: Math.max(
+              Number(prev?.download_progress ?? 0),
+              Number(remote.download_progress ?? 0)
+            ),
           } as WorkerState
           merged.disks = mergeDiskReports(
             remote.disks as DiskInfo[] | undefined,
@@ -885,10 +923,10 @@ export function ClientPage() {
               merged.download_progress = Math.max(prev.download_progress, Number(remote.download_progress ?? 0))
             }
             if (prev.downloaded_mb !== undefined && prev.downloaded_mb > 0) {
-              merged.downloaded_mb = prev.downloaded_mb
+              merged.downloaded_mb = Math.max(prev.downloaded_mb, Number(remote.downloaded_mb ?? 0))
             }
             if (prev.total_mb !== undefined && prev.total_mb > 0) {
-              merged.total_mb = prev.total_mb
+              merged.total_mb = Math.max(prev.total_mb, Number(remote.total_mb ?? 0))
             }
             if (prev.download_model_id) merged.download_model_id = prev.download_model_id
             if (prev.download_speed_bps !== undefined && prev.download_speed_bps > 0) {
@@ -936,26 +974,33 @@ export function ClientPage() {
     setSavingResources(true)
     setSaveSuccessMsg('')
     try {
-      if (localApi) {
-        await fetch(`${localApi}/settings?token=${localToken}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(6000),
-          body: JSON.stringify({
-            allocated_ram_gb: ramGB,
-            allocated_vram_gb: vramGB,
-            allocated_cores: cores,
-            allocated_disk_gb: diskGB,
-            hot_start_enabled: hotStart,
-            disks: Object.entries(diskAllocations).map(([drive, allocated]) => ({
-              drive,
-              allocated_gb: allocated,
-            })),
-          }),
-        }).catch(() => {})
-      }
+      const diskList = Object.entries(diskAllocations).map(([drive, allocated]) => ({
+        drive,
+        allocated_gb: allocated,
+      }))
+      const localSavePromise = localApi
+        ? fetch(`${localApi}/settings?token=${localToken}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(4000),
+            body: JSON.stringify({
+              allocated_ram_gb: ramGB,
+              allocated_vram_gb: vramGB,
+              allocated_cores: cores,
+              allocated_disk_gb: diskGB,
+              hot_start_enabled: hotStart,
+              disks: diskList,
+              operating_mode: operatingMode,
+              power_profile: powerProfile,
+              schedule_config: scheduleConfig,
+              auto_pause_on_game: autoPauseOnGame,
+            }),
+          }).catch(() => {})
+        : Promise.resolve()
+
       const targetNodeId = nodeId || state?.node_id
-      if (targetNodeId) {
+      const remoteSavePromise = (async () => {
+        if (!targetNodeId) return
         const resources = {
           node_id: targetNodeId,
           allocated_ram_gb: ramGB,
@@ -963,41 +1008,37 @@ export function ClientPage() {
           allocated_cores: cores,
           allocated_disk_gb: diskGB,
           hot_start_enabled: hotStart,
-          disks: Object.entries(diskAllocations).map(([drive, allocated]) => ({
-            drive,
-            allocated_gb: allocated,
-          })),
+          disks: diskList,
+          operating_mode: operatingMode,
+          power_profile: powerProfile,
+          schedule_config: scheduleConfig,
         }
-        let payload: { success: boolean; message?: string }
         if (bridge?.workerRequest) {
-          payload = JSON.parse(bridge.workerRequest('resources', JSON.stringify(resources)))
+          bridge.workerRequest('resources', JSON.stringify(resources))
         } else {
           const url = localApi
             ? `${localApi}/worker/resources?token=${encodeURIComponent(localToken)}`
             : '/api/byog/user/client/resources'
           const headers = localApi ? {} : await getFreshAuthHeaders()
-          const resp = await fetch(url, {
+          await fetch(url, {
             method: 'POST',
             headers: { ...headers, 'Content-Type': 'application/json' },
-            signal: AbortSignal.timeout(8000),
+            signal: AbortSignal.timeout(4000),
             body: JSON.stringify(resources),
-          })
-          payload = await resp.json()
+          }).catch(() => {})
         }
-        if (payload.success) {
-          setSaveSuccessMsg(t('byog.resources_saved', 'Kaynak ayarları başarıyla kaydedildi'))
-          setTimeout(() => setSaveSuccessMsg(''), 4000)
-          void loadState()
-        } else {
-          setMessage(payload.message || t('common.error', 'Hata oluştu'))
-        }
-      }
+      })()
+
+      await Promise.allSettled([localSavePromise, remoteSavePromise])
+      setSaveSuccessMsg(t('byog.resources_saved', 'Kaynak ayarları başarıyla kaydedildi'))
+      setTimeout(() => setSaveSuccessMsg(''), 4000)
+      void loadState()
     } catch (e) {
       setMessage(String(e))
     } finally {
       setSavingResources(false)
     }
-  }, [bridge, cores, diskAllocations, diskGB, hotStart, loadState, localApi, localToken, nodeId, ramGB, state?.node_id, t, vramGB])
+  }, [bridge, cores, diskAllocations, diskGB, hotStart, loadState, localApi, localToken, nodeId, ramGB, state?.node_id, t, vramGB, operatingMode, powerProfile, scheduleConfig, autoPauseOnGame])
 
   const handleVramChange = (val: number) => {
     lastUserEditTimeRef.current = Date.now()
@@ -2003,6 +2044,25 @@ export function ClientPage() {
                 onDiskChange={handleDiskChange}
                 onDiskAllocationsChange={handleDiskAllocationsChange}
                 onHotStartChange={handleHotStartChange}
+              />
+
+              {/* Mode Selection & Power Matrix */}
+              <ScheduleMatrix
+                operatingMode={operatingMode}
+                powerProfile={powerProfile}
+                scheduleConfig={scheduleConfig}
+                onOperatingModeChange={(m) => {
+                  lastUserEditTimeRef.current = Date.now()
+                  setOperatingMode(m)
+                }}
+                onPowerProfileChange={(p) => {
+                  lastUserEditTimeRef.current = Date.now()
+                  setPowerProfile(p)
+                }}
+                onScheduleConfigChange={(sc) => {
+                  lastUserEditTimeRef.current = Date.now()
+                  setScheduleConfig(sc)
+                }}
               />
 
               <MobileSettingsCard

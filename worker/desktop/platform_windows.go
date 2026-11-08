@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -444,18 +445,26 @@ func removeDirectoryRobust(path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil
 	}
-	_ = filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
-		if err == nil {
-			if ptr, err := syscall.UTF16PtrFromString(p); err == nil {
-				_ = syscall.SetFileAttributes(ptr, syscall.FILE_ATTRIBUTE_NORMAL)
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		_ = filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+			if err == nil {
+				if ptr, err := syscall.UTF16PtrFromString(p); err == nil {
+					_ = syscall.SetFileAttributes(ptr, syscall.FILE_ATTRIBUTE_NORMAL)
+				}
 			}
+			return nil
+		})
+		if ptr, err := syscall.UTF16PtrFromString(path); err == nil {
+			_ = syscall.SetFileAttributes(ptr, syscall.FILE_ATTRIBUTE_NORMAL)
 		}
-		return nil
-	})
-	if ptr, err := syscall.UTF16PtrFromString(path); err == nil {
-		_ = syscall.SetFileAttributes(ptr, syscall.FILE_ATTRIBUTE_NORMAL)
+		lastErr = os.RemoveAll(path)
+		if lastErr == nil {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	return os.RemoveAll(path)
+	return lastErr
 }
 
 func getFixedDiskPartitions() []DiskPartitionInfo {

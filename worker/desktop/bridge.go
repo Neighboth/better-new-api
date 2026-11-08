@@ -74,6 +74,10 @@ type bridgeState struct {
 	AllocatedRamGB   float64             `json:"allocated_ram_gb"`
 	AllocatedVramGB  int                 `json:"allocated_vram_gb"`
 	AllocatedCores   int                 `json:"allocated_cores"`
+	OperatingMode    string              `json:"operating_mode,omitempty"`
+	PowerProfile     string              `json:"power_profile,omitempty"`
+	ScheduleConfig   string              `json:"schedule_config,omitempty"`
+	AutoPauseOnGame  bool                `json:"auto_pause_on_game"`
 	FaviconBase64    string              `json:"favicon_base64,omitempty"`
 }
 
@@ -160,7 +164,7 @@ func (b *localBridge) handleWorkerProxy(w http.ResponseWriter, r *http.Request) 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.WorkerSecret)
-	client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Timeout: 4 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := client.Do(req)
 	if err != nil {
 		http.Error(w, "server unavailable", http.StatusBadGateway)
@@ -209,6 +213,10 @@ func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Requ
 	allocVram := State.AllocatedVramGB
 	allocCores := State.AllocatedCores
 	hotStart := State.HotStartEnabled
+	opMode := State.Config.OperatingMode
+	pwrProfile := State.Config.PowerProfile
+	schedCfg := State.Config.ScheduleConfig
+	autoPause := State.Config.AutoPauseOnGame
 	queue := append([]string{}, State.DownloadQueue...)
 	installed := make([]string, 0, len(State.InstalledModels))
 	for name := range State.InstalledModels {
@@ -283,6 +291,10 @@ func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Requ
 		AllocatedRamGB:   allocRam,
 		AllocatedVramGB:  allocVram,
 		AllocatedCores:   allocCores,
+		OperatingMode:    opMode,
+		PowerProfile:     pwrProfile,
+		ScheduleConfig:   schedCfg,
+		AutoPauseOnGame:  autoPause,
 	})
 }
 
@@ -414,6 +426,10 @@ func (b *localBridge) handleSettings(writer http.ResponseWriter, request *http.R
 		AllocatedCores  *int                `json:"allocated_cores"`
 		HotStartEnabled *bool               `json:"hot_start_enabled"`
 		Disks           []DiskPartitionInfo `json:"disks"`
+		OperatingMode   string              `json:"operating_mode"`
+		PowerProfile    string              `json:"power_profile"`
+		ScheduleConfig  string              `json:"schedule_config"`
+		AutoPauseOnGame *bool               `json:"auto_pause_on_game"`
 	}
 	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 		writeBridgeJSON(writer, map[string]any{"success": false, "message": err.Error()})
@@ -468,6 +484,25 @@ func (b *localBridge) handleSettings(writer http.ResponseWriter, request *http.R
 	}
 	if payload.HotStartEnabled != nil {
 		State.HotStartEnabled = *payload.HotStartEnabled
+		changed = true
+	}
+	if payload.OperatingMode != "" {
+		State.OperatingMode = payload.OperatingMode
+		State.Config.OperatingMode = payload.OperatingMode
+		changed = true
+	}
+	if payload.PowerProfile != "" {
+		State.PowerProfile = payload.PowerProfile
+		State.Config.PowerProfile = payload.PowerProfile
+		changed = true
+	}
+	if payload.ScheduleConfig != "" {
+		State.ScheduleConfig = payload.ScheduleConfig
+		State.Config.ScheduleConfig = payload.ScheduleConfig
+		changed = true
+	}
+	if payload.AutoPauseOnGame != nil {
+		State.Config.AutoPauseOnGame = *payload.AutoPauseOnGame
 		changed = true
 	}
 	State.Mu.Unlock()
