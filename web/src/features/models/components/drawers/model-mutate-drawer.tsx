@@ -550,19 +550,18 @@ export function ModelMutateDrawer({
         if (response.success) {
           // Handle ratio configuration updates in system settings
           const finalModelName = values.model_name
+          const isSet = (v: any) => v !== undefined && v !== null && v !== ''
           const hasRatioConfig =
-            (pricingMode === 'per-request' &&
-              values.price &&
-              values.price !== '') ||
+            (pricingMode === 'per-request' && isSet(values.price)) ||
             ((pricingMode === 'per-token' ||
               pricingMode === 'duration_second' ||
               pricingMode === 'characters') &&
-              (values.ratio ||
-                values.cacheRatio ||
-                values.completionRatio ||
-                values.imageRatio ||
-                values.audioRatio ||
-                values.audioCompletionRatio))
+              (isSet(values.ratio) ||
+                isSet(values.cacheRatio) ||
+                isSet(values.completionRatio) ||
+                isSet(values.imageRatio) ||
+                isSet(values.audioRatio) ||
+                isSet(values.audioCompletionRatio)))
 
           // Always process system settings updates if we have modelSettings
           // This ensures we can remove stale entries even when clearing all pricing fields
@@ -627,21 +626,17 @@ export function ModelMutateDrawer({
 
             // Only add new entries if user provided new configuration
             if (hasRatioConfig) {
-              if (
-                pricingMode === 'per-request' &&
-                values.price &&
-                values.price !== ''
-              ) {
-                priceMap[finalModelName] = Number.parseFloat(values.price)
+              if (pricingMode === 'per-request' && isSet(values.price)) {
+                priceMap[finalModelName] = Number.parseFloat(String(values.price))
               } else if (pricingMode === 'duration_second') {
                 billingModeMap[finalModelName] = 'duration_second'
-                if (values.ratio && values.ratio !== '') {
-                  ratioMap[finalModelName] = Number.parseFloat(values.ratio)
+                if (isSet(values.ratio)) {
+                  ratioMap[finalModelName] = Number.parseFloat(String(values.ratio))
                 }
               } else if (pricingMode === 'characters') {
                 billingModeMap[finalModelName] = 'characters'
-                if (values.ratio && values.ratio !== '') {
-                  ratioMap[finalModelName] = Number.parseFloat(values.ratio)
+                if (isSet(values.ratio)) {
+                  ratioMap[finalModelName] = Number.parseFloat(String(values.ratio))
                 }
               } else if (pricingMode === 'per-token') {
                 if (chargeScope === 'input_only') {
@@ -649,35 +644,32 @@ export function ModelMutateDrawer({
                 } else if (chargeScope === 'output_only') {
                   billingModeMap[finalModelName] = 'output_only'
                 }
-                if (values.ratio && values.ratio !== '') {
-                  ratioMap[finalModelName] = Number.parseFloat(values.ratio)
+                if (isSet(values.ratio)) {
+                  ratioMap[finalModelName] = Number.parseFloat(String(values.ratio))
                 }
-                if (values.cacheRatio && values.cacheRatio !== '') {
+                if (isSet(values.cacheRatio)) {
                   cacheMap[finalModelName] = Number.parseFloat(
-                    values.cacheRatio
+                    String(values.cacheRatio)
                   )
                 }
-                if (values.completionRatio && values.completionRatio !== '') {
+                if (isSet(values.completionRatio)) {
                   completionMap[finalModelName] = Number.parseFloat(
-                    values.completionRatio
+                    String(values.completionRatio)
                   )
                 }
-                if (values.imageRatio && values.imageRatio !== '') {
+                if (isSet(values.imageRatio)) {
                   imageMap[finalModelName] = Number.parseFloat(
-                    values.imageRatio
+                    String(values.imageRatio)
                   )
                 }
-                if (values.audioRatio && values.audioRatio !== '') {
+                if (isSet(values.audioRatio)) {
                   audioMap[finalModelName] = Number.parseFloat(
-                    values.audioRatio
+                    String(values.audioRatio)
                   )
                 }
-                if (
-                  values.audioCompletionRatio &&
-                  values.audioCompletionRatio !== ''
-                ) {
+                if (isSet(values.audioCompletionRatio)) {
                   audioCompletionMap[finalModelName] = Number.parseFloat(
-                    values.audioCompletionRatio
+                    String(values.audioCompletionRatio)
                   )
                 }
               }

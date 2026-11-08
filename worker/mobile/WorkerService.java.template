@@ -147,6 +147,19 @@ public class WorkerService extends Service {
     private Bitmap cachedLargeIcon = null;
     private long cachedIconLastModified = 0;
 
+    private int getSafeSmallIcon() {
+        try {
+            if (getApplicationInfo() != null && getApplicationInfo().icon != 0) {
+                return getApplicationInfo().icon;
+            }
+        } catch (Throwable ignored) {}
+        try {
+            int resId = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName());
+            if (resId != 0) return resId;
+        } catch (Throwable ignored) {}
+        return android.R.drawable.ic_dialog_info;
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -166,29 +179,53 @@ public class WorkerService extends Service {
             notification = buildFallbackNotification();
         }
         boolean promoted = false;
-        try {
-            if (Build.VERSION.SDK_INT >= 29) {
+        if (Build.VERSION.SDK_INT >= 34) {
+            try {
                 startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-            } else {
-                startForeground(NOTIF_ID, notification);
+                promoted = true;
+            } catch (Throwable t1) {
+                try {
+                    startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+                    promoted = true;
+                } catch (Throwable t2) {
+                    try {
+                        startForeground(NOTIF_ID, notification, 0);
+                        promoted = true;
+                    } catch (Throwable t3) {
+                        android.util.Log.e("BYOG_WORKER", "startForeground failed with all types: " + t3.getMessage());
+                    }
+                }
             }
-            promoted = true;
-        } catch (Throwable e) {
+        } else if (Build.VERSION.SDK_INT >= 29) {
+            try {
+                startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                promoted = true;
+            } catch (Throwable t) {
+                try {
+                    startForeground(NOTIF_ID, notification);
+                    promoted = true;
+                } catch (Throwable ignored) {}
+            }
+        } else {
             try {
                 startForeground(NOTIF_ID, notification);
                 promoted = true;
             } catch (Throwable ignored) {}
         }
         if (!promoted) {
-            // Android 12+ refuses the foreground start of a service that is
-            // started from the background. The service ends itself instead of
-            // running half alive, the watchdog and the next resume of the
-            // interface start it again.
-            android.util.Log.w("BYOG_WORKER", "startForeground was refused by the system, the service stops itself");
             try {
-                stopSelf();
-            } catch (Throwable ignored) {}
-            return;
+                Notification safeNotif = buildFallbackNotification();
+                if (Build.VERSION.SDK_INT >= 34) {
+                    startForeground(NOTIF_ID, safeNotif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                } else if (Build.VERSION.SDK_INT >= 29) {
+                    startForeground(NOTIF_ID, safeNotif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                } else {
+                    startForeground(NOTIF_ID, safeNotif);
+                }
+                promoted = true;
+            } catch (Throwable t) {
+                android.util.Log.e("BYOG_WORKER", "Fallback startForeground also failed: " + t.getMessage());
+            }
         }
         try {
             if (getApplicationInfo() != null && getApplicationInfo().nativeLibraryDir != null) {
@@ -206,13 +243,13 @@ public class WorkerService extends Service {
                 return new Notification.Builder(this, CHANNEL_ID)
                         .setContentTitle("BYOG Worker")
                         .setContentText("Aktif")
-                        .setSmallIcon(android.R.drawable.stat_notify_sync)
+                        .setSmallIcon(getSafeSmallIcon())
                         .build();
             }
             return new Notification.Builder(this)
                     .setContentTitle("BYOG Worker")
                     .setContentText("Aktif")
-                    .setSmallIcon(android.R.drawable.stat_notify_sync)
+                    .setSmallIcon(getSafeSmallIcon())
                     .build();
         } catch (Throwable ignored) {
             return new Notification();
@@ -226,7 +263,17 @@ public class WorkerService extends Service {
             String appName = sp != null ? stringPref(sp, "app_name", "{app_name}") : "{app_name}";
             Notification notification = buildNotification(appName, "BYOG Servisi aktif...");
             try {
-                if (Build.VERSION.SDK_INT >= 29) {
+                if (Build.VERSION.SDK_INT >= 34) {
+                    try {
+                        startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                    } catch (Throwable e) {
+                        try {
+                            startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+                        } catch (Throwable e2) {
+                            startForeground(NOTIF_ID, notification, 0);
+                        }
+                    }
+                } else if (Build.VERSION.SDK_INT >= 29) {
                     startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
                 } else {
                     startForeground(NOTIF_ID, notification);
@@ -515,11 +562,7 @@ public class WorkerService extends Service {
                     // The main thread is dead: the interface of the application
                     // never opens again while the process runs, the process is
                     // ended and the interface is started again.
-                    try {
-                        Intent restart = new Intent(getApplicationContext(), MainActivity.class);
-                        restart.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                        getApplicationContext().startActivity(restart);
-                    } catch (Throwable ignored) {}
+                    // Prevent infinite restart crash loop
                     try {
                         android.os.Process.killProcess(android.os.Process.myPid());
                     } catch (Throwable ignored) {}
@@ -2766,7 +2809,7 @@ public class WorkerService extends Service {
                 builder = new Notification.Builder(this);
             }
 
-            int smallIcon = android.R.drawable.stat_notify_sync;
+            int smallIcon = getSafeSmallIcon();
             builder.setContentTitle(notifTitle)
                    .setSmallIcon(smallIcon)
                    .setOngoing(true);
@@ -2808,7 +2851,7 @@ public class WorkerService extends Service {
             notif.flags |= Notification.FLAG_ONGOING_EVENT | Notification.FLAG_NO_CLEAR;
             return notif;
         } catch (Throwable fallbackErr) {
-            int fallbackIcon = android.R.drawable.stat_notify_sync;
+            int fallbackIcon = getSafeSmallIcon();
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 return new Notification.Builder(this, CHANNEL_ID)
                         .setContentTitle("BYOG Worker")

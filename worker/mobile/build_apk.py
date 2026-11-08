@@ -484,6 +484,7 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -562,7 +563,11 @@ manifest_content = f'''<?xml version="1.0" encoding="utf-8"?>
             android:name=".WorkerService"
             android:exported="false"
             android:stopWithTask="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="dataSync|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="AI model inference and background worker" />
+        </service>
         <receiver
             android:name=".BootReceiver"
             android:exported="true">
@@ -1783,6 +1788,23 @@ public class MainActivity extends Activity {
         }
     };
 
+    private void safeStartWorkerService(Intent sIntent) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    startForegroundService(sIntent);
+                } catch (Throwable fgsEx) {
+                    android.util.Log.w("BYOG_MAIN", "startForegroundService failed, falling back to startService: " + fgsEx.getMessage());
+                    startService(sIntent);
+                }
+            } else {
+                startService(sIntent);
+            }
+        } catch (Throwable ex) {
+            android.util.Log.e("BYOG_MAIN", "Failed to start WorkerService: " + ex.getMessage());
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -2153,11 +2175,7 @@ public class MainActivity extends Activity {
                     long lastCrash = WorkerService.longPref(spInit, "worker_last_crash_time", 0);
                     if (System.currentTimeMillis() - lastCrash > 10000L) {
                         Intent sIntent = new Intent(this, WorkerService.class);
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            startForegroundService(sIntent);
-                        } else {
-                            startService(sIntent);
-                        }
+                        safeStartWorkerService(sIntent);
                     }
                 } else {
                     android.util.Log.w("BYOG_MAIN", "Notification permission missing on start, service deferred");
@@ -2721,13 +2739,7 @@ public class MainActivity extends Activity {
                                 .commit();
                         reportCrashToServer("ERR_UNCAUGHT", msg, stack);
                         if (t == android.os.Looper.getMainLooper().getThread()) {
-                            if (now - previousCrash > 5000L) {
-                                try {
-                                    Intent restart = new Intent(MainActivity.this, MainActivity.class);
-                                    restart.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                                    MainActivity.this.startActivity(restart);
-                                } catch (Throwable ignored) {}
-                            }
+                            // Do not restart to prevent infinite crash loops
                             try {
                                 MainActivity.this.finish();
                             } catch (Throwable ignored) {}
@@ -3440,11 +3452,7 @@ public class MainActivity extends Activity {
                                                 Intent sIntent = new Intent(MainActivity.this, WorkerService.class);
                                                 sIntent.putExtra("pairing_code", cleanCode);
                                                 sIntent.putExtra("server_url", finalServerUrl);
-                                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                                    startForegroundService(sIntent);
-                                                } else {
-                                                    startService(sIntent);
-                                                }
+                                                safeStartWorkerService(sIntent);
                                             } else {
                                                 android.util.Log.w("BYOG_CONNECT", "WorkerService start deferred until notification permission is granted");
                                             }

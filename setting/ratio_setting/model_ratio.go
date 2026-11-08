@@ -367,6 +367,22 @@ func GetModelPrice(name string, printErr bool) (float64, bool) {
 		return price, true
 	}
 
+	if strings.Contains(name, "/") {
+		parts := strings.SplitN(name, "/", 2)
+		if len(parts) == 2 {
+			if price, ok := modelPriceMap.Get(parts[1]); ok {
+				return price, true
+			}
+		}
+	}
+	if !strings.Contains(name, "/") {
+		for _, prefix := range []string{"openai/", "deepseek-ai/", "Qwen/", "zai-org/", "google/", "meta-llama/"} {
+			if price, found := modelPriceMap.Get(prefix + name); found {
+				return price, true
+			}
+		}
+	}
+
 	if printErr {
 		common.SysError("model price not found: " + name)
 	}

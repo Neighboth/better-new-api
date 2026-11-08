@@ -142,23 +142,10 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		}
 	}
 
-	// check if free model pre-consume is disabled
-	if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
-		// if model price or ratio is 0, do not pre-consume quota
-		if groupRatioInfo.GroupRatio == 0 {
-			preConsumedQuota = 0
-			freeModel = true
-		} else if usePrice {
-			if modelPrice == 0 {
-				preConsumedQuota = 0
-				freeModel = true
-			}
-		} else {
-			if modelRatio == 0 {
-				preConsumedQuota = 0
-				freeModel = true
-			}
-		}
+	// check if free model (price is 0, ratio is 0, or group ratio is 0)
+	if groupRatioInfo.GroupRatio == 0 || (usePrice && modelPrice == 0) || (!usePrice && modelRatio == 0) {
+		preConsumedQuota = 0
+		freeModel = true
 	}
 
 	priceData := hosttypes.PriceData{
@@ -198,6 +185,10 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 			return hosttypes.PriceData{}, err
 		}
 		priceData.QuotaToPreConsume = quota
+		if modelPrice == 0 || groupRatioInfo.GroupRatio == 0 {
+			priceData.QuotaToPreConsume = 0
+			priceData.FreeModel = true
+		}
 	}
 
 	if common.DebugEnabled {
@@ -269,11 +260,9 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 		if err != nil {
 			return hosttypes.PriceData{}, err
 		}
-		if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
-			if groupRatioInfo.GroupRatio == 0 || modelPrice == 0 {
-				quota = 0
-				freeModel = true
-			}
+		if groupRatioInfo.GroupRatio == 0 || modelPrice == 0 {
+			quota = 0
+			freeModel = true
 		}
 	} else {
 		// 按量计费：以模型倍率的一半作为预扣额度
@@ -283,11 +272,9 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 			return hosttypes.PriceData{}, err
 		}
 		modelPrice = -1
-		if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
-			if groupRatioInfo.GroupRatio == 0 || modelRatio == 0 {
-				quota = 0
-				freeModel = true
-			}
+		if groupRatioInfo.GroupRatio == 0 || modelRatio == 0 {
+			quota = 0
+			freeModel = true
 		}
 	}
 
