@@ -604,7 +604,13 @@ export function ClientPage() {
     }
     return 'status'
   })
-  const [nodeId, setNodeId] = useState('')
+  const [nodeId, setNodeId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const search = new URLSearchParams(window.location.search)
+      return search.get('node_id') || localStorage.getItem('byog_client_node_id') || ''
+    }
+    return ''
+  })
   const [state, setState] = useState<WorkerState | null>(null)
   const [permissions, setPermissions] = useState<PermissionState | null>(null)
   const [serverUrl, setServerUrl] = useState('')
@@ -658,8 +664,18 @@ export function ClientPage() {
   const lastUserEditTimeRef = useRef(0)
 
   const bridge = getBridge()
-  const [localApi, setLocalApi] = useState('')
-  const [localToken, setLocalToken] = useState('')
+  const [localApi, setLocalApi] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search).get('local') || ''
+    }
+    return ''
+  })
+  const [localToken, setLocalToken] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search).get('token') || ''
+    }
+    return ''
+  })
 
   // Live Bidirectional Sync & 50% Defaults: sync allocations from state when user is not actively editing
   useEffect(() => {

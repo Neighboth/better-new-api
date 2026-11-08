@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -217,6 +218,22 @@ func startHeartbeatLoop() {
 		hardware := readHardware()
 		network, _ := readBandwidth()
 
+		if State.AllocatedCores <= 0 && hardware.CpuCores > 0 {
+			State.AllocatedCores = hardware.CpuCores / 2
+			if State.AllocatedCores < 1 {
+				State.AllocatedCores = 1
+			}
+		}
+		if State.AllocatedRamGB <= 0 && hardware.PhysicalRamMB > 0 {
+			State.AllocatedRamGB = math.Round(float64(hardware.PhysicalRamMB)/2048.0*10) / 10
+		}
+		if State.AllocatedVramGB <= 0 && hardware.VramMB > 512 {
+			State.AllocatedVramGB = (hardware.VramMB / 1024) / 2
+		}
+		if State.Config.MaxDiskGB <= 0 && hardware.FreeDiskGB > 0 {
+			State.Config.MaxDiskGB = hardware.FreeDiskGB / 2
+		}
+
 		payload := map[string]interface{}{
 			// Zero means that the value cannot be measured on this machine, the
 			// platform does not award bonuses for unknown sensor values.
@@ -283,6 +300,7 @@ func startHeartbeatLoop() {
 // disksWithAllocationsJSON combines hardware partitions with saved user allocations.
 func disksWithAllocationsJSON(hardwareDisks []DiskPartitionInfo, disksJSON string) string {
 	payload := append([]DiskPartitionInfo{}, hardwareDisks...)
+	hasAllocations := false
 	if disksJSON != "" {
 		var saved []DiskPartitionInfo
 		if err := json.Unmarshal([]byte(disksJSON), &saved); err == nil && len(saved) > 0 {
@@ -294,8 +312,14 @@ func disksWithAllocationsJSON(hardwareDisks []DiskPartitionInfo, disksJSON strin
 				drv := strings.ToUpper(strings.TrimSpace(payload[i].Drive))
 				if alloc, ok := allocMap[drv]; ok {
 					payload[i].AllocatedGB = alloc
+					hasAllocations = true
 				}
 			}
+		}
+	}
+	if !hasAllocations {
+		for i := range payload {
+			payload[i].AllocatedGB = payload[i].FreeGB / 2
 		}
 	}
 	raw, err := json.Marshal(payload)
@@ -508,6 +532,19 @@ func candidateModelDirs() []string {
 }
 
 func findInstalledModelPath(modelId string) (string, bool) {
+	if State.Config.StorageDir != "" {
+		p := filepath.Join(State.Config.StorageDir, modelId+".gguf")
+		if info, err := os.Stat(p); err == nil && info.Size() > 10*1024*1024 {
+			return p, true
+		}
+	}
+	defaultDir := modelDirectory()
+	if defaultDir != "" {
+		p := filepath.Join(defaultDir, modelId+".gguf")
+		if info, err := os.Stat(p); err == nil && info.Size() > 10*1024*1024 {
+			return p, true
+		}
+	}
 	for _, dir := range candidateModelDirs() {
 		p := filepath.Join(dir, modelId+".gguf")
 		if info, err := os.Stat(p); err == nil && info.Size() > 10*1024*1024 {
