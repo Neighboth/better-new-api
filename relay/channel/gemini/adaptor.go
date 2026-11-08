@@ -161,8 +161,12 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	if info.RelayMode == constant.RelayModeRealtime {
-		action := "ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
-		baseUrl := info.ChannelBaseUrl
+		version := "v1beta"
+		if info.ApiVersion != "" {
+			version = info.ApiVersion
+		}
+		action := fmt.Sprintf("ws/google.ai.generativelanguage.%s.GenerativeService.BidiGenerateContent", version)
+		baseUrl := strings.TrimRight(info.ChannelBaseUrl, "/")
 		if strings.HasPrefix(baseUrl, "https://") {
 			baseUrl = "wss://" + strings.TrimPrefix(baseUrl, "https://")
 		} else if strings.HasPrefix(baseUrl, "http://") {

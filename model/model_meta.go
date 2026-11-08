@@ -82,6 +82,7 @@ func IsModelNameDuplicated(id int, name string) (bool, error) {
 
 func (mi *Model) Update() error {
 	mi.UpdatedTime = common.GetTimestamp()
+	modelDisplayNameCache.Delete(mi.ModelName)
 	// 使用 Select 强制更新所有字段，包括零值
 	return DB.Model(&Model{}).Where("id = ?", mi.Id).
 		Select("model_name", "display_name", "tagline", "property_boxes", "description", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "serverless_priority", "updated_time").
@@ -89,6 +90,7 @@ func (mi *Model) Update() error {
 }
 
 func (mi *Model) Delete() error {
+	modelDisplayNameCache.Delete(mi.ModelName)
 	return DB.Delete(mi).Error
 }
 
@@ -392,4 +394,31 @@ func parseModelSyncFilter(syncOfficial string) (value int, ok bool) {
 		}
 		return n, true
 	}
+}
+
+var modelDisplayNameCache sync.Map
+
+// GetModelDisplayName returns the custom display name of the model from the models table,
+// or falls back to the model ID if unset or not found.
+func GetModelDisplayName(modelName string) string {
+	modelName = strings.TrimSpace(modelName)
+	if modelName == "" {
+		return ""
+	}
+	if val, ok := modelDisplayNameCache.Load(modelName); ok {
+		if str, ok := val.(string); ok && str != "" {
+			return str
+		}
+	}
+	if DB == nil {
+		return modelName
+	}
+	var m Model
+	err := DB.Model(&Model{}).Select("display_name").Where("model_name = ?", modelName).First(&m).Error
+	displayName := modelName
+	if err == nil && strings.TrimSpace(m.DisplayName) != "" {
+		displayName = strings.TrimSpace(m.DisplayName)
+	}
+	modelDisplayNameCache.Store(modelName, displayName)
+	return displayName
 }

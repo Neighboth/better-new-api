@@ -172,18 +172,23 @@ public class WorkerService extends Service {
         boolean promoted = false;
         if (Build.VERSION.SDK_INT >= 34) {
             try {
-                startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC | ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
                 promoted = true;
-            } catch (Throwable t1) {
+            } catch (Throwable t0) {
                 try {
                     startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
                     promoted = true;
-                } catch (Throwable t2) {
+                } catch (Throwable t1) {
                     try {
-                        startForeground(NOTIF_ID, notification, 0);
+                        startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
                         promoted = true;
-                    } catch (Throwable t3) {
-                        android.util.Log.e("BYOG_WORKER", "startForeground failed with all types: " + t3.getMessage());
+                    } catch (Throwable t2) {
+                        try {
+                            startForeground(NOTIF_ID, notification);
+                            promoted = true;
+                        } catch (Throwable t3) {
+                            android.util.Log.e("BYOG_WORKER", "startForeground failed with all types: " + t3.getMessage());
+                        }
                     }
                 }
             }
@@ -230,20 +235,29 @@ public class WorkerService extends Service {
     /** A minimal notification for the case that the branding cannot be read. */
     private Notification buildFallbackNotification() {
         try {
+            int icon = getSafeSmallIcon();
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                createNotificationChannel();
                 return new Notification.Builder(this, CHANNEL_ID)
-                        .setContentTitle("BYOG Worker")
+                        .setContentTitle("BYOG")
                         .setContentText("Aktif")
-                        .setSmallIcon(getSafeSmallIcon())
+                        .setSmallIcon(icon)
                         .build();
             }
             return new Notification.Builder(this)
-                    .setContentTitle("BYOG Worker")
+                    .setContentTitle("BYOG")
                     .setContentText("Aktif")
-                    .setSmallIcon(getSafeSmallIcon())
+                    .setSmallIcon(icon)
                     .build();
         } catch (Throwable ignored) {
-            return new Notification();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                return new Notification.Builder(this, CHANNEL_ID)
+                        .setSmallIcon(android.R.drawable.stat_notify_sync)
+                        .build();
+            }
+            return new Notification.Builder(this)
+                    .setSmallIcon(android.R.drawable.stat_notify_sync)
+                    .build();
         }
     }
 
@@ -256,12 +270,16 @@ public class WorkerService extends Service {
             try {
                 if (Build.VERSION.SDK_INT >= 34) {
                     try {
-                        startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-                    } catch (Throwable e) {
+                        startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC | ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+                    } catch (Throwable e0) {
                         try {
                             startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
-                        } catch (Throwable e2) {
-                            startForeground(NOTIF_ID, notification, 0);
+                        } catch (Throwable e1) {
+                            try {
+                                startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                            } catch (Throwable e2) {
+                                startForeground(NOTIF_ID, notification);
+                            }
                         }
                     }
                 } else if (Build.VERSION.SDK_INT >= 29) {
@@ -2790,14 +2808,14 @@ public class WorkerService extends Service {
             }
 
             String titlePrefix = sysName.trim();
-            if (titlePrefix.isEmpty() || titlePrefix.equalsIgnoreCase("New API")) titlePrefix = "BYOG";
+            if (titlePrefix.isEmpty() || titlePrefix.equalsIgnoreCase("New API") || titlePrefix.equalsIgnoreCase("BYOG Worker")) titlePrefix = "BYOG";
             String titleLower = titlePrefix.toLowerCase();
             if (titleLower.endsWith("byog worker")) {
-                // already complete
+                titlePrefix = titlePrefix.substring(0, titlePrefix.length() - 7).trim(); // strip " Worker" -> "{systemName} BYOG"
             } else if (titleLower.endsWith("byog")) {
-                titlePrefix = titlePrefix + " Worker";
+                // already ends with BYOG
             } else {
-                titlePrefix = titlePrefix + " BYOG Worker";
+                titlePrefix = titlePrefix + " BYOG";
             }
             String notifTitle = titlePrefix + " - " + statusSuffix;
 

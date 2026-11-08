@@ -611,18 +611,25 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 		if c.Request != nil {
 			c.Request.Method = http.MethodPost
 		}
-		mpBuf := &bytes.Buffer{}
-		mpWriter := multipart.NewWriter(mpBuf)
-		_ = mpWriter.WriteField("model", testModel)
-		part, fErr := mpWriter.CreateFormFile("file", "sample.mp3")
-		if fErr == nil {
+		if channel.Type == constant.ChannelCloudflare || info.ApiType == constant.APITypeCloudflare {
 			audioBytes := getSTTSampleAudio()
-			_, _ = part.Write(audioBytes)
+			c.Request.Header.Set("Content-Type", "application/octet-stream")
+			requestBody = bytes.NewBuffer(audioBytes)
+			c.Request.Body = io.NopCloser(bytes.NewBuffer(audioBytes))
+		} else {
+			mpBuf := &bytes.Buffer{}
+			mpWriter := multipart.NewWriter(mpBuf)
+			_ = mpWriter.WriteField("model", testModel)
+			part, fErr := mpWriter.CreateFormFile("file", "sample.mp3")
+			if fErr == nil {
+				audioBytes := getSTTSampleAudio()
+				_, _ = part.Write(audioBytes)
+			}
+			_ = mpWriter.Close()
+			c.Request.Header.Set("Content-Type", mpWriter.FormDataContentType())
+			requestBody = bytes.NewBuffer(mpBuf.Bytes())
+			c.Request.Body = io.NopCloser(bytes.NewBuffer(mpBuf.Bytes()))
 		}
-		_ = mpWriter.Close()
-		c.Request.Header.Set("Content-Type", mpWriter.FormDataContentType())
-		requestBody = bytes.NewBuffer(mpBuf.Bytes())
-		c.Request.Body = io.NopCloser(bytes.NewBuffer(mpBuf.Bytes()))
 	} else {
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonData))
 	}
@@ -711,10 +718,16 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 	var testMessage string
 	if info.RelayMode == relayconstant.RelayModeAudioTranscription {
 		var sttRes struct {
-			Text string `json:"text"`
+			Text   string `json:"text"`
+			Result struct {
+				Text string `json:"text"`
+			} `json:"result"`
 		}
 		_ = json.Unmarshal(respBody, &sttRes)
 		transcription := strings.TrimSpace(sttRes.Text)
+		if transcription == "" {
+			transcription = strings.TrimSpace(sttRes.Result.Text)
+		}
 		if transcription == "" {
 			transcription = strings.TrimSpace(string(respBody))
 		}

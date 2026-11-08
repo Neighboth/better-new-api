@@ -49,6 +49,9 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
 	req.Set("Authorization", fmt.Sprintf("Bearer %s", info.ApiKey))
+	if info.RelayMode == constant.RelayModeAudioTranscription || info.RelayMode == constant.RelayModeAudioTranslation {
+		req.Set("Content-Type", "application/octet-stream")
+	}
 	return nil
 }
 
@@ -81,20 +84,32 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
-	// 添加文件字段
-	file, _, err := c.Request.FormFile("file")
-	if err != nil {
-		return nil, errors.New("file is required")
+	if c.Request != nil && c.Request.MultipartForm != nil {
+		file, _, err := c.Request.FormFile("file")
+		if err == nil && file != nil {
+			defer file.Close()
+			requestBody := &bytes.Buffer{}
+			if _, err := io.Copy(requestBody, file); err == nil {
+				return requestBody, nil
+			}
+		}
+	} else if c.Request != nil {
+		file, _, err := c.Request.FormFile("file")
+		if err == nil && file != nil {
+			defer file.Close()
+			requestBody := &bytes.Buffer{}
+			if _, err := io.Copy(requestBody, file); err == nil {
+				return requestBody, nil
+			}
+		}
+		if c.Request.Body != nil {
+			bodyBytes, err := io.ReadAll(c.Request.Body)
+			if err == nil && len(bodyBytes) > 0 {
+				return bytes.NewBuffer(bodyBytes), nil
+			}
+		}
 	}
-	defer file.Close()
-	// 打开临时文件用于保存上传的文件内容
-	requestBody := &bytes.Buffer{}
-
-	// 将上传的文件内容复制到临时文件
-	if _, err := io.Copy(requestBody, file); err != nil {
-		return nil, err
-	}
-	return requestBody, nil
+	return nil, errors.New("file is required")
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {

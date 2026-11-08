@@ -444,6 +444,12 @@ func serverContentToOpenAI(content *geminiServerContent) [][]byte {
 			}
 		}
 	}
+	if content.OutputTranscription != nil && content.OutputTranscription.Text != "" {
+		events = append(events, marshalEvent(map[string]any{
+			"type":  dto.RealtimeEventResponseAudioTranscriptionDelta,
+			"delta": content.OutputTranscription.Text,
+		}))
+	}
 	if content.Interrupted {
 		events = append(events, marshalEvent(map[string]any{
 			"type":     dto.RealtimeEventTypeResponseDone,
@@ -577,7 +583,8 @@ func (s *sessionState) session() map[string]any {
 
 // buildSetup builds the setup of Gemini from the session of the client.
 func (s *sessionState) buildSetup(model string) []byte {
-	setup := &geminiSetup{Model: "models/" + model}
+	cleanModel := strings.TrimPrefix(strings.TrimSpace(model), "models/")
+	setup := &geminiSetup{Model: "models/" + cleanModel}
 	config := &geminiGenerationConfig{}
 	for _, modality := range s.modalities {
 		switch modality {

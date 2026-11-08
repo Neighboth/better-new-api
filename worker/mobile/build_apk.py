@@ -288,19 +288,25 @@ if not system_name or not favicon_url or not server_url:
         except Exception as ex:
             print("PostgreSQL detection notice:", ex)
 
-if not system_name or system_name.strip() in ("", "New API"):
-    system_name = "BYOG"
-    app_name = "BYOG Worker"
-else:
-    system_name = system_name.strip()
-    sn_lower = system_name.lower()
-    if sn_lower.endswith("byog worker"):
-        app_name = system_name
-    elif sn_lower.endswith("byog"):
-        app_name = f"{system_name} Worker"
-    else:
-        app_name = f"{system_name} BYOG Worker" 
-print(f"Building APK with Branding Name: '{app_name}'")
+def format_mobile_app_name(sys_name):
+    sys_name = (sys_name or "").strip()
+    if not sys_name or sys_name in ("New API", "BYOG", "BYOG Worker"):
+        return "BYOG"
+    s = sys_name
+    while True:
+        s_lower = s.lower().strip()
+        if s_lower.endswith("worker"):
+            s = s[:len(s)-6].strip()
+        elif s_lower.endswith("byog"):
+            s = s[:len(s)-4].strip()
+        else:
+            break
+    if not s or s.lower() in ("new api", "byog"):
+        return "BYOG"
+    return f"{s} BYOG"
+
+app_name = format_mobile_app_name(system_name)
+print(f"Building APK with Mobile Branding Name: '{app_name}'")
 
 if os.path.exists(WORKDIR):
     shutil.rmtree(WORKDIR, ignore_errors=True)
@@ -1798,17 +1804,25 @@ public class MainActivity extends Activity {
         }
     };
 
-    private void safeStartWorkerService(Intent sIntent) {
+    private void safeStartWorkerService(final Intent sIntent) {
+        if (sIntent == null) return;
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            boolean started = false;
+            // Foreground activities can start services via startService without triggering
+            // ForegroundServiceDidNotStartInTimeException timeouts.
+            try {
+                startService(sIntent);
+                started = true;
+            } catch (Throwable startEx) {
+                android.util.Log.w("BYOG_MAIN", "startService failed, falling back to startForegroundService: " + startEx.getMessage());
+            }
+            if (!started && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 try {
                     startForegroundService(sIntent);
+                    started = true;
                 } catch (Throwable fgsEx) {
-                    android.util.Log.w("BYOG_MAIN", "startForegroundService failed, falling back to startService: " + fgsEx.getMessage());
-                    startService(sIntent);
+                    android.util.Log.e("BYOG_MAIN", "startForegroundService also failed: " + fgsEx.getMessage());
                 }
-            } else {
-                startService(sIntent);
             }
         } catch (Throwable ex) {
             android.util.Log.e("BYOG_MAIN", "Failed to start WorkerService: " + ex.getMessage());
@@ -2187,8 +2201,15 @@ public class MainActivity extends Activity {
                 if (notifOk) {
                     long lastCrash = WorkerService.longPref(spInit, "worker_last_crash_time", 0);
                     if (System.currentTimeMillis() - lastCrash > 10000L) {
-                        Intent sIntent = new Intent(this, WorkerService.class);
-                        safeStartWorkerService(sIntent);
+                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (!isFinishing() && !isDestroyed()) {
+                                    Intent sIntent = new Intent(MainActivity.this, WorkerService.class);
+                                    safeStartWorkerService(sIntent);
+                                }
+                            }
+                        }, 1000);
                     }
                 } else {
                     android.util.Log.w("BYOG_MAIN", "Notification permission missing on start, service deferred");

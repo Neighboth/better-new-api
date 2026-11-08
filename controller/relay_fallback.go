@@ -161,9 +161,17 @@ func applyFallbackSystemPrompt(c *gin.Context, info *relaycommon.RelayInfo, s *f
 	if prompt == "" {
 		return nil
 	}
-	prompt = strings.ReplaceAll(prompt, "${modelid}", info.OriginModelName)
-	prompt = strings.ReplaceAll(prompt, "${model_id}", info.OriginModelName)
-	prompt = strings.ReplaceAll(prompt, "${model}", info.OriginModelName)
+	origModelID := s.orig
+	if origModelID == "" {
+		origModelID = info.GetOriginModelName()
+	}
+	origModelName := model.GetModelDisplayName(origModelID)
+
+	prompt = strings.ReplaceAll(prompt, "${modelid}", origModelID)
+	prompt = strings.ReplaceAll(prompt, "${model_id}", origModelID)
+	prompt = strings.ReplaceAll(prompt, "${model}", origModelID)
+	prompt = strings.ReplaceAll(prompt, "${modelname}", origModelName)
+	prompt = strings.ReplaceAll(prompt, "${model_name}", origModelName)
 	s.done = true
 
 	switch req := info.Request.(type) {

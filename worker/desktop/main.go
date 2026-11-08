@@ -423,10 +423,21 @@ func getSystemModelDirName() string {
 		sysName = strings.TrimSpace(State.Config.AppName)
 	}
 	State.Mu.Unlock()
-	if sysName == "" {
-		sysName = "PixRouter"
+	s := sysName
+	for {
+		lower := strings.ToLower(strings.TrimSpace(s))
+		if strings.HasSuffix(lower, "worker") {
+			s = strings.TrimSpace(s[:len(s)-6])
+		} else if strings.HasSuffix(lower, "byog") {
+			s = strings.TrimSpace(s[:len(s)-4])
+		} else {
+			break
+		}
 	}
-	return sysName + " BYOG Models"
+	if s == "" || strings.EqualFold(s, "new api") || strings.EqualFold(s, "byog") {
+		return "BYOG Models"
+	}
+	return s + " BYOG Models"
 }
 
 func pruneDriveModels(driveRoot string) {

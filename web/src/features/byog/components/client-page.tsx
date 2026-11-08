@@ -1685,21 +1685,6 @@ export function ClientPage() {
                 </div>
               )}
 
-              <div className='pt-3 flex items-center justify-center border-t border-border/40'>
-                <Button
-                  variant='ghost'
-                  size='sm'
-                  onClick={() => {
-                    setOnboardingDone(true)
-                    if (typeof window !== 'undefined') {
-                      localStorage.setItem('byog_onboarding_done', '1')
-                    }
-                  }}
-                  className='text-xs text-muted-foreground hover:text-foreground'
-                >
-                  {t('byog.skip_to_pairing', 'Şimdilik Atla ve Eşleştirmeye Geç →')}
-                </Button>
-              </div>
             </CardContent>
           </Card>
         </div>
@@ -1816,21 +1801,6 @@ export function ClientPage() {
                 </div>
               )}
 
-              <div className='pt-3 flex items-center justify-center border-t border-border/40'>
-                <Button
-                  variant='ghost'
-                  size='sm'
-                  onClick={() => {
-                    setOnboardingDone(true)
-                    if (typeof window !== 'undefined') {
-                      localStorage.setItem('byog_onboarding_done', '1')
-                    }
-                  }}
-                  className='text-xs text-muted-foreground hover:text-foreground'
-                >
-                  {t('byog.skip_to_pairing', 'Şimdilik Atla ve Eşleştirmeye Geç →')}
-                </Button>
-              </div>
             </CardContent>
           </Card>
         </div>

@@ -227,7 +227,7 @@ export function RelayFallbackSection({
                   />
                 </FormControl>
                 <FormDescription>
-                  {t('Prepended to system message. You can use variables ${modelid}, ${model_id}, or ${model} which will be automatically replaced with the requested model ID.')}
+                  {t('Prepended to system message. You can use variables ${modelid} and ${modelname} which will be automatically replaced with the requested model ID and display name.')}
                 </FormDescription>
               </FormItem>
             )}

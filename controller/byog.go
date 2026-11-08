@@ -2836,17 +2836,46 @@ func decodeFaviconIcon(faviconBase64 string) []byte {
 // follows it.
 func byogDisplayName(systemName string) string {
 	name := strings.TrimSpace(systemName)
-	if name == "" || name == "New API" {
+	if name == "" || name == "New API" || strings.EqualFold(name, "byog") {
 		return "BYOG Worker"
 	}
-	lower := strings.ToLower(name)
-	if strings.HasSuffix(lower, "byog worker") {
-		return name
+	s := name
+	for {
+		lower := strings.ToLower(strings.TrimSpace(s))
+		if strings.HasSuffix(lower, "worker") {
+			s = strings.TrimSpace(s[:len(s)-6])
+		} else if strings.HasSuffix(lower, "byog") {
+			s = strings.TrimSpace(s[:len(s)-4])
+		} else {
+			break
+		}
 	}
-	if strings.HasSuffix(lower, "byog") {
-		return name + " Worker"
+	if s == "" || strings.EqualFold(s, "new api") || strings.EqualFold(s, "byog") {
+		return "BYOG Worker"
 	}
-	return name + " BYOG Worker"
+	return s + " BYOG Worker"
+}
+
+func byogMobileDisplayName(systemName string) string {
+	name := strings.TrimSpace(systemName)
+	if name == "" || name == "New API" || strings.EqualFold(name, "byog") || strings.EqualFold(name, "byog worker") {
+		return "BYOG"
+	}
+	s := name
+	for {
+		lower := strings.ToLower(strings.TrimSpace(s))
+		if strings.HasSuffix(lower, "worker") {
+			s = strings.TrimSpace(s[:len(s)-6])
+		} else if strings.HasSuffix(lower, "byog") {
+			s = strings.TrimSpace(s[:len(s)-4])
+		} else {
+			break
+		}
+	}
+	if s == "" || strings.EqualFold(s, "new api") || strings.EqualFold(s, "byog") {
+		return "BYOG"
+	}
+	return s + " BYOG"
 }
 
 // byogDownloadFileName makes the name of a download safe for the header and the
@@ -2898,8 +2927,9 @@ func DownloadByogWorker(c *gin.Context) {
 		}
 	} else if platform == "android" {
 		if arch == "apk" {
+			mobileName := byogMobileDisplayName(systemName)
 			sourceName = "byog-worker.apk"
-			downloadName = byogDownloadFileName(displayName + ".apk")
+			downloadName = byogDownloadFileName(mobileName + ".apk")
 		} else {
 			sourceName = "byog-worker-android-arm64"
 			downloadName = byogDownloadFileName(displayName + "-android-arm64")
@@ -2956,19 +2986,20 @@ func DownloadByogWorker(c *gin.Context) {
 				c.Header("Content-Type", "application/vnd.android.package-archive")
 				c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": downloadName}))
 				if raw, err := os.ReadFile(p); err == nil {
-					_, appName, faviconUrl, faviconBase64 := getBranding(serverUrl)
+					_, _, faviconUrl, faviconBase64 := getBranding(serverUrl)
+					mobileAppName := byogMobileDisplayName(systemName)
 
 					cfgPayload, _ := json.Marshal(map[string]string{
 						"server_url":     serverUrl,
-						"system_name":    systemName,
-						"app_name":       appName,
+						"system_name":    mobileAppName,
+						"app_name":       mobileAppName,
 						"favicon":        faviconUrl,
 						"favicon_base64": faviconBase64,
 					})
 
 					// The launcher label and icon of the app are part of the package, so
 					// the branding of this installation is written into the APK itself.
-					branded, err := brandByogApk(raw, appName, faviconBase64)
+					branded, err := brandByogApk(raw, mobileAppName, faviconBase64)
 					if err != nil {
 						common.SysError(fmt.Sprintf("[BYOG] APK branding failed: %v", err))
 						c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "APK signing failed"})

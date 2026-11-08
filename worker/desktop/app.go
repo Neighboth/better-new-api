@@ -397,14 +397,8 @@ func registerWorker() (registerResult, error) {
 	State.Mu.Unlock()
 	saveConfig(State.Config)
 
-	result.AppName = "BYOG Worker"
-	if payload.Data.AppName != "" {
-		result.AppName = payload.Data.AppName
-	}
+	result.AppName = installationDisplayName(payload.Data.AppName, payload.Data.SystemName)
 	result.SystemName = payload.Data.SystemName
-	if result.SystemName != "" {
-		result.AppName = result.SystemName + " BYOG"
-	}
 	result.FaviconURL = payload.Data.Favicon
 	result.FaviconB64 = payload.Data.FaviconB64
 	for _, detail := range payload.Data.Assigned {
@@ -688,20 +682,24 @@ func installedModelsJSON() string {
 // the user knows the installation from the name of it.
 func installationDisplayName(appName string, systemName string) string {
 	name := strings.TrimSpace(systemName)
-	if name == "" || name == "New API" {
+	if name == "" || name == "New API" || strings.EqualFold(name, "byog") {
 		name = strings.TrimSpace(appName)
 	}
-	if name == "" {
+	s := name
+	for {
+		lower := strings.ToLower(strings.TrimSpace(s))
+		if strings.HasSuffix(lower, "worker") {
+			s = strings.TrimSpace(s[:len(s)-6])
+		} else if strings.HasSuffix(lower, "byog") {
+			s = strings.TrimSpace(s[:len(s)-4])
+		} else {
+			break
+		}
+	}
+	if s == "" || strings.EqualFold(s, "new api") || strings.EqualFold(s, "byog") {
 		return "BYOG Worker"
 	}
-	lower := strings.ToLower(name)
-	if strings.HasSuffix(lower, "byog worker") {
-		return name
-	}
-	if strings.HasSuffix(lower, "byog") {
-		return name + " Worker"
-	}
-	return name + " BYOG Worker"
+	return s + " BYOG Worker"
 }
 
 // runModelTest runs the model of the client with a message and returns the

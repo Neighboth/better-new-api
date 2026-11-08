@@ -178,6 +178,7 @@ type geminiAutomaticActivityDetection struct {
 
 type geminiTranscription struct {
 	Language string `json:"language,omitempty"`
+	Text     string `json:"text,omitempty"`
 }
 
 type geminiContextWindowCompression struct {
