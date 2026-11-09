@@ -441,24 +441,24 @@ func (s *NodeSession) HandleHeartbeat(frame *TunnelFrame) {
 			if telemetry.HotStartEnabled != nil {
 				node.HotStartEnabled = *telemetry.HotStartEnabled
 			}
-			if telemetry.AllocatedRamGB != nil && *telemetry.AllocatedRamGB > 0 {
+			if telemetry.AllocatedRamGB != nil && *telemetry.AllocatedRamGB >= 0 {
 				node.AllocatedRamGB = *telemetry.AllocatedRamGB
-			} else if node.AllocatedRamGB <= 0 && node.PhysicalRamMB > 0 {
+			} else if node.AllocatedRamGB <= 0 && node.PhysicalRamMB > 0 && telemetry.AllocatedRamGB == nil {
 				node.AllocatedRamGB = math.Round(float64(node.PhysicalRamMB)/2048.0*10) / 10
 			}
-			if telemetry.AllocatedVramGB != nil && *telemetry.AllocatedVramGB > 0 {
+			if telemetry.AllocatedVramGB != nil && *telemetry.AllocatedVramGB >= 0 {
 				node.AllocatedVramGB = *telemetry.AllocatedVramGB
-			} else if node.AllocatedVramGB <= 0 && node.VramMB > 512 {
+			} else if node.AllocatedVramGB <= 0 && node.VramMB > 512 && telemetry.AllocatedVramGB == nil {
 				node.AllocatedVramGB = (node.VramMB / 1024) / 2
 			}
-			if telemetry.AllocatedCores != nil && *telemetry.AllocatedCores > 0 {
+			if telemetry.AllocatedCores != nil && *telemetry.AllocatedCores >= 0 {
 				node.AllocatedCores = *telemetry.AllocatedCores
-			} else if node.AllocatedCores <= 0 && node.CpuCores > 0 {
+			} else if node.AllocatedCores <= 0 && node.CpuCores > 0 && telemetry.AllocatedCores == nil {
 				node.AllocatedCores = int(math.Max(1, math.Floor(float64(node.CpuCores)*0.5)))
 			}
-			if telemetry.AllocatedDiskGB != nil && *telemetry.AllocatedDiskGB > 0 {
+			if telemetry.AllocatedDiskGB != nil && *telemetry.AllocatedDiskGB >= 0 {
 				node.AllocatedDiskGB = *telemetry.AllocatedDiskGB
-			} else if node.AllocatedDiskGB <= 0 && node.FreeDiskGB > 0 {
+			} else if node.AllocatedDiskGB <= 0 && node.FreeDiskGB > 0 && telemetry.AllocatedDiskGB == nil {
 				node.AllocatedDiskGB = node.FreeDiskGB / 2
 			}
 			if telemetry.OperatingMode != "" {
@@ -603,13 +603,7 @@ func mergeDiskPartitions(existingJSON string, incomingRaw json.RawMessage) strin
 		}
 
 		prevAlloc, hasPrev := existingAlloc[drvKey]
-		if hasAlloc && diskCopy["allocated_gb"] == 0 && (!hasPrev || prevAlloc == 0) {
-			freeGB := 0
-			if f, ok := inDisk["free_gb"].(float64); ok {
-				freeGB = int(f)
-			}
-			diskCopy["allocated_gb"] = freeGB / 2
-		} else if !hasAlloc {
+		if !hasAlloc {
 			if hasPrev {
 				diskCopy["allocated_gb"] = prevAlloc
 			} else {

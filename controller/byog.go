@@ -1466,15 +1466,15 @@ func RegisterByogWorker(c *gin.Context) {
 				if err := json.Unmarshal([]byte(node.Disks), &parsedDisks); err == nil && len(parsedDisks) > 0 {
 					diskSum := 0
 					for _, pd := range parsedDisks {
-						if agb, ok := pd["allocated_gb"].(float64); ok {
-							diskSum += int(agb)
+						if agb, ok := getDiskAllocatedGB(pd); ok {
+							diskSum += agb
 						}
 					}
 					node.AllocatedDiskGB = diskSum
 				}
 			}
 		}
-		if node.AllocatedDiskGB <= 0 && req.FreeDiskGB > 0 {
+		if node.AllocatedDiskGB <= 0 && req.FreeDiskGB > 0 && node.Disks == "" {
 			node.AllocatedDiskGB = int(float64(req.FreeDiskGB) * 0.5)
 		}
 		node.CurrentTps = req.CurrentTps
@@ -2139,6 +2139,20 @@ func GetByogWorkerStatus(c *gin.Context) {
 	})
 }
 
+func getDiskAllocatedGB(disk map[string]interface{}) (int, bool) {
+	if val, ok := disk["allocated_gb"]; ok && val != nil {
+		switch v := val.(type) {
+		case int:
+			return v, true
+		case int64:
+			return int(v), true
+		case float64:
+			return int(v), true
+		}
+	}
+	return 0, false
+}
+
 // mergeDiskAllocation keeps the allocation of the partitions of the panel.
 //
 // The client reports the partitions of the computer with the free space of the
@@ -2157,8 +2171,8 @@ func mergeDiskAllocation(reportedJSON string, allocatedJSON string) string {
 		if err := json.Unmarshal([]byte(allocatedJSON), &stored); err == nil && len(stored) > 0 {
 			for _, disk := range stored {
 				drive, _ := disk["drive"].(string)
-				if val, ok := disk["allocated_gb"].(float64); ok {
-					allocated[strings.ToUpper(strings.TrimSpace(drive))] = val
+				if val, ok := getDiskAllocatedGB(disk); ok {
+					allocated[strings.ToUpper(strings.TrimSpace(drive))] = float64(val)
 					hasStored = true
 				}
 			}
@@ -2271,8 +2285,9 @@ func distributeDiskAllocation(disksJSON string, totalGB int) (string, int) {
 	}
 	shared := 0
 	for _, disk := range disks {
-		value, _ := disk["allocated_gb"].(float64)
-		shared += int(value)
+		if val, ok := getDiskAllocatedGB(disk); ok {
+			shared += val
+		}
 	}
 	return string(encoded), shared
 }
@@ -2390,8 +2405,8 @@ func UpdateByogWorkerResources(c *gin.Context) {
 			if !ok {
 				// A partition that the request does not name keeps its
 				// allocation of the record (zero when it was never shared).
-				if existing, ok := disk["allocated_gb"].(float64); ok {
-					allocation = int(existing)
+				if existing, ok := getDiskAllocatedGB(disk); ok {
+					allocation = existing
 				}
 			}
 			if free > 0 && float64(allocation) > free {

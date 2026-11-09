@@ -55,10 +55,15 @@ type Config struct {
 	MaxDiskGB         int    `json:"max_disk_gb"`
 	AutoPauseOnGame   bool   `json:"auto_pause_on_game"`
 	ThermalGuardLimit int    `json:"thermal_guard_limit"` // e.g. 83°C
-	OperatingMode     string `json:"operating_mode"`
-	PowerProfile      string `json:"power_profile"`
-	ScheduleConfig    string `json:"schedule_config"`
-	ResourcesSet      bool   `json:"resources_set"`
+	OperatingMode     string  `json:"operating_mode"`
+	PowerProfile      string  `json:"power_profile"`
+	ScheduleConfig    string  `json:"schedule_config"`
+	ResourcesSet      bool    `json:"resources_set"`
+	AllocatedRamGB    float64 `json:"allocated_ram_gb,omitempty"`
+	AllocatedVramGB   int     `json:"allocated_vram_gb,omitempty"`
+	AllocatedCores    int     `json:"allocated_cores,omitempty"`
+	Disks             string  `json:"disks,omitempty"`
+	HotStartEnabled   bool    `json:"hot_start_enabled,omitempty"`
 }
 
 type WorkerState struct {
@@ -323,8 +328,18 @@ func disksWithAllocationsJSON(hardwareDisks []DiskPartitionInfo, disksJSON strin
 		}
 	}
 	if !hasAllocations {
-		for i := range payload {
-			payload[i].AllocatedGB = payload[i].FreeGB / 2
+		if State.Config.ResourcesSet {
+			if len(payload) == 1 && State.Config.MaxDiskGB > 0 {
+				payload[0].AllocatedGB = State.Config.MaxDiskGB
+			} else {
+				for i := range payload {
+					payload[i].AllocatedGB = 0
+				}
+			}
+		} else {
+			for i := range payload {
+				payload[i].AllocatedGB = payload[i].FreeGB / 2
+			}
 		}
 	}
 	raw, err := json.Marshal(payload)
@@ -1814,6 +1829,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 				State.Mu.Lock()
 				if ack.HotStartEnabled != nil && State.HotStartEnabled != *ack.HotStartEnabled {
 					State.HotStartEnabled = *ack.HotStartEnabled
+					State.Config.HotStartEnabled = *ack.HotStartEnabled
 					changed = true
 				}
 				if ack.AllocatedDiskGB != nil && State.Config.MaxDiskGB != *ack.AllocatedDiskGB {
@@ -1841,14 +1857,17 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 				State.Mu.Lock()
 				if resUpdate.AllocatedRamGB != nil && State.AllocatedRamGB != *resUpdate.AllocatedRamGB {
 					State.AllocatedRamGB = *resUpdate.AllocatedRamGB
+					State.Config.AllocatedRamGB = *resUpdate.AllocatedRamGB
 					changed = true
 				}
 				if resUpdate.AllocatedVramGB != nil && State.AllocatedVramGB != *resUpdate.AllocatedVramGB {
 					State.AllocatedVramGB = *resUpdate.AllocatedVramGB
+					State.Config.AllocatedVramGB = *resUpdate.AllocatedVramGB
 					changed = true
 				}
 				if resUpdate.AllocatedCores != nil && State.AllocatedCores != *resUpdate.AllocatedCores {
 					State.AllocatedCores = *resUpdate.AllocatedCores
+					State.Config.AllocatedCores = *resUpdate.AllocatedCores
 					changed = true
 				}
 				if resUpdate.AllocatedDiskGB != nil && State.Config.MaxDiskGB != *resUpdate.AllocatedDiskGB {
@@ -1857,6 +1876,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 				}
 				if resUpdate.HotStartEnabled != nil && State.HotStartEnabled != *resUpdate.HotStartEnabled {
 					State.HotStartEnabled = *resUpdate.HotStartEnabled
+					State.Config.HotStartEnabled = *resUpdate.HotStartEnabled
 					changed = true
 				}
 				if len(resUpdate.Disks) > 0 {
@@ -1869,6 +1889,7 @@ func handleWebSocketMessages(conn *websocket.Conn) {
 					}
 					if State.Disks != disksStr {
 						State.Disks = disksStr
+						State.Config.Disks = disksStr
 						changed = true
 					}
 					var disks []DiskPartitionInfo

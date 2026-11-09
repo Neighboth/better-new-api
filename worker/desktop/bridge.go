@@ -454,14 +454,17 @@ func (b *localBridge) handleSettings(writer http.ResponseWriter, request *http.R
 	}
 	if payload.AllocatedRamGB != nil && *payload.AllocatedRamGB >= 0 {
 		State.AllocatedRamGB = *payload.AllocatedRamGB
+		State.Config.AllocatedRamGB = *payload.AllocatedRamGB
 		changed = true
 	}
 	if payload.AllocatedVramGB != nil && *payload.AllocatedVramGB >= 0 {
 		State.AllocatedVramGB = *payload.AllocatedVramGB
+		State.Config.AllocatedVramGB = *payload.AllocatedVramGB
 		changed = true
 	}
 	if payload.AllocatedCores != nil && *payload.AllocatedCores >= 0 {
 		State.AllocatedCores = *payload.AllocatedCores
+		State.Config.AllocatedCores = *payload.AllocatedCores
 		changed = true
 	}
 	if len(payload.Disks) > 0 {
@@ -474,6 +477,7 @@ func (b *localBridge) handleSettings(writer http.ResponseWriter, request *http.R
 		}
 		if b, err := json.Marshal(payload.Disks); err == nil {
 			State.Disks = string(b)
+			State.Config.Disks = string(b)
 		}
 		State.Config.MaxDiskGB = totalDisk
 		changed = true
@@ -486,6 +490,7 @@ func (b *localBridge) handleSettings(writer http.ResponseWriter, request *http.R
 	}
 	if payload.HotStartEnabled != nil {
 		State.HotStartEnabled = *payload.HotStartEnabled
+		State.Config.HotStartEnabled = *payload.HotStartEnabled
 		changed = true
 	}
 	if payload.OperatingMode != "" {

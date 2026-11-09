@@ -66,3 +66,5 @@ worker/.buildtmp/
 # APK signing keys are installation-private and must never be committed.
 worker/mobile/release.keystore
 worker/mobile/apk_signing_key.pem
+
+test_run.log

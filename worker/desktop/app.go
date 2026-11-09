@@ -234,6 +234,19 @@ func saveConfig(config Config) {
 func applyConfig(config Config) {
 	State.Mu.Lock()
 	State.Config = config
+	if config.AllocatedRamGB > 0 {
+		State.AllocatedRamGB = config.AllocatedRamGB
+	}
+	if config.AllocatedVramGB > 0 {
+		State.AllocatedVramGB = config.AllocatedVramGB
+	}
+	if config.AllocatedCores > 0 {
+		State.AllocatedCores = config.AllocatedCores
+	}
+	if config.Disks != "" {
+		State.Disks = config.Disks
+	}
+	State.HotStartEnabled = config.HotStartEnabled
 	State.Mu.Unlock()
 
 	if config.Language != "" {
