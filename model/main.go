@@ -318,6 +318,7 @@ func migrateDB() error {
 		&ByogCrashReport{},
 		&ByogP2PTracker{},
 		&MailCampaign{},
+		&CryptoDeposit{},
 	)
 	if err != nil {
 		return err

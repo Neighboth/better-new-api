@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import i18next from 'i18next'
-import { CreditCard, Landmark } from 'lucide-react'
+import { Coins, CreditCard, ExternalLink, Landmark } from 'lucide-react'
 import { type ReactNode } from 'react'
 import { SiAlipay, SiWechat, SiStripe } from 'react-icons/si'
 
@@ -153,6 +153,20 @@ export function getPaymentIcon(
             className='hidden h-full w-full object-contain dark:block'
           />
         </span>
+      )
+    case PAYMENT_TYPES.DIRECT_LINK:
+      return (
+        <ExternalLink
+          className={className}
+          style={{ color: PAYMENT_ICON_COLORS[PAYMENT_TYPES.DIRECT_LINK] }}
+        />
+      )
+    case PAYMENT_TYPES.CRYPTO:
+      return (
+        <Coins
+          className={className}
+          style={{ color: PAYMENT_ICON_COLORS[PAYMENT_TYPES.CRYPTO] }}
+        />
       )
     default:
       return <CreditCard className={className} />

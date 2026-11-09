@@ -192,6 +192,15 @@ const BILLING_SECTIONS = [
           ShopifyStoreDomain: settings.ShopifyStoreDomain ?? '',
           ShopifyAccessToken: settings.ShopifyAccessToken ?? '',
           ShopifyWebhookSecret: settings.ShopifyWebhookSecret ?? '',
+          EnableDirectLinkTopup: settings.EnableDirectLinkTopup ?? false,
+          DirectLinkUrl: settings.DirectLinkUrl ?? '',
+          DirectLinkTitle: settings.DirectLinkTitle ?? '',
+          DirectLinkDescription: settings.DirectLinkDescription ?? '',
+          DirectLinkMinTopup: settings.DirectLinkMinTopup ?? 1,
+          EnableCryptoTopup: settings.EnableCryptoTopup ?? false,
+          CryptoWallets: settings.CryptoWallets ?? '[]',
+          CryptoInstructions: settings.CryptoInstructions ?? '',
+          CryptoMinTopup: settings.CryptoMinTopup ?? 1,
         }}
         waffoDefaultValues={{
           WaffoEnabled: settings.WaffoEnabled ?? false,

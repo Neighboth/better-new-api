@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { ShieldCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
@@ -32,6 +33,7 @@ import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
 import { BillingPriorityCard } from './components/billing-priority-card'
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
+import { CryptoPaymentDialog } from './components/dialogs/crypto-payment-dialog'
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
 import { TransferDialog } from './components/dialogs/transfer-dialog'
 import { RechargeFormCard } from './components/recharge-form-card'
@@ -81,6 +83,7 @@ export function Wallet(props: WalletProps) {
   const [billingDialogOpen, setBillingDialogOpen] = useState(false)
   const [redemptionCode, setRedemptionCode] = useState('')
   const [creemDialogOpen, setCreemDialogOpen] = useState(false)
+  const [cryptoDialogOpen, setCryptoDialogOpen] = useState(false)
   const [selectedCreemProduct, setSelectedCreemProduct] =
     useState<CreemProduct | null>(null)
   const [showSubscriptionPanel, setShowSubscriptionPanel] = useState(true)
@@ -206,6 +209,18 @@ export function Wallet(props: WalletProps) {
 
   // Handle payment method selection
   const handlePaymentMethodSelect = async (method: PaymentMethod) => {
+    if (method.type === PAYMENT_TYPES.DIRECT_LINK) {
+      if (topupInfo?.direct_link_url) {
+        window.open(topupInfo.direct_link_url, '_blank')
+        toast.success(t('Ödeme sayfasına yönlendiriliyorsunuz...'))
+        return
+      }
+    }
+    if (method.type === PAYMENT_TYPES.CRYPTO) {
+      setCryptoDialogOpen(true)
+      return
+    }
+
     setSelectedPaymentMethod(method)
     setSelectedWaffoMethodIndex(null)
     setPaymentLoading(method.type)
@@ -475,6 +490,14 @@ export function Wallet(props: WalletProps) {
         onConfirm={handleCreemConfirm}
         product={selectedCreemProduct}
         processing={creemProcessing}
+      />
+
+      <CryptoPaymentDialog
+        open={cryptoDialogOpen}
+        onOpenChange={setCryptoDialogOpen}
+        topupInfo={topupInfo}
+        topupAmount={topupAmount}
+        onSuccess={fetchUser}
       />
     </>
   )

@@ -3,6 +3,7 @@ package controller
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -618,9 +619,14 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 		}
 		if channel.Type == constant.ChannelCloudflare || info.ApiType == constant.APITypeCloudflare {
 			audioBytes := getCleanSTTSampleAudio()
-			c.Request.Header.Set("Content-Type", "application/octet-stream")
-			requestBody = bytes.NewBuffer(audioBytes)
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(audioBytes))
+			cfPayload := map[string]any{
+				"audio": base64.StdEncoding.EncodeToString(audioBytes),
+				"task":  "transcribe",
+			}
+			jsonBytes, _ := json.Marshal(cfPayload)
+			c.Request.Header.Set("Content-Type", "application/json")
+			requestBody = bytes.NewBuffer(jsonBytes)
+			c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonBytes))
 		} else {
 			mpBuf := &bytes.Buffer{}
 			mpWriter := multipart.NewWriter(mpBuf)
@@ -723,9 +729,20 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 	var testMessage string
 	if info.RelayMode == relayconstant.RelayModeAudioTranscription {
 		var sttRes struct {
-			Text    string `json:"text"`
-			Result  struct {
-				Text     string `json:"text"`
+			Text       string `json:"text"`
+			Transcript string `json:"transcript"`
+			Result     struct {
+				Text       string `json:"text"`
+				Transcript string `json:"transcript"`
+				Results    struct {
+					Text       string `json:"text"`
+					Transcript string `json:"transcript"`
+					Channels   []struct {
+						Alternatives []struct {
+							Transcript string `json:"transcript"`
+						} `json:"alternatives"`
+					} `json:"channels"`
+				} `json:"results"`
 				Channels []struct {
 					Alternatives []struct {
 						Transcript string `json:"transcript"`
@@ -733,8 +750,9 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 				} `json:"channels"`
 			} `json:"result"`
 			Results struct {
-				Text     string `json:"text"`
-				Channels []struct {
+				Text       string `json:"text"`
+				Transcript string `json:"transcript"`
+				Channels   []struct {
 					Alternatives []struct {
 						Transcript string `json:"transcript"`
 					} `json:"alternatives"`
@@ -744,10 +762,38 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 		_ = json.Unmarshal(respBody, &sttRes)
 		transcription := strings.TrimSpace(sttRes.Text)
 		if transcription == "" {
+			transcription = strings.TrimSpace(sttRes.Transcript)
+		}
+		if transcription == "" {
 			transcription = strings.TrimSpace(sttRes.Result.Text)
 		}
 		if transcription == "" {
+			transcription = strings.TrimSpace(sttRes.Result.Transcript)
+		}
+		if transcription == "" {
+			transcription = strings.TrimSpace(sttRes.Result.Results.Text)
+		}
+		if transcription == "" {
+			transcription = strings.TrimSpace(sttRes.Result.Results.Transcript)
+		}
+		if transcription == "" {
+			for _, ch := range sttRes.Result.Results.Channels {
+				for _, alt := range ch.Alternatives {
+					if t := strings.TrimSpace(alt.Transcript); t != "" {
+						transcription = t
+						break
+					}
+				}
+				if transcription != "" {
+					break
+				}
+			}
+		}
+		if transcription == "" {
 			transcription = strings.TrimSpace(sttRes.Results.Text)
+		}
+		if transcription == "" {
+			transcription = strings.TrimSpace(sttRes.Results.Transcript)
 		}
 		if transcription == "" {
 			for _, ch := range sttRes.Result.Channels {
@@ -776,6 +822,12 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 			}
 		}
 		if transcription == "" {
+			var rawMap any
+			if err := json.Unmarshal(respBody, &rawMap); err == nil {
+				transcription = findNestedTextOrTranscript(rawMap)
+			}
+		}
+		if transcription == "" {
 			transcription = strings.TrimSpace(string(respBody))
 		}
 		testMessage = fmt.Sprintf("Gönderilen sesteki cümleler: Hello, this is a test audio message for speech recognition. Everything is functioning properly.\nModelin anladığı cümleler: %s", transcription)
@@ -788,6 +840,31 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 		message:     testMessage,
 		respBody:    respBody,
 	}
+}
+
+func findNestedTextOrTranscript(data any) string {
+	switch v := data.(type) {
+	case map[string]any:
+		for _, key := range []string{"transcript", "text"} {
+			if val, ok := v[key]; ok {
+				if s, ok := val.(string); ok && strings.TrimSpace(s) != "" {
+					return strings.TrimSpace(s)
+				}
+			}
+		}
+		for _, val := range v {
+			if s := findNestedTextOrTranscript(val); s != "" {
+				return s
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if s := findNestedTextOrTranscript(item); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
 }
 
 func testAepiChannel(ctx context.Context, channel *model.Channel, testUserID int, tik time.Time) testResult {
@@ -837,22 +914,6 @@ func testAepiChannel(ctx context.Context, channel *model.Channel, testUserID int
 			localErr: fmt.Errorf("Aepi doğrulama başarısız (HTTP %d): %s", resp.StatusCode, string(respBody)),
 		}
 	}
-
-	milliseconds := time.Since(tik).Milliseconds()
-	consumedTime := float64(milliseconds) / 1000.0
-
-	model.RecordConsumeLog(nil, testUserID, model.RecordConsumeLogParams{
-		ChannelId:        channel.Id,
-		PromptTokens:     0,
-		CompletionTokens: 0,
-		ModelName:        "aepi",
-		TokenName:        "Aepi Channel Test",
-		Quota:            0,
-		Content:          "Aepi Channel Connectivity Test",
-		UseTimeSeconds:   int(consumedTime),
-		IsStream:         false,
-		Group:            "default",
-	})
 
 	return testResult{
 		localErr: nil,

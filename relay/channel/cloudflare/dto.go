@@ -13,14 +13,23 @@ type CfRequest struct {
 }
 
 type CfAudioResponse struct {
-	Result  CfSTTResult `json:"result"`
-	Results CfSTTResult `json:"results"`
-	Text    string      `json:"text"`
+	Result     CfSTTResult `json:"result"`
+	Results    CfSTTResult `json:"results"`
+	Text       string      `json:"text"`
+	Transcript string      `json:"transcript"`
 }
 
 type CfSTTResult struct {
-	Text     string       `json:"text"`
-	Channels []CfSTTChannel `json:"channels"`
+	Text       string          `json:"text"`
+	Transcript string          `json:"transcript"`
+	Channels   []CfSTTChannel  `json:"channels"`
+	Results    *CfSTTSubResult `json:"results"`
+}
+
+type CfSTTSubResult struct {
+	Text       string         `json:"text"`
+	Transcript string         `json:"transcript"`
+	Channels   []CfSTTChannel `json:"channels"`
 }
 
 type CfSTTChannel struct {
@@ -28,6 +37,6 @@ type CfSTTChannel struct {
 }
 
 type CfSTTAlternative struct {
-	Transcript string `json:"transcript"`
+	Transcript string  `json:"transcript"`
 	Confidence float64 `json:"confidence"`
 }

@@ -2,6 +2,8 @@ package cloudflare
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -50,7 +52,7 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	channel.SetupApiRequestHeader(info, c, req)
 	req.Set("Authorization", fmt.Sprintf("Bearer %s", info.ApiKey))
 	if info.RelayMode == constant.RelayModeAudioTranscription || info.RelayMode == constant.RelayModeAudioTranslation {
-		req.Set("Content-Type", "application/octet-stream")
+		req.Set("Content-Type", "application/json")
 	}
 	return nil
 }
@@ -84,32 +86,45 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
+	var bodyBytes []byte
 	if c.Request != nil && c.Request.MultipartForm != nil {
 		file, _, err := c.Request.FormFile("file")
 		if err == nil && file != nil {
 			defer file.Close()
-			requestBody := &bytes.Buffer{}
-			if _, err := io.Copy(requestBody, file); err == nil {
-				return requestBody, nil
-			}
+			bodyBytes, _ = io.ReadAll(file)
 		}
 	} else if c.Request != nil {
 		file, _, err := c.Request.FormFile("file")
 		if err == nil && file != nil {
 			defer file.Close()
-			requestBody := &bytes.Buffer{}
-			if _, err := io.Copy(requestBody, file); err == nil {
-				return requestBody, nil
-			}
-		}
-		if c.Request.Body != nil {
-			bodyBytes, err := io.ReadAll(c.Request.Body)
-			if err == nil && len(bodyBytes) > 0 {
-				return bytes.NewBuffer(bodyBytes), nil
-			}
+			bodyBytes, _ = io.ReadAll(file)
+		} else if c.Request.Body != nil {
+			bodyBytes, _ = io.ReadAll(c.Request.Body)
 		}
 	}
-	return nil, errors.New("file is required")
+	if len(bodyBytes) == 0 {
+		return nil, errors.New("file is required")
+	}
+
+	task := "transcribe"
+	if info.RelayMode == constant.RelayModeAudioTranslation {
+		task = "translate"
+	}
+	cfPayload := map[string]any{
+		"audio": base64.StdEncoding.EncodeToString(bodyBytes),
+		"task":  task,
+	}
+	if len(request.Language) > 0 {
+		var langStr string
+		if err := json.Unmarshal(request.Language, &langStr); err == nil && langStr != "" {
+			cfPayload["language"] = langStr
+		}
+	}
+	jsonBytes, err := json.Marshal(cfPayload)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.NewBuffer(jsonBytes), nil
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {

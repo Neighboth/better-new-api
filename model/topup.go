@@ -35,6 +35,8 @@ const (
 	PaymentMethodPayPal       = "paypal"
 	PaymentMethodIyzico       = "iyzico"
 	PaymentMethodShopify      = "shopify"
+	PaymentMethodDirectLink   = "direct_link"
+	PaymentMethodCrypto       = "crypto"
 )
 
 const (
@@ -49,6 +51,8 @@ const (
 	PaymentProviderPayPal       = "paypal"
 	PaymentProviderIyzico       = "iyzico"
 	PaymentProviderShopify      = "shopify"
+	PaymentProviderDirectLink   = "direct_link"
+	PaymentProviderCrypto       = "crypto"
 )
 
 var (

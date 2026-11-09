@@ -525,6 +525,15 @@ export type BillingSettings = {
   ShopifyStoreDomain: string
   ShopifyAccessToken: string
   ShopifyWebhookSecret: string
+  EnableDirectLinkTopup?: boolean
+  DirectLinkUrl?: string
+  DirectLinkTitle?: string
+  DirectLinkDescription?: string
+  DirectLinkMinTopup?: number
+  EnableCryptoTopup?: boolean
+  CryptoWallets?: string
+  CryptoInstructions?: string
+  CryptoMinTopup?: number
   'checkin_setting.enabled': boolean
   'checkin_setting.min_quota': number
   'checkin_setting.max_quota': number

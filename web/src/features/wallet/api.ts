@@ -303,3 +303,83 @@ export async function getUserBalancePackages(): Promise<ApiResponse<UserBalanceP
   const res = await api.get('/api/user/balance-packages')
   return res.data
 }
+
+export interface CryptoDepositItem {
+  id: number
+  user_id: number
+  username: string
+  network: string
+  address: string
+  amount: number
+  quota: number
+  reference_code: string
+  trade_no: string
+  tx_hash: string
+  sender_address: string
+  status: 'pending' | 'approved' | 'rejected'
+  reject_reason?: string
+  create_time: number
+  complete_time: number
+}
+
+export async function createCryptoDeposit(data: {
+  amount: number
+  network?: string
+  wallet_id?: string
+}): Promise<ApiResponse<{
+  id: number
+  reference_code: string
+  trade_no: string
+  network: string
+  address: string
+  amount: number
+  quota: number
+  qr_code?: string
+  instructions?: string
+}>> {
+  const res = await api.post('/api/user/crypto/deposit', data)
+  return res.data
+}
+
+export async function submitCryptoTxHash(data: {
+  id: number
+  tx_hash: string
+  sender_address?: string
+}): Promise<ApiResponse<CryptoDepositItem>> {
+  const res = await api.post('/api/user/crypto/deposit/submit-tx', data)
+  return res.data
+}
+
+export async function getUserCryptoDeposits(
+  page: number = 0,
+  pageSize: number = 10
+): Promise<ApiResponse<{ items: CryptoDepositItem[]; total: number }>> {
+  const res = await api.get(`/api/user/crypto/deposits?p=${page}&page_size=${pageSize}`)
+  return res.data
+}
+
+export async function getAdminCryptoDeposits(
+  page: number = 0,
+  pageSize: number = 20,
+  status?: string,
+  keyword?: string
+): Promise<ApiResponse<{ items: CryptoDepositItem[]; total: number }>> {
+  const params = new URLSearchParams({
+    p: page.toString(),
+    page_size: pageSize.toString(),
+  })
+  if (status) params.append('status', status)
+  if (keyword) params.append('keyword', keyword)
+  const res = await api.get(`/api/admin/crypto/deposits?${params.toString()}`)
+  return res.data
+}
+
+export async function approveCryptoDeposit(id: number): Promise<ApiResponse<CryptoDepositItem>> {
+  const res = await api.post(`/api/admin/crypto/deposit/${id}/approve`)
+  return res.data
+}
+
+export async function rejectCryptoDeposit(id: number, reason: string): Promise<ApiResponse<CryptoDepositItem>> {
+  const res = await api.post(`/api/admin/crypto/deposit/${id}/reject`, { reason })
+  return res.data
+}

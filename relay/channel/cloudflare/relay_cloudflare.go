@@ -119,6 +119,31 @@ func cfHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response)
 	return nil, usage
 }
 
+func extractTranscriptFromRaw(data any) string {
+	switch v := data.(type) {
+	case map[string]any:
+		for _, key := range []string{"transcript", "text"} {
+			if val, ok := v[key]; ok {
+				if s, ok := val.(string); ok && strings.TrimSpace(s) != "" {
+					return strings.TrimSpace(s)
+				}
+			}
+		}
+		for _, val := range v {
+			if s := extractTranscriptFromRaw(val); s != "" {
+				return s
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if s := extractTranscriptFromRaw(item); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
 func cfSTTHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*types.NewAPIError, *dto.Usage) {
 	var cfResp CfAudioResponse
 	responseBody, err := io.ReadAll(resp.Body)
@@ -126,17 +151,30 @@ func cfSTTHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respon
 		return types.NewError(err, types.ErrorCodeBadResponseBody), nil
 	}
 	service.CloseResponseBodyGracefully(resp)
-	err = json.Unmarshal(responseBody, &cfResp)
-	if err != nil {
-		return types.NewError(err, types.ErrorCodeBadResponseBody), nil
-	}
+	_ = json.Unmarshal(responseBody, &cfResp)
 
 	extractedText := strings.TrimSpace(cfResp.Result.Text)
 	if extractedText == "" {
-		extractedText = strings.TrimSpace(cfResp.Results.Text)
+		extractedText = strings.TrimSpace(cfResp.Result.Transcript)
 	}
-	if extractedText == "" {
-		extractedText = strings.TrimSpace(cfResp.Text)
+	if extractedText == "" && cfResp.Result.Results != nil {
+		extractedText = strings.TrimSpace(cfResp.Result.Results.Text)
+		if extractedText == "" {
+			extractedText = strings.TrimSpace(cfResp.Result.Results.Transcript)
+		}
+		if extractedText == "" {
+			for _, ch := range cfResp.Result.Results.Channels {
+				for _, alt := range ch.Alternatives {
+					if t := strings.TrimSpace(alt.Transcript); t != "" {
+						extractedText = t
+						break
+					}
+				}
+				if extractedText != "" {
+					break
+				}
+			}
+		}
 	}
 	if extractedText == "" {
 		for _, ch := range cfResp.Result.Channels {
@@ -152,6 +190,12 @@ func cfSTTHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respon
 		}
 	}
 	if extractedText == "" {
+		extractedText = strings.TrimSpace(cfResp.Results.Text)
+	}
+	if extractedText == "" {
+		extractedText = strings.TrimSpace(cfResp.Results.Transcript)
+	}
+	if extractedText == "" {
 		for _, ch := range cfResp.Results.Channels {
 			for _, alt := range ch.Alternatives {
 				if t := strings.TrimSpace(alt.Transcript); t != "" {
@@ -162,6 +206,18 @@ func cfSTTHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respon
 			if extractedText != "" {
 				break
 			}
+		}
+	}
+	if extractedText == "" {
+		extractedText = strings.TrimSpace(cfResp.Text)
+	}
+	if extractedText == "" {
+		extractedText = strings.TrimSpace(cfResp.Transcript)
+	}
+	if extractedText == "" {
+		var rawMap any
+		if err := json.Unmarshal(responseBody, &rawMap); err == nil {
+			extractedText = extractTranscriptFromRaw(rawMap)
 		}
 	}
 

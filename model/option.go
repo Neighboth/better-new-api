@@ -272,6 +272,15 @@ func InitOptionMap() {
 	common.OptionMap["CaptchaProviderOrder"] = "turnstile,recaptcha,hcaptcha,image"
 	common.OptionMap["EpayProviders"] = "[]"
 	common.OptionMap["TicketEnabled"] = "true"
+	common.OptionMap["EnableDirectLinkTopup"] = "false"
+	common.OptionMap["DirectLinkUrl"] = ""
+	common.OptionMap["DirectLinkTitle"] = "Direct Link"
+	common.OptionMap["DirectLinkDescription"] = ""
+	common.OptionMap["DirectLinkMinTopup"] = "1"
+	common.OptionMap["EnableCryptoTopup"] = "false"
+	common.OptionMap["CryptoWallets"] = "[]"
+	common.OptionMap["CryptoInstructions"] = ""
+	common.OptionMap["CryptoMinTopup"] = "1"
 
 	// 自动添加所有注册的模型配置
 	modelConfigs := config.GlobalConfig.ExportAllConfigs()

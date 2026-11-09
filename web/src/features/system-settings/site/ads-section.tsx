@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
-import { Download, Plus, Trash2, Upload } from 'lucide-react'
+import { Download, Loader2, Plus, Trash2, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -74,6 +74,7 @@ import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 
 type CustomAdDraft = {
+  _draftKey?: string
   id: string
   image: string
   images?: Record<string, string>
@@ -108,7 +109,8 @@ function parseCustomAds(raw: string): CustomAdDraft[] {
     if (!Array.isArray(parsed)) return []
     return parsed
       .filter((ad) => ad && typeof ad.id === 'string')
-      .map((ad) => ({
+      .map((ad, idx) => ({
+        _draftKey: `draft-ad-${idx}-${Math.random().toString(36).slice(2, 9)}`,
         id: ad.id as string,
         image: typeof ad.image === 'string' ? ad.image : '',
         images: typeof (ad as { images?: unknown }).images === 'object' && (ad as { images?: Record<string, string> }).images ? ((ad as { images: Record<string, string> }).images) : {},
@@ -139,7 +141,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null)
+  const [uploadingSlot, setUploadingSlot] = useState<{ index: number; lang: string } | null>(null)
 
   const form = useForm<AdsFormValues>({
     resolver: zodResolver(adsSchema),
@@ -217,10 +219,13 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
         return
       }
       const hasAnyImage =
-        (ad.image && ad.image.trim() !== '') ||
-        (ad.images && Object.values(ad.images).some((img) => img && img.trim() !== ''))
-      if (!hasAnyImage || !ad.url.trim()) {
-        toast.error(t('Every ad needs at least one image URL (or localized image) and a target URL'))
+        ad.images && Object.values(ad.images).some((img) => img && img.trim() !== '')
+      if (!hasAnyImage) {
+        toast.error(t('byog.ad_need_image', 'Her reklam için en az bir dile özel görsel girilmelidir'))
+        return
+      }
+      if (!ad.url.trim()) {
+        toast.error(t('Every ad needs a target URL'))
         return
       }
     }
@@ -237,7 +242,23 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
       }
     }
 
-    const customAdsJson = JSON.stringify(customAds)
+    const sanitizedAds = customAds.map((ad) => {
+      const anyImg = ad.images
+        ? ad.images['tr'] ||
+          ad.images['en'] ||
+          Object.values(ad.images).find((v) => v && v.trim() !== '') ||
+          ''
+        : ''
+      return {
+        id: ad.id,
+        image: anyImg,
+        images: ad.images || {},
+        url: ad.url,
+        placements: ad.placements,
+      }
+    })
+
+    const customAdsJson = JSON.stringify(sanitizedAds)
     const entries: [keyof AdsFormValues, string][] = [
       ['AdsEnabled', String(data.AdsEnabled)],
       ['AdsMode', data.AdsMode],
@@ -259,8 +280,10 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
     setCustomAds((current) => [
       ...current,
       {
+        _draftKey: `draft-ad-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         id: `sponsor-ad-${current.length + 1}`,
         image: '',
+        images: {},
         url: '',
         placements: [surfaces[0] ?? 'blog'],
       },
@@ -270,7 +293,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
   const updateCustomAd = (
     index: number,
     field: keyof CustomAdDraft,
-    value: string | AdSurface[]
+    value: string | Record<string, string> | AdSurface[]
   ) => {
     setCustomAds((current) =>
       current.map((ad, i) => (i === index ? { ...ad, [field]: value } : ad))
@@ -307,16 +330,18 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
     setCustomAds((current) => current.filter((_, i) => i !== index))
   }
 
-  const handleFileUpload = async (index: number, file: File) => {
+  const handleFileUpload = async (index: number, lang: string, file: File) => {
     const formData = new FormData()
     formData.append('file', file)
-    setUploadingIndex(index)
+    setUploadingSlot({ index, lang })
     try {
       const res = await api.post('/api/blog/manage/ads/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
       if (res.data?.success && res.data?.data) {
-        updateCustomAd(index, 'image', res.data.data)
+        const ad = customAds[index]
+        const updatedImages = { ...(ad?.images || {}), [lang]: res.data.data }
+        updateCustomAd(index, 'images' as keyof CustomAdDraft, updatedImages)
         toast.success(t('Image uploaded successfully'))
       } else {
         toast.error(res.data?.message || t('Failed to upload image'))
@@ -324,7 +349,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
     } catch {
       toast.error(t('Failed to upload image'))
     } finally {
-      setUploadingIndex(null)
+      setUploadingSlot(null)
     }
   }
 
@@ -496,7 +521,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                     </p>
                   )}
                   {customAds.map((ad, index) => (
-                    <Card key={ad.id || `ad-slot-${index}`} className='py-3'>
+                    <Card key={ad._draftKey || `ad-slot-${index}`} className='py-3'>
                       <CardContent className='grid gap-3 px-3'>
                         <div className='flex items-center justify-between gap-2'>
                           <div className='flex-1'>
@@ -522,58 +547,58 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                             <Trash2 className='h-4 w-4' />
                           </Button>
                         </div>
-                        <div>
-                          <Label className='text-xs'>{t('Image URL (Varsayılan / Genel Görsel - Opsiyonel)')}</Label>
-                          <div className='flex items-center gap-2'>
-                            <Input
-                              value={ad.image}
-                              onChange={(event) =>
-                                updateCustomAd(
-                                  index,
-                                  'image',
-                                  event.target.value
-                                )
-                              }
-                              placeholder='https://example.com/banner.png veya boş bırakın'
-                            />
-                            <Button
-                              type='button'
-                              variant='outline'
-                              size='sm'
-                              disabled={uploadingIndex === index}
-                              onClick={() => {
-                                setUploadingIndex(index)
-                                fileInputRef.current?.click()
-                              }}
-                            >
-                              <Upload className='me-1 h-4 w-4' />
-                              {t('Upload')}
-                            </Button>
-                          </div>
-                        </div>
                         <div className='rounded-lg border border-border/50 bg-muted/20 p-2.5 space-y-2'>
-                          <Label className='text-xs font-semibold text-muted-foreground'>
-                            {t('byog.ad_locale_images', 'Dile Özel Görseller (Opsiyonel)')}
-                          </Label>
+                          <div className='flex items-center justify-between'>
+                            <Label className='text-xs font-semibold text-foreground'>
+                              {t('byog.ad_locale_images', 'Dile Özel Görseller')}
+                              <span className='ml-1 text-destructive'>*</span>
+                            </Label>
+                            <span className='text-[10px] text-muted-foreground'>
+                              {t('En az biri zorunlu')}
+                            </span>
+                          </div>
                           <div className='grid grid-cols-1 sm:grid-cols-2 gap-2'>
-                            {AD_LANGUAGES.map((lang) => (
-                              <div key={lang.code} className='flex items-center gap-1.5'>
-                                <span className='text-xs shrink-0 w-10 flex items-center gap-1'>
-                                  <span>{lang.flag}</span>
-                                  <span className='font-mono font-bold'>{lang.label}</span>
-                                </span>
-                                <Input
-                                  value={ad.images?.[lang.code] || ''}
-                                  onChange={(e) => {
-                                    const updatedImages = { ...(ad.images || {}), [lang.code]: e.target.value }
-                                    if (!e.target.value) delete updatedImages[lang.code]
-                                    updateCustomAd(index, 'images' as keyof CustomAdDraft, updatedImages)
-                                  }}
-                                  placeholder={`${lang.label} URL...`}
-                                  className='h-7 text-xs'
-                                />
-                              </div>
-                            ))}
+                            {AD_LANGUAGES.map((lang) => {
+                              const isUploadingThis =
+                                uploadingSlot?.index === index &&
+                                uploadingSlot?.lang === lang.code
+                              return (
+                                <div key={lang.code} className='flex items-center gap-1.5'>
+                                  <span className='text-xs shrink-0 w-10 flex items-center gap-1'>
+                                    <span>{lang.flag}</span>
+                                    <span className='font-mono font-bold'>{lang.label}</span>
+                                  </span>
+                                  <Input
+                                    value={ad.images?.[lang.code] || ''}
+                                    onChange={(e) => {
+                                      const updatedImages = { ...(ad.images || {}), [lang.code]: e.target.value }
+                                      if (!e.target.value) delete updatedImages[lang.code]
+                                      updateCustomAd(index, 'images' as keyof CustomAdDraft, updatedImages)
+                                    }}
+                                    placeholder={`${lang.label} URL...`}
+                                    className='h-7 text-xs flex-1'
+                                  />
+                                  <Button
+                                    type='button'
+                                    variant='outline'
+                                    size='icon'
+                                    className='h-7 w-7 shrink-0'
+                                    disabled={isUploadingThis}
+                                    onClick={() => {
+                                      setUploadingSlot({ index, lang: lang.code })
+                                      fileInputRef.current?.click()
+                                    }}
+                                    title={`${lang.label} ${t('Upload')}`}
+                                  >
+                                    {isUploadingThis ? (
+                                      <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                                    ) : (
+                                      <Upload className='h-3.5 w-3.5' />
+                                    )}
+                                  </Button>
+                                </div>
+                              )
+                            })}
                           </div>
                         </div>
                         <div>
@@ -872,8 +897,8 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
         accept='image/*'
         onChange={(e) => {
           const file = e.target.files?.[0]
-          if (file && uploadingIndex !== null) {
-            void handleFileUpload(uploadingIndex, file)
+          if (file && uploadingSlot !== null) {
+            void handleFileUpload(uploadingSlot.index, uploadingSlot.lang, file)
           }
           e.target.value = ''
         }}

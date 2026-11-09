@@ -156,6 +156,24 @@ export interface TopupInfo {
   payment_compliance_confirmed?: boolean
   /** Current compliance terms version */
   payment_compliance_terms_version?: string
+  /** Whether Direct Link topup is enabled */
+  enable_direct_link_topup?: boolean
+  direct_link_url?: string
+  direct_link_title?: string
+  direct_link_description?: string
+  direct_link_min_topup?: number
+  /** Whether Crypto topup is enabled */
+  enable_crypto_topup?: boolean
+  crypto_wallets?: Array<{
+    id: string
+    network: string
+    address: string
+    qr_code?: string
+    min_deposit?: number
+    instructions?: string
+  }>
+  crypto_instructions?: string
+  crypto_min_topup?: number
 }
 
 /**

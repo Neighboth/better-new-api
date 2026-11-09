@@ -33,6 +33,7 @@ import {
   AlertDescription,
   AlertTitle,
 } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -68,6 +69,8 @@ import { safeNumberFieldProps } from '../utils/numeric-field'
 import { AmountDiscountVisualEditor } from './amount-discount-visual-editor'
 import { AmountOptionsVisualEditor } from './amount-options-visual-editor'
 import { CreemProductsVisualEditor } from './creem-products-visual-editor'
+import { CryptoWalletsVisualEditor } from './crypto-wallets-visual-editor'
+import { AdminCryptoDepositsTable } from './admin-crypto-deposits-table'
 import { PaymentMethodsVisualEditor } from './payment-methods-visual-editor'
 import {
   formatJsonForEditor,
@@ -200,6 +203,15 @@ const paymentSchema = z.object({
   ShopifyStoreDomain: z.string(),
   ShopifyAccessToken: z.string(),
   ShopifyWebhookSecret: z.string(),
+  EnableDirectLinkTopup: z.boolean(),
+  DirectLinkUrl: z.string(),
+  DirectLinkTitle: z.string(),
+  DirectLinkDescription: z.string(),
+  DirectLinkMinTopup: z.coerce.number().min(0),
+  EnableCryptoTopup: z.boolean(),
+  CryptoWallets: z.string(),
+  CryptoInstructions: z.string(),
+  CryptoMinTopup: z.coerce.number().min(0),
 })
 
 type PaymentFormValues = z.infer<typeof paymentSchema>
@@ -211,6 +223,26 @@ type PaymentBaseFormValues = Omit<
 
 const CURRENT_COMPLIANCE_TERMS_VERSION = 'v1'
 const paymentTabContentClassName = 'mt-6 min-w-0'
+
+const RESERVED_EPAY_SLUGS = new Set([
+  'epay',
+  'stripe',
+  'waffo',
+  'waffo-pancake',
+  'waffo_pancake',
+  'direct',
+  'direct-link',
+  'direct_link',
+  'crypto',
+  'shopier',
+  'paytr',
+  'paypal',
+  'iyzico',
+  'shopify',
+  'creem',
+  'balance',
+  'redemption',
+])
 
 type PaymentComplianceDefaults = {
   confirmed: boolean
@@ -493,7 +525,35 @@ export function PaymentSettingsSection({
     [epayProvidersList, form]
   )
 
+  const getEpaySlugError = React.useCallback(
+    (index: number, id: string): string | null => {
+      const cleanId = (id || '').trim().toLowerCase()
+      if (!cleanId) {
+        return t('Slug / ID boş bırakılamaz')
+      }
+      if (RESERVED_EPAY_SLUGS.has(cleanId)) {
+        return t('Bu slug ("{{slug}}") rezerve edilmiştir ve kullanılamaz (Ana sağlayıcı veya sistem ödeme yöntemlerine aittir).', { slug: id })
+      }
+      const duplicateIndex = epayProvidersList.findIndex(
+        (p, i) => i !== index && (p.id || '').trim().toLowerCase() === cleanId
+      )
+      if (duplicateIndex !== -1) {
+        return t('Bu slug ("{{slug}}") başka bir sağlayıcı tarafından zaten kullanılıyor.', { slug: id })
+      }
+      return null
+    },
+    [epayProvidersList, t]
+  )
+
   const onSubmit = async (values: PaymentFormValues) => {
+    for (let i = 0; i < epayProvidersList.length; i++) {
+      const err = getEpaySlugError(i, epayProvidersList[i].id || '')
+      if (err) {
+        toast.error(err)
+        return
+      }
+    }
+
     const sanitized = {
       PayAddress: removeTrailingSlash(values.PayAddress),
       EpayId: values.EpayId.trim(),
@@ -551,6 +611,15 @@ export function PaymentSettingsSection({
       ShopifyStoreDomain: values.ShopifyStoreDomain.trim(),
       ShopifyAccessToken: values.ShopifyAccessToken.trim(),
       ShopifyWebhookSecret: values.ShopifyWebhookSecret.trim(),
+      EnableDirectLinkTopup: values.EnableDirectLinkTopup,
+      DirectLinkUrl: removeTrailingSlash(values.DirectLinkUrl?.trim() || ''),
+      DirectLinkTitle: (values.DirectLinkTitle || '').trim(),
+      DirectLinkDescription: (values.DirectLinkDescription || '').trim(),
+      DirectLinkMinTopup: values.DirectLinkMinTopup || 1,
+      EnableCryptoTopup: values.EnableCryptoTopup,
+      CryptoWallets: (values.CryptoWallets || '[]').trim(),
+      CryptoInstructions: (values.CryptoInstructions || '').trim(),
+      CryptoMinTopup: values.CryptoMinTopup || 1,
     }
 
     const initial = {
@@ -615,6 +684,15 @@ export function PaymentSettingsSection({
       ShopifyStoreDomain: (initialRef.current.ShopifyStoreDomain || '').trim(),
       ShopifyAccessToken: (initialRef.current.ShopifyAccessToken || '').trim(),
       ShopifyWebhookSecret: (initialRef.current.ShopifyWebhookSecret || '').trim(),
+      EnableDirectLinkTopup: initialRef.current.EnableDirectLinkTopup,
+      DirectLinkUrl: removeTrailingSlash(initialRef.current.DirectLinkUrl?.trim() || ''),
+      DirectLinkTitle: (initialRef.current.DirectLinkTitle || '').trim(),
+      DirectLinkDescription: (initialRef.current.DirectLinkDescription || '').trim(),
+      DirectLinkMinTopup: initialRef.current.DirectLinkMinTopup || 1,
+      EnableCryptoTopup: initialRef.current.EnableCryptoTopup,
+      CryptoWallets: (initialRef.current.CryptoWallets || '[]').trim(),
+      CryptoInstructions: (initialRef.current.CryptoInstructions || '').trim(),
+      CryptoMinTopup: initialRef.current.CryptoMinTopup || 1,
     }
 
     const updates: Array<{ key: string; value: string | number | boolean }> = []
@@ -869,6 +947,35 @@ export function PaymentSettingsSection({
       updates.push({ key: 'ShopifyWebhookSecret', value: sanitized.ShopifyWebhookSecret })
     }
 
+    if (sanitized.EnableDirectLinkTopup !== initial.EnableDirectLinkTopup) {
+      updates.push({ key: 'EnableDirectLinkTopup', value: sanitized.EnableDirectLinkTopup })
+    }
+    if (sanitized.DirectLinkUrl !== initial.DirectLinkUrl) {
+      updates.push({ key: 'DirectLinkUrl', value: sanitized.DirectLinkUrl })
+    }
+    if (sanitized.DirectLinkTitle !== initial.DirectLinkTitle) {
+      updates.push({ key: 'DirectLinkTitle', value: sanitized.DirectLinkTitle })
+    }
+    if (sanitized.DirectLinkDescription !== initial.DirectLinkDescription) {
+      updates.push({ key: 'DirectLinkDescription', value: sanitized.DirectLinkDescription })
+    }
+    if (sanitized.DirectLinkMinTopup !== initial.DirectLinkMinTopup) {
+      updates.push({ key: 'DirectLinkMinTopup', value: sanitized.DirectLinkMinTopup })
+    }
+
+    if (sanitized.EnableCryptoTopup !== initial.EnableCryptoTopup) {
+      updates.push({ key: 'EnableCryptoTopup', value: sanitized.EnableCryptoTopup })
+    }
+    if (sanitized.CryptoWallets !== initial.CryptoWallets) {
+      updates.push({ key: 'CryptoWallets', value: sanitized.CryptoWallets })
+    }
+    if (sanitized.CryptoInstructions !== initial.CryptoInstructions) {
+      updates.push({ key: 'CryptoInstructions', value: sanitized.CryptoInstructions })
+    }
+    if (sanitized.CryptoMinTopup !== initial.CryptoMinTopup) {
+      updates.push({ key: 'CryptoMinTopup', value: sanitized.CryptoMinTopup })
+    }
+
     const hasWaffoPancakeChanges =
       sanitized.WaffoPancakeMerchantID !== initial.WaffoPancakeMerchantID ||
       sanitized.WaffoPancakePrivateKey.length > 0 ||
@@ -1045,7 +1152,7 @@ export function PaymentSettingsSection({
           />
           <Tabs defaultValue='general' className='min-w-0'>
             <div className='overflow-x-auto pb-1'>
-              <TabsList className='grid min-w-[70rem] grid-cols-11'>
+              <TabsList className='grid min-w-[85rem] grid-cols-13'>
                 <TabsTrigger value='general'>{t('General')}</TabsTrigger>
                 <TabsTrigger value='epay'>{t('EPay')}</TabsTrigger>
                 <TabsTrigger value='stripe'>{t('Stripe')}</TabsTrigger>
@@ -1057,6 +1164,8 @@ export function PaymentSettingsSection({
                 <TabsTrigger value='creem'>{t('Creem')}</TabsTrigger>
                 <TabsTrigger value='waffo-pancake'>{t('Waffo Pancake')}</TabsTrigger>
                 <TabsTrigger value='waffo'>{t('Waffo')}</TabsTrigger>
+                <TabsTrigger value='direct'>{t('Direct Link')}</TabsTrigger>
+                <TabsTrigger value='crypto'>{t('Crypto')}</TabsTrigger>
               </TabsList>
             </div>
 
@@ -1326,6 +1435,18 @@ export function PaymentSettingsSection({
                   </AlertDescription>
                 </Alert>
 
+                <div className='flex items-center justify-between pb-3 border-b pt-2'>
+                  <div className='flex items-center gap-2'>
+                    <h4 className='text-sm font-semibold'>{t('Ana Epay Sağlayıcısı')}</h4>
+                    <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
+                      slug: epay
+                    </Badge>
+                  </div>
+                  <span className='text-xs text-muted-foreground'>
+                    {t('Varsayılan Birincil Ağ Geçidi')}
+                  </span>
+                </div>
+
                 <div className='grid gap-6 md:grid-cols-2'>
                   <FormField
                     control={form.control}
@@ -1427,7 +1548,7 @@ export function PaymentSettingsSection({
                 <div className='mt-8 pt-6 border-t space-y-4'>
                   <div className='flex items-center justify-between'>
                     <div>
-                      <h4 className='text-sm font-semibold'>{t('Multiple EPay Providers')}</h4>
+                      <h4 className='text-sm font-semibold'>{t('Other EPay Providers (optional)')}</h4>
                       <p className='text-xs text-muted-foreground'>
                         {t('Configure additional EPay merchants or payment channels for your users.')}
                       </p>
@@ -1449,72 +1570,96 @@ export function PaymentSettingsSection({
                     </div>
                   ) : (
                     <div className='space-y-3'>
-                      {epayProvidersList.map((provider, index) => (
-                        <div key={index} className='rounded-lg border p-4 bg-muted/20 space-y-3'>
-                          <div className='flex items-center justify-between'>
-                            <span className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
-                              #{index + 1} {provider.name || provider.id || t('Provider')}
-                            </span>
-                            <Button
-                              type='button'
-                              variant='ghost'
-                              size='icon'
-                              className='h-7 w-7 text-destructive hover:bg-destructive/10'
-                              onClick={() => handleRemoveEpayProvider(index)}
-                            >
-                              <Trash2 className='h-3.5 w-3.5' />
-                            </Button>
+                      {epayProvidersList.map((provider, index) => {
+                        const slugErr = getEpaySlugError(index, provider.id || '')
+                        return (
+                          <div
+                            key={index}
+                            className={cn(
+                              'rounded-lg border p-4 bg-muted/20 space-y-3',
+                              slugErr && 'border-destructive/60 bg-destructive/5'
+                            )}
+                          >
+                            <div className='flex items-center justify-between'>
+                              <div className='flex items-center gap-2'>
+                                <span className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
+                                  #{index + 1} {provider.name || provider.id || t('Provider')}
+                                </span>
+                                {slugErr && (
+                                  <Badge variant='destructive' className='text-[10px] py-0 px-1.5'>
+                                    {t('Slug Hatası')}
+                                  </Badge>
+                                )}
+                              </div>
+                              <Button
+                                type='button'
+                                variant='ghost'
+                                size='icon'
+                                className='h-7 w-7 text-destructive hover:bg-destructive/10'
+                                onClick={() => handleRemoveEpayProvider(index)}
+                              >
+                                <Trash2 className='h-3.5 w-3.5' />
+                              </Button>
+                            </div>
+                            <div className='grid gap-3 sm:grid-cols-2 md:grid-cols-4'>
+                              <div>
+                                <label className='text-[11px] font-medium text-muted-foreground'>{t('ID / Slug')}</label>
+                                <Input
+                                  placeholder='epay-1'
+                                  value={provider.id || ''}
+                                  className={cn(
+                                    'h-8 text-xs font-mono',
+                                    slugErr && 'border-destructive focus-visible:ring-destructive'
+                                  )}
+                                  onChange={(e) => handleUpdateEpayProvider(index, 'id', e.target.value)}
+                                />
+                                {slugErr && (
+                                  <p className='text-[10px] text-destructive mt-1 leading-tight font-medium'>
+                                    {slugErr}
+                                  </p>
+                                )}
+                              </div>
+                              <div>
+                                <label className='text-[11px] font-medium text-muted-foreground'>{t('Display Name')}</label>
+                                <Input
+                                  placeholder='Alipay / WeChat'
+                                  value={provider.name || ''}
+                                  className='h-8 text-xs'
+                                  onChange={(e) => handleUpdateEpayProvider(index, 'name', e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <label className='text-[11px] font-medium text-muted-foreground'>{t('Gateway URL')}</label>
+                                <Input
+                                  placeholder='https://pay.example.com'
+                                  value={provider.pay_address || ''}
+                                  className='h-8 text-xs'
+                                  onChange={(e) => handleUpdateEpayProvider(index, 'pay_address', e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <label className='text-[11px] font-medium text-muted-foreground'>{t('Merchant ID')}</label>
+                                <Input
+                                  placeholder='10002'
+                                  value={provider.partner_id || ''}
+                                  className='h-8 text-xs'
+                                  onChange={(e) => handleUpdateEpayProvider(index, 'partner_id', e.target.value)}
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label className='text-[11px] font-medium text-muted-foreground'>{t('Secret Key')}</label>
+                              <Input
+                                type='password'
+                                placeholder={t('Secret Key')}
+                                value={provider.key || ''}
+                                className='h-8 text-xs'
+                                onChange={(e) => handleUpdateEpayProvider(index, 'key', e.target.value)}
+                              />
+                            </div>
                           </div>
-                          <div className='grid gap-3 sm:grid-cols-2 md:grid-cols-4'>
-                            <div>
-                              <label className='text-[11px] font-medium text-muted-foreground'>{t('ID / Slug')}</label>
-                              <Input
-                                placeholder='epay-1'
-                                value={provider.id || ''}
-                                className='h-8 text-xs'
-                                onChange={(e) => handleUpdateEpayProvider(index, 'id', e.target.value)}
-                              />
-                            </div>
-                            <div>
-                              <label className='text-[11px] font-medium text-muted-foreground'>{t('Display Name')}</label>
-                              <Input
-                                placeholder='Alipay / WeChat'
-                                value={provider.name || ''}
-                                className='h-8 text-xs'
-                                onChange={(e) => handleUpdateEpayProvider(index, 'name', e.target.value)}
-                              />
-                            </div>
-                            <div>
-                              <label className='text-[11px] font-medium text-muted-foreground'>{t('Gateway URL')}</label>
-                              <Input
-                                placeholder='https://pay.example.com'
-                                value={provider.pay_address || ''}
-                                className='h-8 text-xs'
-                                onChange={(e) => handleUpdateEpayProvider(index, 'pay_address', e.target.value)}
-                              />
-                            </div>
-                            <div>
-                              <label className='text-[11px] font-medium text-muted-foreground'>{t('Merchant ID')}</label>
-                              <Input
-                                placeholder='10002'
-                                value={provider.partner_id || ''}
-                                className='h-8 text-xs'
-                                onChange={(e) => handleUpdateEpayProvider(index, 'partner_id', e.target.value)}
-                              />
-                            </div>
-                          </div>
-                          <div>
-                            <label className='text-[11px] font-medium text-muted-foreground'>{t('Secret Key')}</label>
-                            <Input
-                              type='password'
-                              placeholder={t('Secret Key')}
-                              value={provider.key || ''}
-                              className='h-8 text-xs'
-                              onChange={(e) => handleUpdateEpayProvider(index, 'key', e.target.value)}
-                            />
-                          </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -2334,6 +2479,212 @@ export function PaymentSettingsSection({
                 payMethods={waffoPayMethods}
                 onPayMethodsChange={setWaffoPayMethods}
               />
+            </TabsContent>
+
+            <TabsContent value='direct' className={paymentTabContentClassName}>
+              <div className='space-y-6'>
+                <div>
+                  <h3 className='text-lg font-medium'>{t('Direct Link Gateway')}</h3>
+                  <p className='text-muted-foreground text-sm'>
+                    {t('Kullanıcıları harici bir ödeme linkine veya mağazaya doğrudan yönlendirmek için yapılandırın.')}
+                  </p>
+                </div>
+
+                <SettingsSwitchItem
+                  title={t('Direct Link ile Ödemeyi Etkinleştir')}
+                  description={t('Kullanıcılar bakiye yüklerken bu ödeme yöntemini seçtiklerinde doğrudan belirtilen linke yönlendirilir.')}
+                >
+                  <FormField
+                    control={form.control}
+                    name='EnableDirectLinkTopup'
+                    render={({ field }) => (
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    )}
+                  />
+                </SettingsSwitchItem>
+
+                <SettingsSwitchContent show={form.watch('EnableDirectLinkTopup')}>
+                  <div className='grid gap-6 md:grid-cols-2'>
+                    <FormField
+                      control={form.control}
+                      name='DirectLinkUrl'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Ödeme Bağlantısı (URL)')} *</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='https://shop.example.com/pay'
+                              {...field}
+                              onChange={(e) => field.onChange(e.target.value)}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Kullanıcının yönlendirileceği harici ödeme sayfası adresi.')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='DirectLinkTitle'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Görünen Başlık')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder={t('Direct Link / Mağaza')}
+                              {...field}
+                              onChange={(e) => field.onChange(e.target.value)}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Ödeme seçenekleri listesinde görünecek buton adı (Varsayılan: Direct Link).')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <div className='grid gap-6 md:grid-cols-2'>
+                    <FormField
+                      control={form.control}
+                      name='DirectLinkMinTopup'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Minimum Tutar ($)')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min='0'
+                              {...field}
+                              {...safeNumberFieldProps(field)}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Bu yöntemin seçilebilmesi için gereken minimum tutar.')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='DirectLinkDescription'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Açıklama / Not')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder={t('Güvenli harici ödeme sayfası')}
+                              {...field}
+                              onChange={(e) => field.onChange(e.target.value)}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Ödeme yönteminin altında gösterilecek opsiyonel kısa açıklama.')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </SettingsSwitchContent>
+              </div>
+            </TabsContent>
+
+            <TabsContent value='crypto' className={paymentTabContentClassName}>
+              <div className='space-y-6'>
+                <div>
+                  <h3 className='text-lg font-medium'>{t('Crypto Payment Gateway')}</h3>
+                  <p className='text-muted-foreground text-sm'>
+                    {t('Kripto para cüzdanlarınızı ve transfer bildirim yönetimini buradan yapılandırın.')}
+                  </p>
+                </div>
+
+                <SettingsSwitchItem
+                  title={t('Kripto ile Ödemeyi Etkinleştir')}
+                  description={t('Kullanıcıların kripto transferi yaparak bakiye yüklemesine ve TxID bildirimi yapmasına olanak tanır.')}
+                >
+                  <FormField
+                    control={form.control}
+                    name='EnableCryptoTopup'
+                    render={({ field }) => (
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    )}
+                  />
+                </SettingsSwitchItem>
+
+                <SettingsSwitchContent show={form.watch('EnableCryptoTopup')}>
+                  <div className='grid gap-6 md:grid-cols-2'>
+                    <FormField
+                      control={form.control}
+                      name='CryptoMinTopup'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Minimum Kripto Yükleme Tutarı ($)')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min='0'
+                              {...field}
+                              {...safeNumberFieldProps(field)}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Kripto ile bakiye yüklemede kabul edilecek minimum tutar.')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='CryptoInstructions'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Kullanıcı Bilgilendirme Metni')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder={t('Lütfen belirtilen adrese transfer yaptıktan sonra TxID bilgisini girin.')}
+                              {...field}
+                              onChange={(e) => field.onChange(e.target.value)}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Kripto ödeme modalında kullanıcılara gösterilecek özel talimatlar.')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <div className='mt-6 pt-6 border-t'>
+                    <CryptoWalletsVisualEditor
+                      value={form.watch('CryptoWallets')}
+                      onChange={(val) =>
+                        form.setValue('CryptoWallets', val, {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <AdminCryptoDepositsTable />
+                </SettingsSwitchContent>
+              </div>
             </TabsContent>
           </Tabs>
         </SettingsForm>
