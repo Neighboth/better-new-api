@@ -132,7 +132,6 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 		constant.ChannelTypeJimeng,
 		constant.ChannelTypeDoubaoVideo,
 		constant.ChannelTypeVidu,
-		constant.ChannelTypeAepi,
 	}
 	if lo.Contains(unsupportedTestChannelTypes, channel.Type) {
 		channelTypeName := constant.GetChannelTypeName(channel.Type)
@@ -140,6 +139,11 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 			localErr: fmt.Errorf("%s channel test is not supported", channelTypeName),
 		}
 	}
+
+	if channel.Type == constant.ChannelTypeAepi {
+		return testAepiChannel(ctx, channel, testUserID, tik)
+	}
+
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
@@ -613,7 +617,7 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 			c.Request.Method = http.MethodPost
 		}
 		if channel.Type == constant.ChannelCloudflare || info.ApiType == constant.APITypeCloudflare {
-			audioBytes := getSTTSampleAudio()
+			audioBytes := getCleanSTTSampleAudio()
 			c.Request.Header.Set("Content-Type", "application/octet-stream")
 			requestBody = bytes.NewBuffer(audioBytes)
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(audioBytes))
@@ -719,15 +723,57 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 	var testMessage string
 	if info.RelayMode == relayconstant.RelayModeAudioTranscription {
 		var sttRes struct {
-			Text   string `json:"text"`
-			Result struct {
-				Text string `json:"text"`
+			Text    string `json:"text"`
+			Result  struct {
+				Text     string `json:"text"`
+				Channels []struct {
+					Alternatives []struct {
+						Transcript string `json:"transcript"`
+					} `json:"alternatives"`
+				} `json:"channels"`
 			} `json:"result"`
+			Results struct {
+				Text     string `json:"text"`
+				Channels []struct {
+					Alternatives []struct {
+						Transcript string `json:"transcript"`
+					} `json:"alternatives"`
+				} `json:"channels"`
+			} `json:"results"`
 		}
 		_ = json.Unmarshal(respBody, &sttRes)
 		transcription := strings.TrimSpace(sttRes.Text)
 		if transcription == "" {
 			transcription = strings.TrimSpace(sttRes.Result.Text)
+		}
+		if transcription == "" {
+			transcription = strings.TrimSpace(sttRes.Results.Text)
+		}
+		if transcription == "" {
+			for _, ch := range sttRes.Result.Channels {
+				for _, alt := range ch.Alternatives {
+					if t := strings.TrimSpace(alt.Transcript); t != "" {
+						transcription = t
+						break
+					}
+				}
+				if transcription != "" {
+					break
+				}
+			}
+		}
+		if transcription == "" {
+			for _, ch := range sttRes.Results.Channels {
+				for _, alt := range ch.Alternatives {
+					if t := strings.TrimSpace(alt.Transcript); t != "" {
+						transcription = t
+						break
+					}
+				}
+				if transcription != "" {
+					break
+				}
+			}
 		}
 		if transcription == "" {
 			transcription = strings.TrimSpace(string(respBody))
@@ -741,6 +787,77 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 		newAPIError: nil,
 		message:     testMessage,
 		respBody:    respBody,
+	}
+}
+
+func testAepiChannel(ctx context.Context, channel *model.Channel, testUserID int, tik time.Time) testResult {
+	baseURL := channel.GetBaseURL()
+	if baseURL == "" {
+		baseURL = "https://videoapi.aerobox.eu.cc"
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+
+	key, _, apiErr := channel.GetNextEnabledKey()
+	if apiErr != nil {
+		return testResult{
+			localErr: fmt.Errorf("Aepi API anahtarı alınamadı: %w", apiErr),
+		}
+	}
+	key = strings.TrimSpace(key)
+
+	reqURL := fmt.Sprintf("%s/v1/jobs?limit=1", baseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return testResult{
+			localErr: fmt.Errorf("Aepi test isteği oluşturulamadı: %w", err),
+		}
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("X-API-Key", key)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+	client, err := service.NewProxyHttpClient(channel.GetSetting().Proxy)
+	if err != nil {
+		return testResult{
+			localErr: fmt.Errorf("Aepi HTTP istemcisi hatası: %w", err),
+		}
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return testResult{
+			localErr: fmt.Errorf("Aepi sunucusuna bağlanılamadı: %w", err),
+		}
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return testResult{
+			localErr: fmt.Errorf("Aepi doğrulama başarısız (HTTP %d): %s", resp.StatusCode, string(respBody)),
+		}
+	}
+
+	milliseconds := time.Since(tik).Milliseconds()
+	consumedTime := float64(milliseconds) / 1000.0
+
+	model.RecordConsumeLog(nil, testUserID, model.RecordConsumeLogParams{
+		ChannelId:        channel.Id,
+		PromptTokens:     0,
+		CompletionTokens: 0,
+		ModelName:        "aepi",
+		TokenName:        "Aepi Channel Test",
+		Quota:            0,
+		Content:          "Aepi Channel Connectivity Test",
+		UseTimeSeconds:   int(consumedTime),
+		IsStream:         false,
+		Group:            "default",
+	})
+
+	return testResult{
+		localErr: nil,
+		message:  "Aepi Media kanalı başarıyla doğrulandı.",
+		respBody: respBody,
 	}
 }
 

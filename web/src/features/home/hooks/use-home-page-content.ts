@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import i18next from 'i18next'
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { isHttpUrl } from '@/lib/content-format'
@@ -25,39 +26,42 @@ import { isHttpUrl } from '@/lib/content-format'
 import { getHomePageContent } from '../api'
 import type { HomePageContentResult } from '../types'
 
-const STORAGE_KEY = 'home_page_content'
+const STORAGE_PREFIX = 'home_page_content_'
 
 /**
  * Hook to load and manage custom home page content
  * Supports both Markdown/HTML content and iframe URLs
  */
 export function useHomePageContent(): HomePageContentResult {
+  const { i18n } = useTranslation()
+  const activeLang = i18n.language || 'en'
   const [content, setContent] = useState<string>('')
   const [isLoaded, setIsLoaded] = useState(false)
 
   useEffect(() => {
     let mounted = true
+    const storageKey = `${STORAGE_PREFIX}${activeLang}`
 
     const loadContent = async () => {
-      // Load from localStorage first for immediate display
-      const cached = localStorage.getItem(STORAGE_KEY)
+      // Load from localized localStorage cache first for immediate display
+      const cached = localStorage.getItem(storageKey) || localStorage.getItem('home_page_content')
       if (cached && mounted) {
         setContent(cached)
       }
 
       try {
-        const response = await getHomePageContent()
+        const response = await getHomePageContent(activeLang)
         const { success, data } = response
 
         if (!mounted) return
 
         if (success && data) {
           setContent(data)
-          localStorage.setItem(STORAGE_KEY, data)
+          localStorage.setItem(storageKey, data)
         } else {
           // Clear content if API returns empty
           setContent('')
-          localStorage.removeItem(STORAGE_KEY)
+          localStorage.removeItem(storageKey)
         }
       } catch (error) {
         if (!mounted) return
@@ -76,7 +80,7 @@ export function useHomePageContent(): HomePageContentResult {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [activeLang])
 
   const isUrl = isHttpUrl(content)
 

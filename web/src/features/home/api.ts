@@ -28,7 +28,9 @@ import type { HomePageContentResponse } from './types'
  * Get custom home page content
  * Returns Markdown/HTML content or iframe URL
  */
-export async function getHomePageContent(): Promise<HomePageContentResponse> {
-  const res = await api.get('/api/home_page_content')
+export async function getHomePageContent(lang?: string): Promise<HomePageContentResponse> {
+  const res = await api.get('/api/home_page_content', {
+    params: lang ? { lang } : undefined,
+  })
   return res.data
 }

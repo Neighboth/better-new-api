@@ -216,8 +216,11 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
         toast.error(t('Ad ID must be lowercase letters, digits and dashes'))
         return
       }
-      if (!ad.image.trim() || !ad.url.trim()) {
-        toast.error(t('Every ad needs an image URL and a target URL'))
+      const hasAnyImage =
+        (ad.image && ad.image.trim() !== '') ||
+        (ad.images && Object.values(ad.images).some((img) => img && img.trim() !== ''))
+      if (!hasAnyImage || !ad.url.trim()) {
+        toast.error(t('Every ad needs at least one image URL (or localized image) and a target URL'))
         return
       }
     }
@@ -520,7 +523,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                           </Button>
                         </div>
                         <div>
-                          <Label className='text-xs'>{t('Image URL')}</Label>
+                          <Label className='text-xs'>{t('Image URL (Varsayılan / Genel Görsel - Opsiyonel)')}</Label>
                           <div className='flex items-center gap-2'>
                             <Input
                               value={ad.image}
@@ -531,7 +534,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                                   event.target.value
                                 )
                               }
-                              placeholder='https://example.com/banner.png or upload'
+                              placeholder='https://example.com/banner.png veya boş bırakın'
                             />
                             <Button
                               type='button'

@@ -18,10 +18,10 @@ describe('Aepi Media channel', () => {
       label: 'Aepi Media',
     })
 
-    expect(getChannelTypeIcon(CHANNEL_TYPE_AEPI)).toBe('Video')
+    expect(getChannelTypeIcon(CHANNEL_TYPE_AEPI)).toBe('Aepi')
 
     const config = getChannelTypeConfig(CHANNEL_TYPE_AEPI)
-    expect(config.icon).toBe('Video')
+    expect(config.icon).toBe('Aepi')
     expect(config.defaultBaseUrl).toBe('https://videoapi.aerobox.eu.cc')
   })
 })

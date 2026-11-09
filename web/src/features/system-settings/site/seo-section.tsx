@@ -114,16 +114,6 @@ const seoSchema = z.object({
   SEOKeywords_ru: z.string().optional(),
   SEOKeywords_ja: z.string().optional(),
   SEOKeywords_vi: z.string().optional(),
-
-  // 8 Languages for Social Share Image (Banner)
-  SEOSocialImage_tr: z.string().optional(),
-  SEOSocialImage_en: z.string().optional(),
-  SEOSocialImage_zh_CN: z.string().optional(),
-  SEOSocialImage_zh_TW: z.string().optional(),
-  SEOSocialImage_fr: z.string().optional(),
-  SEOSocialImage_ru: z.string().optional(),
-  SEOSocialImage_ja: z.string().optional(),
-  SEOSocialImage_vi: z.string().optional(),
 })
 
 type SEOFormValues = z.infer<typeof seoSchema>
@@ -317,30 +307,6 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
                             autoComplete='off'
                           />
                         </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name={`SEOSocialImage_${lang.key}` as any}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          {t('byog.seo_social_image', 'Sosyal Medya Paylaşım Görseli (Banner)')} ({lang.label})
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            value={field.value ?? ''}
-                            placeholder='https://example.com/banner-og.png'
-                            autoComplete='off'
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          {t('byog.seo_social_image_desc', 'Twitter/X, Telegram, WhatsApp vb. paylaşımlarda görünecek büyük banner görseli (1200x630px önerilir).')}
-                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}

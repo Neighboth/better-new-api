@@ -28,12 +28,14 @@ For commercial licensing, please contact support@quantumnous.com
 import * as LobeIcons from '@lobehub/icons'
 import type React from 'react'
 
+import { IconAepi } from '@/assets/custom/icon-aepi'
 import { IconAgnes } from '@/assets/custom/icon-agnes'
 import { IconSub2api } from '@/assets/custom/icon-sub2api'
 
 const CUSTOM_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
   Sub2API: IconSub2api,
   Agnes: IconAgnes,
+  Aepi: IconAepi,
 }
 
 /**

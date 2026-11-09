@@ -96,7 +96,14 @@ function ConsoleAdBanner(props: { ad: ConsoleAd }) {
     : currentLang.startsWith('zh')
     ? 'zh_CN'
     : currentLang.slice(0, 2)
-  const displayImage = props.ad.images?.[langKey] || props.ad.images?.[currentLang] || props.ad.image
+  const anyImage = props.ad.images ? Object.values(props.ad.images).find((val) => val && val.trim() !== '') : ''
+  const displayImage =
+    props.ad.images?.[langKey] ||
+    props.ad.images?.[currentLang] ||
+    props.ad.images?.['en'] ||
+    props.ad.image ||
+    anyImage ||
+    ''
 
   return (
     <a

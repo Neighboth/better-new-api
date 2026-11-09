@@ -143,15 +143,32 @@ func GetAdsStatus(c *gin.Context) {
 	ads := make([]gin.H, 0)
 	if allowed {
 		for _, ad := range getCustomAds() {
-			if ad.Image == "" || ad.URL == "" || !adOnSurface(ad, surface) {
+			effectiveImage := ad.Image
+			if effectiveImage == "" && len(ad.Images) > 0 {
+				if enImg, ok := ad.Images["en"]; ok && strings.TrimSpace(enImg) != "" {
+					effectiveImage = strings.TrimSpace(enImg)
+				} else {
+					for _, img := range ad.Images {
+						if strings.TrimSpace(img) != "" {
+							effectiveImage = strings.TrimSpace(img)
+							break
+						}
+					}
+				}
+			}
+			if effectiveImage == "" || ad.URL == "" || !adOnSurface(ad, surface) {
 				continue
 			}
-			ads = append(ads, gin.H{
+			adH := gin.H{
 				"id":         ad.ID,
-				"image":      ad.Image,
+				"image":      effectiveImage,
 				"url":        ad.URL,
 				"placements": placementsOf(ad),
-			})
+			}
+			if len(ad.Images) > 0 {
+				adH["images"] = ad.Images
+			}
+			ads = append(ads, adH)
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{

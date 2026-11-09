@@ -62,10 +62,11 @@ export function Home() {
       return withThemeParam(content, currentTheme)
     }
     if (contentIsHtml) {
-      return withThemeParam('/api/home_page_content/raw', currentTheme)
+      const rawUrl = `/api/home_page_content/raw?lang=${encodeURIComponent(i18n.language || 'en')}`
+      return withThemeParam(rawUrl, currentTheme)
     }
     return ''
-  }, [content, isUrl, contentIsHtml, resolvedTheme])
+  }, [content, isUrl, contentIsHtml, resolvedTheme, i18n.language])
 
   useEffect(() => {
     if (isUrl || contentIsHtml) {

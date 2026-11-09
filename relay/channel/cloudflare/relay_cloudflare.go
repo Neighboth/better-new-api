@@ -131,8 +131,42 @@ func cfSTTHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respon
 		return types.NewError(err, types.ErrorCodeBadResponseBody), nil
 	}
 
+	extractedText := strings.TrimSpace(cfResp.Result.Text)
+	if extractedText == "" {
+		extractedText = strings.TrimSpace(cfResp.Results.Text)
+	}
+	if extractedText == "" {
+		extractedText = strings.TrimSpace(cfResp.Text)
+	}
+	if extractedText == "" {
+		for _, ch := range cfResp.Result.Channels {
+			for _, alt := range ch.Alternatives {
+				if t := strings.TrimSpace(alt.Transcript); t != "" {
+					extractedText = t
+					break
+				}
+			}
+			if extractedText != "" {
+				break
+			}
+		}
+	}
+	if extractedText == "" {
+		for _, ch := range cfResp.Results.Channels {
+			for _, alt := range ch.Alternatives {
+				if t := strings.TrimSpace(alt.Transcript); t != "" {
+					extractedText = t
+					break
+				}
+			}
+			if extractedText != "" {
+				break
+			}
+		}
+	}
+
 	audioResp := &dto.AudioResponse{
-		Text: cfResp.Result.Text,
+		Text: extractedText,
 	}
 
 	jsonResponse, err := json.Marshal(audioResp)
@@ -143,6 +177,6 @@ func cfSTTHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respon
 	c.Writer.WriteHeader(resp.StatusCode)
 	_, _ = c.Writer.Write(jsonResponse)
 
-	usage := service.ResponseText2Usage(c, cfResp.Result.Text, info.UpstreamModelName, info.GetEstimatePromptTokens())
+	usage := service.ResponseText2Usage(c, extractedText, info.UpstreamModelName, info.GetEstimatePromptTokens())
 	return nil, usage
 }

@@ -9,6 +9,7 @@ const sttSampleAudioBase64 = "SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU1LjE0LjEwMQAAAA
 
 var (
 	sttSampleAudioBytes []byte
+	sttCleanAudioBytes  []byte
 	sttSampleAudioOnce  sync.Once
 )
 
@@ -17,7 +18,27 @@ func getSTTSampleAudio() []byte {
 		b, err := base64.StdEncoding.DecodeString(sttSampleAudioBase64)
 		if err == nil {
 			sttSampleAudioBytes = b
+			// Strip ID3v2 container header if present so raw MP3 frame stream is clean
+			if len(b) > 10 && string(b[:3]) == "ID3" {
+				tagSize := (int(b[6]) << 21) | (int(b[7]) << 14) | (int(b[8]) << 7) | int(b[9])
+				headerEnd := 10 + tagSize
+				if headerEnd < len(b) {
+					sttCleanAudioBytes = b[headerEnd:]
+				} else {
+					sttCleanAudioBytes = b
+				}
+			} else {
+				sttCleanAudioBytes = b
+			}
 		}
 	})
+	return sttSampleAudioBytes
+}
+
+func getCleanSTTSampleAudio() []byte {
+	getSTTSampleAudio()
+	if len(sttCleanAudioBytes) > 0 {
+		return sttCleanAudioBytes
+	}
 	return sttSampleAudioBytes
 }
