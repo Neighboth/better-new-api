@@ -67,6 +67,20 @@ function toNumber(value: unknown, fallback: number): number {
   return fallback
 }
 
+export function resolveFullUrl(url?: string | null): string {
+  if (!url) return ''
+  const trimmed = url.trim()
+  if (!trimmed) return ''
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:')) {
+    return trimmed
+  }
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+    return `${window.location.origin}${path}`
+  }
+  return trimmed
+}
+
 /**
  * Map `/api/status` response data to our persisted system config structure
  */
@@ -102,9 +116,9 @@ export function mapStatusDataToConfig(
 
   return {
     systemName: data.system_name || DEFAULT_SYSTEM_NAME,
-    logo: data.logo || DEFAULT_LOGO,
-    logoDark: data.logo_dark || '',
-    favicon: data.favicon || '',
+    logo: resolveFullUrl(data.logo) || DEFAULT_LOGO,
+    logoDark: resolveFullUrl(data.logo_dark),
+    favicon: resolveFullUrl(data.favicon),
     hideHeaderSiteName: Boolean(data.hide_header_site_name),
     headerLogoHeight: data.header_logo_height || 24,
     footerHtml: data.footer_html,

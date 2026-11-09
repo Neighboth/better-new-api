@@ -50,6 +50,7 @@ type OpenAIModel struct {
 
 type OpenAIModelsResponse struct {
 	Data    []OpenAIModel `json:"data"`
+	Models  []OpenAIModel `json:"models,omitempty"`
 	Success bool          `json:"success"`
 }
 

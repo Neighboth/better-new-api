@@ -42,6 +42,29 @@ func TestStatus(c *gin.Context) {
 	return
 }
 
+func resolveFullUrl(u string, c *gin.Context) string {
+	u = strings.TrimSpace(u)
+	if u == "" || strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "data:") {
+		return u
+	}
+	base := strings.TrimRight(system_setting.ServerAddress, "/")
+	if base == "" || strings.Contains(base, "localhost") {
+		scheme := "http"
+		if c != nil && (c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https") {
+			scheme = "https"
+		}
+		host := "127.0.0.1:8080"
+		if c != nil && c.Request.Host != "" {
+			host = c.Request.Host
+		}
+		base = fmt.Sprintf("%s://%s", scheme, host)
+	}
+	if !strings.HasPrefix(u, "/") {
+		u = "/" + u
+	}
+	return base + u
+}
+
 func GetStatus(c *gin.Context) {
 
 	cs := console_setting.GetConsoleSetting()
@@ -82,9 +105,9 @@ func GetStatus(c *gin.Context) {
 		"telegram_bot_name":           common.TelegramBotName,
 		"theme":                       "default",
 		"system_name":                 sysName,
-		"logo":                        common.Logo,
-		"logo_dark":                   common.LogoDark,
-		"favicon":                     common.Favicon,
+		"logo":                        resolveFullUrl(common.Logo, c),
+		"logo_dark":                   resolveFullUrl(common.LogoDark, c),
+		"favicon":                     resolveFullUrl(common.Favicon, c),
 		"hide_header_site_name":       common.HideHeaderSiteName,
 		"header_logo_height":          common.HeaderLogoHeight,
 		"footer_html":                 footerHtml,

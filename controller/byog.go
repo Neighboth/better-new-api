@@ -332,14 +332,16 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 		}
 	}
 
-	if faviconUrl == "" && model.DB != nil {
-		if opts, err := model.AllOption(); err == nil {
-			for _, o := range opts {
-				if (o.Key == "Favicon" || o.Key == "Logo" || o.Key == "LogoDark" || o.Key == "general_setting.favicon" || o.Key == "general_setting.logo") && strings.TrimSpace(o.Value) != "" {
-					faviconUrl = strings.TrimSpace(o.Value)
-					break
-				}
+	if faviconUrl != "" && !strings.HasPrefix(faviconUrl, "http://") && !strings.HasPrefix(faviconUrl, "https://") && !strings.HasPrefix(faviconUrl, "data:") {
+		base := strings.TrimRight(system_setting.ServerAddress, "/")
+		if base == "" && serverUrl != "" {
+			base = strings.TrimRight(serverUrl, "/")
+		}
+		if base != "" {
+			if !strings.HasPrefix(faviconUrl, "/") {
+				faviconUrl = "/" + faviconUrl
 			}
+			faviconUrl = base + faviconUrl
 		}
 	}
 

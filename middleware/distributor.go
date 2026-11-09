@@ -349,6 +349,44 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		if _, ok := c.Get("relay_mode"); !ok {
 			c.Set("relay_mode", relayMode)
 		}
+	} else if strings.Contains(c.Request.URL.Path, "/jobs") {
+		relayMode := relayconstant.RelayModeUnknown
+		if c.Request.Method == http.MethodPost {
+			req, err := getModelFromRequest(c)
+			if err != nil {
+				return nil, false, err
+			}
+			if req != nil {
+				modelRequest.Model = req.Model
+			}
+			if modelRequest.Model == "" {
+				var jobReq struct {
+					Operation string `json:"operation"`
+					Model     string `json:"model"`
+				}
+				if err := common.UnmarshalBodyReusable(c, &jobReq); err == nil {
+					if jobReq.Model != "" {
+						modelRequest.Model = jobReq.Model
+					} else if jobReq.Operation == "music" {
+						modelRequest.Model = "music"
+					} else if jobReq.Operation == "rescale" {
+						modelRequest.Model = "rescale"
+					} else if strings.HasPrefix(jobReq.Operation, "image") {
+						modelRequest.Model = "gpt-image-2.6-sunburst"
+					} else {
+						modelRequest.Model = "seedance-2.0-fast"
+					}
+				}
+			}
+			relayMode = relayconstant.RelayModeVideoSubmit
+		} else if c.Request.Method == http.MethodGet {
+			relayMode = relayconstant.RelayModeVideoFetchByID
+			shouldSelectChannel = false
+			modelRequest.Model = getTaskOriginModelName(c)
+		}
+		if _, ok := c.Get("relay_mode"); !ok {
+			c.Set("relay_mode", relayMode)
+		}
 	} else if strings.HasPrefix(c.Request.URL.Path, "/v1beta/models/") || strings.HasPrefix(c.Request.URL.Path, "/v1/models/") {
 		// Gemini API 路径处理: /v1beta/models/gemini-2.0-flash:generateContent
 		relayMode := relayconstant.RelayModeGemini

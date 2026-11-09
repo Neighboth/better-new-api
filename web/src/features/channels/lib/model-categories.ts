@@ -142,6 +142,7 @@ const MODEL_CATEGORY_RULES: readonly ModelCategoryRule[] = [
   { name: 'Vidu', keywords: ['vidu'] },
   { name: 'Suno', keywords: ['suno'] },
   { name: 'Jimeng', keywords: ['jimeng'] },
+  { name: 'Aepi Media', keywords: ['seedance', 'seedream', 'nano-banana', 'aepi', 'davinci-fast', 'davinci-cinema', 'recraft', 'ideogram'] },
 ]
 
 export function getModelCategory(modelName: string): string {

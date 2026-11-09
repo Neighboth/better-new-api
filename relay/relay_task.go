@@ -413,6 +413,14 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 		return
 	}
 
+	// Aepi 原生 /jobs/:task_id 格式：直接返回上游最新任务数据
+	if strings.Contains(c.Request.RequestURI, "/jobs/") && originTask.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeAepi)) {
+		if len(originTask.Data) > 0 {
+			respBody = originTask.Data
+			return
+		}
+	}
+
 	// 通用 TaskDto 格式
 	respBody, err = common.Marshal(dto.TaskResponse[any]{
 		Code: "success",

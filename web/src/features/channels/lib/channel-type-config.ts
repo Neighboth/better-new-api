@@ -197,6 +197,17 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'deepseek-chat,deepseek-reasoner',
     },
   },
+  64: {
+    id: 64,
+    name: CHANNEL_TYPES[64],
+    icon: 'Video',
+    defaultBaseUrl: 'https://videoapi.aerobox.eu.cc',
+    hints: {
+      baseUrl: 'Default: https://videoapi.aerobox.eu.cc',
+      key: 'Aepi API Key (sk_live_...) veya Session Cookie',
+      models: 'seedance-2.5,kling-4.0,minimax-h3,wan-3.0,flux-3,veo-3.1,ltx-2.5-pro,grok-video-1.5,gpt-image-2.6-sunburst,nano-banana-pro,seedream-5.0-pro,flux-3-image,music,rescale',
+    },
+  },
 }
 
 /**

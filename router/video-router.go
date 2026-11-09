@@ -35,6 +35,16 @@ func SetVideoRouter(router *gin.Engine) {
 	{
 		videoV1Router.POST("/videos", controller.RelayTask)
 		videoV1Router.GET("/videos/:task_id", controller.RelayTaskFetch)
+		videoV1Router.POST("/jobs", controller.RelayTask)
+		videoV1Router.GET("/jobs/:task_id", controller.RelayTaskFetch)
+	}
+
+	aepiV1Router := router.Group("/aepi/v1")
+	aepiV1Router.Use(middleware.RouteTag("relay"))
+	aepiV1Router.Use(middleware.TokenAuth(), middleware.Distribute())
+	{
+		aepiV1Router.POST("/jobs", controller.RelayTask)
+		aepiV1Router.GET("/jobs/:task_id", controller.RelayTaskFetch)
 	}
 
 	klingV1Router := router.Group("/kling/v1")

@@ -249,6 +249,13 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
             if (key === 'ServerAddress') {
               v = v.replace(/\/+$/, '')
             }
+            if ((key === 'Logo' || key === 'LogoDark' || key === 'Favicon') && v && typeof v === 'string') {
+              const trimmed = v.trim()
+              if (trimmed && !trimmed.startsWith('http://') && !trimmed.startsWith('https://') && !trimmed.startsWith('data:') && typeof window !== 'undefined') {
+                const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+                v = `${window.location.origin}${path}`
+              }
+            }
           }
           await updateOption.mutateAsync({
             key,

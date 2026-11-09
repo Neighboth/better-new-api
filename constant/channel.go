@@ -61,6 +61,7 @@ const (
 	ChannelTypeAntigravity    = 61
 	ChannelTypeAgnes          = 62
 	ChannelTypeDeepSeekWeb    = 63
+	ChannelTypeAepi           = 64
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 )
 
@@ -129,6 +130,7 @@ var ChannelBaseURLs = []string{
 	"https://cloudcode-pa.googleapis.com",       //61
 	"https://api.agnes-ai.com",                  //62
 	"https://chat.deepseek.com",                 //63
+	"https://videoapi.aerobox.eu.cc",            //64
 }
 
 var ChannelTypeNames = map[int]string{
@@ -192,6 +194,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeAntigravity:    "Google Antigravity",
 	ChannelTypeAgnes:          "Agnes AI",
 	ChannelTypeDeepSeekWeb:    "DeepSeek Web",
+	ChannelTypeAepi:           "Aepi Media",
 }
 
 func GetChannelTypeName(channelType int) string {

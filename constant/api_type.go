@@ -42,5 +42,6 @@ const (
 	APITypeAntigravity
 	APITypeAgnes
 	APITypeDeepSeekWeb
+	APITypeAepi
 	APITypeDummy // this one is only for count, do not add any channel after this
 )
