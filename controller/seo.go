@@ -515,7 +515,10 @@ func RenderIndexPageForLocale(indexPage []byte, lang string, baseURL string, cur
 	}
 	description := getLegalOption("SEODescription", lang)
 	keywords := getLegalOption("SEOKeywords", lang)
-	socialImage := seoOption("SEOSocialImage")
+	socialImage := getLegalOption("SEOSocialImage", lang)
+	if socialImage == "" {
+		socialImage = seoOption("SEOSocialImage")
+	}
 	icon := getEffectiveFaviconURL(baseURL)
 	rendered := RenderCustomIndexPage(indexPage, siteName, title, description, keywords, icon, socialImage)
 	htmlLang := "en"

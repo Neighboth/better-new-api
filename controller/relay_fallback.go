@@ -176,7 +176,17 @@ func applyFallbackSystemPrompt(c *gin.Context, info *relaycommon.RelayInfo, s *f
 
 	switch req := info.Request.(type) {
 	case *dto.GeneralOpenAIRequest:
-		if !hasSystemMessage(req.Messages, req.GetSystemRoleName()) {
+		found := false
+		for i, msg := range req.Messages {
+			if msg.Role == req.GetSystemRoleName() {
+				if msg.IsStringContent() {
+					req.Messages[i].SetStringContent(prompt + "\n\n" + msg.StringContent())
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
 			req.Messages = append([]dto.Message{{Role: req.GetSystemRoleName(), Content: prompt}}, req.Messages...)
 		}
 	}
@@ -195,14 +205,26 @@ func applyFallbackSystemPrompt(c *gin.Context, info *relaycommon.RelayInfo, s *f
 	}
 
 	if messages, ok := raw["messages"].([]interface{}); ok {
-		for _, m := range messages {
+		found := false
+		for i, m := range messages {
 			if mm, ok := m.(map[string]interface{}); ok && mm["role"] == "system" {
-				return nil
+				if existingStr, ok := mm["content"].(string); ok {
+					mm["content"] = prompt + "\n\n" + existingStr
+					messages[i] = mm
+				}
+				found = true
+				break
 			}
 		}
-		raw["messages"] = append([]interface{}{map[string]interface{}{"role": "system", "content": prompt}}, messages...)
+		if !found {
+			raw["messages"] = append([]interface{}{map[string]interface{}{"role": "system", "content": prompt}}, messages...)
+		} else {
+			raw["messages"] = messages
+		}
 	} else if sys, ok := raw["system"].(string); ok {
-		raw["system"] = prompt + "\n" + sys
+		raw["system"] = prompt + "\n\n" + sys
+	} else {
+		raw["system"] = prompt
 	}
 	updated, err := common.Marshal(raw)
 	if err != nil {

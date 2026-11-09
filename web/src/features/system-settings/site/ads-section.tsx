@@ -76,6 +76,7 @@ import { useUpdateOption } from '../hooks/use-update-option'
 type CustomAdDraft = {
   id: string
   image: string
+  images?: Record<string, string>
   url: string
   /**
    * Surfaces of the ad. An ad of an older panel carries no list and belongs to
@@ -110,6 +111,7 @@ function parseCustomAds(raw: string): CustomAdDraft[] {
       .map((ad) => ({
         id: ad.id as string,
         image: typeof ad.image === 'string' ? ad.image : '',
+        images: typeof (ad as { images?: unknown }).images === 'object' && (ad as { images?: Record<string, string> }).images ? ((ad as { images: Record<string, string> }).images) : {},
         url: typeof ad.url === 'string' ? ad.url : '',
         placements: parsePlacements(
           (ad as { placements?: unknown }).placements
@@ -121,6 +123,17 @@ function parseCustomAds(raw: string): CustomAdDraft[] {
 }
 
 const AD_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,63}$/
+
+const AD_LANGUAGES = [
+  { code: 'tr', flag: '🇹🇷', label: 'TR' },
+  { code: 'en', flag: '🇬🇧', label: 'EN' },
+  { code: 'zh_CN', flag: '🇨🇳', label: 'ZH' },
+  { code: 'zh_TW', flag: '🇹🇼', label: 'TW' },
+  { code: 'fr', flag: '🇫🇷', label: 'FR' },
+  { code: 'ru', flag: '🇷🇺', label: 'RU' },
+  { code: 'ja', flag: '🇯🇵', label: 'JA' },
+  { code: 'vi', flag: '🇻🇳', label: 'VI' },
+] as const
 
 export function AdsSection({ defaultValues }: AdsSectionProps) {
   const { t } = useTranslation()
@@ -533,6 +546,31 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                               <Upload className='me-1 h-4 w-4' />
                               {t('Upload')}
                             </Button>
+                          </div>
+                        </div>
+                        <div className='rounded-lg border border-border/50 bg-muted/20 p-2.5 space-y-2'>
+                          <Label className='text-xs font-semibold text-muted-foreground'>
+                            {t('byog.ad_locale_images', 'Dile Özel Görseller (Opsiyonel)')}
+                          </Label>
+                          <div className='grid grid-cols-1 sm:grid-cols-2 gap-2'>
+                            {AD_LANGUAGES.map((lang) => (
+                              <div key={lang.code} className='flex items-center gap-1.5'>
+                                <span className='text-xs shrink-0 w-10 flex items-center gap-1'>
+                                  <span>{lang.flag}</span>
+                                  <span className='font-mono font-bold'>{lang.label}</span>
+                                </span>
+                                <Input
+                                  value={ad.images?.[lang.code] || ''}
+                                  onChange={(e) => {
+                                    const updatedImages = { ...(ad.images || {}), [lang.code]: e.target.value }
+                                    if (!e.target.value) delete updatedImages[lang.code]
+                                    updateCustomAd(index, 'images' as keyof CustomAdDraft, updatedImages)
+                                  }}
+                                  placeholder={`${lang.label} URL...`}
+                                  className='h-7 text-xs'
+                                />
+                              </div>
+                            ))}
                           </div>
                         </div>
                         <div>

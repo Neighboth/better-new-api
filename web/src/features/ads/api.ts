@@ -22,6 +22,7 @@ import { api } from '@/lib/api'
 export type ConsoleAd = {
   id: string
   image: string
+  images?: Record<string, string>
   url: string
   placements?: string[]
 }

@@ -33,10 +33,11 @@ const (
 // the field and belongs to the blog, which is where the ads of the installation
 // used to appear: an upgrade of the panel never moves an existing ad.
 type customAd struct {
-	ID         string   `json:"id"`
-	Image      string   `json:"image"`
-	URL        string   `json:"url"`
-	Placements []string `json:"placements,omitempty"`
+	ID         string            `json:"id"`
+	Image      string            `json:"image"`
+	Images     map[string]string `json:"images,omitempty"`
+	URL        string            `json:"url"`
+	Placements []string          `json:"placements,omitempty"`
 }
 
 // placementsOf returns the surfaces of an ad, with the legacy default applied.
@@ -392,6 +393,11 @@ func CleanupUnusedAdImages(newCustomAdsJson string) {
 	for _, ad := range newAds {
 		if strings.HasPrefix(ad.Image, "/uploads/ads/") {
 			activeUploads[filepath.Base(ad.Image)] = true
+		}
+		for _, img := range ad.Images {
+			if strings.HasPrefix(img, "/uploads/ads/") {
+				activeUploads[filepath.Base(img)] = true
+			}
 		}
 	}
 

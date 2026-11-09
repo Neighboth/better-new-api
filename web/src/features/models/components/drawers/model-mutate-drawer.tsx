@@ -95,6 +95,7 @@ const extendedModelFormSchema = z.object({
   display_name: z.string().optional(),
   tagline: z.string().optional(),
   property_boxes: z.string().optional(),
+  localizations: z.string().optional(),
   description: z.string(),
   icon: z.string(),
   tags: z.array(z.string()),
@@ -113,6 +114,24 @@ const extendedModelFormSchema = z.object({
 })
 
 type ExtendedModelFormValues = z.infer<typeof extendedModelFormSchema>
+
+const MODEL_LANGUAGES = [
+  { code: 'tr', flag: '🇹🇷', label: 'Türkçe' },
+  { code: 'en', flag: '🇬🇧', label: 'English' },
+  { code: 'zh_CN', flag: '🇨🇳', label: '简体中文' },
+  { code: 'zh_TW', flag: '🇹🇼', label: '繁體中文' },
+  { code: 'fr', flag: '🇫🇷', label: 'Français' },
+  { code: 'ru', flag: '🇷🇺', label: 'Русский' },
+  { code: 'ja', flag: '🇯🇵', label: '日本語' },
+  { code: 'vi', flag: '🇻🇳', label: 'Tiếng Việt' },
+] as const
+
+type LocalizedModelData = {
+  display_names: Record<string, string>
+  descriptions: Record<string, string>
+  taglines: Record<string, string>
+  property_boxes: Record<string, Array<{ label: string; value: string }>>
+}
 
 type PricingMode = 'per-token' | 'per-request' | 'duration_second' | 'characters'
 type PricingSubMode = 'ratio' | 'price'
@@ -279,6 +298,13 @@ export function ModelMutateDrawer({
   const [pricingSubMode, setPricingSubMode] = useState<PricingSubMode>('ratio')
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [propertyBoxes, setPropertyBoxes] = useState<Array<{ label: string; value: string }>>([])
+  const [activeModelLang, setActiveModelLang] = useState<string>('tr')
+  const [localizedData, setLocalizedData] = useState<LocalizedModelData>({
+    display_names: {},
+    descriptions: {},
+    taglines: {},
+    property_boxes: {},
+  })
   const [promptPrice, setPromptPrice] = useState('')
   const [completionPrice, setCompletionPrice] = useState('')
   const [oldModelName, setOldModelName] = useState<string>('')
@@ -462,12 +488,36 @@ export function ModelMutateDrawer({
       setPromptPrice(pricing.promptPrice)
       setCompletionPrice(pricing.completionPrice)
       setAdvancedOpen(pricing.advancedOpen)
+      let locData: LocalizedModelData = {
+        display_names: {},
+        descriptions: {},
+        taglines: {},
+        property_boxes: {},
+      }
+      if (model.localizations) {
+        try {
+          const parsed = JSON.parse(model.localizations)
+          locData = {
+            display_names: parsed.display_names || {},
+            descriptions: parsed.descriptions || {},
+            taglines: parsed.taglines || {},
+            property_boxes: parsed.property_boxes || {},
+          }
+        } catch {}
+      }
+      if (!locData.display_names['tr'] && model.display_name) locData.display_names['tr'] = model.display_name
+      if (!locData.descriptions['tr'] && model.description) locData.descriptions['tr'] = model.description
+      if (!locData.taglines['tr'] && model.tagline) locData.taglines['tr'] = model.tagline
+
       try {
         const pb = model.property_boxes ? JSON.parse(model.property_boxes) : []
-        setPropertyBoxes(Array.isArray(pb) ? pb.slice(0, 8) : [])
+        const parsedPb = Array.isArray(pb) ? pb.slice(0, 8) : []
+        setPropertyBoxes(parsedPb)
+        if (!locData.property_boxes['tr'] && parsedPb.length > 0) locData.property_boxes['tr'] = parsedPb
       } catch {
         setPropertyBoxes([])
       }
+      setLocalizedData(locData)
       form.reset({
         id: model.id,
         model_name: model.model_name,
@@ -494,6 +544,12 @@ export function ModelMutateDrawer({
       setLoadedPricingName(modelName)
       setPricingSubMode('ratio')
       setPropertyBoxes([])
+      setLocalizedData({
+        display_names: {},
+        descriptions: {},
+        taglines: {},
+        property_boxes: {},
+      })
       setPricingMode(pricing.mode)
       setChargeScope(pricing.chargeScope)
       setPromptPrice(pricing.promptPrice)
@@ -524,6 +580,7 @@ export function ModelMutateDrawer({
       try {
         const submitData = {
           ...values,
+          localizations: JSON.stringify(localizedData),
           id: isEditing ? currentModelId : undefined,
           tags: Array.isArray(values.tags) ? values.tags.join(',') : '',
           status: values.status ? 1 : 0,
@@ -826,25 +883,57 @@ export function ModelMutateDrawer({
                 {t('Basic Information')}
               </h3>
 
-              <FormField
-                control={form.control}
-                name='display_name'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Display Name')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder={t('Claude Opus 5, GPT-4o, etc.')}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Optional friendly name shown as title on model cards')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {/* Multi-language Selector */}
+              <div className='space-y-2 rounded-xl border border-primary/20 bg-muted/10 p-3'>
+                <div className='flex items-center justify-between'>
+                  <Label className='text-xs font-semibold text-foreground flex items-center gap-1.5'>
+                    <span>🌐</span>
+                    <span>{t('byog.model_locales_title', 'Dile Özel Model Bilgileri (8 Dil)')}</span>
+                  </Label>
+                  <span className='text-[11px] font-medium text-primary'>
+                    {MODEL_LANGUAGES.find(l => l.code === activeModelLang)?.flag} {MODEL_LANGUAGES.find(l => l.code === activeModelLang)?.label}
+                  </span>
+                </div>
+                <div className='flex flex-wrap gap-1'>
+                  {MODEL_LANGUAGES.map((l) => (
+                    <Button
+                      key={l.code}
+                      type='button'
+                      variant={activeModelLang === l.code ? 'default' : 'outline'}
+                      size='sm'
+                      className='h-7 px-2 text-xs gap-1'
+                      onClick={() => setActiveModelLang(l.code)}
+                    >
+                      <span>{l.flag}</span>
+                      <span>{l.label}</span>
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Display Name for active language */}
+              <div className='space-y-2'>
+                <Label className='text-sm font-medium'>
+                  {t('Display Name')} ({MODEL_LANGUAGES.find(l => l.code === activeModelLang)?.label})
+                </Label>
+                <Input
+                  placeholder={t('Claude Opus 5, GPT-4o, etc.')}
+                  value={localizedData.display_names[activeModelLang] ?? (activeModelLang === 'tr' ? form.watch('display_name') : '')}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setLocalizedData(prev => ({
+                      ...prev,
+                      display_names: { ...prev.display_names, [activeModelLang]: val }
+                    }))
+                    if (activeModelLang === 'tr') {
+                      form.setValue('display_name', val)
+                    }
+                  }}
+                />
+                <p className='text-xs text-muted-foreground'>
+                  {t('Optional friendly name shown as title on model cards')}
+                </p>
+              </div>
 
               <FormField
                 control={form.control}
@@ -866,106 +955,146 @@ export function ModelMutateDrawer({
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name='description'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Description')}</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder={t('Describe this model...')}
-                        rows={3}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='tagline'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Tagline / Extra Text')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder={t('Flagship model • Reasoning, Model Bakımda, etc.')}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Optional text shown on the model card below the description')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <div className='space-y-3 rounded-lg border p-3 bg-muted/20'>
-                <div className='flex items-center justify-between'>
-                  <div>
-                    <h4 className='text-xs font-semibold'>{t('Property Boxes (Max 8)')}</h4>
-                    <p className='text-[11px] text-muted-foreground'>{t('Custom rounded boxes (e.g. Context Window: 200K)')}</p>
-                  </div>
-                  {propertyBoxes.length < 8 && (
-                    <Button
-                      type='button'
-                      variant='outline'
-                      size='sm'
-                      className='h-7 text-xs'
-                      onClick={() => {
-                        const updated = [...propertyBoxes, { label: '', value: '' }]
-                        setPropertyBoxes(updated)
-                        form.setValue('property_boxes', JSON.stringify(updated))
-                      }}
-                    >
-                      + {t('Add Box')}
-                    </Button>
-                  )}
-                </div>
-                {propertyBoxes.map((box, idx) => (
-                  <div key={idx} className='flex items-center gap-2'>
-                    <Input
-                      placeholder={t('Label (e.g. Context Window)')}
-                      value={box.label}
-                      className='h-8 text-xs flex-1'
-                      onChange={(e) => {
-                        const updated = [...propertyBoxes]
-                        updated[idx].label = e.target.value
-                        setPropertyBoxes(updated)
-                        form.setValue('property_boxes', JSON.stringify(updated.filter(b => b.label.trim() || b.value.trim())))
-                      }}
-                    />
-                    <Input
-                      placeholder={t('Value (e.g. 200K)')}
-                      value={box.value}
-                      className='h-8 text-xs flex-1'
-                      onChange={(e) => {
-                        const updated = [...propertyBoxes]
-                        updated[idx].value = e.target.value
-                        setPropertyBoxes(updated)
-                        form.setValue('property_boxes', JSON.stringify(updated.filter(b => b.label.trim() || b.value.trim())))
-                      }}
-                    />
-                    <Button
-                      type='button'
-                      variant='ghost'
-                      size='icon'
-                      className='size-8 text-destructive hover:bg-destructive/10'
-                      onClick={() => {
-                        const updated = propertyBoxes.filter((_, i) => i !== idx)
-                        setPropertyBoxes(updated)
-                        form.setValue('property_boxes', JSON.stringify(updated))
-                      }}
-                    >
-                      <Trash2 className='size-3.5' />
-                    </Button>
-                  </div>
-                ))}
+              {/* Description for active language */}
+              <div className='space-y-2'>
+                <Label className='text-sm font-medium'>
+                  {t('Description')} ({MODEL_LANGUAGES.find(l => l.code === activeModelLang)?.label})
+                </Label>
+                <Textarea
+                  placeholder={t('Describe this model...')}
+                  rows={3}
+                  value={localizedData.descriptions[activeModelLang] ?? (activeModelLang === 'tr' ? form.watch('description') : '')}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setLocalizedData(prev => ({
+                      ...prev,
+                      descriptions: { ...prev.descriptions, [activeModelLang]: val }
+                    }))
+                    if (activeModelLang === 'tr') {
+                      form.setValue('description', val)
+                    }
+                  }}
+                />
               </div>
+
+              {/* Tagline for active language */}
+              <div className='space-y-2'>
+                <Label className='text-sm font-medium'>
+                  {t('Tagline / Extra Text')} ({MODEL_LANGUAGES.find(l => l.code === activeModelLang)?.label})
+                </Label>
+                <Input
+                  placeholder={t('Flagship model • Reasoning, Model Bakımda, etc.')}
+                  value={localizedData.taglines[activeModelLang] ?? (activeModelLang === 'tr' ? form.watch('tagline') : '')}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setLocalizedData(prev => ({
+                      ...prev,
+                      taglines: { ...prev.taglines, [activeModelLang]: val }
+                    }))
+                    if (activeModelLang === 'tr') {
+                      form.setValue('tagline', val)
+                    }
+                  }}
+                />
+                <p className='text-xs text-muted-foreground'>
+                  {t('Optional text shown on the model card below the description')}
+                </p>
+              </div>
+
+              {/* Property Boxes for active language */}
+              {(() => {
+                const curBoxes = localizedData.property_boxes[activeModelLang] ?? (activeModelLang === 'tr' ? propertyBoxes : [])
+                return (
+                  <div className='space-y-3 rounded-lg border p-3 bg-muted/20'>
+                    <div className='flex items-center justify-between'>
+                      <div>
+                        <h4 className='text-xs font-semibold'>
+                          {t('Property Boxes (Max 8)')} ({MODEL_LANGUAGES.find(l => l.code === activeModelLang)?.label})
+                        </h4>
+                        <p className='text-[11px] text-muted-foreground'>{t('Custom rounded boxes (e.g. Context Window: 200K)')}</p>
+                      </div>
+                      {curBoxes.length < 8 && (
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          className='h-7 text-xs'
+                          onClick={() => {
+                            const updated = [...curBoxes, { label: '', value: '' }]
+                            setLocalizedData(prev => ({
+                              ...prev,
+                              property_boxes: { ...prev.property_boxes, [activeModelLang]: updated }
+                            }))
+                            if (activeModelLang === 'tr') {
+                              setPropertyBoxes(updated)
+                              form.setValue('property_boxes', JSON.stringify(updated))
+                            }
+                          }}
+                        >
+                          + {t('Add Box')}
+                        </Button>
+                      )}
+                    </div>
+                    {curBoxes.map((box, idx) => (
+                      <div key={idx} className='flex items-center gap-2'>
+                        <Input
+                          placeholder={t('Label (e.g. Context Window)')}
+                          value={box.label}
+                          className='h-8 text-xs flex-1'
+                          onChange={(e) => {
+                            const updated = [...curBoxes]
+                            updated[idx].label = e.target.value
+                            setLocalizedData(prev => ({
+                              ...prev,
+                              property_boxes: { ...prev.property_boxes, [activeModelLang]: updated }
+                            }))
+                            if (activeModelLang === 'tr') {
+                              setPropertyBoxes(updated)
+                              form.setValue('property_boxes', JSON.stringify(updated.filter(b => b.label.trim() || b.value.trim())))
+                            }
+                          }}
+                        />
+                        <Input
+                          placeholder={t('Value (e.g. 200K)')}
+                          value={box.value}
+                          className='h-8 text-xs flex-1'
+                          onChange={(e) => {
+                            const updated = [...curBoxes]
+                            updated[idx].value = e.target.value
+                            setLocalizedData(prev => ({
+                              ...prev,
+                              property_boxes: { ...prev.property_boxes, [activeModelLang]: updated }
+                            }))
+                            if (activeModelLang === 'tr') {
+                              setPropertyBoxes(updated)
+                              form.setValue('property_boxes', JSON.stringify(updated.filter(b => b.label.trim() || b.value.trim())))
+                            }
+                          }}
+                        />
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='icon'
+                          className='size-8 text-destructive hover:bg-destructive/10'
+                          onClick={() => {
+                            const updated = curBoxes.filter((_, i) => i !== idx)
+                            setLocalizedData(prev => ({
+                              ...prev,
+                              property_boxes: { ...prev.property_boxes, [activeModelLang]: updated }
+                            }))
+                            if (activeModelLang === 'tr') {
+                              setPropertyBoxes(updated)
+                              form.setValue('property_boxes', JSON.stringify(updated))
+                            }
+                          }}
+                        >
+                          <Trash2 className='size-3.5' />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
 
               <FormField
                 control={form.control}

@@ -594,6 +594,25 @@ const cleanModel = (val: unknown): string => {
   return s
 }
 
+function ClientLogo({ src, alt, className }: { src: string; alt?: string; className?: string }) {
+  const [error, setError] = useState(false)
+  if (error || !src) {
+    return (
+      <div className='flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary border border-primary/20 shrink-0 shadow-xs'>
+        <Cpu className='h-4 w-4' />
+      </div>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt={alt || 'Logo'}
+      className={className || 'h-7 w-7 rounded-lg object-contain shrink-0'}
+      onError={() => setError(true)}
+    />
+  )
+}
+
 export function ClientPage() {
   const { t, i18n } = useTranslation()
   const { logo: systemLogo, favicon: systemFavicon, systemName } = useSystemConfig()
@@ -772,6 +791,7 @@ export function ClientPage() {
             download_status: String(initial.model_status ?? ''),
             download_progress: Number(initial.download_progress ?? 0),
             current_tps: Number(initial.current_tps ?? 0),
+            last_ttft_ms: Number(initial.current_ttft_ms ?? initial.last_ttft_ms ?? 0),
             models: String(initial.assigned_model ?? ''),
             assigned_model: String(initial.assigned_model ?? ''),
             disks: initial.disks as WorkerState['disks'],
@@ -846,6 +866,7 @@ export function ClientPage() {
               : incoming
           })(),
           current_tps: Number(payload.current_tps ?? 0),
+          last_ttft_ms: Number(payload.current_ttft_ms ?? payload.last_ttft_ms ?? 0),
           models: String(payload.model_name ?? ''),
           disks: payload.disks as WorkerState['disks'],
           physical_ram_mb: payload.physical_ram_mb as number,
@@ -953,6 +974,11 @@ export function ClientPage() {
             }
             if (prev.ping_ms !== undefined && prev.ping_ms > 0) {
               merged.ping_ms = prev.ping_ms
+            }
+            if (prev.last_ttft_ms !== undefined && prev.last_ttft_ms > 0) {
+              merged.last_ttft_ms = prev.last_ttft_ms
+            } else if (Number((remote as Record<string, unknown>).current_ttft_ms ?? 0) > 0) {
+              merged.last_ttft_ms = Number((remote as Record<string, unknown>).current_ttft_ms)
             }
             if ((merged.bandwidth_down_mbps === undefined || merged.bandwidth_down_mbps === 0) && prev.bandwidth_down_mbps !== undefined && prev.bandwidth_down_mbps > 0) {
               merged.bandwidth_down_mbps = prev.bandwidth_down_mbps
@@ -1516,14 +1542,7 @@ export function ClientPage() {
       <div className='flex h-screen w-full flex-col bg-background text-foreground antialiased'>
         <header className='flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4'>
           <div className='flex items-center gap-2 min-w-0'>
-            <img
-              src={brandLogo}
-              alt='Logo'
-              className='h-7 w-7 rounded-lg object-contain shrink-0'
-              onError={(e) => {
-                ;(e.currentTarget as HTMLElement).style.display = 'none'
-              }}
-            />
+            <ClientLogo src={brandLogo} alt='Logo' />
             <span className='text-sm font-semibold tracking-tight truncate max-w-[160px] sm:max-w-none'>
               {effectiveSystemName}
             </span>
@@ -1700,14 +1719,7 @@ export function ClientPage() {
       <div className='flex h-screen w-full flex-col bg-background text-foreground antialiased'>
       <header className='flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4'>
         <div className='flex items-center gap-2 min-w-0'>
-          <img
-            src={brandLogo}
-            alt='Logo'
-            className='h-7 w-7 rounded-lg object-contain shrink-0'
-            onError={(e) => {
-              ;(e.currentTarget as HTMLElement).style.display = 'none'
-            }}
-          />
+          <ClientLogo src={brandLogo} alt='Logo' />
           <span className='text-sm font-semibold tracking-tight truncate max-w-[160px] sm:max-w-none'>
             {effectiveSystemName}
           </span>
@@ -1824,14 +1836,7 @@ export function ClientPage() {
         <div className='flex items-center gap-2 min-w-0'>
           <SidebarTrigger variant='ghost' className='size-8 md:hidden shrink-0' />
           <div className='flex items-center gap-2 font-bold text-foreground min-w-0'>
-            <img
-              src={brandLogo}
-              alt='Logo'
-              className='h-7 w-7 rounded-lg object-contain shrink-0'
-              onError={(e) => {
-                ;(e.currentTarget as HTMLElement).style.display = 'none'
-              }}
-            />
+            <ClientLogo src={brandLogo} alt='Logo' />
             <span className='text-sm font-semibold tracking-tight truncate max-w-[120px] sm:max-w-none'>
               {effectiveSystemName}
             </span>

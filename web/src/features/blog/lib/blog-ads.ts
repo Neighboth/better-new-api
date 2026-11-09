@@ -17,7 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-export type CustomAdSlot = { id: string; image: string; url: string }
+export type CustomAdSlot = {
+  id: string
+  image: string
+  images?: Record<string, string>
+  url: string
+}
 
 export type AdSlot =
   | { kind: 'adsense' }

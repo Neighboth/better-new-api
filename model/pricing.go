@@ -49,6 +49,7 @@ type Pricing struct {
 	DisplayName            string                  `json:"display_name,omitempty"`
 	Tagline                string                  `json:"tagline,omitempty"`
 	PropertyBoxes          string                  `json:"property_boxes,omitempty"`
+	Localizations          string                  `json:"localizations,omitempty"`
 	Channels               []PricingChannel        `json:"channels,omitempty"`
 	Description            string                  `json:"description,omitempty"`
 	Icon                   string                  `json:"icon,omitempty"`
@@ -489,6 +490,7 @@ func updatePricing() {
 			pricing.DisplayName = meta.DisplayName
 			pricing.Tagline = meta.Tagline
 			pricing.PropertyBoxes = meta.PropertyBoxes
+			pricing.Localizations = meta.Localizations
 			pricing.Description = meta.Description
 			pricing.Icon = meta.Icon
 			pricing.Tags = meta.Tags

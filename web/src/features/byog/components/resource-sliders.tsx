@@ -373,6 +373,14 @@ export function ResourceSliders({
                   </div>
                 )
               })}
+              {parsedDisks.every((d) => {
+                const cur = diskAllocations[d.drive] ?? (d.allocated_gb !== undefined ? d.allocated_gb : 0)
+                return cur < 3
+              }) && (
+                <div className='rounded-lg bg-amber-500/10 border border-amber-500/30 p-2 text-xs text-amber-600 dark:text-amber-400 font-medium'>
+                  ⚠️ {t('byog.min_disk_required_hint', 'Modeller için en az bir diskten minimum 3 GB alan tahsis edilmelidir.')}
+                </div>
+              )}
             </div>
           ) : (
             <div className='space-y-2'>

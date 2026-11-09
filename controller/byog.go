@@ -2376,7 +2376,23 @@ func UpdateByogWorkerResources(c *gin.Context) {
 
 	// The allocation of the disk follows the partitions of the computer. A
 	// partition can be shared completely, partly or not at all.
+	// Minimum 3 GB allocation is strictly required on at least one disk for models.
 	if len(req.Disks) > 0 {
+		hasMinDisk := false
+		for _, item := range req.Disks {
+			if item.AllocatedGB >= 3 {
+				hasMinDisk = true
+				break
+			}
+		}
+		if !hasMinDisk {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "Modeller için en az bir diskten minimum 3 GB alan tahsis edilmelidir",
+			})
+			return
+		}
+
 		var stored []map[string]interface{}
 		if node.Disks != "" {
 			_ = json.Unmarshal([]byte(node.Disks), &stored)
@@ -2415,11 +2431,25 @@ func UpdateByogWorkerResources(c *gin.Context) {
 			stored[index]["allocated_gb"] = allocation
 			total += allocation
 		}
+		if total < 3 {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "Modeller için en az bir diskten minimum 3 GB alan tahsis edilmelidir",
+			})
+			return
+		}
 		if encoded, err := json.Marshal(stored); err == nil && len(stored) > 0 {
 			node.Disks = string(encoded)
 		}
 		node.AllocatedDiskGB = total
 	} else if req.AllocatedDiskGB != nil {
+		if *req.AllocatedDiskGB < 3 {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "Modeller için minimum 3 GB alan tahsis edilmelidir",
+			})
+			return
+		}
 		allocation := *req.AllocatedDiskGB
 		if allocation < 0 {
 			allocation = 0

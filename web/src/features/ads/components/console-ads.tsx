@@ -80,12 +80,23 @@ export function ConsoleAds(props: { className?: string }) {
 }
 
 function ConsoleAdBanner(props: { ad: ConsoleAd }) {
+  const { i18n } = useTranslation()
   const reported = useRef(false)
   useEffect(() => {
     if (reported.current) return
     reported.current = true
     void trackConsoleAdImpression(props.ad.id)
   }, [props.ad.id])
+
+  const currentLang = (i18n.language || 'en').toLowerCase()
+  const langKey = currentLang.startsWith('tr')
+    ? 'tr'
+    : currentLang.startsWith('zh-tw') || currentLang.startsWith('zhtw')
+    ? 'zh_TW'
+    : currentLang.startsWith('zh')
+    ? 'zh_CN'
+    : currentLang.slice(0, 2)
+  const displayImage = props.ad.images?.[langKey] || props.ad.images?.[currentLang] || props.ad.image
 
   return (
     <a
@@ -96,7 +107,7 @@ function ConsoleAdBanner(props: { ad: ConsoleAd }) {
       title={props.ad.id}
     >
       <img
-        src={props.ad.image}
+        src={displayImage}
         alt={props.ad.id}
         className='h-full w-full object-cover'
         loading='lazy'

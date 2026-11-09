@@ -40,6 +40,7 @@ export interface Model {
   tagline?: string
   property_boxes?: string
   description?: string
+  localizations?: string
   icon?: string
   tags?: string
   vendor_id?: number

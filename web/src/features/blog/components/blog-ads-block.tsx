@@ -84,13 +84,24 @@ function BlogAdRow(props: {
   )
 }
 
-function CustomAdBanner(props: { ad: { id: string; image: string; url: string } }) {
+function CustomAdBanner(props: { ad: { id: string; image: string; images?: Record<string, string>; url: string } }) {
+  const { i18n } = useTranslation()
   const reported = useRef(false)
   useEffect(() => {
     if (reported.current) return
     reported.current = true
     void trackAdImpression(props.ad.id)
   }, [props.ad.id])
+
+  const currentLang = (i18n.language || 'en').toLowerCase()
+  const langKey = currentLang.startsWith('tr')
+    ? 'tr'
+    : currentLang.startsWith('zh-tw') || currentLang.startsWith('zhtw')
+    ? 'zh_TW'
+    : currentLang.startsWith('zh')
+    ? 'zh_CN'
+    : currentLang.slice(0, 2)
+  const displayImage = props.ad.images?.[langKey] || props.ad.images?.[currentLang] || props.ad.image
 
   return (
     <a
@@ -100,7 +111,7 @@ function CustomAdBanner(props: { ad: { id: string; image: string; url: string } 
       className={BLOG_AD_BANNER_CLASS}
     >
       <img
-        src={props.ad.image}
+        src={displayImage}
         alt={props.ad.id}
         className='h-full w-full object-cover'
         loading='lazy'
