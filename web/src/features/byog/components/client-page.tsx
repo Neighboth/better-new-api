@@ -1436,16 +1436,18 @@ export function ClientPage() {
   }, [state?.favicon, state?.favicon_base64, systemFavicon, systemLogo])
 
   const effectiveSystemName = useMemo(() => {
-    if (systemName && systemName !== 'New API' && systemName !== 'BYOG Worker') {
-      return systemName
+    const raw = (systemName && systemName !== 'BYOG Worker')
+      ? systemName
+      : (state?.system_name && state.system_name !== 'BYOG Worker'
+          ? state.system_name
+          : (state?.app_name && state.app_name !== 'BYOG Worker' ? state.app_name : ''))
+
+    let base = raw ? raw.trim() : 'New API'
+    base = base.replace(/\s+(byog\s+)?worker$/i, '').trim()
+    if (!base.toLowerCase().endsWith('byog')) {
+      base = `${base} BYOG`
     }
-    if (state?.system_name && state.system_name !== 'New API' && state.system_name !== 'BYOG Worker') {
-      return state.system_name
-    }
-    if (state?.app_name && state.app_name !== 'New API') {
-      return state.app_name
-    }
-    return 'BYOG Worker'
+    return base
   }, [systemName, state?.system_name, state?.app_name])
 
   // --- VIEW 1: Onboarding / Permissions (Mobile only, shown sequentially before pairing) ---
