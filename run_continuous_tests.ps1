@@ -1,4 +1,4 @@
-# BYOG Continuous Testing & Bug Hunting Runner (until 15:00)
+# BYOG Continuous Testing & Bug Hunting Runner (until 17:00)
 # Automatically executes alternating rounds of:
 # 1. TestMassiveHardwareMatrixExhaustive (350+ hardware combinations)
 # 2. TestRealClients150ScenariosStress (WebSocket tunnels, real clients, live disconnections)
@@ -8,13 +8,13 @@
 $logPath = "Z:\better-new-api\test_run.log"
 "=== BYOG CONTINUOUS TEST SESSION STARTED: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" | Out-File -FilePath $logPath -Encoding utf8
 
-$targetTime = (Get-Date).Date.AddHours(15) # 15:00 today
+$targetTime = (Get-Date).Date.AddHours(17) # 17:00 today
 $round = 1
 
 while ((Get-Date) -lt $targetTime) {
     $nowStr = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     "------------------------------------------------------------------------" | Out-File -FilePath $logPath -Append -Encoding utf8
-    "[ROUND $round] Started at $nowStr (Target: 15:00)" | Out-File -FilePath $logPath -Append -Encoding utf8
+    "[ROUND $round] Started at $nowStr (Target: 17:00)" | Out-File -FilePath $logPath -Append -Encoding utf8
     "------------------------------------------------------------------------" | Out-File -FilePath $logPath -Append -Encoding utf8
 
     # Phase 1: Massive Hardware Matrix Permutations (350+ scenarios)
@@ -50,6 +50,17 @@ while ((Get-Date) -lt $targetTime) {
         $dpOut | Out-File -FilePath $logPath -Append -Encoding utf8
     }
 
+    # Phase 4: 320 Granular Manual Scenarios (Pairing, Multi-drive 0GB, Concurrency, Fault Chaos, Fallbacks)
+    $manStart = Get-Date
+    $manOut = & go test -v -run TestManual300DetailedScenarios ./controller 2>&1
+    $manElapsed = ((Get-Date) - $manStart).TotalSeconds
+    if ($LASTEXITCODE -eq 0) {
+        "[ROUND $round] Phase 4 - 320 Granular Manual Scenarios: PASS (${manElapsed}s)" | Out-File -FilePath $logPath -Append -Encoding utf8
+    } else {
+        "[ROUND $round] Phase 4 - 320 Granular Manual Scenarios: FAILED" | Out-File -FilePath $logPath -Append -Encoding utf8
+        $manOut | Out-File -FilePath $logPath -Append -Encoding utf8
+    }
+
     $roundEnd = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     "[ROUND $round] Completed at $roundEnd" | Out-File -FilePath $logPath -Append -Encoding utf8
     $round++
@@ -58,4 +69,4 @@ while ((Get-Date) -lt $targetTime) {
     Start-Sleep -Seconds 5
 }
 
-"=== BYOG CONTINUOUS TEST SESSION REACHED 15:00: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" | Out-File -FilePath $logPath -Append -Encoding utf8
+"=== BYOG CONTINUOUS TEST SESSION REACHED 17:00: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" | Out-File -FilePath $logPath -Append -Encoding utf8

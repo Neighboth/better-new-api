@@ -550,10 +550,10 @@ var Upgrader = websocket.Upgrader{
 	WriteBufferSize: 65536,
 }
 
-// mergeDiskPartitions combines newly measured partition free/total space with
+// MergeDiskPartitions combines newly measured partition free/total space with
 // previously saved allocations so that heartbeats do not overwrite user-assigned
 // storage quotas with zeros.
-func mergeDiskPartitions(existingJSON string, incomingRaw json.RawMessage) string {
+func MergeDiskPartitions(existingJSON string, incomingRaw json.RawMessage) string {
 	if len(incomingRaw) <= 2 {
 		return existingJSON
 	}
@@ -621,4 +621,8 @@ func mergeDiskPartitions(existingJSON string, incomingRaw json.RawMessage) strin
 		return string(out)
 	}
 	return existingJSON
+}
+
+func mergeDiskPartitions(existingJSON string, incomingRaw json.RawMessage) string {
+	return MergeDiskPartitions(existingJSON, incomingRaw)
 }
