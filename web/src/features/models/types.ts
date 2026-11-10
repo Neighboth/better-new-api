@@ -52,6 +52,7 @@ export interface Model {
   name_rule: number
   is_pinned?: boolean
   pin_order?: number
+  pin_color?: string
   announcement_bar?: string
   // Runtime fields
   bound_channels?: BoundChannel[]

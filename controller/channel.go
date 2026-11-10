@@ -914,6 +914,36 @@ func EditTagChannels(c *gin.Context) {
 	return
 }
 
+func BatchEditChannels(c *gin.Context) {
+	var req model.ChannelBatchEditData
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.Ids) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "参数错误",
+		})
+		return
+	}
+	if (req.ParamOverride != nil || req.HeaderOverride != nil) &&
+		!authz.Can(c.GetInt("id"), c.GetInt("role"), authz.ChannelSensitiveWrite) {
+		common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
+		return
+	}
+	count, err := model.BatchEditChannels(req)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "channel.batch_edit", map[string]interface{}{
+		"count": count,
+		"ids":   req.Ids,
+	})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    count,
+	})
+}
+
 type ChannelBatch struct {
 	Ids []int   `json:"ids"`
 	Tag *string `json:"tag"`

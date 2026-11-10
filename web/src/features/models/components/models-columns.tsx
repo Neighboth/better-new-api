@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { ColumnDef } from '@tanstack/react-table'
+import { Pin } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { BadgeCell, BadgeListCell } from '@/components/data-table'
@@ -127,11 +128,22 @@ export function useModelsColumns(vendors: Vendor[] = []): ColumnDef<Model>[] {
               {icon}
             </div>
             <div className='flex flex-col min-w-0'>
-              {model.display_name && (
-                <span className='font-semibold text-xs text-foreground truncate leading-tight'>
-                  {model.display_name}
-                </span>
-              )}
+              <div className='flex items-center gap-1.5'>
+                {model.display_name && (
+                  <span className='font-semibold text-xs text-foreground truncate leading-tight'>
+                    {model.display_name}
+                  </span>
+                )}
+                {model.is_pinned && (
+                  <span
+                    className='inline-flex items-center gap-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1 py-0.2 text-[9px] font-semibold border border-amber-500/20 shrink-0'
+                    title={t('Pinned Model')}
+                  >
+                    <Pin className='size-2.5 fill-current' />
+                    {model.pin_order ? `#${model.pin_order}` : t('Pinned')}
+                  </span>
+                )}
+              </div>
               <StatusBadge
                 label={name}
                 variant='neutral'

@@ -203,6 +203,31 @@ export async function batchSetChannelTag(
   return res.data
 }
 
+export interface BatchEditChannelsParams {
+  ids: number[]
+  auto_ban?: number
+  status_code_mapping?: string
+  model_ratio_override?: string
+  model_mapping?: string
+  groups?: string
+  priority?: number
+  weight?: number
+  param_override?: string
+  header_override?: string
+  tag?: string
+}
+
+export async function batchEditChannels(
+  data: BatchEditChannelsParams
+): Promise<{ success: boolean; message?: string; data?: number }> {
+  const res = await api.post(
+    '/api/channel/batch/edit',
+    data,
+    channelActionConfig()
+  )
+  return res.data
+}
+
 // ============================================================================
 // Channel Operations
 // ============================================================================

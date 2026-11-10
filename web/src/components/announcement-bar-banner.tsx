@@ -17,7 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { ExternalLink, X } from 'lucide-react'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { useSystemConfig } from '@/hooks/use-system-config'
 
@@ -25,11 +26,16 @@ export interface AnnouncementBarItem {
   id: string
   enabled: boolean
   text: string
+  translations?: Record<string, string>
   bg_color: string
   text_color: string
   height?: number
+  font_size?: string
+  font_weight?: string
+  font_family?: string
   button_enabled?: boolean
   button_text?: string
+  button_translations?: Record<string, string>
   button_url?: string
   button_bg_color?: string
   button_text_color?: string
@@ -41,10 +47,79 @@ interface SingleBarProps {
   onClose: (id: string) => void
 }
 
+/**
+ * Parses simple **bold** and _italic_ markdown tags into React elements
+ */
+function renderFormattedContent(rawText: string): React.ReactNode {
+  if (!rawText) return null
+  // Match **bold** or *italic* / _italic_
+  const parts: React.ReactNode[] = []
+  const regex = /(\*\*[^*]+\*\*|_[^_]+_|\*[^*]+\*)/g
+  let lastIdx = 0
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(rawText)) !== null) {
+    if (match.index > lastIdx) {
+      parts.push(rawText.substring(lastIdx, match.index))
+    }
+    const token = match[0]
+    if (token.startsWith('**') && token.endsWith('**')) {
+      parts.push(
+        <strong key={match.index} className='font-bold'>
+          {token.slice(2, -2)}
+        </strong>
+      )
+    } else if (token.startsWith('_') && token.endsWith('_')) {
+      parts.push(
+        <em key={match.index} className='italic'>
+          {token.slice(1, -1)}
+        </em>
+      )
+    } else if (token.startsWith('*') && token.endsWith('*')) {
+      parts.push(
+        <em key={match.index} className='italic'>
+          {token.slice(1, -1)}
+        </em>
+      )
+    } else {
+      parts.push(token)
+    }
+    lastIdx = regex.lastIndex
+  }
+  if (lastIdx < rawText.length) {
+    parts.push(rawText.substring(lastIdx))
+  }
+  return parts.length > 0 ? parts : rawText
+}
+
 const SingleBar = memo(function SingleBar({ bar, onClose }: SingleBarProps) {
+  const { i18n } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLSpanElement>(null)
   const [isOverflowing, setIsOverflowing] = useState(false)
+
+  const currentLang = i18n.language || 'en'
+  const langShort = currentLang.includes('-') ? currentLang.split('-')[0] : currentLang
+
+  const activeText = useMemo(() => {
+    if (bar.translations) {
+      if (bar.translations[currentLang]?.trim()) return bar.translations[currentLang]
+      if (bar.translations[langShort]?.trim()) return bar.translations[langShort]
+      if (bar.translations['en']?.trim()) return bar.translations['en']
+      if (bar.translations['tr']?.trim()) return bar.translations['tr']
+    }
+    return bar.text || ''
+  }, [bar.translations, bar.text, currentLang, langShort])
+
+  const activeButtonText = useMemo(() => {
+    if (bar.button_translations) {
+      if (bar.button_translations[currentLang]?.trim()) return bar.button_translations[currentLang]
+      if (bar.button_translations[langShort]?.trim()) return bar.button_translations[langShort]
+      if (bar.button_translations['en']?.trim()) return bar.button_translations['en']
+      if (bar.button_translations['tr']?.trim()) return bar.button_translations['tr']
+    }
+    return bar.button_text || ''
+  }, [bar.button_translations, bar.button_text, currentLang, langShort])
 
   useEffect(() => {
     const checkOverflow = () => {
@@ -54,17 +129,25 @@ const SingleBar = memo(function SingleBar({ bar, onClose }: SingleBarProps) {
     }
 
     checkOverflow()
+    const timer = setTimeout(checkOverflow, 50)
     window.addEventListener('resize', checkOverflow)
-    return () => window.removeEventListener('resize', checkOverflow)
-  }, [bar.text])
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('resize', checkOverflow)
+    }
+  }, [activeText])
 
   const barHeight = Math.max(28, Math.min(bar.height || 38, 80))
   const bgColor = bar.bg_color || '#8b5cf6'
   const textColor = bar.text_color || '#ffffff'
   const btnBg = bar.button_bg_color || '#000000'
   const btnText = bar.button_text_color || '#ffffff'
-  const hasButton = Boolean(bar.button_enabled && bar.button_text?.trim() && bar.button_url?.trim())
+  const hasButton = Boolean(bar.button_enabled && activeButtonText?.trim() && bar.button_url?.trim())
   const isClosable = bar.closable !== false
+
+  const fontSize = bar.font_size || '13px'
+  const fontWeight = bar.font_weight || '500'
+  const fontFamily = bar.font_family || 'inherit'
 
   const handleButtonClick = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -76,6 +159,8 @@ const SingleBar = memo(function SingleBar({ bar, onClose }: SingleBarProps) {
     }
   }
 
+  const formattedContent = useMemo(() => renderFormattedContent(activeText), [activeText])
+
   return (
     <div
       style={{
@@ -83,8 +168,11 @@ const SingleBar = memo(function SingleBar({ bar, onClose }: SingleBarProps) {
         color: textColor,
         minHeight: `${barHeight}px`,
         height: `${barHeight}px`,
+        fontSize,
+        fontWeight,
+        fontFamily,
       }}
-      className='relative w-full z-40 flex items-center justify-between px-3 text-xs sm:text-sm font-medium transition-colors select-none shadow-sm'
+      className='relative w-full z-40 flex items-center justify-between px-3 leading-normal transition-colors select-none shadow-sm'
     >
       {/* Center content / Marquee area */}
       <div
@@ -96,20 +184,20 @@ const SingleBar = memo(function SingleBar({ bar, onClose }: SingleBarProps) {
             <div
               className='inline-flex items-center whitespace-nowrap animate-marquee hover:[animation-play-state:paused]'
               style={{
-                animationDuration: `${Math.max(12, Math.round(bar.text.length * 0.25))}s`,
+                animationDuration: `${Math.max(12, Math.round(activeText.length * 0.25))}s`,
               }}
             >
               <span ref={textRef} className='pr-12 inline-flex items-center gap-2'>
-                {bar.text}
+                {formattedContent}
               </span>
               <span className='pr-12 inline-flex items-center gap-2' aria-hidden='true'>
-                {bar.text}
+                {formattedContent}
               </span>
             </div>
           </div>
         ) : (
           <span ref={textRef} className='text-center truncate px-2'>
-            {bar.text}
+            {formattedContent}
           </span>
         )}
       </div>
@@ -126,7 +214,7 @@ const SingleBar = memo(function SingleBar({ bar, onClose }: SingleBarProps) {
             }}
             className='inline-flex items-center justify-center gap-1.5 rounded-full px-3 sm:px-4 py-1 text-xs font-semibold shadow-sm transition-transform active:scale-95 hover:opacity-90 shrink-0 cursor-pointer'
           >
-            <span>{bar.button_text}</span>
+            <span>{activeButtonText}</span>
             {bar.button_url?.startsWith('http') && <ExternalLink className='h-3 w-3 opacity-80' />}
           </button>
         )}
@@ -165,7 +253,7 @@ export function AnnouncementBarsBanner() {
     try {
       const parsed = JSON.parse(announcementBars)
       if (Array.isArray(parsed)) {
-        return parsed.filter((b) => b.enabled !== false && Boolean(b.text?.trim()))
+        return parsed.filter((b) => b.enabled !== false && Boolean(b.text?.trim() || Object.keys(b.translations || {}).length > 0))
       }
     } catch {
       /* ignore */
@@ -176,6 +264,22 @@ export function AnnouncementBarsBanner() {
   const activeBars = useMemo(() => {
     return bars.filter((b) => !dismissedIds.includes(b.id))
   }, [bars, dismissedIds])
+
+  // Dynamically set CSS variable for top offset so no navbar/page content ever overlaps
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const totalHeight = activeBars.reduce(
+      (sum, b) => sum + Math.max(28, Math.min(b.height || 38, 80)),
+      0
+    )
+    document.documentElement.style.setProperty(
+      '--announcement-bars-height',
+      `${totalHeight}px`
+    )
+    return () => {
+      document.documentElement.style.setProperty('--announcement-bars-height', '0px')
+    }
+  }, [activeBars])
 
   const handleClose = (id: string) => {
     setDismissedIds((prev) => {
@@ -192,7 +296,10 @@ export function AnnouncementBarsBanner() {
   if (activeBars.length === 0) return null
 
   return (
-    <aside aria-label='Site Announcements' className='w-full shrink-0 flex flex-col'>
+    <aside
+      aria-label='Site Announcements'
+      className='fixed inset-x-0 top-0 z-[60] w-full shrink-0 flex flex-col shadow-sm'
+    >
       {activeBars.map((bar) => (
         <SingleBar key={bar.id} bar={bar} onClose={handleClose} />
       ))}

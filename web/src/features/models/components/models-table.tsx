@@ -147,7 +147,18 @@ export function ModelsTable() {
     },
   })
 
-  const models = data?.data?.items || []
+  const models = useMemo(() => {
+    const raw = data?.data?.items || []
+    return [...raw].sort((a, b) => {
+      const aPinned = a.is_pinned ? 1 : 0
+      const bPinned = b.is_pinned ? 1 : 0
+      if (aPinned !== bPinned) return bPinned - aPinned
+      if (aPinned && bPinned) {
+        return (a.pin_order ?? 0) - (b.pin_order ?? 0)
+      }
+      return 0
+    })
+  }, [data?.data?.items])
   const totalCount = data?.data?.total || 0
   const vendorCounts = data?.data?.vendor_counts
 

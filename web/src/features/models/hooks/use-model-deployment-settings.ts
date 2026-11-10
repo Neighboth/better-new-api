@@ -64,13 +64,15 @@ export function useModelDeploymentSettings() {
           providers?: DeploymentProviderStatus[]
         }
       }
-      const { ionetEnabled, modalEnabled, hfEnabled, anyEnabled } =
+      const { ionetEnabled, modalEnabled, hfEnabled, hostingerEnabled, runpodEnabled, anyEnabled } =
         parseDeploymentProviders(response?.data?.providers)
 
       setSettings({
         'model_deployment.ionet.enabled': ionetEnabled,
         'model_deployment.modal.enabled': modalEnabled,
         'model_deployment.huggingface.enabled': hfEnabled,
+        'model_deployment.hostinger.enabled': hostingerEnabled,
+        'model_deployment.runpod.enabled': runpodEnabled,
         'model_deployment.enabled': anyEnabled,
       })
 

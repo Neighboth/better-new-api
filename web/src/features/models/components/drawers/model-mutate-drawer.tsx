@@ -106,6 +106,7 @@ const extendedModelFormSchema = z.object({
   sync_official: z.boolean(),
   is_pinned: z.boolean(),
   pin_order: z.number().optional(),
+  pin_color: z.string().optional(),
   announcement_bar: z.string().optional(),
   price: z.string().optional(),
   ratio: z.string().optional(),
@@ -435,6 +436,7 @@ export function ModelMutateDrawer({
       sync_official: true,
       is_pinned: false,
       pin_order: 0,
+      pin_color: 'amber',
       announcement_bar: '',
       price: '',
       ratio: '',
@@ -540,6 +542,7 @@ export function ModelMutateDrawer({
         sync_official: model.sync_official === 1,
         is_pinned: Boolean(model.is_pinned),
         pin_order: model.pin_order ?? 0,
+        pin_color: model.pin_color || 'amber',
         announcement_bar: model.announcement_bar || '',
         ...pricing.fields,
       })
@@ -580,6 +583,7 @@ export function ModelMutateDrawer({
         sync_official: true,
         is_pinned: false,
         pin_order: 0,
+        pin_color: 'amber',
         announcement_bar: '',
         ...pricing.fields,
       })
@@ -1824,76 +1828,185 @@ export function ModelMutateDrawer({
                 />
 
                 {form.watch('is_pinned') && (
-                  <FormField
-                    control={form.control}
-                    name='pin_order'
-                    render={({ field }) => (
-                      <FormItem className='mt-3'>
-                        <FormLabel>{t('Pin Order (1, 2, 3...)')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            type='number'
-                            min={0}
-                            step={1}
-                            placeholder='0'
-                            value={field.value ?? 0}
-                            onChange={(e) => field.onChange(Number(e.target.value) || 0)}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          {t('Lower numbers appear first among pinned models')}
-                        </FormDescription>
-                      </FormItem>
-                    )}
-                  />
+                  <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 mt-3'>
+                    <FormField
+                      control={form.control}
+                      name='pin_order'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Pin Order (1, 2, 3...)')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min={0}
+                              step={1}
+                              placeholder='0'
+                              value={field.value ?? 0}
+                              onChange={(e) => field.onChange(Number(e.target.value) || 0)}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Lower numbers appear first among pinned models')}
+                          </FormDescription>
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='pin_color'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Pinned Card Highlight Color')}</FormLabel>
+                          <Select
+                            value={field.value || 'amber'}
+                            onValueChange={field.onChange}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder={t('Select highlight style')} />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value='none'>{t('No Color Change (Default Card Style)')}</SelectItem>
+                              <SelectItem value='amber'>{t('Amber / Gold Highlight')}</SelectItem>
+                              <SelectItem value='emerald'>{t('Emerald / Green Highlight')}</SelectItem>
+                              <SelectItem value='blue'>{t('Blue Highlight')}</SelectItem>
+                              <SelectItem value='purple'>{t('Purple Highlight')}</SelectItem>
+                              <SelectItem value='rose'>{t('Rose / Red Highlight')}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            {t('Choose how the card background changes when pinned')}
+                          </FormDescription>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
                 )}
 
                 <FormField
                   control={form.control}
                   name='announcement_bar'
                   render={({ field }) => {
-                    let parsedBar = { text: '', bg_color: '#8b5cf6', text_color: '#ffffff' }
+                    let parsedBar: {
+                      text: string
+                      translations: Record<string, string>
+                      bg_color: string
+                      text_color: string
+                    } = {
+                      text: '',
+                      translations: {},
+                      bg_color: '#8b5cf6',
+                      text_color: '#ffffff',
+                    }
+
                     if (field.value) {
                       try {
                         const p = JSON.parse(field.value)
-                        if (typeof p === 'object' && p !== null) parsedBar = { ...parsedBar, ...p }
+                        if (typeof p === 'object' && p !== null) {
+                          parsedBar = {
+                            text: p.text || '',
+                            translations: p.translations || {},
+                            bg_color: p.bg_color || '#8b5cf6',
+                            text_color: p.text_color || '#ffffff',
+                          }
+                        }
                       } catch {
                         parsedBar.text = field.value
                       }
                     }
 
-                    const updateBarField = (k: string, v: string) => {
-                      const next = { ...parsedBar, [k]: v }
-                      if (!next.text.trim()) {
+                    const currentLangText =
+                      parsedBar.translations?.[activeModelLang] ??
+                      (activeModelLang === 'tr' ? parsedBar.text : '') ??
+                      ''
+
+                    const updateBarText = (newVal: string) => {
+                      const nextTrans = { ...parsedBar.translations, [activeModelLang]: newVal }
+                      const next = {
+                        ...parsedBar,
+                        translations: nextTrans,
+                        text: activeModelLang === 'tr' || !parsedBar.text ? newVal : parsedBar.text,
+                      }
+                      const hasAnyText =
+                        Boolean(next.text.trim()) ||
+                        Object.values(next.translations).some((v) => Boolean(v?.trim()))
+                      if (!hasAnyText) {
                         field.onChange('')
                       } else {
                         field.onChange(JSON.stringify(next))
                       }
                     }
 
+                    const updateColor = (k: 'bg_color' | 'text_color', v: string) => {
+                      const next = { ...parsedBar, [k]: v }
+                      field.onChange(JSON.stringify(next))
+                    }
+
                     return (
                       <div className='space-y-3 pt-3 border-t mt-4'>
-                        <FormLabel>{t('Model Announcement Bar (Top Strip)')}</FormLabel>
+                        <div className='flex items-center justify-between'>
+                          <FormLabel>{t('Model Announcement Bar (Top Strip)')}</FormLabel>
+                          <span className='text-[11px] text-muted-foreground'>
+                            {t('Supports all 8 languages')}
+                          </span>
+                        </div>
+
+                        {/* Language Tabs for Model Announcement */}
+                        <div className='flex flex-wrap gap-1'>
+                          {MODEL_LANGUAGES.map((lang) => {
+                            const hasVal = Boolean(
+                              parsedBar.translations?.[lang.code]?.trim() ||
+                                (lang.code === 'tr' && parsedBar.text?.trim())
+                            )
+                            return (
+                              <Button
+                                key={lang.code}
+                                type='button'
+                                size='sm'
+                                variant={activeModelLang === lang.code ? 'default' : 'outline'}
+                                className='h-6 text-[11px] px-2 gap-1'
+                                onClick={() => setActiveModelLang(lang.code)}
+                              >
+                                <span>{lang.flag}</span>
+                                <span>{lang.label}</span>
+                                {hasVal && (
+                                  <span className='size-1.5 rounded-full bg-emerald-500 ms-0.5' />
+                                )}
+                              </Button>
+                            )
+                          })}
+                        </div>
+
                         <Input
-                          placeholder={t('Optional banner message shown on this model card (e.g. ⚡ 1M Context Window)')}
-                          value={parsedBar.text}
-                          onChange={(e) => updateBarField('text', e.target.value)}
+                          placeholder={t(
+                            'Announcement message for {{lang}} (e.g. ⚡ 1M Context Window)...',
+                            {
+                              lang:
+                                MODEL_LANGUAGES.find((l) => l.code === activeModelLang)
+                                  ?.label || activeModelLang,
+                            }
+                          )}
+                          value={currentLangText}
+                          onChange={(e) => updateBarText(e.target.value)}
                         />
-                        {parsedBar.text.trim() && (
-                          <div className='grid grid-cols-2 gap-3'>
+
+                        {(currentLangText.trim() || parsedBar.text.trim()) && (
+                          <div className='grid grid-cols-2 gap-3 pt-1'>
                             <div className='space-y-1'>
                               <Label className='text-xs'>{t('Background Color')}</Label>
                               <div className='flex items-center gap-2'>
                                 <input
                                   type='color'
                                   value={parsedBar.bg_color}
-                                  onChange={(e) => updateBarField('bg_color', e.target.value)}
+                                  onChange={(e) => updateColor('bg_color', e.target.value)}
                                   className='h-8 w-10 cursor-pointer rounded border p-0.5 bg-background'
                                 />
                                 <Input
                                   className='text-xs font-mono'
                                   value={parsedBar.bg_color}
-                                  onChange={(e) => updateBarField('bg_color', e.target.value)}
+                                  onChange={(e) => updateColor('bg_color', e.target.value)}
                                 />
                               </div>
                             </div>
@@ -1903,20 +2016,20 @@ export function ModelMutateDrawer({
                                 <input
                                   type='color'
                                   value={parsedBar.text_color}
-                                  onChange={(e) => updateBarField('text_color', e.target.value)}
+                                  onChange={(e) => updateColor('text_color', e.target.value)}
                                   className='h-8 w-10 cursor-pointer rounded border p-0.5 bg-background'
                                 />
                                 <Input
                                   className='text-xs font-mono'
                                   value={parsedBar.text_color}
-                                  onChange={(e) => updateBarField('text_color', e.target.value)}
+                                  onChange={(e) => updateColor('text_color', e.target.value)}
                                 />
                               </div>
                             </div>
                           </div>
                         )}
                         <FormDescription>
-                          {t('Displays an announcement banner with auto marquee scrolling on this model card in Model Square')}
+                          {t('Displays an announcement banner with auto marquee scrolling when overflowing on this model card in Model Square')}
                         </FormDescription>
                       </div>
                     )

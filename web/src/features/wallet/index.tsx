@@ -17,12 +17,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { ShieldCheck } from 'lucide-react'
+import { ExternalLink, ShieldCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { getSelf } from '@/lib/api'
@@ -84,6 +92,12 @@ export function Wallet(props: WalletProps) {
   const [redemptionCode, setRedemptionCode] = useState('')
   const [creemDialogOpen, setCreemDialogOpen] = useState(false)
   const [cryptoDialogOpen, setCryptoDialogOpen] = useState(false)
+  const [directLinkModalData, setDirectLinkModalData] = useState<{
+    open: boolean
+    title: string
+    url: string
+    description: string
+  } | null>(null)
   const [selectedCreemProduct, setSelectedCreemProduct] =
     useState<CreemProduct | null>(null)
   const [showSubscriptionPanel, setShowSubscriptionPanel] = useState(true)
@@ -222,13 +236,24 @@ export function Wallet(props: WalletProps) {
       const targetUrl = isDirectLinkPrimary
         ? topupInfo?.direct_link_url
         : directProvider?.url
+      const title = isDirectLinkPrimary
+        ? (topupInfo?.direct_link_title || method.name || t('Direct Link Payment'))
+        : (method.name || directProvider?.id || t('Direct Link Payment'))
+      const description = isDirectLinkPrimary
+        ? (topupInfo?.direct_link_description || method.description || '')
+        : (directProvider?.description || method.description || '')
 
-      if (targetUrl) {
-        window.open(targetUrl, '_blank')
-        toast.success(t('Redirecting to payment page...'))
+      if (!targetUrl) {
+        toast.error(t('Direct Link URL is not configured yet.'))
         return
       }
-      toast.error(t('Direct Link URL is not configured yet.'))
+
+      setDirectLinkModalData({
+        open: true,
+        title,
+        url: targetUrl,
+        description,
+      })
       return
     }
     if (normalizedType === PAYMENT_TYPES.CRYPTO) {
@@ -514,6 +539,54 @@ export function Wallet(props: WalletProps) {
         topupAmount={topupAmount}
         onSuccess={fetchUser}
       />
+
+      {directLinkModalData?.open && (
+        <Dialog
+          open={directLinkModalData.open}
+          onOpenChange={(open) =>
+            setDirectLinkModalData((prev) => (prev ? { ...prev, open } : null))
+          }
+        >
+          <DialogContent className='sm:max-w-md'>
+            <DialogHeader>
+              <DialogTitle className='text-lg font-semibold flex items-center gap-2'>
+                <ExternalLink className='h-5 w-5 text-primary' />
+                {directLinkModalData.title}
+              </DialogTitle>
+            </DialogHeader>
+            <div className='py-3 space-y-3'>
+              {directLinkModalData.description ? (
+                <div className='p-3.5 rounded-lg bg-muted/50 border border-border/70 text-sm whitespace-pre-wrap leading-relaxed'>
+                  {directLinkModalData.description}
+                </div>
+              ) : (
+                <p className='text-sm text-muted-foreground'>
+                  {t('You will be redirected to the external payment page to complete your topup.')}
+                </p>
+              )}
+            </div>
+            <DialogFooter className='gap-2 sm:gap-0'>
+              <Button
+                variant='outline'
+                onClick={() => setDirectLinkModalData(null)}
+              >
+                {t('Close')}
+              </Button>
+              <Button
+                onClick={() => {
+                  window.open(directLinkModalData.url, '_blank')
+                  setDirectLinkModalData(null)
+                  toast.success(t('Redirecting to payment page...'))
+                }}
+                className='gap-1.5'
+              >
+                <span>{t('Go to Payment Page')}</span>
+                <ExternalLink className='h-4 w-4' />
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   )
 }

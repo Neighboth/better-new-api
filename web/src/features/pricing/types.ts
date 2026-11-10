@@ -89,6 +89,8 @@ export type PricingModel = {
   is_pinned?: boolean
   /** Custom sort order for pinned models */
   pin_order?: number
+  /** Highlight color scheme or 'none' for pinned model card */
+  pin_color?: string
   /** Model-specific announcement bar configuration */
   announcement_bar?: string
   /**

@@ -154,7 +154,7 @@ export function DeploymentAccessGuard({
             <AlertTitle>{t('Configuration required')}</AlertTitle>
             <AlertDescription>
               {t(
-                'Please configure and enable io.net, Modal or Hugging Face Spaces deployment service in System Settings.'
+                'Please configure and enable io.net, Modal, Hugging Face Spaces, Hostinger or RunPod deployment service in System Settings.'
               )}
             </AlertDescription>
           </Alert>

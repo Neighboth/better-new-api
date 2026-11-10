@@ -40,7 +40,6 @@ export type CryptoWalletConfig = {
   address: string
   qr_code?: string
   min_deposit?: number
-  instructions?: string
 }
 
 type CryptoWalletsVisualEditorProps = {
@@ -50,13 +49,14 @@ type CryptoWalletsVisualEditorProps = {
 
 const COMMON_NETWORKS = [
   'USDT (TRC20)',
-  'USDT (BEP20)',
   'USDT (ERC20)',
+  'USDT (BEP20)',
+  'USDC (ERC20)',
+  'USDC (Solana)',
   'BTC (Bitcoin)',
-  'ETH (ERC20)',
+  'ETH (Ethereum)',
   'SOL (Solana)',
-  'TON',
-  'TRX (Tron)',
+  'TON (The Open Network)',
   'LTC (Litecoin)',
 ]
 
@@ -106,16 +106,16 @@ export function CryptoWalletsVisualEditor({
   const handleRemove = (index: number) => {
     const next = wallets.filter((_, i) => i !== index)
     onChange(JSON.stringify(next))
-    toast.success(t('Cüzdan silindi'))
+    toast.success(t('Wallet removed'))
   }
 
   const handleSave = () => {
     if (!draft.network.trim()) {
-      toast.error(t('Lütfen ağ adı girin'))
+      toast.error(t('Please enter network name'))
       return
     }
     if (!draft.address.trim()) {
-      toast.error(t('Lütfen cüzdan adresi girin'))
+      toast.error(t('Please enter wallet address'))
       return
     }
 
@@ -137,16 +137,16 @@ export function CryptoWalletsVisualEditor({
 
     onChange(JSON.stringify(next))
     setDialogOpen(false)
-    toast.success(t('Cüzdan kaydedildi'))
+    toast.success(t('Wallet saved'))
   }
 
   return (
     <div className='space-y-4'>
       <div className='flex items-center justify-between'>
         <div>
-          <h4 className='text-sm font-semibold'>{t('Kripto Cüzdanları ve Ağlar')}</h4>
+          <h4 className='text-sm font-semibold'>{t('Crypto Wallets & Networks')}</h4>
           <p className='text-xs text-muted-foreground'>
-            {t('Kullanıcıların transfer yapabileceği ağları ve cüzdan adreslerinizi yapılandırın.')}
+            {t('Configure the networks and wallet addresses that users can transfer funds to.')}
           </p>
         </div>
         <Button
@@ -157,17 +157,17 @@ export function CryptoWalletsVisualEditor({
           className='gap-1.5'
         >
           <Plus className='h-4 w-4' />
-          {t('Cüzdan Ekle')}
+          {t('Add Wallet')}
         </Button>
       </div>
 
       {wallets.length === 0 ? (
         <div className='rounded-lg border border-dashed p-6 text-center text-xs text-muted-foreground space-y-2'>
           <Coins className='mx-auto h-8 w-8 opacity-40' />
-          <p>{t('Henüz yapılandırılmış bir kripto cüzdanı bulunmuyor.')}</p>
+          <p>{t('No crypto wallets configured yet.')}</p>
           <Button type='button' variant='outline' size='sm' onClick={handleOpenAdd}>
             <Plus className='h-3.5 w-3.5 mr-1' />
-            {t('İlk Cüzdanı Ekle')}
+            {t('Add First Wallet')}
           </Button>
         </div>
       ) : (
@@ -212,7 +212,7 @@ export function CryptoWalletsVisualEditor({
 
               <div>
                 <Label className='text-[10px] uppercase text-muted-foreground font-semibold'>
-                  {t('Cüzdan Adresi')}
+                  {t('Wallet Address')}
                 </Label>
                 <code className='block text-xs font-mono break-all bg-muted/40 p-1.5 rounded mt-0.5 select-all'>
                   {wallet.address}
@@ -234,18 +234,18 @@ export function CryptoWalletsVisualEditor({
         <DialogContent className='max-w-md'>
           <DialogHeader>
             <DialogTitle>
-              {editingIndex !== null ? t('Cüzdanı Düzenle') : t('Yeni Kripto Cüzdanı Ekle')}
+              {editingIndex !== null ? t('Edit Wallet') : t('Add New Crypto Wallet')}
             </DialogTitle>
             <DialogDescription>
-              {t('Ağ türünü ve kullanıcıların bakiye yükleyeceği cüzdan adresini belirtin.')}
+              {t('Specify the network and deposit address where users can send funds.')}
             </DialogDescription>
           </DialogHeader>
 
           <div className='space-y-4 py-2'>
             <div className='space-y-1.5'>
-              <Label className='text-xs font-medium'>{t('Ağ Türü (Network)')}</Label>
+              <Label className='text-xs font-medium'>{t('Network Type')}</Label>
               <Input
-                placeholder='Örnek: USDT (TRC20)'
+                placeholder='e.g. USDT (TRC20)'
                 value={draft.network}
                 onChange={(e) => setDraft((prev) => ({ ...prev, network: e.target.value }))}
               />
@@ -264,9 +264,9 @@ export function CryptoWalletsVisualEditor({
             </div>
 
             <div className='space-y-1.5'>
-              <Label className='text-xs font-medium'>{t('Cüzdan Adresi (Deposit Address)')}</Label>
+              <Label className='text-xs font-medium'>{t('Deposit Address')}</Label>
               <Input
-                placeholder='0x... veya T...'
+                placeholder='0x... or T...'
                 value={draft.address}
                 className='font-mono text-xs'
                 onChange={(e) => setDraft((prev) => ({ ...prev, address: e.target.value }))}
@@ -275,7 +275,7 @@ export function CryptoWalletsVisualEditor({
 
             <div className='grid grid-cols-2 gap-3'>
               <div className='space-y-1.5'>
-                <Label className='text-xs font-medium'>{t('Minimum Yükleme ($)')}</Label>
+                <Label className='text-xs font-medium'>{t('Minimum Deposit ($)')}</Label>
                 <Input
                   type='number'
                   min='0'
@@ -287,7 +287,7 @@ export function CryptoWalletsVisualEditor({
               </div>
 
               <div className='space-y-1.5'>
-                <Label className='text-xs font-medium'>{t('QR Kod URL (İsteğe bağlı)')}</Label>
+                <Label className='text-xs font-medium'>{t('QR Code URL (Optional)')}</Label>
                 <Input
                   placeholder='https://.../qr.png'
                   value={draft.qr_code || ''}
@@ -299,10 +299,10 @@ export function CryptoWalletsVisualEditor({
 
           <DialogFooter>
             <Button type='button' variant='outline' onClick={() => setDialogOpen(false)}>
-              {t('İptal')}
+              {t('Cancel')}
             </Button>
             <Button type='button' onClick={handleSave}>
-              {t('Kaydet')}
+              {t('Save')}
             </Button>
           </DialogFooter>
         </DialogContent>

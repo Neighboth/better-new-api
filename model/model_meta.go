@@ -48,6 +48,7 @@ type Model struct {
 	ServerlessPriority int       `json:"serverless_priority" gorm:"default:0"` // 0: Channels first, 1: Serverless first
 	IsPinned      bool           `json:"is_pinned" gorm:"default:false"`
 	PinOrder      int            `json:"pin_order" gorm:"default:0"`
+	PinColor      string         `json:"pin_color,omitempty" gorm:"type:varchar(64);default:''"`
 	AnnouncementBar string       `json:"announcement_bar,omitempty" gorm:"type:text"`
 
 	MatchedModels []string `json:"matched_models,omitempty" gorm:"-"`
@@ -89,7 +90,7 @@ func (mi *Model) Update() error {
 	modelDisplayNameCache.Delete(mi.ModelName)
 	// 使用 Select 强制更新所有字段，包括零值
 	return DB.Model(&Model{}).Where("id = ?", mi.Id).
-		Select("model_name", "display_name", "tagline", "property_boxes", "description", "localizations", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "serverless_priority", "is_pinned", "pin_order", "announcement_bar", "updated_time").
+		Select("model_name", "display_name", "tagline", "property_boxes", "description", "localizations", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "serverless_priority", "is_pinned", "pin_order", "pin_color", "announcement_bar", "updated_time").
 		Updates(mi).Error
 }
 
@@ -348,9 +349,9 @@ func SearchModels(keyword string, vendor string, status string, syncOfficial str
 		dataDB = dataDB.Where("models.sync_official = ?", syncValue)
 	}
 
-	if err := dataDB.Order("models.id DESC").Offset(offset).Limit(limit).Find(&models).Error; err != nil {
+	if err := dataDB.Order("models.is_pinned DESC, models.pin_order ASC, models.id DESC").Offset(offset).Limit(limit).Find(&models).Error; err != nil {
 		// Fallback without table qualifier
-		if err2 := DB.Model(&Model{}).Order("id DESC").Offset(offset).Limit(limit).Find(&models).Error; err2 != nil {
+		if err2 := DB.Model(&Model{}).Order("is_pinned DESC, pin_order ASC, id DESC").Offset(offset).Limit(limit).Find(&models).Error; err2 != nil {
 			return []*Model{}, 0, nil
 		}
 	}

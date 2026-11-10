@@ -868,6 +868,78 @@ func EditChannelByTag(tag string, newTag *string, modelMapping *string, models *
 	return nil
 }
 
+type ChannelBatchEditData struct {
+	Ids                []int   `json:"ids"`
+	AutoBan            *int    `json:"auto_ban"`
+	StatusCodeMapping  *string `json:"status_code_mapping"`
+	ModelRatioOverride *string `json:"model_ratio_override"`
+	ModelMapping       *string `json:"model_mapping"`
+	Groups             *string `json:"groups"`
+	Priority           *int64  `json:"priority"`
+	Weight             *uint   `json:"weight"`
+	ParamOverride      *string `json:"param_override"`
+	HeaderOverride     *string `json:"header_override"`
+	Tag                *string `json:"tag"`
+}
+
+func BatchEditChannels(data ChannelBatchEditData) (int64, error) {
+	if len(data.Ids) == 0 {
+		return 0, nil
+	}
+	updates := make(map[string]interface{})
+	if data.AutoBan != nil {
+		updates["auto_ban"] = *data.AutoBan
+	}
+	if data.StatusCodeMapping != nil {
+		updates["status_code_mapping"] = *data.StatusCodeMapping
+	}
+	if data.ModelRatioOverride != nil {
+		updates["model_ratio_override"] = *data.ModelRatioOverride
+	}
+	if data.ModelMapping != nil {
+		updates["model_mapping"] = *data.ModelMapping
+	}
+	if data.Groups != nil && *data.Groups != "" {
+		updates["group"] = *data.Groups
+	}
+	if data.Priority != nil {
+		updates["priority"] = *data.Priority
+	}
+	if data.Weight != nil {
+		updates["weight"] = *data.Weight
+	}
+	if data.ParamOverride != nil {
+		updates["param_override"] = *data.ParamOverride
+	}
+	if data.HeaderOverride != nil {
+		updates["header_override"] = *data.HeaderOverride
+	}
+	if data.Tag != nil {
+		updates["tag"] = *data.Tag
+	}
+
+	if len(updates) == 0 {
+		return 0, nil
+	}
+
+	result := DB.Model(&Channel{}).Where("id IN (?)", data.Ids).Updates(updates)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+
+	if data.Groups != nil && *data.Groups != "" {
+		for _, id := range data.Ids {
+			ch, err := GetChannelById(id, false)
+			if err == nil && ch != nil {
+				_ = ch.UpdateAbilities(nil)
+			}
+		}
+	}
+
+	InitChannelCache()
+	return result.RowsAffected, nil
+}
+
 func UpdateChannelUsedQuota(id int, quota int) {
 	if common.BatchUpdateEnabled {
 		addNewRecord(BatchUpdateTypeChannelUsedQuota, id, quota)

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Copy, Pin } from 'lucide-react'
-import { memo, useMemo } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Markdown } from '@/components/ui/markdown'
@@ -47,8 +47,62 @@ export interface ModelCardProps {
   alwaysCacheHit?: boolean
 }
 
+function ModelAnnouncementHeader({
+  bg,
+  color,
+  text,
+}: {
+  bg: string
+  color: string
+  text: string
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const textRef = useRef<HTMLSpanElement>(null)
+  const [isOverflowing, setIsOverflowing] = useState(false)
+
+  useEffect(() => {
+    const check = () => {
+      if (containerRef.current && textRef.current) {
+        setIsOverflowing(textRef.current.scrollWidth > containerRef.current.clientWidth)
+      }
+    }
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [text])
+
+  return (
+    <div
+      style={{ backgroundColor: bg, color }}
+      className='-mx-3.5 -mt-3.5 sm:-mx-5 sm:-mt-5 mb-3 px-3 py-1.5 rounded-t-xl overflow-hidden flex items-center justify-center text-xs font-semibold shadow-xs select-none'
+    >
+      <div
+        ref={containerRef}
+        className='w-full overflow-hidden flex items-center justify-center'
+      >
+        {isOverflowing ? (
+          <div className='w-full overflow-hidden whitespace-nowrap group-hover:[animation-play-state:paused]'>
+            <div className='inline-flex items-center animate-marquee'>
+              <span ref={textRef} className='pr-8'>
+                {text}
+              </span>
+              <span className='pr-8' aria-hidden='true'>
+                {text}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <span ref={textRef} className='truncate text-center'>
+            {text}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { copyToClipboard } = useCopyToClipboard()
   const tokenUnit = props.tokenUnit ?? DEFAULT_TOKEN_UNIT
   const priceRate = props.priceRate ?? 1
@@ -59,9 +113,19 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     if (!props.model.announcement_bar?.trim()) return null
     try {
       const parsed = JSON.parse(props.model.announcement_bar)
-      if (typeof parsed === 'object' && parsed.text) {
+      if (typeof parsed === 'object') {
+        const currentLang = i18n.language || 'en'
+        const langShort = currentLang.includes('-') ? currentLang.split('-')[0] : currentLang
+        const text =
+          parsed.translations?.[currentLang] ||
+          parsed.translations?.[langShort] ||
+          parsed.translations?.['en'] ||
+          parsed.translations?.['tr'] ||
+          parsed.text ||
+          ''
+        if (!text?.trim()) return null
         return {
-          text: String(parsed.text),
+          text: String(text),
           bg: parsed.bg_color || '#8b5cf6',
           color: parsed.text_color || '#ffffff',
         }
@@ -74,7 +138,18 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       }
     }
     return null
-  }, [props.model.announcement_bar])
+  }, [props.model.announcement_bar, i18n.language])
+
+  const pinClass = useMemo(() => {
+    if (!props.model.is_pinned) return ''
+    const color = props.model.pin_color?.toLowerCase()
+    if (color === 'none') return ''
+    if (color === 'emerald') return 'border-emerald-500/40 bg-emerald-500/[0.03]'
+    if (color === 'blue') return 'border-blue-500/40 bg-blue-500/[0.03]'
+    if (color === 'purple') return 'border-purple-500/40 bg-purple-500/[0.03]'
+    if (color === 'rose' || color === 'red') return 'border-rose-500/40 bg-rose-500/[0.03]'
+    return 'border-amber-500/30 bg-amber-500/[0.02]'
+  }, [props.model.is_pinned, props.model.pin_color])
   const propertyBoxes = useMemo(() => {
     if (!props.model.property_boxes) return []
     try {
@@ -153,22 +228,16 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       className={cn(
         'group relative flex flex-col justify-between rounded-xl border p-3.5 transition-colors sm:p-5 cursor-pointer',
         'hover:bg-muted/20',
-        props.model.is_pinned && 'border-amber-500/30 bg-amber-500/[0.02]'
+        pinClass
       )}
     >
       <div>
         {announcement && (
-          <div
-            style={{ backgroundColor: announcement.bg, color: announcement.color }}
-            className='-mx-3.5 -mt-3.5 sm:-mx-5 sm:-mt-5 mb-3 px-3 py-1 rounded-t-xl overflow-hidden flex items-center justify-between text-[11px] font-medium shadow-xs'
-          >
-            <div className='w-full overflow-hidden whitespace-nowrap group-hover:[animation-play-state:paused]'>
-              <div className='inline-flex items-center animate-marquee'>
-                <span className='pr-8'>{announcement.text}</span>
-                <span className='pr-8' aria-hidden='true'>{announcement.text}</span>
-              </div>
-            </div>
-          </div>
+          <ModelAnnouncementHeader
+            bg={announcement.bg}
+            color={announcement.color}
+            text={announcement.text}
+          />
         )}
 
         {/* Header: icon + title + billing mode + id copy */}

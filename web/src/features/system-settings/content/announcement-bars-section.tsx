@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ArrowDown, ArrowUp, ExternalLink, Plus, Save, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ExternalLink, Globe, Plus, Save, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { type AnnouncementBarItem } from '@/components/announcement-bar-banner'
 
@@ -39,9 +40,21 @@ const PRESET_COLORS = [
   { name: 'Blue', bg: '#3b82f6', text: '#ffffff' },
   { name: 'Rose', bg: '#f43f5e', text: '#ffffff' },
   { name: 'Dark', bg: '#18181b', text: '#ffffff' },
+  { name: 'Red', bg: '#dc2626', text: '#ffffff' },
   { name: 'Pastel Mint', bg: '#d1fae5', text: '#064e3b' },
   { name: 'Pastel Lavender', bg: '#ede9fe', text: '#4c1d95' },
 ]
+
+const LANGUAGES = [
+  { code: 'tr', flag: '🇹🇷', label: 'Türkçe' },
+  { code: 'en', flag: '🇬🇧', label: 'English' },
+  { code: 'zh', flag: '🇨🇳', label: '简体中文' },
+  { code: 'zh-TW', flag: '🇹🇼', label: '繁體中文' },
+  { code: 'ja', flag: '🇯🇵', label: '日本語' },
+  { code: 'ru', flag: '🇷🇺', label: 'Русский' },
+  { code: 'fr', flag: '🇫🇷', label: 'Français' },
+  { code: 'vi', flag: '🇻🇳', label: 'Tiếng Việt' },
+] as const
 
 export function AnnouncementBarsSection({
   initialData,
@@ -51,6 +64,7 @@ export function AnnouncementBarsSection({
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
   const [saving, setSaving] = useState(false)
+  const [activeLang, setActiveLang] = useState<string>('tr')
 
   const [bars, setBars] = useState<AnnouncementBarItem[]>(() => {
     if (!initialData) return []
@@ -66,12 +80,22 @@ export function AnnouncementBarsSection({
     const newBar: AnnouncementBarItem = {
       id: `bar-${Date.now()}`,
       enabled: true,
-      text: t('🔥 Summer Sale Up To 50% OFF! Check out our latest updates.'),
+      text: '🔥 Summer Sale Up To 50% OFF! Check out our latest updates.',
+      translations: {
+        tr: '🔥 %50\'ye Varan Yaz İndirimi! En son güncellemelerimize göz atın.',
+        en: '🔥 Summer Sale Up To 50% OFF! Check out our latest updates.',
+      },
       bg_color: '#8b5cf6',
       text_color: '#ffffff',
       height: 38,
+      font_size: '13px',
+      font_weight: '500',
       button_enabled: true,
-      button_text: t('Shop Now'),
+      button_text: 'Shop Now',
+      button_translations: {
+        tr: 'Hemen İncele',
+        en: 'Shop Now',
+      },
       button_url: 'https://example.com',
       button_bg_color: '#000000',
       button_text_color: '#ffffff',
@@ -84,6 +108,35 @@ export function AnnouncementBarsSection({
     setBars((prev) => {
       const copy = [...prev]
       copy[index] = { ...copy[index], ...patch }
+      return copy
+    })
+  }
+
+  const handleUpdateTranslation = (
+    index: number,
+    lang: string,
+    field: 'text' | 'button_text',
+    value: string
+  ) => {
+    setBars((prev) => {
+      const copy = [...prev]
+      const bar = { ...copy[index] }
+      if (field === 'text') {
+        const trans = { ...(bar.translations || {}) }
+        trans[lang] = value
+        bar.translations = trans
+        if (lang === 'en' || !bar.text) {
+          bar.text = value
+        }
+      } else {
+        const btnTrans = { ...(bar.button_translations || {}) }
+        btnTrans[lang] = value
+        bar.button_translations = btnTrans
+        if (lang === 'en' || !bar.button_text) {
+          bar.button_text = value
+        }
+      }
+      copy[index] = bar
       return copy
     })
   }
@@ -111,6 +164,7 @@ export function AnnouncementBarsSection({
         key: 'AnnouncementBars',
         value: JSON.stringify(bars),
       })
+      toast.success(t('Announcement bars saved successfully'))
     } catch (err: any) {
       toast.error(err?.message || t('Failed to save announcement bars'))
     } finally {
@@ -137,6 +191,7 @@ export function AnnouncementBarsSection({
           </Button>
         </div>
       </div>
+
       <div className='space-y-6 pt-2'>
         {bars.length === 0 ? (
           <div className='rounded-lg border border-dashed p-8 text-center'>
@@ -150,6 +205,15 @@ export function AnnouncementBarsSection({
           </div>
         ) : (
           bars.map((bar, index) => {
+            const currentText =
+              bar.translations?.[activeLang] ??
+              (activeLang === 'en' ? bar.text : '') ??
+              ''
+            const currentBtnText =
+              bar.button_translations?.[activeLang] ??
+              (activeLang === 'en' ? bar.button_text : '') ??
+              ''
+
             return (
               <Card key={bar.id || index} className='relative overflow-hidden border shadow-sm'>
                 {/* Visual Live Preview of this Bar */}
@@ -158,11 +222,13 @@ export function AnnouncementBarsSection({
                     backgroundColor: bar.bg_color || '#8b5cf6',
                     color: bar.text_color || '#ffffff',
                     height: `${Math.max(28, Math.min(bar.height || 38, 80))}px`,
+                    fontSize: bar.font_size || '13px',
+                    fontWeight: bar.font_weight || '500',
                   }}
                   className='w-full flex items-center justify-between px-4 text-xs font-medium border-b select-none transition-colors'
                 >
                   <div className='truncate flex-1 text-center pr-2'>
-                    {bar.text || t('Announcement bar preview text...')}
+                    {currentText || bar.text || t('Announcement bar preview text...')}
                   </div>
                   <div className='flex items-center gap-2 shrink-0'>
                     {bar.button_enabled && (
@@ -171,17 +237,13 @@ export function AnnouncementBarsSection({
                           backgroundColor: bar.button_bg_color || '#000000',
                           color: bar.button_text_color || '#ffffff',
                         }}
-                        className='inline-flex items-center gap-1 rounded-full px-3 py-0.5 text-[11px] font-semibold shadow-xs'
+                        className='rounded-full px-3 py-0.5 text-[11px] font-semibold flex items-center gap-1 shadow-sm'
                       >
-                        {bar.button_text || t('Button')}
+                        {currentBtnText || bar.button_text || t('Action')}
                         <ExternalLink className='h-2.5 w-2.5 opacity-80' />
                       </span>
                     )}
-                    {bar.closable !== false && (
-                      <span className='opacity-60'>
-                        <X className='h-3.5 w-3.5' />
-                      </span>
-                    )}
+                    {bar.closable !== false && <X className='h-3 w-3 opacity-70' />}
                   </div>
                 </div>
 
@@ -244,22 +306,60 @@ export function AnnouncementBarsSection({
                     />
                   </div>
 
-                  {/* Announcement Text */}
-                  <div className='space-y-1.5'>
-                    <Label className='text-xs font-medium'>{t('Announcement Text')}</Label>
-                    <Input
-                      value={bar.text}
-                      onChange={(e) => handleUpdateBar(index, { text: e.target.value })}
-                      placeholder={t('Enter announcement message...')}
-                      className='text-xs'
-                    />
-                    <p className='text-[11px] text-muted-foreground'>
-                      {t('If the text exceeds screen width, it automatically scrolls in a smooth marquee.')}
-                    </p>
+                  {/* Multi-language Selector Tabs */}
+                  <div className='space-y-2 border-b pb-4'>
+                    <div className='flex items-center justify-between'>
+                      <Label className='text-xs font-medium flex items-center gap-1.5'>
+                        <Globe className='h-3.5 w-3.5 text-primary' />
+                        {t('Language')} &amp; {t('Announcement Text')}
+                      </Label>
+                      <span className='text-[11px] text-muted-foreground'>
+                        {t('Use **bold** and _italic_ for formatting')}
+                      </span>
+                    </div>
+
+                    <div className='flex flex-wrap gap-1'>
+                      {LANGUAGES.map((lang) => {
+                        const hasVal = Boolean(
+                          bar.translations?.[lang.code]?.trim() ||
+                            (lang.code === 'en' && bar.text?.trim())
+                        )
+                        return (
+                          <Button
+                            key={lang.code}
+                            type='button'
+                            size='sm'
+                            variant={activeLang === lang.code ? 'default' : 'outline'}
+                            className='h-7 text-xs px-2.5 gap-1'
+                            onClick={() => setActiveLang(lang.code)}
+                          >
+                            <span>{lang.flag}</span>
+                            <span>{lang.label}</span>
+                            {hasVal && (
+                              <span className='size-1.5 rounded-full bg-emerald-500 ms-0.5' />
+                            )}
+                          </Button>
+                        )
+                      })}
+                    </div>
+
+                    <div className='pt-2 space-y-1.5'>
+                      <Input
+                        value={currentText}
+                        onChange={(e) =>
+                          handleUpdateTranslation(index, activeLang, 'text', e.target.value)
+                        }
+                        placeholder={t('Enter message for selected language (e.g. **Big Sale** 50% Off)...')}
+                        className='text-xs font-medium'
+                      />
+                      <p className='text-[11px] text-muted-foreground'>
+                        {t('If the text exceeds screen width, it automatically scrolls in a smooth marquee.')}
+                      </p>
+                    </div>
                   </div>
 
-                  {/* Height & Colors Grid */}
-                  <div className='grid grid-cols-1 gap-4 sm:grid-cols-3'>
+                  {/* Typography & Dimensions */}
+                  <div className='grid grid-cols-1 gap-4 sm:grid-cols-4 border-b pb-4'>
                     <div className='space-y-1.5'>
                       <Label className='text-xs font-medium'>{t('Height (px)')}</Label>
                       <Input
@@ -274,6 +374,56 @@ export function AnnouncementBarsSection({
                       />
                     </div>
 
+                    <div className='space-y-1.5'>
+                      <Label className='text-xs font-medium'>{t('Font Size')}</Label>
+                      <Select
+                        value={bar.font_size || '13px'}
+                        onValueChange={(val) => handleUpdateBar(index, { font_size: val || undefined })}
+                      >
+                        <SelectTrigger className='text-xs h-9'>
+                          <SelectValue placeholder={String(t('Font Size'))} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='11px'>11px ({t('Extra Small')})</SelectItem>
+                          <SelectItem value='12px'>12px ({t('Small')})</SelectItem>
+                          <SelectItem value='13px'>13px ({t('Regular')})</SelectItem>
+                          <SelectItem value='14px'>14px ({t('Medium')})</SelectItem>
+                          <SelectItem value='16px'>16px ({t('Large')})</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className='space-y-1.5'>
+                      <Label className='text-xs font-medium'>{t('Font Weight')}</Label>
+                      <Select
+                        value={bar.font_weight || '500'}
+                        onValueChange={(val) => handleUpdateBar(index, { font_weight: val || undefined })}
+                      >
+                        <SelectTrigger className='text-xs h-9'>
+                          <SelectValue placeholder={String(t('Font Weight'))} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='400'>{t('Normal (400)')}</SelectItem>
+                          <SelectItem value='500'>{t('Medium (500)')}</SelectItem>
+                          <SelectItem value='600'>{t('Semi-Bold (600)')}</SelectItem>
+                          <SelectItem value='700'>{t('Bold (700)')}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className='space-y-1.5'>
+                      <Label className='text-xs font-medium'>{t('Closable Button (X)')}</Label>
+                      <div className='flex items-center h-9'>
+                        <Switch
+                          checked={bar.closable !== false}
+                          onCheckedChange={(val) => handleUpdateBar(index, { closable: val })}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Colors Grid */}
+                  <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 border-b pb-4'>
                     <div className='space-y-1.5'>
                       <Label className='text-xs font-medium'>{t('Background Color')}</Label>
                       <div className='flex items-center gap-2'>
@@ -310,123 +460,127 @@ export function AnnouncementBarsSection({
                   </div>
 
                   {/* Preset Colors */}
-                  <div className='flex flex-wrap items-center gap-1.5 pt-1'>
-                    <span className='text-[11px] text-muted-foreground me-1'>
-                      {t('Color Presets:')}
-                    </span>
-                    {PRESET_COLORS.map((preset) => (
-                      <button
-                        key={preset.name}
-                        type='button'
-                        onClick={() =>
-                          handleUpdateBar(index, { bg_color: preset.bg, text_color: preset.text })
-                        }
-                        style={{ backgroundColor: preset.bg, color: preset.text }}
-                        className='rounded px-2 py-0.5 text-[10px] font-medium border shadow-xs hover:opacity-80 transition-opacity'
-                      >
-                        {preset.name}
-                      </button>
-                    ))}
+                  <div className='space-y-1.5 border-b pb-4'>
+                    <Label className='text-xs font-medium'>{t('Color Presets')}</Label>
+                    <div className='flex flex-wrap gap-2 pt-1'>
+                      {PRESET_COLORS.map((preset) => (
+                        <button
+                          key={preset.name}
+                          type='button'
+                          onClick={() =>
+                            handleUpdateBar(index, {
+                              bg_color: preset.bg,
+                              text_color: preset.text,
+                            })
+                          }
+                          style={{ backgroundColor: preset.bg, color: preset.text }}
+                          className='rounded-md px-2.5 py-1 text-xs font-medium border shadow-xs transition-transform hover:scale-105 active:scale-95'
+                        >
+                          {t(preset.name)}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
-                  {/* Button Settings */}
-                  <div className='rounded-lg border bg-muted/20 p-3 space-y-3'>
+                  {/* Action Button Settings */}
+                  <div className='space-y-4 pt-1'>
                     <div className='flex items-center justify-between'>
-                      <div>
-                        <Label className='text-xs font-semibold'>{t('Action Button')}</Label>
+                      <div className='space-y-0.5'>
+                        <Label className='text-xs font-medium'>{t('Action Button')}</Label>
                         <p className='text-[11px] text-muted-foreground'>
-                          {t('Show a pill-shaped action button redirecting users to a URL.')}
+                          {t('Show an interactive pill button on the right side of the bar.')}
                         </p>
                       </div>
                       <Switch
-                        checked={bar.button_enabled}
-                        onCheckedChange={(val) => handleUpdateBar(index, { button_enabled: val })}
+                        checked={Boolean(bar.button_enabled)}
+                        onCheckedChange={(val) =>
+                          handleUpdateBar(index, { button_enabled: val })
+                        }
                       />
                     </div>
 
                     {bar.button_enabled && (
-                      <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 pt-2 border-t'>
-                        <div className='space-y-1.5'>
-                          <Label className='text-xs font-medium'>{t('Button Text')}</Label>
-                          <Input
-                            value={bar.button_text || ''}
-                            onChange={(e) =>
-                              handleUpdateBar(index, { button_text: e.target.value })
-                            }
-                            placeholder='Shop Now / Visit Now'
-                            className='text-xs'
-                          />
-                        </div>
-
-                        <div className='space-y-1.5'>
-                          <Label className='text-xs font-medium'>{t('Button URL')}</Label>
-                          <Input
-                            value={bar.button_url || ''}
-                            onChange={(e) =>
-                              handleUpdateBar(index, { button_url: e.target.value })
-                            }
-                            placeholder='https://example.com/promo'
-                            className='text-xs'
-                          />
-                        </div>
-
-                        <div className='space-y-1.5'>
-                          <Label className='text-xs font-medium'>{t('Button Background')}</Label>
-                          <div className='flex items-center gap-2'>
-                            <input
-                              type='color'
-                              value={bar.button_bg_color || '#000000'}
-                              onChange={(e) =>
-                                handleUpdateBar(index, { button_bg_color: e.target.value })
-                              }
-                              className='h-8 w-10 cursor-pointer rounded border p-0.5 bg-background'
-                            />
+                      <div className='rounded-lg border bg-muted/20 p-3 space-y-3'>
+                        <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+                          <div className='space-y-1.5'>
+                            <Label className='text-xs font-medium'>
+                              {t('Button Text')} ({LANGUAGES.find((l) => l.code === activeLang)?.label})
+                            </Label>
                             <Input
-                              value={bar.button_bg_color || '#000000'}
+                              value={currentBtnText}
                               onChange={(e) =>
-                                handleUpdateBar(index, { button_bg_color: e.target.value })
+                                handleUpdateTranslation(
+                                  index,
+                                  activeLang,
+                                  'button_text',
+                                  e.target.value
+                                )
                               }
+                              placeholder={t('e.g. Shop Now, Learn More...')}
+                              className='text-xs'
+                            />
+                          </div>
+
+                          <div className='space-y-1.5'>
+                            <Label className='text-xs font-medium'>{t('Button Target URL')}</Label>
+                            <Input
+                              value={bar.button_url || ''}
+                              onChange={(e) =>
+                                handleUpdateBar(index, { button_url: e.target.value })
+                              }
+                              placeholder={t('https://example.com or /pricing')}
                               className='text-xs font-mono'
                             />
                           </div>
                         </div>
 
-                        <div className='space-y-1.5'>
-                          <Label className='text-xs font-medium'>{t('Button Text Color')}</Label>
-                          <div className='flex items-center gap-2'>
-                            <input
-                              type='color'
-                              value={bar.button_text_color || '#ffffff'}
-                              onChange={(e) =>
-                                handleUpdateBar(index, { button_text_color: e.target.value })
-                              }
-                              className='h-8 w-10 cursor-pointer rounded border p-0.5 bg-background'
-                            />
-                            <Input
-                              value={bar.button_text_color || '#ffffff'}
-                              onChange={(e) =>
-                                handleUpdateBar(index, { button_text_color: e.target.value })
-                              }
-                              className='text-xs font-mono'
-                            />
+                        <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 pt-1'>
+                          <div className='space-y-1.5'>
+                            <Label className='text-xs font-medium'>
+                              {t('Button Background Color')}
+                            </Label>
+                            <div className='flex items-center gap-2'>
+                              <input
+                                type='color'
+                                value={bar.button_bg_color || '#000000'}
+                                onChange={(e) =>
+                                  handleUpdateBar(index, { button_bg_color: e.target.value })
+                                }
+                                className='h-8 w-10 cursor-pointer rounded border p-0.5 bg-background'
+                              />
+                              <Input
+                                value={bar.button_bg_color || '#000000'}
+                                onChange={(e) =>
+                                  handleUpdateBar(index, { button_bg_color: e.target.value })
+                                }
+                                className='text-xs font-mono'
+                              />
+                            </div>
+                          </div>
+
+                          <div className='space-y-1.5'>
+                            <Label className='text-xs font-medium'>{t('Button Text Color')}</Label>
+                            <div className='flex items-center gap-2'>
+                              <input
+                                type='color'
+                                value={bar.button_text_color || '#ffffff'}
+                                onChange={(e) =>
+                                  handleUpdateBar(index, { button_text_color: e.target.value })
+                                }
+                                className='h-8 w-10 cursor-pointer rounded border p-0.5 bg-background'
+                              />
+                              <Input
+                                value={bar.button_text_color || '#ffffff'}
+                                onChange={(e) =>
+                                  handleUpdateBar(index, { button_text_color: e.target.value })
+                                }
+                                className='text-xs font-mono'
+                              />
+                            </div>
                           </div>
                         </div>
                       </div>
                     )}
-                  </div>
-
-                  {/* Closable switch */}
-                  <div className='flex items-center justify-between pt-1'>
-                    <div className='space-y-0.5'>
-                      <Label className='text-xs font-medium'>{t('Allow Close (Dismiss X Button)')}</Label>
-                      <p className='text-[11px] text-muted-foreground'>
-                        {t('Allows users to hide this banner for their current session.')}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={bar.closable !== false}
-                      onCheckedChange={(val) => handleUpdateBar(index, { closable: val })}
-                    />
                   </div>
                 </CardContent>
               </Card>

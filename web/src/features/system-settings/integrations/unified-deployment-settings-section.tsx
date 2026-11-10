@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { CheckCircle2, Loader2, Server, XCircle } from 'lucide-react'
+import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -407,9 +407,11 @@ export function UnifiedDeploymentSettingsSection({
           <Card className='border border-border/70 shadow-sm'>
             <CardHeader className='pb-3'>
               <div className='flex items-center justify-between'>
-                <div className='flex items-center gap-2'>
-                  <Server className='h-5 w-5 text-primary' />
+                <div>
                   <CardTitle className='text-base font-semibold'>io.net Cloud</CardTitle>
+                  <CardDescription className='text-xs mt-1'>
+                    {t('Deploy serverless GPU clusters and containers on io.net decentralized compute network.')}
+                  </CardDescription>
                 </div>
                 <FormField
                   control={form.control}
@@ -424,9 +426,6 @@ export function UnifiedDeploymentSettingsSection({
                   )}
                 />
               </div>
-              <CardDescription className='text-xs'>
-                {t('Deploy serverless GPU clusters and containers on io.net decentralized compute network.')}
-              </CardDescription>
             </CardHeader>
             {ionetEnabled && (
               <CardContent className='pt-0 space-y-4'>
@@ -485,9 +484,11 @@ export function UnifiedDeploymentSettingsSection({
           <Card className='border border-border/70 shadow-sm'>
             <CardHeader className='pb-3'>
               <div className='flex items-center justify-between'>
-                <div className='flex items-center gap-2'>
-                  <Server className='h-5 w-5 text-indigo-500' />
+                <div>
                   <CardTitle className='text-base font-semibold'>Modal Deployment</CardTitle>
+                  <CardDescription className='text-xs mt-1'>
+                    {t('Serverless AI deployment on Modal with GPU auto-scaling, persistent cache, and idle sleep.')}
+                  </CardDescription>
                 </div>
                 <FormField
                   control={form.control}
@@ -502,9 +503,6 @@ export function UnifiedDeploymentSettingsSection({
                   )}
                 />
               </div>
-              <CardDescription className='text-xs'>
-                {t('Serverless AI deployment on Modal with GPU auto-scaling, persistent cache, and idle sleep.')}
-              </CardDescription>
             </CardHeader>
             {modalEnabled && (
               <CardContent className='pt-0 space-y-4'>
@@ -665,9 +663,11 @@ export function UnifiedDeploymentSettingsSection({
           <Card className='border border-border/70 shadow-sm'>
             <CardHeader className='pb-3'>
               <div className='flex items-center justify-between'>
-                <div className='flex items-center gap-2'>
-                  <Server className='h-5 w-5 text-amber-500' />
+                <div>
                   <CardTitle className='text-base font-semibold'>Hugging Face Spaces</CardTitle>
+                  <CardDescription className='text-xs mt-1'>
+                    {t('Deploy models directly on Hugging Face Spaces with hardware acceleration.')}
+                  </CardDescription>
                 </div>
                 <FormField
                   control={form.control}
@@ -682,9 +682,6 @@ export function UnifiedDeploymentSettingsSection({
                   )}
                 />
               </div>
-              <CardDescription className='text-xs'>
-                {t('Deploy models directly on Hugging Face Spaces with hardware acceleration.')}
-              </CardDescription>
             </CardHeader>
             {hfEnabled && (
               <CardContent className='pt-0 space-y-4'>
@@ -829,21 +826,16 @@ export function UnifiedDeploymentSettingsSection({
           </Card>
 
           {/* Hostinger GPU VPS Card */}
-          <Card>
-            <CardHeader>
+          <Card className='border border-border/70 shadow-sm'>
+            <CardHeader className='pb-3'>
               <div className='flex items-center justify-between'>
-                <div className='flex items-center gap-3'>
-                  <div className='bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg'>
-                    <Server className='size-5' />
-                  </div>
-                  <div>
-                    <CardTitle className='text-base font-semibold'>
-                      Hostinger GPU VPS
-                    </CardTitle>
-                    <CardDescription className='text-xs'>
-                      {t('Deploy and run models on Hostinger high-performance GPU Virtual Private Servers.')}
-                    </CardDescription>
-                  </div>
+                <div>
+                  <CardTitle className='text-base font-semibold'>
+                    Hostinger GPU VPS
+                  </CardTitle>
+                  <CardDescription className='text-xs mt-1'>
+                    {t('Deploy and run models on Hostinger high-performance GPU Virtual Private Servers.')}
+                  </CardDescription>
                 </div>
                 <FormField
                   control={form.control}
@@ -919,21 +911,16 @@ export function UnifiedDeploymentSettingsSection({
           </Card>
 
           {/* RunPod GPU Cloud Card */}
-          <Card>
-            <CardHeader>
+          <Card className='border border-border/70 shadow-sm'>
+            <CardHeader className='pb-3'>
               <div className='flex items-center justify-between'>
-                <div className='flex items-center gap-3'>
-                  <div className='bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg'>
-                    <Server className='size-5' />
-                  </div>
-                  <div>
-                    <CardTitle className='text-base font-semibold'>
-                      RunPod GPU Cloud
-                    </CardTitle>
-                    <CardDescription className='text-xs'>
-                      {t('Deploy AI models to RunPod serverless and dedicated GPU infrastructure (RTX 4090, A100, H100).')}
-                    </CardDescription>
-                  </div>
+                <div>
+                  <CardTitle className='text-base font-semibold'>
+                    RunPod GPU Cloud
+                  </CardTitle>
+                  <CardDescription className='text-xs mt-1'>
+                    {t('Deploy AI models to RunPod serverless and dedicated GPU infrastructure (RTX 4090, A100, H100).')}
+                  </CardDescription>
                 </div>
                 <FormField
                   control={form.control}
