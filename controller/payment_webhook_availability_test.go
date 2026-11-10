@@ -69,7 +69,7 @@ func TestCreemWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 
 func TestWaffoWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 	confirmPaymentComplianceForTest(t)
-	originalEnabled := setting.WaffoEnabled
+	originalPayMethods := operation_setting.PayMethods
 	originalSandbox := setting.WaffoSandbox
 	originalAPIKey := setting.WaffoApiKey
 	originalPrivateKey := setting.WaffoPrivateKey
@@ -78,7 +78,7 @@ func TestWaffoWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 	originalSandboxPrivateKey := setting.WaffoSandboxPrivateKey
 	originalSandboxPublicCert := setting.WaffoSandboxPublicCert
 	t.Cleanup(func() {
-		setting.WaffoEnabled = originalEnabled
+		operation_setting.PayMethods = originalPayMethods
 		setting.WaffoSandbox = originalSandbox
 		setting.WaffoApiKey = originalAPIKey
 		setting.WaffoPrivateKey = originalPrivateKey
@@ -88,7 +88,7 @@ func TestWaffoWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 		setting.WaffoSandboxPublicCert = originalSandboxPublicCert
 	})
 
-	setting.WaffoEnabled = true
+	operation_setting.PayMethods = []map[string]string{{"type": "waffo"}}
 	setting.WaffoSandbox = false
 	setting.WaffoApiKey = ""
 	setting.WaffoPrivateKey = "private"
@@ -98,10 +98,10 @@ func TestWaffoWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 	setting.WaffoApiKey = "api"
 	require.True(t, isWaffoWebhookEnabled())
 
-	setting.WaffoEnabled = false
+	operation_setting.PayMethods = nil
 	require.False(t, isWaffoWebhookEnabled())
 
-	setting.WaffoEnabled = true
+	operation_setting.PayMethods = []map[string]string{{"type": "waffo"}}
 	setting.WaffoSandbox = true
 	setting.WaffoSandboxApiKey = ""
 	setting.WaffoSandboxPrivateKey = "sandbox_private"

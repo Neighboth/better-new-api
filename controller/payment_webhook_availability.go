@@ -7,6 +7,21 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
+func hasPayMethodSlug(methods []map[string]string, slugs ...string) bool {
+	for _, m := range methods {
+		t := strings.ToLower(strings.TrimSpace(m["type"]))
+		if t == "" {
+			continue
+		}
+		for _, slug := range slugs {
+			if t == strings.ToLower(strings.TrimSpace(slug)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func isPaymentComplianceConfirmed() bool {
 	return operation_setting.IsPaymentComplianceConfirmed()
 }
@@ -50,11 +65,8 @@ func isWaffoTopUpEnabled() bool {
 	if !isPaymentComplianceConfirmed() {
 		return false
 	}
-	if !setting.WaffoEnabled {
-		return false
-	}
 
-	return isWaffoWebhookConfigured()
+	return isWaffoWebhookConfigured() && hasPayMethodSlug(operation_setting.PayMethods, "waffo")
 }
 
 func isWaffoWebhookConfigured() bool {

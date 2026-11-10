@@ -170,7 +170,6 @@ const paymentSchema = z.object({
       })
     }
   }),
-  WaffoEnabled: z.boolean(),
   WaffoApiKey: z.string(),
   WaffoPrivateKey: z.string(),
   WaffoPublicCert: z.string(),
@@ -203,12 +202,9 @@ const paymentSchema = z.object({
   ShopifyStoreDomain: z.string(),
   ShopifyAccessToken: z.string(),
   ShopifyWebhookSecret: z.string(),
-  EnableDirectLinkTopup: z.boolean(),
   DirectLinkUrl: z.string(),
-  DirectLinkTitle: z.string(),
   DirectLinkDescription: z.string(),
   DirectLinkMinTopup: z.coerce.number().min(0),
-  EnableCryptoTopup: z.boolean(),
   CryptoWallets: z.string(),
   CryptoInstructions: z.string(),
   CryptoMinTopup: z.coerce.number().min(0),
@@ -474,7 +470,7 @@ export function PaymentSettingsSection({
 
   const rawEpayProviders = form.watch('EpayProviders')
   const epayProvidersList = React.useMemo<
-    { id: string; name: string; pay_address: string; partner_id: string; key: string }[]
+    { id: string; name?: string; pay_address: string; partner_id: string; key: string }[]
   >(() => {
     try {
       const parsed = JSON.parse(rawEpayProviders || '[]')
@@ -489,7 +485,6 @@ export function PaymentSettingsSection({
       ...epayProvidersList,
       {
         id: `epay-${Date.now().toString(36)}`,
-        name: '',
         pay_address: '',
         partner_id: '',
         key: '',
@@ -575,7 +570,6 @@ export function PaymentSettingsSection({
       CreemWebhookSecret: values.CreemWebhookSecret.trim(),
       CreemTestMode: values.CreemTestMode,
       CreemProducts: values.CreemProducts.trim(),
-      WaffoEnabled: values.WaffoEnabled,
       WaffoSandbox: values.WaffoSandbox,
       WaffoMerchantId: values.WaffoMerchantId.trim(),
       WaffoCurrency: values.WaffoCurrency.trim() || 'USD',
@@ -611,12 +605,9 @@ export function PaymentSettingsSection({
       ShopifyStoreDomain: values.ShopifyStoreDomain.trim(),
       ShopifyAccessToken: values.ShopifyAccessToken.trim(),
       ShopifyWebhookSecret: values.ShopifyWebhookSecret.trim(),
-      EnableDirectLinkTopup: values.EnableDirectLinkTopup,
       DirectLinkUrl: removeTrailingSlash(values.DirectLinkUrl?.trim() || ''),
-      DirectLinkTitle: (values.DirectLinkTitle || '').trim(),
       DirectLinkDescription: (values.DirectLinkDescription || '').trim(),
       DirectLinkMinTopup: values.DirectLinkMinTopup || 1,
-      EnableCryptoTopup: values.EnableCryptoTopup,
       CryptoWallets: (values.CryptoWallets || '[]').trim(),
       CryptoInstructions: (values.CryptoInstructions || '').trim(),
       CryptoMinTopup: values.CryptoMinTopup || 1,
@@ -646,7 +637,6 @@ export function PaymentSettingsSection({
       CreemWebhookSecret: initialRef.current.CreemWebhookSecret.trim(),
       CreemTestMode: initialRef.current.CreemTestMode,
       CreemProducts: initialRef.current.CreemProducts.trim(),
-      WaffoEnabled: initialRef.current.WaffoEnabled,
       WaffoSandbox: initialRef.current.WaffoSandbox,
       WaffoMerchantId: initialRef.current.WaffoMerchantId.trim(),
       WaffoCurrency: initialRef.current.WaffoCurrency.trim() || 'USD',
@@ -684,12 +674,9 @@ export function PaymentSettingsSection({
       ShopifyStoreDomain: (initialRef.current.ShopifyStoreDomain || '').trim(),
       ShopifyAccessToken: (initialRef.current.ShopifyAccessToken || '').trim(),
       ShopifyWebhookSecret: (initialRef.current.ShopifyWebhookSecret || '').trim(),
-      EnableDirectLinkTopup: Boolean(initialRef.current.EnableDirectLinkTopup),
       DirectLinkUrl: removeTrailingSlash(initialRef.current.DirectLinkUrl?.trim() || ''),
-      DirectLinkTitle: (initialRef.current.DirectLinkTitle || '').trim(),
       DirectLinkDescription: (initialRef.current.DirectLinkDescription || '').trim(),
       DirectLinkMinTopup: initialRef.current.DirectLinkMinTopup || 1,
-      EnableCryptoTopup: Boolean(initialRef.current.EnableCryptoTopup),
       CryptoWallets: (initialRef.current.CryptoWallets || '[]').trim(),
       CryptoInstructions: (initialRef.current.CryptoInstructions || '').trim(),
       CryptoMinTopup: initialRef.current.CryptoMinTopup || 1,
@@ -822,10 +809,6 @@ export function PaymentSettingsSection({
       updates.push({ key: 'CreemProducts', value: sanitized.CreemProducts })
     }
 
-    if (sanitized.WaffoEnabled !== initial.WaffoEnabled) {
-      updates.push({ key: 'WaffoEnabled', value: sanitized.WaffoEnabled })
-    }
-
     if (sanitized.WaffoSandbox !== initial.WaffoSandbox) {
       updates.push({ key: 'WaffoSandbox', value: sanitized.WaffoSandbox })
     }
@@ -947,14 +930,8 @@ export function PaymentSettingsSection({
       updates.push({ key: 'ShopifyWebhookSecret', value: sanitized.ShopifyWebhookSecret })
     }
 
-    if (sanitized.EnableDirectLinkTopup !== initial.EnableDirectLinkTopup) {
-      updates.push({ key: 'EnableDirectLinkTopup', value: sanitized.EnableDirectLinkTopup })
-    }
     if (sanitized.DirectLinkUrl !== initial.DirectLinkUrl) {
       updates.push({ key: 'DirectLinkUrl', value: sanitized.DirectLinkUrl })
-    }
-    if (sanitized.DirectLinkTitle !== initial.DirectLinkTitle) {
-      updates.push({ key: 'DirectLinkTitle', value: sanitized.DirectLinkTitle })
     }
     if (sanitized.DirectLinkDescription !== initial.DirectLinkDescription) {
       updates.push({ key: 'DirectLinkDescription', value: sanitized.DirectLinkDescription })
@@ -963,9 +940,6 @@ export function PaymentSettingsSection({
       updates.push({ key: 'DirectLinkMinTopup', value: sanitized.DirectLinkMinTopup })
     }
 
-    if (sanitized.EnableCryptoTopup !== initial.EnableCryptoTopup) {
-      updates.push({ key: 'EnableCryptoTopup', value: sanitized.EnableCryptoTopup })
-    }
     if (sanitized.CryptoWallets !== initial.CryptoWallets) {
       updates.push({ key: 'CryptoWallets', value: sanitized.CryptoWallets })
     }
@@ -1049,7 +1023,6 @@ export function PaymentSettingsSection({
 
   const currentFormValues = form.watch()
   const waffoValues: WaffoSettingsValues = {
-    WaffoEnabled: currentFormValues.WaffoEnabled,
     WaffoApiKey: currentFormValues.WaffoApiKey,
     WaffoPrivateKey: currentFormValues.WaffoPrivateKey,
     WaffoPublicCert: currentFormValues.WaffoPublicCert,
@@ -1284,7 +1257,7 @@ export function PaymentSettingsSection({
                       </FormControl>
                       <FormDescription>
                         {t(
-                          'Configured as PayMethods JSON. The type value decides which payment flow is used: stripe for Stripe, waffo_pancake for Waffo Pancake, and other values are sent to Epay as the type parameter.'
+                          'Configured as PayMethods JSON. The type value decides which payment flow is used: stripe for Stripe, waffo_pancake for Waffo Pancake, waffo for Waffo, direct_link for Direct Link, crypto for Crypto, and other values are sent to Epay as the type parameter.'
                         )}
                       </FormDescription>
                       <FormMessage />
@@ -1583,7 +1556,7 @@ export function PaymentSettingsSection({
                             <div className='flex items-center justify-between'>
                               <div className='flex items-center gap-2'>
                                 <span className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
-                                  #{index + 1} {provider.name || provider.id || t('Provider')}
+                                  #{index + 1} {provider.id || t('Provider')}
                                 </span>
                                 {slugErr && (
                                   <Badge variant='destructive' className='text-[10px] py-0 px-1.5'>
@@ -1601,7 +1574,7 @@ export function PaymentSettingsSection({
                                 <Trash2 className='h-3.5 w-3.5' />
                               </Button>
                             </div>
-                            <div className='grid gap-3 sm:grid-cols-2 md:grid-cols-4'>
+                            <div className='grid gap-3 sm:grid-cols-2 md:grid-cols-3'>
                               <div>
                                 <label className='text-[11px] font-medium text-muted-foreground'>{t('ID / Slug')}</label>
                                 <Input
@@ -1618,15 +1591,6 @@ export function PaymentSettingsSection({
                                     {slugErr}
                                   </p>
                                 )}
-                              </div>
-                              <div>
-                                <label className='text-[11px] font-medium text-muted-foreground'>{t('Display Name')}</label>
-                                <Input
-                                  placeholder='Alipay / WeChat'
-                                  value={provider.name || ''}
-                                  className='h-8 text-xs'
-                                  onChange={(e) => handleUpdateEpayProvider(index, 'name', e.target.value)}
-                                />
                               </div>
                               <div>
                                 <label className='text-[11px] font-medium text-muted-foreground'>{t('Gateway URL')}</label>
@@ -1669,7 +1633,12 @@ export function PaymentSettingsSection({
             <TabsContent value='stripe' className={paymentTabContentClassName}>
               <div className='space-y-4'>
                 <div>
-                  <h3 className='text-lg font-medium'>{t('Stripe Gateway')}</h3>
+                  <div className='flex items-center gap-2'>
+                    <h3 className='text-lg font-medium'>{t('Stripe Gateway')}</h3>
+                    <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
+                      slug: stripe
+                    </Badge>
+                  </div>
                   <p className='text-muted-foreground text-sm'>
                     {t('Configuration for Stripe payment integration')}
                   </p>
@@ -1861,7 +1830,12 @@ export function PaymentSettingsSection({
             <TabsContent value='shopier' className={paymentTabContentClassName}>
               <div className='space-y-4'>
                 <div>
-                  <h3 className='text-lg font-medium'>{t('Shopier Gateway')}</h3>
+                  <div className='flex items-center gap-2'>
+                    <h3 className='text-lg font-medium'>{t('Shopier Gateway')}</h3>
+                    <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
+                      slug: shopier
+                    </Badge>
+                  </div>
                   <p className='text-muted-foreground text-sm'>
                     {t('Configuration for Shopier payment integration')}
                   </p>
@@ -1941,7 +1915,12 @@ export function PaymentSettingsSection({
             <TabsContent value='paytr' className={paymentTabContentClassName}>
               <div className='space-y-4'>
                 <div>
-                  <h3 className='text-lg font-medium'>{t('PayTR Gateway')}</h3>
+                  <div className='flex items-center gap-2'>
+                    <h3 className='text-lg font-medium'>{t('PayTR Gateway')}</h3>
+                    <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
+                      slug: paytr
+                    </Badge>
+                  </div>
                   <p className='text-muted-foreground text-sm'>
                     {t('Configuration for PayTR payment integration')}
                   </p>
@@ -2042,7 +2021,12 @@ export function PaymentSettingsSection({
             <TabsContent value='paypal' className={paymentTabContentClassName}>
               <div className='space-y-4'>
                 <div>
-                  <h3 className='text-lg font-medium'>{t('PayPal Gateway')}</h3>
+                  <div className='flex items-center gap-2'>
+                    <h3 className='text-lg font-medium'>{t('PayPal Gateway')}</h3>
+                    <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
+                      slug: paypal
+                    </Badge>
+                  </div>
                   <p className='text-muted-foreground text-sm'>
                     {t('Configuration for PayPal REST API payment integration')}
                   </p>
@@ -2131,7 +2115,12 @@ export function PaymentSettingsSection({
             <TabsContent value='iyzico' className={paymentTabContentClassName}>
               <div className='space-y-4'>
                 <div>
-                  <h3 className='text-lg font-medium'>{t('iyzico Gateway')}</h3>
+                  <div className='flex items-center gap-2'>
+                    <h3 className='text-lg font-medium'>{t('iyzico Gateway')}</h3>
+                    <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
+                      slug: iyzico
+                    </Badge>
+                  </div>
                   <p className='text-muted-foreground text-sm'>
                     {t('Configuration for iyzico Checkout Form integration')}
                   </p>
@@ -2222,7 +2211,12 @@ export function PaymentSettingsSection({
             <TabsContent value='shopify' className={paymentTabContentClassName}>
               <div className='space-y-4'>
                 <div>
-                  <h3 className='text-lg font-medium'>{t('Shopify Integration')}</h3>
+                  <div className='flex items-center gap-2'>
+                    <h3 className='text-lg font-medium'>{t('Shopify Integration')}</h3>
+                    <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
+                      slug: shopify
+                    </Badge>
+                  </div>
                   <p className='text-muted-foreground text-sm'>
                     {t('Configuration for Shopify store orders and webhook synchronization')}
                   </p>
@@ -2302,7 +2296,12 @@ export function PaymentSettingsSection({
             <TabsContent value='creem' className={paymentTabContentClassName}>
               <div className='space-y-4'>
                 <div>
-                  <h3 className='text-lg font-medium'>{t('Creem Gateway')}</h3>
+                  <div className='flex items-center gap-2'>
+                    <h3 className='text-lg font-medium'>{t('Creem Gateway')}</h3>
+                    <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
+                      slug: creem
+                    </Badge>
+                  </div>
                   <p className='text-muted-foreground text-sm'>
                     {t('Configuration for Creem payment integration')}
                   </p>
@@ -2484,218 +2483,159 @@ export function PaymentSettingsSection({
             <TabsContent value='direct' className={paymentTabContentClassName}>
               <div className='space-y-6'>
                 <div>
-                  <h3 className='text-lg font-medium'>{t('Direct Link Gateway')}</h3>
+                  <div className='flex items-center gap-2'>
+                    <h3 className='text-lg font-medium'>{t('Direct Link Gateway')}</h3>
+                    <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
+                      slug: direct_link
+                    </Badge>
+                  </div>
                   <p className='text-muted-foreground text-sm'>
                     {t('Kullanıcıları harici bir ödeme linkine veya mağazaya doğrudan yönlendirmek için yapılandırın.')}
                   </p>
                 </div>
 
-                <FormField
-                  control={form.control}
-                  name='EnableDirectLinkTopup'
-                  render={({ field }) => (
-                    <SettingsSwitchItem>
-                      <SettingsSwitchContent>
-                        <FormLabel>{t('Direct Link ile Ödemeyi Etkinleştir')}</FormLabel>
-                        <FormDescription>
-                          {t('Kullanıcılar bakiye yüklerken bu ödeme yöntemini seçtiklerinde doğrudan belirtilen linke yönlendirilir.')}
-                        </FormDescription>
-                      </SettingsSwitchContent>
-                      <FormControl>
-                        <Switch
-                          checked={Boolean(field.value)}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                    </SettingsSwitchItem>
-                  )}
-                />
+                <div className='space-y-6'>
+                  <div className='grid gap-6 md:grid-cols-2'>
+                    <FormField
+                      control={form.control}
+                      name='DirectLinkUrl'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Ödeme Bağlantısı (URL)')} *</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='https://shop.example.com/pay'
+                              {...field}
+                              onChange={(e) => field.onChange(e.target.value)}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Kullanıcının yönlendirileceği harici ödeme sayfası adresi.')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                {form.watch('EnableDirectLinkTopup') && (
-                  <div className='space-y-6'>
-                    <div className='grid gap-6 md:grid-cols-2'>
-                      <FormField
-                        control={form.control}
-                        name='DirectLinkUrl'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('Ödeme Bağlantısı (URL)')} *</FormLabel>
-                            <FormControl>
-                              <Input
-                                placeholder='https://shop.example.com/pay'
-                                {...field}
-                                onChange={(e) => field.onChange(e.target.value)}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              {t('Kullanıcının yönlendirileceği harici ödeme sayfası adresi.')}
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name='DirectLinkTitle'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('Görünen Başlık')}</FormLabel>
-                            <FormControl>
-                              <Input
-                                placeholder={t('Direct Link / Mağaza')}
-                                {...field}
-                                onChange={(e) => field.onChange(e.target.value)}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              {t('Ödeme seçenekleri listesinde görünecek buton adı (Varsayılan: Direct Link).')}
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-
-                    <div className='grid gap-6 md:grid-cols-2'>
-                      <FormField
-                        control={form.control}
-                        name='DirectLinkMinTopup'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('Minimum Tutar ($)')}</FormLabel>
-                            <FormControl>
-                              <Input
-                                type='number'
-                                min='0'
-                                {...field}
-                                {...safeNumberFieldProps(field)}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              {t('Bu yöntemin seçilebilmesi için gereken minimum tutar.')}
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name='DirectLinkDescription'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('Açıklama / Not')}</FormLabel>
-                            <FormControl>
-                              <Input
-                                placeholder={t('Güvenli harici ödeme sayfası')}
-                                {...field}
-                                onChange={(e) => field.onChange(e.target.value)}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              {t('Ödeme yönteminin altında gösterilecek opsiyonel kısa açıklama.')}
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
+                    <FormField
+                      control={form.control}
+                      name='DirectLinkMinTopup'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Minimum Tutar ($)')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min='0'
+                              {...field}
+                              {...safeNumberFieldProps(field)}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Bu yöntemin seçilebilmesi için gereken minimum tutar.')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
                   </div>
-                )}
+
+                  <FormField
+                    control={form.control}
+                    name='DirectLinkDescription'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Açıklama / Not')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={t('Güvenli harici ödeme sayfası')}
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value)}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t('Ödeme yönteminin altında gösterilecek opsiyonel kısa açıklama.')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               </div>
             </TabsContent>
 
             <TabsContent value='crypto' className={paymentTabContentClassName}>
               <div className='space-y-6'>
                 <div>
-                  <h3 className='text-lg font-medium'>{t('Crypto Payment Gateway')}</h3>
+                  <div className='flex items-center gap-2'>
+                    <h3 className='text-lg font-medium'>{t('Crypto Payment Gateway')}</h3>
+                    <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
+                      slug: crypto
+                    </Badge>
+                  </div>
                   <p className='text-muted-foreground text-sm'>
                     {t('Kripto para cüzdanlarınızı ve transfer bildirim yönetimini buradan yapılandırın.')}
                   </p>
                 </div>
 
-                <FormField
-                  control={form.control}
-                  name='EnableCryptoTopup'
-                  render={({ field }) => (
-                    <SettingsSwitchItem>
-                      <SettingsSwitchContent>
-                        <FormLabel>{t('Kripto ile Ödemeyi Etkinleştir')}</FormLabel>
-                        <FormDescription>
-                          {t('Kullanıcıların kripto transferi yaparak bakiye yüklemesine ve TxID bildirimi yapmasına olanak tanır.')}
-                        </FormDescription>
-                      </SettingsSwitchContent>
-                      <FormControl>
-                        <Switch
-                          checked={Boolean(field.value)}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                    </SettingsSwitchItem>
-                  )}
-                />
+                <div className='space-y-6'>
+                  <div className='grid gap-6 md:grid-cols-2'>
+                    <FormField
+                      control={form.control}
+                      name='CryptoMinTopup'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Minimum Kripto Yükleme Tutarı ($)')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min='0'
+                              {...field}
+                              {...safeNumberFieldProps(field)}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Kripto ile bakiye yüklemede kabul edilecek minimum tutar.')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                {form.watch('EnableCryptoTopup') && (
-                  <div className='space-y-6'>
-                    <div className='grid gap-6 md:grid-cols-2'>
-                      <FormField
-                        control={form.control}
-                        name='CryptoMinTopup'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('Minimum Kripto Yükleme Tutarı ($)')}</FormLabel>
-                            <FormControl>
-                              <Input
-                                type='number'
-                                min='0'
-                                {...field}
-                                {...safeNumberFieldProps(field)}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              {t('Kripto ile bakiye yüklemede kabul edilecek minimum tutar.')}
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name='CryptoInstructions'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('Kullanıcı Bilgilendirme Metni')}</FormLabel>
-                            <FormControl>
-                              <Input
-                                placeholder={t('Lütfen belirtilen adrese transfer yaptıktan sonra TxID bilgisini girin.')}
-                                {...field}
-                                onChange={(e) => field.onChange(e.target.value)}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              {t('Kripto ödeme modalında kullanıcılara gösterilecek özel talimatlar.')}
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-
-                    <div className='mt-6 pt-6 border-t'>
-                      <CryptoWalletsVisualEditor
-                        value={form.watch('CryptoWallets') || '[]'}
-                        onChange={(val) =>
-                          form.setValue('CryptoWallets', val, {
-                            shouldDirty: true,
-                            shouldValidate: true,
-                          })
-                        }
-                      />
-                    </div>
+                    <FormField
+                      control={form.control}
+                      name='CryptoInstructions'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Kullanıcı Bilgilendirme Metni')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder={t('Lütfen belirtilen adrese transfer yaptıktan sonra TxID bilgisini girin.')}
+                              {...field}
+                              onChange={(e) => field.onChange(e.target.value)}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Kripto ödeme modalında kullanıcılara gösterilecek özel talimatlar.')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
                   </div>
-                )}
+
+                  <div className='mt-6 pt-6 border-t'>
+                    <CryptoWalletsVisualEditor
+                      value={form.watch('CryptoWallets') || '[]'}
+                      onChange={(val) =>
+                        form.setValue('CryptoWallets', val, {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
 
                 <AdminCryptoDepositsTable />
               </div>

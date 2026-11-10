@@ -42,9 +42,10 @@ type CryptoWalletItem struct {
 }
 
 func isCryptoTopUpEnabled() bool {
-	common.OptionMapRWMutex.RLock()
-	defer common.OptionMapRWMutex.RUnlock()
-	return common.OptionMap["EnableCryptoTopup"] == "true"
+	if !isPaymentComplianceConfirmed() {
+		return false
+	}
+	return hasPayMethodSlug(operation_setting.PayMethods, model.PaymentMethodCrypto)
 }
 
 func getCryptoMinTopup() int {

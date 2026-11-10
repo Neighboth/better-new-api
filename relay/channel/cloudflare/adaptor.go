@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
@@ -48,11 +50,62 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	}
 }
 
+func usesCfJsonAudioPayload(modelName string) bool {
+	return strings.Contains(strings.ToLower(modelName), "whisper-large-v3")
+}
+
+func isCfDeepgramModel(modelName string) bool {
+	lower := strings.ToLower(modelName)
+	return strings.Contains(lower, "deepgram") || strings.Contains(lower, "nova-2") || strings.Contains(lower, "nova-3")
+}
+
+func detectAudioContentType(c *gin.Context) string {
+	if c != nil && c.Request != nil {
+		reqCT := strings.TrimSpace(c.Request.Header.Get("Content-Type"))
+		if strings.HasPrefix(strings.ToLower(reqCT), "audio/") {
+			return reqCT
+		}
+		if strings.HasPrefix(strings.ToLower(reqCT), "multipart/form-data") {
+			if _, fh, err := c.Request.FormFile("file"); err == nil && fh != nil {
+				partCT := strings.TrimSpace(fh.Header.Get("Content-Type"))
+				if strings.HasPrefix(strings.ToLower(partCT), "audio/") {
+					return partCT
+				}
+				switch strings.ToLower(filepath.Ext(fh.Filename)) {
+				case ".mp3":
+					return "audio/mpeg"
+				case ".wav":
+					return "audio/wav"
+				case ".ogg":
+					return "audio/ogg"
+				case ".flac":
+					return "audio/flac"
+				case ".webm":
+					return "audio/webm"
+				case ".m4a", ".mp4":
+					return "audio/mp4"
+				case ".aac":
+					return "audio/aac"
+				case ".opus":
+					return "audio/opus"
+				}
+			}
+		}
+	}
+	return "audio/mpeg"
+}
+
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
 	req.Set("Authorization", fmt.Sprintf("Bearer %s", info.ApiKey))
 	if info.RelayMode == constant.RelayModeAudioTranscription || info.RelayMode == constant.RelayModeAudioTranslation {
-		req.Set("Content-Type", "application/json")
+		if usesCfJsonAudioPayload(info.UpstreamModelName) {
+			req.Set("Content-Type", "application/json")
+		} else if isCfDeepgramModel(info.UpstreamModelName) {
+			req.Set("Content-Type", detectAudioContentType(c))
+		} else {
+			req.Set("Content-Type", "application/octet-stream")
+		}
 	}
 	return nil
 }
@@ -104,6 +157,10 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 	}
 	if len(bodyBytes) == 0 {
 		return nil, errors.New("file is required")
+	}
+
+	if !usesCfJsonAudioPayload(info.UpstreamModelName) {
+		return bytes.NewBuffer(bodyBytes), nil
 	}
 
 	task := "transcribe"

@@ -3,10 +3,15 @@ package controller
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"math"
 	"mime/multipart"
@@ -23,6 +28,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay"
+	taskaepi "github.com/QuantumNous/new-api/relay/channel/task/aepi"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -142,7 +148,7 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 	}
 
 	if channel.Type == constant.ChannelTypeAepi {
-		return testAepiChannel(ctx, channel, testUserID, tik)
+		return testAepiChannel(ctx, channel, testUserID, testModel, endpointType, tik)
 	}
 
 	w := httptest.NewRecorder()
@@ -210,7 +216,7 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 		}
 
 		// Audio Transcription (STT) models
-		if strings.Contains(lowerM, "whisper") || strings.Contains(lowerM, "transcription") || strings.Contains(lowerM, "transcribe") || strings.HasPrefix(lowerM, "stt") || strings.Contains(lowerM, "voxtral") {
+		if strings.Contains(lowerM, "whisper") || strings.Contains(lowerM, "transcription") || strings.Contains(lowerM, "transcribe") || strings.HasPrefix(lowerM, "stt") || strings.Contains(lowerM, "voxtral") || strings.Contains(lowerM, "deepgram") || strings.Contains(lowerM, "nova-2") || strings.Contains(lowerM, "nova-3") {
 			endpointType = string(constant.EndpointTypeAudioTranscription)
 			requestPath = "/v1/audio/transcriptions"
 		}
@@ -618,15 +624,32 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 			c.Request.Method = http.MethodPost
 		}
 		if channel.Type == constant.ChannelCloudflare || info.ApiType == constant.APITypeCloudflare {
-			audioBytes := getCleanSTTSampleAudio()
-			cfPayload := map[string]any{
-				"audio": base64.StdEncoding.EncodeToString(audioBytes),
-				"task":  "transcribe",
+			cfModel := info.UpstreamModelName
+			if strings.TrimSpace(cfModel) == "" {
+				cfModel = testModel
 			}
-			jsonBytes, _ := json.Marshal(cfPayload)
-			c.Request.Header.Set("Content-Type", "application/json")
-			requestBody = bytes.NewBuffer(jsonBytes)
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonBytes))
+			lowerCFModel := strings.ToLower(cfModel)
+			if strings.Contains(lowerCFModel, "whisper-large-v3") {
+				audioBytes := getCleanSTTSampleAudio()
+				cfPayload := map[string]any{
+					"audio": base64.StdEncoding.EncodeToString(audioBytes),
+					"task":  "transcribe",
+				}
+				jsonBytes, _ := json.Marshal(cfPayload)
+				c.Request.Header.Set("Content-Type", "application/json")
+				requestBody = bytes.NewBuffer(jsonBytes)
+				c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonBytes))
+			} else if strings.Contains(lowerCFModel, "deepgram") || strings.Contains(lowerCFModel, "nova-2") || strings.Contains(lowerCFModel, "nova-3") {
+				audioBytes := getSTTSampleAudio()
+				c.Request.Header.Set("Content-Type", "audio/mpeg")
+				requestBody = bytes.NewBuffer(audioBytes)
+				c.Request.Body = io.NopCloser(bytes.NewBuffer(audioBytes))
+			} else {
+				audioBytes := getCleanSTTSampleAudio()
+				c.Request.Header.Set("Content-Type", "application/octet-stream")
+				requestBody = bytes.NewBuffer(audioBytes)
+				c.Request.Body = io.NopCloser(bytes.NewBuffer(audioBytes))
+			}
 		} else {
 			mpBuf := &bytes.Buffer{}
 			mpWriter := multipart.NewWriter(mpBuf)
@@ -831,6 +854,34 @@ func testChannelInternal(ctx context.Context, channel *model.Channel, testUserID
 			transcription = strings.TrimSpace(string(respBody))
 		}
 		testMessage = fmt.Sprintf("Gönderilen sesteki cümleler: Hello, this is a test audio message for speech recognition. Everything is functioning properly.\nModelin anladığı cümleler: %s", transcription)
+	} else if info.RelayMode == relayconstant.RelayModeImagesGenerations ||
+		constant.EndpointType(endpointType) == constant.EndpointTypeOpenAIVideo ||
+		constant.EndpointType(endpointType) == constant.EndpointTypeImageGeneration {
+		mediaURL := extractMediaURLFromTestResponse(respBody)
+		if mediaURL == "" {
+			err := errors.New("görsel veya video modeli test yanıtında medya bağlantısı/verisi döndürmedi")
+			return testResult{
+				context:     c,
+				localErr:    err,
+				newAPIError: types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError),
+			}
+		}
+		lowerModel := strings.ToLower(testModel)
+		lowerURL := strings.ToLower(strings.Split(mediaURL, "?")[0])
+		isVideo := constant.EndpointType(endpointType) == constant.EndpointTypeOpenAIVideo ||
+			strings.Contains(lowerModel, "video") ||
+			strings.Contains(lowerModel, "sora") ||
+			strings.Contains(lowerModel, "veo") ||
+			strings.Contains(lowerModel, "kling") ||
+			strings.Contains(lowerModel, "runway") ||
+			strings.Contains(lowerModel, "cogvideo") ||
+			strings.HasSuffix(lowerURL, ".mp4") ||
+			strings.HasSuffix(lowerURL, ".webm")
+		if isVideo {
+			testMessage = fmt.Sprintf("Model: %s\nOluşturulan video bağlantısı: %s", testModel, mediaURL)
+		} else {
+			testMessage = fmt.Sprintf("Model: %s\nOluşturulan görsel bağlantısı: %s", testModel, mediaURL)
+		}
 	}
 	common.SysLog(fmt.Sprintf("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
 	return testResult{
@@ -867,7 +918,300 @@ func findNestedTextOrTranscript(data any) string {
 	return ""
 }
 
-func testAepiChannel(ctx context.Context, channel *model.Channel, testUserID int, tik time.Time) testResult {
+type cachedTestMediaItem struct {
+	contentType string
+	data        []byte
+	expiresAt   time.Time
+}
+
+var (
+	channelTestMediaMu    sync.Mutex
+	channelTestMediaMap   = make(map[string]cachedTestMediaItem)
+	channelTestMediaOrder = make([]string, 0, 100)
+)
+
+func storeChannelTestMedia(contentType string, data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+	buf := make([]byte, 16)
+	_, _ = rand.Read(buf)
+	token := hex.EncodeToString(buf)
+
+	now := time.Now()
+	channelTestMediaMu.Lock()
+	defer channelTestMediaMu.Unlock()
+
+	for len(channelTestMediaOrder) >= 100 {
+		oldest := channelTestMediaOrder[0]
+		channelTestMediaOrder = channelTestMediaOrder[1:]
+		delete(channelTestMediaMap, oldest)
+	}
+	channelTestMediaMap[token] = cachedTestMediaItem{
+		contentType: contentType,
+		data:        data,
+		expiresAt:   now.Add(15 * time.Minute),
+	}
+	channelTestMediaOrder = append(channelTestMediaOrder, token)
+	return "/api/test-media/" + token
+}
+
+func GetChannelTestMedia(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	now := time.Now()
+	channelTestMediaMu.Lock()
+	item, ok := channelTestMediaMap[id]
+	if ok && now.After(item.expiresAt) {
+		delete(channelTestMediaMap, id)
+		ok = false
+	}
+	channelTestMediaMu.Unlock()
+	if !ok {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, item.contentType, item.data)
+}
+
+func decodeBase64TestMedia(raw string) (string, []byte) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	contentType := ""
+	if strings.HasPrefix(raw, "data:") {
+		if idx := strings.Index(raw, ","); idx != -1 {
+			meta := strings.TrimPrefix(raw[:idx], "data:")
+			if semi := strings.Index(meta, ";"); semi != -1 {
+				contentType = strings.TrimSpace(meta[:semi])
+			}
+			raw = raw[idx+1:]
+		}
+	}
+	decoded, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil || len(decoded) == 0 {
+		return "", nil
+	}
+	if contentType == "" {
+		contentType = http.DetectContentType(decoded)
+	}
+	return contentType, decoded
+}
+
+func findNestedMediaURL(data any) string {
+	switch v := data.(type) {
+	case map[string]any:
+		for _, key := range []string{"video_url", "image_url", "url", "file_url"} {
+			if val, ok := v[key]; ok {
+				if s, ok := val.(string); ok {
+					trimmed := strings.TrimSpace(s)
+					if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") || strings.HasPrefix(trimmed, "/files/") {
+						return trimmed
+					}
+				}
+			}
+		}
+		for _, val := range v {
+			if s := findNestedMediaURL(val); s != "" {
+				return s
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if s := findNestedMediaURL(item); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func findNestedBase64Media(data any) string {
+	switch v := data.(type) {
+	case map[string]any:
+		for _, key := range []string{"b64_json", "image", "bytesBase64Encoded"} {
+			if val, ok := v[key]; ok {
+				if s, ok := val.(string); ok && len(strings.TrimSpace(s)) > 32 {
+					return strings.TrimSpace(s)
+				}
+			}
+		}
+		for _, val := range v {
+			if s := findNestedBase64Media(val); s != "" {
+				return s
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if s := findNestedBase64Media(item); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func extractMediaURLFromTestResponse(respBody []byte) string {
+	var parsed struct {
+		Url      string `json:"url"`
+		VideoUrl string `json:"video_url"`
+		B64Json  string `json:"b64_json"`
+		Output   struct {
+			Url      string `json:"url"`
+			VideoUrl string `json:"video_url"`
+		} `json:"output"`
+		Result struct {
+			Url      string `json:"url"`
+			VideoUrl string `json:"video_url"`
+		} `json:"result"`
+		Data []struct {
+			Url      string `json:"url"`
+			VideoUrl string `json:"video_url"`
+			B64Json  string `json:"b64_json"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(respBody, &parsed)
+	for _, candidate := range []string{
+		func() string {
+			if len(parsed.Data) > 0 {
+				return parsed.Data[0].VideoUrl
+			}
+			return ""
+		}(),
+		func() string {
+			if len(parsed.Data) > 0 {
+				return parsed.Data[0].Url
+			}
+			return ""
+		}(),
+		parsed.VideoUrl,
+		parsed.Url,
+		parsed.Output.VideoUrl,
+		parsed.Output.Url,
+		parsed.Result.VideoUrl,
+		parsed.Result.Url,
+	} {
+		if trimmed := strings.TrimSpace(candidate); trimmed != "" {
+			return trimmed
+		}
+	}
+
+	var rawMap any
+	if err := json.Unmarshal(respBody, &rawMap); err == nil {
+		if nested := findNestedMediaURL(rawMap); nested != "" {
+			return nested
+		}
+	}
+
+	var b64 string
+	if len(parsed.Data) > 0 && strings.TrimSpace(parsed.Data[0].B64Json) != "" {
+		b64 = parsed.Data[0].B64Json
+	} else if strings.TrimSpace(parsed.B64Json) != "" {
+		b64 = parsed.B64Json
+	} else if rawMap != nil {
+		b64 = findNestedBase64Media(rawMap)
+	}
+	if b64 != "" {
+		if ct, decoded := decodeBase64TestMedia(b64); len(decoded) > 0 {
+			return storeChannelTestMedia(ct, decoded)
+		}
+	}
+	return ""
+}
+
+func isAepiVideoEditModel(lowerModel string) bool {
+	switch lowerModel {
+	case "wan-2.7-edit", "kling-o3-edit", "grok-video-edit", "runway-aleph-2.0":
+		return true
+	default:
+		return strings.Contains(lowerModel, "video") && strings.Contains(lowerModel, "edit")
+	}
+}
+
+func isAepiImageTestModel(lowerModel string) bool {
+	if taskaepi.IsImageModel(lowerModel) {
+		return true
+	}
+	for _, kw := range []string{"gpt-image", "nano-banana", "seedream", "flux-2", "flux-3-image", "flux-3-klein", "flux-pro-kontext", "ideogram", "recraft", "qwen-image", "krea", "dalle", "davinci-ultra", "microsoft-mai-image", "meta-muse-image"} {
+		if strings.Contains(lowerModel, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+func buildAepiTestPNG() []byte {
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	bg := color.RGBA{R: 240, G: 130, B: 60, A: 255}
+	for y := 0; y < 64; y++ {
+		for x := 0; x < 64; x++ {
+			img.Set(x, y, bg)
+		}
+	}
+	var buf bytes.Buffer
+	_ = png.Encode(&buf, img)
+	return buf.Bytes()
+}
+
+func uploadAepiTestSource(ctx context.Context, client *http.Client, baseURL, key string) (string, error) {
+	pngBytes := buildAepiTestPNG()
+	uploadURL := fmt.Sprintf("%s/v1/uploads?name=test.png", baseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, bytes.NewReader(pngBytes))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("X-API-Key", key)
+	req.Header.Set("Content-Type", "image/png")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("Aepi kaynak yükleme başarısız (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	var upRes taskaepi.AepiUploadResponse
+	if err := json.Unmarshal(body, &upRes); err != nil || strings.TrimSpace(upRes.Id) == "" {
+		return "", fmt.Errorf("Aepi kaynak yükleme kimliği alınamadı: %s", string(body))
+	}
+	return strings.TrimSpace(upRes.Id), nil
+}
+
+func extractAepiJobErrorMessage(body []byte) string {
+	var parsed struct {
+		Error   any    `json:"error"`
+		Message string `json:"message"`
+	}
+	_ = json.Unmarshal(body, &parsed)
+	switch e := parsed.Error.(type) {
+	case string:
+		if strings.TrimSpace(e) != "" {
+			return strings.TrimSpace(e)
+		}
+	case map[string]any:
+		if msg, ok := e["message"].(string); ok && strings.TrimSpace(msg) != "" {
+			return strings.TrimSpace(msg)
+		}
+	}
+	if strings.TrimSpace(parsed.Message) != "" {
+		return strings.TrimSpace(parsed.Message)
+	}
+	return strings.TrimSpace(string(body))
+}
+
+func testAepiChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, tik time.Time) testResult {
 	baseURL := channel.GetBaseURL()
 	if baseURL == "" {
 		baseURL = "https://videoapi.aerobox.eu.cc"
@@ -882,16 +1226,74 @@ func testAepiChannel(ctx context.Context, channel *model.Channel, testUserID int
 	}
 	key = strings.TrimSpace(key)
 
-	reqURL := fmt.Sprintf("%s/v1/jobs?limit=1", baseURL)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return testResult{
-			localErr: fmt.Errorf("Aepi test isteği oluşturulamadı: %w", err),
+	resolvedModel := strings.TrimSpace(testModel)
+	if resolvedModel == "" {
+		if channel.TestModel != nil && strings.TrimSpace(*channel.TestModel) != "" {
+			resolvedModel = strings.TrimSpace(*channel.TestModel)
+		} else {
+			models := channel.GetModels()
+			if len(models) > 0 {
+				resolvedModel = strings.TrimSpace(models[0])
+			}
+			if resolvedModel == "" {
+				resolvedModel = "gpt-image-2.6-sunburst"
+			}
 		}
 	}
-	req.Header.Set("Authorization", "Bearer "+key)
-	req.Header.Set("X-API-Key", key)
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	upstreamModel := resolvedModel
+	if mappingStr := strings.TrimSpace(channel.GetModelMapping()); mappingStr != "" {
+		var mappingMap map[string]string
+		if err := json.Unmarshal([]byte(mappingStr), &mappingMap); err == nil {
+			if mapped, ok := mappingMap[resolvedModel]; ok && strings.TrimSpace(mapped) != "" {
+				upstreamModel = strings.TrimSpace(mapped)
+			}
+		}
+	}
+	lowerModel := strings.ToLower(upstreamModel)
+
+	operation := "create"
+	reqModel := upstreamModel
+	needsSource := false
+	prompt := "A gentle slow cinematic pan over calm ocean waves at sunset"
+
+	switch {
+	case lowerModel == "music":
+		operation = "music"
+		reqModel = ""
+		prompt = "Warm ambient synth drone with a gentle steady pulse"
+	case lowerModel == "rescale":
+		operation = "rescale"
+		reqModel = ""
+		needsSource = true
+		prompt = "Rescale cleanly to 1:1"
+	case endpointType == string(constant.EndpointTypeImageGeneration):
+		operation = "image"
+		prompt = "A minimalist warm paper poster with a subtle orange sun accent"
+		if strings.Contains(lowerModel, "upscale") {
+			operation = "image_upscale"
+			needsSource = true
+		} else if strings.Contains(lowerModel, "edit") {
+			operation = "image_edit"
+			needsSource = true
+		}
+	case endpointType == string(constant.EndpointTypeOpenAIVideo):
+		operation = "create"
+		if isAepiVideoEditModel(lowerModel) {
+			operation = "edit"
+			needsSource = true
+		}
+	default:
+		if isAepiVideoEditModel(lowerModel) {
+			operation = "edit"
+			needsSource = true
+		} else if isAepiImageTestModel(lowerModel) && (lowerModel != "grok" && lowerModel != "adobe-firefly") {
+			operation = "image"
+			prompt = "A minimalist warm paper poster with a subtle orange sun accent"
+		} else if !taskaepi.IsVideoModel(lowerModel) && isAepiImageTestModel(lowerModel) {
+			operation = "image"
+			prompt = "A minimalist warm paper poster with a subtle orange sun accent"
+		}
+	}
 
 	client, err := service.NewProxyHttpClient(channel.GetSetting().Proxy)
 	if err != nil {
@@ -900,25 +1302,207 @@ func testAepiChannel(ctx context.Context, channel *model.Channel, testUserID int
 		}
 	}
 
-	resp, err := client.Do(req)
-	if err != nil {
+	pollCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	jobReq := taskaepi.AepiJobRequest{
+		Operation: operation,
+		Model:     reqModel,
+		Prompt:    prompt,
+	}
+	if operation == "create" || operation == "edit" {
+		jobReq.Duration = 4
+	}
+	if needsSource {
+		sourceID, upErr := uploadAepiTestSource(pollCtx, client, baseURL, key)
+		if upErr != nil {
+			return testResult{localErr: upErr}
+		}
+		jobReq.Source = sourceID
+	}
+
+	submitJob := func(payload taskaepi.AepiJobRequest) (int, []byte, error) {
+		bodyBytes, mErr := json.Marshal(payload)
+		if mErr != nil {
+			return 0, nil, mErr
+		}
+		req, rErr := http.NewRequestWithContext(pollCtx, http.MethodPost, baseURL+"/v1/jobs", bytes.NewReader(bodyBytes))
+		if rErr != nil {
+			return 0, nil, rErr
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Authorization", "Bearer "+key)
+		req.Header.Set("X-API-Key", key)
+
+		resp, dErr := client.Do(req)
+		if dErr != nil {
+			return 0, nil, dErr
+		}
+		defer resp.Body.Close()
+		rb, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, rb, nil
+	}
+
+	statusCode, respBody, submitErr := submitJob(jobReq)
+	if submitErr != nil {
 		return testResult{
-			localErr: fmt.Errorf("Aepi sunucusuna bağlanılamadı: %w", err),
+			localErr: fmt.Errorf("Aepi sunucusuna bağlanılamadı: %w", submitErr),
 		}
 	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return testResult{
-			localErr: fmt.Errorf("Aepi doğrulama başarısız (HTTP %d): %s", resp.StatusCode, string(respBody)),
+	if statusCode == http.StatusBadRequest && endpointType == "" {
+		lowerErr := strings.ToLower(string(respBody))
+		if strings.Contains(lowerErr, "edit model") || strings.Contains(lowerErr, "requires a source") || strings.Contains(lowerErr, "source is required") {
+			if jobReq.Operation == "create" {
+				jobReq.Operation = "edit"
+			} else if jobReq.Operation == "image" {
+				jobReq.Operation = "image_edit"
+			}
+			sourceID, upErr := uploadAepiTestSource(pollCtx, client, baseURL, key)
+			if upErr == nil {
+				jobReq.Source = sourceID
+				statusCode, respBody, submitErr = submitJob(jobReq)
+			}
+		} else if strings.Contains(lowerErr, "wrong kind") || strings.Contains(lowerErr, "not a video model") || strings.Contains(lowerErr, "not an image model") {
+			if jobReq.Operation == "create" {
+				jobReq.Operation = "image"
+				jobReq.Duration = 0
+				jobReq.Prompt = "A minimalist warm paper poster with a subtle orange sun accent"
+			} else if jobReq.Operation == "image" {
+				jobReq.Operation = "create"
+				jobReq.Duration = 4
+				jobReq.Prompt = "A gentle slow cinematic pan over calm ocean waves at sunset"
+			}
+			statusCode, respBody, submitErr = submitJob(jobReq)
+		}
+		if submitErr != nil {
+			return testResult{
+				localErr: fmt.Errorf("Aepi sunucusuna bağlanılamadı: %w", submitErr),
+			}
 		}
 	}
 
-	return testResult{
-		localErr: nil,
-		message:  "Aepi Media kanalı başarıyla doğrulandı.",
-		respBody: respBody,
+	if statusCode != http.StatusOK && statusCode != http.StatusCreated && statusCode != http.StatusAccepted {
+		return testResult{
+			localErr: fmt.Errorf("Aepi işi başlatılamadı (HTTP %d): %s", statusCode, extractAepiJobErrorMessage(respBody)),
+		}
+	}
+
+	var createdJob struct {
+		Id     string                  `json:"id"`
+		Status string                  `json:"status"`
+		Output *taskaepi.AepiJobOutput `json:"output"`
+	}
+	if err := json.Unmarshal(respBody, &createdJob); err != nil || strings.TrimSpace(createdJob.Id) == "" {
+		return testResult{
+			localErr: fmt.Errorf("Aepi iş yanıtı okunamadı: %s", string(respBody)),
+		}
+	}
+
+	resolveOutputURL := func(raw string) string {
+		u := strings.TrimSpace(raw)
+		if u != "" && strings.HasPrefix(u, "/") {
+			u = baseURL + u
+		}
+		return u
+	}
+
+	formatMediaMessage := func(outURL string) string {
+		switch {
+		case jobReq.Operation == "music":
+			return fmt.Sprintf("Model: %s\nOluşturulan ses bağlantısı: %s", resolvedModel, outURL)
+		case jobReq.Operation == "image" || jobReq.Operation == "image_edit" || jobReq.Operation == "image_upscale":
+			return fmt.Sprintf("Model: %s\nOluşturulan görsel bağlantısı: %s", resolvedModel, outURL)
+		case jobReq.Operation == "rescale":
+			if strings.HasSuffix(strings.ToLower(strings.Split(outURL, "?")[0]), ".mp4") {
+				return fmt.Sprintf("Model: %s\nOluşturulan video bağlantısı: %s", resolvedModel, outURL)
+			}
+			return fmt.Sprintf("Model: %s\nOluşturulan görsel bağlantısı: %s", resolvedModel, outURL)
+		default:
+			return fmt.Sprintf("Model: %s\nOluşturulan video bağlantısı: %s", resolvedModel, outURL)
+		}
+	}
+
+	if strings.EqualFold(createdJob.Status, "done") && createdJob.Output != nil {
+		if outURL := resolveOutputURL(createdJob.Output.Url); outURL != "" {
+			return testResult{
+				localErr: nil,
+				message:  formatMediaMessage(outURL),
+				respBody: respBody,
+			}
+		}
+	}
+
+	ticker := time.NewTicker(1500 * time.Millisecond)
+	defer ticker.Stop()
+	pollURL := fmt.Sprintf("%s/v1/jobs/%s", baseURL, createdJob.Id)
+
+	for {
+		select {
+		case <-pollCtx.Done():
+			return testResult{
+				localErr: fmt.Errorf("Aepi model (%s) üretim zaman aşımına uğradı: %w", resolvedModel, pollCtx.Err()),
+			}
+		case <-ticker.C:
+			pReq, pErr := http.NewRequestWithContext(pollCtx, http.MethodGet, pollURL, nil)
+			if pErr != nil {
+				continue
+			}
+			pReq.Header.Set("Authorization", "Bearer "+key)
+			pReq.Header.Set("X-API-Key", key)
+			pReq.Header.Set("Accept", "application/json")
+
+			pResp, dErr := client.Do(pReq)
+			if dErr != nil {
+				continue
+			}
+			pBody, _ := io.ReadAll(pResp.Body)
+			pResp.Body.Close()
+
+			if pResp.StatusCode >= 400 {
+				return testResult{
+					localErr: fmt.Errorf("Aepi iş sorgulama hatası (HTTP %d): %s", pResp.StatusCode, extractAepiJobErrorMessage(pBody)),
+				}
+			}
+
+			var pollJob struct {
+				Status string                  `json:"status"`
+				Output *taskaepi.AepiJobOutput `json:"output"`
+			}
+			if err := json.Unmarshal(pBody, &pollJob); err != nil {
+				continue
+			}
+			status := strings.ToLower(strings.TrimSpace(pollJob.Status))
+			if status == "done" {
+				outURL := ""
+				if pollJob.Output != nil {
+					outURL = resolveOutputURL(pollJob.Output.Url)
+				}
+				if outURL == "" {
+					outURL = extractMediaURLFromTestResponse(pBody)
+					if outURL != "" && strings.HasPrefix(outURL, "/") && !strings.HasPrefix(outURL, "/api/") {
+						outURL = baseURL + outURL
+					}
+				}
+				if outURL == "" {
+					return testResult{
+						localErr: fmt.Errorf("Aepi işi tamamlandı (%s) ancak medya URL'si dönmedi", createdJob.Id),
+						respBody: pBody,
+					}
+				}
+				return testResult{
+					localErr: nil,
+					message:  formatMediaMessage(outURL),
+					respBody: pBody,
+				}
+			}
+			if status == "error" || status == "failed" {
+				return testResult{
+					localErr: fmt.Errorf("Aepi üretimi başarısız: %s", extractAepiJobErrorMessage(pBody)),
+					respBody: pBody,
+				}
+			}
+		}
 	}
 }
 
@@ -1245,7 +1829,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 	}
 
 	lowerModel := strings.ToLower(model)
-	if strings.Contains(lowerModel, "whisper") || strings.Contains(lowerModel, "transcription") || strings.Contains(lowerModel, "transcribe") || strings.HasPrefix(lowerModel, "stt") || strings.Contains(lowerModel, "voxtral") {
+	if strings.Contains(lowerModel, "whisper") || strings.Contains(lowerModel, "transcription") || strings.Contains(lowerModel, "transcribe") || strings.HasPrefix(lowerModel, "stt") || strings.Contains(lowerModel, "voxtral") || strings.Contains(lowerModel, "deepgram") || strings.Contains(lowerModel, "nova-2") || strings.Contains(lowerModel, "nova-3") {
 		return &dto.AudioRequest{
 			Model: model,
 		}

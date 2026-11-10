@@ -45,9 +45,18 @@ type PaymentMethodsVisualEditorProps = {
 
 const PAYMENT_TYPE_ICON_NAMES: Record<string, string> = {
   alipay: 'SiAlipay',
+  crypto: 'LuCoins',
+  direct_link: 'LuExternalLink',
+  iyzico: 'LuCreditCard',
+  paypal: 'SiPaypal',
+  paytr: 'LuCreditCard',
+  shopify: 'SiShopify',
+  shopier: 'LuShoppingBag',
   stripe: 'SiStripe',
+  waffo: 'LuCreditCard',
   waffo_pancake: 'LuCreditCard',
   wxpay: 'SiWechat',
+  creem: 'LuCreditCard',
 }
 
 function getDefaultIconName(type: string) {
@@ -95,6 +104,30 @@ export function PaymentMethodsVisualEditor({
         icon: getDefaultIconName('waffo_pancake'),
         name: 'Waffo Pancake',
         type: 'waffo_pancake',
+      },
+    },
+    {
+      name: 'Waffo',
+      template: {
+        icon: getDefaultIconName('waffo'),
+        name: 'Waffo',
+        type: 'waffo',
+      },
+    },
+    {
+      name: 'Direct Link',
+      template: {
+        icon: getDefaultIconName('direct_link'),
+        name: 'Direct Link',
+        type: 'direct_link',
+      },
+    },
+    {
+      name: 'Crypto',
+      template: {
+        icon: getDefaultIconName('crypto'),
+        name: 'Crypto',
+        type: 'crypto',
       },
     },
     {

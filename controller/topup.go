@@ -26,118 +26,60 @@ import (
 func GetTopUpInfo(c *gin.Context) {
 	complianceConfirmed := operation_setting.IsPaymentComplianceConfirmed()
 
-	// 获取支付方式
-	payMethods := operation_setting.PayMethods
-	if !complianceConfirmed {
-		payMethods = []map[string]string{}
+	// 获取支付方式（深拷贝，避免修改全局 operation_setting.PayMethods）
+	directLinkURL := strings.TrimSpace(common.OptionMap["DirectLinkUrl"])
+	payMethods := make([]map[string]string, 0, len(operation_setting.PayMethods))
+	if complianceConfirmed {
+		for _, m := range operation_setting.PayMethods {
+			cp := make(map[string]string, len(m))
+			for k, v := range m {
+				cp[k] = v
+			}
+			t := strings.ToLower(strings.TrimSpace(cp["type"]))
+			if t == model.PaymentMethodDirectLink || t == "direct-link" || t == "direct" {
+				if directLinkURL == "" {
+					continue
+				}
+				cp["type"] = model.PaymentMethodDirectLink
+				if strings.TrimSpace(cp["min_topup"]) == "" {
+					cp["min_topup"] = strconv.Itoa(getDirectLinkMinTopup())
+				}
+			} else if t == model.PaymentMethodCrypto {
+				cp["type"] = model.PaymentMethodCrypto
+				if strings.TrimSpace(cp["min_topup"]) == "" {
+					cp["min_topup"] = strconv.Itoa(getCryptoMinTopup())
+				}
+			}
+			payMethods = append(payMethods, cp)
+		}
 	}
 
 	// 如果启用了 Stripe 支付，添加到支付方法列表
-	if isStripeTopUpEnabled() {
-		// 检查是否已经包含 Stripe
-		hasStripe := false
-		for _, method := range payMethods {
-			if method["type"] == "stripe" {
-				hasStripe = true
-				break
-			}
+	if isStripeTopUpEnabled() && !hasPayMethodSlug(payMethods, "stripe") {
+		stripeMethod := map[string]string{
+			"name":      "Stripe",
+			"type":      "stripe",
+			"color":     "#635BFF",
+			"min_topup": strconv.Itoa(setting.StripeMinTopUp),
 		}
-
-		if !hasStripe {
-			stripeMethod := map[string]string{
-				"name":      "Stripe",
-				"type":      "stripe",
-				"color":     "#635BFF",
-				"min_topup": strconv.Itoa(setting.StripeMinTopUp),
-			}
-			payMethods = append(payMethods, stripeMethod)
-		}
+		payMethods = append(payMethods, stripeMethod)
 	}
 
 	// Waffo Pancake is displayed above the standard Waffo gateway.
 	enableWaffoPancake := isWaffoPancakeTopUpEnabled()
-	if enableWaffoPancake {
-		hasWaffoPancake := false
-		for _, method := range payMethods {
-			if method["type"] == model.PaymentMethodWaffoPancake {
-				hasWaffoPancake = true
-				break
-			}
-		}
-
-		if !hasWaffoPancake {
-			payMethods = append(payMethods, map[string]string{
-				"name":      "Waffo Pancake",
-				"type":      model.PaymentMethodWaffoPancake,
-				"color":     "#F97316",
-				"min_topup": strconv.Itoa(setting.WaffoPancakeMinTopUp),
-			})
-		}
+	if enableWaffoPancake && !hasPayMethodSlug(payMethods, model.PaymentMethodWaffoPancake, "waffo-pancake") {
+		payMethods = append(payMethods, map[string]string{
+			"name":      "Waffo Pancake",
+			"type":      model.PaymentMethodWaffoPancake,
+			"color":     "#F97316",
+			"min_topup": strconv.Itoa(setting.WaffoPancakeMinTopUp),
+		})
 	}
 
-	// 如果启用了 Waffo 支付，添加到支付方法列表
+	// Waffo / Direct Link / Crypto artık General -> PayMethods üzerinden yönetilir (ayrı tik yok).
 	enableWaffo := isWaffoTopUpEnabled()
-	if enableWaffo {
-		hasWaffo := false
-		for _, method := range payMethods {
-			if method["type"] == model.PaymentMethodWaffo {
-				hasWaffo = true
-				break
-			}
-		}
 
-		if !hasWaffo {
-			waffoMethod := map[string]string{
-				"name":      "Waffo (Global Payment)",
-				"type":      model.PaymentMethodWaffo,
-				"color":     "#3B82F6",
-				"min_topup": strconv.Itoa(setting.WaffoMinTopUp),
-			}
-			payMethods = append(payMethods, waffoMethod)
-		}
-	}
-
-	if isDirectLinkTopUpEnabled() {
-		hasDirect := false
-		for _, method := range payMethods {
-			if method["type"] == model.PaymentMethodDirectLink {
-				hasDirect = true
-				break
-			}
-		}
-		if !hasDirect {
-			title := common.OptionMap["DirectLinkTitle"]
-			if strings.TrimSpace(title) == "" {
-				title = "Direct Link"
-			}
-			payMethods = append(payMethods, map[string]string{
-				"name":      title,
-				"type":      model.PaymentMethodDirectLink,
-				"color":     "#10B981",
-				"min_topup": strconv.Itoa(getDirectLinkMinTopup()),
-			})
-		}
-	}
-
-	if isCryptoTopUpEnabled() {
-		hasCrypto := false
-		for _, method := range payMethods {
-			if method["type"] == model.PaymentMethodCrypto {
-				hasCrypto = true
-				break
-			}
-		}
-		if !hasCrypto {
-			payMethods = append(payMethods, map[string]string{
-				"name":      "Crypto",
-				"type":      model.PaymentMethodCrypto,
-				"color":     "#F7931A",
-				"min_topup": strconv.Itoa(getCryptoMinTopup()),
-			})
-		}
-	}
-
-	if isShopierTopUpEnabled() {
+	if isShopierTopUpEnabled() && !hasPayMethodSlug(payMethods, model.PaymentMethodShopier) {
 		payMethods = append(payMethods, map[string]string{
 			"name":      "Shopier",
 			"type":      model.PaymentMethodShopier,
@@ -145,7 +87,7 @@ func GetTopUpInfo(c *gin.Context) {
 			"min_topup": strconv.Itoa(operation_setting.MinTopUp),
 		})
 	}
-	if isPayTRTopUpEnabled() {
+	if isPayTRTopUpEnabled() && !hasPayMethodSlug(payMethods, model.PaymentMethodPayTR) {
 		payMethods = append(payMethods, map[string]string{
 			"name":      "PayTR",
 			"type":      model.PaymentMethodPayTR,
@@ -153,7 +95,7 @@ func GetTopUpInfo(c *gin.Context) {
 			"min_topup": strconv.Itoa(operation_setting.MinTopUp),
 		})
 	}
-	if isPayPalTopUpEnabled() {
+	if isPayPalTopUpEnabled() && !hasPayMethodSlug(payMethods, model.PaymentMethodPayPal) {
 		payMethods = append(payMethods, map[string]string{
 			"name":      "PayPal",
 			"type":      model.PaymentMethodPayPal,
@@ -161,7 +103,7 @@ func GetTopUpInfo(c *gin.Context) {
 			"min_topup": strconv.Itoa(operation_setting.MinTopUp),
 		})
 	}
-	if isIyzicoTopUpEnabled() {
+	if isIyzicoTopUpEnabled() && !hasPayMethodSlug(payMethods, model.PaymentMethodIyzico) {
 		payMethods = append(payMethods, map[string]string{
 			"name":      "iyzico",
 			"type":      model.PaymentMethodIyzico,
@@ -169,7 +111,7 @@ func GetTopUpInfo(c *gin.Context) {
 			"min_topup": strconv.Itoa(operation_setting.MinTopUp),
 		})
 	}
-	if isShopifyTopUpEnabled() {
+	if isShopifyTopUpEnabled() && !hasPayMethodSlug(payMethods, model.PaymentMethodShopify) {
 		payMethods = append(payMethods, map[string]string{
 			"name":      "Shopify",
 			"type":      model.PaymentMethodShopify,
@@ -240,9 +182,16 @@ type EpayProviderItem struct {
 }
 
 func isDirectLinkTopUpEnabled() bool {
+	if !isPaymentComplianceConfirmed() {
+		return false
+	}
 	common.OptionMapRWMutex.RLock()
-	defer common.OptionMapRWMutex.RUnlock()
-	return common.OptionMap["EnableDirectLinkTopup"] == "true" && common.OptionMap["DirectLinkUrl"] != ""
+	directUrl := strings.TrimSpace(common.OptionMap["DirectLinkUrl"])
+	common.OptionMapRWMutex.RUnlock()
+	if directUrl == "" {
+		return false
+	}
+	return hasPayMethodSlug(operation_setting.PayMethods, model.PaymentMethodDirectLink, "direct-link", "direct")
 }
 
 func getDirectLinkMinTopup() int {
@@ -504,7 +453,16 @@ func RequestEpay(c *gin.Context) {
 	notifyUrl, _ := url.Parse(callBackAddress + "/api/user/epay/notify")
 	tradeNo := fmt.Sprintf("%s%d", common.GetRandomString(6), time.Now().Unix())
 	tradeNo = fmt.Sprintf("USR%dNO%s", id, tradeNo)
-	client := GetEpayClient(req.ProviderId)
+	pid := req.ProviderId
+	if pid == "" {
+		for _, p := range GetEpayProviders() {
+			if strings.EqualFold(strings.TrimSpace(p.Id), strings.TrimSpace(req.PaymentMethod)) {
+				pid = p.Id
+				break
+			}
+		}
+	}
+	client := GetEpayClient(pid)
 	if client == nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "当前管理员未配置支付信息"})
 		return

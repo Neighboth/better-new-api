@@ -25,6 +25,7 @@ import { StaticDataTable } from '@/components/data-table/static/static-data-tabl
 import { StaticRowActions } from '@/components/data-table/static/static-row-actions'
 import { Dialog } from '@/components/dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -34,7 +35,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { SettingsSwitchField } from '../components/settings-form-layout'
 
 export interface WaffoSettingsValues {
-  WaffoEnabled: boolean
   WaffoApiKey: string
   WaffoPrivateKey: string
   WaffoPublicCert: string
@@ -143,9 +143,14 @@ export function WaffoSettingsSection({
     <>
       <div className='space-y-4 pt-4'>
         <div>
-          <h3 className='text-lg font-medium'>
-            {t('Waffo Aggregator Gateway')}
-          </h3>
+          <div className='flex items-center gap-2'>
+            <h3 className='text-lg font-medium'>
+              {t('Waffo Aggregator Gateway')}
+            </h3>
+            <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
+              slug: waffo
+            </Badge>
+          </div>
           <p className='text-muted-foreground text-sm'>
             {t(
               'Payment aggregator mode — onboard with your own registered company (offshore entity). Built for Enterprise.'
@@ -161,12 +166,6 @@ export function WaffoSettingsSection({
         </Alert>
 
         <div className='grid gap-4 sm:grid-cols-2'>
-          <SettingsSwitchField
-            checked={values.WaffoEnabled}
-            onCheckedChange={(v) => onValueChange('WaffoEnabled', v)}
-            label={t('Enable Waffo')}
-            className='py-0'
-          />
           <SettingsSwitchField
             checked={values.WaffoSandbox}
             onCheckedChange={(v) => onValueChange('WaffoSandbox', v)}

@@ -68,9 +68,18 @@ type PaymentMethodDialogProps = {
 
 const PAYMENT_TYPE_ICON_NAMES: Record<string, string> = {
   alipay: 'SiAlipay',
+  crypto: 'LuCoins',
+  direct_link: 'LuExternalLink',
+  iyzico: 'LuCreditCard',
+  paypal: 'SiPaypal',
+  paytr: 'LuCreditCard',
+  shopify: 'SiShopify',
+  shopier: 'LuShoppingBag',
   stripe: 'SiStripe',
+  waffo: 'LuCreditCard',
   waffo_pancake: 'LuCreditCard',
   wxpay: 'SiWechat',
+  creem: 'LuCreditCard',
 }
 
 const getDefaultIconName = (type: string) => PAYMENT_TYPE_ICON_NAMES[type] ?? ''
@@ -108,6 +117,60 @@ export function PaymentMethodDialog({
       label: 'Waffo Pancake (waffo_pancake)',
       name: 'Waffo Pancake',
       value: 'waffo_pancake',
+    },
+    {
+      iconName: 'LuCreditCard',
+      label: 'Waffo (waffo)',
+      name: 'Waffo',
+      value: 'waffo',
+    },
+    {
+      iconName: 'LuExternalLink',
+      label: 'Direct Link (direct_link)',
+      name: 'Direct Link',
+      value: 'direct_link',
+    },
+    {
+      iconName: 'LuCoins',
+      label: 'Crypto (crypto)',
+      name: 'Crypto',
+      value: 'crypto',
+    },
+    {
+      iconName: 'LuShoppingBag',
+      label: 'Shopier (shopier)',
+      name: 'Shopier',
+      value: 'shopier',
+    },
+    {
+      iconName: 'LuCreditCard',
+      label: 'PayTR (paytr)',
+      name: 'PayTR',
+      value: 'paytr',
+    },
+    {
+      iconName: 'SiPaypal',
+      label: 'PayPal (paypal)',
+      name: 'PayPal',
+      value: 'paypal',
+    },
+    {
+      iconName: 'LuCreditCard',
+      label: 'iyzico (iyzico)',
+      name: 'iyzico',
+      value: 'iyzico',
+    },
+    {
+      iconName: 'SiShopify',
+      label: 'Shopify (shopify)',
+      name: 'Shopify',
+      value: 'shopify',
+    },
+    {
+      iconName: 'LuCreditCard',
+      label: 'Creem (creem)',
+      name: 'Creem',
+      value: 'creem',
     },
   ]
   const getPaymentTypeOption = (value: string) =>
@@ -249,7 +312,7 @@ export function PaymentMethodDialog({
                 </FormControl>
                 <FormDescription className='leading-relaxed'>
                   {t(
-                    'Used to decide the payment flow. Built-in keys include stripe for Stripe and waffo_pancake for Waffo Pancake; other values are sent to Epay as the type parameter.'
+                    'Used to decide the payment flow. Built-in slugs include stripe, waffo_pancake, waffo, direct_link, crypto, shopier, paytr, paypal, iyzico, shopify, and creem; other values are sent to Epay as the type parameter or custom provider slug.'
                   )}
                 </FormDescription>
                 <FormMessage />

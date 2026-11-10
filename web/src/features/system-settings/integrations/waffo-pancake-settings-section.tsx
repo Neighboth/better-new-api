@@ -21,6 +21,7 @@ import type { SetStateAction } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -376,7 +377,12 @@ export function WaffoPancakeSettingsSection({
   return (
     <div className='space-y-4 pt-4'>
       <div>
-        <h3 className='text-lg font-medium'>{t('Waffo Pancake MoR')}</h3>
+        <div className='flex items-center gap-2'>
+          <h3 className='text-lg font-medium'>{t('Waffo Pancake MoR')}</h3>
+          <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
+            slug: waffo_pancake
+          </Badge>
+        </div>
         <p className='text-muted-foreground text-sm'>
           {t(
             'Start collecting payments globally without registering a company. Built for indie developers, OPC sole proprietorships, and startups. Waffo Pancake acts as your Merchant of Record, taking on the compliance burden of global payment collection — consumption tax, invoicing, subscription management, refunds, and chargebacks. Solo developers can launch fast and stay focused on product instead of compliance. Onboard in minutes — one prompt to a full integration.'

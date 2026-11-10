@@ -209,14 +209,21 @@ export function Wallet(props: WalletProps) {
 
   // Handle payment method selection
   const handlePaymentMethodSelect = async (method: PaymentMethod) => {
-    if (method.type === PAYMENT_TYPES.DIRECT_LINK) {
+    const normalizedType = (method.type || '').trim().toLowerCase()
+    if (
+      normalizedType === PAYMENT_TYPES.DIRECT_LINK ||
+      normalizedType === 'direct-link' ||
+      normalizedType === 'direct'
+    ) {
       if (topupInfo?.direct_link_url) {
         window.open(topupInfo.direct_link_url, '_blank')
         toast.success(t('Ödeme sayfasına yönlendiriliyorsunuz...'))
         return
       }
+      toast.error(t('Direct Link adresi henüz yapılandırılmamış.'))
+      return
     }
-    if (method.type === PAYMENT_TYPES.CRYPTO) {
+    if (normalizedType === PAYMENT_TYPES.CRYPTO) {
       setCryptoDialogOpen(true)
       return
     }

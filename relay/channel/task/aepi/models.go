@@ -45,7 +45,6 @@ var VideoModels = []string{
 	"davinci-fast-test",
 	"davinci-fast",
 	"davinci-cinema",
-	"davinci-ultra",
 }
 
 var ImageModels = []string{
@@ -87,6 +86,7 @@ var ImageModels = []string{
 	"krea-3",
 	"meta-muse-image",
 	"dalle",
+	"davinci-ultra",
 }
 
 var UtilityModels = []string{

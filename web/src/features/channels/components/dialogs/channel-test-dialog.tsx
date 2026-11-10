@@ -26,6 +26,7 @@ import {
   Check,
   CheckCircle2,
   Copy,
+  ExternalLink,
   Gauge,
   Info,
   Loader2,
@@ -245,6 +246,7 @@ type FailureDetailsState = {
   model: string
   summary: string
   details: string
+  isSuccess?: boolean
 }
 
 function sleep(ms: number) {
@@ -1284,13 +1286,15 @@ function TestResultCell({
             variant='ghost'
             size='sm'
             className='h-6 px-1.5 text-xs text-blue-500 hover:text-blue-600'
-            onClick={() =>
+            onClick={() => {
+              const detailsText = result.message ?? ''
               onOpenDetails({
                 model,
-                summary: t('Transkripsiyon / Yanıt Sonucu'),
-                details: result.message!,
+                summary: t('Transkripsiyon / Yanıt / Medya Sonucu'),
+                details: detailsText,
+                isSuccess: true,
               })
-            }
+            }}
           >
             <Info className='size-3.5 mr-1' />
             {t('Detay')}
@@ -1367,6 +1371,39 @@ function FailureResultContent({
   )
 }
 
+function extractFirstMediaLink(text: string): string | null {
+  const match = text.match(/(?:https?:\/\/[^\s"'<>]+|\/api\/test-media\/[a-f0-9]+)/i)
+  return match ? match[0] : null
+}
+
+function renderDetailsWithLinks(text: string) {
+  const urlRegex = /(https?:\/\/[^\s"'<>]+|\/api\/test-media\/[a-f0-9]+)/gi
+  const parts = text.split(urlRegex)
+  let offset = 0
+  return parts.map((part) => {
+    const startOffset = offset
+    offset += part.length
+    const partKey = `${startOffset}-${part.slice(0, 16)}`
+    if (
+      /^https?:\/\//i.test(part) ||
+      /^\/api\/test-media\/[a-f0-9]+$/i.test(part)
+    ) {
+      return (
+        <a
+          key={partKey}
+          href={part}
+          target='_blank'
+          rel='noopener noreferrer'
+          className='text-primary underline underline-offset-2 break-all hover:opacity-80'
+        >
+          {part}
+        </a>
+      )
+    }
+    return <span key={partKey}>{part}</span>
+  })
+}
+
 function FailureDetailsSheet({
   details,
   onOpenChange,
@@ -1377,6 +1414,7 @@ function FailureDetailsSheet({
   const { t } = useTranslation()
   const isMobile = useIsMobile()
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
+  const mediaLink = details ? extractFirstMediaLink(details.details) : null
 
   return (
     <Sheet open={Boolean(details)} onOpenChange={onOpenChange}>
@@ -1405,7 +1443,7 @@ function FailureDetailsSheet({
               </section>
               <section className='space-y-1'>
                 <div className='text-muted-foreground text-xs font-medium'>
-                  {t('Failed')}
+                  {details.isSuccess ? t('Result') : t('Failed')}
                 </div>
                 <p className='text-muted-foreground text-sm leading-relaxed wrap-break-word'>
                   {details.summary}
@@ -1416,11 +1454,22 @@ function FailureDetailsSheet({
                   {t('Details')}
                 </div>
                 <pre className='bg-muted/30 text-muted-foreground m-0 max-w-full rounded-md border p-3 text-xs leading-relaxed wrap-break-word whitespace-pre-wrap'>
-                  {details.details}
+                  {renderDetailsWithLinks(details.details)}
                 </pre>
               </section>
             </div>
             <SheetFooter className={sideDrawerFooterClassName('sm:px-5')}>
+              {mediaLink && (
+                <Button
+                  type='button'
+                  variant='default'
+                  className='w-full sm:w-auto'
+                  onClick={() => window.open(mediaLink, '_blank', 'noopener,noreferrer')}
+                >
+                  <ExternalLink className='mr-2 h-4 w-4' />
+                  {t('Medyayı Aç')}
+                </Button>
+              )}
               <Button
                 variant='outline'
                 className='w-full sm:w-auto'
