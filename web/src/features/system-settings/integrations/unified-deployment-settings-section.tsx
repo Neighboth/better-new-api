@@ -57,6 +57,14 @@ const schema = z.object({
   hfSpaceOrg: z.string().optional(),
   hfHardware: z.string().optional(),
   hfPriority: z.string().optional(),
+
+  // Hostinger GPU VPS
+  hostingerEnabled: z.boolean(),
+  hostingerApiKey: z.string().optional(),
+
+  // RunPod GPU Cloud
+  runpodEnabled: z.boolean(),
+  runpodApiKey: z.string().optional(),
 })
 
 type Values = z.infer<typeof schema>
@@ -85,6 +93,14 @@ export function UnifiedDeploymentSettingsSection({
       hardware?: string
       priority?: string
     }
+    hostinger?: {
+      enabled?: boolean
+      apiKey?: string
+    }
+    runpod?: {
+      enabled?: boolean
+      apiKey?: string
+    }
   }
 }) {
   const { t } = useTranslation()
@@ -110,6 +126,12 @@ export function UnifiedDeploymentSettingsSection({
       hfSpaceOrg: defaultValues.huggingface?.org ?? '',
       hfHardware: defaultValues.huggingface?.hardware ?? 't4-small',
       hfPriority: defaultValues.huggingface?.priority ?? 'hf_first',
+
+      hostingerEnabled: defaultValues.hostinger?.enabled ?? false,
+      hostingerApiKey: defaultValues.hostinger?.apiKey ?? '',
+
+      runpodEnabled: defaultValues.runpod?.enabled ?? false,
+      runpodApiKey: defaultValues.runpod?.apiKey ?? '',
     },
   })
 
@@ -130,6 +152,18 @@ export function UnifiedDeploymentSettingsSection({
     error: string | null
     username: string | null
   }>({ loading: false, ok: null, error: null, username: null })
+
+  const [hostingerTestState, setHostingerTestState] = useState<{
+    loading: boolean
+    ok: boolean | null
+    error: string | null
+  }>({ loading: false, ok: null, error: null })
+
+  const [runpodTestState, setRunpodTestState] = useState<{
+    loading: boolean
+    ok: boolean | null
+    error: string | null
+  }>({ loading: false, ok: null, error: null })
 
   const handleTestIoConnection = async () => {
     const key = form.getValues('ionetApiKey')
@@ -204,6 +238,70 @@ export function UnifiedDeploymentSettingsSection({
     }
   }
 
+  const handleTestHostingerConnection = async () => {
+    const key = form.getValues('hostingerApiKey')
+    if (!key) {
+      toast.error(t('Please enter a Hostinger API key first'))
+      return
+    }
+    setHostingerTestState({ loading: true, ok: null, error: null })
+    try {
+      const res = await api.post('/api/deployments/hostinger/test-connection', {
+        api_key: key,
+      })
+      if (res.data?.success) {
+        setHostingerTestState({ loading: false, ok: true, error: null })
+        toast.success(t('Connected to Hostinger successfully'))
+      } else {
+        setHostingerTestState({
+          loading: false,
+          ok: false,
+          error: res.data?.message || t('Connection failed'),
+        })
+        toast.error(res.data?.message || t('Connection failed'))
+      }
+    } catch (e: any) {
+      setHostingerTestState({
+        loading: false,
+        ok: false,
+        error: e?.message || t('Connection failed'),
+      })
+      toast.error(e?.message || t('Connection failed'))
+    }
+  }
+
+  const handleTestRunPodConnection = async () => {
+    const key = form.getValues('runpodApiKey')
+    if (!key) {
+      toast.error(t('Please enter a RunPod API key first'))
+      return
+    }
+    setRunpodTestState({ loading: true, ok: null, error: null })
+    try {
+      const res = await api.post('/api/deployments/runpod/test-connection', {
+        api_key: key,
+      })
+      if (res.data?.success) {
+        setRunpodTestState({ loading: false, ok: true, error: null })
+        toast.success(t('Connected to RunPod successfully'))
+      } else {
+        setRunpodTestState({
+          loading: false,
+          ok: false,
+          error: res.data?.message || t('Connection failed'),
+        })
+        toast.error(res.data?.message || t('Connection failed'))
+      }
+    } catch (e: any) {
+      setRunpodTestState({
+        loading: false,
+        ok: false,
+        error: e?.message || t('Connection failed'),
+      })
+      toast.error(e?.message || t('Connection failed'))
+    }
+  }
+
   async function onSubmit(values: Values) {
     try {
       // io.net options
@@ -270,6 +368,26 @@ export function UnifiedDeploymentSettingsSection({
       await updateOption.mutateAsync({
         key: 'model_deployment.huggingface.priority',
         value: String(values.hfPriority ?? 'hf_first'),
+      })
+
+      // Hostinger options
+      await updateOption.mutateAsync({
+        key: 'model_deployment.hostinger.enabled',
+        value: String(values.hostingerEnabled),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.hostinger.api_key',
+        value: String(values.hostingerApiKey ?? ''),
+      })
+
+      // RunPod options
+      await updateOption.mutateAsync({
+        key: 'model_deployment.runpod.enabled',
+        value: String(values.runpodEnabled),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.runpod.api_key',
+        value: String(values.runpodApiKey ?? ''),
       })
 
       form.reset(values)
@@ -706,6 +824,186 @@ export function UnifiedDeploymentSettingsSection({
                     )}
                   />
                 </SettingsFormGrid>
+              </CardContent>
+            )}
+          </Card>
+
+          {/* Hostinger GPU VPS Card */}
+          <Card>
+            <CardHeader>
+              <div className='flex items-center justify-between'>
+                <div className='flex items-center gap-3'>
+                  <div className='bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg'>
+                    <Server className='size-5' />
+                  </div>
+                  <div>
+                    <CardTitle className='text-base font-semibold'>
+                      Hostinger GPU VPS
+                    </CardTitle>
+                    <CardDescription className='text-xs'>
+                      {t('Deploy and run models on Hostinger high-performance GPU Virtual Private Servers.')}
+                    </CardDescription>
+                  </div>
+                </div>
+                <FormField
+                  control={form.control}
+                  name='hostingerEnabled'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </CardHeader>
+
+            {form.watch('hostingerEnabled') && (
+              <CardContent className='space-y-4 pt-0'>
+                <div className='grid gap-4 sm:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='hostingerApiKey'
+                    render={({ field }) => (
+                      <FormItem className='sm:col-span-2'>
+                        <FormLabel>{t('Hostinger API Key / Token')}</FormLabel>
+                        <div className='flex gap-2'>
+                          <FormControl>
+                            <Input
+                              type='password'
+                              placeholder='hst_...'
+                              {...field}
+                              value={field.value ?? ''}
+                            />
+                          </FormControl>
+                          <Button
+                            type='button'
+                            variant='outline'
+                            size='sm'
+                            className='shrink-0'
+                            disabled={hostingerTestState.loading || !field.value}
+                            onClick={handleTestHostingerConnection}
+                          >
+                            {hostingerTestState.loading && (
+                              <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+                            )}
+                            {t('Test Connection')}
+                          </Button>
+                        </div>
+                        {hostingerTestState.ok === true && (
+                          <p className='flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400'>
+                            <CheckCircle2 className='h-3.5 w-3.5' />
+                            {t('Successfully connected to Hostinger')}
+                          </p>
+                        )}
+                        {hostingerTestState.ok === false && (
+                          <p className='flex items-center gap-1 text-xs text-destructive'>
+                            <XCircle className='h-3.5 w-3.5' />
+                            {hostingerTestState.error}
+                          </p>
+                        )}
+                        <FormDescription className='text-xs'>
+                          {t('Hostinger Cloud API token generated from your Hostinger account settings.')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </CardContent>
+            )}
+          </Card>
+
+          {/* RunPod GPU Cloud Card */}
+          <Card>
+            <CardHeader>
+              <div className='flex items-center justify-between'>
+                <div className='flex items-center gap-3'>
+                  <div className='bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg'>
+                    <Server className='size-5' />
+                  </div>
+                  <div>
+                    <CardTitle className='text-base font-semibold'>
+                      RunPod GPU Cloud
+                    </CardTitle>
+                    <CardDescription className='text-xs'>
+                      {t('Deploy AI models to RunPod serverless and dedicated GPU infrastructure (RTX 4090, A100, H100).')}
+                    </CardDescription>
+                  </div>
+                </div>
+                <FormField
+                  control={form.control}
+                  name='runpodEnabled'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </CardHeader>
+
+            {form.watch('runpodEnabled') && (
+              <CardContent className='space-y-4 pt-0'>
+                <div className='grid gap-4 sm:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='runpodApiKey'
+                    render={({ field }) => (
+                      <FormItem className='sm:col-span-2'>
+                        <FormLabel>{t('RunPod API Key')}</FormLabel>
+                        <div className='flex gap-2'>
+                          <FormControl>
+                            <Input
+                              type='password'
+                              placeholder='rpa_...'
+                              {...field}
+                              value={field.value ?? ''}
+                            />
+                          </FormControl>
+                          <Button
+                            type='button'
+                            variant='outline'
+                            size='sm'
+                            className='shrink-0'
+                            disabled={runpodTestState.loading || !field.value}
+                            onClick={handleTestRunPodConnection}
+                          >
+                            {runpodTestState.loading && (
+                              <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+                            )}
+                            {t('Test Connection')}
+                          </Button>
+                        </div>
+                        {runpodTestState.ok === true && (
+                          <p className='flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400'>
+                            <CheckCircle2 className='h-3.5 w-3.5' />
+                            {t('Successfully connected to RunPod')}
+                          </p>
+                        )}
+                        {runpodTestState.ok === false && (
+                          <p className='flex items-center gap-1 text-xs text-destructive'>
+                            <XCircle className='h-3.5 w-3.5' />
+                            {runpodTestState.error}
+                          </p>
+                        )}
+                        <FormDescription className='text-xs'>
+                          {t('Your personal RunPod API key from Settings -> API Keys.')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               </CardContent>
             )}
           </Card>

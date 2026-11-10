@@ -366,11 +366,19 @@ export function RechargeFormCard({
                             )
                           )}
                           <span className='flex min-w-0 flex-col items-start gap-0.5'>
-                            <span className='max-w-full truncate'>
+                            <span className='max-w-full truncate font-medium'>
                               {method.name}
                             </span>
+                            {method.description && (
+                              <span
+                                className='text-muted-foreground max-w-full truncate text-[11px] leading-4 font-normal'
+                                title={method.description}
+                              >
+                                {method.description}
+                              </span>
+                            )}
                             {disabledLabel && (
-                              <span className='text-muted-foreground max-w-full truncate text-[11px] leading-4 font-normal'>
+                              <span className='text-destructive/80 max-w-full truncate text-[11px] leading-4 font-normal'>
                                 {disabledLabel}
                               </span>
                             )}
@@ -391,6 +399,11 @@ export function RechargeFormCard({
                     })}
                   </div>
                 ) : null}
+                {topupInfo?.direct_link_description && topupInfo.enable_direct_link_topup && (
+                  <div className='rounded-lg border border-muted bg-muted/30 px-3.5 py-2.5 text-xs text-muted-foreground leading-relaxed'>
+                    {topupInfo.direct_link_description}
+                  </div>
+                )}
                 {!hasStandardPaymentMethods && !hasWaffoPaymentMethods && (
                   <Alert>
                     <AlertDescription>

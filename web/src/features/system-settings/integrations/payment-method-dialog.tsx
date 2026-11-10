@@ -126,14 +126,14 @@ export function PaymentMethodDialog({
     },
     {
       iconName: 'LuExternalLink',
-      label: 'Direct Link (direct_link)',
-      name: 'Direct Link',
+      label: `${t('Direct Link')} (direct_link)`,
+      name: t('Direct Link'),
       value: 'direct_link',
     },
     {
       iconName: 'LuCoins',
-      label: 'Crypto (crypto)',
-      name: 'Crypto',
+      label: `${t('Crypto')} (crypto)`,
+      name: t('Crypto'),
       value: 'crypto',
     },
     {

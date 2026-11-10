@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { TopNavLink } from '../types'
+import { AnnouncementBarsBanner } from '@/components/announcement-bar-banner'
 import { PublicHeader, type PublicHeaderProps } from './public-header'
 
 type PublicLayoutProps = {
@@ -35,6 +36,7 @@ type PublicLayoutProps = {
 export function PublicLayout(props: PublicLayoutProps) {
   return (
     <div className='bg-background text-foreground relative min-h-svh overflow-x-clip'>
+      <AnnouncementBarsBanner />
       <PublicHeader
         navContent={props.navContent}
         navLinks={props.navLinks}

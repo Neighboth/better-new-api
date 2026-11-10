@@ -282,6 +282,11 @@ func InitOptionMap() {
 	common.OptionMap["CryptoWallets"] = "[]"
 	common.OptionMap["CryptoInstructions"] = ""
 	common.OptionMap["CryptoMinTopup"] = "1"
+	common.OptionMap["AnnouncementBars"] = "[]"
+	common.OptionMap["model_deployment.hostinger.enabled"] = "false"
+	common.OptionMap["model_deployment.hostinger.api_key"] = ""
+	common.OptionMap["model_deployment.runpod.enabled"] = "false"
+	common.OptionMap["model_deployment.runpod.api_key"] = ""
 
 	// 自动添加所有注册的模型配置
 	modelConfigs := config.GlobalConfig.ExportAllConfigs()

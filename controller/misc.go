@@ -123,6 +123,7 @@ func GetStatus(c *gin.Context) {
 		"recaptcha_site_key":          common.RecaptchaSiteKey,
 		"hcaptcha_site_key":           common.HCaptchaSiteKey,
 		"ticket_enabled":              operation_setting.IsTicketEnabled(),
+		"announcement_bars":           common.OptionMap["AnnouncementBars"],
 		"epay_providers":              common.OptionMap["EpayProviders"],
 		"blog_enabled":                common.OptionMap["BlogEnabled"] == "true",
 		"adsense_client_id":           common.OptionMap["AdSenseClientId"],

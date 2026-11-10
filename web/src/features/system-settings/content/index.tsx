@@ -43,6 +43,7 @@ const defaultContentSettings: ContentSettings = {
   MjForwardUrlEnabled: false,
   MjModeClearEnabled: false,
   MjActionCheckSuccessEnabled: false,
+  AnnouncementBars: '[]',
 }
 
 function resolveContentSettings(
@@ -77,6 +78,10 @@ function resolveContentSettings(
         { id: 1, categoryName: 'Legacy', url: legacyUrl, slug: legacySlug },
       ])
     }
+  }
+
+  if (optionMap.has('AnnouncementBars')) {
+    next.AnnouncementBars = optionMap.get('AnnouncementBars') || '[]'
   }
 
   return next

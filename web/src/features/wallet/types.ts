@@ -100,6 +100,8 @@ export interface PaymentMethod {
   min_topup?: number
   /** Optional react-icons component name or safe icon URL */
   icon?: string
+  /** Optional description / note displayed under the payment method */
+  description?: string
 }
 
 /**

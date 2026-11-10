@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Copy } from 'lucide-react'
+import { Copy, Pin } from 'lucide-react'
 import { memo, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -55,6 +55,26 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const usdExchangeRate = props.usdExchangeRate ?? 1
   const showRechargePrice = props.showRechargePrice ?? false
   const isTokenBased = isTokenBasedModel(props.model)
+  const announcement = useMemo(() => {
+    if (!props.model.announcement_bar?.trim()) return null
+    try {
+      const parsed = JSON.parse(props.model.announcement_bar)
+      if (typeof parsed === 'object' && parsed.text) {
+        return {
+          text: String(parsed.text),
+          bg: parsed.bg_color || '#8b5cf6',
+          color: parsed.text_color || '#ffffff',
+        }
+      }
+    } catch {
+      return {
+        text: props.model.announcement_bar,
+        bg: '#8b5cf6',
+        color: '#ffffff',
+      }
+    }
+    return null
+  }, [props.model.announcement_bar])
   const propertyBoxes = useMemo(() => {
     if (!props.model.property_boxes) return []
     try {
@@ -132,10 +152,25 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       onClick={props.onClick}
       className={cn(
         'group relative flex flex-col justify-between rounded-xl border p-3.5 transition-colors sm:p-5 cursor-pointer',
-        'hover:bg-muted/20'
+        'hover:bg-muted/20',
+        props.model.is_pinned && 'border-amber-500/30 bg-amber-500/[0.02]'
       )}
     >
       <div>
+        {announcement && (
+          <div
+            style={{ backgroundColor: announcement.bg, color: announcement.color }}
+            className='-mx-3.5 -mt-3.5 sm:-mx-5 sm:-mt-5 mb-3 px-3 py-1 rounded-t-xl overflow-hidden flex items-center justify-between text-[11px] font-medium shadow-xs'
+          >
+            <div className='w-full overflow-hidden whitespace-nowrap group-hover:[animation-play-state:paused]'>
+              <div className='inline-flex items-center animate-marquee'>
+                <span className='pr-8'>{announcement.text}</span>
+                <span className='pr-8' aria-hidden='true'>{announcement.text}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Header: icon + title + billing mode + id copy */}
         <div className='flex items-start justify-between gap-2.5 sm:gap-3'>
           <div className='flex min-w-0 flex-1 items-start gap-2.5 sm:gap-3'>
@@ -151,6 +186,15 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
                 <h3 className='text-foreground truncate font-mono text-[15px] leading-tight font-bold'>
                   {props.model.display_name || props.model.model_name}
                 </h3>
+                {props.model.is_pinned && (
+                  <span
+                    className='inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 text-[10px] font-semibold border border-amber-500/20 shrink-0'
+                    title={t('Pinned Model')}
+                  >
+                    <Pin className='size-2.5 fill-current' />
+                    {t('Pinned')}
+                  </span>
+                )}
                 <ModelBillingModeBadge
                   model={props.model}
                   className='shrink-0 text-[10px] py-0 px-1.5 h-4.5'

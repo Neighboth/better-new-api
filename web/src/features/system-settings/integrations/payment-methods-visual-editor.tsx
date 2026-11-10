@@ -115,18 +115,18 @@ export function PaymentMethodsVisualEditor({
       },
     },
     {
-      name: 'Direct Link',
+      name: t('Direct Link'),
       template: {
         icon: getDefaultIconName('direct_link'),
-        name: 'Direct Link',
+        name: t('Direct Link'),
         type: 'direct_link',
       },
     },
     {
-      name: 'Crypto',
+      name: t('Crypto'),
       template: {
         icon: getDefaultIconName('crypto'),
-        name: 'Crypto',
+        name: t('Crypto'),
         type: 'crypto',
       },
     },

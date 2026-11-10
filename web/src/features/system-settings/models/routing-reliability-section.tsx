@@ -405,29 +405,30 @@ export function RoutingReliabilitySection({
                 {t('Channel health checks')}
               </h4>
             </div>
-            <div className='grid min-w-0 gap-6 lg:grid-cols-3'>
-              <FormField
-                control={form.control}
-                name='monitor_setting.auto_test_channel_enabled'
-                render={({ field }) => (
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel>{t('Scheduled channel tests')}</FormLabel>
-                      <FormDescription>
-                        {t(
-                          'Automatically probe all channels in the background'
-                        )}
-                      </FormDescription>
-                    </SettingsSwitchContent>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                  </SettingsSwitchItem>
-                )}
-              />
+            <FormField
+              control={form.control}
+              name='monitor_setting.auto_test_channel_enabled'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>{t('Scheduled channel tests')}</FormLabel>
+                    <FormDescription>
+                      {t(
+                        'Automatically probe all channels in the background'
+                      )}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </SettingsSwitchItem>
+              )}
+            />
+
+            <div className='grid min-w-0 gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3'>
 
               <FormField
                 control={form.control}
@@ -456,8 +457,8 @@ export function RoutingReliabilitySection({
                       onValueChange={field.onChange}
                     >
                       <FormControl>
-                        <SelectTrigger>
-                          <SelectValue />
+                        <SelectTrigger className='w-full min-w-0 max-w-full'>
+                          <SelectValue className='truncate' />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent alignItemWithTrigger={false}>

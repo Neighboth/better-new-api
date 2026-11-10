@@ -251,7 +251,7 @@ export function CreateDeploymentDrawer({
       if (provider !== 'ionet') {
         throw new Error(
           t(
-            'Only io.net deployments can be created from here. Modal and Hugging Face are configured under System Settings and route automatically.'
+            'Only io.net deployments can be created directly from this dialog. Modal, Hugging Face, Hostinger, and RunPod are configured under System Settings and route automatically.'
           )
         )
       }
@@ -443,6 +443,18 @@ export function CreateDeploymentDrawer({
                         <SelectItem value='ionet'>
                           io.net Cloud (DePIN GPU Network)
                         </SelectItem>
+                        <SelectItem value='modal'>
+                          Modal (Serverless Cloud GPUs)
+                        </SelectItem>
+                        <SelectItem value='huggingface'>
+                          Hugging Face (Inference Endpoints)
+                        </SelectItem>
+                        <SelectItem value='hostinger'>
+                          Hostinger (GPU Virtual Private Servers)
+                        </SelectItem>
+                        <SelectItem value='runpod'>
+                          RunPod (Cloud GPUs & Serverless)
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -507,7 +519,11 @@ export function CreateDeploymentDrawer({
                           ? t('Modal GPU / CPU Profile')
                           : provider === 'huggingface'
                             ? t('Hugging Face Instance Size')
-                            : t('Hardware type')}
+                            : provider === 'hostinger'
+                              ? t('Hostinger VPS Plan')
+                              : provider === 'runpod'
+                                ? t('RunPod GPU Type')
+                                : t('Hardware type')}
                       </FormLabel>
                       <Select
                         items={
@@ -532,12 +548,28 @@ export function CreateDeploymentDrawer({
                                   { value: 'hf-a10g-small', label: 'NVIDIA A10G • 4 vCPU • 24GB' },
                                   { value: 'hf-a100-large', label: 'NVIDIA A100 • 12 vCPU • 80GB' },
                                 ]
-                              : [
-                                  ...hardwareOptions.map((opt) => ({
-                                    value: opt.value,
-                                    label: opt.label,
-                                  })),
-                                ]
+                              : provider === 'hostinger'
+                                ? [
+                                    { value: 'hostinger-gpu-vps-1', label: 'Hostinger GPU VPS 1 (NVIDIA RTX 4000 • 8 vCPU • 32GB RAM)' },
+                                    { value: 'hostinger-gpu-vps-2', label: 'Hostinger GPU VPS 2 (NVIDIA A4000 • 16 vCPU • 64GB RAM)' },
+                                    { value: 'hostinger-gpu-vps-3', label: 'Hostinger GPU VPS 3 (NVIDIA A5000 • 24 vCPU • 96GB RAM)' },
+                                    { value: 'hostinger-vps-kvm8', label: 'Hostinger High-RAM VPS (8 vCPU • 32GB RAM • NVMe)' },
+                                  ]
+                                : provider === 'runpod'
+                                  ? [
+                                      { value: 'runpod-h100', label: 'NVIDIA H100 (80GB SXM5)' },
+                                      { value: 'runpod-a100-80', label: 'NVIDIA A100 (80GB PCIe/SXM)' },
+                                      { value: 'runpod-rtx4090', label: 'NVIDIA RTX 4090 (24GB)' },
+                                      { value: 'runpod-l40s', label: 'NVIDIA L40S (48GB)' },
+                                      { value: 'runpod-a6000', label: 'NVIDIA RTX A6000 (48GB)' },
+                                      { value: 'runpod-rtx3090', label: 'NVIDIA RTX 3090 (24GB)' },
+                                    ]
+                                  : [
+                                      ...hardwareOptions.map((opt) => ({
+                                        value: opt.value,
+                                        label: opt.label,
+                                      })),
+                                    ]
                         }
                         value={field.value}
                         onValueChange={(v) => field.onChange(v)}
@@ -570,6 +602,22 @@ export function CreateDeploymentDrawer({
                                 <SelectItem value='hf-t4-small'>NVIDIA T4 • 4 vCPU • 16GB</SelectItem>
                                 <SelectItem value='hf-a10g-small'>NVIDIA A10G • 4 vCPU • 24GB</SelectItem>
                                 <SelectItem value='hf-a100-large'>NVIDIA A100 • 12 vCPU • 80GB</SelectItem>
+                              </>
+                            ) : provider === 'hostinger' ? (
+                              <>
+                                <SelectItem value='hostinger-gpu-vps-1'>Hostinger GPU VPS 1 (NVIDIA RTX 4000 • 8 vCPU • 32GB RAM)</SelectItem>
+                                <SelectItem value='hostinger-gpu-vps-2'>Hostinger GPU VPS 2 (NVIDIA A4000 • 16 vCPU • 64GB RAM)</SelectItem>
+                                <SelectItem value='hostinger-gpu-vps-3'>Hostinger GPU VPS 3 (NVIDIA A5000 • 24 vCPU • 96GB RAM)</SelectItem>
+                                <SelectItem value='hostinger-vps-kvm8'>Hostinger High-RAM VPS (8 vCPU • 32GB RAM • NVMe)</SelectItem>
+                              </>
+                            ) : provider === 'runpod' ? (
+                              <>
+                                <SelectItem value='runpod-h100'>NVIDIA H100 (80GB SXM5)</SelectItem>
+                                <SelectItem value='runpod-a100-80'>NVIDIA A100 (80GB PCIe/SXM)</SelectItem>
+                                <SelectItem value='runpod-rtx4090'>NVIDIA RTX 4090 (24GB)</SelectItem>
+                                <SelectItem value='runpod-l40s'>NVIDIA L40S (48GB)</SelectItem>
+                                <SelectItem value='runpod-a6000'>NVIDIA RTX A6000 (48GB)</SelectItem>
+                                <SelectItem value='runpod-rtx3090'>NVIDIA RTX 3090 (24GB)</SelectItem>
                               </>
                             ) : (
                               hardwareOptions.map((opt) => (
@@ -622,7 +670,11 @@ export function CreateDeploymentDrawer({
                 <div className='rounded-md border border-muted bg-muted/30 p-3 text-xs text-muted-foreground'>
                   {provider === 'modal'
                     ? t('Modal sunucusuz (serverless) mimari kullanır; coğrafi lokasyonlar Modal Cloud tarafından otomatik olarak en düşük gecikmeyle yönlendirilir ve 1TB kalıcı Network File System (Volume) bağlanır.')
-                    : t('Hugging Face Spaces ve Inference Endpoints lokasyonu varsayılan olarak us-east-1 / eu-west-1 üzerinde otomatik yönetilir.')}
+                    : provider === 'hostinger'
+                      ? t('Hostinger VPS sunucu lokasyonları Hostinger Cloud veri merkezi seçiminize göre (ABD, Avrupa, Asya) otomatik yönetilir.')
+                      : provider === 'runpod'
+                        ? t('RunPod coğrafi lokasyonları Community Cloud ve Secure Cloud üzerinde mevcut GPU kapasitesine göre en düşük gecikmeyle otomatik yönlendirilir.')
+                        : t('Hugging Face Spaces ve Inference Endpoints lokasyonu varsayılan olarak us-east-1 / eu-west-1 üzerinde otomatik yönetilir.')}
                 </div>
               )}
 

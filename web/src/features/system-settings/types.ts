@@ -329,6 +329,7 @@ export type ContentSettings = {
   MjForwardUrlEnabled: boolean
   MjModeClearEnabled: boolean
   MjActionCheckSuccessEnabled: boolean
+  AnnouncementBars?: string
 }
 
 export type ModelSettings = {
@@ -404,6 +405,10 @@ export type ModelSettings = {
   'model_deployment.huggingface.org'?: string
   'model_deployment.huggingface.hardware'?: string
   'model_deployment.huggingface.priority'?: string
+  'model_deployment.hostinger.enabled'?: boolean
+  'model_deployment.hostinger.api_key'?: string
+  'model_deployment.runpod.enabled'?: boolean
+  'model_deployment.runpod.api_key'?: string
 }
 
 export type BillingSettings = {

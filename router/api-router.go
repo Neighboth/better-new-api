@@ -524,6 +524,8 @@ func SetApiRouter(router *gin.Engine) {
 			deploymentsRoute.GET("/settings", controller.GetModelDeploymentSettings)
 			deploymentsRoute.POST("/settings/test-connection", controller.TestIoNetConnection)
 			deploymentsRoute.POST("/huggingface/test-connection", controller.TestHuggingFaceConnection)
+			deploymentsRoute.POST("/hostinger/test-connection", controller.TestHostingerConnection)
+			deploymentsRoute.POST("/runpod/test-connection", controller.TestRunPodConnection)
 			deploymentsRoute.GET("/huggingface/endpoints", controller.ListHfEndpoints)
 			deploymentsRoute.POST("/huggingface/endpoints", controller.CreateHfEndpoint)
 			deploymentsRoute.GET("/huggingface/endpoints/:name", controller.GetHfEndpoint)

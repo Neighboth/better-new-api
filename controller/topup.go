@@ -50,6 +50,9 @@ func GetTopUpInfo(c *gin.Context) {
 				if strings.TrimSpace(cp["min_topup"]) == "" {
 					cp["min_topup"] = strconv.Itoa(getDirectLinkMinTopup())
 				}
+				if strings.TrimSpace(cp["description"]) == "" {
+					cp["description"] = common.OptionMap["DirectLinkDescription"]
+				}
 			} else if dp, exists := directLinkProviderMap[t]; exists {
 				if strings.TrimSpace(dp.Url) == "" {
 					continue
@@ -60,6 +63,9 @@ func GetTopUpInfo(c *gin.Context) {
 						minTop = operation_setting.MinTopUp
 					}
 					cp["min_topup"] = strconv.Itoa(minTop)
+				}
+				if strings.TrimSpace(cp["description"]) == "" && strings.TrimSpace(dp.Description) != "" {
+					cp["description"] = dp.Description
 				}
 			} else if t == model.PaymentMethodCrypto {
 				cp["type"] = model.PaymentMethodCrypto

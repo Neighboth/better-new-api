@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { ContentSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { AnnouncementBarsSection } from './announcement-bars-section'
 import { AnnouncementsSection } from './announcements-section'
 import { ApiInfoSection } from './api-info-section'
 import { ChatSettingsSection } from './chat-settings-section'
@@ -51,6 +52,13 @@ const CONTENT_SECTIONS = [
           ),
         }}
       />
+    ),
+  },
+  {
+    id: 'announcement-bars',
+    titleKey: 'Announcement Bars',
+    build: (settings: ContentSettings) => (
+      <AnnouncementBarsSection initialData={settings.AnnouncementBars} />
     ),
   },
   {

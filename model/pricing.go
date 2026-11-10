@@ -70,6 +70,9 @@ type Pricing struct {
 	BillingMode            string                  `json:"billing_mode,omitempty"`
 	BillingExpr            string                  `json:"billing_expr,omitempty"`
 	PricingVersion         string                  `json:"pricing_version,omitempty"`
+	IsPinned               bool                    `json:"is_pinned"`
+	PinOrder               int                     `json:"pin_order"`
+	AnnouncementBar        string                  `json:"announcement_bar,omitempty"`
 }
 
 type PricingVendor struct {
@@ -495,6 +498,9 @@ func updatePricing() {
 			pricing.Icon = meta.Icon
 			pricing.Tags = meta.Tags
 			pricing.VendorID = meta.VendorID
+			pricing.IsPinned = meta.IsPinned
+			pricing.PinOrder = meta.PinOrder
+			pricing.AnnouncementBar = meta.AnnouncementBar
 		}
 		if chs, ok := modelChannelsMap[model]; ok {
 			pricing.Channels = chs

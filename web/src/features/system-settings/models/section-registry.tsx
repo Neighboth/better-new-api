@@ -203,6 +203,14 @@ const MODELS_SECTIONS = [
             hardware: settings['model_deployment.huggingface.hardware'],
             priority: settings['model_deployment.huggingface.priority'],
           },
+          hostinger: {
+            enabled: settings['model_deployment.hostinger.enabled'],
+            apiKey: settings['model_deployment.hostinger.api_key'],
+          },
+          runpod: {
+            enabled: settings['model_deployment.runpod.enabled'],
+            apiKey: settings['model_deployment.runpod.api_key'],
+          },
         }}
       />
     ),

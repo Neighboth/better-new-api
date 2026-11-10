@@ -495,23 +495,32 @@ export function SystemFilesSection() {
 
       {/* Editor & Preview Dialog */}
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
-        <DialogContent className='max-w-3xl'>
-          <DialogHeader>
-            <DialogTitle>{t('Edit File')} - /{editorPath}</DialogTitle>
+        <DialogContent className='max-w-4xl max-h-[90vh] flex flex-col overflow-hidden'>
+          <DialogHeader className='shrink-0'>
+            <div className='flex items-center justify-between pr-6'>
+              <DialogTitle className='truncate'>{t('Edit File')} - /{editorPath}</DialogTitle>
+              {editorContent ? (
+                <span className='text-[11px] font-mono text-muted-foreground'>
+                  {(new Blob([editorContent]).size / 1024).toFixed(1)} KB
+                </span>
+              ) : null}
+            </div>
           </DialogHeader>
-          <div className='space-y-3 py-2'>
+          <div className='flex-1 min-h-0 flex flex-col py-2'>
             {loadingContent ? (
-              <p className='text-muted-foreground text-sm'>{t('Loading...')}</p>
+              <div className='flex items-center justify-center h-48'>
+                <p className='text-muted-foreground text-sm'>{t('Loading...')}</p>
+              </div>
             ) : (
               <Textarea
-                rows={16}
                 value={editorContent}
                 onChange={(e) => setEditorContent(e.target.value)}
-                className='font-mono text-xs'
+                className='flex-1 min-h-[350px] max-h-[60vh] font-mono text-xs resize-none overflow-y-auto leading-relaxed'
+                spellCheck={false}
               />
             )}
           </div>
-          <DialogFooter className='flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between'>
+          <DialogFooter className='shrink-0 pt-2 border-t flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between'>
             <Button
               type='button'
               variant='outline'

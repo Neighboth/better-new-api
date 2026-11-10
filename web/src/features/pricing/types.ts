@@ -85,6 +85,12 @@ export type PricingModel = {
   billing_expr?: string
   /** Pricing version returned by backend, useful for cache busting */
   pricing_version?: string
+  /** Whether model is pinned to the top of Model Square */
+  is_pinned?: boolean
+  /** Custom sort order for pinned models */
+  pin_order?: number
+  /** Model-specific announcement bar configuration */
+  announcement_bar?: string
   /**
    * Optional model metadata fields reserved for backend-provided catalog data.
    * Keep them data-driven; do not synthesize display values on the client.

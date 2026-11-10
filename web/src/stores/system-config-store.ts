@@ -51,6 +51,7 @@ export interface SystemConfig {
   ticketEnabled?: boolean
   byogEnabled?: boolean
   captchaProviderOrder?: string
+  announcementBars?: string
   currency: CurrencyConfig
 }
 

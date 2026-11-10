@@ -2581,9 +2581,6 @@ export function PaymentSettingsSection({
                 <div>
                   <div className='flex items-center gap-2'>
                     <h3 className='text-lg font-medium'>{t('Direct Link Gateway')}</h3>
-                    <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
-                      slug: direct_link
-                    </Badge>
                   </div>
                   <p className='text-muted-foreground text-sm'>
                     {t('Configure direct links to redirect users to an external payment page or shop.')}

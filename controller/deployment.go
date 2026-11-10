@@ -36,6 +36,12 @@ func GetModelDeploymentSettings(c *gin.Context) {
 
 	hfEnabled := common.OptionMap["model_deployment.huggingface.enabled"] == "true"
 	hasHFKey := strings.TrimSpace(common.OptionMap["model_deployment.huggingface.api_key"]) != "" || strings.TrimSpace(common.OptionMap["model_deployment.huggingface.token"]) != ""
+
+	hostingerEnabled := common.OptionMap["model_deployment.hostinger.enabled"] == "true"
+	hasHostingerKey := strings.TrimSpace(common.OptionMap["model_deployment.hostinger.api_key"]) != ""
+
+	runpodEnabled := common.OptionMap["model_deployment.runpod.enabled"] == "true"
+	hasRunpodKey := strings.TrimSpace(common.OptionMap["model_deployment.runpod.api_key"]) != ""
 	common.OptionMapRWMutex.RUnlock()
 
 	common.ApiSuccess(c, gin.H{
@@ -57,6 +63,18 @@ func GetModelDeploymentSettings(c *gin.Context) {
 				"enabled":     hfEnabled,
 				"configured":  hasHFKey,
 				"can_connect": hfEnabled && hasHFKey,
+			},
+			{
+				"provider":    "hostinger",
+				"enabled":     hostingerEnabled,
+				"configured":  hasHostingerKey,
+				"can_connect": hostingerEnabled && hasHostingerKey,
+			},
+			{
+				"provider":    "runpod",
+				"enabled":     runpodEnabled,
+				"configured":  hasRunpodKey,
+				"can_connect": runpodEnabled && hasRunpodKey,
 			},
 		},
 	})
@@ -114,6 +132,99 @@ func TestHuggingFaceConnection(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{
 		"name": whoami.Name,
 		"type": whoami.Type,
+	})
+}
+
+func TestHostingerConnection(c *gin.Context) {
+	var req struct {
+		ApiKey string `json:"api_key"`
+	}
+	rawBody, _ := c.GetRawData()
+	if len(bytes.TrimSpace(rawBody)) > 0 {
+		_ = json.Unmarshal(rawBody, &req)
+	}
+	apiKey := strings.TrimSpace(req.ApiKey)
+	if apiKey == "" {
+		common.OptionMapRWMutex.RLock()
+		apiKey = strings.TrimSpace(common.OptionMap["model_deployment.hostinger.api_key"])
+		common.OptionMapRWMutex.RUnlock()
+	}
+	if apiKey == "" {
+		common.ApiErrorMsg(c, "Hostinger API key is required")
+		return
+	}
+
+	httpReq, err := http.NewRequest(http.MethodGet, "https://api.hostinger.com/v1/vps", nil)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	httpReq.Header.Set("User-Agent", "BetterNewAPI/1.0")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		common.ApiErrorMsg(c, fmt.Sprintf("failed to connect to Hostinger: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		common.ApiErrorMsg(c, fmt.Sprintf("invalid Hostinger API key (HTTP %d)", resp.StatusCode))
+		return
+	}
+
+	common.ApiSuccess(c, gin.H{
+		"provider": "hostinger",
+		"status":   "connected",
+	})
+}
+
+func TestRunPodConnection(c *gin.Context) {
+	var req struct {
+		ApiKey string `json:"api_key"`
+	}
+	rawBody, _ := c.GetRawData()
+	if len(bytes.TrimSpace(rawBody)) > 0 {
+		_ = json.Unmarshal(rawBody, &req)
+	}
+	apiKey := strings.TrimSpace(req.ApiKey)
+	if apiKey == "" {
+		common.OptionMapRWMutex.RLock()
+		apiKey = strings.TrimSpace(common.OptionMap["model_deployment.runpod.api_key"])
+		common.OptionMapRWMutex.RUnlock()
+	}
+	if apiKey == "" {
+		common.ApiErrorMsg(c, "RunPod API key is required")
+		return
+	}
+
+	graphqlQuery := `{"query": "query { myself { id email } }"}`
+	httpReq, err := http.NewRequest(http.MethodPost, "https://api.runpod.io/graphql?api_key="+apiKey, strings.NewReader(graphqlQuery))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("User-Agent", "BetterNewAPI/1.0")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		common.ApiErrorMsg(c, fmt.Sprintf("failed to connect to RunPod: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		common.ApiErrorMsg(c, fmt.Sprintf("invalid RunPod API key (HTTP %d)", resp.StatusCode))
+		return
+	}
+
+	common.ApiSuccess(c, gin.H{
+		"provider": "runpod",
+		"status":   "connected",
 	})
 }
 

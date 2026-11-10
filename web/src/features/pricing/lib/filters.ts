@@ -113,11 +113,32 @@ export function sortModels(
   models: PricingModel[],
   sortBy: string
 ): PricingModel[] {
-  const sorted = [...models]
+  const pinned: PricingModel[] = []
+  const unpinned: PricingModel[] = []
 
+  for (const m of models) {
+    if (m.is_pinned) {
+      pinned.push(m)
+    } else {
+      unpinned.push(m)
+    }
+  }
+
+  // Pinned models are sorted by pin_order ascending, then by rank or id
+  pinned.sort((a, b) => {
+    const aOrder = a.pin_order ?? 0
+    const bOrder = b.pin_order ?? 0
+    if (aOrder !== bOrder) return aOrder - bOrder
+    const aRank = a.rank ?? 999999
+    const bRank = b.rank ?? 999999
+    if (aRank !== bRank) return aRank - bRank
+    return (a.id || 0) - (b.id || 0)
+  })
+
+  const sortedUnpinned = [...unpinned]
   switch (sortBy) {
     case SORT_OPTIONS.POPULARITY: {
-      sorted.sort((a, b) => {
+      sortedUnpinned.sort((a, b) => {
         const aRank = a.rank ?? 999999
         const bRank = b.rank ?? 999999
         if (aRank !== bRank) return aRank - bRank
@@ -126,19 +147,19 @@ export function sortModels(
       break
     }
     case SORT_OPTIONS.NAME:
-      sorted.sort((a, b) =>
+      sortedUnpinned.sort((a, b) =>
         (a.model_name || '').localeCompare(b.model_name || '')
       )
       break
     case SORT_OPTIONS.PRICE_LOW:
-      sorted.sort((a, b) => getModelPrice(a) - getModelPrice(b))
+      sortedUnpinned.sort((a, b) => getModelPrice(a) - getModelPrice(b))
       break
     case SORT_OPTIONS.PRICE_HIGH:
-      sorted.sort((a, b) => getModelPrice(b) - getModelPrice(a))
+      sortedUnpinned.sort((a, b) => getModelPrice(b) - getModelPrice(a))
       break
   }
 
-  return sorted
+  return [...pinned, ...sortedUnpinned]
 }
 
 /**

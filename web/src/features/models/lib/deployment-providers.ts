@@ -9,6 +9,8 @@ export interface ParsedDeploymentProviders {
   ionetEnabled: boolean
   modalEnabled: boolean
   hfEnabled: boolean
+  hostingerEnabled: boolean
+  runpodEnabled: boolean
   anyEnabled: boolean
 }
 
@@ -21,17 +23,25 @@ export function parseDeploymentProviders(
   const ionet = findProvider('io.net')
   const modal = findProvider('modal')
   const hf = findProvider('huggingface') ?? findProvider('hugging face spaces')
+  const hostinger = findProvider('hostinger')
+  const runpod = findProvider('runpod')
 
   const ionetEnabled = Boolean(ionet?.enabled)
   const modalEnabled = Boolean(modal?.enabled)
   const hfEnabled = Boolean(hf?.enabled)
+  const hostingerEnabled = Boolean(hostinger?.enabled)
+  const runpodEnabled = Boolean(runpod?.enabled)
   const anyEnabled = Boolean(
     (ionetEnabled && (ionet?.configured ?? true)) ||
       (modalEnabled && (modal?.configured ?? true)) ||
       (hfEnabled && (hf?.configured ?? true)) ||
+      (hostingerEnabled && (hostinger?.configured ?? true)) ||
+      (runpodEnabled && (runpod?.configured ?? true)) ||
       ionetEnabled ||
       modalEnabled ||
-      hfEnabled
+      hfEnabled ||
+      hostingerEnabled ||
+      runpodEnabled
   )
-  return { ionetEnabled, modalEnabled, hfEnabled, anyEnabled }
+  return { ionetEnabled, modalEnabled, hfEnabled, hostingerEnabled, runpodEnabled, anyEnabled }
 }

@@ -95,6 +95,10 @@ const defaultModelSettings: ModelSettings = {
   'model_deployment.huggingface.org': '',
   'model_deployment.huggingface.hardware': 't4-small',
   'model_deployment.huggingface.priority': 'hf_first',
+  'model_deployment.hostinger.enabled': false,
+  'model_deployment.hostinger.api_key': '',
+  'model_deployment.runpod.enabled': false,
+  'model_deployment.runpod.api_key': '',
 }
 
 export function ModelSettings() {

@@ -46,6 +46,9 @@ type Model struct {
 	QuotaTypes    []int          `json:"quota_types,omitempty" gorm:"-"`
 	NameRule      int            `json:"name_rule" gorm:"default:0"`
 	ServerlessPriority int       `json:"serverless_priority" gorm:"default:0"` // 0: Channels first, 1: Serverless first
+	IsPinned      bool           `json:"is_pinned" gorm:"default:false"`
+	PinOrder      int            `json:"pin_order" gorm:"default:0"`
+	AnnouncementBar string       `json:"announcement_bar,omitempty" gorm:"type:text"`
 
 	MatchedModels []string `json:"matched_models,omitempty" gorm:"-"`
 	MatchedCount  int      `json:"matched_count,omitempty" gorm:"-"`
@@ -86,7 +89,7 @@ func (mi *Model) Update() error {
 	modelDisplayNameCache.Delete(mi.ModelName)
 	// 使用 Select 强制更新所有字段，包括零值
 	return DB.Model(&Model{}).Where("id = ?", mi.Id).
-		Select("model_name", "display_name", "tagline", "property_boxes", "description", "localizations", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "serverless_priority", "updated_time").
+		Select("model_name", "display_name", "tagline", "property_boxes", "description", "localizations", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "serverless_priority", "is_pinned", "pin_order", "announcement_bar", "updated_time").
 		Updates(mi).Error
 }
 

@@ -49,6 +49,7 @@ interface StatusApiResponse {
     ticket_enabled?: boolean
     byog_enabled?: boolean
     captcha_provider_order?: string
+    announcement_bars?: string
     display_in_currency?: boolean
     quota_display_type?: CurrencyDisplayType
     quota_per_unit?: number
@@ -129,6 +130,7 @@ export function mapStatusDataToConfig(
     byogEnabled:
       data.byog_enabled !== undefined ? Boolean(data.byog_enabled) : true,
     captchaProviderOrder: data.captcha_provider_order || '',
+    announcementBars: data.announcement_bars || '[]',
     currency,
   }
 }
