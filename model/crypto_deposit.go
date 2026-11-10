@@ -29,7 +29,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 type CryptoDeposit struct {
@@ -171,7 +170,7 @@ func ApproveCryptoDeposit(depositId int, adminUsername string, callerIp string) 
 	var quotaToAdd int
 
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", depositId).First(deposit).Error; err != nil {
+		if err := lockForUpdate(tx).Where("id = ?", depositId).First(deposit).Error; err != nil {
 			return errors.New("kripto ödeme kaydı bulunamadı")
 		}
 

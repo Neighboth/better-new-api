@@ -684,12 +684,12 @@ export function PaymentSettingsSection({
       ShopifyStoreDomain: (initialRef.current.ShopifyStoreDomain || '').trim(),
       ShopifyAccessToken: (initialRef.current.ShopifyAccessToken || '').trim(),
       ShopifyWebhookSecret: (initialRef.current.ShopifyWebhookSecret || '').trim(),
-      EnableDirectLinkTopup: initialRef.current.EnableDirectLinkTopup,
+      EnableDirectLinkTopup: Boolean(initialRef.current.EnableDirectLinkTopup),
       DirectLinkUrl: removeTrailingSlash(initialRef.current.DirectLinkUrl?.trim() || ''),
       DirectLinkTitle: (initialRef.current.DirectLinkTitle || '').trim(),
       DirectLinkDescription: (initialRef.current.DirectLinkDescription || '').trim(),
       DirectLinkMinTopup: initialRef.current.DirectLinkMinTopup || 1,
-      EnableCryptoTopup: initialRef.current.EnableCryptoTopup,
+      EnableCryptoTopup: Boolean(initialRef.current.EnableCryptoTopup),
       CryptoWallets: (initialRef.current.CryptoWallets || '[]').trim(),
       CryptoInstructions: (initialRef.current.CryptoInstructions || '').trim(),
       CryptoMinTopup: initialRef.current.CryptoMinTopup || 1,
@@ -2490,112 +2490,119 @@ export function PaymentSettingsSection({
                   </p>
                 </div>
 
-                <SettingsSwitchItem
-                  title={t('Direct Link ile Ödemeyi Etkinleştir')}
-                  description={t('Kullanıcılar bakiye yüklerken bu ödeme yöntemini seçtiklerinde doğrudan belirtilen linke yönlendirilir.')}
-                >
-                  <FormField
-                    control={form.control}
-                    name='EnableDirectLinkTopup'
-                    render={({ field }) => (
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
+                <FormField
+                  control={form.control}
+                  name='EnableDirectLinkTopup'
+                  render={({ field }) => (
+                    <SettingsSwitchItem>
+                      <SettingsSwitchContent>
+                        <FormLabel>{t('Direct Link ile Ödemeyi Etkinleştir')}</FormLabel>
+                        <FormDescription>
+                          {t('Kullanıcılar bakiye yüklerken bu ödeme yöntemini seçtiklerinde doğrudan belirtilen linke yönlendirilir.')}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={Boolean(field.value)}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  )}
+                />
+
+                {form.watch('EnableDirectLinkTopup') && (
+                  <div className='space-y-6'>
+                    <div className='grid gap-6 md:grid-cols-2'>
+                      <FormField
+                        control={form.control}
+                        name='DirectLinkUrl'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Ödeme Bağlantısı (URL)')} *</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder='https://shop.example.com/pay'
+                                {...field}
+                                onChange={(e) => field.onChange(e.target.value)}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t('Kullanıcının yönlendirileceği harici ödeme sayfası adresi.')}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
                       />
-                    )}
-                  />
-                </SettingsSwitchItem>
 
-                <SettingsSwitchContent show={form.watch('EnableDirectLinkTopup')}>
-                  <div className='grid gap-6 md:grid-cols-2'>
-                    <FormField
-                      control={form.control}
-                      name='DirectLinkUrl'
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('Ödeme Bağlantısı (URL)')} *</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder='https://shop.example.com/pay'
-                              {...field}
-                              onChange={(e) => field.onChange(e.target.value)}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            {t('Kullanıcının yönlendirileceği harici ödeme sayfası adresi.')}
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                      <FormField
+                        control={form.control}
+                        name='DirectLinkTitle'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Görünen Başlık')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder={t('Direct Link / Mağaza')}
+                                {...field}
+                                onChange={(e) => field.onChange(e.target.value)}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t('Ödeme seçenekleri listesinde görünecek buton adı (Varsayılan: Direct Link).')}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
 
-                    <FormField
-                      control={form.control}
-                      name='DirectLinkTitle'
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('Görünen Başlık')}</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder={t('Direct Link / Mağaza')}
-                              {...field}
-                              onChange={(e) => field.onChange(e.target.value)}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            {t('Ödeme seçenekleri listesinde görünecek buton adı (Varsayılan: Direct Link).')}
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    <div className='grid gap-6 md:grid-cols-2'>
+                      <FormField
+                        control={form.control}
+                        name='DirectLinkMinTopup'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Minimum Tutar ($)')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                type='number'
+                                min='0'
+                                {...field}
+                                {...safeNumberFieldProps(field)}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t('Bu yöntemin seçilebilmesi için gereken minimum tutar.')}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name='DirectLinkDescription'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Açıklama / Not')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder={t('Güvenli harici ödeme sayfası')}
+                                {...field}
+                                onChange={(e) => field.onChange(e.target.value)}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t('Ödeme yönteminin altında gösterilecek opsiyonel kısa açıklama.')}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
                   </div>
-
-                  <div className='grid gap-6 md:grid-cols-2'>
-                    <FormField
-                      control={form.control}
-                      name='DirectLinkMinTopup'
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('Minimum Tutar ($)')}</FormLabel>
-                          <FormControl>
-                            <Input
-                              type='number'
-                              min='0'
-                              {...field}
-                              {...safeNumberFieldProps(field)}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            {t('Bu yöntemin seçilebilmesi için gereken minimum tutar.')}
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name='DirectLinkDescription'
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('Açıklama / Not')}</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder={t('Güvenli harici ödeme sayfası')}
-                              {...field}
-                              onChange={(e) => field.onChange(e.target.value)}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            {t('Ödeme yönteminin altında gösterilecek opsiyonel kısa açıklama.')}
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                </SettingsSwitchContent>
+                )}
               </div>
             </TabsContent>
 
@@ -2608,82 +2615,89 @@ export function PaymentSettingsSection({
                   </p>
                 </div>
 
-                <SettingsSwitchItem
-                  title={t('Kripto ile Ödemeyi Etkinleştir')}
-                  description={t('Kullanıcıların kripto transferi yaparak bakiye yüklemesine ve TxID bildirimi yapmasına olanak tanır.')}
-                >
-                  <FormField
-                    control={form.control}
-                    name='EnableCryptoTopup'
-                    render={({ field }) => (
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
+                <FormField
+                  control={form.control}
+                  name='EnableCryptoTopup'
+                  render={({ field }) => (
+                    <SettingsSwitchItem>
+                      <SettingsSwitchContent>
+                        <FormLabel>{t('Kripto ile Ödemeyi Etkinleştir')}</FormLabel>
+                        <FormDescription>
+                          {t('Kullanıcıların kripto transferi yaparak bakiye yüklemesine ve TxID bildirimi yapmasına olanak tanır.')}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={Boolean(field.value)}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  )}
+                />
+
+                {form.watch('EnableCryptoTopup') && (
+                  <div className='space-y-6'>
+                    <div className='grid gap-6 md:grid-cols-2'>
+                      <FormField
+                        control={form.control}
+                        name='CryptoMinTopup'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Minimum Kripto Yükleme Tutarı ($)')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                type='number'
+                                min='0'
+                                {...field}
+                                {...safeNumberFieldProps(field)}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t('Kripto ile bakiye yüklemede kabul edilecek minimum tutar.')}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
                       />
-                    )}
-                  />
-                </SettingsSwitchItem>
 
-                <SettingsSwitchContent show={form.watch('EnableCryptoTopup')}>
-                  <div className='grid gap-6 md:grid-cols-2'>
-                    <FormField
-                      control={form.control}
-                      name='CryptoMinTopup'
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('Minimum Kripto Yükleme Tutarı ($)')}</FormLabel>
-                          <FormControl>
-                            <Input
-                              type='number'
-                              min='0'
-                              {...field}
-                              {...safeNumberFieldProps(field)}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            {t('Kripto ile bakiye yüklemede kabul edilecek minimum tutar.')}
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                      <FormField
+                        control={form.control}
+                        name='CryptoInstructions'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Kullanıcı Bilgilendirme Metni')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder={t('Lütfen belirtilen adrese transfer yaptıktan sonra TxID bilgisini girin.')}
+                                {...field}
+                                onChange={(e) => field.onChange(e.target.value)}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t('Kripto ödeme modalında kullanıcılara gösterilecek özel talimatlar.')}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
 
-                    <FormField
-                      control={form.control}
-                      name='CryptoInstructions'
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('Kullanıcı Bilgilendirme Metni')}</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder={t('Lütfen belirtilen adrese transfer yaptıktan sonra TxID bilgisini girin.')}
-                              {...field}
-                              onChange={(e) => field.onChange(e.target.value)}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            {t('Kripto ödeme modalında kullanıcılara gösterilecek özel talimatlar.')}
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    <div className='mt-6 pt-6 border-t'>
+                      <CryptoWalletsVisualEditor
+                        value={form.watch('CryptoWallets') || '[]'}
+                        onChange={(val) =>
+                          form.setValue('CryptoWallets', val, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          })
+                        }
+                      />
+                    </div>
                   </div>
+                )}
 
-                  <div className='mt-6 pt-6 border-t'>
-                    <CryptoWalletsVisualEditor
-                      value={form.watch('CryptoWallets')}
-                      onChange={(val) =>
-                        form.setValue('CryptoWallets', val, {
-                          shouldDirty: true,
-                          shouldValidate: true,
-                        })
-                      }
-                    />
-                  </div>
-
-                  <AdminCryptoDepositsTable />
-                </SettingsSwitchContent>
+                <AdminCryptoDepositsTable />
               </div>
             </TabsContent>
           </Tabs>

@@ -202,9 +202,6 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.GET("/", middleware.RequirePermission(authz.UserRead), controller.GetAllUsers)
 				adminRoute.GET("/topup", middleware.RequirePermission(authz.UserRead), controller.GetAllTopUps)
 				adminRoute.POST("/topup/complete", middleware.RequirePermission(authz.UserWrite), controller.AdminCompleteTopUp)
-				adminRoute.GET("/crypto/deposits", controller.GetAdminCryptoDeposits)
-				adminRoute.POST("/crypto/deposit/:id/approve", controller.ApproveCryptoDeposit)
-				adminRoute.POST("/crypto/deposit/:id/reject", controller.RejectCryptoDeposit)
 				adminRoute.GET("/search", middleware.RequirePermission(authz.UserRead), controller.SearchUsers)
 				adminRoute.GET("/:id/oauth/bindings", middleware.RequirePermission(authz.UserRead), controller.GetUserOAuthBindingsByAdmin)
 				adminRoute.DELETE("/:id/oauth/bindings/:provider_id", middleware.RequirePermission(authz.UserWrite), controller.UnbindCustomOAuthByAdmin)
@@ -232,6 +229,14 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.GET("/mail/campaigns/:id", middleware.RequirePermission(authz.UserRead), controller.GetMailCampaign)
 				adminRoute.POST("/mail/send", middleware.RequirePermission(authz.UserWrite), controller.SendMailCampaign)
 			}
+		}
+
+		cryptoAdminRoute := apiRouter.Group("/admin")
+		cryptoAdminRoute.Use(middleware.AdminAuth())
+		{
+			cryptoAdminRoute.GET("/crypto/deposits", controller.GetAdminCryptoDeposits)
+			cryptoAdminRoute.POST("/crypto/deposit/:id/approve", controller.ApproveCryptoDeposit)
+			cryptoAdminRoute.POST("/crypto/deposit/:id/reject", controller.RejectCryptoDeposit)
 		}
 
 		// Subscription billing (plans, purchase, admin management)

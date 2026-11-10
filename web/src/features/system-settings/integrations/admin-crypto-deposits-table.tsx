@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Check, CheckCircle2, Clock, ExternalLink, Loader2, RefreshCw, Search, XCircle } from 'lucide-react'
+import { CheckCircle2, Clock, ExternalLink, Loader2, RefreshCw, Search, XCircle } from 'lucide-react'
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -180,7 +180,13 @@ export function AdminCryptoDepositsTable() {
           />
         </div>
 
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select
+          value={statusFilter}
+          onValueChange={(val) => {
+            setStatusFilter(val || 'all')
+            setPage(0)
+          }}
+        >
           <SelectTrigger className='w-36 h-8 text-xs'>
             <SelectValue placeholder={t('Tüm Durumlar')} />
           </SelectTrigger>
@@ -346,6 +352,34 @@ export function AdminCryptoDepositsTable() {
           </TableBody>
         </Table>
       </div>
+
+      {total > 20 && (
+        <div className='flex items-center justify-between text-xs text-muted-foreground pt-1'>
+          <span>{t('Toplam {{total}} kayıt', { total })}</span>
+          <div className='flex items-center gap-2'>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              className='h-7 px-2 text-xs'
+              disabled={page === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            >
+              {t('Önceki')}
+            </Button>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              className='h-7 px-2 text-xs'
+              disabled={(page + 1) * 20 >= total}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              {t('Sonraki')}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Reject Modal */}
       <Dialog open={!!rejectDialogItem} onOpenChange={(open) => !open && setRejectDialogItem(null)}>

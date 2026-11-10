@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { fetchBlogAds, trackAdImpression, type BlogAdsConfig } from '../api'
 import { pickBlogAdSlots, type AdSlot } from '../lib/blog-ads'

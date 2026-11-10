@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Check, Coins, Edit2, Plus, Trash2 } from 'lucide-react'
+import { Coins, Edit2, Plus, Trash2 } from 'lucide-react'
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'

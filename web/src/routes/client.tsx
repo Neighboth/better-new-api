@@ -16,20 +16,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, type ErrorComponentProps } from '@tanstack/react-router'
 import { RotateCcw } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { ClientPage } from '@/features/byog/components/client-page'
 
-function ClientErrorComponent({ error }: { error?: Error }) {
+function ClientErrorComponent({ error }: ErrorComponentProps) {
   return (
     <div className='min-h-screen w-full flex flex-col items-center justify-center p-6 text-center bg-background text-foreground space-y-4 select-none'>
       <div className='p-4 rounded-2xl bg-destructive/10 text-destructive font-semibold text-lg'>
         BYOG Client Arayüzü Başlatılamadı
       </div>
       <p className='text-sm text-muted-foreground max-w-sm'>
-        {error?.message || 'Arayüz yüklenirken bir sorun oluştu. Lütfen yeniden deneyin.'}
+        {(error instanceof Error ? error.message : String(error || '')) || 'Arayüz yüklenirken bir sorun oluştu. Lütfen yeniden deneyin.'}
       </p>
       <Button
         onClick={() => window.location.reload()}

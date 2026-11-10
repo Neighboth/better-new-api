@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Check, Clock, Coins, Copy, ExternalLink, History, Info, Loader2, Send, ShieldAlert, XCircle } from 'lucide-react'
+import { Check, Clock, Coins, Copy, ExternalLink, History, Info, Loader2, Send, XCircle } from 'lucide-react'
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -34,7 +34,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { formatNumber, formatQuota } from '@/lib/format'
+import { formatQuota } from '@/lib/format'
 
 import {
   createCryptoDeposit,
