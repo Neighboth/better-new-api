@@ -162,6 +162,12 @@ export interface TopupInfo {
   direct_link_title?: string
   direct_link_description?: string
   direct_link_min_topup?: number
+  direct_link_providers?: Array<{
+    id: string
+    url: string
+    min_topup?: number
+    description?: string
+  }>
   /** Whether Crypto topup is enabled */
   enable_crypto_topup?: boolean
   crypto_wallets?: Array<{

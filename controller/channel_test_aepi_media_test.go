@@ -219,6 +219,15 @@ func TestGetTopUpInfoDirectLinkCryptoAndWaffoRequirePayMethods(t *testing.T) {
 	require.True(t, isCryptoTopUpEnabled())
 	require.True(t, isWaffoTopUpEnabled())
 
+	// 3. Test multiple direct link providers support
+	common.OptionMapRWMutex.Lock()
+	common.OptionMap["DirectLinkProviders"] = `[{"id":"shop","url":"https://shop.example.com","min_topup":5,"description":"Custom Shop"}]`
+	common.OptionMapRWMutex.Unlock()
+	operation_setting.PayMethods = append(operation_setting.PayMethods, map[string]string{
+		"name": "Custom Shop",
+		"type": "shop",
+	})
+
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -236,5 +245,13 @@ func TestGetTopUpInfoDirectLinkCryptoAndWaffoRequirePayMethods(t *testing.T) {
 	require.Equal(t, true, resp.Data["enable_waffo_topup"])
 	methods, ok := resp.Data["pay_methods"].([]any)
 	require.True(t, ok)
-	require.Len(t, methods, 3)
+	require.Len(t, methods, 4)
+
+	// Verify direct_link_providers array is populated in GetTopUpInfo
+	providers, ok := resp.Data["direct_link_providers"].([]any)
+	require.True(t, ok)
+	require.Len(t, providers, 1)
+	p0 := providers[0].(map[string]any)
+	require.Equal(t, "shop", p0["id"])
+	require.Equal(t, "https://shop.example.com", p0["url"])
 }

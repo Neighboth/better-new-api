@@ -277,6 +277,7 @@ func InitOptionMap() {
 	common.OptionMap["DirectLinkTitle"] = "Direct Link"
 	common.OptionMap["DirectLinkDescription"] = ""
 	common.OptionMap["DirectLinkMinTopup"] = "1"
+	common.OptionMap["DirectLinkProviders"] = "[]"
 	common.OptionMap["EnableCryptoTopup"] = "false"
 	common.OptionMap["CryptoWallets"] = "[]"
 	common.OptionMap["CryptoInstructions"] = ""

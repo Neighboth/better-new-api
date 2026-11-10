@@ -28,6 +28,12 @@ func GetTopUpInfo(c *gin.Context) {
 
 	// 获取支付方式（深拷贝，避免修改全局 operation_setting.PayMethods）
 	directLinkURL := strings.TrimSpace(common.OptionMap["DirectLinkUrl"])
+	directLinkProviders := GetDirectLinkProviders()
+	directLinkProviderMap := make(map[string]DirectLinkProviderItem, len(directLinkProviders))
+	for _, p := range directLinkProviders {
+		directLinkProviderMap[p.Id] = p
+	}
+
 	payMethods := make([]map[string]string, 0, len(operation_setting.PayMethods))
 	if complianceConfirmed {
 		for _, m := range operation_setting.PayMethods {
@@ -43,6 +49,17 @@ func GetTopUpInfo(c *gin.Context) {
 				cp["type"] = model.PaymentMethodDirectLink
 				if strings.TrimSpace(cp["min_topup"]) == "" {
 					cp["min_topup"] = strconv.Itoa(getDirectLinkMinTopup())
+				}
+			} else if dp, exists := directLinkProviderMap[t]; exists {
+				if strings.TrimSpace(dp.Url) == "" {
+					continue
+				}
+				if strings.TrimSpace(cp["min_topup"]) == "" {
+					minTop := dp.MinTopup
+					if minTop <= 0 {
+						minTop = operation_setting.MinTopUp
+					}
+					cp["min_topup"] = strconv.Itoa(minTop)
 				}
 			} else if t == model.PaymentMethodCrypto {
 				cp["type"] = model.PaymentMethodCrypto
@@ -154,6 +171,19 @@ func GetTopUpInfo(c *gin.Context) {
 		"direct_link_title":        common.OptionMap["DirectLinkTitle"],
 		"direct_link_description":  common.OptionMap["DirectLinkDescription"],
 		"direct_link_min_topup":    getDirectLinkMinTopup(),
+		"direct_link_providers": func() interface{} {
+			providers := GetDirectLinkProviders()
+			res := make([]gin.H, 0, len(providers))
+			for _, p := range providers {
+				res = append(res, gin.H{
+					"id":          p.Id,
+					"url":         p.Url,
+					"min_topup":   p.MinTopup,
+					"description": p.Description,
+				})
+			}
+			return res
+		}(),
 		"enable_crypto_topup":       isCryptoTopUpEnabled(),
 		"crypto_wallets":           GetCryptoWallets(),
 		"crypto_instructions":      common.OptionMap["CryptoInstructions"],
@@ -181,6 +211,13 @@ type EpayProviderItem struct {
 	Key        string `json:"key"`
 }
 
+type DirectLinkProviderItem struct {
+	Id          string `json:"id"`
+	Url         string `json:"url"`
+	MinTopup    int    `json:"min_topup,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 func isDirectLinkTopUpEnabled() bool {
 	if !isPaymentComplianceConfirmed() {
 		return false
@@ -188,10 +225,36 @@ func isDirectLinkTopUpEnabled() bool {
 	common.OptionMapRWMutex.RLock()
 	directUrl := strings.TrimSpace(common.OptionMap["DirectLinkUrl"])
 	common.OptionMapRWMutex.RUnlock()
-	if directUrl == "" {
-		return false
+	if directUrl != "" && hasPayMethodSlug(operation_setting.PayMethods, model.PaymentMethodDirectLink, "direct-link", "direct") {
+		return true
 	}
-	return hasPayMethodSlug(operation_setting.PayMethods, model.PaymentMethodDirectLink, "direct-link", "direct")
+	for _, p := range GetDirectLinkProviders() {
+		if strings.TrimSpace(p.Url) != "" && hasPayMethodSlug(operation_setting.PayMethods, p.Id) {
+			return true
+		}
+	}
+	return false
+}
+
+func GetDirectLinkProviders() []DirectLinkProviderItem {
+	var providers []DirectLinkProviderItem
+	common.OptionMapRWMutex.RLock()
+	jsonStr := common.OptionMap["DirectLinkProviders"]
+	common.OptionMapRWMutex.RUnlock()
+	if jsonStr != "" && jsonStr != "[]" {
+		_ = common.Unmarshal([]byte(jsonStr), &providers)
+	}
+	var filtered []DirectLinkProviderItem
+	seen := make(map[string]bool)
+	for _, p := range providers {
+		id := strings.ToLower(strings.TrimSpace(p.Id))
+		if id == "" || reservedEpaySlugs[id] || seen[id] {
+			continue
+		}
+		seen[id] = true
+		filtered = append(filtered, p)
+	}
+	return filtered
 }
 
 func getDirectLinkMinTopup() int {

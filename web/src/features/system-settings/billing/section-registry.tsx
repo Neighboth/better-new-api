@@ -195,6 +195,7 @@ const BILLING_SECTIONS = [
           DirectLinkUrl: settings.DirectLinkUrl ?? '',
           DirectLinkDescription: settings.DirectLinkDescription ?? '',
           DirectLinkMinTopup: settings.DirectLinkMinTopup ?? 1,
+          DirectLinkProviders: settings.DirectLinkProviders ?? '[]',
           CryptoWallets: settings.CryptoWallets ?? '[]',
           CryptoInstructions: settings.CryptoInstructions ?? '',
           CryptoMinTopup: settings.CryptoMinTopup ?? 1,

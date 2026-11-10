@@ -530,6 +530,7 @@ export type BillingSettings = {
   DirectLinkTitle?: string
   DirectLinkDescription?: string
   DirectLinkMinTopup?: number
+  DirectLinkProviders?: string
   EnableCryptoTopup?: boolean
   CryptoWallets?: string
   CryptoInstructions?: string

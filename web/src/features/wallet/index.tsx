@@ -210,17 +210,25 @@ export function Wallet(props: WalletProps) {
   // Handle payment method selection
   const handlePaymentMethodSelect = async (method: PaymentMethod) => {
     const normalizedType = (method.type || '').trim().toLowerCase()
-    if (
+    const isDirectLinkPrimary =
       normalizedType === PAYMENT_TYPES.DIRECT_LINK ||
       normalizedType === 'direct-link' ||
       normalizedType === 'direct'
-    ) {
-      if (topupInfo?.direct_link_url) {
-        window.open(topupInfo.direct_link_url, '_blank')
-        toast.success(t('Ödeme sayfasına yönlendiriliyorsunuz...'))
+    const directProvider = topupInfo?.direct_link_providers?.find(
+      (p) => p.id?.trim().toLowerCase() === normalizedType
+    )
+
+    if (isDirectLinkPrimary || directProvider) {
+      const targetUrl = isDirectLinkPrimary
+        ? topupInfo?.direct_link_url
+        : directProvider?.url
+
+      if (targetUrl) {
+        window.open(targetUrl, '_blank')
+        toast.success(t('Redirecting to payment page...'))
         return
       }
-      toast.error(t('Direct Link adresi henüz yapılandırılmamış.'))
+      toast.error(t('Direct Link URL is not configured yet.'))
       return
     }
     if (normalizedType === PAYMENT_TYPES.CRYPTO) {

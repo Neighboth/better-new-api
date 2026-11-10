@@ -205,6 +205,7 @@ const paymentSchema = z.object({
   DirectLinkUrl: z.string(),
   DirectLinkDescription: z.string(),
   DirectLinkMinTopup: z.coerce.number().min(0),
+  DirectLinkProviders: z.string().optional(),
   CryptoWallets: z.string(),
   CryptoInstructions: z.string(),
   CryptoMinTopup: z.coerce.number().min(0),
@@ -520,20 +521,102 @@ export function PaymentSettingsSection({
     [epayProvidersList, form]
   )
 
+  const rawDirectLinkProviders = form.watch('DirectLinkProviders')
+  const directLinkProvidersList = React.useMemo<
+    { id: string; url: string; min_topup?: number; description?: string }[]
+  >(() => {
+    try {
+      const parsed = JSON.parse(rawDirectLinkProviders || '[]')
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }, [rawDirectLinkProviders])
+
+  const handleAddDirectLinkProvider = React.useCallback(() => {
+    const next = [
+      ...directLinkProvidersList,
+      {
+        id: `direct-${Date.now().toString(36)}`,
+        url: '',
+        min_topup: 1,
+        description: '',
+      },
+    ]
+    form.setValue('DirectLinkProviders', JSON.stringify(next), {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+  }, [directLinkProvidersList, form])
+
+  const handleRemoveDirectLinkProvider = React.useCallback(
+    (index: number) => {
+      const next = directLinkProvidersList.filter((_, i) => i !== index)
+      form.setValue('DirectLinkProviders', JSON.stringify(next), {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+    },
+    [directLinkProvidersList, form]
+  )
+
+  const handleUpdateDirectLinkProvider = React.useCallback(
+    (index: number, field: string, value: string | number) => {
+      const next = directLinkProvidersList.map((p, i) =>
+        i === index ? { ...p, [field]: value } : p
+      )
+      form.setValue('DirectLinkProviders', JSON.stringify(next), {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+    },
+    [directLinkProvidersList, form]
+  )
+
+  const getDirectLinkSlugError = React.useCallback(
+    (index: number, id: string): string | null => {
+      const cleanId = (id || '').trim().toLowerCase()
+      if (!cleanId) {
+        return t('Slug / ID cannot be empty')
+      }
+      if (RESERVED_EPAY_SLUGS.has(cleanId)) {
+        return t(
+          'This slug ("{{slug}}") is reserved and cannot be used (belongs to primary provider or system methods).',
+          { slug: id }
+        )
+      }
+      const duplicateIndex = directLinkProvidersList.findIndex(
+        (p, i) => i !== index && (p.id || '').trim().toLowerCase() === cleanId
+      )
+      if (duplicateIndex !== -1) {
+        return t('This slug ("{{slug}}") is already in use by another provider.', {
+          slug: id,
+        })
+      }
+      return null
+    },
+    [directLinkProvidersList, t]
+  )
+
   const getEpaySlugError = React.useCallback(
     (index: number, id: string): string | null => {
       const cleanId = (id || '').trim().toLowerCase()
       if (!cleanId) {
-        return t('Slug / ID boş bırakılamaz')
+        return t('Slug / ID cannot be empty')
       }
       if (RESERVED_EPAY_SLUGS.has(cleanId)) {
-        return t('Bu slug ("{{slug}}") rezerve edilmiştir ve kullanılamaz (Ana sağlayıcı veya sistem ödeme yöntemlerine aittir).', { slug: id })
+        return t(
+          'This slug ("{{slug}}") is reserved and cannot be used (belongs to primary provider or system methods).',
+          { slug: id }
+        )
       }
       const duplicateIndex = epayProvidersList.findIndex(
         (p, i) => i !== index && (p.id || '').trim().toLowerCase() === cleanId
       )
       if (duplicateIndex !== -1) {
-        return t('Bu slug ("{{slug}}") başka bir sağlayıcı tarafından zaten kullanılıyor.', { slug: id })
+        return t('This slug ("{{slug}}") is already in use by another provider.', {
+          slug: id,
+        })
       }
       return null
     },
@@ -543,6 +626,13 @@ export function PaymentSettingsSection({
   const onSubmit = async (values: PaymentFormValues) => {
     for (let i = 0; i < epayProvidersList.length; i++) {
       const err = getEpaySlugError(i, epayProvidersList[i].id || '')
+      if (err) {
+        toast.error(err)
+        return
+      }
+    }
+    for (let i = 0; i < directLinkProvidersList.length; i++) {
+      const err = getDirectLinkSlugError(i, directLinkProvidersList[i].id || '')
       if (err) {
         toast.error(err)
         return
@@ -608,6 +698,7 @@ export function PaymentSettingsSection({
       DirectLinkUrl: removeTrailingSlash(values.DirectLinkUrl?.trim() || ''),
       DirectLinkDescription: (values.DirectLinkDescription || '').trim(),
       DirectLinkMinTopup: values.DirectLinkMinTopup || 1,
+      DirectLinkProviders: (values.DirectLinkProviders || '').trim(),
       CryptoWallets: (values.CryptoWallets || '[]').trim(),
       CryptoInstructions: (values.CryptoInstructions || '').trim(),
       CryptoMinTopup: values.CryptoMinTopup || 1,
@@ -677,6 +768,7 @@ export function PaymentSettingsSection({
       DirectLinkUrl: removeTrailingSlash(initialRef.current.DirectLinkUrl?.trim() || ''),
       DirectLinkDescription: (initialRef.current.DirectLinkDescription || '').trim(),
       DirectLinkMinTopup: initialRef.current.DirectLinkMinTopup || 1,
+      DirectLinkProviders: (initialRef.current.DirectLinkProviders || '').trim(),
       CryptoWallets: (initialRef.current.CryptoWallets || '[]').trim(),
       CryptoInstructions: (initialRef.current.CryptoInstructions || '').trim(),
       CryptoMinTopup: initialRef.current.CryptoMinTopup || 1,
@@ -938,6 +1030,9 @@ export function PaymentSettingsSection({
     }
     if (sanitized.DirectLinkMinTopup !== initial.DirectLinkMinTopup) {
       updates.push({ key: 'DirectLinkMinTopup', value: sanitized.DirectLinkMinTopup })
+    }
+    if (sanitized.DirectLinkProviders !== initial.DirectLinkProviders) {
+      updates.push({ key: 'DirectLinkProviders', value: sanitized.DirectLinkProviders })
     }
 
     if (sanitized.CryptoWallets !== initial.CryptoWallets) {
@@ -1410,13 +1505,13 @@ export function PaymentSettingsSection({
 
                 <div className='flex items-center justify-between pb-3 border-b pt-2'>
                   <div className='flex items-center gap-2'>
-                    <h4 className='text-sm font-semibold'>{t('Ana Epay Sağlayıcısı')}</h4>
+                    <h4 className='text-sm font-semibold'>{t('Primary EPay Provider')}</h4>
                     <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
                       slug: epay
                     </Badge>
                   </div>
                   <span className='text-xs text-muted-foreground'>
-                    {t('Varsayılan Birincil Ağ Geçidi')}
+                    {t('Default primary gateway')}
                   </span>
                 </div>
 
@@ -1545,9 +1640,10 @@ export function PaymentSettingsSection({
                     <div className='space-y-3'>
                       {epayProvidersList.map((provider, index) => {
                         const slugErr = getEpaySlugError(index, provider.id || '')
+                        const providerKey = provider.id || `epay-${index}`
                         return (
                           <div
-                            key={index}
+                            key={providerKey}
                             className={cn(
                               'rounded-lg border p-4 bg-muted/20 space-y-3',
                               slugErr && 'border-destructive/60 bg-destructive/5'
@@ -1560,7 +1656,7 @@ export function PaymentSettingsSection({
                                 </span>
                                 {slugErr && (
                                   <Badge variant='destructive' className='text-[10px] py-0 px-1.5'>
-                                    {t('Slug Hatası')}
+                                    {t('Slug Error')}
                                   </Badge>
                                 )}
                               </div>
@@ -2490,8 +2586,20 @@ export function PaymentSettingsSection({
                     </Badge>
                   </div>
                   <p className='text-muted-foreground text-sm'>
-                    {t('Kullanıcıları harici bir ödeme linkine veya mağazaya doğrudan yönlendirmek için yapılandırın.')}
+                    {t('Configure direct links to redirect users to an external payment page or shop.')}
                   </p>
+                </div>
+
+                <div className='flex items-center justify-between pb-3 border-b pt-2'>
+                  <div className='flex items-center gap-2'>
+                    <h4 className='text-sm font-semibold'>{t('Primary Direct Link Provider')}</h4>
+                    <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
+                      slug: direct_link
+                    </Badge>
+                  </div>
+                  <span className='text-xs text-muted-foreground'>
+                    {t('Default primary direct link')}
+                  </span>
                 </div>
 
                 <div className='space-y-6'>
@@ -2501,7 +2609,7 @@ export function PaymentSettingsSection({
                       name='DirectLinkUrl'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('Ödeme Bağlantısı (URL)')} *</FormLabel>
+                          <FormLabel>{t('Payment Link (URL)')} *</FormLabel>
                           <FormControl>
                             <Input
                               placeholder='https://shop.example.com/pay'
@@ -2510,7 +2618,7 @@ export function PaymentSettingsSection({
                             />
                           </FormControl>
                           <FormDescription>
-                            {t('Kullanıcının yönlendirileceği harici ödeme sayfası adresi.')}
+                            {t('The external payment page address users will be redirected to.')}
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
@@ -2522,7 +2630,7 @@ export function PaymentSettingsSection({
                       name='DirectLinkMinTopup'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('Minimum Tutar ($)')}</FormLabel>
+                          <FormLabel>{t('Minimum Amount ($)')}</FormLabel>
                           <FormControl>
                             <Input
                               type='number'
@@ -2532,7 +2640,7 @@ export function PaymentSettingsSection({
                             />
                           </FormControl>
                           <FormDescription>
-                            {t('Bu yöntemin seçilebilmesi için gereken minimum tutar.')}
+                            {t('Minimum topup amount required to select this payment method.')}
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
@@ -2545,21 +2653,133 @@ export function PaymentSettingsSection({
                     name='DirectLinkDescription'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('Açıklama / Not')}</FormLabel>
+                        <FormLabel>{t('Description / Note')}</FormLabel>
                         <FormControl>
                           <Input
-                            placeholder={t('Güvenli harici ödeme sayfası')}
+                            placeholder={t('Secure external payment page')}
                             {...field}
                             onChange={(e) => field.onChange(e.target.value)}
                           />
                         </FormControl>
                         <FormDescription>
-                          {t('Ödeme yönteminin altında gösterilecek opsiyonel kısa açıklama.')}
+                          {t('Optional short description shown under the payment method in the wallet.')}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
+                </div>
+
+                <div className='mt-8 pt-6 border-t space-y-4'>
+                  <div className='flex items-center justify-between'>
+                    <div>
+                      <h4 className='text-sm font-semibold'>{t('Other Direct Link Providers (optional)')}</h4>
+                      <p className='text-xs text-muted-foreground'>
+                        {t('Configure additional direct links or external payment shops.')}
+                      </p>
+                    </div>
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      onClick={handleAddDirectLinkProvider}
+                    >
+                      <Plus className='h-4 w-4 mr-1.5' />
+                      {t('Add Direct Link Provider')}
+                    </Button>
+                  </div>
+
+                  {directLinkProvidersList.length === 0 ? (
+                    <div className='rounded-md border border-dashed p-6 text-center text-xs text-muted-foreground'>
+                      {t('No additional direct link providers configured. The default direct link above will be used.')}
+                    </div>
+                  ) : (
+                    <div className='space-y-3'>
+                      {directLinkProvidersList.map((provider, index) => {
+                        const slugErr = getDirectLinkSlugError(index, provider.id || '')
+                        const providerKey = provider.id || `direct-${index}`
+                        return (
+                          <div
+                            key={providerKey}
+                            className={cn(
+                              'rounded-lg border p-4 bg-muted/20 space-y-3',
+                              slugErr && 'border-destructive/60 bg-destructive/5'
+                            )}
+                          >
+                            <div className='flex items-center justify-between'>
+                              <div className='flex items-center gap-2'>
+                                <span className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
+                                  #{index + 1} {provider.id || t('Provider')}
+                                </span>
+                                {slugErr && (
+                                  <Badge variant='destructive' className='text-[10px] py-0 px-1.5'>
+                                    {t('Slug Error')}
+                                  </Badge>
+                                )}
+                              </div>
+                              <Button
+                                type='button'
+                                variant='ghost'
+                                size='icon'
+                                className='h-7 w-7 text-destructive hover:bg-destructive/10'
+                                onClick={() => handleRemoveDirectLinkProvider(index)}
+                              >
+                                <Trash2 className='h-3.5 w-3.5' />
+                              </Button>
+                            </div>
+                            <div className='grid gap-3 sm:grid-cols-2 md:grid-cols-3'>
+                              <div>
+                                <label className='text-[11px] font-medium text-muted-foreground'>{t('ID / Slug')}</label>
+                                <Input
+                                  placeholder='direct-1'
+                                  value={provider.id || ''}
+                                  className={cn(
+                                    'h-8 text-xs font-mono',
+                                    slugErr && 'border-destructive focus-visible:ring-destructive'
+                                  )}
+                                  onChange={(e) => handleUpdateDirectLinkProvider(index, 'id', e.target.value)}
+                                />
+                                {slugErr && (
+                                  <p className='text-[10px] text-destructive mt-1 leading-tight font-medium'>
+                                    {slugErr}
+                                  </p>
+                                )}
+                              </div>
+                              <div>
+                                <label className='text-[11px] font-medium text-muted-foreground'>{t('Payment Link (URL)')}</label>
+                                <Input
+                                  placeholder='https://shop.example.com/pay'
+                                  value={provider.url || ''}
+                                  className='h-8 text-xs'
+                                  onChange={(e) => handleUpdateDirectLinkProvider(index, 'url', e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <label className='text-[11px] font-medium text-muted-foreground'>{t('Minimum Amount ($)')}</label>
+                                <Input
+                                  type='number'
+                                  min='0'
+                                  placeholder='1'
+                                  value={provider.min_topup ?? 1}
+                                  className='h-8 text-xs'
+                                  onChange={(e) => handleUpdateDirectLinkProvider(index, 'min_topup', Number(e.target.value) || 0)}
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label className='text-[11px] font-medium text-muted-foreground'>{t('Description / Note')}</label>
+                              <Input
+                                placeholder={t('Secure external payment page')}
+                                value={provider.description || ''}
+                                className='h-8 text-xs'
+                                onChange={(e) => handleUpdateDirectLinkProvider(index, 'description', e.target.value)}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             </TabsContent>
@@ -2574,7 +2794,7 @@ export function PaymentSettingsSection({
                     </Badge>
                   </div>
                   <p className='text-muted-foreground text-sm'>
-                    {t('Kripto para cüzdanlarınızı ve transfer bildirim yönetimini buradan yapılandırın.')}
+                    {t('Configure cryptocurrency wallets and deposit verification management here.')}
                   </p>
                 </div>
 
@@ -2585,7 +2805,7 @@ export function PaymentSettingsSection({
                       name='CryptoMinTopup'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('Minimum Kripto Yükleme Tutarı ($)')}</FormLabel>
+                          <FormLabel>{t('Minimum Crypto Topup Amount ($)')}</FormLabel>
                           <FormControl>
                             <Input
                               type='number'
@@ -2595,7 +2815,7 @@ export function PaymentSettingsSection({
                             />
                           </FormControl>
                           <FormDescription>
-                            {t('Kripto ile bakiye yüklemede kabul edilecek minimum tutar.')}
+                            {t('Minimum amount accepted for cryptocurrency topups.')}
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
@@ -2607,16 +2827,16 @@ export function PaymentSettingsSection({
                       name='CryptoInstructions'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('Kullanıcı Bilgilendirme Metni')}</FormLabel>
+                          <FormLabel>{t('User Instructions')}</FormLabel>
                           <FormControl>
                             <Input
-                              placeholder={t('Lütfen belirtilen adrese transfer yaptıktan sonra TxID bilgisini girin.')}
+                              placeholder={t('Please enter your TxID after transferring to the specified address.')}
                               {...field}
                               onChange={(e) => field.onChange(e.target.value)}
                             />
                           </FormControl>
                           <FormDescription>
-                            {t('Kripto ödeme modalında kullanıcılara gösterilecek özel talimatlar.')}
+                            {t('Custom instructions displayed to users inside the crypto payment modal.')}
                           </FormDescription>
                           <FormMessage />
                         </FormItem>

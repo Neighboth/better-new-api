@@ -116,17 +116,17 @@ export function CryptoPaymentDialog({
       setCopiedRef(true)
       setTimeout(() => setCopiedRef(false), 2000)
     }
-    toast.success(t('Panoya kopyalandı'))
+    toast.success(t('Copied to clipboard'))
   }
 
   const handleSubmit = async () => {
     if (!selectedWallet) {
-      toast.error(t('Lütfen bir kripto ağı seçin'))
+      toast.error(t('Please select a crypto network'))
       return
     }
     const cleanTx = txHash.trim()
     if (!cleanTx) {
-      toast.error(t('Lütfen transferinizin İşlem Özetini (TxID / Hash) girin'))
+      toast.error(t('Please enter the Transaction Hash (TxID) of your transfer'))
       return
     }
 
@@ -141,7 +141,7 @@ export function CryptoPaymentDialog({
       })
 
       if (!createRes?.success || !createRes.data?.id) {
-        toast.error(createRes?.message || t('Ödeme kaydı oluşturulamadı'))
+        toast.error(createRes?.message || t('Failed to create payment deposit record'))
         return
       }
 
@@ -156,7 +156,7 @@ export function CryptoPaymentDialog({
       })
 
       if (!submitRes?.success) {
-        toast.error(submitRes?.message || t('TxID kaydedilemedi'))
+        toast.error(submitRes?.message || t('Failed to submit TxID'))
         return
       }
 
@@ -168,10 +168,10 @@ export function CryptoPaymentDialog({
       })
       setTxHash('')
       setSenderAddress('')
-      toast.success(t('Kripto ödeme bildiriminiz başarıyla iletildi!'))
+      toast.success(t('Crypto payment notice submitted successfully!'))
       if (onSuccess) onSuccess()
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t('İşlem sırasında bir hata oluştu')
+      const msg = err instanceof Error ? err.message : t('An error occurred during the transaction')
       toast.error(msg)
     } finally {
       setSubmitting(false)
@@ -208,9 +208,9 @@ export function CryptoPaymentDialog({
               <Coins className='h-5 w-5' />
             </div>
             <div>
-              <DialogTitle>{t('Kripto Para ile Bakiye Yükleme')}</DialogTitle>
+              <DialogTitle>{t('Crypto Currency Topup')}</DialogTitle>
               <DialogDescription>
-                {t('Kripto ağını seçip adrese transfer yapın ve TxID bilgisini iletin.')}
+                {t('Select the network, send the transfer, and submit your TxID.')}
               </DialogDescription>
             </div>
           </div>
@@ -224,11 +224,11 @@ export function CryptoPaymentDialog({
           <TabsList className='grid grid-cols-2 w-full'>
             <TabsTrigger value='pay' className='gap-2'>
               <Send className='h-4 w-4' />
-              {t('Ödeme Bildirimi')}
+              {t('Payment Notice')}
             </TabsTrigger>
             <TabsTrigger value='history' className='gap-2'>
               <History className='h-4 w-4' />
-              {t('Ödeme Geçmişim')}
+              {t('My Payment History')}
             </TabsTrigger>
           </TabsList>
 
@@ -240,16 +240,16 @@ export function CryptoPaymentDialog({
                 </div>
                 <div>
                   <h3 className='text-base font-semibold text-foreground'>
-                    {t('Ödeme Bildiriminiz Alındı!')}
+                    {t('Payment Notice Received!')}
                   </h3>
                   <p className='text-xs text-muted-foreground mt-1'>
-                    {t('Transferiniz ağ üzerinde ve yönetici tarafından incelendikten sonra bakiyeniz hesabınıza tanımlanacaktır.')}
+                    {t('Your transfer will be credited to your account after verification on the blockchain and administrator approval.')}
                   </p>
                 </div>
 
                 <div className='bg-muted/50 rounded-lg p-4 max-w-sm mx-auto space-y-2 text-left'>
                   <div className='flex justify-between items-center text-xs'>
-                    <span className='text-muted-foreground'>{t('Referans Kodu')}:</span>
+                    <span className='text-muted-foreground'>{t('Reference Code')}:</span>
                     <div className='flex items-center gap-1.5'>
                       <span className='font-mono font-bold text-foreground text-sm'>
                         {submittedDeposit.reference_code}
@@ -266,11 +266,11 @@ export function CryptoPaymentDialog({
                     </div>
                   </div>
                   <div className='flex justify-between text-xs'>
-                    <span className='text-muted-foreground'>{t('Ağ')}:</span>
+                    <span className='text-muted-foreground'>{t('Network')}:</span>
                     <span className='font-medium text-foreground'>{submittedDeposit.network}</span>
                   </div>
                   <div className='flex justify-between text-xs'>
-                    <span className='text-muted-foreground'>{t('Tutar')}:</span>
+                    <span className='text-muted-foreground'>{t('Amount')}:</span>
                     <span className='font-semibold text-emerald-600 dark:text-emerald-400'>
                       ${submittedDeposit.amount}
                     </span>
@@ -286,13 +286,13 @@ export function CryptoPaymentDialog({
                       setActiveTab('history')
                     }}
                   >
-                    {t('Geçmişi Görüntüle')}
+                    {t('View History')}
                   </Button>
                   <Button
                     type='button'
                     onClick={() => setSubmittedDeposit(null)}
                   >
-                    {t('Yeni Bildirim Yap')}
+                    {t('Submit New Notice')}
                   </Button>
                 </div>
               </div>
@@ -300,14 +300,14 @@ export function CryptoPaymentDialog({
               <Alert>
                 <Info className='h-4 w-4' />
                 <AlertDescription>
-                  {t('Sistemde tanımlı kripto cüzdanı bulunamadı. Lütfen yönetici ile iletişime geçin.')}
+                  {t('No cryptocurrency wallets are configured. Please contact the administrator.')}
                 </AlertDescription>
               </Alert>
             ) : (
               <>
                 {/* Network Selection */}
                 <div className='space-y-2'>
-                  <Label className='text-xs font-medium'>{t('1. Kripto Ağı Seçin')}</Label>
+                  <Label className='text-xs font-medium'>{t('1. Select Crypto Network')}</Label>
                   <div className='grid grid-cols-2 sm:grid-cols-3 gap-2'>
                     {wallets.map((w) => (
                       <Button
@@ -331,10 +331,10 @@ export function CryptoPaymentDialog({
                   <div className='rounded-lg border bg-muted/20 p-4 space-y-3'>
                     <div className='flex items-center justify-between'>
                       <span className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
-                        {t('Transfer Adresi')} ({selectedWallet.network})
+                        {t('Transfer Address')} ({selectedWallet.network})
                       </span>
                       <Badge variant='outline' className='text-[11px] font-mono'>
-                        {t('Yüklenecek')}: ${topupAmount}
+                        {t('To Deposit')}: ${topupAmount}
                       </Badge>
                     </div>
 
@@ -352,12 +352,12 @@ export function CryptoPaymentDialog({
                         {copiedAddress ? (
                           <>
                             <Check className='h-3.5 w-3.5 text-emerald-500' />
-                            {t('Kopyalandı')}
+                            {t('Copied')}
                           </>
                         ) : (
                           <>
                             <Copy className='h-3.5 w-3.5' />
-                            {t('Kopyala')}
+                            {t('Copy')}
                           </>
                         )}
                       </Button>
@@ -386,16 +386,16 @@ export function CryptoPaymentDialog({
                   <div className='space-y-1.5'>
                     <div className='flex items-center justify-between'>
                       <Label htmlFor='crypto-tx-hash' className='text-xs font-medium'>
-                        {t('2. İşlem Özeti (TxID / Transaction Hash)')}{' '}
+                        {t('2. Transaction Hash (TxID)')}{' '}
                         <span className='text-destructive'>*</span>
                       </Label>
                       <span className='text-[11px] text-muted-foreground'>
-                        {t('Gönderimi doğrulayabilmemiz için zorunludur')}
+                        {t('Required to verify your payment')}
                       </span>
                     </div>
                     <Input
                       id='crypto-tx-hash'
-                      placeholder={t('Örnek: 0x8a92... veya b41c...')}
+                      placeholder={t('Example: 0x8a92... or b41c...')}
                       value={txHash}
                       onChange={(e) => setTxHash(e.target.value)}
                       className='font-mono text-xs'
@@ -404,11 +404,11 @@ export function CryptoPaymentDialog({
 
                   <div className='space-y-1.5'>
                     <Label htmlFor='crypto-sender-address' className='text-xs font-medium'>
-                      {t('Gönderen Cüzdan Adresi (İsteğe bağlı)')}
+                      {t('Sender Wallet Address (Optional)')}
                     </Label>
                     <Input
                       id='crypto-sender-address'
-                      placeholder={t('Transferi gönderdiğiniz cüzdan adresi')}
+                      placeholder={t('Wallet address you sent from')}
                       value={senderAddress}
                       onChange={(e) => setSenderAddress(e.target.value)}
                       className='font-mono text-xs'
@@ -423,7 +423,7 @@ export function CryptoPaymentDialog({
                     onClick={() => onOpenChange(false)}
                     disabled={submitting}
                   >
-                    {t('Kapat')}
+                    {t('Close')}
                   </Button>
                   <Button
                     type='button'
@@ -434,12 +434,12 @@ export function CryptoPaymentDialog({
                     {submitting ? (
                       <>
                         <Loader2 className='h-4 w-4 animate-spin' />
-                        {t('İletiliyor...')}
+                        {t('Submitting...')}
                       </>
                     ) : (
                       <>
                         <Send className='h-4 w-4' />
-                        {t('Ödemeyi Bildir')}
+                        {t('Submit Payment')}
                       </>
                     )}
                   </Button>
@@ -452,11 +452,11 @@ export function CryptoPaymentDialog({
             {historyLoading ? (
               <div className='py-8 text-center text-xs text-muted-foreground flex items-center justify-center gap-2'>
                 <Loader2 className='h-4 w-4 animate-spin' />
-                {t('Kripto ödemeleri yükleniyor...')}
+                {t('Loading crypto payments...')}
               </div>
             ) : historyList.length === 0 ? (
               <div className='rounded-lg border border-dashed p-8 text-center text-xs text-muted-foreground'>
-                {t('Henüz herhangi bir kripto ödeme bildiriminiz bulunmuyor.')}
+                {t('You have not submitted any crypto payment notices yet.')}
               </div>
             ) : (
               <div className='space-y-2.5 max-h-[50vh] overflow-y-auto pr-1'>
@@ -483,19 +483,19 @@ export function CryptoPaymentDialog({
                           {item.status === 'pending' && (
                             <Badge variant='secondary' className='gap-1 text-amber-600 dark:text-amber-400 bg-amber-500/10'>
                               <Clock className='h-3 w-3' />
-                              {t('Beklemede')}
+                              {t('Pending')}
                             </Badge>
                           )}
                           {item.status === 'approved' && (
                             <Badge variant='secondary' className='gap-1 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'>
                               <Check className='h-3 w-3' />
-                              {t('Onaylandı')}
+                              {t('Approved')}
                             </Badge>
                           )}
                           {item.status === 'rejected' && (
                             <Badge variant='destructive' className='gap-1'>
                               <XCircle className='h-3 w-3' />
-                              {t('Reddedildi')}
+                              {t('Rejected')}
                             </Badge>
                           )}
                         </div>
@@ -503,11 +503,11 @@ export function CryptoPaymentDialog({
 
                       <div className='flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground text-[11px]'>
                         <span>
-                          {t('Tarih')}: {new Date(item.create_time * 1000).toLocaleString()}
+                          {t('Date')}: {new Date(item.create_time * 1000).toLocaleString()}
                         </span>
                         {item.quota > 0 && (
                           <span>
-                            {t('Tanımlanan Bakiye')}: {formatQuota(item.quota)}
+                            {t('Credited Quota')}: {formatQuota(item.quota)}
                           </span>
                         )}
                       </div>
@@ -534,7 +534,7 @@ export function CryptoPaymentDialog({
 
                       {item.status === 'rejected' && item.reject_reason && (
                         <div className='text-destructive text-[11px] bg-destructive/10 p-2 rounded'>
-                          {t('Red Sebebi')}: {item.reject_reason}
+                          {t('Rejection Reason')}: {item.reject_reason}
                         </div>
                       )}
                     </div>

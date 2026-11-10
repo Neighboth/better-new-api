@@ -137,6 +137,7 @@ const defaultBillingSettings: BillingSettings = {
   DirectLinkTitle: 'Direct Link',
   DirectLinkDescription: '',
   DirectLinkMinTopup: 1,
+  DirectLinkProviders: '[]',
   EnableCryptoTopup: false,
   CryptoWallets: '[]',
   CryptoInstructions: '',

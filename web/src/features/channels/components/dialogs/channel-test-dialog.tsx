@@ -1070,14 +1070,14 @@ function ChannelTestDialogContent({
                   {effectiveStreamTest ? t('Enabled') : t('Disabled')}
                   {isCodexChannel && (
                     <span className='ml-1 text-xs text-amber-500 font-medium'>
-                      ({t('Codex için zorunlu')})
+                      ({t('Required for Codex')})
                     </span>
                   )}
                 </span>
               </div>
               <p className='text-muted-foreground text-xs'>
                 {isCodexChannel
-                  ? t('Codex kanallarında yanıtların stream olarak test edilmesi zorunludur.')
+                  ? t('Codex channels require responses to be tested in stream mode.')
                   : t('Enable streaming mode for the test request.')}
               </p>
             </div>
@@ -1290,7 +1290,7 @@ function TestResultCell({
               const detailsText = result.message ?? ''
               onOpenDetails({
                 model,
-                summary: t('Transkripsiyon / Yanıt / Medya Sonucu'),
+                summary: t('Transcript / Response / Media Result'),
                 details: detailsText,
                 isSuccess: true,
               })
@@ -1467,7 +1467,7 @@ function FailureDetailsSheet({
                   onClick={() => window.open(mediaLink, '_blank', 'noopener,noreferrer')}
                 >
                   <ExternalLink className='mr-2 h-4 w-4' />
-                  {t('Medyayı Aç')}
+                  {t('Open Media')}
                 </Button>
               )}
               <Button
