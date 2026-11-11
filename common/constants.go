@@ -130,6 +130,12 @@ var RecaptchaSiteKey = ""
 var RecaptchaSecretKey = ""
 var HCaptchaSiteKey = ""
 var HCaptchaSecretKey = ""
+// ALTCHA is self-hosted: the installation signs the proof-of-work challenge
+// with its own HMAC key, so no third party account is needed.
+var AltchaHMACKey = ""
+// MTCaptcha keeps the private key on the server and the site key in the page.
+var MTCaptchaSiteKey = ""
+var MTCaptchaPrivateKey = ""
 
 const (
 	CaptchaTypeOff       = "off"
@@ -137,6 +143,8 @@ const (
 	CaptchaTypeRecaptcha = "recaptcha"
 	CaptchaTypeHCaptcha  = "hcaptcha"
 	CaptchaTypeImage     = "image"
+	CaptchaTypeAltcha    = "altcha"
+	CaptchaTypeMTCaptcha = "mtcaptcha"
 )
 
 // GetEffectiveCaptchaType resolves which captcha provider is active. An
@@ -144,7 +152,8 @@ const (
 // toggle is honored for backward compatibility.
 func GetEffectiveCaptchaType() string {
 	switch CaptchaType {
-	case CaptchaTypeTurnstile, CaptchaTypeRecaptcha, CaptchaTypeHCaptcha, CaptchaTypeImage:
+	case CaptchaTypeTurnstile, CaptchaTypeRecaptcha, CaptchaTypeHCaptcha, CaptchaTypeImage,
+		CaptchaTypeAltcha, CaptchaTypeMTCaptcha:
 		return CaptchaType
 	case CaptchaTypeOff:
 		return CaptchaTypeOff
@@ -168,6 +177,10 @@ func IsCaptchaProviderConfigured(provider string) bool {
 		return HCaptchaSiteKey != "" && HCaptchaSecretKey != ""
 	case CaptchaTypeImage:
 		return true
+	case CaptchaTypeAltcha:
+		return AltchaHMACKey != ""
+	case CaptchaTypeMTCaptcha:
+		return MTCaptchaSiteKey != "" && MTCaptchaPrivateKey != ""
 	}
 	return false
 }

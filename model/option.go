@@ -197,6 +197,9 @@ func InitOptionMap() {
 	common.OptionMap["RecaptchaSecretKey"] = common.RecaptchaSecretKey
 	common.OptionMap["HCaptchaSiteKey"] = common.HCaptchaSiteKey
 	common.OptionMap["HCaptchaSecretKey"] = common.HCaptchaSecretKey
+	common.OptionMap["AltchaHMACKey"] = common.AltchaHMACKey
+	common.OptionMap["MTCaptchaSiteKey"] = common.MTCaptchaSiteKey
+	common.OptionMap["MTCaptchaPrivateKey"] = common.MTCaptchaPrivateKey
 	common.OptionMap["SEOTitlePrefix"] = ""
 	common.OptionMap["SEODescription"] = ""
 	common.OptionMap["SEOKeywords"] = ""
@@ -689,7 +692,8 @@ func updateOptionMap(key string, value string) (err error) {
 		common.TurnstileSecretKey = value
 	case "CaptchaType":
 		switch value {
-		case common.CaptchaTypeOff, common.CaptchaTypeTurnstile, common.CaptchaTypeRecaptcha, common.CaptchaTypeHCaptcha, common.CaptchaTypeImage:
+		case common.CaptchaTypeOff, common.CaptchaTypeTurnstile, common.CaptchaTypeRecaptcha,
+			common.CaptchaTypeHCaptcha, common.CaptchaTypeImage, common.CaptchaTypeAltcha, common.CaptchaTypeMTCaptcha:
 			common.CaptchaType = value
 		default:
 			common.CaptchaType = ""
@@ -702,6 +706,12 @@ func updateOptionMap(key string, value string) (err error) {
 		common.HCaptchaSiteKey = value
 	case "HCaptchaSecretKey":
 		common.HCaptchaSecretKey = value
+	case "AltchaHMACKey":
+		common.AltchaHMACKey = value
+	case "MTCaptchaSiteKey":
+		common.MTCaptchaSiteKey = value
+	case "MTCaptchaPrivateKey":
+		common.MTCaptchaPrivateKey = value
 	case "QuotaForNewUser":
 		common.QuotaForNewUser, _ = strconv.Atoi(value)
 	case "QuotaForInviter":

@@ -58,7 +58,8 @@ export const MAX_TOOL_RESULT_CHARS = 12_000
 // separately when the user forces thinking on a non-reasoning model.
 export const DEFAULT_TOOLS_ENABLED: PlaygroundToolsEnabled = {
   generate_image: true,
-  update_plan: true,
+  generate_video: true,
+  web_search: true,
 }
 
 // Forced-thinking defaults. The level text is injected into the system prompt
@@ -103,7 +104,8 @@ export const FINAL_ANSWER_NUDGE =
 // Display labels (i18n keys) for tool names.
 export const TOOL_LABEL_KEYS: Record<string, string> = {
   generate_image: 'Image generation',
-  update_plan: 'Plan update',
+  generate_video: 'Video generation',
+  web_search: 'Web search',
   think: 'Thinking',
 }
 
@@ -161,9 +163,12 @@ export const ERROR_MESSAGES = {
   TOOL_CALL_FAILED: 'Tool call failed',
   TOOL_ARGS_INVALID: 'Invalid tool arguments',
   IMAGE_PROMPT_REQUIRED: 'Missing image prompt',
+  VIDEO_PROMPT_REQUIRED: 'Missing video prompt',
+  VIDEO_MODEL_UNAVAILABLE: 'No video generation model is available',
+  VIDEO_TASK_FAILED: 'The video could not be generated',
+  VIDEO_TASK_TIMEOUT: 'The video generation timed out',
   SEARCH_QUERY_REQUIRED: 'Missing search query',
   PAGE_URL_INVALID: 'Invalid page URL',
-  PLAN_STEPS_REQUIRED: 'Plan must contain at least one step',
   WEB_SEARCH_FAILED: 'Web search failed',
   PAGE_FETCH_FAILED: 'Failed to fetch the page',
 } as const

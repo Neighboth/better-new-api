@@ -135,3 +135,35 @@ func TestCloudflareSTTHeadersAndPayloads(t *testing.T) {
 		require.Equal(t, "Hello world from Nova 3", out["text"])
 	})
 }
+
+func TestCloudflareDeepgramRequestsPunctuation(t *testing.T) {
+	adaptor := &Adaptor{}
+
+	info := &relaycommon.RelayInfo{
+		RelayMode: constant.RelayModeAudioTranscription,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "@cf/deepgram/nova-3",
+			BaseUrl:           "https://api.cloudflare.com",
+			ApiVersion:        "account-id",
+		},
+	}
+	info.ChannelBaseUrl = "https://api.cloudflare.com"
+
+	url, err := adaptor.GetRequestURL(info)
+	require.NoError(t, err)
+	// Deepgram keeps punctuation and smart formatting off unless the decoding
+	// options are passed: without them Nova 3 returned plain lowercase text.
+	require.Contains(t, url, "punctuate=true")
+	require.Contains(t, url, "smart_format=true")
+
+	whisper := &relaycommon.RelayInfo{
+		RelayMode: constant.RelayModeAudioTranscription,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "@cf/openai/whisper-large-v3-turbo",
+		},
+	}
+	whisper.ChannelBaseUrl = "https://api.cloudflare.com"
+	whisperURL, err := adaptor.GetRequestURL(whisper)
+	require.NoError(t, err)
+	require.NotContains(t, whisperURL, "punctuate")
+}

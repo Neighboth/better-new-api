@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -19,6 +20,45 @@ func Playground(c *gin.Context) {
 // PlaygroundImages relays playground image generation requests.
 func PlaygroundImages(c *gin.Context) {
 	playgroundRelay(c, types.RelayFormatOpenAIImage)
+}
+
+// PlaygroundVideo submits an asynchronous video generation task with the
+// session of the dashboard user. The task is polled afterwards through
+// /api/task/self, which already belongs to the user.
+func PlaygroundVideo(c *gin.Context) {
+	if c.GetBool("use_access_token") {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": gin.H{"message": "access token is not supported for this endpoint", "type": "invalid_request_error"},
+		})
+		return
+	}
+
+	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{"message": err.Error(), "type": "invalid_request_error"},
+		})
+		return
+	}
+
+	userId := c.GetInt("id")
+	userCache, err := model.GetUserCache(userId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": gin.H{"message": err.Error(), "type": "server_error"},
+		})
+		return
+	}
+	userCache.WriteContext(c)
+
+	tempToken := &model.Token{
+		UserId: userId,
+		Name:   fmt.Sprintf("playground-%s", relayInfo.UsingGroup),
+		Group:  relayInfo.UsingGroup,
+	}
+	_ = middleware.SetupContextForToken(c, tempToken)
+
+	RelayTask(c)
 }
 
 func playgroundRelay(c *gin.Context, relayFormat types.RelayFormat) {

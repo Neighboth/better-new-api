@@ -183,3 +183,146 @@ export function HCaptchaWidget({
 
   return <div ref={ref} />
 }
+
+/**
+ * ALTCHA is an open source, self-hosted proof-of-work captcha. The widget
+ * solves the challenge issued by this installation and hands back a signed
+ * payload which the server verifies with its own HMAC key.
+ */
+export function AltchaWidget({
+  onVerify,
+  onExpire,
+  onError,
+}: Omit<ThirdPartyCaptchaProps, 'siteKey'>) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const widget = document.createElement('altcha-widget')
+    widget.setAttribute('challengeurl', '/api/captcha/altcha')
+    widget.setAttribute('auto', 'onload')
+    widget.setAttribute('hidelogo', '')
+    widget.setAttribute('hidefooter', '')
+
+    const handleStateChange = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ state?: string; payload?: string }>
+      ).detail
+      if (detail?.state === 'verified' && detail.payload) {
+        onVerify(detail.payload)
+      } else if (detail?.state === 'expired') {
+        onExpire?.()
+      } else if (detail?.state === 'error') {
+        onError?.()
+      }
+    }
+
+    widget.addEventListener('statechange', handleStateChange)
+    container.appendChild(widget)
+
+    return () => {
+      widget.removeEventListener('statechange', handleStateChange)
+      widget.remove()
+    }
+  }, [onVerify, onExpire, onError])
+
+  return (
+    <>
+      <div ref={containerRef} className='flex justify-center' />
+      <AltchaScript />
+    </>
+  )
+}
+
+/** Loads the ALTCHA widget script from the official CDN exactly once. */
+function AltchaScript() {
+  useEffect(() => {
+    const scriptId = 'altcha-widget'
+    if (document.querySelector(`#${scriptId}`)) return
+
+    const script = document.createElement('script')
+    script.id = scriptId
+    script.type = 'module'
+    script.async = true
+    script.src = 'https://cdn.jsdelivr.net/npm/altcha/dist/altcha.min.js'
+    document.head.appendChild(script)
+  }, [])
+
+  return null
+}
+
+/**
+ * MTCaptcha renders its own challenge widget and reports the verified token
+ * through the global callbacks configured before the script loads.
+ */
+export function MTCaptchaWidget({
+  siteKey,
+  onVerify,
+  onExpire,
+  onError,
+}: ThirdPartyCaptchaProps) {
+  const ref = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const container = ref.current
+    if (!container) return
+
+    const widgetId = `mtcaptcha-${Math.random().toString(36).slice(2, 10)}`
+    container.innerHTML = ''
+    const target = document.createElement('div')
+    target.id = widgetId
+    target.className = 'mtcaptcha'
+    container.appendChild(target)
+
+    const globalWindow = window as unknown as {
+      mtcaptchaConfig?: Record<string, unknown>
+    }
+
+    globalWindow.mtcaptchaConfig = {
+      sitekey: siteKey,
+      render: 'explicit',
+      'verified-callback': (state: { verifiedToken?: string }) => {
+        const token = state?.verifiedToken
+        if (typeof token === 'string' && token) {
+          onVerify(token)
+        } else {
+          onError?.()
+        }
+      },
+      'verifyexpired-callback': () => onExpire?.(),
+      'error-callback': () => onError?.(),
+    }
+
+    if (!document.querySelector('#mtcaptcha-client')) {
+      for (const src of [
+        'https://service.mtcaptcha.com/mtcv1/client/mtcaptcha.min.js',
+        'https://service2.mtcaptcha.com/mtcv1/client/mtcaptcha2.min.js',
+      ]) {
+        const script = document.createElement('script')
+        script.async = true
+        script.src = src
+        if (src.includes('mtcaptcha.min.js')) {
+          script.id = 'mtcaptcha-client'
+        }
+        script.addEventListener('error', () => onError?.())
+        document.head.appendChild(script)
+      }
+    }
+
+    const config = globalWindow.mtcaptchaConfig as {
+      renderQueue?: string[]
+    }
+    if (!Array.isArray(config.renderQueue)) {
+      config.renderQueue = []
+    }
+    config.renderQueue.push(widgetId)
+
+    return () => {
+      container.innerHTML = ''
+    }
+  }, [siteKey, onVerify, onExpire, onError])
+
+  return <div ref={ref} className='flex justify-center' />
+}

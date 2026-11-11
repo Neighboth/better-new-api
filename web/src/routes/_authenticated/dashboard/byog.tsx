@@ -16,10 +16,40 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { ByogUserDashboard } from '@/features/byog'
+import { useSystemConfigStore } from '@/stores/system-config-store'
+
+/**
+ * The BYOG module can be switched off in the System Settings. Hiding the link
+ * of the sidebar is not enough: the address of the page is easy to guess, so
+ * the route itself refuses to load when the module is disabled.
+ */
+async function isByogEnabled(): Promise<boolean | undefined> {
+  const cached = useSystemConfigStore.getState().config.byogEnabled
+  if (cached !== undefined) return cached
+
+  try {
+    const response = await fetch('/api/status', {
+      headers: { Accept: 'application/json' },
+    })
+    if (!response.ok) return undefined
+    const payload = (await response.json()) as {
+      data?: { byog_enabled?: boolean }
+    }
+    return payload?.data?.byog_enabled
+  } catch {
+    return undefined
+  }
+}
 
 export const Route = createFileRoute('/_authenticated/dashboard/byog')({
+  beforeLoad: async () => {
+    const enabled = await isByogEnabled()
+    if (enabled === false) {
+      throw redirect({ to: '/dashboard' })
+    }
+  },
   component: ByogUserDashboard,
 })

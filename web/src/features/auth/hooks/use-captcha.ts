@@ -24,6 +24,8 @@ export type CaptchaType =
   | 'recaptcha'
   | 'hcaptcha'
   | 'image'
+  | 'altcha'
+  | 'mtcaptcha'
 
 export type ActiveCaptchaType = Exclude<CaptchaType, 'off'>
 
@@ -36,8 +38,19 @@ const DEFAULT_ORDER: ActiveCaptchaType[] = [
   'turnstile',
   'recaptcha',
   'hcaptcha',
+  'mtcaptcha',
+  'altcha',
   'image',
 ]
+
+const CAPTCHA_PROVIDER_TYPES = [
+  'turnstile',
+  'recaptcha',
+  'hcaptcha',
+  'mtcaptcha',
+  'altcha',
+  'image',
+] as const
 
 /**
  * Resolves the captcha provider configured on the server, plus the ordered
@@ -69,6 +82,11 @@ export function useCaptcha() {
       ((status as any)?.HCaptchaSiteKey as string | undefined) ||
       '',
     image: '',
+    altcha: '',
+    mtcaptcha:
+      (status?.mtcaptcha_site_key as string | undefined) ||
+      ((status as any)?.MTCaptchaSiteKey as string | undefined) ||
+      '',
   }
 
   const toProvider = (type: ActiveCaptchaType): CaptchaProviderOption => ({
@@ -76,7 +94,10 @@ export function useCaptcha() {
     siteKey: siteKeys[type],
   })
   const isUsable = (provider: CaptchaProviderOption) =>
-    provider.type === 'image' || Boolean(provider.siteKey)
+    // The image captcha and ALTCHA are self-hosted: they need no site key.
+    provider.type === 'image' ||
+    provider.type === 'altcha' ||
+    Boolean(provider.siteKey)
 
   // Parse custom order from status if provided, else use DEFAULT_ORDER
   const rawOrder = (status?.captcha_provider_order as string | undefined) || ''
@@ -85,7 +106,7 @@ export function useCaptcha() {
         .split(',')
         .map((s) => s.trim().toLowerCase())
         .filter((s) =>
-          ['turnstile', 'recaptcha', 'hcaptcha', 'image'].includes(s)
+          (CAPTCHA_PROVIDER_TYPES as readonly string[]).includes(s)
         ) as ActiveCaptchaType[])
     : []
 

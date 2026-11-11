@@ -21,7 +21,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { HCaptchaWidget, RecaptchaWidget } from '@/components/captcha-widget'
+import {
+  AltchaWidget,
+  HCaptchaWidget,
+  MTCaptchaWidget,
+  RecaptchaWidget,
+} from '@/components/captcha-widget'
 import { Dialog } from '@/components/dialog'
 import { Turnstile } from '@/components/turnstile'
 import { Button } from '@/components/ui/button'
@@ -137,6 +142,23 @@ export function CaptchaDialog({
         {provider.type === 'hcaptcha' && (
           <HCaptchaWidget
             key={`hcaptcha-${widgetKey}`}
+            siteKey={provider.siteKey}
+            onVerify={setToken}
+            onExpire={handleWidgetExpired}
+            onError={handleWidgetError}
+          />
+        )}
+        {provider.type === 'altcha' && (
+          <AltchaWidget
+            key={`altcha-${widgetKey}`}
+            onVerify={setToken}
+            onExpire={handleWidgetExpired}
+            onError={handleWidgetError}
+          />
+        )}
+        {provider.type === 'mtcaptcha' && (
+          <MTCaptchaWidget
+            key={`mtcaptcha-${widgetKey}`}
             siteKey={provider.siteKey}
             onVerify={setToken}
             onExpire={handleWidgetExpired}

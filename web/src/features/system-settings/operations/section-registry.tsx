@@ -21,6 +21,7 @@ import { RelayFallbackSection } from '../general/relay-fallback-section'
 import { TicketSettingsSection } from './ticket-settings-section'
 import { ByogSettingsSection } from './byog-settings-section'
 import { OnlineSearchSettingsSection } from './online-search-settings-section'
+import { PlaygroundSettingsSection } from './playground-settings-section'
 import { DiscordBotSettingsSection } from './discord-bot-settings-section'
 import { EmailSettingsSection } from '../integrations/email-settings-section'
 import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section'
@@ -109,7 +110,7 @@ const OPERATIONS_SECTIONS = [
   },
   {
     id: 'online-search',
-    titleKey: 'Online Search',
+    titleKey: 'Web Search',
     build: (settings: OperationsSettings) => (
       <OnlineSearchSettingsSection
         defaultValues={{
@@ -120,6 +121,59 @@ const OPERATIONS_SECTIONS = [
           onlineSearchMax: Number(
             settings['online_search_setting.max_searches'] ?? 5
           ),
+          playgroundEnabled:
+            settings['playground_setting.web_search_playground_enabled'] ??
+            false,
+          discordEnabled:
+            settings['playground_setting.web_search_discord_enabled'] ?? false,
+          liveEnabled:
+            settings['playground_setting.web_search_live_enabled'] ?? false,
+        }}
+      />
+    ),
+  },
+  {
+    id: 'playground',
+    titleKey: 'Playground & Studio',
+    build: (settings: OperationsSettings) => (
+      <PlaygroundSettingsSection
+        defaultValues={{
+          imageEnabled: settings['playground_setting.image_enabled'] ?? true,
+          imageModel: settings['playground_setting.image_model'] ?? '',
+          imageSizes:
+            settings['playground_setting.image_sizes'] ??
+            '1024x1024,1024x1792,1792x1024',
+          imageDefaultSize:
+            settings['playground_setting.image_default_size'] ?? '1024x1024',
+          imageQualities:
+            settings['playground_setting.image_qualities'] ?? 'standard,hd',
+          imageDefaultQuality:
+            settings['playground_setting.image_default_quality'] ?? 'standard',
+          imageDefaultCount: Number(
+            settings['playground_setting.image_default_count'] ?? 1
+          ),
+          videoEnabled: settings['playground_setting.video_enabled'] ?? false,
+          videoModel: settings['playground_setting.video_model'] ?? '',
+          videoDurations: settings['playground_setting.video_durations'] ?? '5,10',
+          videoDefaultDuration: Number(
+            settings['playground_setting.video_default_duration'] ?? 5
+          ),
+          videoMinDuration: Number(
+            settings['playground_setting.video_min_duration'] ?? 5
+          ),
+          videoMaxDuration: Number(
+            settings['playground_setting.video_max_duration'] ?? 10
+          ),
+          videoRatios: settings['playground_setting.video_ratios'] ?? '16:9,9:16,1:1',
+          videoDefaultRatio:
+            settings['playground_setting.video_default_ratio'] ?? '16:9',
+          videoQualities:
+            settings['playground_setting.video_qualities'] ?? 'standard,high',
+          videoDefaultQuality:
+            settings['playground_setting.video_default_quality'] ?? 'standard',
+          videoReferenceImage:
+            settings['playground_setting.video_reference_image'] ?? true,
+          studioEnabled: settings['playground_setting.studio_enabled'] ?? true,
         }}
       />
     ),

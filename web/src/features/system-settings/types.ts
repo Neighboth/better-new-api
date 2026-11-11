@@ -301,6 +301,9 @@ export type AuthSettings = {
   RecaptchaSecretKey: string
   HCaptchaSiteKey: string
   HCaptchaSecretKey: string
+  MTCaptchaSiteKey: string
+  MTCaptchaPrivateKey: string
+  AltchaHMACKey: string
   'passkey.enabled': boolean
   'passkey.rp_display_name': string
   'passkey.rp_id': string
@@ -748,6 +751,29 @@ export type OperationsSettings = {
   'discord_bot.auto_reply_model'?: string
   'discord_bot.image_model'?: string
   'discord_bot.only_linked_accounts'?: boolean
+  // Playground & studio: media models, tool toggles and web search surfaces.
+  'playground_setting.web_search_playground_enabled'?: boolean
+  'playground_setting.web_search_discord_enabled'?: boolean
+  'playground_setting.web_search_live_enabled'?: boolean
+  'playground_setting.image_enabled'?: boolean
+  'playground_setting.image_model'?: string
+  'playground_setting.image_sizes'?: string
+  'playground_setting.image_default_size'?: string
+  'playground_setting.image_qualities'?: string
+  'playground_setting.image_default_quality'?: string
+  'playground_setting.image_default_count'?: number
+  'playground_setting.video_enabled'?: boolean
+  'playground_setting.video_model'?: string
+  'playground_setting.video_durations'?: string
+  'playground_setting.video_default_duration'?: number
+  'playground_setting.video_min_duration'?: number
+  'playground_setting.video_max_duration'?: number
+  'playground_setting.video_ratios'?: string
+  'playground_setting.video_default_ratio'?: string
+  'playground_setting.video_qualities'?: string
+  'playground_setting.video_default_quality'?: string
+  'playground_setting.video_reference_image'?: boolean
+  'playground_setting.studio_enabled'?: boolean
 }
 
 export type SecuritySettings = {

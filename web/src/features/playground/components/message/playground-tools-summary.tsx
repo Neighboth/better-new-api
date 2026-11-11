@@ -20,8 +20,9 @@ import {
   AiImageIcon,
   ArrowDown01Icon,
   BrainIcon,
-  Task01Icon,
+  Search01Icon,
   ToolsIcon,
+  Video01Icon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useTranslation } from 'react-i18next'
@@ -38,7 +39,8 @@ import type { ToolEvent } from '../../types'
 
 const TOOL_ICONS = {
   generate_image: AiImageIcon,
-  update_plan: Task01Icon,
+  generate_video: Video01Icon,
+  web_search: Search01Icon,
   think: BrainIcon,
 } as const
 

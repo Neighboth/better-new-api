@@ -54,7 +54,6 @@ import type { Message, ThoughtBlock } from '../../types'
 import { MessageError } from './message-error'
 import { MessageMetadata } from './message-metadata'
 import { PlaygroundMessageAttachments } from './playground-message-attachments'
-import { PlaygroundPlanTable } from './playground-plan-table'
 import { PlaygroundToolsSummary } from './playground-tools-summary'
 
 function getThoughtDuration(thought: ThoughtBlock): number | undefined {
@@ -242,7 +241,6 @@ export function PlaygroundMessageContent({
                   )
                 }
 
-                return <PlaygroundPlanTable key={item.key} steps={item.steps} />
               })}
             <MessageMetadata alignment={alignment} message={message} />
             {actions}

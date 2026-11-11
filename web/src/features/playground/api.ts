@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 
 import { API_ENDPOINTS } from './constants'
+import { EMPTY_PLAYGROUND_RUNTIME_CONFIG } from './types'
 import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
@@ -26,6 +27,11 @@ import type {
   ImageGenerationResponse,
   ModelOption,
   GroupOption,
+  PlaygroundRuntimeConfig,
+  VideoGenerationRequest,
+  VideoGenerationResponse,
+  VideoTaskState,
+  WebSearchResponse,
 } from './types'
 
 /**
@@ -100,4 +106,72 @@ export async function getUserGroups(): Promise<GroupOption[]> {
     ratio: info.ratio,
     desc: info.desc,
   }))
+}
+
+/**
+ * Runtime configuration of the playground, the studio and the tool toggles.
+ * Falls back to the local defaults when the request fails so the playground
+ * keeps working on older backends.
+ */
+export async function getPlaygroundRuntimeConfig(
+  signal?: AbortSignal
+): Promise<PlaygroundRuntimeConfig> {
+  try {
+    const res = await api.get('/api/playground/config', { signal })
+    const data = res?.data?.data as Partial<PlaygroundRuntimeConfig> | undefined
+    if (!data) return EMPTY_PLAYGROUND_RUNTIME_CONFIG
+    return {
+      web_search: {
+        ...EMPTY_PLAYGROUND_RUNTIME_CONFIG.web_search,
+        ...(data.web_search ?? {}),
+      },
+      image: { ...EMPTY_PLAYGROUND_RUNTIME_CONFIG.image, ...(data.image ?? {}) },
+      video: { ...EMPTY_PLAYGROUND_RUNTIME_CONFIG.video, ...(data.video ?? {}) },
+      studio: {
+        ...EMPTY_PLAYGROUND_RUNTIME_CONFIG.studio,
+        ...(data.studio ?? {}),
+      },
+    }
+  } catch {
+    return EMPTY_PLAYGROUND_RUNTIME_CONFIG
+  }
+}
+
+/** Submit a video generation task (session authenticated). */
+export async function generateVideo(
+  payload: VideoGenerationRequest,
+  signal?: AbortSignal
+): Promise<VideoGenerationResponse> {
+  const res = await api.post('/pg/videos/generations', payload, {
+    signal,
+    skipErrorHandler: true,
+  } as Record<string, unknown>)
+  return res.data as VideoGenerationResponse
+}
+
+/** Read one of the tasks of the current user. */
+export async function getVideoTask(
+  taskId: string,
+  signal?: AbortSignal
+): Promise<VideoTaskState | null> {
+  const res = await api.get('/api/task/self', {
+    params: { task_id: taskId, p: 1, page_size: 1 },
+    signal,
+  })
+  const items = (res?.data?.data?.items ?? []) as VideoTaskState[]
+  return items[0] ?? null
+}
+
+/** Run a web search through the SearXNG instance of the installation. */
+export async function searchWeb(
+  query: string,
+  maxResults?: number,
+  signal?: AbortSignal
+): Promise<WebSearchResponse> {
+  const res = await api.post(
+    '/pg/web-search',
+    { query, max_results: maxResults },
+    { signal, skipErrorHandler: true } as Record<string, unknown>
+  )
+  return res.data as WebSearchResponse
 }

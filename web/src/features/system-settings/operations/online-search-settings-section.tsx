@@ -5,6 +5,8 @@ import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import {
   Form,
   FormControl,
@@ -18,6 +20,8 @@ import {
 import {
   SettingsForm,
   SettingsFormGrid,
+  SettingsSwitchContent,
+  SettingsSwitchRow,
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
@@ -27,6 +31,9 @@ const schema = z.object({
   searxngUrl: z.string().optional(),
   onlineSearchPrice: z.coerce.number().min(0).max(1000).optional(),
   onlineSearchMax: z.coerce.number().int().min(1).max(10).optional(),
+  playgroundEnabled: z.boolean().optional(),
+  discordEnabled: z.boolean().optional(),
+  liveEnabled: z.boolean().optional(),
 })
 
 type Values = z.infer<typeof schema>
@@ -38,6 +45,9 @@ export function OnlineSearchSettingsSection({
     searxngUrl?: string
     onlineSearchPrice?: number
     onlineSearchMax?: number
+    playgroundEnabled?: boolean
+    discordEnabled?: boolean
+    liveEnabled?: boolean
   }
 }) {
   const { t } = useTranslation()
@@ -49,6 +59,9 @@ export function OnlineSearchSettingsSection({
       searxngUrl: defaultValues.searxngUrl ?? '',
       onlineSearchPrice: defaultValues.onlineSearchPrice ?? 0,
       onlineSearchMax: defaultValues.onlineSearchMax ?? 5,
+      playgroundEnabled: defaultValues.playgroundEnabled ?? false,
+      discordEnabled: defaultValues.discordEnabled ?? false,
+      liveEnabled: defaultValues.liveEnabled ?? false,
     },
   })
 
@@ -66,16 +79,32 @@ export function OnlineSearchSettingsSection({
         key: 'online_search_setting.max_searches',
         value: String(values.onlineSearchMax ?? 5),
       })
+      await updateOption.mutateAsync({
+        key: 'playground_setting.web_search_playground_enabled',
+        value: String(Boolean(values.playgroundEnabled)),
+      })
+      await updateOption.mutateAsync({
+        key: 'playground_setting.web_search_discord_enabled',
+        value: String(Boolean(values.discordEnabled)),
+      })
+      await updateOption.mutateAsync({
+        key: 'playground_setting.web_search_live_enabled',
+        value: String(Boolean(values.liveEnabled)),
+      })
 
       form.reset(values)
-      toast.success(t('Online search settings saved successfully'))
+      toast.success(t('Web search settings saved successfully'))
     } catch {
       toast.error(t('Failed to save settings'))
     }
   }
 
+  const playgroundEnabled = form.watch('playgroundEnabled')
+  const discordEnabled = form.watch('discordEnabled')
+  const liveEnabled = form.watch('liveEnabled')
+
   return (
-    <SettingsSection title={t('Online Search (:online)')}>
+    <SettingsSection title={t('Web Search')}>
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
           <SettingsFormGrid>
@@ -84,16 +113,18 @@ export function OnlineSearchSettingsSection({
               name='searxngUrl'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('SearXNG URL (:online)')}</FormLabel>
+                  <FormLabel>{t('SearXNG URL')}</FormLabel>
                   <FormControl>
                     <Input
-                      placeholder='https://searxng.ornek.com'
+                      placeholder='https://searxng.example.com'
                       {...field}
                       value={field.value ?? ''}
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('Self-hosted SearXNG instance for :online models. Leave empty to disable. Example: https://searx.be')}
+                    {t(
+                      'Self-hosted SearXNG instance used by the search tools. Leave empty to disable web search everywhere.'
+                    )}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -105,7 +136,7 @@ export function OnlineSearchSettingsSection({
               name='onlineSearchPrice'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Price per :online search (USD)')}</FormLabel>
+                  <FormLabel>{t('Price per search (USD)')}</FormLabel>
                   <FormControl>
                     <Input
                       type='number'
@@ -118,7 +149,9 @@ export function OnlineSearchSettingsSection({
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('Deducted from user balance per search result call.')}
+                    {t(
+                      'Charged to the user balance for every search call made by a tool. Set 0 to make the search free.'
+                    )}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -130,7 +163,7 @@ export function OnlineSearchSettingsSection({
               name='onlineSearchMax'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Max :online searches')}</FormLabel>
+                  <FormLabel>{t('Max search results')}</FormLabel>
                   <FormControl>
                     <Input
                       type='number'
@@ -142,13 +175,99 @@ export function OnlineSearchSettingsSection({
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('Maximum SearXNG results per request (1-10).')}
+                    {t('Maximum SearXNG results returned per search (1-10).')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
             />
           </SettingsFormGrid>
+
+          <div className='space-y-3 pt-2'>
+            <div className='space-y-1'>
+              <Label className='text-sm font-medium'>
+                {t('Where the search tool is available')}
+              </Label>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Tick a surface to give its assistant the web search tool. Unticked surfaces never search the web.'
+                )}
+              </p>
+            </div>
+
+            <div className='space-y-1 rounded-lg border p-3'>
+              <SettingsSwitchRow>
+                <SettingsSwitchContent>
+                  <Label className='text-sm font-medium'>{t('Playground')}</Label>
+                  <p className='text-muted-foreground text-xs'>
+                    {t(
+                      'Adds the web search tool to the playground chat. Every search is billed at the price above.'
+                    )}
+                  </p>
+                </SettingsSwitchContent>
+                <Switch
+                  checked={Boolean(playgroundEnabled)}
+                  onCheckedChange={(checked) =>
+                    form.setValue('playgroundEnabled', checked, {
+                      shouldDirty: true,
+                    })
+                  }
+                />
+              </SettingsSwitchRow>
+
+              <SettingsSwitchRow>
+                <SettingsSwitchContent>
+                  <Label className='text-sm font-medium'>
+                    {t('Discord bot')}
+                  </Label>
+                  <p className='text-muted-foreground text-xs'>
+                    {t('Gives the Discord bot the same web search tool.')}
+                  </p>
+                </SettingsSwitchContent>
+                <Switch
+                  checked={Boolean(discordEnabled)}
+                  onCheckedChange={(checked) =>
+                    form.setValue('discordEnabled', checked, {
+                      shouldDirty: true,
+                    })
+                  }
+                />
+              </SettingsSwitchRow>
+              {discordEnabled && (
+                <p className='text-muted-foreground border-amber-500/40 bg-amber-500/5 rounded-md border px-3 py-2 text-xs'>
+                  {t(
+                    'Discord users are not signed in to this site, so the search price cannot always be charged: searches made by unlinked accounts may be free.'
+                  )}
+                </p>
+              )}
+
+              <SettingsSwitchRow>
+                <SettingsSwitchContent>
+                  <Label className='text-sm font-medium'>
+                    {t('Live support')}
+                  </Label>
+                  <p className='text-muted-foreground text-xs'>
+                    {t(
+                      'Lets the AI live support model search the web when a visitor asks about current information.'
+                    )}
+                  </p>
+                </SettingsSwitchContent>
+                <Switch
+                  checked={Boolean(liveEnabled)}
+                  onCheckedChange={(checked) =>
+                    form.setValue('liveEnabled', checked, { shouldDirty: true })
+                  }
+                />
+              </SettingsSwitchRow>
+              {liveEnabled && (
+                <p className='text-muted-foreground border-amber-500/40 bg-amber-500/5 rounded-md border px-3 py-2 text-xs'>
+                  {t(
+                    'Visitors of the live support are often not logged in, so the search price may not be charged for their searches.'
+                  )}
+                </p>
+              )}
+            </div>
+          </div>
 
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}

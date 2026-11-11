@@ -37,6 +37,7 @@ import {
   Settings,
   Store,
   Ticket,
+  Sparkles,
   User,
   Users,
   Wallet,
@@ -78,6 +79,11 @@ export function useSidebarData(): SidebarData {
           title: t('Playground'),
           url: '/playground',
           icon: FlaskConical,
+        },
+        {
+          title: t('Studio'),
+          url: '/studio',
+          icon: Sparkles,
         },
         {
           title: t('Chat'),

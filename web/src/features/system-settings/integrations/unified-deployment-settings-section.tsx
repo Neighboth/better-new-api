@@ -69,6 +69,41 @@ const schema = z.object({
 
 type Values = z.infer<typeof schema>
 
+/**
+ * Turns a backend failure of the Hostinger probe into a message of the
+ * interface language. The backend answers with a machine readable `code`
+ * (invalid token, rejected, unreachable, unexpected response); without the
+ * code the English message of the backend would be shown in every language.
+ */
+function localizeHostingerError(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  payload: { code?: string; status?: number; error?: string; message?: string } | undefined
+): string {
+  const code = payload?.code ?? ''
+  const status = payload?.status
+  switch (code) {
+    case 'hostinger_invalid_token':
+      return t(
+        'Invalid Hostinger API token (HTTP {{status}}). Create a token in hPanel > Account > API and make sure it has access to GPU/VPS.',
+        { status: status ?? 401 }
+      )
+    case 'hostinger_rejected':
+      return t('Hostinger rejected the token (HTTP {{status}}).', {
+        status: status ?? 0,
+      })
+    case 'hostinger_unreachable':
+      return t('Failed to connect to Hostinger: {{error}}', {
+        error: payload?.error ?? '',
+      })
+    case 'hostinger_unexpected_response':
+      return t('Unexpected response from the Hostinger API (HTTP {{status}})', {
+        status: status ?? 0,
+      })
+    default:
+      return payload?.message || t('Connection failed')
+  }
+}
+
 export function UnifiedDeploymentSettingsSection({
   defaultValues,
 }: {
@@ -268,18 +303,19 @@ export function UnifiedDeploymentSettingsSection({
         })
         toast.success(t('Connected to Hostinger successfully'))
       } else {
+        const localized = localizeHostingerError(t, res.data)
         setHostingerTestState({
           loading: false,
           ok: false,
-          error: res.data?.message || t('Connection failed'),
+          error: localized,
           catalog: null,
           gpuGroups: null,
         })
-        toast.error(res.data?.message || t('Connection failed'))
+        toast.error(localized)
       }
     } catch (e: any) {
-      const message =
-        e?.response?.data?.message || e?.message || t('Connection failed')
+      const localized = localizeHostingerError(t, e?.response?.data)
+      const message = e?.response?.data?.message ? localized : e?.message || localized
       setHostingerTestState({
         loading: false,
         ok: false,

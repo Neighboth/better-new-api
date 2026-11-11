@@ -46,7 +46,16 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	case constant.RelayModeResponses:
 		return fmt.Sprintf("%s/client/v4/accounts/%s/ai/v1/responses", info.ChannelBaseUrl, info.ApiVersion), nil
 	default:
-		return fmt.Sprintf("%s/client/v4/accounts/%s/ai/run/%s", info.ChannelBaseUrl, info.ApiVersion, info.UpstreamModelName), nil
+		url := fmt.Sprintf("%s/client/v4/accounts/%s/ai/run/%s", info.ChannelBaseUrl, info.ApiVersion, info.UpstreamModelName)
+		// The Deepgram models behind Workers AI transcribe the raw audio body
+		// of the request, so every decoding option has to travel as a query
+		// parameter. Deepgram leaves punctuation and smart formatting off by
+		// default, which made Nova 3 (and Nova 2) return unpunctuated text.
+		if isCfDeepgramModel(info.UpstreamModelName) &&
+			(info.RelayMode == constant.RelayModeAudioTranscription || info.RelayMode == constant.RelayModeAudioTranslation) {
+			url += "?punctuate=true&smart_format=true&paragraphs=true"
+		}
+		return url, nil
 	}
 }
 

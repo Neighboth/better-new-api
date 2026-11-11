@@ -2288,6 +2288,32 @@ public class WorkerService extends Service {
      * Server driven model provisioning: the model is queued and downloaded with the very
      * same progress pipeline that is used for the regular assignment queue.
      */
+    /**
+     * Records that the native engine is about to load weights.
+     *
+     * A native abort or a low memory kill of the process never reaches the
+     * uncaught exception handler of the application, so the crash streak of
+     * the safe mode stayed at zero and the tablet crashed again on every
+     * start. The marker is written before the load and cleared when the
+     * engine returned; a start that finds the marker set knows that the
+     * previous run was killed by the native engine and switches the worker
+     * off instead of loading the same model again.
+     */
+    private void markNativeLoadStart() {
+        try {
+            getSharedPreferences("byog_prefs", MODE_PRIVATE).edit()
+                    .putLong("native_load_marker", System.currentTimeMillis()).commit();
+        } catch (Throwable ignored) {}
+    }
+
+    /** Clears the marker of the native load again. */
+    private void markNativeLoadEnd() {
+        try {
+            getSharedPreferences("byog_prefs", MODE_PRIVATE).edit()
+                    .putLong("native_load_marker", 0L).commit();
+        } catch (Throwable ignored) {}
+    }
+
     private void requestModelDownload(JSONObject payload) {
         try {
             if (payload == null) return;
@@ -2379,8 +2405,28 @@ public class WorkerService extends Service {
                         return;
                     }
 
+                    String canaryMemoryProblem = LocalNeuralEngine.unloadableReason(WorkerService.this, canaryFile);
+                    if (canaryMemoryProblem != null) {
+                        JSONObject resp = new JSONObject();
+                        resp.put("request_id", payload != null ? payload.optString("request_id", id) : id);
+                        resp.put("error", canaryMemoryProblem);
+                        JSONObject frame = new JSONObject();
+                        frame.put("type", "canary_response");
+                        frame.put("id", id);
+                        frame.put("payload", resp);
+                        frame.put("timestamp", System.currentTimeMillis());
+                        if (tunnelWs != null) tunnelWs.sendText(frame.toString());
+                        return;
+                    }
+
                     LocalNeuralEngine engine = new LocalNeuralEngine(modelId, getFilesDir());
-                    LocalNeuralEngine.InferenceResult res = engine.generateStream(prompt, maxTokens, 0.1f, 0.92f, null, null);
+                    LocalNeuralEngine.InferenceResult res;
+                    markNativeLoadStart();
+                    try {
+                        res = engine.generateStream(prompt, maxTokens, 0.1f, 0.92f, null, null);
+                    } finally {
+                        markNativeLoadEnd();
+                    }
 
                     JSONObject resp = new JSONObject();
                     resp.put("request_id", payload != null ? payload.optString("request_id", id) : id);
@@ -2583,6 +2629,17 @@ public class WorkerService extends Service {
                         return;
                     }
 
+                    // The native engine must not be handed a model that
+                    // cannot fit into the RAM of the device, a failed native
+                    // allocation kills the process without a Java exception.
+                    String memoryProblem = LocalNeuralEngine.unloadableReason(WorkerService.this, reqFile);
+                    if (memoryProblem != null) {
+                        sendInferenceError(id, memoryProblem);
+                        currentModelStatus = downloadQueueList.isEmpty() ? "ready" : "downloading";
+                        if (tunnelWs != null) tunnelWs.sendHeartbeatFrame();
+                        return;
+                    }
+
                     // VRAM Hot Swapping:
                     // If requested model is not in VRAM, evict current model and load requested model into VRAM
                     if (!reqModel.equals(activeVramModel)) {
@@ -2654,6 +2711,7 @@ public class WorkerService extends Service {
                     final int[] streamTokenCount = new int[]{0};
                     final long[] lastTelemetryAt = new long[]{0};
 
+                    markNativeLoadStart();
                     LocalNeuralEngine.InferenceResult res = engine.generateStream(
                         userPrompt,
                         maxTokens,
@@ -2703,6 +2761,8 @@ public class WorkerService extends Service {
                             }
                         }
                     );
+
+                    markNativeLoadEnd();
 
                     if (!res.success) {
                         sendInferenceError(id, res.error != null ? res.error : "Yerel model çalıştırılamadı");
@@ -2784,6 +2844,10 @@ public class WorkerService extends Service {
                     if (tunnelWs != null) tunnelWs.sendHeartbeatFrame();
 
                 } catch (Throwable t) {
+                    // The engine returned with a Java failure, the process is
+                    // alive and the marker must not report a native death on
+                    // the next start of the application.
+                    markNativeLoadEnd();
                     android.util.Log.e("BYOG_INFERENCE", "Inference failed: " + t.getMessage(), t);
                     reportCrash("ERR_INFERENCE", describe(t), "");
                     sendInferenceError(id, t.getMessage() != null ? t.getMessage() : t.toString());

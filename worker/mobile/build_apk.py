@@ -1833,6 +1833,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        detectNativeDeath();
         installCrashHandler();
         try {
             startInterface(savedInstanceState);
@@ -2759,6 +2760,62 @@ public class MainActivity extends Activity {
 
 
 
+    /** Writes the marker of a running native load, 0 clears it. */
+    private void setNativeLoadMarker(long value) {
+        try {
+            getSharedPreferences("byog_prefs", MODE_PRIVATE).edit()
+                    .putLong("native_load_marker", value).commit();
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * Counts a run of the application that was ended by the native engine.
+     *
+     * The uncaught exception handler only sees Java exceptions. A failed
+     * allocation inside llama.cpp aborts the process and the low memory
+     * killer of MagicOS ends it without any Java frame, so the safe mode never
+     * engaged on the Honor Pad 10 and the tablet crashed again on every start.
+     * The worker writes a marker before it loads the weights; a marker that is
+     * still set when the application starts again means that run died inside
+     * the native engine.
+     */
+    private void detectNativeDeath() {
+        try {
+            SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+            long marker = WorkerService.longPref(sp, "native_load_marker", 0L);
+            if (marker <= 0L) {
+                return;
+            }
+            long now = System.currentTimeMillis();
+            // A marker of an old run (power off, forced stop by the user) is
+            // not a crash of the native engine.
+            if (now - marker > 10L * 60L * 1000L) {
+                sp.edit().putLong("native_load_marker", 0L).commit();
+                return;
+            }
+            // The marker of the last run was never cleared, the process ended
+            // while the native engine was loading or generating.
+            long previousCrash = WorkerService.longPref(sp, "last_crash_at", 0L);
+            int streak = (now - previousCrash <= CRASH_LOOP_WINDOW_MS)
+                    ? WorkerService.intPref(sp, "crash_streak", 0) + 1
+                    : Math.max(1, WorkerService.intPref(sp, "crash_streak", 0) + 1);
+            int nativeStreak = WorkerService.intPref(sp, "native_crash_streak", 0) + 1;
+            String detail = "Native engine ended the process while a model was loaded (marker "
+                    + marker + ", native crash " + nativeStreak + ")";
+            boolean safeMode = streak >= MAX_CRASH_STREAK || nativeStreak >= MAX_CRASH_STREAK;
+            sp.edit()
+                    .putString("last_crash", detail)
+                    .putLong("last_crash_at", now)
+                    .putInt("crash_streak", streak)
+                    .putInt("native_crash_streak", nativeStreak)
+                    .putLong("native_load_marker", 0L)
+                    .putBoolean("safe_mode", safeMode)
+                    .commit();
+            android.util.Log.w("BYOG_CRASH", detail + ", safe mode: " + safeMode);
+            reportCrashToServer("ERR_NATIVE_ABORT", detail, detail);
+        } catch (Throwable ignored) {}
+    }
+
     /** A crash that repeats inside this window is a crash loop. */
     private static final long CRASH_LOOP_WINDOW_MS = 120000L;
     /** Two crashes inside the window switch the worker off. */
@@ -2788,6 +2845,8 @@ public class MainActivity extends Activity {
                     .putInt("crash_streak", 0)
                     .putLong("last_crash_at", 0L)
                     .putInt("worker_crash_streak", 0)
+                    .putInt("native_crash_streak", 0)
+                    .putLong("native_load_marker", 0L)
                     .apply();
         } catch (Throwable ignored) {}
     }
@@ -3263,8 +3322,30 @@ public class MainActivity extends Activity {
                             return;
                         }
 
+                        String memoryProblem = LocalNeuralEngine.unloadableReason(MainActivity.this, mf);
+                        if (memoryProblem != null) {
+                            final String guardMsg = memoryProblem;
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    if (webView != null) {
+                                        String js = String.format(java.util.Locale.US, "if (window.onModelTestResult) window.onModelTestResult(%s, %d, %.1f);",
+                                            JSONObject.quote(guardMsg), 0, 0.0f);
+                                        safeEvalJs(js);
+                                    }
+                                }
+                            });
+                            return;
+                        }
+
                         LocalNeuralEngine engine = new LocalNeuralEngine(model, getFilesDir());
-                        LocalNeuralEngine.InferenceResult res = engine.generateStream(prompt, 256, 0.7f, 0.92f, null, null);
+                        LocalNeuralEngine.InferenceResult res;
+                        setNativeLoadMarker(System.currentTimeMillis());
+                        try {
+                            res = engine.generateStream(prompt, 256, 0.7f, 0.92f, null, null);
+                        } finally {
+                            setNativeLoadMarker(0L);
+                        }
 
                         final String finalReply = res != null && res.fullText != null ? res.fullText : "";
                         final int finalLatency = res != null ? res.ttftMs : 0;

@@ -49,6 +49,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/verification", middleware.EmailVerificationRateLimit(), middleware.TurnstileCheck(), controller.SendEmailVerification)
 		apiRouter.GET("/reset_password", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), controller.SendPasswordResetEmail)
 		apiRouter.GET("/captcha/image", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.TryUserAuth(), controller.GetImageCaptcha)
+		apiRouter.GET("/captcha/altcha", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetAltchaChallenge)
 		apiRouter.GET("/legal", controller.GetLegalContent)
 
 		// Public blog (read) + member interactions + admin management
@@ -440,6 +441,12 @@ func SetApiRouter(router *gin.Engine) {
 		mjRoute.GET("/self", middleware.UserAuth(), controller.GetUserMidjourney)
 		mjRoute.GET("/", middleware.AdminAuth(), controller.GetAllMidjourney)
 
+		// Playground and studio runtime configuration (media models, tool toggles)
+		playgroundConfigRoute := apiRouter.Group("/playground")
+		{
+			playgroundConfigRoute.GET("/config", middleware.UserAuth(), controller.GetPlaygroundConfig)
+		}
+
 		taskRoute := apiRouter.Group("/task")
 		{
 			taskRoute.GET("/self", middleware.UserAuth(), controller.GetUserTask)
@@ -556,7 +563,7 @@ func SetApiRouter(router *gin.Engine) {
 			byogRoute.GET("/status", middleware.TryUserAuth(), controller.GetByogStatus)
 			byogRoute.GET("/favicon.ico", controller.GetByogFaviconIcon)
 			byogUserRoute := byogRoute.Group("/user")
-			byogUserRoute.Use(middleware.UserAuth())
+			byogUserRoute.Use(middleware.UserAuth(), middleware.ByogEnabled())
 			{
 				byogUserRoute.GET("/nodes", controller.GetUserByogNodes)
 				ownerClient := byogUserRoute.Group("/client")
@@ -619,8 +626,8 @@ func SetApiRouter(router *gin.Engine) {
 			workerRoute.POST("/register", controller.RegisterByogWorker)
 			workerRoute.GET("/tunnel", controller.ByogWorkerTunnel)
 			workerRoute.POST("/telemetry/crash", controller.ReportByogWorkerCrash)
-			workerRoute.GET("/version", controller.GetByogWorkerVersion)
-			workerRoute.GET("/download/:platform/:arch", controller.DownloadByogWorker)
+			workerRoute.GET("/version", middleware.ByogEnabled(), controller.GetByogWorkerVersion)
+			workerRoute.GET("/download/:platform/:arch", middleware.ByogEnabled(), controller.DownloadByogWorker)
 			workerRoute.GET("/models/:model_id/file", controller.ServeByogWorkerModel)
 			workerRoute.HEAD("/models/:model_id/file", controller.ServeByogWorkerModel)
 			workerRoute.POST("/test-inference", controller.TestByogNodeInference)
@@ -638,7 +645,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			byogWorkerAlias.POST("/register", controller.RegisterByogWorker)
 			byogWorkerAlias.GET("/tunnel", controller.ByogWorkerTunnel)
-			byogWorkerAlias.GET("/download/:platform/:arch", controller.DownloadByogWorker)
+			byogWorkerAlias.GET("/download/:platform/:arch", middleware.ByogEnabled(), controller.DownloadByogWorker)
 			byogWorkerAlias.GET("/models/:model_id/file", controller.ServeByogWorkerModel)
 			byogWorkerAlias.HEAD("/models/:model_id/file", controller.ServeByogWorkerModel)
 			byogWorkerAlias.POST("/test-inference", controller.TestByogNodeInference)

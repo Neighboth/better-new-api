@@ -27,7 +27,6 @@ import {
   buildApiTranscript,
   buildChatApiPayload,
 } from '../streaming/payload-builder'
-import { normalizePlanSteps } from '../tools/plan-utils'
 import {
   mergeToolCallDeltas,
   parseToolArguments,
@@ -103,28 +102,12 @@ describe('truncateToolResult', () => {
   })
 })
 
-describe('plan utils', () => {
-  it('normalizes model steps, keeping at most one in_progress', () => {
-    const steps = normalizePlanSteps([
-      { title: 'research', status: 'in_progress' },
-      { title: 'write', status: 'in_progress' },
-      { title: '', status: 'pending' },
-      'garbage',
-      { title: 'ship', status: 'done' },
-    ])
-
-    expect(steps).toHaveLength(3)
-    expect(steps[0]).toMatchObject({ title: 'research', status: 'in_progress' })
-    expect(steps[1]).toMatchObject({ title: 'write', status: 'pending' })
-    expect(steps[2]).toMatchObject({ title: 'ship', status: 'pending' })
-  })
-})
-
 describe('buildPlaygroundToolDefinitions', () => {
   it('includes only enabled tools', () => {
     const tools = buildPlaygroundToolDefinitions({
       generate_image: true,
-      update_plan: false,
+      generate_video: false,
+      web_search: false,
     })
 
     expect(tools.map((tool) => tool.function.name)).toEqual([
@@ -135,7 +118,8 @@ describe('buildPlaygroundToolDefinitions', () => {
   it('adds the think tool only when forced thinking is on', () => {
     const base = {
       generate_image: false,
-      update_plan: false,
+      generate_video: false,
+      web_search: false,
     }
 
     expect(
@@ -180,7 +164,8 @@ describe('buildChatApiPayload tools', () => {
   it('attaches tool definitions and tool_choice when tools exist', () => {
     const tools = buildPlaygroundToolDefinitions({
       generate_image: true,
-      update_plan: false,
+      generate_video: false,
+      web_search: false,
     })
     const payload = buildChatApiPayload(
       [{ role: 'user', content: 'hi' }],

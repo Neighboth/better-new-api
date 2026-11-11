@@ -30,7 +30,7 @@ const TOOL_DEFINITIONS: Record<PlaygroundToolId, ChatCompletionTool> = {
     function: {
       name: 'generate_image',
       description:
-        'Generate an image from a text description with the currently selected model. Use it whenever the user asks to create, draw, or render a picture, or when an image would help answer the request.',
+        'Generate an image from a text description with the image model configured by the administrator. Use it whenever the user asks to create, draw, or render a picture, or when an image would help answer the request.',
       parameters: {
         type: 'object',
         properties: {
@@ -39,42 +39,64 @@ const TOOL_DEFINITIONS: Record<PlaygroundToolId, ChatCompletionTool> = {
             description:
               'Detailed description of the image to generate, in English.',
           },
+          size: {
+            type: 'string',
+            description:
+              'Optional image size, for example 1024x1024. Leave it out to use the administrator default.',
+          },
         },
         required: ['prompt'],
       },
     },
   },
-  update_plan: {
+  generate_video: {
     type: 'function',
     function: {
-      name: 'update_plan',
+      name: 'generate_video',
       description:
-        'Create or replace the step-by-step plan for the current task. Call it before starting multi-step work and again whenever a step is finished or the plan changes. Each call replaces the whole plan, so always include every step with its current status.',
+        'Generate a short video clip from a text description with the video model configured by the administrator. Use it when the user asks for a video, an animation, or a moving scene. Video rendering takes a while: the tool waits for the finished clip and attaches it to the answer.',
       parameters: {
         type: 'object',
         properties: {
-          steps: {
-            type: 'array',
-            description: 'The full list of plan steps with their status.',
-            items: {
-              type: 'object',
-              properties: {
-                title: {
-                  type: 'string',
-                  description: 'Short description of the step.',
-                },
-                status: {
-                  type: 'string',
-                  enum: ['pending', 'in_progress', 'completed'],
-                  description:
-                    'Step status. At most one step should be in_progress.',
-                },
-              },
-              required: ['title', 'status'],
-            },
+          prompt: {
+            type: 'string',
+            description:
+              'Detailed description of the video to generate: subject, motion, camera movement and style, in English.',
+          },
+          duration: {
+            type: 'number',
+            description:
+              'Clip duration in seconds. Use one of the values allowed by the administrator; leave it out to use the default.',
+          },
+          ratio: {
+            type: 'string',
+            description:
+              'Aspect ratio such as 16:9, 9:16 or 1:1. Leave it out to use the default.',
           },
         },
-        required: ['steps'],
+        required: ['prompt'],
+      },
+    },
+  },
+  web_search: {
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description:
+        'Search the public web with the search engine of the installation. Use it for fresh facts, news, prices, documentation links or anything the model cannot know. Each search is billed to the user, so search only when it helps.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'The search query, in the language of the sources you expect.',
+          },
+          max_results: {
+            type: 'number',
+            description: 'How many results to read, between 1 and 10. Defaults to 5.',
+          },
+        },
+        required: ['query'],
       },
     },
   },
