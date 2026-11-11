@@ -21,4 +21,7 @@ export {
   generateVideo,
   getPlaygroundRuntimeConfig,
 } from '@/features/playground/api'
-export { pollVideoTask } from '@/features/playground/lib/tools/video-task-utils'
+export {
+  pollVideoTask,
+  resolveSubmittedTaskId,
+} from '@/features/playground/lib/tools/video-task-utils'

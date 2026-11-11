@@ -311,6 +311,17 @@ func callLocalChatCompletionWithTools(s *discordgo.Session, m *discordgo.Message
 	messages := make([]chatMessage, len(initialMessages))
 	copy(messages, initialMessages)
 
+	// The models regularly answer "I cannot browse the web" even when the
+	// tool is offered. A short note in the system prompt keeps the assistant
+	// aware of the tools it has.
+	if note := toolsAwarenessPrompt(); note != "" {
+		if len(messages) > 0 && messages[0].Role == "system" {
+			messages[0].Content = messages[0].Content + "\n\n" + note
+		} else {
+			messages = append([]chatMessage{{Role: "system", Content: note}}, messages...)
+		}
+	}
+
 	for turn := 0; turn < 4; turn++ {
 		_ = s.ChannelTyping(m.ChannelID)
 		request := chatMessageRequest{

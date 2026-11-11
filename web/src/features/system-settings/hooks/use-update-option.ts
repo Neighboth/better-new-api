@@ -20,7 +20,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { toast } from 'sonner'
 
-import { updateSystemOption } from '../api'
+import { updateSystemOption, updateSystemOptionsBulk } from '../api'
 import type { UpdateOptionRequest } from '../types'
 
 // Configuration keys that require status refresh
@@ -85,6 +85,47 @@ export function useUpdateOption() {
     },
     onError: (error: Error) => {
       toast.error(error.message || i18next.t('Failed to update setting'))
+    },
+  })
+}
+
+/**
+ * Saves a whole settings card at once.
+ *
+ * The per-field mutation fires one request per switch, which is why a card
+ * sometimes stored only half of the changes (a request fails, the page
+ * refetches the options in between, and the remaining requests write stale
+ * values). This mutation sends every key of the card in a single transaction
+ * and refetches the caches once at the end.
+ */
+export function useUpdateOptionsBulk() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (options: Record<string, string | boolean | number>) => {
+      const data = await updateSystemOptionsBulk(options)
+      // The endpoint answers 200 with success:false for a rejected key (for
+      // example a payment compliance field). Surface it as a failure so the
+      // card shows the error instead of a silent no-op.
+      if (!data.success) {
+        throw new Error(data.message || i18next.t('Failed to update setting'))
+      }
+      return data
+    },
+    onSuccess: (data, variables) => {
+      if (data.success) {
+        queryClient.invalidateQueries({ queryKey: ['system-options'] })
+        queryClient.invalidateQueries({ queryKey: ['system-config'] })
+        queryClient.invalidateQueries({ queryKey: ['playground-runtime-config'] })
+        if (Object.keys(variables).some(isStatusRelated)) {
+          queryClient.invalidateQueries({ queryKey: ['status'] })
+          try {
+            window.localStorage.removeItem('status')
+          } catch {
+            /* empty */
+          }
+        }
+      }
     },
   })
 }

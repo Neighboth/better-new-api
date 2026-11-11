@@ -873,6 +873,7 @@ type ChannelBatchEditData struct {
 	AutoBan            *int    `json:"auto_ban"`
 	StatusCodeMapping  *string `json:"status_code_mapping"`
 	ModelRatioOverride *string `json:"model_ratio_override"`
+	Models             *string `json:"models"`
 	ModelMapping       *string `json:"model_mapping"`
 	Groups             *string `json:"groups"`
 	Priority           *int64  `json:"priority"`
@@ -880,6 +881,8 @@ type ChannelBatchEditData struct {
 	ParamOverride      *string `json:"param_override"`
 	HeaderOverride     *string `json:"header_override"`
 	Tag                *string `json:"tag"`
+	Remark             *string `json:"remark"`
+	TestModel          *string `json:"test_model"`
 }
 
 func BatchEditChannels(data ChannelBatchEditData) (int64, error) {
@@ -899,6 +902,9 @@ func BatchEditChannels(data ChannelBatchEditData) (int64, error) {
 	if data.ModelMapping != nil {
 		updates["model_mapping"] = *data.ModelMapping
 	}
+	if data.Models != nil {
+		updates["models"] = *data.Models
+	}
 	if data.Groups != nil && *data.Groups != "" {
 		updates["group"] = *data.Groups
 	}
@@ -917,6 +923,12 @@ func BatchEditChannels(data ChannelBatchEditData) (int64, error) {
 	if data.Tag != nil {
 		updates["tag"] = *data.Tag
 	}
+	if data.Remark != nil {
+		updates["remark"] = *data.Remark
+	}
+	if data.TestModel != nil {
+		updates["test_model"] = *data.TestModel
+	}
 
 	if len(updates) == 0 {
 		return 0, nil
@@ -927,7 +939,9 @@ func BatchEditChannels(data ChannelBatchEditData) (int64, error) {
 		return 0, result.Error
 	}
 
-	if data.Groups != nil && *data.Groups != "" {
+	// Groups and the model list both change the abilities of a channel, the
+	// cache must be rebuilt for every touched channel.
+	if (data.Groups != nil && *data.Groups != "") || data.Models != nil {
 		for _, id := range data.Ids {
 			ch, err := GetChannelById(id, false)
 			if err == nil && ch != nil {

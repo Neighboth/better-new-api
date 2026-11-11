@@ -226,6 +226,15 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
 	}
 
+	// 9.5. Publish the public task id. The upstream body carries the id of the
+	// provider, while the dashboard polls the task by the id of this
+	// installation. The header must be written before DoResponse streams the
+	// upstream body, otherwise it is lost.
+	c.Header("X-New-Api-Task-Id", info.PublicTaskID)
+	if existing := c.GetHeader("Access-Control-Expose-Headers"); existing == "" {
+		c.Header("Access-Control-Expose-Headers", "X-New-Api-Task-Id, X-New-Api-Other-Ratios")
+	}
+
 	// 10. 返回 OtherRatios 给下游（header 必须在 DoResponse 写 body 之前设置）
 	otherRatios := info.PriceData.OtherRatios()
 	if otherRatios == nil {

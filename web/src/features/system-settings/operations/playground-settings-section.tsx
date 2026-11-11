@@ -1,21 +1,22 @@
-import { zodResolver } from '@hookform/resolvers/zod'
-import { useForm, type Resolver } from 'react-hook-form'
+import { useQuery } from '@tanstack/react-query'
+import { ImageIcon, PlusIcon, VideoIcon, XIcon } from 'lucide-react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { z } from 'zod'
 
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form'
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
+import { MultiSelect } from '@/components/multi-select'
+import { getAllModels } from '@/features/channels/api'
 
 import {
   SettingsForm,
@@ -25,54 +26,325 @@ import {
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
-import { useUpdateOption } from '../hooks/use-update-option'
+import { useUpdateOptionsBulk } from '../hooks/use-update-option'
 
-const schema = z.object({
-  imageEnabled: z.boolean().optional(),
-  imageModel: z.string().optional(),
-  imageSizes: z.string().optional(),
-  imageDefaultSize: z.string().optional(),
-  imageQualities: z.string().optional(),
-  imageDefaultQuality: z.string().optional(),
-  imageDefaultCount: z.coerce.number().int().min(1).max(4).optional(),
-
-  videoEnabled: z.boolean().optional(),
-  videoModel: z.string().optional(),
-  videoDurations: z.string().optional(),
-  videoDefaultDuration: z.coerce.number().int().min(1).max(120).optional(),
-  videoMinDuration: z.coerce.number().int().min(1).max(120).optional(),
-  videoMaxDuration: z.coerce.number().int().min(1).max(600).optional(),
-  videoRatios: z.string().optional(),
-  videoDefaultRatio: z.string().optional(),
-  videoQualities: z.string().optional(),
-  videoDefaultQuality: z.string().optional(),
-  videoReferenceImage: z.boolean().optional(),
-
-  studioEnabled: z.boolean().optional(),
-})
-
-type Values = z.infer<typeof schema>
+/**
+ * One image or video model with the options the studio offers for it.
+ *
+ * Every model has its own quality levels, aspect ratios, sizes and durations:
+ * one video model renders 5 and 10 second clips while the next one offers 4,
+ * 8 and 12 seconds. The studio shows exactly the options of the selected
+ * model.
+ */
+export type MediaModelConfig = {
+  model: string
+  sizes?: string[]
+  qualities?: string[]
+  ratios?: string[]
+  durations?: number[]
+  reference_image?: boolean
+  default_size?: string
+  default_quality?: string
+  default_ratio?: string
+}
 
 export type PlaygroundSettingsDefaults = {
   imageEnabled?: boolean
+  imageModels?: MediaModelConfig[]
+  videoEnabled?: boolean
+  videoModels?: MediaModelConfig[]
+  studioEnabled?: boolean
+  imageDefaultCount?: number
   imageModel?: string
   imageSizes?: string
-  imageDefaultSize?: string
   imageQualities?: string
+  imageDefaultSize?: string
   imageDefaultQuality?: string
-  imageDefaultCount?: number
-  videoEnabled?: boolean
   videoModel?: string
   videoDurations?: string
-  videoDefaultDuration?: number
-  videoMinDuration?: number
-  videoMaxDuration?: number
   videoRatios?: string
-  videoDefaultRatio?: string
   videoQualities?: string
+  videoDefaultRatio?: string
   videoDefaultQuality?: string
   videoReferenceImage?: boolean
-  studioEnabled?: boolean
+}
+
+function splitLegacyList(raw?: string): string[] {
+  if (!raw) return []
+  return raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+/**
+ * Builds the model list of the runtime configuration.
+ *
+ * Installations that configured the studio before the per-model options
+ * existed only have the single-model fields; their values become the first
+ * entry of the list so nothing is lost when the page is opened.
+ */
+export function normalizeImageModels(
+  defaults: PlaygroundSettingsDefaults
+): MediaModelConfig[] {
+  if (defaults.imageModels && defaults.imageModels.length > 0) {
+    return defaults.imageModels
+  }
+  if (!defaults.imageModel?.trim()) return []
+  return [
+    {
+      model: defaults.imageModel.trim(),
+      sizes: splitLegacyList(defaults.imageSizes),
+      qualities: splitLegacyList(defaults.imageQualities),
+      default_size: defaults.imageDefaultSize,
+      default_quality: defaults.imageDefaultQuality,
+    },
+  ]
+}
+
+export function normalizeVideoModels(
+  defaults: PlaygroundSettingsDefaults
+): MediaModelConfig[] {
+  if (defaults.videoModels && defaults.videoModels.length > 0) {
+    return defaults.videoModels
+  }
+  if (!defaults.videoModel?.trim()) return []
+  return [
+    {
+      model: defaults.videoModel.trim(),
+      durations: splitLegacyList(defaults.videoDurations)
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0),
+      ratios: splitLegacyList(defaults.videoRatios),
+      qualities: splitLegacyList(defaults.videoQualities),
+      default_ratio: defaults.videoDefaultRatio,
+      default_quality: defaults.videoDefaultQuality,
+      reference_image: defaults.videoReferenceImage ?? true,
+    },
+  ]
+}
+
+type TagFieldProps = {
+  label: string
+  description?: string
+  values: string[]
+  options?: string[]
+  placeholder?: string
+  onChange: (values: string[]) => void
+}
+
+/** Comma separated tag editor: type + "," adds a tag, the × removes it. */
+function TagField(props: TagFieldProps) {
+  const { t } = useTranslation()
+  const options = useMemo(
+    () =>
+      (props.options ?? []).map((value) => ({ value, label: value })),
+    [props.options]
+  )
+  const allOptions = useMemo(() => {
+    const merged = new Map(options.map((option) => [option.value, option]))
+    for (const value of props.values) {
+      if (!merged.has(value)) merged.set(value, { value, label: value })
+    }
+    return [...merged.values()]
+  }, [options, props.values])
+
+  return (
+    <div className='space-y-1'>
+      <Label className='text-xs'>{props.label}</Label>
+      <MultiSelect
+        allowCreate
+        options={allOptions}
+        selected={props.values}
+        onChange={props.onChange}
+        placeholder={props.placeholder ?? t('Type a value and press comma')}
+      />
+      {props.description && (
+        <p className='text-muted-foreground text-[11px]'>
+          {props.description}
+        </p>
+      )}
+    </div>
+  )
+}
+
+type ModelCardProps = {
+  index: number
+  mode: 'image' | 'video'
+  value: MediaModelConfig
+  modelOptions: string[]
+  onChange: (value: MediaModelConfig) => void
+  onRemove: () => void
+}
+
+function ModelCard(props: ModelCardProps) {
+  const { t } = useTranslation()
+  const { value, mode } = props
+
+  const update = (patch: Partial<MediaModelConfig>) =>
+    props.onChange({ ...value, ...patch })
+
+  const sizeOptions = useMemo(() => value.sizes ?? [], [value.sizes])
+  const qualityOptions = useMemo(() => value.qualities ?? [], [value.qualities])
+  const ratioOptions = useMemo(() => value.ratios ?? [], [value.ratios])
+
+  return (
+    <div className='bg-muted/30 space-y-3 rounded-lg border p-3'>
+      <div className='flex items-start gap-2'>
+        <div className='flex-1 space-y-1'>
+          <Label className='text-xs'>{t('Model')}</Label>
+          <Input
+            className='font-mono text-xs'
+            list={`playground-media-models-${mode}`}
+            onChange={(event) => update({ model: event.target.value })}
+            placeholder={mode === 'image' ? 'dall-e-3' : 'kling-v1'}
+            value={value.model}
+          />
+          <datalist id={`playground-media-models-${mode}`}>
+            {props.modelOptions.map((model) => (
+              <option key={model} value={model} />
+            ))}
+          </datalist>
+        </div>
+        <Button
+          aria-label={t('Remove model')}
+          className='mt-5'
+          onClick={props.onRemove}
+          size='icon-sm'
+          type='button'
+          variant='ghost'
+        >
+          <XIcon className='size-4' />
+        </Button>
+      </div>
+
+      {mode === 'image' ? (
+        <>
+          <SettingsFormGrid>
+            <TagField
+              label={t('Sizes')}
+              onChange={(sizes) => update({ sizes })}
+              placeholder='1024x1024'
+              values={value.sizes ?? []}
+            />
+            <TagField
+              label={t('Quality levels')}
+              onChange={(qualities) => update({ qualities })}
+              placeholder='standard, hd'
+              values={value.qualities ?? []}
+            />
+          </SettingsFormGrid>
+          <SettingsFormGrid>
+            <div className='space-y-1'>
+              <Label className='text-xs'>{t('Default size')}</Label>
+              <Select
+                onValueChange={(next) => update({ default_size: String(next) })}
+                value={value.default_size || sizeOptions[0] || ''}
+              >
+                <SelectTrigger className='h-9'>
+                  <SelectValue placeholder={t('First size')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {sizeOptions.map((size) => (
+                    <SelectItem key={size} value={size}>
+                      {size}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-xs'>{t('Default quality')}</Label>
+              <Select
+                onValueChange={(next) =>
+                  update({ default_quality: String(next) })
+                }
+                value={value.default_quality || qualityOptions[0] || ''}
+              >
+                <SelectTrigger className='h-9'>
+                  <SelectValue placeholder={t('First quality')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {qualityOptions.map((quality) => (
+                    <SelectItem key={quality} value={quality}>
+                      {quality}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </SettingsFormGrid>
+        </>
+      ) : (
+        <>
+          <SettingsFormGrid>
+            <TagField
+              label={t('Durations (seconds)')}
+              description={t(
+                'The studio offers exactly these durations and derives the shortest and the longest clip from them.'
+              )}
+              onChange={(raw) =>
+                update({
+                  durations: raw
+                    .map((item) => Number(item))
+                    .filter((item) => Number.isFinite(item) && item > 0)
+                    .sort((a, b) => a - b),
+                })
+              }
+              placeholder='5, 10'
+              values={(value.durations ?? []).map(String)}
+            />
+            <TagField
+              label={t('Aspect ratios')}
+              onChange={(ratios) => update({ ratios })}
+              placeholder='16:9, 9:16'
+              values={value.ratios ?? []}
+            />
+          </SettingsFormGrid>
+          <SettingsFormGrid>
+            <TagField
+              label={t('Quality levels')}
+              onChange={(qualities) => update({ qualities })}
+              placeholder='standard, high'
+              values={value.qualities ?? []}
+            />
+            <div className='space-y-1'>
+              <Label className='text-xs'>{t('Default ratio')}</Label>
+              <Select
+                onValueChange={(next) => update({ default_ratio: String(next) })}
+                value={value.default_ratio || ratioOptions[0] || ''}
+              >
+                <SelectTrigger className='h-9'>
+                  <SelectValue placeholder={t('First ratio')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {ratioOptions.map((ratio) => (
+                    <SelectItem key={ratio} value={ratio}>
+                      {ratio}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </SettingsFormGrid>
+          <SettingsSwitchRow className='rounded-md border bg-background px-3'>
+            <SettingsSwitchContent>
+              <Label className='text-xs font-medium'>
+                {t('Accepts a reference image')}
+              </Label>
+              <p className='text-muted-foreground text-[11px]'>
+                {t('Shows the reference image picker for this model.')}
+              </p>
+            </SettingsSwitchContent>
+            <Switch
+              checked={Boolean(value.reference_image)}
+              onCheckedChange={(checked) => update({ reference_image: checked })}
+            />
+          </SettingsSwitchRow>
+        </>
+      )}
+    </div>
+  )
 }
 
 export function PlaygroundSettingsSection({
@@ -81,524 +353,211 @@ export function PlaygroundSettingsSection({
   defaultValues: PlaygroundSettingsDefaults
 }) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
+  const updateOptions = useUpdateOptionsBulk()
 
-  const form = useForm<Values>({
-    resolver: zodResolver(schema) as unknown as Resolver<Values>,
-    defaultValues: {
-      imageEnabled: defaultValues.imageEnabled ?? true,
-      imageModel: defaultValues.imageModel ?? '',
-      imageSizes: defaultValues.imageSizes ?? '1024x1024,1024x1792,1792x1024',
-      imageDefaultSize: defaultValues.imageDefaultSize ?? '1024x1024',
-      imageQualities: defaultValues.imageQualities ?? 'standard,hd',
-      imageDefaultQuality: defaultValues.imageDefaultQuality ?? 'standard',
-      imageDefaultCount: defaultValues.imageDefaultCount ?? 1,
-      videoEnabled: defaultValues.videoEnabled ?? false,
-      videoModel: defaultValues.videoModel ?? '',
-      videoDurations: defaultValues.videoDurations ?? '5,10',
-      videoDefaultDuration: defaultValues.videoDefaultDuration ?? 5,
-      videoMinDuration: defaultValues.videoMinDuration ?? 5,
-      videoMaxDuration: defaultValues.videoMaxDuration ?? 10,
-      videoRatios: defaultValues.videoRatios ?? '16:9,9:16,1:1',
-      videoDefaultRatio: defaultValues.videoDefaultRatio ?? '16:9',
-      videoQualities: defaultValues.videoQualities ?? 'standard,high',
-      videoDefaultQuality: defaultValues.videoDefaultQuality ?? 'standard',
-      videoReferenceImage: defaultValues.videoReferenceImage ?? true,
-      studioEnabled: defaultValues.studioEnabled ?? true,
-    },
+  const [imageEnabled, setImageEnabled] = useState<boolean>(
+    defaultValues.imageEnabled ?? true
+  )
+  const [videoEnabled, setVideoEnabled] = useState<boolean>(
+    defaultValues.videoEnabled ?? false
+  )
+  const [studioEnabled, setStudioEnabled] = useState<boolean>(
+    defaultValues.studioEnabled ?? true
+  )
+  const [imageModels, setImageModels] = useState<MediaModelConfig[]>(
+    normalizeImageModels(defaultValues)
+  )
+  const [videoModels, setVideoModels] = useState<MediaModelConfig[]>(
+    normalizeVideoModels(defaultValues)
+  )
+
+  const { data: modelsData } = useQuery({
+    queryKey: ['all-models-for-media'],
+    queryFn: getAllModels,
+    staleTime: 5 * 60_000,
   })
+  const modelOptions = useMemo(() => {
+    const raw = modelsData?.data ?? []
+    return raw
+      .map((entry) => (typeof entry === 'string' ? entry : entry?.id ?? ''))
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b))
+  }, [modelsData])
 
-  const onSubmit = async (values: Values) => {
-    const entries: Array<[string, string]> = [
-      ['playground_setting.image_enabled', String(Boolean(values.imageEnabled))],
-      ['playground_setting.image_model', String(values.imageModel ?? '')],
-      ['playground_setting.image_sizes', String(values.imageSizes ?? '')],
-      [
-        'playground_setting.image_default_size',
-        String(values.imageDefaultSize ?? ''),
-      ],
-      ['playground_setting.image_qualities', String(values.imageQualities ?? '')],
-      [
-        'playground_setting.image_default_quality',
-        String(values.imageDefaultQuality ?? ''),
-      ],
-      [
-        'playground_setting.image_default_count',
-        String(values.imageDefaultCount ?? 1),
-      ],
-      ['playground_setting.video_enabled', String(Boolean(values.videoEnabled))],
-      ['playground_setting.video_model', String(values.videoModel ?? '')],
-      ['playground_setting.video_durations', String(values.videoDurations ?? '')],
-      [
-        'playground_setting.video_default_duration',
-        String(values.videoDefaultDuration ?? 5),
-      ],
-      [
-        'playground_setting.video_min_duration',
-        String(values.videoMinDuration ?? 1),
-      ],
-      [
-        'playground_setting.video_max_duration',
-        String(values.videoMaxDuration ?? 60),
-      ],
-      ['playground_setting.video_ratios', String(values.videoRatios ?? '')],
-      [
-        'playground_setting.video_default_ratio',
-        String(values.videoDefaultRatio ?? ''),
-      ],
-      ['playground_setting.video_qualities', String(values.videoQualities ?? '')],
-      [
-        'playground_setting.video_default_quality',
-        String(values.videoDefaultQuality ?? ''),
-      ],
-      [
-        'playground_setting.video_reference_image',
-        String(Boolean(values.videoReferenceImage)),
-      ],
-      ['playground_setting.studio_enabled', String(Boolean(values.studioEnabled))],
-    ]
-
+  const save = async () => {
     try {
-      for (const [key, value] of entries) {
-        await updateOption.mutateAsync({ key, value })
-      }
-      form.reset(values)
+      await updateOptions.mutateAsync({
+        'playground_setting.image_enabled': String(imageEnabled),
+        'playground_setting.image_models': JSON.stringify(
+          imageModels.filter((model) => model.model.trim() !== '')
+        ),
+        'playground_setting.video_enabled': String(videoEnabled),
+        'playground_setting.video_models': JSON.stringify(
+          videoModels.filter((model) => model.model.trim() !== '')
+        ),
+        'playground_setting.studio_enabled': String(studioEnabled),
+        // The per-model list replaces the single-model fields; keep them in
+        // sync so older clients and the playground tool still work.
+        'playground_setting.image_model': imageModels[0]?.model ?? '',
+        'playground_setting.video_model': videoModels[0]?.model ?? '',
+      })
       toast.success(t('Playground settings saved successfully'))
     } catch {
       toast.error(t('Failed to save settings'))
     }
   }
 
-  const imageEnabled = form.watch('imageEnabled')
-  const videoEnabled = form.watch('videoEnabled')
+  const addModel = (mode: 'image' | 'video') => {
+    const entry: MediaModelConfig =
+      mode === 'image'
+        ? {
+            model: '',
+            sizes: ['1024x1024', '1024x1792', '1792x1024'],
+            qualities: ['standard', 'hd'],
+            default_size: '1024x1024',
+            default_quality: 'standard',
+          }
+        : {
+            model: '',
+            durations: [5, 10],
+            ratios: ['16:9', '9:16', '1:1'],
+            qualities: ['standard', 'high'],
+            default_ratio: '16:9',
+            default_quality: 'standard',
+            reference_image: true,
+          }
+    if (mode === 'image') {
+      setImageModels((prev) => [...prev, entry])
+    } else {
+      setVideoModels((prev) => [...prev, entry])
+    }
+  }
 
   return (
     <SettingsSection title={t('Playground & Studio')}>
-      <Form {...form}>
-        <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
-          <div className='space-y-3'>
-            <SettingsSwitchRow className='rounded-lg border px-3'>
-              <SettingsSwitchContent>
-                <Label className='text-sm font-medium'>
-                  {t('Image generation')}
-                </Label>
-                <p className='text-muted-foreground text-xs'>
-                  {t(
-                    'Offers the image tool in the playground and the image tab of the studio.'
-                  )}
+      <SettingsForm onSubmit={(event) => {
+        event.preventDefault()
+        void save()
+      }}>
+        <SettingsPageFormActions
+          isSaving={updateOptions.isPending}
+          onSave={() => void save()}
+        />
+        <div className='space-y-4'>
+          <SettingsSwitchRow className='rounded-lg border px-3'>
+            <SettingsSwitchContent>
+              <Label className='flex items-center gap-2 text-sm font-medium'>
+                <ImageIcon className='size-4' />
+                {t('Image generation')}
+              </Label>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Offers the image tool in the playground and the image tab of the studio.'
+                )}
+              </p>
+            </SettingsSwitchContent>
+            <Switch checked={imageEnabled} onCheckedChange={setImageEnabled} />
+          </SettingsSwitchRow>
+
+          {imageEnabled && (
+            <div className='space-y-3'>
+              {imageModels.length === 0 && (
+                <p className='text-muted-foreground rounded-lg border border-dashed p-3 text-xs'>
+                  {t('No image model configured yet.')}
                 </p>
-              </SettingsSwitchContent>
-              <Switch
-                checked={Boolean(imageEnabled)}
-                onCheckedChange={(checked) =>
-                  form.setValue('imageEnabled', checked, { shouldDirty: true })
-                }
-              />
-            </SettingsSwitchRow>
+              )}
+              {imageModels.map((model, index) => (
+                <ModelCard
+                  index={index}
+                  key={`image-${index}`}
+                  mode='image'
+                  modelOptions={modelOptions}
+                  onChange={(next) =>
+                    setImageModels((prev) =>
+                      prev.map((item, i) => (i === index ? next : item))
+                    )
+                  }
+                  onRemove={() =>
+                    setImageModels((prev) => prev.filter((_, i) => i !== index))
+                  }
+                  value={model}
+                />
+              ))}
+              <Button
+                onClick={() => addModel('image')}
+                size='sm'
+                type='button'
+                variant='outline'
+              >
+                <PlusIcon className='size-4' />
+                {t('Add image model')}
+              </Button>
+            </div>
+          )}
 
-            <SettingsFormGrid>
-              <FormField
-                control={form.control}
-                name='imageModel'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Image model')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='gpt-image-1'
-                        {...field}
-                        value={field.value ?? ''}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t(
-                        'Model id used by the image tool and the studio. It must exist in your model catalog.'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
+          <SettingsSwitchRow className='rounded-lg border px-3'>
+            <SettingsSwitchContent>
+              <Label className='flex items-center gap-2 text-sm font-medium'>
+                <VideoIcon className='size-4' />
+                {t('Video generation')}
+              </Label>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Offers the video tool in the playground and the video tab of the studio.'
                 )}
-              />
+              </p>
+            </SettingsSwitchContent>
+            <Switch checked={videoEnabled} onCheckedChange={setVideoEnabled} />
+          </SettingsSwitchRow>
 
-              <FormField
-                control={form.control}
-                name='imageDefaultSize'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Default image size')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='1024x1024'
-                        {...field}
-                        value={field.value ?? ''}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t(
-                        'Must be one of the sizes below. Used when the visitor does not pick one.'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='imageSizes'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Image sizes')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='1024x1024,1024x1792,1792x1024'
-                        {...field}
-                        value={field.value ?? ''}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Comma separated list of offered sizes, e.g. 1024x1024,1536x1024.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='imageQualities'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Image qualities')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='standard,hd'
-                        {...field}
-                        value={field.value ?? ''}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Comma separated quality options offered by the studio.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='imageDefaultQuality'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Default image quality')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='standard'
-                        {...field}
-                        value={field.value ?? ''}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('One of the quality options above.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='imageDefaultCount'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Images per request')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        type='number'
-                        min={1}
-                        max={4}
-                        {...field}
-                        value={field.value ?? 1}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Default number of images generated at once (1-4).')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </SettingsFormGrid>
-          </div>
-
-          <div className='space-y-3 pt-2'>
-            <SettingsSwitchRow className='rounded-lg border px-3'>
-              <SettingsSwitchContent>
-                <Label className='text-sm font-medium'>
-                  {t('Video generation')}
-                </Label>
-                <p className='text-muted-foreground text-xs'>
-                  {t(
-                    'Offers the video tool in the playground and the video tab of the studio. Video models are billed per task.'
-                  )}
+          {videoEnabled && (
+            <div className='space-y-3'>
+              {videoModels.length === 0 && (
+                <p className='text-muted-foreground rounded-lg border border-dashed p-3 text-xs'>
+                  {t('No video model configured yet.')}
                 </p>
-              </SettingsSwitchContent>
-              <Switch
-                checked={Boolean(videoEnabled)}
-                onCheckedChange={(checked) =>
-                  form.setValue('videoEnabled', checked, { shouldDirty: true })
-                }
-              />
-            </SettingsSwitchRow>
+              )}
+              {videoModels.map((model, index) => (
+                <ModelCard
+                  index={index}
+                  key={`video-${index}`}
+                  mode='video'
+                  modelOptions={modelOptions}
+                  onChange={(next) =>
+                    setVideoModels((prev) =>
+                      prev.map((item, i) => (i === index ? next : item))
+                    )
+                  }
+                  onRemove={() =>
+                    setVideoModels((prev) => prev.filter((_, i) => i !== index))
+                  }
+                  value={model}
+                />
+              ))}
+              <Button
+                onClick={() => addModel('video')}
+                size='sm'
+                type='button'
+                variant='outline'
+              >
+                <PlusIcon className='size-4' />
+                {t('Add video model')}
+              </Button>
+            </div>
+          )}
 
-            <SettingsFormGrid>
-              <FormField
-                control={form.control}
-                name='videoModel'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Video model')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='sora-2'
-                        {...field}
-                        value={field.value ?? ''}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t(
-                        'Model id of the video channel. Leave empty to disable the video tool even when the switch is on.'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+          <SettingsSwitchRow className='rounded-lg border px-3'>
+            <SettingsSwitchContent>
+              <Label className='text-sm font-medium'>{t('Studio page')}</Label>
+              <p className='text-muted-foreground text-xs'>
+                {t('Shows the studio page in the dashboard menu.')}
+              </p>
+            </SettingsSwitchContent>
+            <Switch checked={studioEnabled} onCheckedChange={setStudioEnabled} />
+          </SettingsSwitchRow>
 
-              <FormField
-                control={form.control}
-                name='videoDurations'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Video durations (seconds)')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='5,10'
-                        {...field}
-                        value={field.value ?? ''}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Comma separated duration presets offered by the studio.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='videoMinDuration'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Minimum duration (seconds)')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        type='number'
-                        min={1}
-                        {...field}
-                        value={field.value ?? 1}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Shortest clip the tools may request.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='videoMaxDuration'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Maximum duration (seconds)')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        type='number'
-                        min={1}
-                        {...field}
-                        value={field.value ?? 60}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Longest clip the tools may request.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='videoDefaultDuration'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Default duration (seconds)')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        type='number'
-                        min={1}
-                        {...field}
-                        value={field.value ?? 5}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Preselected clip length of the studio.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='videoRatios'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Aspect ratios')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='16:9,9:16,1:1'
-                        {...field}
-                        value={field.value ?? ''}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Comma separated ratios offered by the studio.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='videoDefaultRatio'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Default aspect ratio')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='16:9'
-                        {...field}
-                        value={field.value ?? ''}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('One of the ratios above.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='videoQualities'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Video qualities')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='standard,high'
-                        {...field}
-                        value={field.value ?? ''}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Comma separated quality options offered by the studio.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='videoDefaultQuality'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Default video quality')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='standard'
-                        {...field}
-                        value={field.value ?? ''}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('One of the video qualities above.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </SettingsFormGrid>
-
-            <SettingsSwitchRow className='rounded-lg border px-3'>
-              <SettingsSwitchContent>
-                <Label className='text-sm font-medium'>
-                  {t('Reference image (image to video)')}
-                </Label>
-                <p className='text-muted-foreground text-xs'>
-                  {t(
-                    'Lets visitors upload a reference image that the video model animates.'
-                  )}
-                </p>
-              </SettingsSwitchContent>
-              <Switch
-                checked={Boolean(form.watch('videoReferenceImage'))}
-                onCheckedChange={(checked) =>
-                  form.setValue('videoReferenceImage', checked, {
-                    shouldDirty: true,
-                  })
-                }
-              />
-            </SettingsSwitchRow>
-          </div>
-
-          <div className='space-y-3 pt-2'>
-            <SettingsSwitchRow className='rounded-lg border px-3'>
-              <SettingsSwitchContent>
-                <Label className='text-sm font-medium'>{t('Studio page')}</Label>
-                <p className='text-muted-foreground text-xs'>
-                  {t(
-                    'Shows the studio entry in the sidebar. The visibility can additionally be changed in the sidebar modules.'
-                  )}
-                </p>
-              </SettingsSwitchContent>
-              <Switch
-                checked={Boolean(form.watch('studioEnabled'))}
-                onCheckedChange={(checked) =>
-                  form.setValue('studioEnabled', checked, { shouldDirty: true })
-                }
-              />
-            </SettingsSwitchRow>
-          </div>
-
-          <SettingsPageFormActions
-            onSave={form.handleSubmit(onSubmit)}
-            isSaving={updateOption.isPending}
-            isSaveDisabled={!form.formState.isDirty}
-          />
-        </SettingsForm>
-      </Form>
+        </div>
+      </SettingsForm>
     </SettingsSection>
   )
 }

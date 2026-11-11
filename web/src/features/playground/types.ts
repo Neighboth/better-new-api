@@ -270,6 +270,22 @@ export interface WebSearchResponse {
 }
 
 /**
+ * One image or video model with the options the administrator configured for
+ * it. The studio shows exactly the options of the selected model.
+ */
+export interface MediaModelRuntime {
+  model: string
+  sizes?: string[]
+  qualities?: string[]
+  ratios?: string[]
+  durations?: number[]
+  reference_image?: boolean
+  default_size?: string
+  default_quality?: string
+  default_ratio?: string
+}
+
+/**
  * Runtime configuration published by the administrator for the playground,
  * the studio and the web-search toggles.
  */
@@ -285,6 +301,8 @@ export interface PlaygroundRuntimeConfig {
   image: {
     enabled: boolean
     model: string
+    /** Every configured image model with its own options. */
+    models: MediaModelRuntime[]
     sizes: string[]
     default_size: string
     qualities: string[]
@@ -294,6 +312,8 @@ export interface PlaygroundRuntimeConfig {
   video: {
     enabled: boolean
     model: string
+    /** Every configured video model with its own options. */
+    models: MediaModelRuntime[]
     durations: number[]
     default_duration: number
     ratios: string[]
@@ -321,6 +341,7 @@ export const EMPTY_PLAYGROUND_RUNTIME_CONFIG: PlaygroundRuntimeConfig = {
   image: {
     enabled: true,
     model: '',
+    models: [],
     sizes: ['1024x1024', '1024x1792', '1792x1024'],
     default_size: '1024x1024',
     qualities: ['standard', 'hd'],
@@ -330,6 +351,7 @@ export const EMPTY_PLAYGROUND_RUNTIME_CONFIG: PlaygroundRuntimeConfig = {
   video: {
     enabled: false,
     model: '',
+    models: [],
     durations: [5, 10],
     default_duration: 5,
     ratios: ['16:9', '9:16', '1:1'],

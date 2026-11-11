@@ -152,7 +152,7 @@ func TurnstileCheck() gin.HandlerFunc {
 		case common.CaptchaTypeAltcha:
 			// ALTCHA verifies locally: the payload carries the HMAC signature of
 			// the challenge this installation issued.
-			if !captcha.VerifyAltcha(token, common.AltchaHMACKey) {
+			if !captcha.VerifyAltcha(token, common.AltchaSigningKey()) {
 				abortWithCaptchaError(c, i18n.T(c, i18n.MsgCaptchaVerifyFailed))
 				return
 			}

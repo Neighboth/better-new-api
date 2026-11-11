@@ -66,6 +66,8 @@ import {
 import { JsonCodeEditor } from '@/components/json-code-editor'
 import { JsonEditor } from '@/components/json-editor'
 import { MultiSelect } from '@/components/multi-select'
+
+import { PriceMultiplierEditor } from '../price-multiplier-editor'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -197,7 +199,6 @@ import {
   ChannelEditorLoadingState,
   ChannelModelsSection,
 } from './sections'
-import { DiscountQuickSet } from './sections/channel-discount-quick-set'
 
 type ChannelMutateDrawerProps = {
   open: boolean
@@ -4514,24 +4515,24 @@ export function ChannelMutateDrawer({
                                       </div>
                                     </div>
                                     <FormControl>
-                                      <JsonCodeEditor
-                                        value={field.value || ''}
-                                        onChange={field.onChange}
-                                        name={field.name}
-                                        onBlur={field.onBlur}
-                                        textareaRef={field.ref}
-                                        disabled={
-                                          sensitiveLocked || isSubmitting
-                                        }
-                                        placeholder='{"gpt-4o":0.5}'
-                                        heightClassName='h-28 min-h-28 max-h-40'
-                                      />
+                                      {/* Visual table or raw JSON, the same
+                                          editor the batch popup uses. */}
+                                      <div>
+                                        <PriceMultiplierEditor
+                                          disabled={
+                                            sensitiveLocked || isSubmitting
+                                          }
+                                          models={currentModelsArray}
+                                          onChange={field.onChange}
+                                          showQuickSet
+                                          value={field.value || ''}
+                                        />
+                                      </div>
                                     </FormControl>
                                     <FormMessage />
                                   </FormItem>
                                 )}
                               />
-                              <DiscountQuickSet />
                             </fieldset>
                           </div>
                         </div>

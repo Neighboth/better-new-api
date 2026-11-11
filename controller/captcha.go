@@ -13,14 +13,7 @@ import (
 // widget. The widget fetches this endpoint through its `challengeurl`
 // attribute, so the body is the bare challenge document.
 func GetAltchaChallenge(c *gin.Context) {
-	key := common.AltchaHMACKey
-	if key == "" {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "altcha is not configured",
-		})
-		return
-	}
+	key := common.AltchaSigningKey()
 
 	challenge, err := captcha.GenerateAltcha(key, 0, 0)
 	if err != nil {

@@ -25,7 +25,7 @@ import {
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
-import { useUpdateOption } from '../hooks/use-update-option'
+import { useUpdateOptionsBulk } from '../hooks/use-update-option'
 
 const schema = z.object({
   searxngUrl: z.string().optional(),
@@ -51,7 +51,7 @@ export function OnlineSearchSettingsSection({
   }
 }) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
+  const updateOptions = useUpdateOptionsBulk()
 
   const form = useForm<Values>({
     resolver: zodResolver(schema) as unknown as Resolver<Values>,
@@ -67,29 +67,24 @@ export function OnlineSearchSettingsSection({
 
   const onSubmit = async (values: Values) => {
     try {
-      await updateOption.mutateAsync({
-        key: 'online_search_setting.searxng_url',
-        value: String(values.searxngUrl ?? ''),
-      })
-      await updateOption.mutateAsync({
-        key: 'online_search_setting.price_per_search',
-        value: String(values.onlineSearchPrice ?? 0),
-      })
-      await updateOption.mutateAsync({
-        key: 'online_search_setting.max_searches',
-        value: String(values.onlineSearchMax ?? 5),
-      })
-      await updateOption.mutateAsync({
-        key: 'playground_setting.web_search_playground_enabled',
-        value: String(Boolean(values.playgroundEnabled)),
-      })
-      await updateOption.mutateAsync({
-        key: 'playground_setting.web_search_discord_enabled',
-        value: String(Boolean(values.discordEnabled)),
-      })
-      await updateOption.mutateAsync({
-        key: 'playground_setting.web_search_live_enabled',
-        value: String(Boolean(values.liveEnabled)),
+      // One request for the whole card: the toggles and the search engine
+      // must be stored together, a partial save made the page look like the
+      // save was ignored (and the old values came back on the next refetch).
+      await updateOptions.mutateAsync({
+        'online_search_setting.searxng_url': String(values.searxngUrl ?? ''),
+        'online_search_setting.price_per_search': String(
+          values.onlineSearchPrice ?? 0
+        ),
+        'online_search_setting.max_searches': String(values.onlineSearchMax ?? 5),
+        'playground_setting.web_search_playground_enabled': String(
+          Boolean(values.playgroundEnabled)
+        ),
+        'playground_setting.web_search_discord_enabled': String(
+          Boolean(values.discordEnabled)
+        ),
+        'playground_setting.web_search_live_enabled': String(
+          Boolean(values.liveEnabled)
+        ),
       })
 
       form.reset(values)
@@ -271,7 +266,7 @@ export function OnlineSearchSettingsSection({
 
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
-            isSaving={updateOption.isPending}
+            isSaving={updateOptions.isPending}
             isSaveDisabled={!form.formState.isDirty}
           />
         </SettingsForm>

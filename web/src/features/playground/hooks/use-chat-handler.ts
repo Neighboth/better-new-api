@@ -36,6 +36,7 @@ import {
   buildNativeThinkingSystemPrompt,
   buildPlaygroundToolDefinitions,
   buildThinkToolSystemPrompt,
+  buildToolAvailabilityPrompt,
   executePlaygroundTool,
   isPlaygroundToolId,
   mergeToolCallDeltas,
@@ -776,6 +777,13 @@ export function useChatHandler({
       const useThinkTool = thinkingEnabled && !hasNativeThinking
 
       transcriptRef.current = buildApiTranscript(messages)
+      // Models regularly answer "I cannot browse the web" / "I have no tools"
+      // even when the tools are attached to the request. A short system note
+      // listing the real tools keeps the answer honest.
+      const toolsNote = buildToolAvailabilityPrompt(toolsEnabled)
+      if (toolsNote) {
+        transcriptRef.current.unshift({ role: 'system', content: toolsNote })
+      }
       if (thinkingEnabled) {
         transcriptRef.current.unshift({
           role: 'system',
