@@ -182,25 +182,47 @@ export function buildNativeThinkingSystemPrompt(level: ThinkingLevel): string {
  * stays truthful when an administrator turns a tool off.
  */
 export function buildToolAvailabilityPrompt(
-  toolsEnabled: PlaygroundToolsEnabled
+  toolsEnabled: PlaygroundToolsEnabled,
+  unavailableReasons: Partial<Record<keyof PlaygroundToolsEnabled, string>> = {}
 ): string {
-  const lines: string[] = []
+  const available: string[] = []
   if (toolsEnabled.web_search) {
-    lines.push(
-      '`web_search` searches the public web and returns titles, links and snippets'
+    available.push(
+      '`web_search` — searches the public web (SearXNG) and returns titles, links and snippets'
     )
   }
   if (toolsEnabled.generate_image) {
-    lines.push('`generate_image` creates an image and attaches it to the answer')
+    available.push('`generate_image` — creates an image and attaches it to the answer')
   }
   if (toolsEnabled.generate_video) {
-    lines.push('`generate_video` renders a short video and attaches it')
+    available.push('`generate_video` — renders a short video and attaches it')
   }
-  if (lines.length === 0) return ''
-  return [
-    'Tools you can call right now:',
-    lines.join('; ') + '.',
-    'Use them whenever the request needs them. Never answer that you cannot search the web, cannot draw, or have no access to tools while these tools are available; call the tool instead.',
-    'If the user asks which tools you have, list exactly the ones above.',
-  ].join(' ')
+
+  const unavailable = (
+    Object.keys(unavailableReasons) as (keyof PlaygroundToolsEnabled)[]
+  )
+    .filter((tool) => !toolsEnabled[tool] && unavailableReasons[tool])
+    .map((tool) => `\`${tool}\` (${unavailableReasons[tool]})`)
+
+  if (available.length === 0 && unavailable.length === 0) return ''
+
+  const lines: string[] = []
+  if (available.length > 0) {
+    lines.push('You have these tools attached to this very request:')
+    lines.push(available.join('; ') + '.')
+    lines.push(
+      'Call a tool as soon as the request needs it. Never answer that you cannot search the web, cannot draw, cannot render a video, or have no access to tools: every tool in the list above is available right now, and web search means you can read today\'s pages.'
+    )
+    lines.push(
+      'When the user asks which tools or abilities you have, list exactly the tools above — nothing more, and do not describe yourself as limited to image or video generation.'
+    )
+  }
+  if (unavailable.length > 0) {
+    lines.push(
+      'Turned off for this chat (do not claim these work): ' +
+        unavailable.join(', ') +
+        '.'
+    )
+  }
+  return lines.join(' ')
 }

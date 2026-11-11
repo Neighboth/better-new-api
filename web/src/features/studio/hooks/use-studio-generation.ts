@@ -26,7 +26,7 @@ import {
   generateImages as submitImageGeneration,
   generateVideo as submitVideoGeneration,
   pollVideoTask,
-  resolveSubmittedTaskId,
+  resolveSubmittedTaskIdWithLookup,
 } from '../api'
 import type { StudioItem } from '../types'
 
@@ -160,7 +160,15 @@ export function useStudioGeneration() {
           },
           controller.signal
         )
-        const taskId = resolveSubmittedTaskId(submitted)
+        const submittedAt = Date.now()
+        // Reads the id from the response (body or `X-New-Api-Task-Id`) and,
+        // when neither carries it, from the task list of the user: the task is
+        // created and billed either way, so a stripped header must not lose it.
+        const taskId = await resolveSubmittedTaskIdWithLookup(submitted, {
+          model: params.model,
+          submittedAt,
+          signal: controller.signal,
+        })
         if (!taskId) {
           patchItem(id, {
             status: 'error',

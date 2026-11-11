@@ -122,6 +122,13 @@ export interface UserSettings {
   language?: string
   /** The user turned the announcements of the site off */
   marketing_email_opt_out?: boolean
+  /**
+   * Personal blocklists: the relay never routes a request of this user
+   * through one of these channels nor asks for one of these models — not even
+   * while it walks the fallback chain.
+   */
+  blocked_channels?: number[]
+  blocked_models?: string[]
 }
 
 /**
@@ -152,6 +159,13 @@ export interface UpdateUserSettingsRequest {
   upstream_model_update_notify_enabled?: boolean
   /** The user turned the announcements of the site off */
   marketing_email_opt_out?: boolean
+  /**
+   * Personal blocklists: the relay never routes a request of this user
+   * through one of these channels nor asks for one of these models — not even
+   * while it walks the fallback chain.
+   */
+  blocked_channels?: number[]
+  blocked_models?: string[]
 }
 
 /**

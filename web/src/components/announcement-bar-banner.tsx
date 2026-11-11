@@ -52,6 +52,70 @@ interface SingleBarProps {
 // last host unmounts.
 let announcementBarInstances = 0
 
+// A closed announcement bar stays hidden for 24 hours, then shows up again so
+// an announcement the user ignored once is not lost forever. Closing it again
+// starts another 24 hour period. The previous version kept the ids in
+// sessionStorage: the bar came back on the next browser session and it could
+// never come back within a long-lived tab either.
+const DISMISSED_BARS_STORAGE_KEY = 'dismissed_announcement_bars'
+const ANNOUNCEMENT_DISMISS_HIDE_MS = 24 * 60 * 60 * 1000
+
+type DismissedBarRecord = Record<string, number>
+
+function readDismissedRecords(): DismissedBarRecord {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem(DISMISSED_BARS_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    // Legacy value: a plain array of ids with no expiry (sessionStorage era).
+    if (Array.isArray(parsed)) {
+      try {
+        window.sessionStorage.removeItem(DISMISSED_BARS_STORAGE_KEY)
+      } catch {
+        /* ignore */
+      }
+      return {}
+    }
+    if (!parsed || typeof parsed !== 'object') return {}
+    const records: DismissedBarRecord = {}
+    const now = Date.now()
+    for (const [id, expiresAt] of Object.entries(
+      parsed as Record<string, unknown>
+    )) {
+      if (typeof expiresAt === 'number' && expiresAt > now) {
+        records[id] = expiresAt
+      }
+    }
+    return records
+  } catch {
+    /* ignore */
+  }
+  return {}
+}
+
+/** Ids of the bars that are still hidden right now. */
+export function readDismissedBarIds(): string[] {
+  return Object.keys(readDismissedRecords())
+}
+
+function writeDismissedBarId(id: string) {
+  if (typeof window === 'undefined') return
+  try {
+    const records = readDismissedRecords()
+    records[id] = Date.now() + ANNOUNCEMENT_DISMISS_HIDE_MS
+    window.localStorage.setItem(
+      DISMISSED_BARS_STORAGE_KEY,
+      JSON.stringify(records)
+    )
+    // The legacy sessionStorage list would otherwise hide the bar again in the
+    // same tab although its 24 hours are over.
+    window.sessionStorage.removeItem(DISMISSED_BARS_STORAGE_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * Parses simple **bold** / *italic* / _italic_ / ~~strike~~ markdown tags into
  * React elements. Shared with the admin live preview so that what the operator
@@ -236,17 +300,9 @@ const SingleBar = memo(function SingleBar({ bar, onClose }: SingleBarProps) {
 
 export function AnnouncementBarsBanner() {
   const { announcementBars } = useSystemConfig()
-  const [dismissedIds, setDismissedIds] = useState<string[]>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const stored = sessionStorage.getItem('dismissed_announcement_bars')
-        return stored ? JSON.parse(stored) : []
-      }
-    } catch {
-      /* ignore */
-    }
-    return []
-  })
+  const [dismissedIds, setDismissedIds] = useState<string[]>(() =>
+    readDismissedBarIds()
+  )
 
   const bars: AnnouncementBarItem[] = useMemo(() => {
     if (!announcementBars) return []
@@ -264,6 +320,21 @@ export function AnnouncementBarsBanner() {
   const activeBars = useMemo(() => {
     return bars.filter((b) => !dismissedIds.includes(b.id))
   }, [bars, dismissedIds])
+
+  // A bar whose 24 hours are over must come back without a reload: the stored
+  // list is pruned on every tick while something is hidden.
+  useEffect(() => {
+    if (dismissedIds.length === 0) return
+    const sync = () => {
+      const current = readDismissedBarIds()
+      if (current.length !== dismissedIds.length) {
+        setDismissedIds(current)
+      }
+    }
+    sync()
+    const timer = setInterval(sync, 60_000)
+    return () => clearInterval(timer)
+  }, [bars, dismissedIds.length])
 
   // Publish the exact rendered height of the stacked bars as a CSS variable.
   // The fixed header and every page (both the container pages and the
@@ -303,15 +374,9 @@ export function AnnouncementBarsBanner() {
   }, [barsHeight])
 
   const handleClose = (id: string) => {
-    setDismissedIds((prev) => {
-      const next = [...prev, id]
-      try {
-        sessionStorage.setItem('dismissed_announcement_bars', JSON.stringify(next))
-      } catch {
-        /* ignore */
-      }
-      return next
-    })
+    const next = [...new Set([...dismissedIds, id])]
+    writeDismissedBarId(id)
+    setDismissedIds(next)
   }
 
   if (activeBars.length === 0) return null

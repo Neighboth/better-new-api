@@ -71,6 +71,8 @@ interface UseChatHandlerOptions {
   config: PlaygroundConfig
   parameterEnabled: ParameterEnabled
   toolsEnabled: PlaygroundToolsEnabled
+  /** Why a tool is missing, so the model does not confuse "off" with "absent". */
+  toolUnavailableReasons?: Partial<Record<keyof PlaygroundToolsEnabled, string>>
   /** Available chat models for silent error fallback. */
   models: ModelOption[]
   thinkingEnabled: boolean
@@ -114,6 +116,7 @@ export function useChatHandler({
   config,
   parameterEnabled,
   toolsEnabled,
+  toolUnavailableReasons,
   models,
   thinkingEnabled,
   thinkingLevel,
@@ -780,7 +783,10 @@ export function useChatHandler({
       // Models regularly answer "I cannot browse the web" / "I have no tools"
       // even when the tools are attached to the request. A short system note
       // listing the real tools keeps the answer honest.
-      const toolsNote = buildToolAvailabilityPrompt(toolsEnabled)
+      const toolsNote = buildToolAvailabilityPrompt(
+        toolsEnabled,
+        toolUnavailableReasons
+      )
       if (toolsNote) {
         transcriptRef.current.unshift({ role: 'system', content: toolsNote })
       }
@@ -817,6 +823,7 @@ export function useChatHandler({
       thinkingEnabled,
       thinkingLevel,
       toolsEnabled,
+      toolUnavailableReasons,
       stopStream,
       discardPendingStreamUpdates,
     ]

@@ -40,7 +40,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { getPlaygroundRuntimeConfig } from '@/features/playground/api'
 import {
@@ -388,52 +387,74 @@ export function Studio() {
     mode === 'image' ? !runtime.image.enabled : !runtime.video.enabled
 
   return (
-    <div className='mx-auto flex w-full max-w-[1500px] flex-col gap-6 p-4 md:p-6'>
-      <header className='from-primary/10 via-background to-background flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-gradient-to-r p-4 md:p-5'>
-        <div className='space-y-1'>
-          <h1 className='flex items-center gap-2 text-xl font-semibold'>
-            <span className='bg-primary/15 text-primary flex size-9 items-center justify-center rounded-xl'>
-              <SparklesIcon className='size-5' />
-            </span>
-            {t('Studio')}
-          </h1>
-          <p className='text-muted-foreground text-sm'>
-            {t(
-              'Create images and videos with the models configured by the administrator. Everything you generate stays in this page.'
-            )}
-          </p>
-        </div>
+    // The authenticated layout gives every page a fixed height and hides the
+    // overflow, so a page that grows must scroll itself. Without this wrapper
+    // the studio was clipped: the settings card was taller than the viewport
+    // and nothing on the page could be scrolled.
+    <div className='flex h-full min-h-0 w-full flex-col overflow-y-auto overscroll-contain'>
+      <div className='mx-auto flex w-full max-w-[1500px] flex-col gap-6 p-4 md:p-6'>
+        <header className='from-primary/10 via-background to-background flex flex-wrap items-start justify-between gap-4 rounded-2xl border bg-gradient-to-r p-4 md:p-5'>
+          <div className='space-y-1'>
+            <h1 className='flex items-center gap-2 text-xl font-semibold'>
+              <span className='bg-primary/15 text-primary flex size-9 items-center justify-center rounded-xl'>
+                <SparklesIcon className='size-5' />
+              </span>
+              {t('Studio')}
+            </h1>
+            <p className='text-muted-foreground max-w-2xl text-sm'>
+              {t(
+                'Create images and videos with the models configured by the administrator. Everything you generate stays in this page.'
+              )}
+            </p>
+          </div>
 
-        <div className='flex flex-wrap items-center gap-2'>
-          <Tabs
-            onValueChange={(value) => setMode(value as StudioMode)}
-            value={mode}
-          >
-            <TabsList>
-              <TabsTrigger value='image'>
-                <ImageIcon className='mr-1 size-4' />
-                {t('Image')}
-              </TabsTrigger>
-              <TabsTrigger value='video'>
-                <VideoIcon className='mr-1 size-4' />
-                {t('Video')}
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <Button
-            disabled={modeItems.length === 0}
-            onClick={() => clearItems(mode)}
-            size='sm'
-            variant='outline'
-          >
-            <Trash2Icon className='size-4' />
-            {t('Clear')}
-          </Button>
-        </div>
-      </header>
+          <div className='flex flex-wrap items-center gap-2'>
+            {/* Rendered as a segmented control instead of a tab list: the tab
+                list inherited the transparent background of the header and the
+                two modes were invisible. */}
+            <div
+              aria-label={t('Output type')}
+              className='bg-background/80 inline-flex rounded-lg border p-1 shadow-sm'
+              role='tablist'
+            >
+              {(
+                [
+                  { value: 'image', label: t('Image'), icon: ImageIcon },
+                  { value: 'video', label: t('Video'), icon: VideoIcon },
+                ] as const
+              ).map((entry) => (
+                <button
+                  aria-selected={mode === entry.value}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition',
+                    mode === entry.value
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                  key={entry.value}
+                  onClick={() => setMode(entry.value as StudioMode)}
+                  role='tab'
+                  type='button'
+                >
+                  <entry.icon className='size-4' />
+                  {entry.label}
+                </button>
+              ))}
+            </div>
+            <Button
+              disabled={modeItems.length === 0}
+              onClick={() => clearItems(mode)}
+              size='sm'
+              variant='outline'
+            >
+              <Trash2Icon className='size-4' />
+              {t('Clear')}
+            </Button>
+          </div>
+        </header>
 
-      <div className='grid items-start gap-6 lg:grid-cols-[380px_minmax(0,1fr)]'>
-        <section className='bg-card space-y-4 rounded-2xl border p-4 shadow-sm lg:sticky lg:top-4'>
+        <div className='grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]'>
+          <section className='bg-card min-w-0 space-y-4 rounded-2xl border p-4 shadow-sm'>
           <div className='space-y-2'>
             <Label htmlFor='studio-prompt'>{t('Prompt')}</Label>
             <Textarea
@@ -648,6 +669,7 @@ export function Studio() {
             </div>
           )}
         </section>
+        </div>
       </div>
     </div>
   )

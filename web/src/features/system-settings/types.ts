@@ -718,6 +718,9 @@ export type OperationsSettings = {
   'relay_fallback_setting.fallback_stt_models'?: string
   'relay_fallback_setting.fallback_video_models'?: string
   'relay_fallback_setting.fallback_system_prompt': string
+  'user_blocklist_setting.enabled': boolean
+  'user_blocklist_setting.allow_channels': boolean
+  'user_blocklist_setting.allow_models': boolean
   'ticket_setting.enabled'?: boolean
   'ticket_setting.live_support_enabled'?: boolean
   'ticket_setting.notify_admin_on_new_ticket'?: boolean

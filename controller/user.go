@@ -1557,6 +1557,10 @@ type UpdateUserSettingRequest struct {
 	MarketingEmailOptOut       *bool `json:"marketing_email_opt_out,omitempty"`
 	AcceptUnsetModelRatioModel bool  `json:"accept_unset_model_ratio_model"`
 	RecordIpLog                bool  `json:"record_ip_log"`
+	// Personal blocklists. A request that omits the fields keeps the previous
+	// list, so a form that does not know them cannot wipe them.
+	BlockedChannels *[]int    `json:"blocked_channels,omitempty"`
+	BlockedModels   *[]string `json:"blocked_models,omitempty"`
 }
 
 func UpdateUserSetting(c *gin.Context) {
@@ -1697,6 +1701,26 @@ func UpdateUserSetting(c *gin.Context) {
 			settings.GotifyPriority = 5
 		} else {
 			settings.GotifyPriority = req.GotifyPriority
+		}
+	}
+
+	// Personal blocklists: only touched when the request carries them.
+	settings.BlockedChannels = existingSettings.BlockedChannels
+	settings.BlockedModels = existingSettings.BlockedModels
+	if req.BlockedChannels != nil {
+		settings.BlockedChannels = nil
+		for _, channelId := range *req.BlockedChannels {
+			if channelId > 0 {
+				settings.BlockedChannels = append(settings.BlockedChannels, channelId)
+			}
+		}
+	}
+	if req.BlockedModels != nil {
+		settings.BlockedModels = nil
+		for _, modelName := range *req.BlockedModels {
+			if trimmed := strings.TrimSpace(modelName); trimmed != "" {
+				settings.BlockedModels = append(settings.BlockedModels, trimmed)
+			}
 		}
 	}
 

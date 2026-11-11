@@ -24,4 +24,5 @@ export {
 export {
   pollVideoTask,
   resolveSubmittedTaskId,
+  resolveSubmittedTaskIdWithLookup,
 } from '@/features/playground/lib/tools/video-task-utils'

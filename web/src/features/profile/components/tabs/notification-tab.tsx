@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Bell, Loader2, Mail, Server, Webhook } from 'lucide-react'
+import { Ban, Bell, Loader2, Mail, Server, Webhook } from 'lucide-react'
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -82,6 +82,8 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
     record_ip_log: false,
     upstream_model_update_notify_enabled: false,
     marketing_email_opt_out: false,
+    blocked_channels: [],
+    blocked_models: [],
   })
 
   // Update form field helper
@@ -112,6 +114,8 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
         upstream_model_update_notify_enabled:
           parsed.upstream_model_update_notify_enabled || false,
         marketing_email_opt_out: parsed.marketing_email_opt_out || false,
+        blocked_channels: (parsed.blocked_channels ?? []).map(Number),
+        blocked_models: parsed.blocked_models ?? [],
       })
     }
   }, [profile])
@@ -416,6 +420,68 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
               updateField('marketing_email_opt_out', !checked)
             }
           />
+        </div>
+      </div>
+
+      {/* Personal blocklists: the relay never routes a request of this user
+          through a blocked channel nor asks for a blocked model. */}
+      <div className='space-y-3 rounded-lg border p-3'>
+        <div className='space-y-1'>
+          <Label className='flex items-center gap-2 text-sm font-medium'>
+            <Ban className='size-4' />
+            {t('Personal blocklist')}
+          </Label>
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'Requests are never routed through these channels or models, not even by the fallback chain. Leave a field empty to block nothing.'
+            )}
+          </p>
+        </div>
+
+        <div className='space-y-1'>
+          <Label className='text-xs'>{t('Blocked channel ids')}</Label>
+          <Input
+            className='font-mono text-xs'
+            onChange={(e) =>
+              updateField(
+                'blocked_channels',
+                e.target.value
+                  .split(',')
+                  .map((value) => Number(value.trim()))
+                  .filter((value) => Number.isFinite(value) && value > 0)
+              )
+            }
+            placeholder='12, 34'
+            value={(settings.blocked_channels ?? []).join(', ')}
+          />
+          <p className='text-muted-foreground text-[11px]'>
+            {t(
+              'The channel id is shown in your usage logs next to the request.'
+            )}
+          </p>
+        </div>
+
+        <div className='space-y-1'>
+          <Label className='text-xs'>{t('Blocked models')}</Label>
+          <Input
+            className='font-mono text-xs'
+            onChange={(e) =>
+              updateField(
+                'blocked_models',
+                e.target.value
+                  .split(',')
+                  .map((value) => value.trim())
+                  .filter(Boolean)
+              )
+            }
+            placeholder='gpt-4o, claude-3-5-sonnet'
+            value={(settings.blocked_models ?? []).join(', ')}
+          />
+          <p className='text-muted-foreground text-[11px]'>
+            {t(
+              'A request for a blocked model is rejected, and the fallback chain skips it.'
+            )}
+          </p>
         </div>
       </div>
 

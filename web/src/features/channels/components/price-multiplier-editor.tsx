@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Braces, ListChecks, Percent, Plus, Table2, Trash2 } from 'lucide-react'
+import { ListChecks, Percent } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -31,15 +31,19 @@ export type PriceMultiplierEditorProps = {
   /** JSON string, e.g. `{"gpt-4o":0.5}`. */
   value: string
   onChange: (value: string) => void
-  /** Models of the channel(s); used for the visual table and the quick set. */
+  /** Models of the channel(s); used for the quick set. */
   models?: string[]
   disabled?: boolean
   /** Shows the quick "apply a percentage to the selected models" helper. */
   showQuickSet?: boolean
+  /**
+   * Shows the "Clear" action of the editor. Callers that already render their
+   * own Clear button next to the field title (the channel drawer) turn it off,
+   * so the form never shows two Clear buttons for the same field.
+   */
+  showClear?: boolean
   className?: string
 }
-
-type Mode = 'visual' | 'json'
 
 function parseMultipliers(raw: string): Array<[string, number]> {
   if (!raw || !raw.trim()) return []
@@ -73,13 +77,14 @@ function percentToMultiplier(percent: number): number {
 /**
  * Editor for the per-model price multiplier of a channel.
  *
- * The channel form and the batch edit popup both use it, so a price
- * multiplier can be entered in a table (visual mode) or as JSON, and the quick
- * percentage helper is available wherever the editor is used.
+ * The table/JSON switch lives inside {@link JsonEditor} itself: the previous
+ * version wrapped it in a second Visual/JSON toggle, so the field showed two
+ * toggles and the outer one rendered a broken table. Only the inner editor is
+ * rendered now, and the quick percentage helper (with an "all models" shortcut)
+ * sits underneath it.
  */
 export function PriceMultiplierEditor(props: PriceMultiplierEditorProps) {
   const { t } = useTranslation()
-  const [mode, setMode] = useState<Mode>('visual')
   const [quickPercent, setQuickPercent] = useState('20')
   const [quickModels, setQuickModels] = useState<string[]>([])
 
@@ -91,20 +96,6 @@ export function PriceMultiplierEditor(props: PriceMultiplierEditorProps) {
         .map((model) => ({ value: model, label: model })),
     [props.models]
   )
-
-  const updateEntry = (
-    index: number,
-    patch: { model?: string; multiplier?: number }
-  ) => {
-    const next = entries.map((entry, i) => {
-      if (i !== index) return entry
-      return [
-        patch.model !== undefined ? patch.model : entry[0],
-        patch.multiplier !== undefined ? patch.multiplier : entry[1],
-      ] as [string, number]
-    })
-    props.onChange(serialize(next))
-  }
 
   const applyQuickSet = () => {
     const percent = Number(quickPercent)
@@ -122,129 +113,72 @@ export function PriceMultiplierEditor(props: PriceMultiplierEditorProps) {
     props.onChange(serialize([...map.entries()]))
   }
 
+  const allModelsSelected =
+    modelOptions.length > 0 && quickModels.length === modelOptions.length
+
   return (
     <div className={cn('space-y-3', props.className)}>
-      <div className='flex flex-wrap items-center justify-between gap-2'>
-        <div className='bg-muted inline-flex rounded-md p-0.5'>
-          <button
-            className={cn(
-              'inline-flex items-center gap-1 rounded px-2 py-1 text-xs transition',
-              mode === 'visual'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground'
-            )}
-            onClick={() => setMode('visual')}
-            type='button'
-          >
-            <Table2 className='size-3.5' />
-            {t('Visual')}
-          </button>
-          <button
-            className={cn(
-              'inline-flex items-center gap-1 rounded px-2 py-1 text-xs transition',
-              mode === 'json'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground'
-            )}
-            onClick={() => setMode('json')}
-            type='button'
-          >
-            <Braces className='size-3.5' />
-            {t('JSON')}
-          </button>
-        </div>
-        <Button
-          disabled={props.disabled}
-          onClick={() => props.onChange('')}
-          size='sm'
-          type='button'
-          variant='ghost'
-        >
-          {t('Clear')}
-        </Button>
-      </div>
+      <JsonEditor
+        emptyMessage={t('No price multiplier configured yet.')}
+        disabled={props.disabled}
+        keyLabel={t('Model')}
+        keyPlaceholder='gpt-4o'
+        onChange={props.onChange}
+        template={{ 'gpt-4o': 0.8 }}
+        value={props.value}
+        valueLabel={t('Multiplier (1 = no discount)')}
+        valueType='number'
+      />
 
-      {mode === 'json' ? (
-        <JsonEditor
-          emptyMessage={t('No model ratios configured.')}
-          keyLabel={t('Model')}
-          keyPlaceholder='gpt-4o'
-          onChange={props.onChange}
-          template={{ 'gpt-4o': 0.8 }}
-          value={props.value}
-          valueLabel={t('Multiplier')}
-          valueType='number'
-        />
-      ) : (
-        <div className='space-y-2'>
-          {entries.length === 0 && (
-            <p className='text-muted-foreground rounded-md border border-dashed px-3 py-2 text-xs'>
-              {t('No price multiplier configured yet.')}
-            </p>
-          )}
-          {entries.map(([model, multiplier], index) => (
-            <div className='flex items-center gap-2' key={`${model}-${index}`}>
-              <Input
-                className='font-mono text-xs'
-                disabled={props.disabled}
-                list='price-multiplier-models'
-                onChange={(event) => updateEntry(index, { model: event.target.value })}
-                placeholder='gpt-4o'
-                value={model}
-              />
-              <Input
-                className='w-24 font-mono text-xs'
-                disabled={props.disabled}
-                min={0}
-                onChange={(event) =>
-                  updateEntry(index, { multiplier: Number(event.target.value) })
-                }
-                placeholder='1'
-                step={0.05}
-                type='number'
-                value={Number.isFinite(multiplier) ? multiplier : ''}
-              />
-              <Button
-                aria-label={t('Remove')}
-                disabled={props.disabled}
-                onClick={() =>
-                  props.onChange(
-                    serialize(entries.filter((_, i) => i !== index))
-                  )
-                }
-                size='icon-sm'
-                type='button'
-                variant='ghost'
-              >
-                <Trash2 className='size-3.5' />
-              </Button>
-            </div>
-          ))}
-          <datalist id='price-multiplier-models'>
-            {(props.models ?? []).map((model) => (
-              <option key={model} value={model} />
-            ))}
-          </datalist>
+      {props.showClear !== false && (
+        <div className='flex justify-end'>
           <Button
             disabled={props.disabled}
-            onClick={() => props.onChange(serialize([...entries, ['', 1]]))}
+            onClick={() => props.onChange('')}
             size='sm'
             type='button'
-            variant='outline'
+            variant='ghost'
           >
-            <Plus className='size-3.5' />
-            {t('Add model')}
+            {t('Clear')}
           </Button>
         </div>
       )}
 
       {props.showQuickSet && (
         <div className='bg-muted/30 space-y-2 rounded-lg border p-3'>
-          <div className='flex items-center gap-2'>
-            <Percent className='size-3.5' />
-            <Label className='text-xs font-medium'>
-              {t('Quick price multiplier')}
-            </Label>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <div className='flex items-center gap-2'>
+              <Percent className='size-3.5' />
+              <Label className='text-xs font-medium'>
+                {t('Quick price multiplier')}
+              </Label>
+            </div>
+            <div className='flex items-center gap-2'>
+              <Button
+                disabled={props.disabled || modelOptions.length === 0}
+                onClick={() =>
+                  setQuickModels(
+                    allModelsSelected
+                      ? []
+                      : modelOptions.map((option) => option.value)
+                  )
+                }
+                size='sm'
+                type='button'
+                variant='outline'
+              >
+                {t('All models')}
+              </Button>
+              <Button
+                disabled={props.disabled || quickModels.length === 0}
+                onClick={() => setQuickModels([])}
+                size='sm'
+                type='button'
+                variant='ghost'
+              >
+                {t('Clear selection')}
+              </Button>
+            </div>
           </div>
           <MultiSelect
             allowCreate
@@ -277,7 +211,7 @@ export function PriceMultiplierEditor(props: PriceMultiplierEditorProps) {
           </div>
           <p className='text-muted-foreground text-[11px]'>
             {t(
-              'The discount is applied to the models above: 20% makes the model cost 80% of its price.'
+              'The discount is applied to the models above: 20% makes the model cost 80% of its price. 0% removes the multiplier.'
             )}
           </p>
         </div>

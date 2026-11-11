@@ -18,6 +18,32 @@ type RetryParam struct {
 	Retry             *int
 	resetNextTry      bool
 	IgnoredChannelIds []int
+	// BlockedChannelIds are the channels the user blocked in the profile
+	// settings; they are excluded exactly like the channels that already
+	// failed in this request.
+	BlockedChannelIds []int
+}
+
+// ignoredChannelIds returns the failed channels plus the channels the user
+// blocked. Selection never routes a request through one of them.
+func (p *RetryParam) ignoredChannelIds() []int {
+	if len(p.BlockedChannelIds) == 0 {
+		return p.IgnoredChannelIds
+	}
+	merged := make([]int, 0, len(p.IgnoredChannelIds)+len(p.BlockedChannelIds))
+	merged = append(merged, p.IgnoredChannelIds...)
+	merged = append(merged, p.BlockedChannelIds...)
+	return merged
+}
+
+// IsChannelBlocked reports whether the user blocked this channel.
+func (p *RetryParam) IsChannelBlocked(channelId int) bool {
+	for _, id := range p.BlockedChannelIds {
+		if id == channelId {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *RetryParam) GetRetry() int {
@@ -109,7 +135,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, ignored channels: %v", autoGroup, param.IgnoredChannelIds)
 
-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, param.IgnoredChannelIds, param.RequestPath)
+			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, param.ignoredChannelIds(), param.RequestPath)
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组
@@ -133,7 +159,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			break
 		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.IgnoredChannelIds, param.RequestPath)
+		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.ignoredChannelIds(), param.RequestPath)
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}

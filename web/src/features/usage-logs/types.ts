@@ -142,6 +142,19 @@ export interface LogOtherData {
       original: number
       clamped: number
     }
+    // Requested vs served model, recorded when a fallback model answered.
+    requested_model?: string
+    served_model?: string
+    // Admin-only: every attempt of the fallback chain before the answer.
+    fallback_chain?: Array<{
+      model?: string
+      requested_model?: string
+      channel_id?: number
+      channel_name?: string
+      channel_type?: number
+      error?: string
+      status_code?: number
+    }>
   }
   // Language-independent operation descriptor (audit/login logs).
   // Frontend renders localized content from action + params via i18n templates.
@@ -162,6 +175,8 @@ export interface LogOtherData {
   login_method?: string
   user_agent?: string
   request_path?: string
+  requested_model?: string
+  served_model?: string
   request_conversion?: string[]
   ws?: boolean
   audio?: boolean

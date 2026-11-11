@@ -33,7 +33,7 @@ import {
   getStringArg,
   parseToolArguments,
 } from './tool-call-utils'
-import { pollVideoTask, resolveSubmittedTaskId } from './video-task-utils'
+import { pollVideoTask, resolveSubmittedTaskIdWithLookup } from './video-task-utils'
 
 export interface ToolExecutionOutcome {
   /** JSON payload sent back to the model as the tool message content. */
@@ -146,6 +146,7 @@ async function executeGenerateVideo(
     throw new Error(ERROR_MESSAGES.VIDEO_PROMPT_REQUIRED)
   }
 
+  const submittedAt = Date.now()
   const videoConfig = ctx.runtime?.video
   const model = videoConfig?.model?.trim() || ctx.config.model
   const minDuration = videoConfig?.min_duration || 1
@@ -175,7 +176,11 @@ async function executeGenerateVideo(
     ctx.signal
   )
 
-  const taskId = resolveSubmittedTaskId(submitted)
+  const taskId = await resolveSubmittedTaskIdWithLookup(submitted, {
+    model,
+    submittedAt,
+    signal: ctx.signal,
+  })
   if (!taskId) {
     throw new Error(ERROR_MESSAGES.VIDEO_TASK_FAILED)
   }
