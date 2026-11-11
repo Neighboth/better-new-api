@@ -17,10 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { ExternalLink, X } from 'lucide-react'
-import React, { memo, useEffect, useMemo, useRef, useState } from 'react'
+import React, { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useSystemConfig } from '@/hooks/use-system-config'
+import { pickLocalizedValue } from '@/lib/content-language'
 
 export interface AnnouncementBarItem {
   id: string
@@ -47,14 +48,20 @@ interface SingleBarProps {
   onClose: (id: string) => void
 }
 
+// Number of mounted banner hosts; the layout variable is only removed after the
+// last host unmounts.
+let announcementBarInstances = 0
+
 /**
- * Parses simple **bold** and _italic_ markdown tags into React elements
+ * Parses simple **bold** / *italic* / _italic_ / ~~strike~~ markdown tags into
+ * React elements. Shared with the admin live preview so that what the operator
+ * sees in System Settings is exactly what the site renders.
  */
-function renderFormattedContent(rawText: string): React.ReactNode {
+export function renderAnnouncementContent(rawText: string): React.ReactNode {
   if (!rawText) return null
   // Match **bold** or *italic* / _italic_
   const parts: React.ReactNode[] = []
-  const regex = /(\*\*[^*]+\*\*|_[^_]+_|\*[^*]+\*)/g
+  const regex = /(\*\*[^*]+\*\*|~~[^~]+~~|_[^_]+_|\*[^*]+\*)/g
   let lastIdx = 0
   let match: RegExpExecArray | null
 
@@ -68,6 +75,12 @@ function renderFormattedContent(rawText: string): React.ReactNode {
         <strong key={match.index} className='font-bold'>
           {token.slice(2, -2)}
         </strong>
+      )
+    } else if (token.startsWith('~~') && token.endsWith('~~')) {
+      parts.push(
+        <span key={match.index} className='line-through'>
+          {token.slice(2, -2)}
+        </span>
       )
     } else if (token.startsWith('_') && token.endsWith('_')) {
       parts.push(
@@ -98,28 +111,15 @@ const SingleBar = memo(function SingleBar({ bar, onClose }: SingleBarProps) {
   const textRef = useRef<HTMLSpanElement>(null)
   const [isOverflowing, setIsOverflowing] = useState(false)
 
-  const currentLang = i18n.language || 'en'
-  const langShort = currentLang.includes('-') ? currentLang.split('-')[0] : currentLang
-
   const activeText = useMemo(() => {
-    if (bar.translations) {
-      if (bar.translations[currentLang]?.trim()) return bar.translations[currentLang]
-      if (bar.translations[langShort]?.trim()) return bar.translations[langShort]
-      if (bar.translations['en']?.trim()) return bar.translations['en']
-      if (bar.translations['tr']?.trim()) return bar.translations['tr']
-    }
-    return bar.text || ''
-  }, [bar.translations, bar.text, currentLang, langShort])
+    const localized = pickLocalizedValue(bar.translations, i18n.language)
+    return localized || bar.text || ''
+  }, [bar.translations, bar.text, i18n.language])
 
   const activeButtonText = useMemo(() => {
-    if (bar.button_translations) {
-      if (bar.button_translations[currentLang]?.trim()) return bar.button_translations[currentLang]
-      if (bar.button_translations[langShort]?.trim()) return bar.button_translations[langShort]
-      if (bar.button_translations['en']?.trim()) return bar.button_translations['en']
-      if (bar.button_translations['tr']?.trim()) return bar.button_translations['tr']
-    }
-    return bar.button_text || ''
-  }, [bar.button_translations, bar.button_text, currentLang, langShort])
+    const localized = pickLocalizedValue(bar.button_translations, i18n.language)
+    return localized || bar.button_text || ''
+  }, [bar.button_translations, bar.button_text, i18n.language])
 
   useEffect(() => {
     const checkOverflow = () => {
@@ -159,7 +159,7 @@ const SingleBar = memo(function SingleBar({ bar, onClose }: SingleBarProps) {
     }
   }
 
-  const formattedContent = useMemo(() => renderFormattedContent(activeText), [activeText])
+  const formattedContent = useMemo(() => renderAnnouncementContent(activeText), [activeText])
 
   return (
     <div
@@ -265,21 +265,42 @@ export function AnnouncementBarsBanner() {
     return bars.filter((b) => !dismissedIds.includes(b.id))
   }, [bars, dismissedIds])
 
-  // Dynamically set CSS variable for top offset so no navbar/page content ever overlaps
-  useEffect(() => {
+  // Publish the exact rendered height of the stacked bars as a CSS variable.
+  // The fixed header and every page (both the container pages and the
+  // full-bleed ones such as the home hero) offset themselves with it, so the
+  // content can never slide underneath the bars.
+  // useLayoutEffect runs before the browser paints, which prevents a frame in
+  // which the bars would cover the page.
+  useLayoutEffect(() => {
     if (typeof document === 'undefined') return
-    const totalHeight = activeBars.reduce(
-      (sum, b) => sum + Math.max(28, Math.min(b.height || 38, 80)),
-      0
-    )
+    announcementBarInstances += 1
+    return () => {
+      announcementBarInstances -= 1
+      // Another banner (for example while the router swaps layouts) may still
+      // be mounted; only the last one clears the variable.
+      if (announcementBarInstances <= 0) {
+        announcementBarInstances = 0
+        document.documentElement.style.removeProperty('--announcement-bars-height')
+      }
+    }
+  }, [])
+
+  const barsHeight = useMemo(
+    () =>
+      activeBars.reduce(
+        (sum, b) => sum + Math.max(28, Math.min(b.height || 38, 80)),
+        0
+      ),
+    [activeBars]
+  )
+
+  useLayoutEffect(() => {
+    if (typeof document === 'undefined') return
     document.documentElement.style.setProperty(
       '--announcement-bars-height',
-      `${totalHeight}px`
+      `${barsHeight}px`
     )
-    return () => {
-      document.documentElement.style.setProperty('--announcement-bars-height', '0px')
-    }
-  }, [activeBars])
+  }, [barsHeight])
 
   const handleClose = (id: string) => {
     setDismissedIds((prev) => {

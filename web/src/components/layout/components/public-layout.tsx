@@ -48,8 +48,20 @@ export function PublicLayout(props: PublicLayoutProps) {
         {...props.headerProps}
       />
 
+      {/*
+        The announcement bars are fixed at the top of the viewport, so the page
+        itself has to reserve their exact height. Without this spacer only the
+        fixed header was offset and the content of the full-bleed pages (the
+        home hero, the pricing page, ...) stayed underneath the bars.
+      */}
+      <div
+        aria-hidden='true'
+        className='w-full shrink-0'
+        style={{ height: 'var(--announcement-bars-height, 0px)' }}
+      />
+
       {props.showMainContainer !== false ? (
-        <main className='container px-4 py-6 pt-[calc(5rem+var(--announcement-bars-height,0px))] md:px-4'>
+        <main className='container px-4 pt-20 pb-6 md:px-4'>
           {props.children}
         </main>
       ) : (

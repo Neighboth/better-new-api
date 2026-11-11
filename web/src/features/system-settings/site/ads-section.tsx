@@ -221,7 +221,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
       const hasAnyImage =
         ad.images && Object.values(ad.images).some((img) => img && img.trim() !== '')
       if (!hasAnyImage) {
-        toast.error(t('byog.ad_need_image', 'Her reklam için en az bir dile özel görsel girilmelidir'))
+        toast.error(t('Every ad needs at least one language-specific image'))
         return
       }
       if (!ad.url.trim()) {
@@ -550,11 +550,11 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                         <div className='rounded-lg border border-border/50 bg-muted/20 p-2.5 space-y-2'>
                           <div className='flex items-center justify-between'>
                             <Label className='text-xs font-semibold text-foreground'>
-                              {t('byog.ad_locale_images', 'Dile Özel Görseller')}
+                              {t('Language-Specific Images')}
                               <span className='ml-1 text-destructive'>*</span>
                             </Label>
                             <span className='text-[10px] text-muted-foreground'>
-                              {t('En az biri zorunlu')}
+                              {t('At least one is required')}
                             </span>
                           </div>
                           <div className='grid grid-cols-1 sm:grid-cols-2 gap-2'>

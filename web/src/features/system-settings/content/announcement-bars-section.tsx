@@ -28,7 +28,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { type AnnouncementBarItem } from '@/components/announcement-bar-banner'
+import {
+  type AnnouncementBarItem,
+  renderAnnouncementContent,
+} from '@/components/announcement-bar-banner'
 
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
@@ -224,11 +227,17 @@ export function AnnouncementBarsSection({
                     height: `${Math.max(28, Math.min(bar.height || 38, 80))}px`,
                     fontSize: bar.font_size || '13px',
                     fontWeight: bar.font_weight || '500',
+                    fontFamily: bar.font_family || 'inherit',
+                    lineHeight: 1.4,
                   }}
                   className='w-full flex items-center justify-between px-4 text-xs font-medium border-b select-none transition-colors'
                 >
                   <div className='truncate flex-1 text-center pr-2'>
-                    {currentText || bar.text || t('Announcement bar preview text...')}
+                    {renderAnnouncementContent(
+                      currentText ||
+                        bar.text ||
+                        t('Announcement bar preview text...')
+                    )}
                   </div>
                   <div className='flex items-center gap-2 shrink-0'>
                     {bar.button_enabled && (
@@ -412,14 +421,45 @@ export function AnnouncementBarsSection({
                     </div>
 
                     <div className='space-y-1.5'>
-                      <Label className='text-xs font-medium'>{t('Closable Button (X)')}</Label>
-                      <div className='flex items-center h-9'>
-                        <Switch
-                          checked={bar.closable !== false}
-                          onCheckedChange={(val) => handleUpdateBar(index, { closable: val })}
-                        />
-                      </div>
+                      <Label className='text-xs font-medium'>{t('Font Family')}</Label>
+                      <Select
+                        value={bar.font_family || 'inherit'}
+                        onValueChange={(val) =>
+                          handleUpdateBar(index, {
+                            font_family: !val || val === 'inherit' ? undefined : val,
+                          })
+                        }
+                      >
+                        <SelectTrigger className='text-xs h-9'>
+                          <SelectValue placeholder={String(t('Font Family'))} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='inherit'>{t('Theme Default')}</SelectItem>
+                          <SelectItem value='Inter, system-ui, sans-serif'>Inter / Sans</SelectItem>
+                          <SelectItem value='Georgia, "Times New Roman", serif'>{t('Serif')}</SelectItem>
+                          <SelectItem value='"Courier New", ui-monospace, monospace'>{t('Monospace')}</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
+                  </div>
+
+                  {/* Close button */}
+                  <div className='flex items-center justify-between gap-4 border-b pb-4'>
+                    <div className='space-y-0.5'>
+                      <Label className='text-xs font-medium flex items-center gap-1.5'>
+                        <X className='h-3.5 w-3.5' />
+                        {t('Show close (X) button')}
+                      </Label>
+                      <p className='text-[11px] text-muted-foreground'>
+                        {t(
+                          'When enabled, visitors can dismiss this bar with the X button on the right side. Turn it off to keep the bar always visible.'
+                        )}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={bar.closable !== false}
+                      onCheckedChange={(val) => handleUpdateBar(index, { closable: val })}
+                    />
                   </div>
 
                   {/* Colors Grid */}

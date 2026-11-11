@@ -8,6 +8,8 @@ describe('parseDeploymentProviders', () => {
       ionetEnabled: false,
       modalEnabled: false,
       hfEnabled: false,
+      hostingerEnabled: false,
+      runpodEnabled: false,
       anyEnabled: false,
     })
   })
@@ -23,6 +25,8 @@ describe('parseDeploymentProviders', () => {
       ionetEnabled: false,
       modalEnabled: false,
       hfEnabled: true,
+      hostingerEnabled: false,
+      runpodEnabled: false,
       anyEnabled: true,
     })
   })

@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Loader2, Trash2 } from 'lucide-react'
+import { Check, ChevronDown, Loader2, Trash2 } from 'lucide-react'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -37,6 +37,8 @@ import { JsonEditor } from '@/components/json-editor'
 import { TagInput } from '@/components/tag-input'
 import { Button } from '@/components/ui/button'
 import { ADMIN_PERMISSION_RESOURCES, hasPermission } from '@/lib/admin-permissions'
+import { PIN_COLOR_OPTIONS } from '@/lib/pin-color'
+import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 import {
   Collapsible,
@@ -904,7 +906,7 @@ export function ModelMutateDrawer({
                 <div className='flex items-center justify-between'>
                   <Label className='text-xs font-semibold text-foreground flex items-center gap-1.5'>
                     <span>🌐</span>
-                    <span>{t('byog.model_locales_title', 'Dile Özel Model Bilgileri (8 Dil)')}</span>
+                    <span>{t('Language-Specific Model Information (8 Languages)')}</span>
                   </Label>
                   <span className='text-[11px] font-medium text-primary'>
                     {MODEL_LANGUAGES.find(l => l.code === activeModelLang)?.flag} {MODEL_LANGUAGES.find(l => l.code === activeModelLang)?.label}
@@ -999,7 +1001,7 @@ export function ModelMutateDrawer({
                   {t('Tagline / Extra Text')} ({MODEL_LANGUAGES.find(l => l.code === activeModelLang)?.label})
                 </Label>
                 <Input
-                  placeholder={t('Flagship model • Reasoning, Model Bakımda, etc.')}
+                  placeholder={t('Flagship model • Reasoning, Under maintenance, etc.')}
                   value={localizedData.taglines[activeModelLang] ?? (activeModelLang === 'tr' ? form.watch('tagline') : '')}
                   onChange={(e) => {
                     const val = e.target.value
@@ -1858,24 +1860,43 @@ export function ModelMutateDrawer({
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>{t('Pinned Card Highlight Color')}</FormLabel>
-                          <Select
-                            value={field.value || 'amber'}
-                            onValueChange={field.onChange}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder={t('Select highlight style')} />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value='none'>{t('No Color Change (Default Card Style)')}</SelectItem>
-                              <SelectItem value='amber'>{t('Amber / Gold Highlight')}</SelectItem>
-                              <SelectItem value='emerald'>{t('Emerald / Green Highlight')}</SelectItem>
-                              <SelectItem value='blue'>{t('Blue Highlight')}</SelectItem>
-                              <SelectItem value='purple'>{t('Purple Highlight')}</SelectItem>
-                              <SelectItem value='rose'>{t('Rose / Red Highlight')}</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          {/* A grid of swatches instead of a select: the long
+                              option labels used to overflow the narrow trigger
+                              of the drawer, a grid always fits. */}
+                          <div className='grid grid-cols-2 gap-1.5'>
+                            {PIN_COLOR_OPTIONS.map((option) => {
+                              const selected =
+                                (field.value || 'amber') === option.value
+                              return (
+                                <button
+                                  key={option.value}
+                                  type='button'
+                                  onClick={() => field.onChange(option.value)}
+                                  aria-pressed={selected}
+                                  className={cn(
+                                    'flex min-w-0 items-center gap-1.5 rounded-md border px-2 py-1.5 text-left text-xs transition-colors',
+                                    selected
+                                      ? 'border-primary/60 bg-primary/5 font-medium'
+                                      : 'border-border hover:bg-muted/60',
+                                    option.value === 'none' && 'col-span-2'
+                                  )}
+                                >
+                                  <span
+                                    className={cn(
+                                      'size-3 shrink-0 rounded-full border border-black/10 dark:border-white/20',
+                                      option.style.dot
+                                    )}
+                                  />
+                                  <span className='min-w-0 truncate'>
+                                    {t(option.style.label)}
+                                  </span>
+                                  {selected && (
+                                    <Check className='ms-auto size-3.5 shrink-0 text-primary' />
+                                  )}
+                                </button>
+                              )
+                            })}
+                          </div>
                           <FormDescription>
                             {t('Choose how the card background changes when pinned')}
                           </FormDescription>

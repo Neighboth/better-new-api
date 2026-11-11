@@ -157,7 +157,9 @@ export function UnifiedDeploymentSettingsSection({
     loading: boolean
     ok: boolean | null
     error: string | null
-  }>({ loading: false, ok: null, error: null })
+    catalog: string | null
+    gpuGroups: number | null
+  }>({ loading: false, ok: null, error: null, catalog: null, gpuGroups: null })
 
   const [runpodTestState, setRunpodTestState] = useState<{
     loading: boolean
@@ -244,29 +246,48 @@ export function UnifiedDeploymentSettingsSection({
       toast.error(t('Please enter a Hostinger API key first'))
       return
     }
-    setHostingerTestState({ loading: true, ok: null, error: null })
+    setHostingerTestState({
+      loading: true,
+      ok: null,
+      error: null,
+      catalog: null,
+      gpuGroups: null,
+    })
     try {
       const res = await api.post('/api/deployments/hostinger/test-connection', {
         api_key: key,
       })
       if (res.data?.success) {
-        setHostingerTestState({ loading: false, ok: true, error: null })
+        const payload = res.data?.data ?? {}
+        setHostingerTestState({
+          loading: false,
+          ok: true,
+          error: null,
+          catalog: payload.catalog ?? null,
+          gpuGroups: payload.gpu_groups ?? null,
+        })
         toast.success(t('Connected to Hostinger successfully'))
       } else {
         setHostingerTestState({
           loading: false,
           ok: false,
           error: res.data?.message || t('Connection failed'),
+          catalog: null,
+          gpuGroups: null,
         })
         toast.error(res.data?.message || t('Connection failed'))
       }
     } catch (e: any) {
+      const message =
+        e?.response?.data?.message || e?.message || t('Connection failed')
       setHostingerTestState({
         loading: false,
         ok: false,
-        error: e?.message || t('Connection failed'),
+        error: message,
+        catalog: null,
+        gpuGroups: null,
       })
-      toast.error(e?.message || t('Connection failed'))
+      toast.error(message)
     }
   }
 
@@ -831,10 +852,10 @@ export function UnifiedDeploymentSettingsSection({
               <div className='flex items-center justify-between'>
                 <div>
                   <CardTitle className='text-base font-semibold'>
-                    Hostinger GPU VPS
+                    {t('Hostinger GPU Hosting')}
                   </CardTitle>
                   <CardDescription className='text-xs mt-1'>
-                    {t('Deploy and run models on Hostinger high-performance GPU Virtual Private Servers.')}
+                    {t('Deploy and run models on Hostinger on-demand NVIDIA GPU servers with hourly billing.')}
                   </CardDescription>
                 </div>
                 <FormField
@@ -889,7 +910,12 @@ export function UnifiedDeploymentSettingsSection({
                         {hostingerTestState.ok === true && (
                           <p className='flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400'>
                             <CheckCircle2 className='h-3.5 w-3.5' />
-                            {t('Successfully connected to Hostinger')}
+                            {hostingerTestState.catalog === 'gpu'
+                              ? t(
+                                  'Successfully connected to Hostinger GPU Hosting ({{count}} GPU models in the catalog)',
+                                  { count: hostingerTestState.gpuGroups ?? 0 }
+                                )
+                              : t('Successfully connected to Hostinger')}
                           </p>
                         )}
                         {hostingerTestState.ok === false && (
@@ -898,8 +924,17 @@ export function UnifiedDeploymentSettingsSection({
                             {hostingerTestState.error}
                           </p>
                         )}
-                        <FormDescription className='text-xs'>
-                          {t('Hostinger Cloud API token generated from your Hostinger account settings.')}
+                        <FormDescription className='text-xs space-y-1'>
+                          <span className='block'>
+                            {t(
+                              'This integration connects to Hostinger GPU Hosting (hostinger.com/gpu-hosting), the hourly NVIDIA GPU server product of Hostinger. Create a token in hPanel under Account > API; a random string is rejected.'
+                            )}
+                          </span>
+                          <span className='block'>
+                            {t(
+                              'The connection test calls the official GPU catalog on developers.hostinger.com; only a real 2xx answer counts as connected.'
+                            )}
+                          </span>
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
