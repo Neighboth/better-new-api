@@ -4524,6 +4524,7 @@ export function ChannelMutateDrawer({
                                           }
                                           models={currentModelsArray}
                                           onChange={field.onChange}
+                                          showClear={false}
                                           showQuickSet
                                           value={field.value || ''}
                                         />

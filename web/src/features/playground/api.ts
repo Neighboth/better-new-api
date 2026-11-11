@@ -152,8 +152,13 @@ export async function generateVideo(
   // polled by the id of this installation. The relay publishes it in a
   // header, without it the poll always misses the task ("the video task has
   // no id").
+  const headers = res.headers as
+    | { get?: (name: string) => string | null; [key: string]: unknown }
+    | undefined
   const headerTaskId = String(
-    (res.headers as Record<string, string> | undefined)?.['x-new-api-task-id'] ??
+    headers?.get?.('x-new-api-task-id') ??
+      headers?.['x-new-api-task-id'] ??
+      headers?.['X-New-Api-Task-Id'] ??
       ''
   ).trim()
   if (headerTaskId) {
@@ -173,6 +178,37 @@ export async function getVideoTask(
   })
   const items = (res?.data?.data?.items ?? []) as VideoTaskState[]
   return items[0] ?? null
+}
+
+/**
+ * Finds the video task the current user just submitted.
+ *
+ * Some deployments (a reverse proxy that strips unknown headers, a cached
+ * response, a provider that answers without any id) never deliver the task id
+ * to the browser. The task row itself always exists though, so the studio can
+ * look it up: the newest video task of the user created after the submit call.
+ */
+export async function findLatestVideoTask(
+  options: { model?: string; sinceMs?: number; signal?: AbortSignal } = {}
+): Promise<VideoTaskState | null> {
+  const res = await api.get('/api/task/self', {
+    params: { p: 1, page_size: 10 },
+    signal: options.signal,
+    skipErrorHandler: true,
+  } as Record<string, unknown>)
+  const items = (res?.data?.data?.items ?? []) as Array<
+    VideoTaskState & { properties?: { origin_model_name?: string } }
+  >
+  const since = (options.sinceMs ?? 0) / 1000
+  const candidates = items.filter((item) => {
+    if (!item?.task_id) return false
+    const createdAt = Number(item.created_at ?? 0)
+    if (since > 0 && createdAt > 0 && createdAt < since - 5) return false
+    if (!options.model) return true
+    const origin = item.properties?.origin_model_name
+    return !origin || origin === options.model || item.action === 'video'
+  })
+  return candidates[0] ?? null
 }
 
 /** Run a web search through the SearXNG instance of the installation. */

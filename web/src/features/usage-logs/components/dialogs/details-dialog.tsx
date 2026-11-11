@@ -602,6 +602,18 @@ export function DetailsDialog(props: DetailsDialogProps) {
     props.log.type !== 6 &&
     (other?.request_path || conversionChain.length > 0)
 
+  // Which model really answered, and the chain of attempts that failed before
+  // it. The client only ever sees the requested model, so the operator needs
+  // this popup to know what happened behind the scenes.
+  const requestedModel =
+    other?.requested_model ?? other?.admin_info?.requested_model
+  const servedModel = other?.served_model ?? other?.admin_info?.served_model
+  const fallbackChain = other?.admin_info?.fallback_chain ?? []
+  const showModelRouting =
+    props.isAdmin &&
+    (Boolean(requestedModel && servedModel && requestedModel !== servedModel) ||
+      fallbackChain.length > 0)
+
   const useChannel = other?.admin_info?.use_channel
   const channelChain =
     useChannel && useChannel.length > 0 ? useChannel.join(' → ') : undefined
@@ -1105,6 +1117,70 @@ export function DetailsDialog(props: DetailsDialogProps) {
               }
             />
           )}
+
+        {/* Requested vs served model and the fallback chain (admin only) */}
+        {showModelRouting && (
+          <DetailSection
+            icon={<Route className='size-3' />}
+            iconTone='chart-3'
+            label={t('Model routing')}
+          >
+            {requestedModel && (
+              <DetailRow
+                label={t('Requested model')}
+                value={requestedModel}
+                mono
+              />
+            )}
+            {servedModel && (
+              <DetailRow label={t('Answering model')} value={servedModel} mono />
+            )}
+            {fallbackChain.length > 0 && (
+              <div className='space-y-1 pt-1'>
+                <p className='text-muted-foreground text-[11px]'>
+                  {t('Fallback chain (every failed attempt)')}
+                </p>
+                <ol className='space-y-1'>
+                  {fallbackChain.map((hop, index) => (
+                    <li
+                      className='bg-background/60 space-y-0.5 rounded border px-2 py-1 text-[11px]'
+                      key={`${hop.channel_id ?? 'x'}-${hop.model ?? 'm'}-${index}`}
+                    >
+                      <div className='flex items-center gap-1.5'>
+                        <span className='text-muted-foreground'>
+                          {index + 1}.
+                        </span>
+                        <span className='font-mono font-medium'>
+                          {hop.model || '-'}
+                        </span>
+                        {hop.channel_id ? (
+                          <span className='text-muted-foreground'>
+                            {hop.channel_name
+                              ? `${hop.channel_name} (#${hop.channel_id})`
+                              : `#${hop.channel_id}`}
+                          </span>
+                        ) : null}
+                        {hop.status_code ? (
+                          <StatusBadge
+                            copyable={false}
+                            label={String(hop.status_code)}
+                            size='sm'
+                            variant='red'
+                          />
+                        ) : null}
+                      </div>
+                      {hop.error && (
+                        <p className='text-muted-foreground break-words font-mono'>
+                          {hop.error}
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </DetailSection>
+        )}
 
         {/* Stream status details */}
         {other?.stream_status && other.stream_status.status !== 'ok' && (

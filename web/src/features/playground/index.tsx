@@ -19,10 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 
 import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { getPlaygroundRuntimeConfig } from './api'
 import { PlaygroundChat } from './components/chat/playground-chat'
 import { PlaygroundInput } from './components/input/playground-input'
+import { PlaygroundToolStatus } from './components/playground-tool-status'
 import { DEFAULT_TOOLS_ENABLED } from './constants'
 import { EMPTY_PLAYGROUND_RUNTIME_CONFIG } from './types'
 import {
@@ -33,6 +35,7 @@ import {
 } from './hooks'
 
 export function Playground() {
+  const { t } = useTranslation()
   const {
     config,
     parameterEnabled,
@@ -73,10 +76,35 @@ export function Playground() {
     [runtime]
   )
 
+  // A tool that is switched off must be described as switched off, otherwise
+  // the model keeps answering "I can only generate images and videos".
+  const toolUnavailableReasons = useMemo(() => {
+    const reasons: Partial<
+      Record<'generate_image' | 'generate_video' | 'web_search', string>
+    > = {}
+    if (!runtime.video.enabled) {
+      reasons.generate_video = t('video generation is disabled')
+    } else if (!runtime.video.model && runtime.video.models.length === 0) {
+      reasons.generate_video = t('no video model is configured')
+    }
+    if (!runtime.web_search.playground) {
+      reasons.web_search = t('the administrator turned web search off here')
+    } else if (!runtime.web_search.configured) {
+      reasons.web_search = t('the SearXNG URL is not configured')
+    }
+    if (!runtime.image.enabled) {
+      reasons.generate_image = t('image generation is disabled')
+    } else if (!runtime.image.model && runtime.image.models.length === 0) {
+      reasons.generate_image = t('no image model is configured')
+    }
+    return reasons
+  }, [runtime, t])
+
   const { sendChat, stopGeneration, isGenerating } = useChatHandler({
     config,
     parameterEnabled,
     toolsEnabled,
+    toolUnavailableReasons,
     models,
     thinkingEnabled: false,
     thinkingLevel: thinking.level,
@@ -135,6 +163,7 @@ export function Playground() {
 
       {/* Input area: center content and constrain to the same container width */}
       <div className='mx-auto w-full max-w-4xl'>
+        <PlaygroundToolStatus runtime={runtime} toolsEnabled={toolsEnabled} />
         <PlaygroundInput
           config={config}
           disabled={isBusy}

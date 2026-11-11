@@ -22,6 +22,13 @@ type UserSetting struct {
 	// by the settings of the profile, therefore the flag is written only when
 	// the user turns the messages off.
 	MarketingEmailOptOut bool `json:"marketing_email_opt_out,omitempty"`
+	// BlockedChannels and BlockedModels are the personal blocklists of the
+	// user: the relay never routes a request of this user through one of these
+	// channels, nor through one of these models — not even while it walks the
+	// fallback chain. The administrator can switch the feature off with the
+	// user_blocklist_setting option.
+	BlockedChannels []int    `json:"blocked_channels,omitempty"`
+	BlockedModels   []string `json:"blocked_models,omitempty"`
 }
 
 var (

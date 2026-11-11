@@ -80,6 +80,19 @@ type TokenCountMeta struct {
 	estimatePromptTokens int
 }
 
+// FallbackAttempt is one failed hop of a relayed request.
+type FallbackAttempt struct {
+	// Model is the model the attempt used (the requested one or a fallback).
+	Model string `json:"model"`
+	// RequestedModel is the model the client asked for.
+	RequestedModel string `json:"requested_model,omitempty"`
+	ChannelId      int    `json:"channel_id"`
+	ChannelName    string `json:"channel_name,omitempty"`
+	ChannelType    int    `json:"channel_type,omitempty"`
+	Error          string `json:"error,omitempty"`
+	StatusCode     int    `json:"status_code,omitempty"`
+}
+
 type RelayInfo struct {
 	TokenId           int
 	TokenKey          string
@@ -99,6 +112,10 @@ type RelayInfo struct {
 	RelayMode              int
 	OriginModelName        string
 	RequestedModelName     string
+	// FallbackChain records every attempt that failed before the request was
+	// served (or failed for good), so the admin log detail can show which
+	// channels and models took part and why each one gave up.
+	FallbackChain []FallbackAttempt
 	RequestURLPath         string
 	RequestHeaders         map[string]string
 	ShouldIncludeUsage     bool
@@ -188,6 +205,23 @@ type RelayInfo struct {
 	*ResponsesUsageInfo
 	*ChannelMeta
 	*TaskRelayInfo
+}
+
+// AddFallbackAttempt records a failed attempt of the relay loop. The chain is
+// bounded so a pathological retry loop cannot grow the log payload without
+// limit.
+func (info *RelayInfo) AddFallbackAttempt(attempt FallbackAttempt) {
+	if info == nil {
+		return
+	}
+	const maxFallbackAttempts = 12
+	if len(info.FallbackChain) >= maxFallbackAttempts {
+		return
+	}
+	if attempt.RequestedModel == "" {
+		attempt.RequestedModel = info.RequestedModelName
+	}
+	info.FallbackChain = append(info.FallbackChain, attempt)
 }
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {

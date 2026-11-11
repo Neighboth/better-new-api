@@ -254,6 +254,14 @@ export interface VideoTaskState {
   progress?: string
   result_url?: string
   fail_reason?: string
+  /** Unix seconds, present on the rows of `/api/task/self`. */
+  created_at?: number
+  action?: string
+  properties?: {
+    input?: string
+    origin_model_name?: string
+    upstream_model_name?: string
+  }
 }
 
 export interface WebSearchHit {

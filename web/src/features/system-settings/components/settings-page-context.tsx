@@ -16,10 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { RotateCcw, Save } from 'lucide-react'
+import { Check, Loader2, RotateCcw, Save } from 'lucide-react'
 import {
   createContext,
   useContext,
+  useEffect,
+  useRef,
+  useState,
   type ComponentProps,
   type ReactNode,
   type RefObject,
@@ -100,13 +103,14 @@ export function SettingsPageActionsPortal(
 }
 
 type SettingsPageFormActionsProps = {
-  onSave: () => void
+  onSave: () => void | Promise<unknown>
   onReset?: () => void
   isSaving?: boolean
   isSaveDisabled?: boolean
   isResetDisabled?: boolean
   saveLabel?: string
   savingLabel?: string
+  savedLabel?: string
   resetLabel?: string
   resetVariant?: ComponentProps<typeof Button>['variant']
   saveButtonRef?: RefObject<HTMLButtonElement | null>
@@ -114,9 +118,39 @@ type SettingsPageFormActionsProps = {
 
 export function SettingsPageFormActions(props: SettingsPageFormActionsProps) {
   const { t } = useTranslation()
-  const saveLabel = props.isSaving
+  const [pending, setPending] = useState(false)
+  const [justSaved, setJustSaved] = useState(false)
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(
+    () => () => {
+      if (savedTimer.current) clearTimeout(savedTimer.current)
+    },
+    []
+  )
+
+  const isSaving = props.isSaving || pending
+  const saveLabel = isSaving
     ? (props.savingLabel ?? 'Saving...')
-    : (props.saveLabel ?? 'Save Changes')
+    : justSaved
+      ? (props.savedLabel ?? 'Saved')
+      : (props.saveLabel ?? 'Save Changes')
+
+  const handleSave = async () => {
+    if (isSaving) return
+    setPending(true)
+    try {
+      // The card's handler usually returns the mutation promise; waiting for it
+      // lets the button show "Saved" only after the request really finished,
+      // instead of flashing back to its idle label.
+      await props.onSave()
+      setJustSaved(true)
+      if (savedTimer.current) clearTimeout(savedTimer.current)
+      savedTimer.current = setTimeout(() => setJustSaved(false), 2500)
+    } finally {
+      setPending(false)
+    }
+  }
 
   return (
     <SettingsPageActionsPortal>
@@ -126,7 +160,7 @@ export function SettingsPageFormActions(props: SettingsPageFormActionsProps) {
           size='sm'
           variant={props.resetVariant ?? 'outline'}
           onClick={props.onReset}
-          disabled={props.isResetDisabled || props.isSaving}
+          disabled={props.isResetDisabled || isSaving}
         >
           <RotateCcw data-icon='inline-start' />
           <span>{t(props.resetLabel ?? 'Reset')}</span>
@@ -136,10 +170,17 @@ export function SettingsPageFormActions(props: SettingsPageFormActionsProps) {
         ref={props.saveButtonRef}
         type='button'
         size='sm'
-        onClick={props.onSave}
-        disabled={props.isSaving || props.isSaveDisabled}
+        onClick={() => void handleSave()}
+        disabled={isSaving || props.isSaveDisabled}
+        aria-live='polite'
       >
-        <Save data-icon='inline-start' />
+        {isSaving ? (
+          <Loader2 className='animate-spin' data-icon='inline-start' />
+        ) : justSaved ? (
+          <Check data-icon='inline-start' />
+        ) : (
+          <Save data-icon='inline-start' />
+        )}
         <span>{t(saveLabel)}</span>
       </Button>
     </SettingsPageActionsPortal>

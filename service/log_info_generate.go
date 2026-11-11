@@ -108,6 +108,20 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 
 	AppendChannelAffinityAdminInfo(ctx, adminInfo)
 
+	// Requested vs served model. The client always sees the requested model in
+	// the response, so the log has to keep both names: without it an operator
+	// cannot tell which model really answered.
+	if relayInfo.RequestedModelName != "" && relayInfo.RequestedModelName != relayInfo.OriginModelName {
+		other["requested_model"] = relayInfo.RequestedModelName
+		other["served_model"] = relayInfo.OriginModelName
+		adminInfo["requested_model"] = relayInfo.RequestedModelName
+		adminInfo["served_model"] = relayInfo.OriginModelName
+	}
+	if len(relayInfo.FallbackChain) > 0 {
+		// Admin only: the hops carry channel names and upstream error text.
+		adminInfo["fallback_chain"] = relayInfo.FallbackChain
+	}
+
 	other["admin_info"] = adminInfo
 	appendRequestPath(ctx, relayInfo, other)
 	appendRequestConversionChain(relayInfo, other)

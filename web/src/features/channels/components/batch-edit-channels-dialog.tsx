@@ -355,6 +355,9 @@ export function BatchEditChannelsDialog(props: {
 
           <Section
             enabled={enabled.autoBan}
+            hint={t(
+              'Automatically disable a channel when its upstream reports an error.'
+            )}
             id='autoBan'
             onToggle={toggle('autoBan')}
             title={t('Automatic ban')}
@@ -364,12 +367,17 @@ export function BatchEditChannelsDialog(props: {
               value={autoBan}
             >
               <SelectTrigger className='h-8 text-xs'>
-                <SelectValue />
+                {/* The label is rendered explicitly: the trigger used to fall
+                    back to the raw "1"/"0" value before the item list was
+                    mounted. */}
+                <SelectValue>
+                  {autoBan === '1'
+                    ? t('Automatic ban enabled')
+                    : t('Automatic ban disabled')}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value='1'>
-                  {t('Automatic ban enabled (default)')}
-                </SelectItem>
+                <SelectItem value='1'>{t('Automatic ban enabled')}</SelectItem>
                 <SelectItem value='0'>{t('Automatic ban disabled')}</SelectItem>
               </SelectContent>
             </Select>

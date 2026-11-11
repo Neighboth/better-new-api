@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { getVideoTask } from '../../api'
+import { findLatestVideoTask, getVideoTask } from '../../api'
 import { ERROR_MESSAGES } from '../../constants'
 import type { VideoTaskState } from '../../types'
 
@@ -89,6 +89,39 @@ export function resolveSubmittedTaskId(response: unknown): string {
         queue.push(value)
       }
     }
+  }
+  return ''
+}
+
+/**
+ * Resolves the id of a submitted video task, falling back to the task list.
+ *
+ * Prefer {@link resolveSubmittedTaskId}: the response usually carries the id.
+ * When neither the body nor the `X-New-Api-Task-Id` header delivered it (a
+ * caching proxy, a provider that answers without an id), the created task is
+ * read back from `/api/task/self` so a billed generation is never lost.
+ */
+export async function resolveSubmittedTaskIdWithLookup(
+  response: unknown,
+  options: { model?: string; submittedAt?: number; signal?: AbortSignal } = {}
+): Promise<string> {
+  const direct = resolveSubmittedTaskId(response)
+  if (direct) return direct
+
+  const submittedAt = options.submittedAt ?? Date.now()
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const task = await findLatestVideoTask({
+        model: options.model,
+        sinceMs: submittedAt,
+        signal: options.signal,
+      })
+      if (task?.task_id) return task.task_id
+    } catch (error) {
+      if (options.signal?.aborted) throw error
+    }
+    if (options.signal?.aborted) return ''
+    await wait(1200, options.signal)
   }
   return ''
 }

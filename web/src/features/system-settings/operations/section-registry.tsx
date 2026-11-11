@@ -43,6 +43,9 @@ const OPERATIONS_SECTIONS = [
           DefaultCollapseSidebar: settings.DefaultCollapseSidebar,
           DemoSiteEnabled: settings.DemoSiteEnabled,
           SelfUseModeEnabled: settings.SelfUseModeEnabled,
+          userBlocklistEnabled: Boolean(
+            settings['user_blocklist_setting.enabled'] ?? true
+          ),
         }}
       />
       ),

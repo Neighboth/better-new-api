@@ -140,6 +140,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}
 
+	// The model the client asked for is what every response must report, no
+	// matter which channel, mapped name or fallback model ended up serving the
+	// request. The relay handlers rewrite the `model` field of the body (and of
+	// every stream chunk) from this value.
+	if relayInfo.RequestedModelName == "" {
+		relayInfo.RequestedModelName = relayInfo.OriginModelName
+	}
+	common.SetContextKey(c, constant.ContextKeyOriginalModel, relayInfo.RequestedModelName)
+	c.Set("client_requested_model", relayInfo.RequestedModelName)
+
 	fbState := newFallbackState(relayInfo)
 
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
@@ -210,12 +220,36 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}()
 
+	// Personal blocklists of the user: a blocked channel is never used (also
+	// not while the fallback chain walks other models) and a blocked model is
+	// never requested on their behalf.
+	blocklistSetting := operation_setting.GetUserBlocklistSetting()
+	var blockedChannels []int
+	var blockedModels []string
+	if blocklistSetting != nil && blocklistSetting.Enabled {
+		if blocklistSetting.AllowChannels {
+			blockedChannels = relayInfo.UserSetting.BlockedChannels
+		}
+		if blocklistSetting.AllowModels {
+			blockedModels = relayInfo.UserSetting.BlockedModels
+		}
+	}
+	if isModelBlockedForUser(relayInfo.RequestedModelName, blockedModels) {
+		newAPIError = types.NewErrorWithStatusCode(
+			fmt.Errorf("模型 %s 已被你的账号屏蔽（个人屏蔽列表）", relayInfo.RequestedModelName),
+			types.ErrorCodeInvalidRequest,
+			http.StatusForbidden,
+			types.ErrOptionWithSkipRetry(),
+		)
+		return
+	}
 	retryParam := &service.RetryParam{
-		Ctx:         c,
-		TokenGroup:  relayInfo.TokenGroup,
-		ModelName:   relayInfo.OriginModelName,
-		RequestPath: c.Request.URL.Path,
-		Retry:       common.GetPointer(0),
+		Ctx:               c,
+		TokenGroup:        relayInfo.TokenGroup,
+		ModelName:         relayInfo.OriginModelName,
+		RequestPath:       c.Request.URL.Path,
+		Retry:             common.GetPointer(0),
+		BlockedChannelIds: blockedChannels,
 	}
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
@@ -241,6 +275,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				}
 				break
 			}
+			continue
+		}
+		if retryParam.IsChannelBlocked(channel.Id) {
+			// A serverless deployment or a tagged pick can return a channel the
+			// user blocked; exclude it and select again.
+			retryParam.IgnoredChannelIds = append(retryParam.IgnoredChannelIds, channel.Id)
+			retryParam.SetRetry(0)
 			continue
 		}
 		retryParam.IgnoredChannelIds = append(retryParam.IgnoredChannelIds, channel.Id)
@@ -285,6 +326,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
 		relayInfo.LastError = newAPIError
 
+		relayInfo.AddFallbackAttempt(relaycommon.FallbackAttempt{
+			Model:       relayInfo.OriginModelName,
+			ChannelId:   channel.Id,
+			ChannelName: channel.Name,
+			ChannelType: channel.Type,
+			Error:       common.LocalLogPreview(newAPIError.Error()),
+			StatusCode:  newAPIError.StatusCode,
+		})
 		chErr := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan())
 		logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", chErr.ChannelId, newAPIError.StatusCode, common.LocalLogPreview(newAPIError.Error())))
 		if service.ShouldDisableChannel(newAPIError) && chErr.AutoBan {
@@ -299,10 +348,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// once all channels are exhausted getChannel returns nil and the loop
 		// advances to the configured fallback model. Specific-channel requests
 		// intentionally retain their affinity and follow the normal retry policy.
-		// Client errors (400, quota, price, bad body) must surface immediately:
-		// neither silent retry nor fallback model should mask them.
+		// "No retry" only means the *same* channel must not be tried again: the
+		// error class never says that another model cannot serve the request.
+		// A 400 from one upstream (an unsupported parameter, a wrong modality,
+		// a model the channel does not really host) is exactly the case the
+		// fallback chain exists for, so the chain is advanced here instead of
+		// surfacing the upstream error to the client.
 		if isUserFacingNoRetryError(newAPIError) {
-			break
+			if !advanceFallbackModel(c, relayInfo, retryParam, fbState, newAPIError.Error()) {
+				break
+			}
+			continue
 		}
 		if shouldRetryOtherChannel(c, newAPIError) {
 			retryParam.SetRetry(0)
@@ -589,6 +645,19 @@ func recordRelayErrorLog(c *gin.Context, relayInfo *relaycommon.RelayInfo, err *
 		adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
 	}
 	service.AppendChannelAffinityAdminInfo(c, adminInfo)
+	if relayInfo != nil {
+		if relayInfo.RequestedModelName != "" {
+			other["requested_model"] = relayInfo.RequestedModelName
+			adminInfo["requested_model"] = relayInfo.RequestedModelName
+		}
+		if relayInfo.OriginModelName != "" {
+			other["served_model"] = relayInfo.OriginModelName
+			adminInfo["served_model"] = relayInfo.OriginModelName
+		}
+		if len(relayInfo.FallbackChain) > 0 {
+			adminInfo["fallback_chain"] = relayInfo.FallbackChain
+		}
+	}
 	other["admin_info"] = adminInfo
 	startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 	if startTime.IsZero() {

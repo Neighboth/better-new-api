@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { toast } from 'sonner'
 
@@ -57,6 +57,47 @@ const isStatusRelated = (key: string) =>
   key.startsWith('SystemName_') ||
   key.startsWith('Footer_')
 
+type SystemOptionEntry = { key: string; value: string }
+
+function normalizeOptionValue(raw: string | boolean | number): string {
+  if (typeof raw === 'boolean') return raw ? 'true' : 'false'
+  return String(raw)
+}
+
+/**
+ * Writes the saved values into the cached option list before the refetch
+ * finishes.
+ *
+ * The settings cards read their values from the `system-options` query, so a
+ * save that only invalidates the query leaves the page showing the previous
+ * response until the request comes back — the switch visually flipped back
+ * ("the save bounces"). Updating the cache first makes the saved value the
+ * visible one immediately, and the refetch then confirms it.
+ */
+function applyOptionsToCache(
+  queryClient: QueryClient,
+  values: Record<string, string | boolean | number>
+) {
+  queryClient.setQueryData<SystemOptionEntry[] | undefined>(
+    ['system-options'],
+    (current) => {
+      if (!current) return current
+      const next = current.map((option) =>
+        option.key in values
+          ? { ...option, value: normalizeOptionValue(values[option.key]) }
+          : option
+      )
+      const known = new Set(next.map((option) => option.key))
+      for (const [key, value] of Object.entries(values)) {
+        if (!known.has(key)) {
+          next.push({ key, value: normalizeOptionValue(value) })
+        }
+      }
+      return next
+    }
+  )
+}
+
 export function useUpdateOption() {
   const queryClient = useQueryClient()
 
@@ -64,6 +105,7 @@ export function useUpdateOption() {
     mutationFn: (request: UpdateOptionRequest) => updateSystemOption(request),
     onSuccess: (data, variables) => {
       if (data.success) {
+        applyOptionsToCache(queryClient, { [variables.key]: variables.value })
         // Always refresh system-options and system-config
         queryClient.invalidateQueries({ queryKey: ['system-options'] })
         queryClient.invalidateQueries({ queryKey: ['system-config'] })
@@ -114,6 +156,7 @@ export function useUpdateOptionsBulk() {
     },
     onSuccess: (data, variables) => {
       if (data.success) {
+        applyOptionsToCache(queryClient, variables)
         queryClient.invalidateQueries({ queryKey: ['system-options'] })
         queryClient.invalidateQueries({ queryKey: ['system-config'] })
         queryClient.invalidateQueries({ queryKey: ['playground-runtime-config'] })

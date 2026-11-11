@@ -83,4 +83,26 @@ describe('buildToolAvailabilityPrompt', () => {
       })
     ).toBe('')
   })
+
+  it('forbids denying an available tool', () => {
+    const prompt = buildToolAvailabilityPrompt({
+      generate_image: true,
+      generate_video: false,
+      web_search: true,
+    })
+
+    expect(prompt).toContain('web_search')
+    // The playground used to be described as "images and videos only".
+    expect(prompt).toContain('do not describe yourself as limited to image or video')
+  })
+
+  it('explains a tool that is switched off', () => {
+    const prompt = buildToolAvailabilityPrompt(
+      { generate_image: true, generate_video: false, web_search: false },
+      { web_search: 'the SearXNG URL is not configured' }
+    )
+
+    expect(prompt).toContain('the SearXNG URL is not configured')
+    expect(prompt).toContain('do not claim these work')
+  })
 })

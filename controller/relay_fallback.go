@@ -31,8 +31,38 @@ type fallbackState struct {
 	configuredModels map[string]bool
 }
 
+// isModelBlockedForUser reports whether the model is on the personal blocklist
+// of the user. A blocked model is never requested on their behalf: the relay
+// refuses the request when it is the requested model and skips it while it
+// walks the fallback chain.
+func isModelBlockedForUser(modelName string, blockedModels []string) bool {
+	if modelName == "" || len(blockedModels) == 0 {
+		return false
+	}
+	for _, blocked := range blockedModels {
+		blocked = strings.TrimSpace(blocked)
+		if blocked == "" {
+			continue
+		}
+		if strings.EqualFold(blocked, modelName) {
+			return true
+		}
+	}
+	return false
+}
+
+func userBlockedModels(info *relaycommon.RelayInfo) []string {
+	setting := operation_setting.GetUserBlocklistSetting()
+	if setting == nil || !setting.Enabled || !setting.AllowModels {
+		return nil
+	}
+	return info.UserSetting.BlockedModels
+}
+
 func newFallbackState(info *relaycommon.RelayInfo) *fallbackState {
 	s := operation_setting.GetRelayFallbackSetting()
+
+	blockedModels := userBlockedModels(info)
 
 	unique := make([]string, 0)
 	seen := map[string]bool{info.GetOriginModelName(): true}
@@ -55,6 +85,9 @@ func newFallbackState(info *relaycommon.RelayInfo) *fallbackState {
 
 		// Only use explicitly configured fallback models for this request category
 		for _, m := range fallbackList {
+			if isModelBlockedForUser(m, blockedModels) {
+				continue
+			}
 			configuredModels[m] = true
 			if !seen[m] {
 				seen[m] = true
@@ -66,6 +99,9 @@ func newFallbackState(info *relaycommon.RelayInfo) *fallbackState {
 		allEnabled := model.GetEnabledModels()
 		sort.Strings(allEnabled)
 		for _, m := range allEnabled {
+			if isModelBlockedForUser(m, blockedModels) {
+				continue
+			}
 			if !seen[m] {
 				seen[m] = true
 				unique = append(unique, m)

@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
-import { ImageIcon, PlusIcon, VideoIcon, XIcon } from 'lucide-react'
+import { Braces, ImageIcon, LayoutList, PlusIcon, VideoIcon, XIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { JsonCodeEditor } from '@/components/json-code-editor'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -371,6 +372,65 @@ export function PlaygroundSettingsSection({
     normalizeVideoModels(defaultValues)
   )
 
+  // Whole-page JSON mode: the same options, edited as one document.
+  const [jsonMode, setJsonMode] = useState(false)
+  const [jsonDraft, setJsonDraft] = useState('')
+  const [jsonError, setJsonError] = useState('')
+
+  const currentSettingsObject = () => ({
+    image_enabled: imageEnabled,
+    image_models: imageModels.filter((model) => model.model.trim() !== ''),
+    video_enabled: videoEnabled,
+    video_models: videoModels.filter((model) => model.model.trim() !== ''),
+    studio_enabled: studioEnabled,
+    image_model: imageModels[0]?.model ?? '',
+    video_model: videoModels[0]?.model ?? '',
+  })
+
+  const openJsonMode = () => {
+    setJsonDraft(JSON.stringify(currentSettingsObject(), null, 2))
+    setJsonError('')
+    setJsonMode(true)
+  }
+
+  const saveJson = async () => {
+    let parsed: Record<string, unknown>
+    try {
+      const value: unknown = JSON.parse(jsonDraft)
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        setJsonError(t('The JSON must be an object'))
+        return
+      }
+      parsed = value as Record<string, unknown>
+    } catch (error) {
+      setJsonError(
+        error instanceof Error ? error.message : t('Invalid JSON document')
+      )
+      return
+    }
+
+    const payload: Record<string, string> = {}
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!(key in currentSettingsObject())) continue
+      payload[`playground_setting.${key}`] =
+        typeof value === 'object' && value !== null
+          ? JSON.stringify(value)
+          : String(value)
+    }
+    if (Object.keys(payload).length === 0) {
+      setJsonError(t('No playground setting found in the document'))
+      return
+    }
+
+    try {
+      await updateOptions.mutateAsync(payload)
+      setJsonError('')
+      toast.success(t('Playground settings saved successfully'))
+    } catch {
+      toast.error(t('Failed to save settings'))
+    }
+  }
+
   const { data: modelsData } = useQuery({
     queryKey: ['all-models-for-media'],
     queryFn: getAllModels,
@@ -439,10 +499,77 @@ export function PlaygroundSettingsSection({
         event.preventDefault()
         void save()
       }}>
-        <SettingsPageFormActions
-          isSaving={updateOptions.isPending}
-          onSave={() => void save()}
-        />
+        {!jsonMode && (
+          <SettingsPageFormActions
+            isSaving={updateOptions.isPending}
+            onSave={() => void save()}
+          />
+        )}
+        <div className='flex flex-wrap items-center justify-between gap-2 rounded-lg border p-2'>
+          <div className='space-y-0.5'>
+            <p className='text-sm font-medium'>{t('Playground & Studio')}</p>
+            <p className='text-muted-foreground text-xs'>
+              {jsonMode
+                ? t(
+                    'Editing every playground and studio option as one JSON document.'
+                  )
+                : t(
+                    'Pick the models the playground tools and the studio offer, with their own options.'
+                  )}
+            </p>
+          </div>
+          <div className='bg-muted inline-flex rounded-md p-0.5'>
+            <Button
+              onClick={() => setJsonMode(false)}
+              size='sm'
+              type='button'
+              variant={jsonMode ? 'ghost' : 'secondary'}
+            >
+              <LayoutList className='mr-1 size-3.5' />
+              {t('Simple mode')}
+            </Button>
+            <Button
+              onClick={openJsonMode}
+              size='sm'
+              type='button'
+              variant={jsonMode ? 'secondary' : 'ghost'}
+            >
+              <Braces className='mr-1 size-3.5' />
+              {t('JSON mode')}
+            </Button>
+          </div>
+        </div>
+
+        {jsonMode ? (
+          <div className='space-y-2'>
+            <JsonCodeEditor
+              ariaLabel={t('Playground settings JSON')}
+              onChange={setJsonDraft}
+              value={jsonDraft}
+            />
+            {jsonError && (
+              <p className='text-destructive text-xs'>{jsonError}</p>
+            )}
+            <div className='flex justify-end gap-2'>
+              <Button
+                onClick={openJsonMode}
+                size='sm'
+                type='button'
+                variant='ghost'
+              >
+                {t('Reset')}
+              </Button>
+              <Button
+                disabled={updateOptions.isPending}
+                onClick={() => void saveJson()}
+                size='sm'
+                type='button'
+              >
+                {t('Save JSON')}
+              </Button>
+            </div>
+          </div>
+        ) : (
         <div className='space-y-4'>
           <SettingsSwitchRow className='rounded-lg border px-3'>
             <SettingsSwitchContent>
@@ -557,6 +684,7 @@ export function PlaygroundSettingsSection({
           </SettingsSwitchRow>
 
         </div>
+        )}
       </SettingsForm>
     </SettingsSection>
   )
