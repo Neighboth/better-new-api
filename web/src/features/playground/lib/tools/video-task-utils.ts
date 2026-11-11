@@ -52,6 +52,47 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
+const TASK_ID_KEYS = ['task_id', 'taskId', 'id', 'request_id', 'requestId'] as const
+
+/**
+ * Reads the id of a freshly submitted video task.
+ *
+ * Providers answer with different shapes (`{task_id}`, `{id}`, `{data:{id}}`,
+ * `{output:{task_id}}`, …) and the relay adds the id of this installation in
+ * the `X-New-Api-Task-Id` header, which `generateVideo` copies into the body
+ * as `task_id`. Without this the studio reported "The video task has no id"
+ * even though the task was created and billed.
+ */
+export function resolveSubmittedTaskId(response: unknown): string {
+  const queue: unknown[] = [response]
+  const seen = new Set<unknown>()
+  let depth = 0
+
+  while (queue.length > 0 && depth < 40) {
+    const current = queue.shift()
+    depth += 1
+    if (!current || typeof current !== 'object' || seen.has(current)) continue
+    seen.add(current)
+
+    const record = current as Record<string, unknown>
+    for (const key of TASK_ID_KEYS) {
+      const value = record[key]
+      if (typeof value === 'string' && value.trim() !== '') {
+        return value.trim()
+      }
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return String(value)
+      }
+    }
+    for (const value of Object.values(record)) {
+      if (value && typeof value === 'object') {
+        queue.push(value)
+      }
+    }
+  }
+  return ''
+}
+
 /**
  * Poll one video task until it finishes. The video relay is asynchronous: the
  * submit call returns a task id, the dashboard polls `/api/task/self` for the

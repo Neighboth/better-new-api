@@ -138,42 +138,7 @@ const OPERATIONS_SECTIONS = [
     build: (settings: OperationsSettings) => (
       <PlaygroundSettingsSection
         defaultValues={{
-          imageEnabled: settings['playground_setting.image_enabled'] ?? true,
-          imageModel: settings['playground_setting.image_model'] ?? '',
-          imageSizes:
-            settings['playground_setting.image_sizes'] ??
-            '1024x1024,1024x1792,1792x1024',
-          imageDefaultSize:
-            settings['playground_setting.image_default_size'] ?? '1024x1024',
-          imageQualities:
-            settings['playground_setting.image_qualities'] ?? 'standard,hd',
-          imageDefaultQuality:
-            settings['playground_setting.image_default_quality'] ?? 'standard',
-          imageDefaultCount: Number(
-            settings['playground_setting.image_default_count'] ?? 1
-          ),
-          videoEnabled: settings['playground_setting.video_enabled'] ?? false,
-          videoModel: settings['playground_setting.video_model'] ?? '',
-          videoDurations: settings['playground_setting.video_durations'] ?? '5,10',
-          videoDefaultDuration: Number(
-            settings['playground_setting.video_default_duration'] ?? 5
-          ),
-          videoMinDuration: Number(
-            settings['playground_setting.video_min_duration'] ?? 5
-          ),
-          videoMaxDuration: Number(
-            settings['playground_setting.video_max_duration'] ?? 10
-          ),
-          videoRatios: settings['playground_setting.video_ratios'] ?? '16:9,9:16,1:1',
-          videoDefaultRatio:
-            settings['playground_setting.video_default_ratio'] ?? '16:9',
-          videoQualities:
-            settings['playground_setting.video_qualities'] ?? 'standard,high',
-          videoDefaultQuality:
-            settings['playground_setting.video_default_quality'] ?? 'standard',
-          videoReferenceImage:
-            settings['playground_setting.video_reference_image'] ?? true,
-          studioEnabled: settings['playground_setting.studio_enabled'] ?? true,
+          ...playgroundDefaults(settings),
         }}
       />
     ),
@@ -330,3 +295,55 @@ export const getOperationsSectionNavItems =
   operationsRegistry.getSectionNavItems
 export const getOperationsSectionContent = operationsRegistry.getSectionContent
 export const getOperationsSectionMeta = operationsRegistry.getSectionMeta
+
+/**
+ * Builds the defaults of the playground / studio card.
+ *
+ * The media models are stored as a JSON list per mode (`image_models`,
+ * `video_models`). Installations configured before that list existed only have
+ * the single-model values; those become the first entry so the card opens with
+ * the configuration the operator knows.
+ */
+function playgroundDefaults(settings: OperationsSettings) {
+  const parseModels = (raw: unknown) => {
+    if (typeof raw !== 'string' || raw.trim() === '') return undefined
+    try {
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  return {
+    imageEnabled: settings['playground_setting.image_enabled'] ?? true,
+    imageModels: parseModels(settings['playground_setting.image_models']),
+    imageModel: settings['playground_setting.image_model'] ?? '',
+    imageSizes:
+      settings['playground_setting.image_sizes'] ??
+      '1024x1024,1024x1792,1792x1024',
+    imageQualities:
+      settings['playground_setting.image_qualities'] ?? 'standard,hd',
+    imageDefaultSize:
+      settings['playground_setting.image_default_size'] ?? '1024x1024',
+    imageDefaultQuality:
+      settings['playground_setting.image_default_quality'] ?? 'standard',
+    imageDefaultCount: Number(
+      settings['playground_setting.image_default_count'] ?? 1
+    ),
+    videoEnabled: settings['playground_setting.video_enabled'] ?? false,
+    videoModels: parseModels(settings['playground_setting.video_models']),
+    videoModel: settings['playground_setting.video_model'] ?? '',
+    videoDurations: settings['playground_setting.video_durations'] ?? '5,10',
+    videoRatios: settings['playground_setting.video_ratios'] ?? '16:9,9:16,1:1',
+    videoQualities:
+      settings['playground_setting.video_qualities'] ?? 'standard,high',
+    videoDefaultRatio:
+      settings['playground_setting.video_default_ratio'] ?? '16:9',
+    videoDefaultQuality:
+      settings['playground_setting.video_default_quality'] ?? 'standard',
+    videoReferenceImage:
+      settings['playground_setting.video_reference_image'] ?? true,
+    studioEnabled: settings['playground_setting.studio_enabled'] ?? true,
+  }
+}

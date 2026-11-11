@@ -34,6 +34,10 @@ export type UpdateOptionRequest = {
   value: string | boolean | number
 }
 
+export type UpdateOptionsBulkRequest = {
+  options: Record<string, string | boolean | number>
+}
+
 export type UpdateOptionResponse = {
   success: boolean
   message: string
@@ -756,6 +760,8 @@ export type OperationsSettings = {
   'playground_setting.web_search_discord_enabled'?: boolean
   'playground_setting.web_search_live_enabled'?: boolean
   'playground_setting.image_enabled'?: boolean
+  /** JSON list of image models with the options of every model. */
+  'playground_setting.image_models'?: string
   'playground_setting.image_model'?: string
   'playground_setting.image_sizes'?: string
   'playground_setting.image_default_size'?: string
@@ -763,6 +769,8 @@ export type OperationsSettings = {
   'playground_setting.image_default_quality'?: string
   'playground_setting.image_default_count'?: number
   'playground_setting.video_enabled'?: boolean
+  /** JSON list of video models with the options of every model. */
+  'playground_setting.video_models'?: string
   'playground_setting.video_model'?: string
   'playground_setting.video_durations'?: string
   'playground_setting.video_default_duration'?: number

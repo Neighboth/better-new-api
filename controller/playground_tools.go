@@ -2,7 +2,6 @@ package controller
 
 import (
 	"math"
-	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -14,30 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// splitSettingList turns a comma separated setting into a trimmed list.
-func splitSettingList(raw string) []string {
-	parts := strings.Split(raw, ",")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		value := strings.TrimSpace(part)
-		if value != "" {
-			out = append(out, value)
-		}
-	}
-	return out
-}
-
-func splitSettingInts(raw string) []int {
-	parts := splitSettingList(raw)
-	out := make([]int, 0, len(parts))
-	for _, part := range parts {
-		if value, err := strconv.Atoi(part); err == nil && value > 0 {
-			out = append(out, value)
-		}
-	}
-	return out
-}
-
 // GetPlaygroundConfig publishes the parts of the playground configuration the
 // dashboard needs: the media models of the tools and of the studio, and the
 // surfaces where the web search is available.
@@ -45,25 +20,86 @@ func GetPlaygroundConfig(c *gin.Context) {
 	setting := operation_setting.GetPlaygroundSetting()
 	search := operation_setting.GetOnlineSearchSetting()
 
-	sizes := splitSettingList(setting.ImageSizes)
+	imageModels := setting.ImageModelOptions()
+	videoModels := setting.VideoModelOptions()
+
+	// The tools and older dashboards read the first model of the list; the
+	// studio reads the whole list with the options of every model.
+	imageModel := ""
+	if len(imageModels) > 0 {
+		imageModel = imageModels[0].Model
+	}
+	videoModel := ""
+	if len(videoModels) > 0 {
+		videoModel = videoModels[0].Model
+	}
+
+	sizes := []string{}
+	qualities := []string{}
+	defaultSize := ""
+	defaultQuality := ""
+	for _, model := range imageModels {
+		sizes = append(sizes, model.Sizes...)
+		qualities = append(qualities, model.Qualities...)
+		if defaultSize == "" {
+			defaultSize = model.DefaultSize
+		}
+		if defaultQuality == "" {
+			defaultQuality = model.DefaultQuality
+		}
+	}
+	sizes = uniqueStrings(sizes)
+	qualities = uniqueStrings(qualities)
 	if len(sizes) == 0 {
 		sizes = []string{"1024x1024"}
 	}
-	qualities := splitSettingList(setting.ImageQualities)
 	if len(qualities) == 0 {
 		qualities = []string{"standard"}
 	}
-	durations := splitSettingInts(setting.VideoDurations)
-	if len(durations) == 0 {
-		durations = []int{5}
+	if defaultSize == "" {
+		defaultSize = sizes[0]
 	}
-	ratios := splitSettingList(setting.VideoRatios)
+	if defaultQuality == "" {
+		defaultQuality = qualities[0]
+	}
+
+	durations := []int{}
+	ratios := []string{}
+	videoQualities := []string{}
+	defaultRatio := ""
+	videoDefaultQuality := ""
+	defaultDuration := 0
+	for _, model := range videoModels {
+		durations = append(durations, model.Durations...)
+		ratios = append(ratios, model.Ratios...)
+		videoQualities = append(videoQualities, model.Qualities...)
+		if defaultRatio == "" {
+			defaultRatio = model.DefaultRatio
+		}
+		if videoDefaultQuality == "" {
+			videoDefaultQuality = model.DefaultQuality
+		}
+		if defaultDuration == 0 && len(model.Durations) > 0 {
+			defaultDuration = model.Durations[0]
+		}
+	}
+	ratios = uniqueStrings(ratios)
+	videoQualities = uniqueStrings(videoQualities)
 	if len(ratios) == 0 {
 		ratios = []string{"16:9"}
 	}
-	videoQualities := splitSettingList(setting.VideoQualities)
 	if len(videoQualities) == 0 {
 		videoQualities = []string{"standard"}
+	}
+	if defaultRatio == "" {
+		defaultRatio = ratios[0]
+	}
+	if videoDefaultQuality == "" {
+		videoDefaultQuality = videoQualities[0]
+	}
+	minDuration, maxDuration := setting.VideoDurationRange()
+	if defaultDuration == 0 {
+		defaultDuration = minDuration
 	}
 
 	common.ApiSuccess(c, gin.H{
@@ -77,30 +113,47 @@ func GetPlaygroundConfig(c *gin.Context) {
 		},
 		"image": gin.H{
 			"enabled":         setting.ImageEnabled,
-			"model":           setting.ImageModel,
+			"model":           imageModel,
+			"models":          imageModels,
 			"sizes":           sizes,
-			"default_size":    setting.ImageDefaultSize,
+			"default_size":    defaultSize,
 			"qualities":       qualities,
-			"default_quality": setting.ImageDefaultQuality,
+			"default_quality": defaultQuality,
 			"default_count":   setting.ImageDefaultCount,
 		},
 		"video": gin.H{
 			"enabled":          setting.VideoEnabled,
-			"model":            setting.VideoModel,
+			"model":            videoModel,
+			"models":           videoModels,
 			"durations":        durations,
-			"default_duration": setting.VideoDefaultDuration,
-			"min_duration":     setting.VideoMinDuration,
-			"max_duration":     setting.VideoMaxDuration,
+			"default_duration": defaultDuration,
+			"min_duration":     minDuration,
+			"max_duration":     maxDuration,
 			"ratios":           ratios,
-			"default_ratio":    setting.VideoDefaultRatio,
+			"default_ratio":    defaultRatio,
 			"qualities":        videoQualities,
-			"default_quality":  setting.VideoDefaultQuality,
+			"default_quality":  videoDefaultQuality,
 			"reference_image":  setting.VideoReferenceImage,
 		},
 		"studio": gin.H{
 			"enabled": setting.StudioEnabled,
 		},
 	})
+}
+
+// uniqueStrings removes duplicates while keeping the configuration order.
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 // PlaygroundWebSearch runs one SearXNG query for the web search tool of the

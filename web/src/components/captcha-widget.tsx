@@ -16,7 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+
+import { Button } from '@/components/ui/button'
 
 declare global {
   interface Window {
@@ -194,27 +197,53 @@ export function AltchaWidget({
   onExpire,
   onError,
 }: Omit<ThirdPartyCaptchaProps, 'siteKey'>) {
+  const { t, i18n } = useTranslation()
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+
+    container.innerHTML = ''
+    setFailed(false)
 
     const widget = document.createElement('altcha-widget')
     widget.setAttribute('challengeurl', '/api/captcha/altcha')
     widget.setAttribute('auto', 'onload')
     widget.setAttribute('hidelogo', '')
     widget.setAttribute('hidefooter', '')
+    const language = (i18n.language || 'en').split('-')[0]
+    if (language) {
+      widget.setAttribute('language', language)
+    }
 
     const handleStateChange = (event: Event) => {
       const detail = (
         event as CustomEvent<{ state?: string; payload?: string }>
       ).detail
-      if (detail?.state === 'verified' && detail.payload) {
-        onVerify(detail.payload)
-      } else if (detail?.state === 'expired') {
+      if (detail?.state === 'verified') {
+        // The payload is normally in the event detail; older builds only put
+        // it into the hidden input the widget renders.
+        const fromInput = widget.querySelector('input')?.value ?? ''
+        const payload = detail.payload || fromInput
+        if (payload) {
+          onVerify(payload)
+        } else {
+          setFailed(true)
+          onError?.()
+        }
+        return
+      }
+      if (detail?.state === 'expired') {
         onExpire?.()
-      } else if (detail?.state === 'error') {
+        return
+      }
+      if (detail?.state === 'error') {
+        // The widget could not fetch or solve the challenge (offline, blocked
+        // CDN, server error). Show a retry instead of an empty box.
+        setFailed(true)
         onError?.()
       }
     }
@@ -226,13 +255,28 @@ export function AltchaWidget({
       widget.removeEventListener('statechange', handleStateChange)
       widget.remove()
     }
-  }, [onVerify, onExpire, onError])
+  }, [attempt, i18n.language, onVerify, onExpire, onError])
 
   return (
-    <>
+    <div className='space-y-2'>
       <div ref={containerRef} className='flex justify-center' />
+      {failed && (
+        <div className='flex flex-col items-center gap-1'>
+          <p className='text-muted-foreground text-xs'>
+            {t('The captcha could not be loaded')}
+          </p>
+          <Button
+            onClick={() => setAttempt((value) => value + 1)}
+            size='sm'
+            type='button'
+            variant='outline'
+          >
+            {t('Retry')}
+          </Button>
+        </div>
+      )}
       <AltchaScript />
-    </>
+    </div>
   )
 }
 
@@ -269,20 +313,30 @@ export function MTCaptchaWidget({
     const container = ref.current
     if (!container) return
 
-    const widgetId = `mtcaptcha-${Math.random().toString(36).slice(2, 10)}`
     container.innerHTML = ''
+    const widgetId = `mtcaptcha-${Math.random().toString(36).slice(2, 10)}`
     const target = document.createElement('div')
     target.id = widgetId
     target.className = 'mtcaptcha'
     container.appendChild(target)
 
+    if (!siteKey) {
+      // Without a site key the provider cannot render anything: report it so
+      // the dialog can fall back instead of showing an empty box.
+      onError?.()
+      return
+    }
+
     const globalWindow = window as unknown as {
       mtcaptchaConfig?: Record<string, unknown>
     }
 
+    // The render queue has to exist before the client script is evaluated,
+    // otherwise the widget id is never rendered.
     globalWindow.mtcaptchaConfig = {
       sitekey: siteKey,
       render: 'explicit',
+      renderQueue: [widgetId],
       'verified-callback': (state: { verifiedToken?: string }) => {
         const token = state?.verifiedToken
         if (typeof token === 'string' && token) {
@@ -309,15 +363,20 @@ export function MTCaptchaWidget({
         script.addEventListener('error', () => onError?.())
         document.head.appendChild(script)
       }
+    } else {
+      // Script already loaded (the dialog was opened before): render the new
+      // widget explicitly.
+      const render = (
+        globalWindow as unknown as {
+          mtcaptcha?: { render?: (options: unknown) => void }
+        }
+      ).mtcaptcha?.render
+      try {
+        render?.({ target: widgetId, sitekey: siteKey })
+      } catch {
+        /* the queue below still covers the retry */
+      }
     }
-
-    const config = globalWindow.mtcaptchaConfig as {
-      renderQueue?: string[]
-    }
-    if (!Array.isArray(config.renderQueue)) {
-      config.renderQueue = []
-    }
-    config.renderQueue.push(widgetId)
 
     return () => {
       container.innerHTML = ''

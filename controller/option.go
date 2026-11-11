@@ -89,6 +89,10 @@ var captchaSettingKeys = map[string]bool{
 	"RecaptchaSecretKey": true,
 	"HCaptchaSiteKey":    true,
 	"HCaptchaSecretKey":  true,
+	// The MTCaptcha site key is public (it ships in the page), the private
+	// key stays hidden like every other secret. Without the site key in this
+	// whitelist the settings page lost the value on every reload.
+	"MTCaptchaSiteKey": true,
 }
 
 func GetOptions(c *gin.Context) {
@@ -473,6 +477,93 @@ func UpdateOption(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
+}
+
+// OptionBulkUpdateRequest updates a whole settings card in one call.
+//
+// The settings pages used to fire one PUT per field, which left the section
+// half saved when a single request failed (or when the page refetched the
+// options between two requests). The bulk endpoint stores every key in one
+// transaction, so a settings card is either saved completely or not at all.
+type OptionBulkUpdateRequest struct {
+	Options map[string]any `json:"options"`
+}
+
+func UpdateOptionsBulk(c *gin.Context) {
+	userId := c.GetInt("id")
+	role := c.GetInt("role")
+	if role > 0 && !authz.Can(userId, role, authz.SystemSettingWrite) {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),
+		})
+		return
+	}
+
+	var request OptionBulkUpdateRequest
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil || len(request.Options) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "无效的参数",
+		})
+		return
+	}
+
+	values := make(map[string]string, len(request.Options))
+	for key, raw := range request.Options {
+		if key == "" {
+			continue
+		}
+		if isPaymentComplianceOptionKey(key) {
+			common.ApiErrorMsg(c, "合规确认字段不允许通过通用设置接口修改")
+			return
+		}
+		values[key] = optionValueToString(raw)
+	}
+	if err := model.UpdateOptionsBulk(values); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	for key := range values {
+		if strings.HasPrefix(key, "byog_setting.") {
+			val := values[key] == "true"
+			if setting, err := model.GetByogSetting(); err == nil && setting != nil {
+				setting.Enabled = val
+				_ = model.UpdateByogSetting(setting)
+			}
+		}
+		if strings.HasPrefix(key, "discord_bot.") {
+			discordbot.RestartBot()
+		}
+	}
+
+	recordManageAudit(c, "option.update_bulk", map[string]interface{}{
+		"count": len(values),
+	})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+	})
+}
+
+// optionValueToString mirrors the coercion of the single option endpoint so
+// both endpoints store the same representation.
+func optionValueToString(raw any) string {
+	switch value := raw.(type) {
+	case nil:
+		return ""
+	case bool:
+		return common.Interface2String(value)
+	case float64:
+		return common.Interface2String(value)
+	case int:
+		return common.Interface2String(value)
+	case string:
+		return value
+	default:
+		return fmt.Sprintf("%v", value)
+	}
 }
 
 func GetEmailDefaultTemplates(c *gin.Context) {

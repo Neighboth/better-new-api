@@ -33,7 +33,7 @@ import {
   getStringArg,
   parseToolArguments,
 } from './tool-call-utils'
-import { pollVideoTask } from './video-task-utils'
+import { pollVideoTask, resolveSubmittedTaskId } from './video-task-utils'
 
 export interface ToolExecutionOutcome {
   /** JSON payload sent back to the model as the tool message content. */
@@ -175,10 +175,7 @@ async function executeGenerateVideo(
     ctx.signal
   )
 
-  const taskId =
-    (typeof submitted.task_id === 'string' && submitted.task_id) ||
-    (typeof submitted.id === 'string' && submitted.id) ||
-    ''
+  const taskId = resolveSubmittedTaskId(submitted)
   if (!taskId) {
     throw new Error(ERROR_MESSAGES.VIDEO_TASK_FAILED)
   }

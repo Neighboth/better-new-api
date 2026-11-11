@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	//"os"
 	//"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -137,6 +138,17 @@ var AltchaHMACKey = ""
 var MTCaptchaSiteKey = ""
 var MTCaptchaPrivateKey = ""
 
+// AltchaSigningKey is the key that signs the ALTCHA challenges. An explicitly
+// configured AltchaHMACKey wins; otherwise the installation secret signs the
+// challenges, so ALTCHA works out of the box without any configuration and
+// still cannot be forged by a client.
+func AltchaSigningKey() string {
+	if key := strings.TrimSpace(AltchaHMACKey); key != "" {
+		return key
+	}
+	return "altcha:" + CryptoSecret
+}
+
 const (
 	CaptchaTypeOff       = "off"
 	CaptchaTypeTurnstile = "turnstile"
@@ -178,7 +190,9 @@ func IsCaptchaProviderConfigured(provider string) bool {
 	case CaptchaTypeImage:
 		return true
 	case CaptchaTypeAltcha:
-		return AltchaHMACKey != ""
+		// ALTCHA is self-hosted and needs no account: the signing key falls
+		// back to the installation secret.
+		return true
 	case CaptchaTypeMTCaptcha:
 		return MTCaptchaSiteKey != "" && MTCaptchaPrivateKey != ""
 	}

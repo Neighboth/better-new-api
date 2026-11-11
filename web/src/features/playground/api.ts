@@ -146,7 +146,20 @@ export async function generateVideo(
     signal,
     skipErrorHandler: true,
   } as Record<string, unknown>)
-  return res.data as VideoGenerationResponse
+  const data = (res.data ?? {}) as VideoGenerationResponse
+
+  // The upstream body carries the id of the provider, while the task is
+  // polled by the id of this installation. The relay publishes it in a
+  // header, without it the poll always misses the task ("the video task has
+  // no id").
+  const headerTaskId = String(
+    (res.headers as Record<string, string> | undefined)?.['x-new-api-task-id'] ??
+      ''
+  ).trim()
+  if (headerTaskId) {
+    data.task_id = headerTaskId
+  }
+  return data
 }
 
 /** Read one of the tasks of the current user. */

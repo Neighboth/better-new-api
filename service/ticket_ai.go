@@ -51,9 +51,13 @@ func InvokeAiAssistant(ticketId int) {
 
 	// Build chat history
 	var chatMessages []aiMessage
+	systemPrompt := setting.AiAssistantSystemPrompt
+	if note := LiveSupportToolPrompt(); note != "" {
+		systemPrompt = systemPrompt + "\n\n" + note
+	}
 	chatMessages = append(chatMessages, aiMessage{
 		Role:    "system",
-		Content: setting.AiAssistantSystemPrompt,
+		Content: systemPrompt,
 	})
 
 	for _, m := range messages {
@@ -176,7 +180,7 @@ func InvokeAiAssistant(ticketId int) {
 		})
 
 		for _, tc := range choiceMsg.ToolCalls {
-			toolResult := ExecuteLiveSupportTool(tc.Function.Name)
+			toolResult := ExecuteLiveSupportTool(tc.Function.Name, tc.Function.Arguments)
 			chatMessages = append(chatMessages, aiMessage{
 				Role:       "tool",
 				Content:    toolResult,

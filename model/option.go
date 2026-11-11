@@ -272,7 +272,7 @@ func InitOptionMap() {
 	common.OptionMap["BillingPoolModelsSubscription"] = ""
 	common.OptionMap["BillingPoolModelFilterModeWallet"] = "none"
 	common.OptionMap["BillingPoolModelsWallet"] = ""
-	common.OptionMap["CaptchaProviderOrder"] = "turnstile,recaptcha,hcaptcha,image"
+	common.OptionMap["CaptchaProviderOrder"] = "turnstile,recaptcha,hcaptcha,mtcaptcha,altcha,image"
 	common.OptionMap["EpayProviders"] = "[]"
 	common.OptionMap["TicketEnabled"] = "true"
 	common.OptionMap["EnableDirectLinkTopup"] = "false"

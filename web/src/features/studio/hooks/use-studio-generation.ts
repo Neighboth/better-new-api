@@ -26,6 +26,7 @@ import {
   generateImages as submitImageGeneration,
   generateVideo as submitVideoGeneration,
   pollVideoTask,
+  resolveSubmittedTaskId,
 } from '../api'
 import type { StudioItem } from '../types'
 
@@ -159,10 +160,7 @@ export function useStudioGeneration() {
           },
           controller.signal
         )
-        const taskId =
-          (typeof submitted.task_id === 'string' && submitted.task_id) ||
-          (typeof submitted.id === 'string' && submitted.id) ||
-          ''
+        const taskId = resolveSubmittedTaskId(submitted)
         if (!taskId) {
           patchItem(id, {
             status: 'error',

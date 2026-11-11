@@ -41,6 +41,23 @@ export async function updateSystemOption(request: UpdateOptionRequest) {
   return res.data
 }
 
+/**
+ * Saves a whole settings card in one request.
+ *
+ * One PUT per field left a card half saved when a single request failed: the
+ * toggles of the web search page for example were written one by one and the
+ * later ones silently overwrote what the first ones stored. The bulk endpoint
+ * stores every key in one transaction.
+ */
+export async function updateSystemOptionsBulk(
+  options: Record<string, string | boolean | number>
+) {
+  const res = await api.put<UpdateOptionResponse>('/api/option/bulk', {
+    options,
+  })
+  return res.data
+}
+
 export async function confirmPaymentCompliance() {
   const res = await api.post<ConfirmPaymentComplianceResponse>(
     '/api/option/payment_compliance',

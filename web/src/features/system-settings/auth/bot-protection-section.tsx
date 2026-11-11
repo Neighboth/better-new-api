@@ -55,7 +55,10 @@ import {
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
-import { useUpdateOption } from '../hooks/use-update-option'
+import {
+  useUpdateOption,
+  useUpdateOptionsBulk,
+} from '../hooks/use-update-option'
 
 const captchaProviders = [
   'turnstile',
@@ -102,6 +105,7 @@ export function BotProtectionSection({
 }: BotProtectionSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
+  const updateOptions = useUpdateOptionsBulk()
   const [fallbackEnabled, setFallbackEnabled] = useState(captchaFallbackEnabled)
   const [testProviders, setTestProviders] = useState<CaptchaProviderOption[]>(
     []
@@ -113,9 +117,17 @@ export function BotProtectionSection({
     defaultValues,
   })
 
+  // The parent builds `defaultValues` from the option map on every render, so
+  // the old effect reset the form on every re-render and wiped the keys the
+  // operator had just typed (the MTCaptcha site key disappeared before it was
+  // saved). Reset only when the stored values really changed and the user has
+  // no unsaved edits.
+  const defaultsSignature = JSON.stringify(defaultValues)
   useEffect(() => {
+    if (form.formState.isDirty) return
     form.reset(defaultValues)
-  }, [defaultValues, form])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultsSignature])
 
   useEffect(() => {
     setFallbackEnabled(captchaFallbackEnabled)
@@ -195,13 +207,34 @@ export function BotProtectionSection({
   }
 
   const onSubmit = async (data: BotProtectionFormValues) => {
-    const updates = Object.entries(data).filter(
-      ([key, value]) =>
-        value !== defaultValues[key as keyof BotProtectionFormValues]
-    )
-
-    for (const [key, value] of updates) {
-      await updateOption.mutateAsync({ key, value: value ?? '' })
+    // The whole card is stored in one request. Saving the fields one by one
+    // made the page look like "sometimes it saves, sometimes it does not":
+    // a single failing request left the provider keys unwritten while the
+    // previous ones were already stored.
+    const payload: Record<string, string> = {
+      CaptchaType: data.CaptchaType ?? 'off',
+      CaptchaProviderOrder: data.CaptchaProviderOrder ?? '',
+      TurnstileSiteKey: data.TurnstileSiteKey ?? '',
+      TurnstileSecretKey: data.TurnstileSecretKey ?? '',
+      RecaptchaSiteKey: data.RecaptchaSiteKey ?? '',
+      RecaptchaSecretKey: data.RecaptchaSecretKey ?? '',
+      HCaptchaSiteKey: data.HCaptchaSiteKey ?? '',
+      HCaptchaSecretKey: data.HCaptchaSecretKey ?? '',
+      MTCaptchaSiteKey: data.MTCaptchaSiteKey ?? '',
+      AltchaHMACKey: data.AltchaHMACKey ?? '',
+    }
+    // Secret values are never sent back to the page, so an empty field means
+    // "keep the stored secret" instead of "erase it".
+    if ((data.MTCaptchaPrivateKey ?? '') !== '') {
+      payload.MTCaptchaPrivateKey = data.MTCaptchaPrivateKey ?? ''
+    }
+    try {
+      await updateOptions.mutateAsync(payload)
+      const stored = form.getValues()
+      form.reset({ ...stored, MTCaptchaPrivateKey: '' }, { keepDirty: false })
+      toast.success(t('Bot protection settings saved successfully'))
+    } catch {
+      toast.error(t('Failed to save settings'))
     }
   }
 
@@ -427,7 +460,7 @@ export function BotProtectionSection({
                     name='AltchaHMACKey'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('ALTCHA HMAC key')}</FormLabel>
+                        <FormLabel>{t('ALTCHA HMAC key (optional)')}</FormLabel>
                         <FormControl>
                           <Input
                             autoComplete='new-password'
@@ -440,7 +473,7 @@ export function BotProtectionSection({
                         </FormControl>
                         <FormDescription>
                           {t(
-                            'ALTCHA is open source and runs on your own server: the widget solves a proof-of-work challenge signed with this key. No account or external service is needed.'
+                            'ALTCHA is open source and runs on your own server: the widget solves a proof-of-work challenge signed with this key. No account or external service is needed. Leave the field empty to sign the challenges with the installation secret.'
                           )}
                         </FormDescription>
                         <FormMessage />

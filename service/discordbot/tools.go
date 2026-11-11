@@ -9,6 +9,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -488,6 +490,25 @@ func GetDiscordBotTools() []ToolDefinition {
 			},
 		},
 	}
+	// The web search tool exists only when the administrator enabled it for
+	// the bot and the installation has a search engine configured.
+	if searchEnabledForDiscord() {
+		tools = append(tools, ToolDefinition{
+			Type: "function",
+			Function: FunctionSpec{
+				Name:        "web_search",
+				Description: "Search the public web. Use it for fresh facts, news, prices or documentation links instead of guessing.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"query":       map[string]any{"type": "string", "description": "The search query"},
+						"max_results": map[string]any{"type": "integer", "description": "How many results to read, 1-10"},
+					},
+					"required": []string{"query"},
+				},
+			},
+		})
+	}
 	for i := range tools {
 		if tools[i].Function.Parameters == nil {
 			tools[i].Function.Parameters = map[string]any{
@@ -537,6 +558,9 @@ func ExecuteDiscordTool(s *discordgo.Session, m *discordgo.MessageCreate, tc Too
 	}
 
 	switch name {
+	case "web_search":
+		return executeWebSearchTool(tc.Function.Arguments)
+
 	case "get_current_time":
 		now := time.Now()
 		return fmt.Sprintf("Live Time: %s, Year: %d, Date: %s, Day: %s, Timezone: %s",
@@ -1218,4 +1242,67 @@ func ParseUserID(raw string) string {
 		return raw
 	}
 	return ""
+}
+
+// toolsAwarenessPrompt tells the model which tools it really has, so it stops
+// claiming that it cannot search the web.
+func toolsAwarenessPrompt() string {
+	parts := []string{}
+	if searchEnabledForDiscord() {
+		parts = append(parts, "`web_search` searches the public web and returns titles, links and snippets")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "Tools you can call right now: " + strings.Join(parts, "; ") +
+		". Use them instead of answering that you cannot look something up or that you have no access to the internet."
+}
+
+// searchEnabledForDiscord reports whether the bot may use the web search tool.
+func searchEnabledForDiscord() bool {
+	playground := operation_setting.GetPlaygroundSetting()
+	if playground == nil || !playground.WebSearchDiscordEnabled {
+		return false
+	}
+	search := operation_setting.GetOnlineSearchSetting()
+	return search != nil && strings.TrimSpace(search.SearXNGURL) != ""
+}
+
+// executeWebSearchTool runs one search and returns the hits as plain text for
+// the model. The results are the same the playground tool shows.
+func executeWebSearchTool(arguments string) string {
+	if !searchEnabledForDiscord() {
+		return "Web search is disabled."
+	}
+	var args struct {
+		Query      string `json:"query"`
+		MaxResults int    `json:"max_results"`
+	}
+	if err := common.Unmarshal([]byte(arguments), &args); err != nil {
+		return "Invalid arguments for web_search."
+	}
+	query := strings.TrimSpace(args.Query)
+	if query == "" {
+		return "Please provide a search query."
+	}
+	maxResults := args.MaxResults
+	if maxResults <= 0 {
+		maxResults = 5
+	}
+	if maxResults > 10 {
+		maxResults = 10
+	}
+	hits, err := service.SearchOnline(query, maxResults)
+	if err != nil {
+		return fmt.Sprintf("The search failed: %v", err)
+	}
+	if len(hits) == 0 {
+		return "No results found."
+	}
+	var builder strings.Builder
+	builder.WriteString("Search results:\n")
+	for index, hit := range hits {
+		builder.WriteString(fmt.Sprintf("%d. %s\n%s\n%s\n", index+1, hit.Title, hit.URL, hit.Content))
+	}
+	return builder.String()
 }

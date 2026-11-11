@@ -205,6 +205,8 @@ export async function batchSetChannelTag(
 
 export interface BatchEditChannelsParams {
   ids: number[]
+  /** Replaces the model list of every selected channel. */
+  models?: string
   auto_ban?: number
   status_code_mapping?: string
   model_ratio_override?: string
@@ -215,6 +217,8 @@ export interface BatchEditChannelsParams {
   param_override?: string
   header_override?: string
   tag?: string
+  remark?: string
+  test_model?: string
 }
 
 export async function batchEditChannels(

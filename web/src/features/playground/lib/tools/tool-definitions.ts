@@ -172,3 +172,35 @@ export function buildNativeThinkingSystemPrompt(level: ThinkingLevel): string {
     THINKING_LEVEL_PROMPTS[level],
   ].join(' ')
 }
+
+/**
+ * Describes the tools the request really carries.
+ *
+ * Without this note the models answer "I cannot search the web" or "I have no
+ * access to the internet" even though `web_search` is attached to the very
+ * same request. The note only lists the tools that are actually enabled, so it
+ * stays truthful when an administrator turns a tool off.
+ */
+export function buildToolAvailabilityPrompt(
+  toolsEnabled: PlaygroundToolsEnabled
+): string {
+  const lines: string[] = []
+  if (toolsEnabled.web_search) {
+    lines.push(
+      '`web_search` searches the public web and returns titles, links and snippets'
+    )
+  }
+  if (toolsEnabled.generate_image) {
+    lines.push('`generate_image` creates an image and attaches it to the answer')
+  }
+  if (toolsEnabled.generate_video) {
+    lines.push('`generate_video` renders a short video and attaches it')
+  }
+  if (lines.length === 0) return ''
+  return [
+    'Tools you can call right now:',
+    lines.join('; ') + '.',
+    'Use them whenever the request needs them. Never answer that you cannot search the web, cannot draw, or have no access to tools while these tools are available; call the tool instead.',
+    'If the user asks which tools you have, list exactly the ones above.',
+  ].join(' ')
+}

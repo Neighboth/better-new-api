@@ -18,12 +18,23 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
 
+/**
+ * Keyboard-only "skip to main content" link.
+ *
+ * The link is invisible until it is focused with the keyboard. It used to be
+ * hidden by translating it up by a fixed amount, which left a blue, square
+ * "skip to main content" button floating over the announcement bars as soon as
+ * the stack of bars grew taller than that offset. It now sits below the bars
+ * (their height is published in `--announcement-bars-height`), keeps the
+ * rounded shape of the other buttons and only appears on focus.
+ */
 export function SkipToMain() {
   const { t } = useTranslation()
   return (
     <a
-      className={`bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-ring fixed start-44 z-999 -translate-y-52 px-4 py-2 text-sm font-medium whitespace-nowrap opacity-95 shadow-sm transition focus:translate-y-3 focus:transform focus-visible:ring-1`}
+      className='bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-ring pointer-events-none fixed start-4 z-999 -translate-y-[200%] rounded-md px-4 py-2 text-sm font-medium whitespace-nowrap opacity-0 shadow-md transition focus:pointer-events-auto focus:translate-y-2 focus:opacity-100 focus-visible:ring-2 focus-visible:outline-none'
       href='#content'
+      style={{ top: 'var(--announcement-bars-height, 0px)' }}
     >
       {t('Skip to Main')}
     </a>

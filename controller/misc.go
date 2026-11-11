@@ -122,7 +122,7 @@ func GetStatus(c *gin.Context) {
 		"captcha_provider_order":      common.OptionMap["CaptchaProviderOrder"],
 		"recaptcha_site_key":          common.RecaptchaSiteKey,
 		"hcaptcha_site_key":           common.HCaptchaSiteKey,
-		"altcha_enabled":              common.AltchaHMACKey != "",
+		"altcha_enabled":              common.IsCaptchaProviderConfigured(common.CaptchaTypeAltcha),
 		"mtcaptcha_site_key":          common.MTCaptchaSiteKey,
 		"ticket_enabled":              operation_setting.IsTicketEnabled(),
 		"announcement_bars":           common.OptionMap["AnnouncementBars"],

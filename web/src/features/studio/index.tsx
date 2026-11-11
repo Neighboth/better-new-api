@@ -26,9 +26,10 @@ import {
   VideoIcon,
   XIcon,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -42,7 +43,11 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { getPlaygroundRuntimeConfig } from '@/features/playground/api'
-import { EMPTY_PLAYGROUND_RUNTIME_CONFIG } from '@/features/playground/types'
+import {
+  EMPTY_PLAYGROUND_RUNTIME_CONFIG,
+  type MediaModelRuntime,
+} from '@/features/playground/types'
+import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { useStudioGeneration } from './hooks/use-studio-generation'
@@ -70,18 +75,27 @@ function SettingsChips(props: {
   )
 }
 
-function ResultCard(props: {
-  item: StudioItem
-  onRemove: () => void
-}) {
+function ResultCard(props: { item: StudioItem; onRemove: () => void }) {
   const { t } = useTranslation()
   const { item } = props
 
   return (
-    <div className='bg-card space-y-3 rounded-xl border p-3'>
-      <div className='bg-muted/40 flex min-h-40 items-center justify-center overflow-hidden rounded-lg'>
+    <div className='bg-card group relative overflow-hidden rounded-2xl border shadow-sm transition hover:shadow-md'>
+      <Badge
+        className='absolute start-2 top-2 z-10 gap-1'
+        variant={item.mode === 'video' ? 'secondary' : 'outline'}
+      >
+        {item.mode === 'video' ? (
+          <VideoIcon className='size-3' />
+        ) : (
+          <ImageIcon className='size-3' />
+        )}
+        {item.mode === 'video' ? t('Video') : t('Image')}
+      </Badge>
+
+      <div className='bg-muted/40 flex min-h-44 items-center justify-center overflow-hidden'>
         {item.status === 'pending' && (
-          <div className='text-muted-foreground flex items-center gap-2 py-12 text-sm'>
+          <div className='text-muted-foreground flex items-center gap-2 py-16 text-sm'>
             <Loader2Icon className='size-4 animate-spin' />
             {item.mode === 'video'
               ? t('Rendering the video, this can take a few minutes…')
@@ -89,7 +103,7 @@ function ResultCard(props: {
           </div>
         )}
         {item.status === 'error' && (
-          <p className='text-destructive px-4 py-12 text-center text-sm'>
+          <p className='text-destructive px-4 py-16 text-center text-sm'>
             {item.error || t('The generation failed')}
           </p>
         )}
@@ -115,42 +129,77 @@ function ResultCard(props: {
           )}
       </div>
 
-      <p className='line-clamp-2 text-sm'>{item.prompt}</p>
-      <SettingsChips settings={item.settings} />
+      <div className='space-y-2 p-3'>
+        <p className='line-clamp-2 text-sm'>{item.prompt}</p>
+        <SettingsChips settings={item.settings} />
 
-      <div className='flex items-center justify-between gap-2'>
-        <div className='flex gap-2'>
-          {item.status === 'ready' &&
-            item.urls.map((url, index) => (
-              <Button
-                key={url}
-                size='sm'
-                variant='outline'
-                render={
-                  <a
-                    download
-                    href={url}
-                    rel='noreferrer'
-                    target='_blank'
-                    aria-label={t('Download')}
-                  />
-                }
-              >
-                <DownloadIcon className='size-3.5' />
-                {t('Download')}
-                {item.urls.length > 1 ? ` ${index + 1}` : ''}
-              </Button>
-            ))}
+        <div className='flex items-center justify-between gap-2 pt-1'>
+          <div className='flex flex-wrap gap-2'>
+            {item.status === 'ready' &&
+              item.urls.map((url, index) => (
+                <Button
+                  key={url}
+                  size='sm'
+                  variant='outline'
+                  render={
+                    <a
+                      download
+                      href={url}
+                      rel='noreferrer'
+                      target='_blank'
+                      aria-label={t('Download')}
+                    />
+                  }
+                >
+                  <DownloadIcon className='size-3.5' />
+                  {t('Download')}
+                  {item.urls.length > 1 ? ` ${index + 1}` : ''}
+                </Button>
+              ))}
+          </div>
+          <Button
+            aria-label={t('Remove')}
+            onClick={props.onRemove}
+            size='icon-sm'
+            variant='ghost'
+          >
+            <XIcon className='size-4' />
+          </Button>
         </div>
-        <Button
-          aria-label={t('Remove')}
-          onClick={props.onRemove}
-          size='icon-sm'
-          variant='ghost'
-        >
-          <XIcon className='size-4' />
-        </Button>
       </div>
+    </div>
+  )
+}
+
+/** Select of one option of the current media model. */
+function OptionSelect(props: {
+  label: string
+  value: string
+  options: string[]
+  format?: (value: string) => string
+  onChange: (value: string) => void
+  disabled?: boolean
+}) {
+  if (props.options.length === 0) return null
+  return (
+    <div className='space-y-1'>
+      <Label className='text-xs'>{props.label}</Label>
+      <Select
+        disabled={props.disabled}
+        onValueChange={(next) => props.onChange(String(next))}
+        value={props.value || String(props.options[0])}
+      >
+        <SelectTrigger className='h-9 w-full'>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {props.options.map((option) => (
+            <SelectItem key={option} value={option}>
+              {props.format ? props.format(option) : option}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   )
 }
@@ -161,11 +210,13 @@ export function Studio() {
   const [mode, setMode] = useState<StudioMode>('image')
   const [prompt, setPrompt] = useState('')
 
+  const [imageModel, setImageModel] = useState('')
   const [imageSize, setImageSize] = useState('')
   const [imageQuality, setImageQuality] = useState('')
   const [imageCount, setImageCount] = useState(1)
 
-  const [videoDuration, setVideoDuration] = useState(0)
+  const [videoModel, setVideoModel] = useState('')
+  const [videoDuration, setVideoDuration] = useState('')
   const [videoRatio, setVideoRatio] = useState('')
   const [videoQuality, setVideoQuality] = useState('')
   const [referenceImage, setReferenceImage] = useState('')
@@ -177,13 +228,87 @@ export function Studio() {
   })
   const runtime = runtimeData ?? EMPTY_PLAYGROUND_RUNTIME_CONFIG
 
-  const imageModel = runtime.image.model
-  const videoModel = runtime.video.model
-  const size = imageSize || runtime.image.default_size
-  const quality = imageQuality || runtime.image.default_quality
-  const duration = videoDuration || runtime.video.default_duration
-  const ratio = videoRatio || runtime.video.default_ratio
-  const videoQualityValue = videoQuality || runtime.video.default_quality
+  const imageModels = useMemo<MediaModelRuntime[]>(
+    () =>
+      runtime.image.models?.length
+        ? runtime.image.models
+        : runtime.image.model
+          ? [{ model: runtime.image.model }]
+          : [],
+    [runtime.image]
+  )
+  const videoModels = useMemo<MediaModelRuntime[]>(
+    () =>
+      runtime.video.models?.length
+        ? runtime.video.models
+        : runtime.video.model
+          ? [{ model: runtime.video.model }]
+          : [],
+    [runtime.video]
+  )
+
+  // Keep a valid selection when the configuration arrives or the mode
+  // changes; every model brings its own options, so the chosen values reset
+  // to the defaults of the newly selected model.
+  const selectedImageModel = useMemo(() => {
+    const match = imageModels.find((entry) => entry.model === imageModel)
+    return match ?? imageModels[0]
+  }, [imageModels, imageModel])
+  const selectedVideoModel = useMemo(() => {
+    const match = videoModels.find((entry) => entry.model === videoModel)
+    return match ?? videoModels[0]
+  }, [videoModels, videoModel])
+
+  useEffect(() => {
+    if (selectedImageModel && selectedImageModel.model !== imageModel) {
+      setImageModel(selectedImageModel.model)
+      setImageSize('')
+      setImageQuality('')
+    }
+  }, [selectedImageModel, imageModel])
+
+  useEffect(() => {
+    if (selectedVideoModel && selectedVideoModel.model !== videoModel) {
+      setVideoModel(selectedVideoModel.model)
+      setVideoDuration('')
+      setVideoRatio('')
+      setVideoQuality('')
+    }
+  }, [selectedVideoModel, videoModel])
+
+  const imageSizes = selectedImageModel?.sizes?.length
+    ? selectedImageModel.sizes
+    : runtime.image.sizes
+  const imageQualities = selectedImageModel?.qualities?.length
+    ? selectedImageModel.qualities
+    : runtime.image.qualities
+  const size =
+    imageSize || selectedImageModel?.default_size || runtime.image.default_size
+  const quality =
+    imageQuality ||
+    selectedImageModel?.default_quality ||
+    runtime.image.default_quality
+
+  const videoDurations = selectedVideoModel?.durations?.length
+    ? selectedVideoModel.durations
+    : runtime.video.durations
+  const videoRatios = selectedVideoModel?.ratios?.length
+    ? selectedVideoModel.ratios
+    : runtime.video.ratios
+  const videoQualities = selectedVideoModel?.qualities?.length
+    ? selectedVideoModel.qualities
+    : runtime.video.qualities
+  const duration = Number(
+    videoDuration || videoDurations[0] || runtime.video.default_duration || 0
+  )
+  const ratio =
+    videoRatio || selectedVideoModel?.default_ratio || runtime.video.default_ratio
+  const videoQualityValue =
+    videoQuality ||
+    selectedVideoModel?.default_quality ||
+    runtime.video.default_quality
+  const supportsReference =
+    selectedVideoModel?.reference_image ?? runtime.video.reference_image
 
   const {
     items,
@@ -204,8 +329,8 @@ export function Studio() {
     prompt.trim().length > 0 &&
     !isGenerating &&
     (mode === 'image'
-      ? runtime.image.enabled && Boolean(imageModel)
-      : runtime.video.enabled && Boolean(videoModel))
+      ? runtime.image.enabled && Boolean(selectedImageModel)
+      : runtime.video.enabled && Boolean(selectedVideoModel))
 
   const handleGenerate = () => {
     if (!canGenerate) return
@@ -214,7 +339,7 @@ export function Studio() {
     if (mode === 'image') {
       void generateImage({
         prompt: text,
-        model: imageModel,
+        model: selectedImageModel?.model ?? '',
         group: user?.group,
         size,
         quality,
@@ -225,24 +350,13 @@ export function Studio() {
 
     void generateVideo({
       prompt: text,
-      model: videoModel,
+      model: selectedVideoModel?.model ?? '',
       group: user?.group,
       duration,
       ratio,
       quality: videoQualityValue,
       imageUrl: referenceImage || undefined,
     })
-  }
-
-  if (runtimeData && !runtime.studio.enabled) {
-    return (
-      <div className='text-muted-foreground flex h-full flex-col items-center justify-center gap-2 p-8 text-center'>
-        <SparklesIcon className='size-8' />
-        <p className='text-sm'>
-          {t('The studio is disabled by the administrator.')}
-        </p>
-      </div>
-    )
   }
 
   const handleReferenceFile = (file: File | undefined) => {
@@ -259,12 +373,28 @@ export function Studio() {
     reader.readAsDataURL(file)
   }
 
+  if (runtimeData && !runtime.studio.enabled) {
+    return (
+      <div className='text-muted-foreground flex h-full flex-col items-center justify-center gap-2 p-8 text-center'>
+        <SparklesIcon className='size-8' />
+        <p className='text-sm'>
+          {t('The studio is disabled by the administrator.')}
+        </p>
+      </div>
+    )
+  }
+
+  const modeDisabled =
+    mode === 'image' ? !runtime.image.enabled : !runtime.video.enabled
+
   return (
-    <div className='mx-auto flex w-full max-w-7xl flex-col gap-5 p-4 md:p-6'>
-      <header className='flex flex-wrap items-center justify-between gap-3'>
+    <div className='mx-auto flex w-full max-w-[1500px] flex-col gap-6 p-4 md:p-6'>
+      <header className='from-primary/10 via-background to-background flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-gradient-to-r p-4 md:p-5'>
         <div className='space-y-1'>
           <h1 className='flex items-center gap-2 text-xl font-semibold'>
-            <SparklesIcon className='size-5' />
+            <span className='bg-primary/15 text-primary flex size-9 items-center justify-center rounded-xl'>
+              <SparklesIcon className='size-5' />
+            </span>
             {t('Studio')}
           </h1>
           <p className='text-muted-foreground text-sm'>
@@ -274,7 +404,7 @@ export function Studio() {
           </p>
         </div>
 
-        <div className='flex items-center gap-2'>
+        <div className='flex flex-wrap items-center gap-2'>
           <Tabs
             onValueChange={(value) => setMode(value as StudioMode)}
             value={mode}
@@ -291,10 +421,10 @@ export function Studio() {
             </TabsList>
           </Tabs>
           <Button
+            disabled={modeItems.length === 0}
             onClick={() => clearItems(mode)}
             size='sm'
             variant='outline'
-            disabled={modeItems.length === 0}
           >
             <Trash2Icon className='size-4' />
             {t('Clear')}
@@ -302,74 +432,85 @@ export function Studio() {
         </div>
       </header>
 
-      <div className='grid gap-5 lg:grid-cols-[360px_1fr]'>
-        <section className='bg-card h-fit space-y-4 rounded-xl border p-4 lg:sticky lg:top-4'>
+      <div className='grid items-start gap-6 lg:grid-cols-[380px_minmax(0,1fr)]'>
+        <section className='bg-card space-y-4 rounded-2xl border p-4 shadow-sm lg:sticky lg:top-4'>
           <div className='space-y-2'>
             <Label htmlFor='studio-prompt'>{t('Prompt')}</Label>
             <Textarea
-              className='min-h-32 resize-y'
+              className='min-h-36 resize-y'
               id='studio-prompt'
               onChange={(event) => setPrompt(event.target.value)}
               placeholder={
                 mode === 'video'
-                  ? t(
-                      'Describe the scene, the motion and the camera movement…'
-                    )
+                  ? t('Describe the scene, the motion and the camera movement…')
                   : t('Describe the image you want to create…')
               }
               value={prompt}
             />
           </div>
 
+          <div className='space-y-1'>
+            <Label className='text-xs'>{t('Model')}</Label>
+            {mode === 'image' ? (
+              <Select
+                onValueChange={(value) => {
+                  setImageModel(String(value))
+                  setImageSize('')
+                  setImageQuality('')
+                }}
+                value={selectedImageModel?.model ?? ''}
+              >
+                <SelectTrigger className='w-full'>
+                  <SelectValue placeholder={t('Not configured')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {imageModels.map((entry) => (
+                    <SelectItem key={entry.model} value={entry.model}>
+                      {entry.model}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Select
+                onValueChange={(value) => {
+                  setVideoModel(String(value))
+                  setVideoDuration('')
+                  setVideoRatio('')
+                  setVideoQuality('')
+                }}
+                value={selectedVideoModel?.model ?? ''}
+              >
+                <SelectTrigger className='w-full'>
+                  <SelectValue placeholder={t('Not configured')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {videoModels.map((entry) => (
+                    <SelectItem key={entry.model} value={entry.model}>
+                      {entry.model}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
           {mode === 'image' ? (
-            <div className='space-y-3'>
-              <div className='space-y-1'>
-                <Label>{t('Model')}</Label>
-                <p className='bg-muted/50 rounded-md px-2 py-1.5 font-mono text-xs'>
-                  {imageModel || t('Not configured')}
-                </p>
-              </div>
-
-              <div className='space-y-1'>
-                <Label>{t('Size')}</Label>
-                <Select
-                  onValueChange={(value) => setImageSize(String(value))}
-                  value={size}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {runtime.image.sizes.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className='space-y-1'>
-                <Label>{t('Quality')}</Label>
-                <Select
-                  onValueChange={(value) => setImageQuality(String(value))}
-                  value={quality}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {runtime.image.qualities.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className='space-y-1'>
-                <Label>{t('Images')}</Label>
+            <div className='grid gap-3 sm:grid-cols-2'>
+              <OptionSelect
+                label={t('Size')}
+                onChange={setImageSize}
+                options={imageSizes}
+                value={size}
+              />
+              <OptionSelect
+                label={t('Quality')}
+                onChange={setImageQuality}
+                options={imageQualities}
+                value={quality}
+              />
+              <div className='space-y-1 sm:col-span-2'>
+                <Label className='text-xs'>{t('Images')}</Label>
                 <Input
                   max={4}
                   min={1}
@@ -384,73 +525,28 @@ export function Studio() {
               </div>
             </div>
           ) : (
-            <div className='space-y-3'>
-              <div className='space-y-1'>
-                <Label>{t('Model')}</Label>
-                <p className='bg-muted/50 rounded-md px-2 py-1.5 font-mono text-xs'>
-                  {videoModel || t('Not configured')}
-                </p>
-              </div>
-
-              <div className='space-y-1'>
-                <Label>{t('Duration')}</Label>
-                <Select
-                  onValueChange={(value) => setVideoDuration(Number(value))}
-                  value={String(duration)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {runtime.video.durations.map((option) => (
-                      <SelectItem key={option} value={String(option)}>
-                        {option}s
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className='space-y-1'>
-                <Label>{t('Aspect ratio')}</Label>
-                <Select
-                  onValueChange={(value) => setVideoRatio(String(value))}
-                  value={ratio}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {runtime.video.ratios.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className='space-y-1'>
-                <Label>{t('Quality')}</Label>
-                <Select
-                  onValueChange={(value) => setVideoQuality(String(value))}
-                  value={videoQualityValue}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {runtime.video.qualities.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {runtime.video.reference_image && (
-                <div className='space-y-1'>
+            <div className='grid gap-3 sm:grid-cols-2'>
+              <OptionSelect
+                format={(value) => `${value}s`}
+                label={t('Duration')}
+                onChange={setVideoDuration}
+                options={videoDurations.map(String)}
+                value={String(duration)}
+              />
+              <OptionSelect
+                label={t('Aspect ratio')}
+                onChange={setVideoRatio}
+                options={videoRatios}
+                value={ratio}
+              />
+              <OptionSelect
+                label={t('Quality')}
+                onChange={setVideoQuality}
+                options={videoQualities}
+                value={videoQualityValue}
+              />
+              {supportsReference && (
+                <div className='space-y-1 sm:col-span-2'>
                   <Label htmlFor='studio-reference-image'>
                     {t('Reference image (optional)')}
                   </Label>
@@ -463,10 +559,10 @@ export function Studio() {
                     type='file'
                   />
                   {referenceImage && (
-                    <div className='flex items-center gap-2'>
+                    <div className='flex items-center gap-2 pt-1'>
                       <img
                         alt={t('Reference image')}
-                        className='size-14 rounded border object-cover'
+                        className='size-14 rounded-md border object-cover'
                         src={referenceImage}
                       />
                       <Button
@@ -503,25 +599,36 @@ export function Studio() {
             )}
           </div>
 
-          {mode === 'image' && !runtime.image.enabled && (
-            <p className='text-muted-foreground text-xs'>
-              {t('Image generation is disabled by the administrator.')}
-            </p>
-          )}
-          {mode === 'video' && !runtime.video.enabled && (
-            <p className='text-muted-foreground text-xs'>
-              {t('Video generation is disabled by the administrator.')}
+          {modeDisabled && (
+            <p className='bg-muted/50 text-muted-foreground rounded-lg px-3 py-2 text-xs'>
+              {mode === 'video'
+                ? t('Video generation is disabled by the administrator.')
+                : t('Image generation is disabled by the administrator.')}
             </p>
           )}
         </section>
 
         <section className='space-y-4'>
+          <div className='flex items-center justify-between'>
+            <h2 className='text-sm font-semibold'>
+              {mode === 'video' ? t('Videos') : t('Images')}
+            </h2>
+            <span className='text-muted-foreground text-xs'>
+              {modeItems.length > 0 && t('{{count}} result(s)', { count: modeItems.length })}
+            </span>
+          </div>
+
           {modeItems.length === 0 ? (
-            <div className='text-muted-foreground flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-12 text-center'>
+            <div
+              className={cn(
+                'text-muted-foreground flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed p-16 text-center',
+                'bg-muted/20'
+              )}
+            >
               {mode === 'video' ? (
-                <VideoIcon className='size-8' />
+                <VideoIcon className='size-9' />
               ) : (
-                <ImageIcon className='size-8' />
+                <ImageIcon className='size-9' />
               )}
               <p className='text-sm'>
                 {mode === 'video'
@@ -530,7 +637,7 @@ export function Studio() {
               </p>
             </div>
           ) : (
-            <div className='grid gap-4 sm:grid-cols-2 xl:grid-cols-3'>
+            <div className='grid gap-4 sm:grid-cols-2 2xl:grid-cols-3'>
               {modeItems.map((item) => (
                 <ResultCard
                   item={item}
