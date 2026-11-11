@@ -41,7 +41,8 @@ export const playgroundConfigSchema = z.object({
 
 export const toolsEnabledSchema = z.object({
   generate_image: z.boolean().optional(),
-  update_plan: z.boolean().optional(),
+  generate_video: z.boolean().optional(),
+  web_search: z.boolean().optional(),
 })
 
 export const thinkingSettingsSchema = z.object({
@@ -90,12 +91,6 @@ const reasoningSchema = z.object({
   durationMs: z.number().optional(),
 })
 
-const planStepSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  status: z.enum(['pending', 'in_progress', 'completed']),
-})
-
 const toolEventSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -107,7 +102,6 @@ const toolEventSchema = z.object({
   anchor: z.number().optional(),
   arguments: z.string().optional(),
   result: z.string().optional(),
-  plan: z.array(planStepSchema).optional(),
 })
 
 const thoughtBlockSchema = z.object({
@@ -130,7 +124,6 @@ const messageSchema = z.object({
   sources: z.array(sourceSchema).optional(),
   toolEvents: z.array(toolEventSchema).optional(),
   thoughts: z.array(thoughtBlockSchema).optional(),
-  plan: z.array(planStepSchema).optional(),
   activeTool: z.string().nullable().optional(),
   reasoning: reasoningSchema.optional(),
   isReasoningStreaming: z.boolean().optional(),

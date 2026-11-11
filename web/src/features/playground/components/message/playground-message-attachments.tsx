@@ -16,7 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { CopyIcon, DownloadIcon } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { CopyIcon, DownloadIcon, SparklesIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -34,6 +35,13 @@ import type { MessageAttachment } from '../../types'
 
 type PlaygroundMessageAttachmentsProps = {
   attachments: MessageAttachment[]
+  /** The studio hint under generated media, shown inside the chat by default. */
+  showStudioHint?: boolean
+}
+
+function isVideoAttachment(attachment: MessageAttachment): boolean {
+  if (attachment.mediaType?.startsWith('video')) return true
+  return /\.(mp4|webm|mov|m4v)(\?|$)/i.test(attachment.url)
 }
 
 export function PlaygroundMessageAttachments(
@@ -71,48 +79,83 @@ export function PlaygroundMessageAttachments(
   return (
     <>
       <div className='mb-2 flex flex-wrap gap-2'>
-        {props.attachments.map((attachment, index) => (
-          <div
-            className='border-border/70 group relative overflow-hidden rounded-lg border'
-            key={attachment.url}
-          >
-            <button
-              className='block cursor-zoom-in'
-              onClick={() => setPreview(attachment)}
-              type='button'
+        {props.attachments.map((attachment, index) => {
+          const isVideo = isVideoAttachment(attachment)
+
+          return (
+            <div
+              className='border-border/70 group relative overflow-hidden rounded-lg border'
+              key={attachment.url}
             >
-              <img
-                alt={attachment.filename || t('Attachment')}
-                className='max-h-64 max-w-full object-contain'
-                src={attachment.url}
-              />
-              <span className='sr-only'>{t('Preview image')}</span>
-            </button>
-            <div className='absolute top-1.5 right-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100'>
-              <Button
-                aria-label={t('Copy image')}
-                className='bg-background/80 size-7 backdrop-blur'
-                onClick={() => void handleCopy(attachment)}
-                size='icon-sm'
-                type='button'
-                variant='outline'
-              >
-                <CopyIcon className='size-3.5' />
-              </Button>
-              <Button
-                aria-label={t('Download image')}
-                className='bg-background/80 size-7 backdrop-blur'
-                onClick={() => void handleDownload(attachment, index)}
-                size='icon-sm'
-                type='button'
-                variant='outline'
-              >
-                <DownloadIcon className='size-3.5' />
-              </Button>
+              {isVideo ? (
+                <video
+                  aria-label={attachment.filename || t('Generated video')}
+                  className='max-h-64 max-w-full'
+                  controls
+                  playsInline
+                  preload='metadata'
+                  src={attachment.url}
+                />
+              ) : (
+                <button
+                  className='block cursor-zoom-in'
+                  onClick={() => setPreview(attachment)}
+                  type='button'
+                >
+                  <img
+                    alt={attachment.filename || t('Attachment')}
+                    className='max-h-64 max-w-full object-contain'
+                    src={attachment.url}
+                  />
+                  <span className='sr-only'>{t('Preview image')}</span>
+                </button>
+              )}
+              <div className='absolute top-1.5 right-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100'>
+                {!isVideo && (
+                  <Button
+                    aria-label={t('Copy image')}
+                    className='bg-background/80 size-7 backdrop-blur'
+                    onClick={() => void handleCopy(attachment)}
+                    size='icon-sm'
+                    type='button'
+                    variant='outline'
+                  >
+                    <CopyIcon className='size-3.5' />
+                  </Button>
+                )}
+                <Button
+                  aria-label={t('Download image')}
+                  className='bg-background/80 size-7 backdrop-blur'
+                  onClick={() => void handleDownload(attachment, index)}
+                  size='icon-sm'
+                  type='button'
+                  variant='outline'
+                >
+                  <DownloadIcon className='size-3.5' />
+                </Button>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
+
+      {props.showStudioHint !== false && (
+        <p className='text-muted-foreground mb-3 flex flex-wrap items-center gap-1 text-xs'>
+          <SparklesIcon className='size-3.5' />
+          <span>
+            {t('Want more control over the result?')}{' '}
+            <Link
+              className='text-foreground font-medium underline underline-offset-2'
+              to='/studio'
+            >
+              {t('Open Studio')}
+            </Link>{' '}
+            {t(
+              'to set the model, size, duration, ratio and quality of images and videos.'
+            )}
+          </span>
+        </p>
+      )}
 
       <Dialog
         open={preview !== null}

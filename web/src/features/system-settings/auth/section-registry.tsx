@@ -113,6 +113,9 @@ const AUTH_SECTIONS = [
           RecaptchaSiteKey: settings.RecaptchaSiteKey,
           RecaptchaSecretKey: settings.RecaptchaSecretKey,
           HCaptchaSiteKey: settings.HCaptchaSiteKey,
+          MTCaptchaSiteKey: settings.MTCaptchaSiteKey,
+          MTCaptchaPrivateKey: settings.MTCaptchaPrivateKey,
+          AltchaHMACKey: settings.AltchaHMACKey,
           HCaptchaSecretKey: settings.HCaptchaSecretKey,
           CaptchaProviderOrder: settings.CaptchaProviderOrder || 'turnstile,recaptcha,hcaptcha,image',
         }}

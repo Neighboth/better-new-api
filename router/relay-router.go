@@ -66,6 +66,16 @@ func SetRelayRouter(router *gin.Engine) {
 	{
 		playgroundRouter.POST("/chat/completions", controller.Playground)
 		playgroundRouter.POST("/images/generations", controller.PlaygroundImages)
+		playgroundRouter.POST("/videos/generations", controller.PlaygroundVideo)
+	}
+
+	// Playground tools that do not relay to a model channel: the web search of
+	// the playground runs against the SearXNG instance of the installation.
+	playgroundToolsRouter := router.Group("/pg")
+	playgroundToolsRouter.Use(middleware.RouteTag("relay"))
+	playgroundToolsRouter.Use(middleware.UserAuth())
+	{
+		playgroundToolsRouter.POST("/web-search", controller.PlaygroundWebSearch)
 	}
 	relayV1Router := router.Group("/v1")
 	relayV1Router.Use(middleware.RouteTag("relay"))

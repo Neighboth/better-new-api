@@ -61,6 +61,8 @@ const captchaProviders = [
   'turnstile',
   'recaptcha',
   'hcaptcha',
+  'mtcaptcha',
+  'altcha',
   'image',
 ] as const
 
@@ -73,6 +75,9 @@ const botProtectionSchema = z.object({
   RecaptchaSecretKey: z.string().optional(),
   HCaptchaSiteKey: z.string().optional(),
   HCaptchaSecretKey: z.string().optional(),
+  MTCaptchaSiteKey: z.string().optional(),
+  MTCaptchaPrivateKey: z.string().optional(),
+  AltchaHMACKey: z.string().optional(),
 })
 
 type BotProtectionFormValues = z.infer<typeof botProtectionSchema>
@@ -86,6 +91,8 @@ const providerLabels: Record<(typeof captchaProviders)[number], string> = {
   turnstile: 'Cloudflare Turnstile',
   recaptcha: 'Google reCAPTCHA v2',
   hcaptcha: 'hCaptcha',
+  mtcaptcha: 'MTCaptcha',
+  altcha: 'ALTCHA (proof of work)',
   image: 'Image captcha (built-in)',
 }
 
@@ -130,9 +137,18 @@ export function BotProtectionSection({
   }, [selectedProvider])
 
   const [providerOrder, setProviderOrder] = useState<string[]>(() => {
-    const raw = defaultValues.CaptchaProviderOrder || 'turnstile,recaptcha,hcaptcha,image'
+    const raw =
+      defaultValues.CaptchaProviderOrder ||
+      'turnstile,recaptcha,hcaptcha,mtcaptcha,altcha,image'
     const items = raw.split(',').map((s: string) => s.trim().toLowerCase()).filter(Boolean)
-    const defaultList = ['turnstile', 'recaptcha', 'hcaptcha', 'image']
+    const defaultList = [
+      'turnstile',
+      'recaptcha',
+      'hcaptcha',
+      'mtcaptcha',
+      'altcha',
+      'image',
+    ]
     return Array.from(new Set([...items, ...defaultList]))
   })
 
@@ -168,6 +184,8 @@ export function BotProtectionSection({
       turnstile: values.TurnstileSiteKey,
       recaptcha: values.RecaptchaSiteKey,
       hcaptcha: values.HCaptchaSiteKey,
+      mtcaptcha: values.MTCaptchaSiteKey,
+      altcha: '',
       image: '',
     }
     setTestProviders([
@@ -191,11 +209,13 @@ export function BotProtectionSection({
     siteKeyField:
       | 'TurnstileSiteKey'
       | 'RecaptchaSiteKey'
-      | 'HCaptchaSiteKey',
+      | 'HCaptchaSiteKey'
+      | 'MTCaptchaSiteKey',
     secretKeyField:
       | 'TurnstileSecretKey'
       | 'RecaptchaSecretKey'
-      | 'HCaptchaSecretKey',
+      | 'HCaptchaSecretKey'
+      | 'MTCaptchaPrivateKey',
     providerName: string
   ) => (
     <>
@@ -297,7 +317,7 @@ export function BotProtectionSection({
                   </Label>
                   <p className='text-xs text-muted-foreground mt-0.5'>
                     {t(
-                      'Varsayılan sıralama: Turnstile -> reCaptcha -> hCaptcha -> Dahili Resim. Bir sağlayıcı hata verirse sıradakine otomatik geçilir. Sıralamayı ok butonlarıyla özelleştirebilirsiniz.'
+                      'Varsayılan sıralama: Turnstile -> reCAPTCHA -> hCaptcha -> MTCaptcha -> ALTCHA -> Dahili Resim. Bir sağlayıcı hata verirse sıradakine otomatik geçilir. Sıralamayı ok butonlarıyla özelleştirebilirsiniz.'
                     )}
                   </p>
                 </div>
@@ -394,6 +414,41 @@ export function BotProtectionSection({
                   'HCaptchaSecretKey',
                   'hCaptcha'
                 )}
+              {selectedProvider === 'mtcaptcha' &&
+                providerKeyFields(
+                  'MTCaptchaSiteKey',
+                  'MTCaptchaPrivateKey',
+                  'MTCaptcha'
+                )}
+              {selectedProvider === 'altcha' && (
+                <>
+                  <FormField
+                    control={form.control}
+                    name='AltchaHMACKey'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('ALTCHA HMAC key')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            autoComplete='new-password'
+                            placeholder={t(
+                              'A long random secret, for example 64 hex characters'
+                            )}
+                            type='password'
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'ALTCHA is open source and runs on your own server: the widget solves a proof-of-work challenge signed with this key. No account or external service is needed.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
               {selectedProvider === 'image' && (
                 <FormDescription>
                   {t(

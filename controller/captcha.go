@@ -9,6 +9,33 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// GetAltchaChallenge issues a signed proof-of-work challenge for the ALTCHA
+// widget. The widget fetches this endpoint through its `challengeurl`
+// attribute, so the body is the bare challenge document.
+func GetAltchaChallenge(c *gin.Context) {
+	key := common.AltchaHMACKey
+	if key == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "altcha is not configured",
+		})
+		return
+	}
+
+	challenge, err := captcha.GenerateAltcha(key, 0, 0)
+	if err != nil {
+		common.SysError("failed to generate altcha challenge: " + err.Error())
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "failed to generate challenge",
+		})
+		return
+	}
+
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, challenge)
+}
+
 // GetImageCaptcha issues a new self-hosted image captcha. Available when the
 // administrator selected the "image" captcha type, or when the captcha
 // fallback chain is enabled (image is the last-resort fallback).

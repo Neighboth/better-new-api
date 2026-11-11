@@ -30,6 +30,7 @@ import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as AuthenticatedByogAdminRouteRouteImport } from './routes/_authenticated/byog-admin/route'
 import { Route as AuthenticatedChat2linkRouteImport } from './routes/_authenticated/chat2link'
+import { Route as AuthenticatedStudioRouteImport } from './routes/_authenticated/studio'
 import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
 import { Route as BlogIndexRouteImport } from './routes/blog/index'
@@ -184,6 +185,11 @@ const AuthenticatedByogAdminRouteRoute =
 const AuthenticatedChat2linkRoute = AuthenticatedChat2linkRouteImport.update({
   id: '/chat2link',
   path: '/chat2link',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedStudioRoute = AuthenticatedStudioRouteImport.update({
+  id: '/studio',
+  path: '/studio',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedSystemSettingsRouteRoute =
@@ -501,6 +507,7 @@ export interface FileRoutesByFullPath {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/chat2link': typeof AuthenticatedChat2linkRoute
+  '/studio': typeof AuthenticatedStudioRoute
   '/blog/$postId': typeof BlogPostIdRoute
   '/custom/$navId': typeof CustomNavIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
@@ -571,6 +578,7 @@ export interface FileRoutesByTo {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/chat2link': typeof AuthenticatedChat2linkRoute
+  '/studio': typeof AuthenticatedStudioRoute
   '/blog/$postId': typeof BlogPostIdRoute
   '/custom/$navId': typeof CustomNavIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
@@ -646,6 +654,7 @@ export interface FileRoutesById {
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
   '/_authenticated/chat2link': typeof AuthenticatedChat2linkRoute
+  '/_authenticated/studio': typeof AuthenticatedStudioRoute
   '/blog/$postId': typeof BlogPostIdRoute
   '/custom/$navId': typeof CustomNavIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
@@ -720,6 +729,7 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/chat2link'
+    | '/studio'
     | '/blog/$postId'
     | '/custom/$navId'
     | '/oauth/$provider'
@@ -790,6 +800,7 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/chat2link'
+    | '/studio'
     | '/blog/$postId'
     | '/custom/$navId'
     | '/oauth/$provider'
@@ -864,6 +875,7 @@ export interface FileRouteTypes {
     | '/(errors)/500'
     | '/(errors)/503'
     | '/_authenticated/chat2link'
+    | '/_authenticated/studio'
     | '/blog/$postId'
     | '/custom/$navId'
     | '/oauth/$provider'
@@ -1086,6 +1098,13 @@ declare module '@tanstack/react-router' {
       path: '/chat2link'
       fullPath: '/chat2link'
       preLoaderRoute: typeof AuthenticatedChat2linkRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/studio': {
+      id: '/_authenticated/studio'
+      path: '/studio'
+      fullPath: '/studio'
+      preLoaderRoute: typeof AuthenticatedStudioRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/system-settings': {
@@ -1553,6 +1572,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedByogAdminRouteRoute: typeof AuthenticatedByogAdminRouteRouteWithChildren
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
+  AuthenticatedStudioRoute: typeof AuthenticatedStudioRoute
   AuthenticatedChatChatIdRoute: typeof AuthenticatedChatChatIdRoute
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
   AuthenticatedDashboardByogRoute: typeof AuthenticatedDashboardByogRoute
@@ -1584,6 +1604,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSystemSettingsRouteRoute:
     AuthenticatedSystemSettingsRouteRouteWithChildren,
   AuthenticatedChat2linkRoute: AuthenticatedChat2linkRoute,
+  AuthenticatedStudioRoute: AuthenticatedStudioRoute,
   AuthenticatedChatChatIdRoute: AuthenticatedChatChatIdRoute,
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
   AuthenticatedDashboardByogRoute: AuthenticatedDashboardByogRoute,

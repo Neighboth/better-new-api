@@ -58,6 +58,7 @@ import type {
   ModelOption,
   PlaygroundConfig,
   ParameterEnabled,
+  PlaygroundRuntimeConfig,
   PlaygroundToolsEnabled,
   ThinkingLevel,
   ToolCall,
@@ -73,6 +74,8 @@ interface UseChatHandlerOptions {
   models: ModelOption[]
   thinkingEnabled: boolean
   thinkingLevel: ThinkingLevel
+  /** Administrator configuration of the media models and tool toggles. */
+  runtime?: PlaygroundRuntimeConfig
   onMessageUpdate: (updater: (prev: Message[]) => Message[]) => void
 }
 
@@ -113,6 +116,7 @@ export function useChatHandler({
   models,
   thinkingEnabled,
   thinkingLevel,
+  runtime,
   onMessageUpdate,
 }: UseChatHandlerOptions) {
   const { t } = useTranslation()
@@ -122,6 +126,10 @@ export function useChatHandler({
   const requestGenerationRef = useRef(0)
   const transcriptRef = useRef<ChatCompletionMessage[] | null>(null)
   const toolsRef = useRef<ChatCompletionTool[]>([])
+  // Kept in a ref so the tool loop reads the latest administrator config
+  // without re-creating the callbacks on every config refresh.
+  const runtimeRef = useRef<PlaygroundRuntimeConfig | undefined>(runtime)
+  runtimeRef.current = runtime
   const roundStateRef = useRef<RoundState>({ content: '', toolCalls: [] })
   // Silent error fallback: same-model retry first, then every other model.
   const modelOverrideRef = useRef<string | null>(null)
@@ -428,6 +436,7 @@ export function useChatHandler({
             {
               config,
               models: modelsRef.current,
+              runtime: runtimeRef.current,
               signal: abortController.signal,
             }
           )
@@ -445,7 +454,6 @@ export function useChatHandler({
               applyToolEventFinish(message, call.id, {
                 status: 'done',
                 summary: outcome.summary,
-                plan: outcome.plan,
                 attachments: outcome.attachments,
                 sources: outcome.sources,
                 thought: outcome.thought,

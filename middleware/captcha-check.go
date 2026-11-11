@@ -1,9 +1,12 @@
 package middleware
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -30,6 +33,55 @@ func verifyCaptchaToken(verifyURL string, secret string, response string, remote
 		return false, err
 	}
 	return res.Success, nil
+}
+
+type mtCaptchaVerifyResponse struct {
+	Success bool   `json:"success"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+// verifyMTCaptcha posts the token of the widget to the MTCaptcha validation
+// service together with the private key of the installation.
+func verifyMTCaptcha(privateKey, token, remoteIP string) (bool, error) {
+	if strings.TrimSpace(privateKey) == "" || strings.TrimSpace(token) == "" {
+		return false, nil
+	}
+	body, err := json.Marshal(map[string]string{
+		"privatekey": privateKey,
+		"token":      token,
+		"remoteip":   remoteIP,
+	})
+	if err != nil {
+		return false, err
+	}
+
+	req, err := http.NewRequest(
+		http.MethodPost,
+		"https://service.mtcaptcha.com/mtcv1/api/validate",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	var parsed mtCaptchaVerifyResponse
+	if err := common.DecodeJson(resp.Body, &parsed); err != nil {
+		return false, err
+	}
+	if parsed.Success || strings.EqualFold(parsed.Status, "OK") {
+		return true, nil
+	}
+	return false, nil
 }
 
 func abortWithCaptchaError(c *gin.Context, message string) {
@@ -97,6 +149,28 @@ func TurnstileCheck() gin.HandlerFunc {
 		case common.CaptchaTypeHCaptcha:
 			verifyURL = "https://hcaptcha.com/siteverify"
 			secret = common.HCaptchaSecretKey
+		case common.CaptchaTypeAltcha:
+			// ALTCHA verifies locally: the payload carries the HMAC signature of
+			// the challenge this installation issued.
+			if !captcha.VerifyAltcha(token, common.AltchaHMACKey) {
+				abortWithCaptchaError(c, i18n.T(c, i18n.MsgCaptchaVerifyFailed))
+				return
+			}
+			c.Next()
+			return
+		case common.CaptchaTypeMTCaptcha:
+			ok, err := verifyMTCaptcha(common.MTCaptchaPrivateKey, token, c.ClientIP())
+			if err != nil {
+				common.SysLog(err.Error())
+				abortWithCaptchaError(c, i18n.T(c, i18n.MsgCaptchaVerifyFailed))
+				return
+			}
+			if !ok {
+				abortWithCaptchaError(c, i18n.T(c, i18n.MsgCaptchaVerifyFailed))
+				return
+			}
+			c.Next()
+			return
 		default:
 			abortWithCaptchaError(c, i18n.T(c, i18n.MsgCaptchaProviderMismatch))
 			return

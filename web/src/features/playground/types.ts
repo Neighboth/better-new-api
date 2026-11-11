@@ -37,7 +37,8 @@ export interface MessageAttachment {
 // Playground tool types
 export type PlaygroundToolId =
   | 'generate_image'
-  | 'update_plan'
+  | 'generate_video'
+  | 'web_search'
   | 'think'
 
 // Tools that are always offered to the model. `think` is added dynamically
@@ -47,14 +48,6 @@ export type AlwaysOnToolId = Exclude<PlaygroundToolId, 'think'>
 export type PlaygroundToolsEnabled = Record<AlwaysOnToolId, boolean>
 
 export type ThinkingLevel = 'lite' | 'low' | 'medium' | 'high' | 'ultra'
-
-export type PlanStepStatus = 'pending' | 'in_progress' | 'completed'
-
-export interface PlanStep {
-  id: string
-  title: string
-  status: PlanStepStatus
-}
 
 export type ToolEventStatus = 'running' | 'done' | 'error'
 
@@ -76,8 +69,6 @@ export interface ToolEvent {
   arguments?: string
   /** Tool result payload sent back to the model, kept for transcript replay. */
   result?: string
-  /** Plan snapshot produced by this update_plan call. */
-  plan?: PlanStep[]
 }
 
 /** A think-tool thought rendered exactly like a native reasoning block. */
@@ -102,7 +93,6 @@ export interface Message {
   sources?: { href: string; title: string }[]
   toolEvents?: ToolEvent[]
   thoughts?: ThoughtBlock[]
-  plan?: PlanStep[]
   activeTool?: string | null
   reasoning?: {
     content: string
@@ -226,6 +216,8 @@ export interface ImageGenerationRequest {
   group?: string
   prompt: string
   n?: number
+  size?: string
+  quality?: string
 }
 
 export interface ImageGenerationResponse {
@@ -235,6 +227,122 @@ export interface ImageGenerationResponse {
     b64_json?: string
     revised_prompt?: string
   }>
+}
+
+export interface VideoGenerationRequest {
+  model: string
+  group?: string
+  prompt: string
+  duration?: number
+  ratio?: string
+  quality?: string
+  image_url?: string
+}
+
+/** Submit response of the video endpoints (task based, polled afterwards). */
+export interface VideoGenerationResponse {
+  task_id?: string
+  id?: string
+  status?: string
+  [key: string]: unknown
+}
+
+/** One task row of `/api/task/self`, used to poll a submitted video. */
+export interface VideoTaskState {
+  task_id: string
+  status: string
+  progress?: string
+  result_url?: string
+  fail_reason?: string
+}
+
+export interface WebSearchHit {
+  title: string
+  url: string
+  content: string
+}
+
+export interface WebSearchResponse {
+  query: string
+  count: number
+  results: WebSearchHit[]
+  charged_quota?: number
+}
+
+/**
+ * Runtime configuration published by the administrator for the playground,
+ * the studio and the web-search toggles.
+ */
+export interface PlaygroundRuntimeConfig {
+  web_search: {
+    playground: boolean
+    discord: boolean
+    live: boolean
+    configured: boolean
+    price_per_search: number
+    max_results: number
+  }
+  image: {
+    enabled: boolean
+    model: string
+    sizes: string[]
+    default_size: string
+    qualities: string[]
+    default_quality: string
+    default_count: number
+  }
+  video: {
+    enabled: boolean
+    model: string
+    durations: number[]
+    default_duration: number
+    ratios: string[]
+    default_ratio: string
+    qualities: string[]
+    default_quality: string
+    reference_image: boolean
+    max_duration: number
+    min_duration: number
+  }
+  studio: {
+    enabled: boolean
+  }
+}
+
+export const EMPTY_PLAYGROUND_RUNTIME_CONFIG: PlaygroundRuntimeConfig = {
+  web_search: {
+    playground: false,
+    discord: false,
+    live: false,
+    configured: false,
+    price_per_search: 0,
+    max_results: 5,
+  },
+  image: {
+    enabled: true,
+    model: '',
+    sizes: ['1024x1024', '1024x1792', '1792x1024'],
+    default_size: '1024x1024',
+    qualities: ['standard', 'hd'],
+    default_quality: 'standard',
+    default_count: 1,
+  },
+  video: {
+    enabled: false,
+    model: '',
+    durations: [5, 10],
+    default_duration: 5,
+    ratios: ['16:9', '9:16', '1:1'],
+    default_ratio: '16:9',
+    qualities: ['standard', 'high'],
+    default_quality: 'standard',
+    reference_image: false,
+    min_duration: 5,
+    max_duration: 10,
+  },
+  studio: {
+    enabled: true,
+  },
 }
 
 // Configuration types

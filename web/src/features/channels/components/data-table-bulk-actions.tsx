@@ -40,10 +40,12 @@ import {
   ADMIN_PERMISSION_RESOURCES,
   hasPermission,
 } from '@/lib/admin-permissions'
+import { JsonEditor } from '@/components/json-editor'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { batchEditChannels } from '../api'
+import { ModelMappingEditor } from './model-mapping-editor'
 import {
   handleBatchDelete,
   handleBatchDisable,
@@ -379,7 +381,11 @@ export function DataTableBulkActions<TData>({
                   onValueChange={(v) => setAutoBanVal(v as '1' | '0')}
                 >
                   <SelectTrigger className='text-xs h-8'>
-                    <SelectValue />
+                    <SelectValue>
+                      {autoBanVal === '1'
+                        ? t('Automatic ban enabled (default)')
+                        : t('Automatic ban disabled')}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value='1'>{t('Automatic ban enabled (default)')}</SelectItem>
@@ -404,15 +410,17 @@ export function DataTableBulkActions<TData>({
             </div>
             {editStatusCodeMapping && (
               <div className='pt-1 pl-6 space-y-1'>
-                <Input
-                  className='text-xs font-mono'
-                  placeholder='e.g. {"403": "500"}'
+                <JsonEditor
                   value={statusCodeMappingVal}
-                  onChange={(e) => setStatusCodeMappingVal(e.target.value)}
+                  onChange={setStatusCodeMappingVal}
+                  keyPlaceholder='400'
+                  valuePlaceholder='500'
+                  keyLabel={t('Original Code')}
+                  valueLabel={t('Mapped Code')}
+                  emptyMessage={t('No status code mappings configured.')}
+                  template={{ '400': '500', '429': '503' }}
+                  valueType='string'
                 />
-                <p className='text-[10px] text-muted-foreground'>
-                  {t('Format: {"original_code": "mapped_code"}')}
-                </p>
               </div>
             )}
           </div>
@@ -431,15 +439,17 @@ export function DataTableBulkActions<TData>({
             </div>
             {editModelRatio && (
               <div className='pt-1 pl-6 space-y-1'>
-                <Input
-                  className='text-xs font-mono'
-                  placeholder='e.g. {"gpt-4o": 0.8}'
+                <JsonEditor
                   value={modelRatioVal}
-                  onChange={(e) => setModelRatioVal(e.target.value)}
+                  onChange={setModelRatioVal}
+                  keyPlaceholder='gpt-4o'
+                  valuePlaceholder='0.8'
+                  keyLabel={t('Model')}
+                  valueLabel={t('Multiplier')}
+                  emptyMessage={t('No model ratios configured.')}
+                  template={{ 'gpt-4o': 0.8 }}
+                  valueType='number'
                 />
-                <p className='text-[10px] text-muted-foreground'>
-                  {t('Optional per-model ratio multiplier in JSON format')}
-                </p>
               </div>
             )}
           </div>
@@ -458,15 +468,10 @@ export function DataTableBulkActions<TData>({
             </div>
             {editModelMapping && (
               <div className='pt-1 pl-6 space-y-1'>
-                <Input
-                  className='text-xs font-mono'
-                  placeholder='e.g. {"gpt-4": "gpt-4o"}'
+                <ModelMappingEditor
                   value={modelMappingVal}
-                  onChange={(e) => setModelMappingVal(e.target.value)}
+                  onChange={setModelMappingVal}
                 />
-                <p className='text-[10px] text-muted-foreground'>
-                  {t('Format: {"requested_model": "target_model"}')}
-                </p>
               </div>
             )}
           </div>

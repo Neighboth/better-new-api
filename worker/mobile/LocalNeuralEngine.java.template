@@ -106,6 +106,62 @@ public class LocalNeuralEngine {
         }
     }
 
+    /** Memory the device needs beside the weights: the runtime, the app heap and the compute buffers. */
+    private static final long LOAD_RESERVE_BYTES = 768L * 1024L * 1024L;
+
+    /**
+     * Why the native engine must not load this model on this device, or null.
+     *
+     * llama.cpp does not raise a Java exception when the weights do not fit:
+     * a failed allocation inside the native library ends the process with an
+     * abort, the uncaught exception handler of the application never runs and
+     * the tablet dies again on every start (Honor Pad 10 / MagicOS 9). The
+     * guard keeps a model that cannot fit out of the engine, the worker
+     * reports the reason to the coordinator instead of crashing the device.
+     */
+    public static String unloadableReason(android.content.Context ctx, File modelFile) {
+        try {
+            if (ctx == null || modelFile == null || !modelFile.exists()) {
+                return null;
+            }
+            long size = modelFile.length();
+            if (size <= 0) {
+                return null;
+            }
+            long budget = weightBudget(ctx);
+            if (budget <= 0) {
+                return null;
+            }
+            if (size + LOAD_RESERVE_BYTES > budget) {
+                return "Cihazin bellegi bu model icin yetersiz: model "
+                        + (size / (1024L * 1024L)) + " MB, cihazin izin verdigi en fazla "
+                        + (budget / (1024L * 1024L)) + " MB. Daha kucuk bir model secin.";
+            }
+            return null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /** The part of the RAM the weights of a model may occupy on this device. */
+    private static long weightBudget(android.content.Context ctx) {
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager)
+                    ctx.getSystemService(android.content.Context.ACTIVITY_SERVICE);
+            if (am == null) {
+                return 0L;
+            }
+            android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+            am.getMemoryInfo(mi);
+            if (mi.totalMem <= 0) {
+                return 0L;
+            }
+            return (long) (mi.totalMem * 0.80);
+        } catch (Throwable ignored) {
+            return 0L;
+        }
+    }
+
     public static File resolveModelFile(File modelDir, String modelId) {
         File primary = new File(modelDir, modelId + ".gguf");
         try {

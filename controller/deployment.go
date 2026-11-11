@@ -136,6 +136,17 @@ func TestHuggingFaceConnection(c *gin.Context) {
 	})
 }
 
+// apiErrorMsgCode answers with a machine readable code next to the human
+// readable message. The console uses the code to show the failure in the
+// language of the interface instead of the English text of the backend.
+func apiErrorMsgCode(c *gin.Context, code string, msg string, extra gin.H) {
+	payload := gin.H{"success": false, "message": msg, "code": code}
+	for k, v := range extra {
+		payload[k] = v
+	}
+	c.JSON(http.StatusOK, payload)
+}
+
 func TestHostingerConnection(c *gin.Context) {
 	var req struct {
 		ApiKey string `json:"api_key"`
@@ -173,6 +184,7 @@ func TestHostingerConnection(c *gin.Context) {
 
 	var lastStatus int
 	var lastMessage string
+	unexpectedResponse := false
 	for _, p := range probes {
 		httpReq, err := http.NewRequest(http.MethodGet, p.url, nil)
 		if err != nil {
@@ -185,7 +197,9 @@ func TestHostingerConnection(c *gin.Context) {
 
 		resp, err := client.Do(httpReq)
 		if err != nil {
-			common.ApiErrorMsg(c, fmt.Sprintf("failed to connect to Hostinger: %v", err))
+			apiErrorMsgCode(c, "hostinger_unreachable",
+				fmt.Sprintf("failed to connect to Hostinger: %v", err),
+				gin.H{"error": err.Error()})
 			return
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
@@ -200,7 +214,9 @@ func TestHostingerConnection(c *gin.Context) {
 			// An invalid/expired token is a hard failure, the second probe
 			// would repeat the same answer.
 			if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-				common.ApiErrorMsg(c, fmt.Sprintf("invalid Hostinger API token (HTTP %d). Create a token in hPanel > Account > API and make sure it has access to GPU/VPS.", resp.StatusCode))
+				apiErrorMsgCode(c, "hostinger_invalid_token",
+					fmt.Sprintf("invalid Hostinger API token (HTTP %d). Create a token in hPanel > Account > API and make sure it has access to GPU/VPS.", resp.StatusCode),
+					gin.H{"status": resp.StatusCode})
 				return
 			}
 			// 404/405 only means this product is not available for the token,
@@ -219,6 +235,7 @@ func TestHostingerConnection(c *gin.Context) {
 				// page of a proxy, for example) is not a valid connection.
 				lastStatus = http.StatusOK
 				lastMessage = "unexpected response from the Hostinger GPU API"
+				unexpectedResponse = true
 				continue
 			}
 			available := 0
@@ -251,7 +268,16 @@ func TestHostingerConnection(c *gin.Context) {
 		return
 	}
 
-	common.ApiErrorMsg(c, fmt.Sprintf("Hostinger rejected the token (HTTP %d): %s", lastStatus, lastMessage))
+	if unexpectedResponse {
+		apiErrorMsgCode(c, "hostinger_unexpected_response",
+			fmt.Sprintf("unexpected response from the Hostinger GPU API (HTTP %d)", lastStatus),
+			gin.H{"status": lastStatus})
+		return
+	}
+	apiErrorMsgCode(c, "hostinger_rejected",
+		fmt.Sprintf("Hostinger rejected the token (HTTP %d): %s", lastStatus, lastMessage),
+		gin.H{"status": lastStatus})
+	return
 }
 
 func TestRunPodConnection(c *gin.Context) {

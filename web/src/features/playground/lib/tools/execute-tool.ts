@@ -16,31 +16,30 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { generateImages } from '../../api'
+import { generateImages, generateVideo, searchWeb } from '../../api'
 import { ERROR_MESSAGES } from '../../constants'
 import type {
   MessageAttachment,
   ModelOption,
-  PlanStep,
   PlaygroundConfig,
+  PlaygroundRuntimeConfig,
   PlaygroundToolId,
 } from '../../types'
 import { toGeneratedImageAttachments } from '../message/image-message-utils'
 import { isImageCapableModel, pickImageModel } from '../model-capabilities'
 import { parseRequestErrorDetails } from '../streaming/request-error-utils'
-import { normalizePlanSteps } from './plan-utils'
 import {
+  getNumberArg,
   getStringArg,
   parseToolArguments,
 } from './tool-call-utils'
+import { pollVideoTask } from './video-task-utils'
 
 export interface ToolExecutionOutcome {
   /** JSON payload sent back to the model as the tool message content. */
   content: string
   /** Short human-readable summary shown on the tool event badge. */
   summary?: string
-  /** Latest plan snapshot rendered as a read-only table. */
-  plan?: PlanStep[]
   /** Generated images attached to the assistant message. */
   attachments?: MessageAttachment[]
   /** Search hit links surfaced in the message sources block. */
@@ -53,6 +52,8 @@ export interface ToolExecutionContext {
   config: PlaygroundConfig
   /** Available chat models, used to fall back to an image-capable one. */
   models?: ModelOption[]
+  /** Administrator configuration of the media models and the tools. */
+  runtime?: PlaygroundRuntimeConfig
   signal?: AbortSignal
 }
 
@@ -136,20 +137,116 @@ function executeThink(args: Record<string, unknown>): ToolExecutionOutcome {
   }
 }
 
-function executeUpdatePlan(
-  args: Record<string, unknown>
-): ToolExecutionOutcome {
-  const steps = normalizePlanSteps(args.steps)
-  if (steps.length === 0) {
-    throw new Error(ERROR_MESSAGES.PLAN_STEPS_REQUIRED)
+async function executeGenerateVideo(
+  args: Record<string, unknown>,
+  ctx: ToolExecutionContext
+): Promise<ToolExecutionOutcome> {
+  const prompt = getStringArg(args, 'prompt')
+  if (!prompt) {
+    throw new Error(ERROR_MESSAGES.VIDEO_PROMPT_REQUIRED)
   }
+
+  const videoConfig = ctx.runtime?.video
+  const model = videoConfig?.model?.trim() || ctx.config.model
+  const minDuration = videoConfig?.min_duration || 1
+  const maxDuration = videoConfig?.max_duration || 60
+  const duration = getNumberArg(
+    args,
+    'duration',
+    videoConfig?.default_duration || minDuration,
+    minDuration,
+    maxDuration
+  )
+  const ratioArg = getStringArg(args, 'ratio')
+  const ratio =
+    ratioArg && (!videoConfig?.ratios?.length || videoConfig.ratios.includes(ratioArg))
+      ? ratioArg
+      : videoConfig?.default_ratio || ''
+
+  const submitted = await generateVideo(
+    {
+      model,
+      group: ctx.config.group,
+      prompt,
+      duration,
+      ratio: ratio || undefined,
+      quality: videoConfig?.default_quality || undefined,
+    },
+    ctx.signal
+  )
+
+  const taskId =
+    (typeof submitted.task_id === 'string' && submitted.task_id) ||
+    (typeof submitted.id === 'string' && submitted.id) ||
+    ''
+  if (!taskId) {
+    throw new Error(ERROR_MESSAGES.VIDEO_TASK_FAILED)
+  }
+
+  const finished = await pollVideoTask(taskId, ctx.signal)
+  if (!finished.result_url) {
+    throw new Error(finished.fail_reason || ERROR_MESSAGES.VIDEO_TASK_FAILED)
+  }
+
+  const attachments: MessageAttachment[] = [
+    {
+      url: finished.result_url,
+      mediaType: 'video/mp4',
+      filename: `${prompt.slice(0, 60) || 'video'}.mp4`,
+    },
+  ]
 
   return {
     content: JSON.stringify({
-      steps: steps.map((step) => ({ title: step.title, status: step.status })),
+      note: 'The generated video is displayed to the user in the chat.',
+      model,
+      duration,
+      ratio: ratio || null,
+      url: finished.result_url,
     }),
-    summary: `${steps.filter((step) => step.status === 'completed').length}/${steps.length}`,
-    plan: steps,
+    summary: prompt,
+    attachments,
+  }
+}
+
+async function executeWebSearch(
+  args: Record<string, unknown>,
+  ctx: ToolExecutionContext
+): Promise<ToolExecutionOutcome> {
+  const query = getStringArg(args, 'query')
+  if (!query) {
+    throw new Error(ERROR_MESSAGES.SEARCH_QUERY_REQUIRED)
+  }
+  const maxResults = getNumberArg(args, 'max_results', 5, 1, 10)
+
+  let payload
+  try {
+    payload = await searchWeb(query, maxResults, ctx.signal)
+  } catch (error) {
+    if (ctx.signal?.aborted) throw error
+    const { errorMessage } = parseRequestErrorDetails(error)
+    throw new Error(errorMessage || ERROR_MESSAGES.WEB_SEARCH_FAILED)
+  }
+
+  const results = Array.isArray(payload?.results) ? payload.results : []
+  if (results.length === 0) {
+    return {
+      content: JSON.stringify({ query, results: [], note: 'No result found.' }),
+      summary: query,
+    }
+  }
+
+  const lines = results.map(
+    (hit, index) =>
+      `[${index + 1}] ${hit.title}\n${hit.url}\n${hit.content || ''}`.trim()
+  )
+
+  return {
+    // The model reads the compact list of hits, the user gets the sources
+    // block of the message and can open every link directly.
+    content: `Web search results for "${query}":\n\n${lines.join('\n\n')}`,
+    summary: query,
+    sources: results.map((hit) => ({ href: hit.url, title: hit.title })),
   }
 }
 
@@ -167,8 +264,10 @@ export async function executePlaygroundTool(
   switch (name) {
     case 'generate_image':
       return executeGenerateImage(args, ctx)
-    case 'update_plan':
-      return executeUpdatePlan(args)
+    case 'generate_video':
+      return executeGenerateVideo(args, ctx)
+    case 'web_search':
+      return executeWebSearch(args, ctx)
     case 'think':
       return executeThink(args)
   }

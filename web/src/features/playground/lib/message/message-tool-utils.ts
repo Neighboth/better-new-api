@@ -18,12 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { nanoid } from 'nanoid'
 
-import type {
-  Message,
-  MessageAttachment,
-  PlanStep,
-  ToolEvent,
-} from '../../types'
+import type { Message, MessageAttachment, ToolEvent } from '../../types'
 import { getCurrentVersion } from './message-utils'
 
 /**
@@ -50,7 +45,6 @@ export type ToolEventFinish = {
   status: 'done' | 'error'
   summary?: string
   error?: string
-  plan?: PlanStep[]
   attachments?: MessageAttachment[]
   sources?: { href: string; title: string }[]
   thought?: string
@@ -59,8 +53,8 @@ export type ToolEventFinish = {
 }
 
 /**
- * Resolve a running tool event with its outcome. Generated images, plan
- * snapshots and search sources are folded into the message here.
+ * Resolve a running tool event with its outcome. Generated media and search
+ * sources are folded into the message here.
  */
 export function applyToolEventFinish(
   message: Message,
@@ -76,7 +70,6 @@ export function applyToolEventFinish(
           error: finish.error,
           completedAt: Date.now(),
           result: finish.result ?? event.result,
-          plan: finish.plan ?? event.plan,
         }
       : event
   )
@@ -95,9 +88,6 @@ export function applyToolEventFinish(
         completedAt: event?.completedAt,
       },
     ]
-  }
-  if (finish.plan) {
-    updated.plan = finish.plan
   }
   if (finish.attachments?.length) {
     updated.attachments = [

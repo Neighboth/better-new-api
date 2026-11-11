@@ -16,9 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
+
+import { useMemo } from 'react'
+
+import { getPlaygroundRuntimeConfig } from './api'
 import { PlaygroundChat } from './components/chat/playground-chat'
 import { PlaygroundInput } from './components/input/playground-input'
 import { DEFAULT_TOOLS_ENABLED } from './constants'
+import { EMPTY_PLAYGROUND_RUNTIME_CONFIG } from './types'
 import {
   useChatHandler,
   usePlaygroundConversation,
@@ -43,13 +49,38 @@ export function Playground() {
     clearMessages,
   } = usePlaygroundState()
 
+  const { data: runtimeConfig } = useQuery({
+    queryKey: ['playground-runtime-config'],
+    queryFn: ({ signal }) => getPlaygroundRuntimeConfig(signal),
+    staleTime: 60_000,
+  })
+  const runtime = runtimeConfig ?? EMPTY_PLAYGROUND_RUNTIME_CONFIG
+
+  // The administrator decides which tools exist: video generation and web
+  // search only show up when they are enabled and configured server side.
+  const toolsEnabled = useMemo(
+    () => ({
+      ...DEFAULT_TOOLS_ENABLED,
+      generate_video:
+        DEFAULT_TOOLS_ENABLED.generate_video &&
+        runtime.video.enabled &&
+        Boolean(runtime.video.model),
+      web_search:
+        DEFAULT_TOOLS_ENABLED.web_search &&
+        runtime.web_search.playground &&
+        Boolean(runtime.web_search.configured),
+    }),
+    [runtime]
+  )
+
   const { sendChat, stopGeneration, isGenerating } = useChatHandler({
     config,
     parameterEnabled,
-    toolsEnabled: DEFAULT_TOOLS_ENABLED,
+    toolsEnabled,
     models,
     thinkingEnabled: false,
     thinkingLevel: thinking.level,
+    runtime,
     onMessageUpdate: updateMessages,
   })
 
