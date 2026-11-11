@@ -311,6 +311,8 @@ interface AndroidBridge {
   isSystemDarkMode(): boolean
   testModelInference?(prompt: string): void
   workerRequest?(operation: string, input: string): string
+  exitSafeMode?(): void
+  isSafeModeActive?(): boolean
 }
 
 function getBridge(): AndroidBridge | null {
@@ -638,6 +640,7 @@ export function ClientPage() {
   const [answer, setAnswer] = useState('')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  const [safeMode, setSafeMode] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [onboardingDone, setOnboardingDone] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -778,6 +781,7 @@ export function ClientPage() {
           if (typeof initial.node_id === 'string' && initial.node_id) {
             setNodeId(initial.node_id)
           }
+          setSafeMode(Boolean(initial.safe_mode))
           const isPaired = Boolean(initial.is_paired && initial.node_id)
           setState((prev) => ({
             ...prev,
@@ -1188,6 +1192,12 @@ export function ClientPage() {
       setBusy(false)
       setMessage(errMsg || t('byog.client_pair_failed', 'Eşleştirme başarısız oldu'))
     }
+    target.onSafeMode = () => {
+      setSafeMode(true)
+    }
+    target.onSafeModeCleared = () => {
+      setSafeMode(false)
+    }
     return () => {
       window.removeEventListener('focus', onFocus)
       delete target.showUpdatePrompt
@@ -1197,6 +1207,8 @@ export function ClientPage() {
       delete target.onPairSuccess
       delete target.onModelTestResult
       delete target.onPairError
+      delete target.onSafeMode
+      delete target.onSafeModeCleared
     }
   }, [t, loadState])
 
@@ -1801,6 +1813,27 @@ export function ClientPage() {
                   {busy ? <RefreshCw className='size-4 animate-spin' /> : t('byog.client_connect', 'Eşleştir')}
                 </Button>
               </div>
+
+              {safeMode && (
+                <div className='rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-left text-sm text-amber-700 dark:text-amber-400'>
+                  <p className='font-semibold'>{t('Worker crash protection is active')}</p>
+                  <p className='mt-1 text-xs'>
+                    {t(
+                      'The worker closed the app repeatedly, so it is not started automatically. Start it again after freeing memory or updating the app.'
+                    )}
+                  </p>
+                  <button
+                    type='button'
+                    className='mt-2 rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-1 text-xs font-medium'
+                    onClick={() => {
+                      bridge?.exitSafeMode?.()
+                      setSafeMode(false)
+                    }}
+                  >
+                    {t('Restart Worker')}
+                  </button>
+                </div>
+              )}
 
               {message && (
                 <div

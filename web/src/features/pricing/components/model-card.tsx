@@ -23,6 +23,8 @@ import { useTranslation } from 'react-i18next'
 import { Markdown } from '@/components/ui/markdown'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { getLobeIcon } from '@/lib/lobe-icon'
+import { pickLocalizedValue } from '@/lib/content-language'
+import { getPinColorStyle } from '@/lib/pin-color'
 import { cn } from '@/lib/utils'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
@@ -114,13 +116,8 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     try {
       const parsed = JSON.parse(props.model.announcement_bar)
       if (typeof parsed === 'object') {
-        const currentLang = i18n.language || 'en'
-        const langShort = currentLang.includes('-') ? currentLang.split('-')[0] : currentLang
         const text =
-          parsed.translations?.[currentLang] ||
-          parsed.translations?.[langShort] ||
-          parsed.translations?.['en'] ||
-          parsed.translations?.['tr'] ||
+          pickLocalizedValue(parsed.translations, i18n.language) ||
           parsed.text ||
           ''
         if (!text?.trim()) return null
@@ -140,16 +137,11 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     return null
   }, [props.model.announcement_bar, i18n.language])
 
-  const pinClass = useMemo(() => {
-    if (!props.model.is_pinned) return ''
-    const color = props.model.pin_color?.toLowerCase()
-    if (color === 'none') return ''
-    if (color === 'emerald') return 'border-emerald-500/40 bg-emerald-500/[0.03]'
-    if (color === 'blue') return 'border-blue-500/40 bg-blue-500/[0.03]'
-    if (color === 'purple') return 'border-purple-500/40 bg-purple-500/[0.03]'
-    if (color === 'rose' || color === 'red') return 'border-rose-500/40 bg-rose-500/[0.03]'
-    return 'border-amber-500/30 bg-amber-500/[0.02]'
-  }, [props.model.is_pinned, props.model.pin_color])
+  const pinStyle = useMemo(
+    () => getPinColorStyle(props.model.pin_color),
+    [props.model.pin_color]
+  )
+  const pinClass = props.model.is_pinned ? pinStyle.card : ''
   const propertyBoxes = useMemo(() => {
     if (!props.model.property_boxes) return []
     try {
@@ -257,7 +249,11 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
                 </h3>
                 {props.model.is_pinned && (
                   <span
-                    className='inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 text-[10px] font-semibold border border-amber-500/20 shrink-0'
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold border shrink-0',
+                      pinStyle.badge ||
+                        'bg-muted text-muted-foreground border-border'
+                    )}
                     title={t('Pinned Model')}
                   >
                     <Pin className='size-2.5 fill-current' />

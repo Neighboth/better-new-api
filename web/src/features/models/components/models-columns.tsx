@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/tooltip'
 import { formatTimestampToDate } from '@/lib/format'
 import { getLobeIcon } from '@/lib/lobe-icon'
+import { getPinColorStyle } from '@/lib/pin-color'
 import { cn } from '@/lib/utils'
 
 import {
@@ -136,7 +137,11 @@ export function useModelsColumns(vendors: Vendor[] = []): ColumnDef<Model>[] {
                 )}
                 {model.is_pinned && (
                   <span
-                    className='inline-flex items-center gap-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1 py-0.2 text-[9px] font-semibold border border-amber-500/20 shrink-0'
+                    className={cn(
+                      'inline-flex items-center gap-0.5 rounded-full px-1 py-0.2 text-[9px] font-semibold border shrink-0',
+                      getPinColorStyle(model.pin_color).badge ||
+                        'bg-muted text-muted-foreground border-border'
+                    )}
                     title={t('Pinned Model')}
                   >
                     <Pin className='size-2.5 fill-current' />

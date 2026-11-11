@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -154,31 +155,103 @@ func TestHostingerConnection(c *gin.Context) {
 		return
 	}
 
-	httpReq, err := http.NewRequest(http.MethodGet, "https://api.hostinger.com/v1/vps", nil)
-	if err != nil {
-		common.ApiError(c, err)
-		return
+	// Hostinger's public API lives on developers.hostinger.com and is namespaced
+	// per product (/api/<product>/v1/...). The previous address
+	// (api.hostinger.com/v1/vps) does not exist, so every token - including a
+	// random string - was answered with HTTP 404 and still reported "connected".
+	// The model deployment feature targets Hostinger GPU Hosting, therefore the
+	// GPU catalog is the authoritative probe.
+	client := &http.Client{Timeout: 12 * time.Second}
+	type probe struct {
+		url  string
+		name string
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
-	httpReq.Header.Set("User-Agent", "BetterNewAPI/1.0")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		common.ApiErrorMsg(c, fmt.Sprintf("failed to connect to Hostinger: %v", err))
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		common.ApiErrorMsg(c, fmt.Sprintf("invalid Hostinger API key (HTTP %d)", resp.StatusCode))
-		return
+	probes := []probe{
+		{"https://developers.hostinger.com/api/gpu/v1/pools/groups", "gpu"},
+		{"https://developers.hostinger.com/api/vps/v1/virtual-machines", "vps"},
 	}
 
-	common.ApiSuccess(c, gin.H{
-		"provider": "hostinger",
-		"status":   "connected",
-	})
+	var lastStatus int
+	var lastMessage string
+	for _, p := range probes {
+		httpReq, err := http.NewRequest(http.MethodGet, p.url, nil)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+		httpReq.Header.Set("Accept", "application/json")
+		httpReq.Header.Set("User-Agent", "BetterNewAPI/1.0")
+
+		resp, err := client.Do(httpReq)
+		if err != nil {
+			common.ApiErrorMsg(c, fmt.Sprintf("failed to connect to Hostinger: %v", err))
+			return
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		resp.Body.Close()
+		lastStatus = resp.StatusCode
+		lastMessage = strings.TrimSpace(string(body))
+		if len(lastMessage) > 300 {
+			lastMessage = lastMessage[:300]
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			// An invalid/expired token is a hard failure, the second probe
+			// would repeat the same answer.
+			if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+				common.ApiErrorMsg(c, fmt.Sprintf("invalid Hostinger API token (HTTP %d). Create a token in hPanel > Account > API and make sure it has access to GPU/VPS.", resp.StatusCode))
+				return
+			}
+			// 404/405 only means this product is not available for the token,
+			// other errors are reported but the next probe may still work.
+			continue
+		}
+
+		if p.name == "gpu" {
+			var groups []struct {
+				Name        string  `json:"name"`
+				Available   bool    `json:"available"`
+				LowestPrice float64 `json:"lowest_price"`
+			}
+			if err := json.Unmarshal(body, &groups); err != nil {
+				// A 2xx answer that is not the documented array (an HTML error
+				// page of a proxy, for example) is not a valid connection.
+				lastStatus = http.StatusOK
+				lastMessage = "unexpected response from the Hostinger GPU API"
+				continue
+			}
+			available := 0
+			names := make([]string, 0, len(groups))
+			for _, g := range groups {
+				names = append(names, g.Name)
+				if g.Available {
+					available++
+				}
+			}
+			if len(names) > 12 {
+				names = names[:12]
+			}
+			common.ApiSuccess(c, gin.H{
+				"provider":      "hostinger",
+				"status":        "connected",
+				"catalog":       "gpu",
+				"gpu_groups":    len(groups),
+				"gpu_available": available,
+				"gpu_models":    names,
+			})
+			return
+		}
+
+		common.ApiSuccess(c, gin.H{
+			"provider": "hostinger",
+			"status":   "connected",
+			"catalog":  "vps",
+		})
+		return
+	}
+
+	common.ApiErrorMsg(c, fmt.Sprintf("Hostinger rejected the token (HTTP %d): %s", lastStatus, lastMessage))
 }
 
 func TestRunPodConnection(c *gin.Context) {

@@ -2189,6 +2189,7 @@ public class MainActivity extends Activity {
         }
 
         fetchInitialServerBranding();
+        markHealthyRun();
 
         SharedPreferences spInit = getSharedPreferences("byog_prefs", MODE_PRIVATE);
         if (WorkerService.boolPref(spInit, "is_paired", false) && !WorkerService.stringPref(spInit, "node_id", "").isEmpty()) {
@@ -2198,7 +2199,20 @@ public class MainActivity extends Activity {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     notifOk = notifOk && (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED);
                 }
-                if (notifOk) {
+                if (isSafeMode()) {
+                    // The worker took the application down repeatedly, the
+                    // interface is opened alone and the worker stays off until
+                    // the user starts it again (Honor Pad 10 crash loop).
+                    android.util.Log.w("BYOG_MAIN", "Safe mode active, worker auto start skipped");
+                    try {
+                        webView.postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                safeEvalJs("if (window.onSafeMode) window.onSafeMode();");
+                            }
+                        }, 1500L);
+                    } catch (Throwable ignored) {}
+                } else if (notifOk) {
                     long lastCrash = WorkerService.longPref(spInit, "worker_last_crash_time", 0);
                     if (System.currentTimeMillis() - lastCrash > 10000L) {
                         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
@@ -2745,6 +2759,56 @@ public class MainActivity extends Activity {
 
 
 
+    /** A crash that repeats inside this window is a crash loop. */
+    private static final long CRASH_LOOP_WINDOW_MS = 120000L;
+    /** Two crashes inside the window switch the worker off. */
+    private static final int MAX_CRASH_STREAK = 2;
+
+    /**
+     * True when the worker killed the application repeatedly.
+     *
+     * In safe mode the interface is started alone: the worker (foreground
+     * service, tunnel, model download, native engine) is not started
+     * automatically, so a failure of the worker cannot close the application
+     * on every start any more. The user starts the worker again explicitly.
+     */
+    private boolean isSafeMode() {
+        try {
+            return WorkerService.boolPref(getSharedPreferences("byog_prefs", MODE_PRIVATE), "safe_mode", false);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /** Clears the crash streak and the safe mode. */
+    private void clearSafeMode() {
+        try {
+            getSharedPreferences("byog_prefs", MODE_PRIVATE).edit()
+                    .putBoolean("safe_mode", false)
+                    .putInt("crash_streak", 0)
+                    .putLong("last_crash_at", 0L)
+                    .putInt("worker_crash_streak", 0)
+                    .apply();
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * Marks the run of the application as healthy.
+     *
+     * The interface that stays open without a crash for a while clears the
+     * streak, the next start of the application is a normal start again.
+     */
+    private void markHealthyRun() {
+        try {
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    clearSafeMode();
+                }
+            }, 45000L);
+        } catch (Throwable ignored) {}
+    }
+
     /**
      * Installs a crash handler that records the failure and reports it to the
      * coordinator.
@@ -2767,9 +2831,19 @@ public class MainActivity extends Activity {
                         android.util.Log.e("BYOG_CRASH", "Uncaught exception on " + t.getName() + ": " + msg, e);
                         long now = System.currentTimeMillis();
                         long previousCrash = WorkerService.longPref(sp, "last_crash_at", 0L);
+                        // A crash that repeats within the window is a crash loop: the
+                        // application would die again on every start and could not be
+                        // opened any more (Honor Pad 10 / MagicOS 9 after a pairing).
+                        // The streak is kept, the worker is switched off in safe mode.
+                        int streak = (now - previousCrash <= CRASH_LOOP_WINDOW_MS)
+                                ? WorkerService.intPref(sp, "crash_streak", 0) + 1
+                                : 1;
+                        boolean safeMode = streak >= MAX_CRASH_STREAK;
                         sp.edit()
                                 .putString("last_crash", msg + "\\n" + stack)
                                 .putLong("last_crash_at", now)
+                                .putInt("crash_streak", streak)
+                                .putBoolean("safe_mode", safeMode)
                                 .commit();
                         reportCrashToServer("ERR_UNCAUGHT", msg, stack);
                         if (t == android.os.Looper.getMainLooper().getThread()) {
@@ -3645,6 +3719,33 @@ public class MainActivity extends Activity {
             return status.toString();
         }
 
+        /**
+         * Leaves the safe mode and starts the worker again.
+         *
+         * The call is the explicit action of the user in the safe mode banner.
+         */
+        @JavascriptInterface
+        public void exitSafeMode() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    clearSafeMode();
+                    SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
+                    try {
+                        if (WorkerService.boolPref(sp, "is_paired", false) && !WorkerService.stringPref(sp, "node_id", "").isEmpty()) {
+                            safeStartWorkerService(new Intent(MainActivity.this, WorkerService.class));
+                        }
+                    } catch (Throwable ignored) {}
+                    safeEvalJs("if (window.onSafeModeCleared) window.onSafeModeCleared();");
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public boolean isSafeModeActive() {
+            return isSafeMode();
+        }
+
         @JavascriptInterface
         public String getInitialState() {
             if (latestWorkerState != null && latestWorkerState.length() > 0) {
@@ -3663,6 +3764,7 @@ public class MainActivity extends Activity {
                 boolean isPaired = WorkerService.boolPref(sp, "is_paired", false) && !nodeId.isEmpty();
 
                 state.put("is_paired", isPaired);
+                state.put("safe_mode", isSafeMode());
                 state.put("node_id", nodeId);
                 state.put("server_url", serverUrl);
                 state.put("app_name", appName);

@@ -441,19 +441,19 @@ export function CreateDeploymentDrawer({
                       </FormControl>
                       <SelectContent>
                         <SelectItem value='ionet'>
-                          io.net Cloud (DePIN GPU Network)
+                          {t('io.net Cloud (DePIN GPU Network)')}
                         </SelectItem>
                         <SelectItem value='modal'>
-                          Modal (Serverless Cloud GPUs)
+                          {t('Modal (Serverless Cloud GPUs)')}
                         </SelectItem>
                         <SelectItem value='huggingface'>
-                          Hugging Face (Inference Endpoints)
+                          {t('Hugging Face (Inference Endpoints)')}
                         </SelectItem>
                         <SelectItem value='hostinger'>
-                          Hostinger (GPU Virtual Private Servers)
+                          {t('Hostinger GPU Hosting (hourly NVIDIA GPUs)')}
                         </SelectItem>
                         <SelectItem value='runpod'>
-                          RunPod (Cloud GPUs & Serverless)
+                          {t('RunPod (Cloud GPUs & Serverless)')}
                         </SelectItem>
                       </SelectContent>
                     </Select>
@@ -520,7 +520,7 @@ export function CreateDeploymentDrawer({
                           : provider === 'huggingface'
                             ? t('Hugging Face Instance Size')
                             : provider === 'hostinger'
-                              ? t('Hostinger VPS Plan')
+                              ? t('Hostinger GPU Plan')
                               : provider === 'runpod'
                                 ? t('RunPod GPU Type')
                                 : t('Hardware type')}
@@ -550,10 +550,11 @@ export function CreateDeploymentDrawer({
                                 ]
                               : provider === 'hostinger'
                                 ? [
-                                    { value: 'hostinger-gpu-vps-1', label: 'Hostinger GPU VPS 1 (NVIDIA RTX 4000 • 8 vCPU • 32GB RAM)' },
-                                    { value: 'hostinger-gpu-vps-2', label: 'Hostinger GPU VPS 2 (NVIDIA A4000 • 16 vCPU • 64GB RAM)' },
-                                    { value: 'hostinger-gpu-vps-3', label: 'Hostinger GPU VPS 3 (NVIDIA A5000 • 24 vCPU • 96GB RAM)' },
-                                    { value: 'hostinger-vps-kvm8', label: 'Hostinger High-RAM VPS (8 vCPU • 32GB RAM • NVMe)' },
+                                    { value: 'hostinger-rtx4090', label: 'NVIDIA RTX 4090 • 24GB • 8 vCPU • 16GB RAM ($0.45/hr)' },
+                                    { value: 'hostinger-rtx-pro-6000', label: 'NVIDIA RTX PRO 6000 • 96GB • 8 vCPU • 16GB RAM ($0.70/hr)' },
+                                    { value: 'hostinger-a100-8', label: 'NVIDIA A100 • 80GB • 8 vCPU • 16GB RAM ($1.67/hr)' },
+                                    { value: 'hostinger-a100-16', label: 'NVIDIA A100 • 80GB • 16 vCPU • 32GB RAM ($1.73/hr)' },
+                                    { value: 'hostinger-b200', label: 'NVIDIA B200 • 192GB • 8 vCPU • 16GB RAM ($8.26/hr)' },
                                   ]
                                 : provider === 'runpod'
                                   ? [
@@ -605,10 +606,11 @@ export function CreateDeploymentDrawer({
                               </>
                             ) : provider === 'hostinger' ? (
                               <>
-                                <SelectItem value='hostinger-gpu-vps-1'>Hostinger GPU VPS 1 (NVIDIA RTX 4000 • 8 vCPU • 32GB RAM)</SelectItem>
-                                <SelectItem value='hostinger-gpu-vps-2'>Hostinger GPU VPS 2 (NVIDIA A4000 • 16 vCPU • 64GB RAM)</SelectItem>
-                                <SelectItem value='hostinger-gpu-vps-3'>Hostinger GPU VPS 3 (NVIDIA A5000 • 24 vCPU • 96GB RAM)</SelectItem>
-                                <SelectItem value='hostinger-vps-kvm8'>Hostinger High-RAM VPS (8 vCPU • 32GB RAM • NVMe)</SelectItem>
+                                <SelectItem value='hostinger-rtx4090'>NVIDIA RTX 4090 • 24GB • 8 vCPU • 16GB RAM ($0.45/hr)</SelectItem>
+                                <SelectItem value='hostinger-rtx-pro-6000'>NVIDIA RTX PRO 6000 • 96GB • 8 vCPU • 16GB RAM ($0.70/hr)</SelectItem>
+                                <SelectItem value='hostinger-a100-8'>NVIDIA A100 • 80GB • 8 vCPU • 16GB RAM ($1.67/hr)</SelectItem>
+                                <SelectItem value='hostinger-a100-16'>NVIDIA A100 • 80GB • 16 vCPU • 32GB RAM ($1.73/hr)</SelectItem>
+                                <SelectItem value='hostinger-b200'>NVIDIA B200 • 192GB • 8 vCPU • 16GB RAM ($8.26/hr)</SelectItem>
                               </>
                             ) : provider === 'runpod' ? (
                               <>
@@ -669,12 +671,12 @@ export function CreateDeploymentDrawer({
               ) : (
                 <div className='rounded-md border border-muted bg-muted/30 p-3 text-xs text-muted-foreground'>
                   {provider === 'modal'
-                    ? t('Modal sunucusuz (serverless) mimari kullanır; coğrafi lokasyonlar Modal Cloud tarafından otomatik olarak en düşük gecikmeyle yönlendirilir ve 1TB kalıcı Network File System (Volume) bağlanır.')
+                    ? t('Modal uses a serverless architecture: locations are routed automatically with the lowest latency and a 1TB persistent Network File System volume is attached.')
                     : provider === 'hostinger'
-                      ? t('Hostinger VPS sunucu lokasyonları Hostinger Cloud veri merkezi seçiminize göre (ABD, Avrupa, Asya) otomatik yönetilir.')
+                      ? t('Hostinger GPU instances are created in the data center of your Hostinger account and billed hourly.')
                       : provider === 'runpod'
-                        ? t('RunPod coğrafi lokasyonları Community Cloud ve Secure Cloud üzerinde mevcut GPU kapasitesine göre en düşük gecikmeyle otomatik yönlendirilir.')
-                        : t('Hugging Face Spaces ve Inference Endpoints lokasyonu varsayılan olarak us-east-1 / eu-west-1 üzerinde otomatik yönetilir.')}
+                        ? t('RunPod locations are routed automatically over Community Cloud and Secure Cloud to the lowest-latency GPU with available capacity.')
+                        : t('Hugging Face Spaces and Inference Endpoints are managed on us-east-1 / eu-west-1 by default.')}
                 </div>
               )}
 

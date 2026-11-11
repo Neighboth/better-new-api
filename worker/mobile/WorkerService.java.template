@@ -556,7 +556,20 @@ public class WorkerService extends Service {
                         android.util.Log.e("BYOG_CRASH", "Worker thread " + t.getName() + " failed", e);
                         SharedPreferences sp = getSharedPreferences("byog_prefs", MODE_PRIVATE);
                         if (sp != null) {
-                            sp.edit().putString("last_crash", describe(e)).putLong("last_crash_at", System.currentTimeMillis()).commit();
+                            // A worker that dies again and again ends in a crash
+                            // loop of the whole application: the streak switches
+                            // the worker off (safe mode) so the interface opens
+                            // again on the next start (Honor Pad 10).
+                            long now = System.currentTimeMillis();
+                            long previous = longPref(sp, "worker_last_crash_time", 0L);
+                            int streak = (now - previous <= 120000L) ? intPref(sp, "worker_crash_streak", 0) + 1 : 1;
+                            SharedPreferences.Editor ed = sp.edit()
+                                    .putString("last_crash", describe(e))
+                                    .putLong("last_crash_at", now)
+                                    .putLong("worker_last_crash_time", now)
+                                    .putInt("worker_crash_streak", streak);
+                            if (streak >= 2) ed.putBoolean("safe_mode", true);
+                            ed.commit();
                         }
                         reportCrash("ERR_WORKER_THREAD", describe(e), "");
                     } catch (Throwable ignored) {}
