@@ -1,0 +1,38 @@
+name: Debug tests
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOWORK: 'off'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Create frontend embed placeholder
+        run: |
+          mkdir -p web/dist
+          touch web/dist/index.html
+      - name: Run the tests and report the failures as annotations
+        run: |
+          set +e
+          root=$(go list -m)
+          pkgs=$(go list -e ./... | grep -vxF "$root")
+          go test $pkgs > /tmp/root.log 2>&1
+          (cd relaykit && go test ./... > /tmp/relaykit.log 2>&1)
+          echo "== root failures =="
+          grep -hE "^(--- FAIL|FAIL|panic:)" /tmp/root.log | head -12
+          echo "== relaykit failures =="
+          grep -hE "^(--- FAIL|FAIL|panic:)" /tmp/relaykit.log | head -12
+          grep -hE "^\s*(--- FAIL|panic:)" /tmp/root.log /tmp/relaykit.log | head -6 | while IFS= read -r line; do echo "::error::$line"; done
+          grep -hE "^FAIL\s" /tmp/root.log /tmp/relaykit.log | head -4 | while IFS= read -r line; do echo "::error::$line"; done
+          grep -hE "^\s+Error: |^\s+Messages: |expected:|actual  :" /tmp/root.log /tmp/relaykit.log | head -6 | while IFS= read -r line; do echo "::warning::$line"; done
+          exit 0
