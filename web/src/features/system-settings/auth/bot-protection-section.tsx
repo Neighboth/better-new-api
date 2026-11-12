@@ -350,7 +350,7 @@ export function BotProtectionSection({
                   </Label>
                   <p className='text-xs text-muted-foreground mt-0.5'>
                     {t(
-                      'Varsayılan sıralama: Turnstile -> reCAPTCHA -> hCaptcha -> MTCaptcha -> ALTCHA -> Dahili Resim. Bir sağlayıcı hata verirse sıradakine otomatik geçilir. Sıralamayı ok butonlarıyla özelleştirebilirsiniz.'
+                      'Default order: Turnstile -> reCAPTCHA -> hCaptcha -> MTCaptcha -> ALTCHA -> Built-in image. When a provider fails the next one is used automatically. The order can be changed with the arrow buttons.'
                     )}
                   </p>
                 </div>

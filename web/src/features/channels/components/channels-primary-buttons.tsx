@@ -373,11 +373,11 @@ export function ChannelsPrimaryButtons() {
       <ConfirmDialog
         open={showCleanupDialog}
         onOpenChange={setShowCleanupDialog}
-        title={t('Kanal Kalıntılarını Temizle')}
+        title={t('Clean up the channel leftovers')}
         desc={t(
-          'Bu işlem, silinmiş kanallara ait veritabanında kalmış yetenek (abilities) ve kanal ayarları (channel_settings) gibi yetim kayıtları temizler. Devam etmek istiyor musunuz?'
+          'This removes the orphaned rows of deleted channels, such as their abilities and channel settings. Continue?'
         )}
-        confirmText={t('Temizle')}
+        confirmText={t('Clean up')}
         isLoading={isCleaningUp}
         handleConfirm={async () => {
           setIsCleaningUp(true)

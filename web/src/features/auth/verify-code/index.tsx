@@ -87,10 +87,10 @@ export function VerifyCodePage() {
             <KeyRound className='w-8 h-8' />
           </div>
           <h2 className='text-2xl font-semibold tracking-tight'>
-            {t('E-posta Doğrulama Kodu')}
+            {t('Email verification code')}
           </h2>
           <p className='text-muted-foreground text-sm sm:text-base leading-relaxed'>
-            {t('Aşağıdaki doğrulama kodunu kopyalayıp işlem yaptığınız sayfadaki alana giriniz.')}
+            {t('Copy the verification code below and paste it into the field of the page where you started.')}
           </p>
         </div>
 
@@ -112,12 +112,12 @@ export function VerifyCodePage() {
                 {copied ? (
                   <>
                     <Check className='w-5 h-5 text-green-500 animate-in zoom-in-50' />
-                    <span className='text-green-600 font-semibold'>{t('Kopyalandı!')}</span>
+                    <span className='text-green-600 font-semibold'>{t('Copied!')}</span>
                   </>
                 ) : (
                   <>
                     <Copy className='w-5 h-5' />
-                    <span>{t('Kodu Kopyala')}</span>
+                    <span>{t('Copy the code')}</span>
                   </>
                 )}
               </Button>
@@ -125,7 +125,7 @@ export function VerifyCodePage() {
           ) : (
             <div className='text-center py-6 space-y-2'>
               <p className='text-muted-foreground text-sm'>
-                {t('Geçerli bir doğrulama kodu bulunamadı. Lütfen e-postanızdaki bağlantıyı tekrar kontrol edin.')}
+                {t('No valid verification code was found. Please check the link in your email again.')}
               </p>
             </div>
           )}

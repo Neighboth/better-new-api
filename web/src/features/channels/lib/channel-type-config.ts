@@ -171,7 +171,7 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     defaultBaseUrl: 'https://daily-cloudcode-pa.googleapis.com',
     hints: {
       baseUrl: 'Default: https://daily-cloudcode-pa.googleapis.com',
-      key: 'Google Antigravity JSON Key veya OAuth girişi yapınız',
+      key: 'Provide a Google Antigravity JSON key or sign in with OAuth',
       models: 'gemini-3.8-flash,claude-opus-5.5,claude-sonnet-5.5',
     },
   },

@@ -165,7 +165,7 @@ export function AdminTicketsPage() {
   const handlePermanentDelete = async (ticketId: number) => {
     if (
       !window.confirm(
-        t('Bu ticket veritabanından kalıcı olarak silinecek. Bu işlem geri alınamaz. Onaylıyor musunuz?')
+        t('This ticket will be deleted from the database permanently. This cannot be undone. Continue?')
       )
     ) {
       return
@@ -174,14 +174,14 @@ export function AdminTicketsPage() {
     try {
       const res = await adminPermanentDeleteTicket(ticketId)
       if (res.success) {
-        toast.success(t('Ticket veritabanından kalıcı olarak silindi'))
+        toast.success(t('The ticket was permanently deleted from the database'))
         setTickets((prev) => prev.filter((tk) => tk.id !== ticketId))
         setTotal((prev) => Math.max(0, prev - 1))
       } else {
-        toast.error(res.message || t('Silme işlemi başarısız'))
+        toast.error(res.message || t('The delete failed'))
       }
     } catch {
-      toast.error(t('Silme işlemi başarısız'))
+      toast.error(t('The delete failed'))
     }
   }
 
@@ -457,7 +457,7 @@ export function AdminTicketsPage() {
                             variant='ghost'
                             size='icon'
                             className='h-8 w-8 text-destructive hover:bg-destructive/10'
-                            title={t('Kalıcı Olarak Sil (Veritabanından)')}
+                            title={t('Delete permanently (from the database)')}
                             onClick={() => void handlePermanentDelete(tk.id)}
                           >
                             <Trash2 className='h-4 w-4 text-destructive' />

@@ -542,7 +542,7 @@ export function DiscordBotSettingsSection({
                     <FormItem>
                       <FormLabel>{t('Rich Presence State (Subtitle)')}</FormLabel>
                       <FormControl>
-                        <Input placeholder='Online & Hazır' {...field} value={field.value ?? ''} />
+                        <Input placeholder='Online & ready' {...field} value={field.value ?? ''} />
                       </FormControl>
                       <FormDescription>{t('RPC bottom status line (e.g. Responding)')}</FormDescription>
                       <FormMessage />
