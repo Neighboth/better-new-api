@@ -46,6 +46,11 @@ const (
 	MsgAuthUserIdMismatch        = "auth.user_id_mismatch"
 	MsgAuthUserBanned            = "auth.user_banned"
 	MsgAuthInsufficientPrivilege = "auth.insufficient_privilege"
+	MsgSecurityProofRequired      = "security.proof_required"
+	MsgSecurityProofExpired       = "security.proof_expired"
+	MsgSecurityProofInvalid       = "security.proof_invalid"
+	MsgSecurityProofScopeMismatch = "security.proof_scope_mismatch"
+	MsgSecurityProofMethodMismatch = "security.proof_method_mismatch"
 )
 
 // Token related messages

@@ -423,9 +423,13 @@ export type ModelSettings = {
 export type BillingSettings = {
   QuotaForNewUser: number
   PreConsumedQuota: number
-  QuotaForInviter: number
-  QuotaForInvitee: number
   TopUpLink: string
+  'referral_setting.enabled': boolean
+  'referral_setting.invitee_real': number
+  'referral_setting.invitee_display': number
+  'referral_setting.inviter_real': number
+  'referral_setting.inviter_display': number
+  'referral_setting.excluded_channel_ids': number[]
   'general_setting.docs_link': string
   DocsLink_tr: string
   DocsLink_en: string

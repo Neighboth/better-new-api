@@ -450,6 +450,12 @@ export function ModelMutateDrawer({
     },
   })
 
+  // The virtual "auto" model has no price of its own: the request is billed
+  // as the model it picks. The pricing section is meaningless for it.
+  const watchedModelName = form.watch('model_name')
+  const isAutoModel =
+    (watchedModelName ?? '').trim().toLowerCase() === 'auto'
+
   const validateNumber = (value: string) => {
     if (value === '') return true
     return !Number.isNaN(Number.parseFloat(value))
@@ -638,9 +644,13 @@ export function ModelMutateDrawer({
                 isSet(values.audioRatio) ||
                 isSet(values.audioCompletionRatio)))
 
+          // The auto model has no pricing to write: its price is the price of
+          // the model it picks, so the maps stay untouched.
+          const skipPricing = (finalModelName ?? '').trim().toLowerCase() === 'auto'
+
           // Always process system settings updates if we have modelSettings
           // This ensures we can remove stale entries even when clearing all pricing fields
-          if (modelSettings) {
+          if (modelSettings && !skipPricing) {
             // Read existing configurations
             const priceMap = safeJsonParse<Record<string, number>>(
               modelSettings.ModelPrice,
@@ -1301,6 +1311,19 @@ export function ModelMutateDrawer({
             </SideDrawerSection>
 
             {/* Pricing Configuration */}
+            {isAutoModel && (
+              <SideDrawerSection>
+                <h3 className='text-sm font-semibold'>
+                  {t('Pricing Configuration')}
+                </h3>
+                <div className='rounded-md border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm text-muted-foreground'>
+                  {t(
+                    'The auto model has a dynamic price: every request is billed as the model the auto model picks for it, so it carries no price of its own. Configure pinning, the description and the icon here; configure routing in the auto model settings.'
+                  )}
+                </div>
+              </SideDrawerSection>
+            )}
+            {!isAutoModel && (
             <SideDrawerSection>
               <h3 className='text-sm font-semibold'>
                 {t('Pricing Configuration')}
@@ -1752,6 +1775,7 @@ export function ModelMutateDrawer({
                 </>
               )}
             </SideDrawerSection>
+            )}
 
             {/* Status & Sync */}
             <SideDrawerSection>

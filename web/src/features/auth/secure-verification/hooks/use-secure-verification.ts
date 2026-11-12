@@ -23,6 +23,7 @@ import { toast } from 'sonner'
 import {
   extractVerificationInfo,
   isVerificationRequiredError,
+  verificationMessageKeyFor,
 } from '@/lib/secure-verification'
 
 import { checkVerificationMethods, verify } from '../api'
@@ -206,7 +207,7 @@ export function useSecureVerification(
       } catch (error) {
         if (isVerificationRequiredError(error)) {
           const info = extractVerificationInfo(error)
-          toast.info(info.message)
+          toast.info(i18next.t(verificationMessageKeyFor(info.code)))
           await startVerification(apiCall, config)
           return null
         }

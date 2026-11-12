@@ -16,11 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import { zodResolver } from '@hookform/resolvers/zod'
 import type { ChangeEvent } from 'react'
 import type { Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
+
+import { getChannels } from '@/features/channels/api'
+import { MultiSelect } from '@/components/multi-select'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -53,12 +57,18 @@ import { useUpdateOption } from '../hooks/use-update-option'
 const quotaSchema = z.object({
   QuotaForNewUser: z.coerce.number().min(0),
   PreConsumedQuota: z.coerce.number().min(0),
-  QuotaForInviter: z.coerce.number().min(0),
-  QuotaForInvitee: z.coerce.number().min(0),
   TopUpLink: z.string(),
   quota_setting: z.object({
     enable_free_model_pre_consume: z.boolean(),
     always_cache_hit: z.boolean().optional(),
+  }),
+  referral_setting: z.object({
+    enabled: z.boolean(),
+    invitee_real: z.coerce.number().min(0),
+    invitee_display: z.coerce.number().min(0),
+    inviter_real: z.coerce.number().min(0),
+    inviter_display: z.coerce.number().min(0),
+    excluded_channel_ids: z.array(z.number()),
   }),
 })
 
@@ -97,6 +107,29 @@ export function QuotaSettingsSection({
       defaultValues,
       onSubmit: async (_data, changedFields) => {
         for (const [key, value] of Object.entries(changedFields)) {
+          // The channel exclusion list is an array of ids: serialize it as
+          // JSON, the backend decodes it into a typed []int.
+          if (key === 'referral_setting.excluded_channel_ids') {
+            await updateOption.mutateAsync({
+              key,
+              value: JSON.stringify(
+                (Array.isArray(value) ? value : []).map((v) => Number(v))
+              ),
+            })
+            continue
+          }
+          if (key.startsWith('referral_setting.')) {
+            // The referral amounts are stored in raw quota units.
+            if (typeof value === 'number') {
+              await updateOption.mutateAsync({ key, value })
+              continue
+            }
+            await updateOption.mutateAsync({
+              key,
+              value: String(value),
+            })
+            continue
+          }
           await updateOption.mutateAsync({
             key,
             value: value as string | number | boolean,
@@ -104,6 +137,25 @@ export function QuotaSettingsSection({
         }
       },
     })
+
+  const referralEnabled = form.watch('referral_setting.enabled')
+
+  // Channels for the referral-balance exclusion: the list is only needed
+  // when the enhanced referral reward is on.
+  const { data: channelsData } = useQuery({
+    queryKey: ['quota-channels-for-referral'],
+    queryFn: () => getChannels({ p: 1, page_size: 1000 }),
+    enabled: Boolean(referralEnabled),
+    staleTime: 5 * 60_000,
+  })
+
+  const channelOptions = (
+    (channelsData as { data?: { items?: { id: number; name: string }[] } } |
+      undefined)?.data?.items ?? []
+  ).map((channel) => ({
+    value: String(channel.id),
+    label: `#${channel.id} · ${channel.name}`,
+  }))
 
   return (
     <SettingsSection title={t('Quota Settings')}>
@@ -180,60 +232,185 @@ export function QuotaSettingsSection({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name='QuotaForInviter'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Inviter Reward')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      value={field.value ?? ''}
-                      onChange={handleNumberChange(field.onChange)}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Quota given to users who invite others ({{formattedQuota}})',
-                      {
-                        formattedQuota: formatQuotaInputValue(field.value),
-                      }
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <SettingsFormGridItem span='full'>
+              <div className='space-y-3 border-border rounded-lg border border-dashed p-3'>
+                <FormField
+                  control={form.control}
+                  name='referral_setting.enabled'
+                  render={({ field }) => (
+                    <SettingsSwitchItem className='py-0'>
+                      <SettingsSwitchContent>
+                        <FormLabel>{t('Referral reward enhancement')}</FormLabel>
+                        <FormDescription>
+                          {t(
+                            'Invitation rewards grant a separate referral balance instead of plain wallet quota. The wallet shows the display amount; every settlement spends the real balance. Channels can be excluded from spending this balance below.'
+                          )}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          disabled={updateOption.isPending}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  )}
+                />
+                {referralEnabled && (
+                  <div className='space-y-4'>
+                    <div className='grid gap-4 sm:grid-cols-2'>
+                      <FormField
+                        control={form.control}
+                        name='referral_setting.invitee_real'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Invitee real balance (quota units)')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                type='number'
+                                min={0}
+                                value={field.value ?? 0}
+                                onChange={handleNumberChange(field.onChange)}
+                                name={field.name}
+                                onBlur={field.onBlur}
+                                ref={field.ref}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t(
+                                'Real balance the invited user is granted ({{formattedQuota}})',
+                                {
+                                  formattedQuota: formatQuotaInputValue(field.value),
+                                }
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name='referral_setting.invitee_display'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Invitee display balance (quota units)')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                type='number'
+                                min={0}
+                                value={field.value ?? 0}
+                                onChange={handleNumberChange(field.onChange)}
+                                name={field.name}
+                                onBlur={field.onBlur}
+                                ref={field.ref}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t(
+                                'Display balance shown for the same reward ({{formattedQuota}})',
+                                {
+                                  formattedQuota: formatQuotaInputValue(field.value),
+                                }
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
 
-            <FormField
-              control={form.control}
-              name='QuotaForInvitee'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Invitee Reward')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      value={field.value ?? ''}
-                      onChange={handleNumberChange(field.onChange)}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
+                    <div className='grid gap-4 sm:grid-cols-2'>
+                      <FormField
+                        control={form.control}
+                        name='referral_setting.inviter_display'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Inviter display balance (quota units)')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                type='number'
+                                min={0}
+                                value={field.value ?? 0}
+                                onChange={handleNumberChange(field.onChange)}
+                                name={field.name}
+                                onBlur={field.onBlur}
+                                ref={field.ref}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t(
+                                'Display balance shown to the inviter for the same reward ({{formattedQuota}})',
+                                {
+                                  formattedQuota: formatQuotaInputValue(field.value),
+                                }
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name='referral_setting.inviter_real'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Inviter real balance (quota units)')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                type='number'
+                                min={0}
+                                value={field.value ?? 0}
+                                onChange={handleNumberChange(field.onChange)}
+                                name={field.name}
+                                onBlur={field.onBlur}
+                                ref={field.ref}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t(
+                                'Real balance the inviter is granted ({{formattedQuota}})',
+                                {
+                                  formattedQuota: formatQuotaInputValue(field.value),
+                                }
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <FormField
+                      control={form.control}
+                      name='referral_setting.excluded_channel_ids'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Channels the referral balance may not use')}</FormLabel>
+                          <FormControl>
+                            <MultiSelect
+                              emptyText={t('No channel matches the search')}
+                              options={channelOptions}
+                              placeholder={t('Search channels...')}
+                              selected={(field.value ?? []).map(String)}
+                              onChange={(values) =>
+                                field.onChange(values.map((v) => Number(v)))
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Requests funded by the referral balance never take these channels, not even as a fallback. Paid balance is unaffected.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
-                  </FormControl>
-                  <FormDescription>
-                    {t('Quota given to invited users ({{formattedQuota}})', {
-                      formattedQuota: formatQuotaInputValue(field.value),
-                    })}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                  </div>
+                )}
+              </div>
+            </SettingsFormGridItem>
 
             <SettingsFormGridItem span='full'>
               <FormField

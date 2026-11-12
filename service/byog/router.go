@@ -392,7 +392,15 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 					// The price snapshot and bounded usage guarantee this delta is
 					// nonnegative. Replay cannot refund the reservation twice.
 					if authorization.reserved > 0 {
-						if err = model.FinalizeByogWalletAndToken(userID, holdID, c.GetInt("token_id"), authorization.reserved, authorizedCharge); err != nil {
+						finalCharge := authorizedCharge
+						// The referral reward balance pays first, like every other
+						// settlement: it is promotional money the user did not
+						// top up. Whatever it does not cover comes out of the
+						// wallet and token reservation as usual.
+						if refBurn, _, refErr := model.ReserveReferralQuota(userID, int64(finalCharge)); refErr == nil && refBurn > 0 {
+							finalCharge -= int(refBurn)
+						}
+						if err = model.FinalizeByogWalletAndToken(userID, holdID, c.GetInt("token_id"), authorization.reserved, finalCharge); err != nil {
 							streamError("BYOG accounting could not be settled", "byog_accounting_error")
 							return fmt.Errorf("settle BYOG reservation: %w", err)
 						}
@@ -468,18 +476,24 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 					}
 
 					if authorization != nil {
-						// Wallet was reserved and settled using the immutable price snapshot.
+						// The referral reward balance pays first at finalize time; the
+						// reservation stays wallet-only, the final charge splits there.
 						quotaToDeduct = int64(authorizedCharge)
 					}
 					if quotaToDeduct > 0 && authorization == nil {
+						// The referral reward balance pays first, like every other settlement.
+						legacyCharge := int(quotaToDeduct)
+						if refBurn, _, refErr := model.ReserveReferralQuota(userId, int64(legacyCharge)); refErr == nil && refBurn > 0 {
+							legacyCharge -= int(refBurn)
+						}
 						var chargeErr error
 						holdID := c.GetString(common.WalletTransferHoldContextKey)
-						if quotaToDeduct > int64(common.MaxQuota) {
+						if legacyCharge > common.MaxQuota {
 							chargeErr = fmt.Errorf("BYOG wallet charge exceeds supported range")
 						} else if holdID != "" && !common.BatchUpdateEnabled {
-							chargeErr = model.ApplyWalletHoldDelta(userId, holdID, "byog-settlement", -int(quotaToDeduct))
+							chargeErr = model.ApplyWalletHoldDelta(userId, holdID, "byog-settlement", -legacyCharge)
 						} else {
-							chargeErr = model.DecreaseUserQuota(userId, int(quotaToDeduct), true)
+							chargeErr = model.DecreaseUserQuota(userId, legacyCharge, true)
 						}
 						if chargeErr != nil {
 							c.Set(common.WalletTransferHoldRetainContextKey, true)

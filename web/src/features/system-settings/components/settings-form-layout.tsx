@@ -140,6 +140,22 @@ export function SettingsSwitchContent(props: SettingsFormGridProps) {
   )
 }
 
+/**
+ * A description under a setting. It renders exactly like FormDescription, so
+ * cards that do not use react-hook-form look identical to cards that do.
+ */
+export function SettingsDescription({
+  className,
+  ...props
+}: ComponentProps<'p'>) {
+  return (
+    <p
+      className={cn('text-muted-foreground text-sm', className)}
+      {...props}
+    />
+  )
+}
+
 export function SettingsControlGroup({
   className,
   ...props

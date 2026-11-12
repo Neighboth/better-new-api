@@ -504,7 +504,7 @@ export function DiscordBotSettingsSection({
           />
 
           {form.watch('rpgEnabled') && (
-            <div className='border-border/60 rounded-lg border bg-muted/20 p-4 space-y-4'>
+            <div className='bg-muted/20 space-y-4 rounded-lg p-4'>
               <div className='font-semibold text-sm'>{t('Discord RPC (Rich Presence) Details')}</div>
               <div className='grid gap-4 sm:grid-cols-2'>
                 <FormField

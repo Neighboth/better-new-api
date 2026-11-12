@@ -129,10 +129,11 @@ export function PopupAd() {
               src={image}
               alt={ad.id}
               className={cn(
-                'max-h-[70vh] w-full bg-muted object-contain',
-                // A landscape banner: the campaign image keeps its shape and
-                // the reader sees the whole picture instead of a crop.
-                'aspect-[16/9] object-cover'
+                'w-full bg-muted object-contain',
+                // A tall, very wide rectangle: the popup carries its own
+                // tall artwork instead of a crop of the wide strip the
+                // blog and the console draw.
+                'aspect-[16/10] max-h-[70vh]'
               )}
             />
           </a>

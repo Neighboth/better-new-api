@@ -132,11 +132,16 @@ export async function resolveSubmittedTaskIdWithLookup(
  * Poll one video task until it finishes. The video relay is asynchronous: the
  * submit call returns a task id, the dashboard polls `/api/task/self` for the
  * status and the final media URL.
+ *
+ * `onProgress` is called with the raw progress string on every poll that
+ * reports one ("0%", "42%", "100%"); callers render it when it is present and
+ * hide the percentage entirely when the provider sends none.
  */
 export async function pollVideoTask(
   taskId: string,
   signal?: AbortSignal,
-  rescue?: () => Promise<string>
+  rescue?: () => Promise<string>,
+  onProgress?: (progress: string) => void
 ): Promise<VideoTaskState> {
   const startedAt = Date.now()
   let last: VideoTaskState | null = null
@@ -177,6 +182,9 @@ export async function pollVideoTask(
     }
 
     if (last) {
+      if (onProgress && last.progress) {
+        onProgress(last.progress)
+      }
       const status = (last.status || '').toLowerCase()
       if (last.result_url && !TERMINAL_FAILURE_STATUSES.has(status)) {
         return last

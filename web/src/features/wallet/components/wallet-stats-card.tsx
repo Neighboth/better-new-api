@@ -63,7 +63,9 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
       ? [
           {
             label: t('Current Balance'),
-            value: formatQuota(props.user?.quota ?? 0),
+            value: formatQuota(
+              (props.user?.quota ?? 0) + (props.user?.referral_display ?? 0)
+            ),
             description: t('Standard wallet quota'),
             icon: WalletCards,
             tone: 'success' as IconBadgeTone,

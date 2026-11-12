@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Braces, ImageIcon, LayoutList, PlusIcon, VideoIcon, XIcon } from 'lucide-react'
+import { Braces, LayoutList, PlusIcon, XIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -20,9 +20,11 @@ import { MultiSelect } from '@/components/multi-select'
 import { getAllModels } from '@/features/channels/api'
 
 import {
+  SettingsDescription,
   SettingsForm,
   SettingsFormGrid,
   SettingsSwitchContent,
+  SettingsSwitchItem,
   SettingsSwitchRow,
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
@@ -190,7 +192,7 @@ function ModelCard(props: ModelCardProps) {
   const ratioOptions = useMemo(() => value.ratios ?? [], [value.ratios])
 
   return (
-    <div className='bg-muted/30 space-y-3 rounded-lg border p-3'>
+    <div className='bg-muted/20 space-y-3 rounded-lg p-3'>
       <div className='flex items-start gap-2'>
         <div className='flex-1 space-y-1'>
           <Label className='text-xs'>{t('Model')}</Label>
@@ -328,14 +330,12 @@ function ModelCard(props: ModelCardProps) {
               </Select>
             </div>
           </SettingsFormGrid>
-          <SettingsSwitchRow className='rounded-md border bg-background px-3'>
+          <SettingsSwitchRow>
             <SettingsSwitchContent>
-              <Label className='text-xs font-medium'>
-                {t('Accepts a reference image')}
-              </Label>
-              <p className='text-muted-foreground text-[11px]'>
+              <Label className='text-sm'>{t('Accepts a reference image')}</Label>
+              <SettingsDescription>
                 {t('Shows the reference image picker for this model.')}
-              </p>
+              </SettingsDescription>
             </SettingsSwitchContent>
             <Switch
               checked={Boolean(value.reference_image)}
@@ -505,39 +505,34 @@ export function PlaygroundSettingsSection({
             onSave={() => void save()}
           />
         )}
-        <div className='flex flex-wrap items-center justify-between gap-2 rounded-lg border p-2'>
-          <div className='space-y-0.5'>
-            <p className='text-sm font-medium'>{t('Playground & Studio')}</p>
-            <p className='text-muted-foreground text-xs'>
-              {jsonMode
-                ? t(
-                    'Editing every playground and studio option as one JSON document.'
-                  )
-                : t(
-                    'Pick the models the playground tools and the studio offer, with their own options.'
-                  )}
-            </p>
-          </div>
-          <div className='bg-muted inline-flex rounded-md p-0.5'>
-            <Button
-              onClick={() => setJsonMode(false)}
-              size='sm'
-              type='button'
-              variant={jsonMode ? 'ghost' : 'secondary'}
-            >
-              <LayoutList className='mr-1 size-3.5' />
-              {t('Simple mode')}
-            </Button>
-            <Button
-              onClick={openJsonMode}
-              size='sm'
-              type='button'
-              variant={jsonMode ? 'secondary' : 'ghost'}
-            >
-              <Braces className='mr-1 size-3.5' />
-              {t('JSON mode')}
-            </Button>
-          </div>
+        <div className='flex items-start justify-between gap-3'>
+          <SettingsDescription className='max-w-xl'>
+            {jsonMode
+              ? t(
+                  'Editing every playground and studio option as one JSON document.'
+                )
+              : t(
+                  'Pick the models the playground tools and the studio offer, with their own options.'
+                )}
+          </SettingsDescription>
+          <Button
+            onClick={() => (jsonMode ? setJsonMode(false) : openJsonMode())}
+            size='sm'
+            type='button'
+            variant='outline'
+          >
+            {jsonMode ? (
+              <>
+                <LayoutList className='mr-1 size-3.5' />
+                {t('Visual Mode')}
+              </>
+            ) : (
+              <>
+                <Braces className='mr-1 size-3.5' />
+                {t('JSON Mode')}
+              </>
+            )}
+          </Button>
         </div>
 
         {jsonMode ? (
@@ -571,25 +566,22 @@ export function PlaygroundSettingsSection({
           </div>
         ) : (
         <div className='space-y-4'>
-          <SettingsSwitchRow className='rounded-lg border px-3'>
+          <SettingsSwitchItem>
             <SettingsSwitchContent>
-              <Label className='flex items-center gap-2 text-sm font-medium'>
-                <ImageIcon className='size-4' />
-                {t('Image generation')}
-              </Label>
-              <p className='text-muted-foreground text-xs'>
+              <Label>{t('Image generation')}</Label>
+              <SettingsDescription>
                 {t(
                   'Offers the image tool in the playground and the image tab of the studio.'
                 )}
-              </p>
+              </SettingsDescription>
             </SettingsSwitchContent>
             <Switch checked={imageEnabled} onCheckedChange={setImageEnabled} />
-          </SettingsSwitchRow>
+          </SettingsSwitchItem>
 
           {imageEnabled && (
             <div className='space-y-3'>
               {imageModels.length === 0 && (
-                <p className='text-muted-foreground rounded-lg border border-dashed p-3 text-xs'>
+                <p className='text-muted-foreground border-border rounded-lg border border-dashed p-3 text-xs'>
                   {t('No image model configured yet.')}
                 </p>
               )}
@@ -622,25 +614,22 @@ export function PlaygroundSettingsSection({
             </div>
           )}
 
-          <SettingsSwitchRow className='rounded-lg border px-3'>
+          <SettingsSwitchItem>
             <SettingsSwitchContent>
-              <Label className='flex items-center gap-2 text-sm font-medium'>
-                <VideoIcon className='size-4' />
-                {t('Video generation')}
-              </Label>
-              <p className='text-muted-foreground text-xs'>
+              <Label>{t('Video generation')}</Label>
+              <SettingsDescription>
                 {t(
                   'Offers the video tool in the playground and the video tab of the studio.'
                 )}
-              </p>
+              </SettingsDescription>
             </SettingsSwitchContent>
             <Switch checked={videoEnabled} onCheckedChange={setVideoEnabled} />
-          </SettingsSwitchRow>
+          </SettingsSwitchItem>
 
           {videoEnabled && (
             <div className='space-y-3'>
               {videoModels.length === 0 && (
-                <p className='text-muted-foreground rounded-lg border border-dashed p-3 text-xs'>
+                <p className='text-muted-foreground border-border rounded-lg border border-dashed p-3 text-xs'>
                   {t('No video model configured yet.')}
                 </p>
               )}
@@ -673,15 +662,15 @@ export function PlaygroundSettingsSection({
             </div>
           )}
 
-          <SettingsSwitchRow className='rounded-lg border px-3'>
+          <SettingsSwitchItem>
             <SettingsSwitchContent>
-              <Label className='text-sm font-medium'>{t('Studio page')}</Label>
-              <p className='text-muted-foreground text-xs'>
+              <Label>{t('Studio page')}</Label>
+              <SettingsDescription>
                 {t('Shows the studio page in the dashboard menu.')}
-              </p>
+              </SettingsDescription>
             </SettingsSwitchContent>
             <Switch checked={studioEnabled} onCheckedChange={setStudioEnabled} />
-          </SettingsSwitchRow>
+          </SettingsSwitchItem>
 
         </div>
         )}

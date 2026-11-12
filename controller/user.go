@@ -535,6 +535,8 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"aff_count":         user.AffCount,
 		"aff_quota":         user.AffQuota,
 		"aff_history_quota": user.AffHistoryQuota,
+		"referral_quota":    user.ReferralQuota,
+		"referral_display":  user.ReferralDisplay,
 		"inviter_id":        user.InviterId,
 		"linux_do_id":       user.LinuxDOId,
 		"setting":           user.Setting,
@@ -1316,10 +1318,11 @@ func updateAdminPermissionsForUserInTx(c *gin.Context, tx *gorm.DB, userID int, 
 }
 
 type ManageRequest struct {
-	Id     int    `json:"id"`
-	Action string `json:"action"`
-	Value  int    `json:"value"`
-	Mode   string `json:"mode"`
+	Id      int    `json:"id"`
+	Action  string `json:"action"`
+	Value   int    `json:"value"`
+	Mode    string `json:"mode"`
+	Display int64  `json:"display"`
 }
 
 // ManageUser Only admin user can do this
@@ -1421,6 +1424,26 @@ func ManageUser(c *gin.Context) {
 		} else if user.Role == common.RoleResellerUser {
 			user.Role = common.RoleCommonUser
 		}
+	case "set_referral_balance":
+		// The administrator writes the real and the displayed referral
+		// balance of the user. The plain wallet quota is not touched.
+		if req.Value < 0 || req.Display < 0 {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		if err := model.SetReferralBalance(user.Id, int64(req.Value), req.Display); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		recordManageAuditFor(c, user.Id, "user.referral_balance_set", map[string]interface{}{
+			"quota":   logger.LogQuota(req.Value),
+			"display": logger.LogQuota(int(req.Display)),
+		})
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "",
+		})
+		return
 	case "add_quota":
 		switch req.Mode {
 		case "add":

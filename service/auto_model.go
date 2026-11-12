@@ -62,6 +62,42 @@ func recordAutoModelDecision(modelName string, byRouter bool) {
 	}
 }
 
+// AutoModelRequestOptions carries everything the caller of the virtual model
+// asked for, next to the request itself.
+type AutoModelRequestOptions struct {
+	// Budget is the token budget of the request (auto_budget /
+	// auto_budget_tokens). Zero means "no budget".
+	Budget int
+	// Preference is the normalized caller preference: "fast", "smart",
+	// "cheap" or "balanced". Empty means "balanced".
+	Preference string
+	// MinPrice / MaxPrice bound the input price in USD per 1M input tokens.
+	// Zero means "no bound".
+	MinPrice float64
+	MaxPrice float64
+	// Instruction is a free-text extra instruction of the caller, forwarded to
+	// the routing model verbatim. Empty means none.
+	Instruction string
+}
+
+// normalizeAutoPreference maps the caller-facing preference words onto the
+// four buckets the router understands. English and Turkish are both accepted;
+// an unknown word keeps the balanced default instead of failing the request.
+func NormalizeAutoPreference(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "fast", "quick", "speed", "fastest", "hizli", "hızlı", "hızlıcık":
+		return "fast"
+	case "smart", "smartest", "clever", "intelligent", "bright", "zeki", "akıllı", "akilli", "zekice":
+		return "smart"
+	case "cheap", "cheapest", "affordable", "budget", "ucuz", "ekonomik":
+		return "cheap"
+	case "balanced", "balance", "default", "dengeli", "denge":
+		return "balanced"
+	default:
+		return "balanced"
+	}
+}
+
 // AutoModelStats is the counters of the router, sorted by count.
 type AutoModelStats struct {
 	// Total is how many requests the router answered.
@@ -209,11 +245,36 @@ func autoModelTaskProfile(text string, hasImage bool, hasAudio bool) (string, st
 }
 
 // autoModelHeuristic picks the first ranked candidate of a dimension.
-func autoModelHeuristic(setting *operation_setting.AutoModelSetting, dimension string, candidates []string) (string, string) {
+//
+// Preference "cheap" re-orders the walk: among the candidates of the request
+// the cheapest one that the administrator trusted for some ranking wins;
+// an installation with empty rankings answers the cheapest candidate.
+func autoModelHeuristic(setting *operation_setting.AutoModelSetting, dimension string, candidates []string, preference string) (string, string) {
 	allowed := make(map[string]bool, len(candidates))
 	for _, name := range candidates {
 		allowed[name] = true
 	}
+
+	if preference == "cheap" {
+		// The candidates arrive in price order: the first one that the
+		// administrator trusted anywhere wins.
+		rankedSomewhere := map[string]bool{}
+		for _, name := range operation_setting.AutoModelDimensions {
+			for _, model := range setting.Ranking(name) {
+				rankedSomewhere[model] = true
+			}
+		}
+		for _, name := range candidates {
+			if rankedSomewhere[name] {
+				return name, "cheapest candidate the administrator trusted for the task"
+			}
+		}
+		if len(candidates) > 0 {
+			return candidates[0], "cheapest candidate (no ranking matched)"
+		}
+		return "", "no candidate"
+	}
+
 	for _, dimensionName := range []string{dimension, "smartest_first"} {
 		for _, name := range setting.Ranking(dimensionName) {
 			if allowed[name] {
@@ -230,12 +291,18 @@ func autoModelHeuristic(setting *operation_setting.AutoModelSetting, dimension s
 }
 
 // renderAutoModelPrompt fills the placeholders of the routing prompt.
+//
+// The candidates are rendered with their live prices, the rankings with no
+// truncation (the administrator's benchmark is what makes the router good at
+// picking a model that is both cheap and right for the task), and the
+// catalogue is size-bounded so a huge installation does not blow up the
+// routing model's context window.
 func renderAutoModelPrompt(
 	setting *operation_setting.AutoModelSetting,
 	candidates []string,
 	dimension string,
 	profile string,
-	budget int,
+	opts AutoModelRequestOptions,
 	requestText string,
 ) string {
 	rankings := make([]string, 0, len(operation_setting.AutoModelDimensions))
@@ -252,22 +319,40 @@ func renderAutoModelPrompt(
 	}
 
 	budgetText := "Budget: no limit for this request."
-	if budget > 0 {
+	if opts.Budget > 0 {
 		budgetText = fmt.Sprintf(
 			"Budget: the request may spend %d tokens. Prefer the cheapest candidate that still fits the task when the budget is small.",
-			budget,
+			opts.Budget,
 		)
+	}
+
+	budgetNote := ""
+	if opts.Instruction != "" {
+		budgetNote += fmt.Sprintf("Caller instruction: %s\n", opts.Instruction)
+	}
+	budgetText = budgetNote + budgetText
+
+	preferenceText := opts.Preference
+	if preferenceText == "" {
+		preferenceText = "balanced"
 	}
 
 	if len(requestText) > 4000 {
 		requestText = requestText[:4000] + "\n…(truncated)"
 	}
 
+	// The catalogue is the whole list the router reasons over: every usable
+	// model of the installation, with its price. It is bounded so the
+	// routing model's context window is never exceeded by a huge catalogue.
+	const catalogueTokenBudget = 16000
+	catalogueText, _ := autoModelCatalogueCompact(candidates, setting.RankedModels(dimension), catalogueTokenBudget)
+
 	prompt := setting.AutoModelPrompt()
 	replacer := strings.NewReplacer(
-		"{{candidates}}", strings.Join(candidates, "\n"),
+		"{{candidates}}", catalogueText,
 		"{{rankings}}", rankingText,
 		"{{request_profile}}", fmt.Sprintf("%s (%s)", dimension, profile),
+		"{{preference}}", preferenceText,
 		"{{budget}}", budgetText,
 		"{{request}}", requestText,
 	)
@@ -388,18 +473,26 @@ func parseAutoModelAnswer(answer string, candidates []string) (string, error) {
 }
 
 // ResolveAutoModel chooses the real model of an "auto" request.
+//
+// The routing model sees the whole usable catalogue of the installation, with
+// live prices, plus the administrator's rankings; the context window is kept
+// bounded by compacting the catalogue (see renderAutoModelPrompt). The price
+// range and the caller preference of the request are enforced before the
+// router is asked, so an impossible request fails fast with a clear message
+// instead of silently routing to a model the caller did not want.
 func ResolveAutoModel(
 	candidates []string,
 	blockedModels []string,
 	requestText string,
 	hasImage bool,
 	hasAudio bool,
-	budget int,
+	opts AutoModelRequestOptions,
 ) (AutoModelSelection, error) {
 	setting := operation_setting.GetAutoModelSetting()
 	if setting == nil || !setting.Enabled {
 		return AutoModelSelection{}, fmt.Errorf("the auto model is disabled")
 	}
+	opts.Preference = NormalizeAutoPreference(opts.Preference)
 
 	usable := autoModelUsableModels(candidates, blockedModels)
 	if len(usable) == 0 {
@@ -424,10 +517,43 @@ func ResolveAutoModel(
 		}
 	}
 
-	// The candidate list the router sees: the models ranked for the task first,
-	// then the rest of the group, capped so the prompt stays small.
+	// The price range the caller asked for is enforced deterministically: a
+	// request that says "at most $0.20 per 1M input tokens" never quietly
+	// lands on an expensive model.
+	if filtered, dropped := autoModelFilterByPriceRange(usable, opts.MinPrice, opts.MaxPrice); dropped > 0 {
+		usable = filtered
+		if len(usable) == 0 {
+			return AutoModelSelection{}, fmt.Errorf("no model is available in the requested price range")
+		}
+	}
+
+	// The candidate order the router reasons over: the models ranked for the
+	// task first, then the rest of the group. The catalogue is compacted for
+	// size inside the prompt, but every usable model is visible to the router.
 	ordered := make([]string, 0, len(usable))
 	seen := make(map[string]bool, len(usable))
+
+	// The caller preference re-orders the known candidates: cheap prefers
+	// lower prices, fast prefers the fastest ranking, smart prefers the
+	// smartest ranking.
+	preferred := make(map[string]int, len(usable))
+	switch opts.Preference {
+	case "cheap":
+		byPrice := append([]string{}, usable...)
+		sortAutoModelByPrice(byPrice)
+		for i, name := range byPrice {
+			preferred[name] = i
+		}
+	case "fast":
+		for i, name := range setting.Ranking("fastest") {
+			preferred[name] = i
+		}
+	case "smart":
+		for i, name := range setting.Ranking("smartest_first") {
+			preferred[name] = i
+		}
+	}
+
 	for _, name := range setting.RankedModels(dimension) {
 		if seen[name] {
 			continue
@@ -447,12 +573,14 @@ func ResolveAutoModel(
 		seen[name] = true
 		ordered = append(ordered, name)
 	}
-	if len(ordered) > 80 {
-		ordered = ordered[:80]
+	// Stable sort by the preference rank, keeping the ranked-for-task order
+	// as the tie-breaker.
+	if opts.Preference == "cheap" || opts.Preference == "fast" || opts.Preference == "smart" {
+		stablePartitionByPreference(ordered, preferred)
 	}
 
-	if budget <= 0 {
-		budget = setting.DefaultBudgetTokens
+	if opts.Budget <= 0 {
+		opts.Budget = setting.DefaultBudgetTokens
 	}
 
 	// A routing model that the request may not use would loop: it is only
@@ -469,7 +597,7 @@ func ResolveAutoModel(
 	}
 
 	if routingUsable {
-		prompt := renderAutoModelPrompt(setting, ordered, dimension, profile, budget, requestText)
+		prompt := renderAutoModelPrompt(setting, ordered, dimension, profile, opts, requestText)
 		if answer, err := callAutoModelRouter(routingModel, prompt); err == nil {
 			if chosen, err := parseAutoModelAnswer(answer, ordered); err == nil {
 				reason := ""
@@ -491,7 +619,7 @@ func ResolveAutoModel(
 		// The routing model failed: the ranking of the task still answers.
 	}
 
-	chosen, reason := autoModelHeuristic(setting, dimension, ordered)
+	chosen, reason := autoModelHeuristic(setting, dimension, ordered, opts.Preference)
 	if chosen == "" {
 		return AutoModelSelection{}, fmt.Errorf("no model is available for this request")
 	}
@@ -502,4 +630,42 @@ func ResolveAutoModel(
 		Dimension:  dimension,
 		Candidates: len(ordered),
 	}, nil
+}
+
+
+// sortAutoModelByPrice sorts models in-place by their input price per 1M
+// tokens; unpriced models go last.
+func sortAutoModelByPrice(models []string) {
+	sort.SliceStable(models, func(i, j int) bool {
+		a, b := billingPriceOf(models[i]), billingPriceOf(models[j])
+		priceOf := func(p autoModelPrice) float64 {
+			if !p.Known {
+				return 1e18
+			}
+			if !p.HasTokenPrice {
+				return p.PerRequest
+			}
+			return p.InputPer1M
+		}
+		return priceOf(a) < priceOf(b)
+	})
+}
+
+// stablePartitionByPreference moves the candidates that the caller preference
+// prefers to the front, keeping the relative order of everything else.
+func stablePartitionByPreference(models []string, preferred map[string]int) {
+	sort.SliceStable(models, func(i, j int) bool {
+		pi, iOk := preferred[models[i]]
+		pj, jOk := preferred[models[j]]
+		switch {
+		case iOk && jOk:
+			return pi < pj
+		case iOk:
+			return true
+		case jOk:
+			return false
+		default:
+			return false
+		}
+	})
 }

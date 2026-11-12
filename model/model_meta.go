@@ -99,6 +99,18 @@ func (mi *Model) Delete() error {
 	return DB.Delete(mi).Error
 }
 
+// GetModelMetaExact returns the model meta row of an exact model name, or an
+// error when there is none. The virtual models of the installation (e.g.
+// "auto") use it to inherit their presentation from the models panel like any
+// other entry.
+func GetModelMetaExact(name string) (*Model, error) {
+	meta := &Model{}
+	if err := DB.Where("model_name = ?", name).First(meta).Error; err != nil {
+		return nil, err
+	}
+	return meta, nil
+}
+
 func GetVendorModelCounts() (map[int64]int64, error) {
 	m := make(map[int64]int64)
 	if DB == nil {

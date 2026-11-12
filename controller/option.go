@@ -93,6 +93,10 @@ var captchaSettingKeys = map[string]bool{
 	// key stays hidden like every other secret. Without the site key in this
 	// whitelist the settings page lost the value on every reload.
 	"MTCaptchaSiteKey": true,
+	// ModelsAPIRequireKey ends in "Key" but is not a credential: the admin
+	// panel reads it to render the /v1/models switch. Without this whitelist
+	// entry the page kept the hardcoded default and the switch never moved.
+	"ModelsAPIRequireKey": true,
 }
 
 func GetOptions(c *gin.Context) {

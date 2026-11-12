@@ -266,6 +266,10 @@ export interface UserWalletData {
   aff_history_quota: number
   /** Number of successful affiliate invites */
   aff_count: number
+  /** Referral reward balance in real quota units */
+  referral_quota?: number
+  /** Referral reward balance as the user sees it */
+  referral_display?: number
   /** User group */
   group: string
   /** Request pool balance */

@@ -61,12 +61,9 @@ func resolveAutoModelRequest(c *gin.Context, modelRequest *ModelRequest) (bool, 
 
 	blockedModels := service.AutoModelBlockedModels(c.GetInt("id"))
 	text, hasImage, hasAudio := autoModelRequestProfile(body, c.Request.URL.Path)
-	budget := int(gjson.GetBytes(body, "auto_budget").Int())
-	if budget <= 0 {
-		budget = int(gjson.GetBytes(body, "auto_budget_tokens").Int())
-	}
+	opts := autoModelRequestOptions(body)
 
-	selection, err := service.ResolveAutoModel(candidates, blockedModels, text, hasImage, hasAudio, budget)
+	selection, err := service.ResolveAutoModel(candidates, blockedModels, text, hasImage, hasAudio, opts)
 	if err != nil {
 		return true, err
 	}
@@ -87,6 +84,45 @@ func resolveAutoModelRequest(c *gin.Context, modelRequest *ModelRequest) (bool, 
 	return true, nil
 }
 
+// autoRequestParamKeys are the auto-model request parameters the gateway
+// consumes. They are stripped from the body before it goes upstream: a
+// strict provider would reject them, and they are meaningless there.
+var autoRequestParamKeys = []string{
+	"auto_budget",
+	"auto_budget_tokens",
+	"auto_price_min",
+	"auto_price_max",
+	"auto_preference",
+	"auto_prefer",
+	"auto_instruction",
+	"auto_extra",
+}
+
+// autoModelRequestOptions reads the caller-facing auto-model parameters of
+// the request. Everything is optional and forgiving: an unknown preference
+// degrades to balanced, an invalid number to no bound.
+func autoModelRequestOptions(body []byte) service.AutoModelRequestOptions {
+	opts := service.AutoModelRequestOptions{Budget: int(gjson.GetBytes(body, "auto_budget").Int())}
+	if opts.Budget <= 0 {
+		opts.Budget = int(gjson.GetBytes(body, "auto_budget_tokens").Int())
+	}
+	opts.Preference = gjson.GetBytes(body, "auto_preference").String()
+	if opts.Preference == "" {
+		opts.Preference = gjson.GetBytes(body, "auto_prefer").String()
+	}
+	opts.MinPrice = gjson.GetBytes(body, "auto_price_min").Float()
+	opts.MaxPrice = gjson.GetBytes(body, "auto_price_max").Float()
+	opts.Instruction = gjson.GetBytes(body, "auto_instruction").String()
+	if opts.Instruction == "" {
+		opts.Instruction = gjson.GetBytes(body, "auto_extra").String()
+	}
+	opts.Instruction = strings.TrimSpace(opts.Instruction)
+	if len(opts.Instruction) > 500 {
+		opts.Instruction = opts.Instruction[:500]
+	}
+	return opts
+}
+
 // rewriteRequestModel writes the chosen model into the request body.
 //
 // A JSON request carries its model in the document. A speech to text request is
@@ -98,6 +134,12 @@ func rewriteRequestModel(c *gin.Context, body []byte, chosen string) ([]byte, st
 		rewritten, err := sjson.SetBytes(body, "model", chosen)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to write the chosen model into the request")
+		}
+		for _, key := range autoRequestParamKeys {
+			rewritten, err = sjson.DeleteBytes(rewritten, key)
+			if err != nil {
+				return nil, "", fmt.Errorf("failed to remove the auto-model parameters from the request")
+			}
 		}
 		return rewritten, "", nil
 	}
@@ -131,6 +173,14 @@ func rewriteRequestModel(c *gin.Context, body []byte, chosen string) ([]byte, st
 				return nil, "", err
 			}
 			written = true
+			continue
+		}
+		if strings.HasPrefix(part.FormName(), "auto_") {
+			// The gateway consumes the auto-model parameters; do not
+			// forward them upstream.
+			if _, err := io.Copy(io.Discard, part); err != nil {
+				return nil, "", err
+			}
 			continue
 		}
 		header := make(textproto.MIMEHeader)

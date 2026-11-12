@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { RotateCcw, WandSparkles } from 'lucide-react'
+import { RotateCcw } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -26,15 +26,17 @@ import { MultiSelect } from '@/components/multi-select'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { getAllModels } from '@/features/channels/api'
 import { api } from '@/lib/api'
 
 import {
+  SettingsDescription,
   SettingsForm,
   SettingsFormGrid,
   SettingsSwitchContent,
-  SettingsSwitchRow,
+  SettingsSwitchItem,
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
@@ -202,36 +204,31 @@ export function AutoModelSettingsSection({
           onSave={() => void save()}
         />
 
-        <SettingsSwitchRow className='rounded-lg border px-3'>
+        <SettingsSwitchItem>
           <SettingsSwitchContent>
-            <Label className='flex items-center gap-2 text-sm font-medium'>
-              <WandSparkles className='size-4' />
-              {t('Enable the auto model')}
-            </Label>
-            <p className='text-muted-foreground text-xs'>
+            <Label>{t('Enable the auto model')}</Label>
+            <SettingsDescription>
               {t(
                 'Adds a model named "auto" to the catalogue. Every request that asks for it is routed to the best model of the task and billed as that model; the auto model itself has no price.'
               )}
-            </p>
+            </SettingsDescription>
           </SettingsSwitchContent>
-          <input
+          <Switch
             checked={enabled}
-            className='size-4 accent-primary'
-            onChange={(event) => setEnabled(event.target.checked)}
-            type='checkbox'
+            onCheckedChange={(checked) => setEnabled(checked)}
           />
-        </SettingsSwitchRow>
+        </SettingsSwitchItem>
 
         {enabled && (
           <>
             <SettingsFormGrid>
               <div className='space-y-1'>
-                <Label className='text-sm'>{t('Routing model')}</Label>
-                <p className='text-muted-foreground text-xs'>
+                <Label>{t('Routing model')}</Label>
+                <SettingsDescription>
                   {t(
                     'The model that reads the request and names the model to use. Leave it empty to route with the rankings alone.'
                   )}
-                </p>
+                </SettingsDescription>
                 <MultiSelect
                   emptyText={t('No model matches the search')}
                   onChange={(values) => setRoutingModel(values[values.length - 1] ?? '')}
@@ -242,12 +239,12 @@ export function AutoModelSettingsSection({
               </div>
 
               <div className='space-y-1'>
-                <Label className='text-sm'>{t('Default token budget')}</Label>
-                <p className='text-muted-foreground text-xs'>
+                <Label>{t('Default token budget')}</Label>
+                <SettingsDescription>
                   {t(
                     'Optional budget of one routed request, in tokens. 0 means no budget; the router then picks the best model of the task.'
                   )}
-                </p>
+                </SettingsDescription>
                 <Input
                   inputMode='numeric'
                   min={0}
@@ -258,21 +255,24 @@ export function AutoModelSettingsSection({
               </div>
             </SettingsFormGrid>
 
+            <SettingsDescription className='text-sm'>
+              {t(
+                'The router sees the whole catalogue of this site: every usable model with its current price, and your rankings. It picks the cheapest model that still fits the task and your rankings. Large catalogues are compacted automatically so the routing model never overflows its context window.'
+              )}
+            </SettingsDescription>
+
             <div className='space-y-2'>
               <div>
-                <Label className='text-sm'>{t('Rankings')}</Label>
-                <p className='text-muted-foreground text-xs'>
+                <Label>{t('Rankings')}</Label>
+                <SettingsDescription>
                   {t(
                     'One ordered list per task, best first. The router follows the order; a list that stays empty is unknown and the general ranking is used instead.'
                   )}
-                </p>
+                </SettingsDescription>
               </div>
-              <div className='max-h-[26rem] space-y-2 overflow-y-auto rounded-lg border p-2'>
+              <SettingsFormGrid className='gap-y-4'>
                 {dimensions.map((dimension) => (
-                  <div
-                    className='grid gap-1 rounded-md p-2 odd:bg-muted/20'
-                    key={dimension}
-                  >
+                  <div className='min-w-0 space-y-1' key={dimension}>
                     <Label className='text-xs font-medium'>
                       {t(DIMENSION_LABELS[dimension] ?? dimension)}
                     </Label>
@@ -290,18 +290,18 @@ export function AutoModelSettingsSection({
                     />
                   </div>
                 ))}
-              </div>
+              </SettingsFormGrid>
             </div>
 
             <div className='space-y-2'>
               <div className='flex flex-wrap items-center justify-between gap-2'>
-                <div>
-                  <Label className='text-sm'>{t('Routing system prompt')}</Label>
-                  <p className='text-muted-foreground text-xs'>
+                <div className='min-w-0'>
+                  <Label>{t('Routing system prompt')}</Label>
+                  <SettingsDescription>
                     {t(
-                      'The prompt the routing model reads. The placeholders are filled by the gateway: {{candidates}}, {{rankings}}, {{request_profile}}, {{budget}}, {{request}}.'
+                      'The prompt the routing model reads. The placeholders are filled by the gateway: {{candidates}}, {{rankings}}, {{request_profile}}, {{preference}}, {{budget}}, {{request}}.'
                     )}
-                  </p>
+                  </SettingsDescription>
                 </div>
                 <Button onClick={resetPrompt} size='sm' type='button' variant='outline'>
                   <RotateCcw className='mr-1 size-3.5' />
@@ -318,6 +318,12 @@ export function AutoModelSettingsSection({
                 value={prompt}
               />
             </div>
+
+            <SettingsDescription className='text-sm'>
+              {t(
+                'Clients can tune one call with extra parameters: auto_budget (tokens), auto_price_min and auto_price_max (USD per 1M input tokens), auto_preference (fast, smart, cheap or balanced) and auto_instruction (free text for the router).'
+              )}
+            </SettingsDescription>
           </>
         )}
       </SettingsForm>

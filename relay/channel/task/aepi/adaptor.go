@@ -110,6 +110,12 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 			if sizes, ok := mf.Value["size"]; ok && len(sizes) > 0 {
 				req.Size = sizes[0]
 			}
+			if ratios, ok := mf.Value["ratio"]; ok && len(ratios) > 0 {
+				req.Ratio = ratios[0]
+			}
+			if qualities, ok := mf.Value["quality"]; ok && len(qualities) > 0 {
+				req.Quality = qualities[0]
+			}
 			if seconds, ok := mf.Value["seconds"]; ok && len(seconds) > 0 {
 				req.Seconds = seconds[0]
 			}
@@ -144,6 +150,12 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 
 	if req.Duration > 30 {
 		req.Duration = 30
+	}
+
+	// Validate the aspect and the resolution against the catalog of the model
+	// before anything is billed: a bad combination is a clear 400.
+	if taskErr := normalizeAndValidateVideoRequest(&req); taskErr != nil {
+		return taskErr
 	}
 
 	c.Set("task_request", req)
@@ -469,7 +481,16 @@ func (a *TaskAdaptor) convertToAepiJobRequest(c *gin.Context, req *relaycommon.T
 	}
 
 	// 5. Aspect and Resolution
+	// The studio sends its aspect (ratio) and quality explicitly; they win
+	// over anything derivable from the size field, and they were already
+	// checked against the catalog of the model in ValidateRequestAndSetAction.
 	aspect, resolution := parseAspectAndResolution(req.Size)
+	if ratio := strings.TrimSpace(strings.ToLower(req.Ratio)); ratio != "" {
+		aspect = ratio
+	}
+	if quality := strings.TrimSpace(strings.ToLower(req.Quality)); quality != "" {
+		resolution = quality
+	}
 	if req.Metadata != nil {
 		if asp, ok := req.Metadata["aspect"].(string); ok && asp != "" {
 			aspect = asp

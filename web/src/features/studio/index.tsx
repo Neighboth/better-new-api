@@ -29,6 +29,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -74,9 +75,18 @@ function SettingsChips(props: {
   )
 }
 
+function progressPercentOf(raw: string): number | null {
+  const match = raw.match(/(\d+(?:[.,]\d+)?)/)
+  if (!match) return null
+  const value = Number(match[1].replace(',', '.'))
+  if (!Number.isFinite(value)) return null
+  return Math.min(100, Math.max(0, Math.round(value)))
+}
+
 function ResultCard(props: { item: StudioItem; onRemove: () => void }) {
   const { t } = useTranslation()
   const { item } = props
+  const progressPercent = item.progress ? progressPercentOf(item.progress) : null
 
   return (
     <div className='bg-card group relative overflow-hidden rounded-2xl border shadow-sm transition hover:shadow-md'>
@@ -94,11 +104,21 @@ function ResultCard(props: { item: StudioItem; onRemove: () => void }) {
 
       <div className='bg-muted/40 flex min-h-44 items-center justify-center overflow-hidden'>
         {item.status === 'pending' && (
-          <div className='text-muted-foreground flex items-center gap-2 py-16 text-sm'>
-            <Loader2Icon className='size-4 animate-spin' />
-            {item.mode === 'video'
-              ? t('Rendering the video, this can take a few minutes…')
-              : t('Generating the image…')}
+          <div className='flex w-full flex-col items-center gap-3 px-6 py-12'>
+            <div className='text-muted-foreground flex items-center gap-2 text-sm'>
+              <Loader2Icon className='size-4 animate-spin' />
+              {item.mode === 'video'
+                ? t('Rendering the video, this can take a few minutes…')
+                : t('Generating the image…')}
+            </div>
+            {item.mode === 'video' && progressPercent !== null && (
+              <div className='w-full max-w-xs space-y-1.5'>
+                <Progress value={progressPercent} className='h-2' />
+                <p className='text-center font-mono text-xs tabular-nums text-primary'>
+                  {progressPercent}%
+                </p>
+              </div>
+            )}
           </div>
         )}
         {item.status === 'error' && (

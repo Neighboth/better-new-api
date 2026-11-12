@@ -32,6 +32,11 @@ auth.user_id_format_error: "Unauthorized, New-Api-User header format error"
 auth.user_id_mismatch: "Unauthorized, New-Api-User does not match logged in user"
 auth.user_banned: "User has been banned"
 auth.insufficient_privilege: "Unauthorized, insufficient privileges"
+security.proof_required: "Security verification required"
+security.proof_expired: "Security verification expired"
+security.proof_invalid: "The authentication session is invalid"
+security.proof_scope_mismatch: "The security verification does not match the required scope"
+security.proof_method_mismatch: "The security verification method does not match"
 
 # Token messages
 token.name_too_long: "Token name is too long"

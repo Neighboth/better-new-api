@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 package operation_setting
 
 import (
@@ -52,12 +70,13 @@ var AutoModelDimensions = []string{
 // AutoModelDefaultPrompt is the routing prompt of the Auto Model.
 //
 // It is a template: the router replaces the placeholders with the candidates
-// of the request, the detected task and the ranking lists of the
-// administrator. The text is kept readable on purpose, an administrator that
-// edits it sees the same shape that the router renders.
+// of the request (with their live prices), the detected task and the ranking
+// lists of the administrator. The text is kept readable on purpose, an
+// administrator that edits it sees the same shape that the router renders.
 const AutoModelDefaultPrompt = `You route requests of an API gateway to the model that serves them best.
 
-Candidates (the only models you may answer with):
+Candidates (the only models you may answer with), with their price in USD per
+1M tokens (input price / output price; "$X/req" is a fixed price per request):
 {{candidates}}
 
 Rankings of this installation, best first. An empty ranking is unknown, not
@@ -67,6 +86,8 @@ Rankings of this installation, best first. An empty ranking is unknown, not
 What the request needs, detected from its text and shape:
 {{request_profile}}
 
+Caller preference: {{preference}}
+
 {{budget}}
 
 Rules:
@@ -74,14 +95,22 @@ Rules:
 2. Prefer the model the administrator ranked highest for the task of the
    request. When a ranking says nothing about the task, follow the general
    ranking.
-3. A request that asks for code, a diff or a fix belongs to the coding and
+3. Use the prices as a tie-breaker: when two models are comparable in quality
+   and fit the task, pick the cheaper one. A cheap model that the
+   administration ranked for this task beats an expensive model that nobody
+   ranked.
+4. A request that asks for code, a diff or a fix belongs to the coding and
    debugging rankings; a request that asks for reasoning, a proof or a plan
    belongs to the reasoning ranking; a request with images belongs to the
    vision ranking; audio transcription belongs to stt and speech synthesis to
    tts.
-4. Never pick a model that cannot handle the shape of the request (an STT model
+5. Never pick a model that cannot handle the shape of the request (an STT model
    for a chat request, an image model for a text request).
-5. Answer with JSON only: {"model": "<candidate>", "reason": "<one sentence>"}
+6. Respect the caller preference: "fast" favors low latency models, "smart"
+   favors the smartest models, "cheap" favors the cheapest model that fits,
+   "balanced" weighs quality and price. A per-request budget of the caller
+   or an explicit caller instruction always wins.
+Answer with JSON only: {"model": "<candidate>", "reason": "<one sentence>"}
 
 The request that has to be routed:
 {{request}}`

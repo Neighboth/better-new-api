@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/form'
 
 import {
+  SettingsDescription,
   SettingsForm,
   SettingsFormGrid,
   SettingsSwitchContent,
@@ -178,91 +179,81 @@ export function OnlineSearchSettingsSection({
             />
           </SettingsFormGrid>
 
-          <div className='space-y-3 pt-2'>
-            <div className='space-y-1'>
-              <Label className='text-sm font-medium'>
-                {t('Where the search tool is available')}
-              </Label>
-              <p className='text-muted-foreground text-xs'>
-                {t(
-                  'Tick a surface to give its assistant the web search tool. Unticked surfaces never search the web.'
-                )}
-              </p>
-            </div>
-
-            <div className='space-y-1 rounded-lg border p-3'>
-              <SettingsSwitchRow>
-                <SettingsSwitchContent>
-                  <Label className='text-sm font-medium'>{t('Playground')}</Label>
-                  <p className='text-muted-foreground text-xs'>
-                    {t(
-                      'Adds the web search tool to the playground chat. Every search is billed at the price above.'
-                    )}
-                  </p>
-                </SettingsSwitchContent>
-                <Switch
-                  checked={Boolean(playgroundEnabled)}
-                  onCheckedChange={(checked) =>
-                    form.setValue('playgroundEnabled', checked, {
-                      shouldDirty: true,
-                    })
-                  }
-                />
-              </SettingsSwitchRow>
-
-              <SettingsSwitchRow>
-                <SettingsSwitchContent>
-                  <Label className='text-sm font-medium'>
-                    {t('Discord bot')}
-                  </Label>
-                  <p className='text-muted-foreground text-xs'>
-                    {t('Gives the Discord bot the same web search tool.')}
-                  </p>
-                </SettingsSwitchContent>
-                <Switch
-                  checked={Boolean(discordEnabled)}
-                  onCheckedChange={(checked) =>
-                    form.setValue('discordEnabled', checked, {
-                      shouldDirty: true,
-                    })
-                  }
-                />
-              </SettingsSwitchRow>
-              {discordEnabled && (
-                <p className='text-muted-foreground border-amber-500/40 bg-amber-500/5 rounded-md border px-3 py-2 text-xs'>
-                  {t(
-                    'Discord users are not signed in to this site, so the search price cannot always be charged: searches made by unlinked accounts may be free.'
-                  )}
-                </p>
+          <div className='space-y-1'>
+            <Label>{t('Where the search tool is available')}</Label>
+            <SettingsDescription>
+              {t(
+                'Tick a surface to give its assistant the web search tool. Unticked surfaces never search the web.'
               )}
-
-              <SettingsSwitchRow>
-                <SettingsSwitchContent>
-                  <Label className='text-sm font-medium'>
-                    {t('Live support')}
-                  </Label>
-                  <p className='text-muted-foreground text-xs'>
-                    {t(
-                      'Lets the AI live support model search the web when a visitor asks about current information.'
-                    )}
-                  </p>
-                </SettingsSwitchContent>
-                <Switch
-                  checked={Boolean(liveEnabled)}
-                  onCheckedChange={(checked) =>
-                    form.setValue('liveEnabled', checked, { shouldDirty: true })
-                  }
-                />
-              </SettingsSwitchRow>
-              {liveEnabled && (
-                <p className='text-muted-foreground border-amber-500/40 bg-amber-500/5 rounded-md border px-3 py-2 text-xs'>
-                  {t(
-                    'Visitors of the live support are often not logged in, so the search price may not be charged for their searches.'
-                  )}
-                </p>
-              )}
-            </div>
+            </SettingsDescription>
           </div>
+
+          <SettingsSwitchRow>
+            <SettingsSwitchContent>
+              <Label>{t('Playground')}</Label>
+              <SettingsDescription>
+                {t(
+                  'Adds the web search tool to the playground chat. Every search is billed at the price above.'
+                )}
+              </SettingsDescription>
+            </SettingsSwitchContent>
+            <Switch
+              checked={Boolean(playgroundEnabled)}
+              onCheckedChange={(checked) =>
+                form.setValue('playgroundEnabled', checked, {
+                  shouldDirty: true,
+                })
+              }
+            />
+          </SettingsSwitchRow>
+
+          <SettingsSwitchRow>
+            <SettingsSwitchContent>
+              <Label>{t('Discord bot')}</Label>
+              <SettingsDescription>
+                {t('Gives the Discord bot the same web search tool.')}
+              </SettingsDescription>
+            </SettingsSwitchContent>
+            <Switch
+              checked={Boolean(discordEnabled)}
+              onCheckedChange={(checked) =>
+                form.setValue('discordEnabled', checked, {
+                  shouldDirty: true,
+                })
+              }
+            />
+          </SettingsSwitchRow>
+          {discordEnabled && (
+            <p className='text-muted-foreground border-amber-500/40 bg-amber-500/5 rounded-md border px-3 py-2 text-xs'>
+              {t(
+                'Discord users are not signed in to this site, so the search price cannot always be charged: searches made by unlinked accounts may be free.'
+              )}
+            </p>
+          )}
+
+          <SettingsSwitchRow>
+            <SettingsSwitchContent>
+              <Label>{t('Live support')}</Label>
+              <SettingsDescription>
+                {t(
+                  'Lets the AI live support model search the web when a visitor asks about current information.'
+                )}
+              </SettingsDescription>
+            </SettingsSwitchContent>
+            <Switch
+              checked={Boolean(liveEnabled)}
+              onCheckedChange={(checked) =>
+                form.setValue('liveEnabled', checked, { shouldDirty: true })
+              }
+            />
+          </SettingsSwitchRow>
+          {liveEnabled && (
+            <p className='text-muted-foreground border-amber-500/40 bg-amber-500/5 rounded-md border px-3 py-2 text-xs'>
+              {t(
+                'Visitors of the live support are often not logged in, so the search price may not be charged for their searches.'
+              )}
+            </p>
+          )}
 
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}

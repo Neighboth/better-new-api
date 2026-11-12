@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
-import { Pencil } from 'lucide-react'
+import { Loader2, Pencil } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -72,7 +72,7 @@ import {
   normalizeAdminPermissions,
 } from '@/lib/admin-permissions'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
-import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
+import { formatQuota, parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -84,6 +84,7 @@ import {
   getPermissionCatalog,
   getUserBlocklist,
   updateUserBlocklist,
+  setUserReferralBalance,
 } from '../api'
 import { BINDING_FIELDS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
@@ -118,6 +119,12 @@ export function UsersMutateDrawer({
   // and models one account may not use; the user cannot lift it.
   const [blockedChannels, setBlockedChannels] = useState<number[]>([])
   const [blockedModels, setBlockedModels] = useState<string[]>([])
+  // The referral reward balance of the user: the real balance and the
+  // displayed balance, as the plain wallet and the wallet screen see them.
+  // Edited here to absolute values; the plain wallet is not affected.
+  const [referralReal, setReferralReal] = useState(0)
+  const [referralDisplay, setReferralDisplay] = useState(0)
+  const [referralSaving, setReferralSaving] = useState(false)
 
   // Fetch groups
   const { data: groupsData } = useQuery({
@@ -174,6 +181,10 @@ export function UsersMutateDrawer({
       getUser(currentRow.id).then((result) => {
         if (result.success && result.data) {
           form.reset(transformUserToFormDefaults(result.data))
+          setReferralReal(quotaUnitsToDollars(result.data.referral_quota ?? 0))
+          setReferralDisplay(
+            quotaUnitsToDollars(result.data.referral_display ?? 0)
+          )
         }
       })
       getUserBlocklist(currentRow.id).then((result) => {
@@ -187,6 +198,8 @@ export function UsersMutateDrawer({
       form.reset(USER_FORM_DEFAULT_VALUES)
       setBlockedChannels([])
       setBlockedModels([])
+      setReferralReal(0)
+      setReferralDisplay(0)
     }
   }, [open, isUpdate, currentRow, form])
 
@@ -198,6 +211,39 @@ export function UsersMutateDrawer({
   const selectedRole = form.watch('role')
   const canEditAdminPermissions = currentUser?.role === ROLE.SUPER_ADMIN
   const targetIsAdmin = (selectedRole ?? currentRow?.role ?? 0) >= ROLE.ADMIN
+
+  const saveReferralBalance = async () => {
+    if (!currentRow) return
+    setReferralSaving(true)
+    try {
+      const result = await setUserReferralBalance({
+        id: currentRow.id,
+        action: 'set_referral_balance',
+        value: parseQuotaFromDollars(referralReal),
+        display: parseQuotaFromDollars(referralDisplay),
+      })
+      if (result.success) {
+        toast.success(t('Referral balance updated'))
+        triggerRefresh()
+        getUser(currentRow.id).then((fresh) => {
+          if (fresh.success && fresh.data) {
+            setReferralReal(
+              quotaUnitsToDollars(fresh.data.referral_quota ?? 0)
+            )
+            setReferralDisplay(
+              quotaUnitsToDollars(fresh.data.referral_display ?? 0)
+            )
+          }
+        })
+      } else {
+        toast.error(result.message || t('Failed to update referral balance'))
+      }
+    } catch {
+      toast.error(t('Failed to update referral balance'))
+    } finally {
+      setReferralSaving(false)
+    }
+  }
 
   const onSubmit = async (data: UserFormValues) => {
     if (!isUpdate) {
@@ -512,6 +558,58 @@ export function UsersMutateDrawer({
                       </FormItem>
                     )}
                   />
+                </SideDrawerSection>
+              )}
+
+              {/* Referral reward balance (Update only) */}
+              {isUpdate && (
+                <SideDrawerSection>
+                  <h3 className='text-sm font-medium'>{t('Referral Balance')}</h3>
+                  <p className='text-muted-foreground text-xs'>
+                    {t(
+                      'The referral reward balance of the user. It is spent before the plain wallet and it is shown in the wallet at the display amount. Editing writes absolute values; the plain wallet is not affected. Only what was earned through referrals is reserved this way; top-ups and coupons behave like always.'
+                    )}
+                  </p>
+                  <div className='grid gap-3 sm:grid-cols-2'>
+                    <div className='space-y-1'>
+                      <Label className='text-xs'>{t('Real balance ({{currency}})', { currency: currencyLabel })}</Label>
+                      <Input
+                        type='number'
+                        min={0}
+                        step='any'
+                        value={referralReal}
+                        onChange={(event) => setReferralReal(Number(event.target.value) || 0)}
+                      />
+                      <p className='text-muted-foreground text-[11px]'>
+                        {formatQuota(parseQuotaFromDollars(referralReal))}
+                      </p>
+                    </div>
+                    <div className='space-y-1'>
+                      <Label className='text-xs'>{t('Display balance ({{currency}})', { currency: currencyLabel })}</Label>
+                      <Input
+                        type='number'
+                        min={0}
+                        step='any'
+                        value={referralDisplay}
+                        onChange={(event) => setReferralDisplay(Number(event.target.value) || 0)}
+                      />
+                      <p className='text-muted-foreground text-[11px]'>
+                        {formatQuota(parseQuotaFromDollars(referralDisplay))}
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      disabled={referralSaving}
+                      onClick={() => void saveReferralBalance()}
+                    >
+                      {referralSaving && <Loader2 className='mr-1 h-4 w-4 animate-spin' />}
+                      {t('Save referral balance')}
+                    </Button>
+                  </div>
                 </SideDrawerSection>
               )}
 

@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/byog"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -156,12 +157,21 @@ func Distribute() func(c *gin.Context) {
 				}
 
 				if channel == nil {
+					blockedChannels := []int{}
+					if refSet := operation_setting.GetReferralSetting(); refSet != nil && len(refSet.ExcludedChannelIds) > 0 {
+						// A request that (may) spend the referral reward
+						// balance may never take the excluded channels.
+						if refQuota, refErr := model.GetReferralQuota(c.GetInt("id")); refErr == nil && refQuota > 0 {
+							blockedChannels = append(blockedChannels, refSet.ExcludedChannelIds...)
+						}
+					}
 					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
-						Ctx:         c,
-						ModelName:   modelRequest.Model,
-						TokenGroup:  usingGroup,
-						RequestPath: c.Request.URL.Path,
-						Retry:       common.GetPointer(0),
+						Ctx:               c,
+						ModelName:         modelRequest.Model,
+						TokenGroup:        usingGroup,
+						RequestPath:       c.Request.URL.Path,
+						Retry:             common.GetPointer(0),
+						BlockedChannelIds: blockedChannels,
 					})
 					if err != nil {
 						showGroup := usingGroup

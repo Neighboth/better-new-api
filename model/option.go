@@ -215,6 +215,7 @@ func InitOptionMap() {
 	common.OptionMap["CaptchaFallbackEnabled"] = "false"
 	common.OptionMap["AdsEnabled"] = "false"
 	common.OptionMap["AdsMode"] = "both"
+	common.OptionMap["AdsSurfaces"] = "blog,console,popup"
 	common.OptionMap["QuotaForNewUser"] = strconv.Itoa(common.QuotaForNewUser)
 	common.OptionMap["QuotaForInviter"] = strconv.Itoa(common.QuotaForInviter)
 	common.OptionMap["QuotaForInvitee"] = strconv.Itoa(common.QuotaForInvitee)
@@ -424,7 +425,7 @@ func updateOptionMap(key string, value string) (err error) {
 			common.ImageDownloadPermission = intValue
 		}
 	}
-	if strings.HasSuffix(key, "Enabled") || key == "DefaultCollapseSidebar" || key == "DefaultUseAutoGroup" || key == "SMTPForceAuthLogin" || key == "SMTPInsecureSkipVerify" || key == "HideHeaderSiteName" {
+	if strings.HasSuffix(key, "Enabled") || key == "DefaultCollapseSidebar" || key == "DefaultUseAutoGroup" || key == "SMTPForceAuthLogin" || key == "SMTPInsecureSkipVerify" || key == "HideHeaderSiteName" || key == "ModelsAPIRequireKey" {
 		boolValue := value == "true"
 		switch key {
 		case "PasswordRegisterEnabled":

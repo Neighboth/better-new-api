@@ -106,6 +106,14 @@ type User struct {
 	AffQuota         int                        `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
 	AffHistoryQuota  int                        `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
 	InviterId        int                        `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
+	// ReferralQuota is the referral reward balance in real quota units. It is
+	// promoted money that is tracked separately from the plain wallet quota: it
+	// is consumed before the plain wallet and, unlike the plain wallet, it can
+	// be shown to the user at an inflated, administrator-configured ratio.
+	ReferralQuota   int64 `json:"referral_quota" gorm:"type:bigint;default:0;column:referral_quota"`
+	// ReferralDisplay is the balance shown to the user for the same reward in
+	// display quota units. Wallet screens add it on top of the plain quota.
+	ReferralDisplay int64 `json:"referral_display" gorm:"type:bigint;default:0;column:referral_display"`
 	DeletedAt        gorm.DeletedAt             `gorm:"index"`
 	LinuxDOId        string                     `json:"linux_do_id" gorm:"column:linux_do_id;index"`
 	Setting          string                     `json:"setting" gorm:"type:text;column:setting"`
@@ -541,11 +549,11 @@ func HardDeleteUserById(id int) error {
 	return user.HardDelete()
 }
 
-func inviteUser(inviterId int) error {
+func inviteUser(inviterId int, pendingAdd int, historyAdd int) error {
 	result := DB.Model(&User{}).Where("id = ?", inviterId).Updates(map[string]interface{}{
 		"aff_count":   gorm.Expr("aff_count + ?", 1),
-		"aff_quota":   gorm.Expr("aff_quota + ?", common.QuotaForInviter),
-		"aff_history": gorm.Expr("aff_history + ?", common.QuotaForInviter),
+		"aff_quota":   gorm.Expr("aff_quota + ?", pendingAdd),
+		"aff_history": gorm.Expr("aff_history + ?", historyAdd),
 	})
 	if result.Error != nil {
 		return result.Error
@@ -690,14 +698,37 @@ func (user *User) finishInsert(inviterId int) {
 		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("新用户注册赠送 %s", logger.LogQuota(common.QuotaForNewUser)))
 	}
 	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
-		if common.QuotaForInvitee > 0 {
-			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
-			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
-		}
-		if common.QuotaForInviter > 0 {
-			//_ = IncreaseUserQuota(inviterId, common.QuotaForInviter)
-			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(common.QuotaForInviter)))
-			_ = inviteUser(inviterId)
+		rset := operation_setting.GetReferralSetting()
+		if rset != nil && rset.Enabled {
+			// The enhanced referral reward grants a tracked reward balance
+			// instead of ordinary wallet quota: it is shown to the user at
+			// the configured display ratio and is spent before the plain
+			// wallet balance.
+			if rset.InviteeReal > 0 || rset.InviteeDisplay > 0 {
+				if err := CreditReferralBalance(user.Id, rset.InviteeReal, rset.InviteeDisplay); err == nil {
+					RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(rset.InviteeReal)))
+				}
+			}
+			if rset.InviterReal > 0 || rset.InviterDisplay > 0 {
+				if err := CreditReferralBalance(inviterId, rset.InviterReal, rset.InviterDisplay); err == nil {
+					RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(rset.InviterReal)))
+				}
+				// the invite counts towards the inviter's invitation
+				// statistics, the reward goes to the referral balance
+				_ = inviteUser(inviterId, 0, rset.InviterReal)
+			} else {
+				_ = inviteUser(inviterId, 0, 0)
+			}
+		} else {
+			if common.QuotaForInvitee > 0 {
+				_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
+				RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
+			}
+			if common.QuotaForInviter > 0 {
+				//_ = IncreaseUserQuota(inviterId, common.QuotaForInviter)
+				RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(common.QuotaForInviter)))
+				_ = inviteUser(inviterId, common.QuotaForInviter, common.QuotaForInviter)
+			}
 		}
 	}
 }
@@ -747,13 +778,37 @@ func (user *User) FinalizeOAuthUserCreation(inviterId int) {
 		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("新用户注册赠送 %s", logger.LogQuota(common.QuotaForNewUser)))
 	}
 	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
-		if common.QuotaForInvitee > 0 {
-			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
-			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
-		}
-		if common.QuotaForInviter > 0 {
-			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(common.QuotaForInviter)))
-			_ = inviteUser(inviterId)
+		rset := operation_setting.GetReferralSetting()
+		if rset != nil && rset.Enabled {
+			// The enhanced referral reward grants a tracked reward balance
+			// instead of ordinary wallet quota: it is shown to the user at
+			// the configured display ratio and is spent before the plain
+			// wallet balance.
+			if rset.InviteeReal > 0 || rset.InviteeDisplay > 0 {
+				if err := CreditReferralBalance(user.Id, rset.InviteeReal, rset.InviteeDisplay); err == nil {
+					RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(rset.InviteeReal)))
+				}
+			}
+			if rset.InviterReal > 0 || rset.InviterDisplay > 0 {
+				if err := CreditReferralBalance(inviterId, rset.InviterReal, rset.InviterDisplay); err == nil {
+					RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(rset.InviterReal)))
+				}
+				// the invite counts towards the inviter's invitation
+				// statistics, the reward goes to the referral balance
+				_ = inviteUser(inviterId, 0, rset.InviterReal)
+			} else {
+				_ = inviteUser(inviterId, 0, 0)
+			}
+		} else {
+			if common.QuotaForInvitee > 0 {
+				_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
+				RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
+			}
+			if common.QuotaForInviter > 0 {
+				//_ = IncreaseUserQuota(inviterId, common.QuotaForInviter)
+				RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(common.QuotaForInviter)))
+				_ = inviteUser(inviterId, common.QuotaForInviter, common.QuotaForInviter)
+			}
 		}
 	}
 }

@@ -160,6 +160,18 @@ export function SidebarModulesSection({
         title: t('Subscription Management'),
         description: t('Manage subscription plans and pricing.'),
       },
+      byog: {
+        title: t('BYOG Management'),
+        description: t('Run and moderate the bring-your-own-GPU network.'),
+      },
+      blog: {
+        title: t('Blog Management'),
+        description: t('Write and publish posts of the blog.'),
+      },
+      statistics: {
+        title: t('Statistics'),
+        description: t('Site-wide usage statistics and reports.'),
+      },
     },
   }
   const formDefaults = useMemo(() => config, [config])

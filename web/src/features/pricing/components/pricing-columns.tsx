@@ -114,6 +114,15 @@ export function usePricingColumns(
       ),
       cell: ({ row }) => {
         const model = row.original
+        // The auto model is billed as the model it picks: it has no
+        // per-token price of its own to print in the table.
+        if (model.auto_model) {
+          return (
+            <span className='text-muted-foreground text-xs'>
+              {t('Dynamic Pricing')}
+            </span>
+          )
+        }
         const dynamicSummary = getDynamicPricingSummary(model, {
           tokenUnit,
           showRechargePrice,
@@ -339,6 +348,15 @@ export function usePricingColumns(
       header: t('Cached'),
       cell: ({ row }) => {
         const model = row.original
+        // The auto model is billed as the model it picks: it has no
+        // per-token price of its own to print in the table.
+        if (model.auto_model) {
+          return (
+            <span className='text-muted-foreground text-xs'>
+              {t('Dynamic Pricing')}
+            </span>
+          )
+        }
         const dynamicSummary = getDynamicPricingSummary(model, {
           tokenUnit,
           showRechargePrice,

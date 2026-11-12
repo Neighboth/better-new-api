@@ -151,6 +151,29 @@ export function SystemBehaviorSection({
               </SettingsSwitchItem>
             )}
           />
+
+          <FormField
+            control={form.control}
+            name='ModelsAPIRequireKey'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>{t('Require API key for /v1/models')}</FormLabel>
+                  <FormDescription>
+                    {t(
+                      'When on, GET /v1/models needs a valid API key like every other endpoint. When off, anonymous requests can list the models of the default group.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
+            )}
+          />
         </SettingsForm>
       </Form>
     </SettingsSection>

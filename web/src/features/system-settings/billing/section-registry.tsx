@@ -62,14 +62,21 @@ const BILLING_SECTIONS = [
         defaultValues={{
           QuotaForNewUser: settings.QuotaForNewUser,
           PreConsumedQuota: settings.PreConsumedQuota,
-          QuotaForInviter: settings.QuotaForInviter,
-          QuotaForInvitee: settings.QuotaForInvitee,
           TopUpLink: settings.TopUpLink,
           quota_setting: {
             enable_free_model_pre_consume:
               settings['quota_setting.enable_free_model_pre_consume'],
             always_cache_hit:
               settings['quota_setting.always_cache_hit'] ?? false,
+          },
+          referral_setting: {
+            enabled: settings['referral_setting.enabled'] ?? false,
+            invitee_real: settings['referral_setting.invitee_real'] ?? 500000,
+            invitee_display: settings['referral_setting.invitee_display'] ?? 50000000,
+            inviter_real: settings['referral_setting.inviter_real'] ?? 500000,
+            inviter_display: settings['referral_setting.inviter_display'] ?? 50000000,
+            excluded_channel_ids:
+              settings['referral_setting.excluded_channel_ids'] ?? [],
           },
         }}
         complianceConfirmed={

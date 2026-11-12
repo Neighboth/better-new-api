@@ -28,6 +28,7 @@ import type {
   UserFormData,
   ManageUserAction,
   ManageUserQuotaPayload,
+  ManageUserReferralPayload,
   ApiResponse,
 } from './types'
 
@@ -157,6 +158,18 @@ export async function manageUser(
  */
 export async function adjustUserQuota(
   payload: ManageUserQuotaPayload
+): Promise<ApiResponse<Partial<User>>> {
+  const res = await api.post('/api/user/manage', payload)
+  return res.data
+}
+
+/**
+ * Set the referral reward balance of a user to absolute values: the real
+ * balance and the displayed balance, in quota units. The plain wallet
+ * quota is not touched.
+ */
+export async function setUserReferralBalance(
+  payload: ManageUserReferralPayload
 ): Promise<ApiResponse<Partial<User>>> {
   const res = await api.post('/api/user/manage', payload)
   return res.data

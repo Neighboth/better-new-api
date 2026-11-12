@@ -58,8 +58,6 @@ import {
 import {
   AD_SURFACES,
   parsePlacements,
-  parseSurfaces,
-  serializeSurfaces,
   type AdSurface,
 } from '@/features/ads/lib/placements'
 import { api } from '@/lib/api'
@@ -78,6 +76,7 @@ type CustomAdDraft = {
   id: string
   image: string
   images?: Record<string, string>
+  popupImages?: Record<string, string>
   url: string
   /**
    * Surfaces of the ad. An ad of an older panel carries no list and belongs to
@@ -115,6 +114,7 @@ function parseCustomAds(raw: string): CustomAdDraft[] {
         id: ad.id as string,
         image: typeof ad.image === 'string' ? ad.image : '',
         images: typeof (ad as { images?: unknown }).images === 'object' && (ad as { images?: Record<string, string> }).images ? ((ad as { images: Record<string, string> }).images) : {},
+        popupImages: typeof (ad as { popup_images?: unknown }).popup_images === 'object' && (ad as { popup_images?: Record<string, string> }).popup_images ? ((ad as { popup_images: Record<string, string> }).popup_images) : {},
         url: typeof ad.url === 'string' ? ad.url : '',
         placements: parsePlacements(
           (ad as { placements?: unknown }).placements
@@ -137,6 +137,77 @@ const AD_LANGUAGES = [
   { code: 'ja', flag: '🇯🇵', label: 'JA' },
   { code: 'vi', flag: '🇻🇳', label: 'VI' },
 ] as const
+
+function LanguageImageGrid(props: {
+  t: (key: string, options?: Record<string, unknown>) => string
+  header: string
+  hint: string
+  required?: boolean
+  values: Record<string, string | undefined>
+  uploadingSlot: { index: number; lang: string } | null
+  adIndex: number
+  popup: boolean
+  onImageChange: (lang: string, url: string) => void
+  onUpload: (langKey: string) => void
+}) {
+  const uploadingLang =
+    props.uploadingSlot && props.uploadingSlot.index === props.adIndex
+      ? props.uploadingSlot.lang
+      : null
+  return (
+    <div className='bg-muted/20 space-y-2 rounded-lg border border-border/50 p-2.5'>
+      <div className='flex items-center justify-between gap-2'>
+        <div>
+          <p className='text-xs font-semibold text-foreground'>
+            {props.header}
+            {props.required && <span className='ml-1 text-destructive'>*</span>}
+          </p>
+          <p className='text-[10px] text-muted-foreground'>{props.hint}</p>
+        </div>
+        {props.required && (
+          <span className='text-[10px] text-muted-foreground'>
+            {props.t('All 8 languages required')}
+          </span>
+        )}
+      </div>
+      <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+        {AD_LANGUAGES.map((lang) => {
+          const langKey = props.popup ? `popup:${lang.code}` : lang.code
+          const isUploadingThis = uploadingLang === langKey
+          return (
+            <div key={langKey} className='flex items-center gap-1.5'>
+              <span className='flex w-10 shrink-0 items-center gap-1 text-xs'>
+                <span>{lang.flag}</span>
+                <span className='font-mono font-bold'>{lang.label}</span>
+              </span>
+              <Input
+                value={props.values[lang.code] || ''}
+                onChange={(e) => props.onImageChange(lang.code, e.target.value)}
+                placeholder={`${lang.label} URL...`}
+                className='h-7 text-xs flex-1'
+              />
+              <Button
+                type='button'
+                variant='outline'
+                size='icon'
+                className='h-7 w-7 shrink-0'
+                disabled={isUploadingThis}
+                onClick={() => props.onUpload(langKey)}
+                title={`${lang.label} ${props.t('Upload')}`}
+              >
+                {isUploadingThis ? (
+                  <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                ) : (
+                  <Upload className='h-3.5 w-3.5' />
+                )}
+              </Button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 export function AdsSection({ defaultValues }: AdsSectionProps) {
   const { t } = useTranslation()
@@ -162,19 +233,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
 
   const adsEnabled = form.watch('AdsEnabled')
   const adsMode = form.watch('AdsMode')
-  const surfaces = parseSurfaces(form.watch('AdsSurfaces') ?? 'blog')
-
-  const toggleSurface = (surface: AdSurface, enabled: boolean) => {
-    const next = new Set(surfaces)
-    if (enabled) next.add(surface)
-    else next.delete(surface)
-    // At least one surface stays on: the panel of the ads that draws nothing
-    // is a switch that an administrator flips without seeing a change.
-    if (next.size === 0) next.add('blog')
-    form.setValue('AdsSurfaces', serializeSurfaces([...next]), {
-      shouldDirty: true,
-    })
-  }
+  const anyPopupPlacement = customAds.some((ad) => ad.placements.includes('popup'))
 
   const [logKeyword, setLogKeyword] = useState('')
   const [logPage, setLogPage] = useState(1)
@@ -221,9 +280,21 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
         toast.error(t('Ad ID must be lowercase letters, digits and dashes'))
         return
       }
-      const hasAnyImage =
-        ad.images && Object.values(ad.images).some((img) => img && img.trim() !== '')
-      if (!hasAnyImage) {
+      if (ad.placements.includes('popup')) {
+        // The popup draws a tall, very wide rectangle that the strip images
+        // of the console and the blog do not fit: it wants its own images.
+        const missing = AD_LANGUAGES.filter(
+          (lang) => !ad.popupImages?.[lang.code]?.trim()
+        )
+        if (missing.length > 0) {
+          toast.error(
+            t('The popup ad needs an image for every language (missing: {{list}})', {
+              list: missing.map((lang) => lang.label).join(', '),
+            })
+          )
+          return
+        }
+      } else if (!ad.images || !Object.values(ad.images).some((img) => img && img.trim() !== '')) {
         toast.error(t('Every ad needs at least one language-specific image'))
         return
       }
@@ -246,16 +317,23 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
     }
 
     const sanitizedAds = customAds.map((ad) => {
-      const anyImg = ad.images
-        ? ad.images['tr'] ||
-          ad.images['en'] ||
-          Object.values(ad.images).find((v) => v && v.trim() !== '') ||
-          ''
-        : ''
+      const popupImages = Object.fromEntries(
+        Object.entries(ad.popupImages ?? {}).filter(([, v]) => v && v.trim() !== '')
+      )
+      const images = Object.fromEntries(
+        Object.entries(ad.images ?? {}).filter(([, v]) => v && v.trim() !== '')
+      )
+      const anyImg =
+        images['tr'] ||
+        images['en'] ||
+        Object.values(images).find((v) => v && v.trim() !== '') ||
+        Object.values(popupImages).find((v) => v && v.trim() !== '') ||
+        ''
       return {
         id: ad.id,
         image: anyImg,
-        images: ad.images || {},
+        images,
+        popup_images: popupImages,
         url: ad.url,
         placements: ad.placements,
       }
@@ -265,7 +343,10 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
     const entries: [keyof AdsFormValues, string][] = [
       ['AdsEnabled', String(data.AdsEnabled)],
       ['AdsMode', data.AdsMode],
-      ['AdsSurfaces', data.AdsSurfaces],
+      // The top-level surface switches are gone: an ad decides where it
+      // appears, and every surface is reachable. The stored option is set
+      // to all surfaces so an old install behaves the same.
+      ['AdsSurfaces', 'blog,console,popup'],
       ['AdsPopupSkipSeconds', String(data.AdsPopupSkipSeconds ?? 0)],
       ['AdSenseClientId', data.AdSenseClientId ?? ''],
       ['AdSenseSlotId', data.AdSenseSlotId ?? ''],
@@ -288,8 +369,9 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
         id: `sponsor-ad-${current.length + 1}`,
         image: '',
         images: {},
+        popupImages: {},
         url: '',
-        placements: [surfaces[0] ?? 'blog'],
+        placements: ['blog'],
       },
     ])
   }
@@ -316,15 +398,9 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
         const next = new Set(ad.placements)
         if (enabled) next.add(surface)
         else next.delete(surface)
-        // The surfaces of the installation bound the ad: an ad that the panel
-        // keeps on a switch that is off would never draw and the administrator
-        // would look for it on a page that never receives it.
-        const allowed = AD_SURFACES.filter(
-          (item) => next.has(item) && surfaces.includes(item)
-        )
         return {
           ...ad,
-          placements: allowed.length > 0 ? allowed : [surfaces[0] ?? 'blog'],
+          placements: AD_SURFACES.filter((item) => next.has(item)),
         }
       })
     )
@@ -334,18 +410,25 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
     setCustomAds((current) => current.filter((_, i) => i !== index))
   }
 
-  const handleFileUpload = async (index: number, lang: string, file: File) => {
+  const handleFileUpload = async (index: number, langKey: string, file: File) => {
+    const isPopup = langKey.startsWith('popup:')
+    const lang = isPopup ? langKey.slice('popup:'.length) : langKey
     const formData = new FormData()
     formData.append('file', file)
-    setUploadingSlot({ index, lang })
+    setUploadingSlot({ index, lang: langKey })
     try {
       const res = await api.post('/api/blog/manage/ads/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
       if (res.data?.success && res.data?.data) {
         const ad = customAds[index]
-        const updatedImages = { ...(ad?.images || {}), [lang]: res.data.data }
-        updateCustomAd(index, 'images' as keyof CustomAdDraft, updatedImages)
+        if (isPopup) {
+          const updatedImages = { ...(ad?.popupImages || {}), [lang]: res.data.data }
+          updateCustomAd(index, 'popupImages' as keyof CustomAdDraft, updatedImages)
+        } else {
+          const updatedImages = { ...(ad?.images || {}), [lang]: res.data.data }
+          updateCustomAd(index, 'images' as keyof CustomAdDraft, updatedImages)
+        }
         toast.success(t('Image uploaded successfully'))
       } else {
         toast.error(res.data?.message || t('Failed to upload image'))
@@ -393,66 +476,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
 
           {adsEnabled && (
             <>
-              <div className='space-y-3'>
-                <div>
-                  <Label className='text-base'>{t('Ad surfaces')}</Label>
-                  <FormDescription>
-                    {t(
-                      'Choose where the ads of the installation may appear. The blog draws the banners above and below a post, the console draws up to two ads between the cards of the dashboard, the popup opens one large banner over any page. Every ad also picks its own surfaces below.'
-                    )}
-                  </FormDescription>
-                </div>
-                <div className='grid gap-2 sm:grid-cols-2'>
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel>{t('Blog')}</FormLabel>
-                      <FormDescription>
-                        {t('Banners above and below the posts of the blog.')}
-                      </FormDescription>
-                    </SettingsSwitchContent>
-                    <Switch
-                      checked={surfaces.includes('blog')}
-                      onCheckedChange={(value: boolean) =>
-                        toggleSurface('blog', value)
-                      }
-                    />
-                  </SettingsSwitchItem>
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel>{t('Console')}</FormLabel>
-                      <FormDescription>
-                        {t(
-                          'Up to two ads side by side between the cards of the dashboard.'
-                        )}
-                      </FormDescription>
-                    </SettingsSwitchContent>
-                    <Switch
-                      checked={surfaces.includes('console')}
-                      onCheckedChange={(value: boolean) =>
-                        toggleSurface('console', value)
-                      }
-                    />
-                  </SettingsSwitchItem>
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel>{t('Popup')}</FormLabel>
-                      <FormDescription>
-                        {t(
-                          'One large landscape banner over any page of the site, once per visit, closed with a skip button.'
-                        )}
-                      </FormDescription>
-                    </SettingsSwitchContent>
-                    <Switch
-                      checked={surfaces.includes('popup')}
-                      onCheckedChange={(value: boolean) =>
-                        toggleSurface('popup', value)
-                      }
-                    />
-                  </SettingsSwitchItem>
-                </div>
-              </div>
-
-              {surfaces.includes('popup') && (
+              {anyPopupPlacement && (
                 <FormField
                   control={form.control}
                   name='AdsPopupSkipSeconds'
@@ -596,60 +620,45 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                             <Trash2 className='h-4 w-4' />
                           </Button>
                         </div>
-                        <div className='rounded-lg border border-border/50 bg-muted/20 p-2.5 space-y-2'>
-                          <div className='flex items-center justify-between'>
-                            <Label className='text-xs font-semibold text-foreground'>
-                              {t('Language-Specific Images')}
-                              <span className='ml-1 text-destructive'>*</span>
-                            </Label>
-                            <span className='text-[10px] text-muted-foreground'>
-                              {t('At least one is required')}
-                            </span>
-                          </div>
-                          <div className='grid grid-cols-1 sm:grid-cols-2 gap-2'>
-                            {AD_LANGUAGES.map((lang) => {
-                              const isUploadingThis =
-                                uploadingSlot?.index === index &&
-                                uploadingSlot?.lang === lang.code
-                              return (
-                                <div key={lang.code} className='flex items-center gap-1.5'>
-                                  <span className='text-xs shrink-0 w-10 flex items-center gap-1'>
-                                    <span>{lang.flag}</span>
-                                    <span className='font-mono font-bold'>{lang.label}</span>
-                                  </span>
-                                  <Input
-                                    value={ad.images?.[lang.code] || ''}
-                                    onChange={(e) => {
-                                      const updatedImages = { ...(ad.images || {}), [lang.code]: e.target.value }
-                                      if (!e.target.value) delete updatedImages[lang.code]
-                                      updateCustomAd(index, 'images' as keyof CustomAdDraft, updatedImages)
-                                    }}
-                                    placeholder={`${lang.label} URL...`}
-                                    className='h-7 text-xs flex-1'
-                                  />
-                                  <Button
-                                    type='button'
-                                    variant='outline'
-                                    size='icon'
-                                    className='h-7 w-7 shrink-0'
-                                    disabled={isUploadingThis}
-                                    onClick={() => {
-                                      setUploadingSlot({ index, lang: lang.code })
-                                      fileInputRef.current?.click()
-                                    }}
-                                    title={`${lang.label} ${t('Upload')}`}
-                                  >
-                                    {isUploadingThis ? (
-                                      <Loader2 className='h-3.5 w-3.5 animate-spin' />
-                                    ) : (
-                                      <Upload className='h-3.5 w-3.5' />
-                                    )}
-                                  </Button>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
+                        <LanguageImageGrid
+                          t={t}
+                          header={t('Banner images (Blog & Console)')}
+                          hint={t('1600 × 200 — short and very wide, the same shape the blog and the console draw.')}
+                          values={ad.images ?? {}}
+                          uploadingSlot={uploadingSlot}
+                          adIndex={index}
+                          popup={false}
+                          onImageChange={(lang, url) => {
+                            const updatedImages = { ...(ad.images || {}), [lang]: url }
+                            if (!url) delete updatedImages[lang]
+                            updateCustomAd(index, 'images' as keyof CustomAdDraft, updatedImages)
+                          }}
+                          onUpload={(langKey) => {
+                            setUploadingSlot({ index, lang: langKey })
+                            fileInputRef.current?.click()
+                          }}
+                        />
+                        {ad.placements.includes('popup') && (
+                          <LanguageImageGrid
+                            t={t}
+                            required
+                            header={t('Popup images')}
+                            hint={t('1600 × 900 — a tall and very wide rectangle. The popup never uses the banner images.')}
+                            values={ad.popupImages ?? {}}
+                            uploadingSlot={uploadingSlot}
+                            adIndex={index}
+                            popup
+                            onImageChange={(lang, url) => {
+                              const updatedImages = { ...(ad.popupImages || {}), [lang]: url }
+                              if (!url) delete updatedImages[lang]
+                              updateCustomAd(index, 'popupImages' as keyof CustomAdDraft, updatedImages)
+                            }}
+                            onUpload={(langKey) => {
+                              setUploadingSlot({ index, lang: langKey })
+                              fileInputRef.current?.click()
+                            }}
+                          />
+                        )}
                         <div>
                           <Label className='text-xs'>{t('Target URL')}</Label>
                           <Input
@@ -665,43 +674,30 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                             {t('Where this ad appears')}
                           </Label>
                           <div className='mt-1.5 flex flex-wrap items-center gap-4'>
-                            {AD_SURFACES.map((surface) => {
-                              const allowed = surfaces.includes(surface)
-                              return (
-                                <label
-                                  key={surface}
-                                  className='flex items-center gap-2 text-xs'
-                                  title={
-                                    allowed
-                                      ? undefined
-                                      : t(
-                                          'Turn this surface on to place the ad there.'
-                                        )
+                            {AD_SURFACES.map((surface) => (
+                              <label
+                                key={surface}
+                                className='flex items-center gap-2 text-xs'
+                              >
+                                <Checkbox
+                                  checked={ad.placements.includes(surface)}
+                                  onCheckedChange={(value) =>
+                                    togglePlacement(
+                                      index,
+                                      surface,
+                                      value === true
+                                    )
                                   }
-                                >
-                                  <Checkbox
-                                    checked={
-                                      allowed && ad.placements.includes(surface)
-                                    }
-                                    disabled={!allowed}
-                                    onCheckedChange={(value) =>
-                                      togglePlacement(
-                                        index,
-                                        surface,
-                                        value === true
-                                      )
-                                    }
-                                  />
-                                  <span className={allowed ? '' : 'opacity-50'}>
-                                    {surface === 'blog'
-                                      ? t('Blog')
-                                      : surface === 'console'
-                                        ? t('Console')
-                                        : t('Popup')}
-                                  </span>
-                                </label>
-                              )
-                            })}
+                                />
+                                <span>
+                                  {surface === 'blog'
+                                    ? t('Blog')
+                                    : surface === 'console'
+                                      ? t('Console')
+                                      : t('Popup')}
+                                </span>
+                              </label>
+                            ))}
                           </div>
                         </div>
                       </CardContent>

@@ -181,9 +181,15 @@ func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 	userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 	if userGroup == "" && (tokenGroup == "" || tokenGroup == "auto") {
 		var err error
-		userGroup, err = model.GetUserGroup(c.GetInt("id"), false)
-		if err != nil {
-			return modelListGroups{}, err
+		if c.GetInt("id") > 0 {
+			userGroup, err = model.GetUserGroup(c.GetInt("id"), false)
+			if err != nil {
+				return modelListGroups{}, err
+			}
+		} else {
+			// Anonymous catalogue of the installation: the default group,
+			// the same models an account of the default group would see.
+			userGroup = "default"
 		}
 	}
 

@@ -226,6 +226,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// preference of the user, so it is enforced unconditionally.
 	blockedChannels := relayInfo.UserSetting.BlockedChannels
 	blockedModels := relayInfo.UserSetting.BlockedModels
+	if refSet := operation_setting.GetReferralSetting(); refSet != nil && len(refSet.ExcludedChannelIds) > 0 {
+		// A request that (may) spend the referral reward balance may never
+		// take the excluded channels, not even as a fallback.
+		if refQuota, refErr := model.GetReferralQuota(relayInfo.UserId); refErr == nil && refQuota > 0 {
+			blockedChannels = append(append([]int{}, blockedChannels...), refSet.ExcludedChannelIds...)
+		}
+	}
 	if isModelBlockedForUser(relayInfo.RequestedModelName, blockedModels) {
 		newAPIError = types.NewErrorWithStatusCode(
 			fmt.Errorf("模型 %s 已被管理员禁止该账号使用", relayInfo.RequestedModelName),

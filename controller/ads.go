@@ -36,12 +36,19 @@ const (
 // Placements lists the surfaces of an ad. An ad without a placement predates
 // the field and belongs to the blog, which is where the ads of the installation
 // used to appear: an upgrade of the panel never moves an existing ad.
+//
+// Popup surface: the popup renders a tall, very wide rectangle, while the blog
+// and the console render a short, wide strip, so the images of the two shapes
+// cannot be the same file. An ad that places itself on the popup carries a
+// separate set of language-specific popup images; the blog and the console use
+// Images.
 type customAd struct {
-	ID         string            `json:"id"`
-	Image      string            `json:"image"`
-	Images     map[string]string `json:"images,omitempty"`
-	URL        string            `json:"url"`
-	Placements []string          `json:"placements,omitempty"`
+	ID          string            `json:"id"`
+	Image       string            `json:"image"`
+	Images      map[string]string `json:"images,omitempty"`
+	PopupImages map[string]string `json:"popup_images,omitempty"`
+	URL         string            `json:"url"`
+	Placements  []string          `json:"placements,omitempty"`
 }
 
 // placementsOf returns the surfaces of an ad, with the legacy default applied.
@@ -82,13 +89,14 @@ func adOnSurface(ad customAd, surface string) bool {
 // adSurfaces returns the surfaces that the administrator enabled for the ads of
 // the installation.
 //
-// The option holds a comma separated list. An installation that never saved the
-// option keeps the blog only, which is what the ads of the installation did
-// before the console existed.
+// The option holds a comma separated list. An empty or missing option means the
+// installation has not limited the surfaces: an ad is then placed on a surface
+// purely by its own placement list. This is the state of installations that
+// never used the legacy per-surface toggles of the settings card.
 func adSurfaces() []string {
 	raw := common.OptionMap["AdsSurfaces"]
 	if strings.TrimSpace(raw) == "" {
-		return []string{AdSurfaceBlog}
+		return []string{AdSurfaceBlog, AdSurfaceConsole, AdSurfacePopup}
 	}
 	seen := make(map[string]bool, 3)
 	surfaces := make([]string, 0, 3)
@@ -170,12 +178,24 @@ func GetAdsStatus(c *gin.Context) {
 	ads := make([]gin.H, 0)
 	if allowed {
 		for _, ad := range getCustomAds() {
+			// Each surface draws its own images: the strip of the blog and
+			// console is short and wide, the banner of the popup is a tall,
+			// very wide rectangle, so an ad on the popup serves the images
+			// that were uploaded for the popup when there are any, and falls
+			// back to the shared set otherwise.
+			images := ad.Images
+			if surface == AdSurfacePopup && len(ad.PopupImages) > 0 {
+				images = ad.PopupImages
+			}
 			effectiveImage := ad.Image
-			if effectiveImage == "" && len(ad.Images) > 0 {
-				if enImg, ok := ad.Images["en"]; ok && strings.TrimSpace(enImg) != "" {
+			if len(ad.PopupImages) > 0 && surface == AdSurfacePopup {
+				effectiveImage = ""
+			}
+			if effectiveImage == "" && len(images) > 0 {
+				if enImg, ok := images["en"]; ok && strings.TrimSpace(enImg) != "" {
 					effectiveImage = strings.TrimSpace(enImg)
 				} else {
-					for _, img := range ad.Images {
+					for _, img := range images {
 						if strings.TrimSpace(img) != "" {
 							effectiveImage = strings.TrimSpace(img)
 							break
@@ -192,8 +212,8 @@ func GetAdsStatus(c *gin.Context) {
 				"url":        ad.URL,
 				"placements": placementsOf(ad),
 			}
-			if len(ad.Images) > 0 {
-				adH["images"] = ad.Images
+			if len(images) > 0 {
+				adH["images"] = images
 			}
 			ads = append(ads, adH)
 		}
@@ -443,6 +463,11 @@ func CleanupUnusedAdImages(newCustomAdsJson string) {
 			activeUploads[filepath.Base(ad.Image)] = true
 		}
 		for _, img := range ad.Images {
+			if strings.HasPrefix(img, "/uploads/ads/") {
+				activeUploads[filepath.Base(img)] = true
+			}
+		}
+		for _, img := range ad.PopupImages {
 			if strings.HasPrefix(img, "/uploads/ads/") {
 				activeUploads[filepath.Base(img)] = true
 			}

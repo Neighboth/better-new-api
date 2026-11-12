@@ -34,10 +34,12 @@ type FundingSource interface {
 var ErrInsufficientWalletQuota = errors.New("wallet quota insufficient")
 
 type WalletFunding struct {
-	userId        int
-	consumed      int // 实际预扣的用户额度
-	holdID        string
-	markUncertain func()
+	userId           int
+	consumed         int // 实际预扣的用户额度
+	consumedQuota    int // wallet quota part of the consumed amount
+	referralConsumed int // referral reward part of the consumed amount
+	holdID           string
+	markUncertain    func()
 }
 
 func (w *WalletFunding) Source() string { return BillingSourceWallet }
@@ -46,23 +48,46 @@ func (w *WalletFunding) PreConsume(amount int) error {
 	if amount <= 0 {
 		return nil
 	}
+	// The referral reward balance is spent before the plain wallet balance:
+	// it is promotional money, consuming it does not spend the money the
+	// user actually topped up.
+	var referralReserved int64
+	var referralDisplayReserved int64
+	if reserved, display, rErr := model.ReserveReferralQuota(w.userId, int64(amount)); rErr != nil {
+		return rErr
+	} else {
+		referralReserved, referralDisplayReserved = reserved, display
+		_ = referralDisplayReserved
+	}
+	remaining := amount - int(referralReserved)
+
 	var reserved bool
 	var err error
-	if w.holdID != "" && !common.BatchUpdateEnabled {
-		reserved, err = model.ReserveWalletHoldQuota(w.userId, w.holdID, "relay-precharge", amount)
+	if remaining <= 0 {
+		reserved = true
+	} else if w.holdID != "" && !common.BatchUpdateEnabled {
+		reserved, err = model.ReserveWalletHoldQuota(w.userId, w.holdID, "relay-precharge", remaining)
 	} else {
-		reserved, err = model.TryReserveUserQuota(w.userId, amount)
+		reserved, err = model.TryReserveUserQuota(w.userId, remaining)
 	}
 	if err != nil {
 		if w.holdID != "" && !common.BatchUpdateEnabled && w.markUncertain != nil {
 			w.markUncertain()
 		}
+		if referralReserved > 0 {
+			_ = model.RefundReferralQuota(w.userId, referralReserved)
+		}
 		return err
 	}
 	if !reserved {
+		if referralReserved > 0 {
+			_ = model.RefundReferralQuota(w.userId, referralReserved)
+		}
 		return ErrInsufficientWalletQuota
 	}
 	w.consumed = amount
+	w.referralConsumed = int(referralReserved)
+	w.consumedQuota = remaining
 	return nil
 }
 
@@ -70,19 +95,68 @@ func (w *WalletFunding) Settle(delta int) error {
 	if delta == 0 {
 		return nil
 	}
-	if w.holdID != "" && !common.BatchUpdateEnabled {
-		return model.ApplyWalletHoldDelta(w.userId, w.holdID, "relay-final", -delta)
-	}
 	if delta > 0 {
-		return model.DecreaseUserQuota(w.userId, delta, false)
+		// Additional consumption: the referral balance is spent first as well.
+		var extraRef int64
+		if reserved, _, err := model.ReserveReferralQuota(w.userId, int64(delta)); err == nil {
+			extraRef = reserved
+		} else {
+			return err
+		}
+		w.referralConsumed += int(extraRef)
+		w.consumed += delta
+		remaining := delta - int(extraRef)
+		w.consumedQuota += remaining
+		if remaining <= 0 {
+			return nil
+		}
+		if w.holdID != "" && !common.BatchUpdateEnabled {
+			return model.ApplyWalletHoldDelta(w.userId, w.holdID, "relay-final", -remaining)
+		}
+		return model.DecreaseUserQuota(w.userId, remaining, false)
 	}
-	return model.IncreaseUserQuota(w.userId, -delta, false)
+	// delta < 0: restore what was consumed from the referral balance first,
+	// the rest goes back to the wallet balance.
+	refundTotal := -delta
+	var referralPart int64
+	if w.referralConsumed > 0 {
+		if int64(w.referralConsumed) < int64(refundTotal) {
+			referralPart = int64(w.referralConsumed)
+		} else {
+			referralPart = int64(refundTotal)
+		}
+	}
+	if referralPart > 0 {
+		if err := model.RefundReferralQuota(w.userId, referralPart); err != nil {
+			return err
+		}
+		w.referralConsumed -= int(referralPart)
+	}
+	remaining := refundTotal - int(referralPart)
+	w.consumed -= refundTotal
+	w.consumedQuota -= remaining
+	if remaining <= 0 {
+		return nil
+	}
+	if w.holdID != "" && !common.BatchUpdateEnabled {
+		return model.ApplyWalletHoldDelta(w.userId, w.holdID, "relay-final", remaining)
+	}
+	return model.IncreaseUserQuota(w.userId, remaining, false)
 }
 
 func (w *WalletFunding) Refund() error {
 	if w.consumed <= 0 {
 		return nil
 	}
+	// restore the referral part first, the wallet keeps the rest
+	if w.referralConsumed > 0 {
+		if err := model.RefundReferralQuota(w.userId, int64(w.referralConsumed)); err != nil {
+			return err
+		}
+	}
+	w.referralConsumed = 0
+	// the wallet only ever held consumedQuota of the pre-consumed amount
+	w.consumed = w.consumedQuota
 	// IncreaseUserQuota 是 quota += N 的非幂等操作，不能重试，否则会多退额度。
 	// 订阅的 RefundSubscriptionPreConsume 有 requestId 幂等保护所以可以重试。
 	if w.holdID != "" && !common.BatchUpdateEnabled {

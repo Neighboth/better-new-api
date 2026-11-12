@@ -24,6 +24,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
 
+import { preloadMTCaptchaScript } from '@/components/captcha-widget'
 import { CaptchaDialog } from '@/features/auth/components/captcha-dialog'
 import type { CaptchaProviderOption } from '@/features/auth/hooks/use-captcha'
 
@@ -135,6 +136,15 @@ export function BotProtectionSection({
 
   const selectedProvider = form.watch('CaptchaType')
   const captchaEnabled = selectedProvider !== 'off'
+
+  // The MTCaptcha client is a third-party script: warm it up (and its DNS)
+  // as soon as it is the configured provider so the box does not appear
+  // seconds late.
+  useEffect(() => {
+    if (selectedProvider === 'mtcaptcha') {
+      preloadMTCaptchaScript()
+    }
+  }, [selectedProvider])
 
   // Remember the last real provider so re-enabling restores it.
   const lastProviderRef = useRef<(typeof captchaProviders)[number]>(

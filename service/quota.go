@@ -524,12 +524,30 @@ func postConsumeQuotaWithHoldAndReservation(relayInfo *relaycommon.RelayInfo, qu
 		}
 	} else {
 		// Wallet
-		if holdID != "" && eventKey != "" && !common.BatchUpdateEnabled {
-			err = model.ApplyWalletHoldDelta(relayInfo.UserId, holdID, eventKey, -quota)
-		} else if quota > 0 {
-			err = model.DecreaseUserQuota(relayInfo.UserId, quota, false)
+		if quota > 0 {
+			// The referral balance is spent before the plain wallet balance:
+			// it is promotional money that the user did not top up.
+			var refTaken int64
+			var rErr error
+			if refTaken, _, rErr = model.ReserveReferralQuota(relayInfo.UserId, int64(quota)); rErr != nil {
+				return result, rErr
+			}
+			remaining := quota - int(refTaken)
+			if holdID != "" && eventKey != "" && !common.BatchUpdateEnabled {
+				err = model.ApplyWalletHoldDelta(relayInfo.UserId, holdID, eventKey, -remaining)
+			} else if remaining > 0 {
+				err = model.DecreaseUserQuota(relayInfo.UserId, remaining, false)
+			}
 		} else {
-			err = model.IncreaseUserQuota(relayInfo.UserId, -quota, false)
+			// The legacy path does not know the wallet / referral split, so
+			// refunds restore the plain wallet balance. (The referral share
+			// of the pre-payment is restored by the session path; in
+			// practice this path only runs for free models.)
+			if holdID != "" && eventKey != "" && !common.BatchUpdateEnabled {
+				err = model.ApplyWalletHoldDelta(relayInfo.UserId, holdID, eventKey, -quota)
+			} else {
+				err = model.IncreaseUserQuota(relayInfo.UserId, -quota, false)
+			}
 		}
 		if err != nil {
 			return result, err
@@ -569,7 +587,13 @@ func checkAndSendQuotaNotify(relayInfo *relaycommon.RelayInfo, quota int, preCon
 		//noMoreQuota := userCache.Quota-(quota+preConsumedQuota) <= 0
 		quotaTooLow := false
 		consumeQuota := quota + preConsumedQuota
-		if relayInfo.UserQuota-consumeQuota < threshold {
+		// The referral balance pays before the wallet, so it counts towards
+		// the balance that would trigger the warning.
+		available := int64(relayInfo.UserQuota) - int64(consumeQuota)
+		if refQuota, refErr := model.GetReferralQuota(relayInfo.UserId); refErr == nil {
+			available += refQuota
+		}
+		if available < int64(threshold) {
 			quotaTooLow = true
 		}
 		if quotaTooLow {

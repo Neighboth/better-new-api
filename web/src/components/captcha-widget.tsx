@@ -327,6 +327,16 @@ function mtcaptchaLoaded(): boolean {
  */
 export function preloadMTCaptchaScript(): void {
   if (typeof document === 'undefined') return
+  // The DNS lookup and the TLS handshake are most of the perceived delay:
+  // warm them up before the script is even needed.
+  for (const host of ['https://service.mtcaptcha.com', 'https://service2.mtcaptcha.com']) {
+    if (document.querySelector(`link[rel="preconnect"][href="${host}"]`)) continue
+    const link = document.createElement('link')
+    link.rel = 'preconnect'
+    link.href = host
+    link.crossOrigin = 'anonymous'
+    document.head.appendChild(link)
+  }
   if (mtcaptchaLoaded()) return
   if (document.querySelector('#mtcaptcha-client')) return
 

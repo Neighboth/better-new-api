@@ -69,3 +69,26 @@ export function extractVerificationInfo(
     required: true,
   }
 }
+
+const VERIFICATION_MESSAGE_KEYS: Record<string, string> = {
+  VERIFICATION_REQUIRED: 'Security verification required',
+  VERIFICATION_EXPIRED: 'Security verification expired',
+  VERIFICATION_INVALID: 'Security verification required',
+  SECURITY_PROOF_REQUIRED: 'Security verification required',
+  SECURITY_PROOF_EXPIRED: 'Security verification expired',
+  SECURITY_PROOF_INVALID: 'Security verification required',
+  SECURITY_PROOF_SCOPE_MISMATCH: 'Security verification scope mismatch',
+  SECURITY_PROOF_METHOD_MISMATCH: 'Security verification scope mismatch',
+}
+
+/**
+ * Map a verification error code to a localized message key.
+ *
+ * The backend answers these endpoints with a short Chinese string; the code
+ * is the stable contract, so the toast translates the code and never shows
+ * the raw backend text.
+ */
+export function verificationMessageKeyFor(code?: string): string {
+  if (!code) return 'Security verification required'
+  return VERIFICATION_MESSAGE_KEYS[code] ?? 'Security verification required'
+}

@@ -177,12 +177,16 @@ export function useStudioGeneration() {
           return
         }
 
-        const finished = await pollVideoTask(taskId, controller.signal, () =>
-          resolveSubmittedTaskIdWithLookup(submitted, {
-            model: params.model,
-            submittedAt,
-            signal: controller.signal,
-          })
+        const finished = await pollVideoTask(
+          taskId,
+          controller.signal,
+          () =>
+            resolveSubmittedTaskIdWithLookup(submitted, {
+              model: params.model,
+              submittedAt,
+              signal: controller.signal,
+            }),
+          (progress) => patchItem(id, { progress })
         )
         if (!finished.result_url) {
           patchItem(id, {

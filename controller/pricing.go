@@ -228,9 +228,13 @@ func GetPricing(c *gin.Context) {
 	// filter of the groups on purpose: it belongs to every group, it carries no
 	// price and the request is billed as the model the router chose.
 	if operation_setting.GetAutoModelSetting().Enabled {
-		pricing = append(pricing, model.Pricing{
+		// The auto model carries no description of its own: like every other
+		// model of the catalogue it gets its description and its look from the
+		// model settings of the administrator (an entry of the models panel
+		// named "auto"), never from the server. Only what the administrator
+		// wrote applies; the rest keeps the server defaults.
+		autoPricing := model.Pricing{
 			ModelName:              operation_setting.AutoModelName,
-			Description:            "Picks the best model for every request",
 			Icon:                   "auto",
 			Tags:                   "auto",
 			QuotaType:              0,
@@ -238,7 +242,26 @@ func GetPricing(c *gin.Context) {
 			EnableGroup:            []string{"all"},
 			SupportedEndpointTypes: []constant.EndpointType{constant.EndpointTypeOpenAI},
 			AutoModel:              true,
-		})
+		}
+		if meta, err := model.GetModelMetaExact(operation_setting.AutoModelName); err == nil {
+			autoPricing.DisplayName = meta.DisplayName
+			autoPricing.Tagline = meta.Tagline
+			autoPricing.PropertyBoxes = meta.PropertyBoxes
+			autoPricing.Localizations = meta.Localizations
+			autoPricing.Description = meta.Description
+			if meta.Icon != "" {
+				autoPricing.Icon = meta.Icon
+			}
+			if meta.Tags != "" {
+				autoPricing.Tags = meta.Tags
+			}
+			autoPricing.VendorID = meta.VendorID
+			autoPricing.IsPinned = meta.IsPinned
+			autoPricing.PinOrder = meta.PinOrder
+			autoPricing.PinColor = meta.PinColor
+			autoPricing.AnnouncementBar = meta.AnnouncementBar
+		}
+		pricing = append(pricing, autoPricing)
 	}
 
 	pricing = applyPricingUptime(pricing)

@@ -51,6 +51,8 @@ export const userSchema = z.object({
   aff_quota: z.number().optional(),
   aff_history_quota: z.number().optional(),
   inviter_id: z.number().optional(),
+  referral_quota: z.number().optional(),
+  referral_display: z.number().optional(),
   linux_do_id: z.string().optional(),
   status: userStatusSchema,
   role: userRoleSchema,
@@ -136,6 +138,7 @@ export type ManageUserAction =
   | 'disable'
   | 'delete'
   | 'add_quota'
+  | 'set_referral_balance'
 
 export type QuotaAdjustMode = 'add' | 'subtract' | 'override'
 
@@ -144,6 +147,14 @@ export interface ManageUserQuotaPayload {
   action: 'add_quota'
   mode: QuotaAdjustMode
   value: number
+}
+
+/** Payload of the admin edit of the referral reward balance. */
+export interface ManageUserReferralPayload {
+  id: number
+  action: 'set_referral_balance'
+  value: number
+  display: number
 }
 
 // ============================================================================
