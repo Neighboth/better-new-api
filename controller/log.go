@@ -144,6 +144,18 @@ func markExportCooldown(userId int, until int64) {
 // a download of a year of logs is one year of the newest logs, and the panel
 // tells the reader that the file was trimmed.
 func GetLogsExport(c *gin.Context) {
+	exportLogs(c, false)
+}
+
+// GetLogsSelfExport is the export of the logs of the caller.
+//
+// The username of the filter is replaced by the caller on purpose: a query
+// parameter must never widen a download to the logs of somebody else.
+func GetLogsSelfExport(c *gin.Context) {
+	exportLogs(c, true)
+}
+
+func exportLogs(c *gin.Context, selfOnly bool) {
 	userId := c.GetInt("id")
 	now := time.Now().Unix()
 	if until := exportCooldownRemaining(userId, now); until > now {
@@ -166,6 +178,12 @@ func GetLogsExport(c *gin.Context) {
 	group := c.Query("group")
 	requestId := c.Query("request_id")
 	upstreamRequestId := c.Query("upstream_request_id")
+	if selfOnly {
+		// The download of a user is the download of that user, whatever the
+		// query says about a username.
+		username = c.GetString("username")
+		channel = 0
+	}
 
 	logs, total, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, modelName, username, tokenName, 0, exportMaxRows, channel, group, requestId, upstreamRequestId)
 	if err != nil {

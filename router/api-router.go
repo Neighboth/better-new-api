@@ -397,7 +397,7 @@ func SetApiRouter(router *gin.Engine) {
 		// minute cooldown are checked on the server, the file itself is built
 		// by the panel from the rows this endpoint returns.
 		logRoute.GET("/export", middleware.AdminAuth(), middleware.TurnstileCheck(), controller.GetLogsExport)
-		logRoute.GET("/self/export", middleware.UserAuth(), middleware.TurnstileCheck(), controller.GetLogsExport)
+		logRoute.GET("/self/export", middleware.UserAuth(), middleware.TurnstileCheck(), controller.GetLogsSelfExport)
 
 		systemTaskRoute := apiRouter.Group("/system-task")
 		systemTaskRoute.Use(middleware.RootAuth())
