@@ -94,6 +94,11 @@ export type PricingModel = {
   /** Model-specific announcement bar configuration */
   announcement_bar?: string
   /**
+   * The virtual Auto Model: it has no price of its own, the request is billed
+   * as the model the router picks for it.
+   */
+  auto_model?: boolean
+  /**
    * Optional model metadata fields reserved for backend-provided catalog data.
    * Keep them data-driven; do not synthesize display values on the client.
    */

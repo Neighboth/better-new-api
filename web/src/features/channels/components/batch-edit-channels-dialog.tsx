@@ -170,6 +170,11 @@ export function BatchEditChannelsDialog(props: {
     [models]
   )
 
+  const priceModelOptions = useMemo(() => {
+    const merged = new Set<string>([...channelModelList, ...modelOptions])
+    return [...merged].sort((a, b) => a.localeCompare(b))
+  }, [channelModelList, modelOptions])
+
   const groupOptions = useMemo(
     () => (groupsData?.data ?? []).map((group) => ({ value: group, label: group })),
     [groupsData]
@@ -489,7 +494,10 @@ export function BatchEditChannelsDialog(props: {
             title={t('Price multiplier')}
           >
             <PriceMultiplierEditor
-              models={channelModelList}
+              // The quick set must offer every model of the installation: the
+              // popup starts with an empty model field, so the list of the
+              // selected channels alone left the selector with no options.
+              models={priceModelOptions}
               onChange={setModelRatio}
               showQuickSet
               value={modelRatio}

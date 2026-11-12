@@ -146,7 +146,18 @@ export async function generateVideo(
     signal,
     skipErrorHandler: true,
   } as Record<string, unknown>)
-  const data = (res.data ?? {}) as VideoGenerationResponse
+  const data = (res.data ?? {}) as VideoGenerationResponse & {
+    code?: string
+    message?: string
+  }
+
+  // The task relay answers a failed submit with the task error envelope
+  // ({code, message, status_code}) and an HTTP status the axios error path
+  // treats as success (202/200). Surface it instead of pretending a task id is
+  // missing.
+  if (data.code && data.code !== 'success') {
+    throw new Error(data.message || 'The video could not be submitted')
+  }
 
   // The upstream body carries the id of the provider, while the task is
   // polled by the id of this installation. The relay publishes it in a

@@ -31,6 +31,7 @@ import { useEffect } from 'react'
 import { NavigationProgress } from '@/components/navigation-progress'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeCustomizationProvider } from '@/context/theme-customization-provider'
+import { PopupAd } from '@/features/ads/components/popup-ad'
 import { LiveSupportWidget } from '@/features/tickets/components/live-support-widget'
 import { saveAffiliateCode } from '@/features/auth/lib/storage'
 import { GeneralError } from '@/features/errors/general-error'
@@ -117,6 +118,11 @@ function RootComponent() {
       {/* The page of the client of the installation has no support button, it
           is the interface of a program and not a page of the site. */}
       {!location.pathname.startsWith('/client') && <LiveSupportWidget />}
+      {/* The popup campaign opens over any page of the site except the blog:
+          the blog sells its own banners above and below the post and a banner
+          over the article would hide the text the reader came for. */}
+      {!location.pathname.startsWith('/blog') &&
+        !location.pathname.startsWith('/client') && <PopupAd />}
       <Toaster closeButton duration={5000} position='top-center' richColors />
       {import.meta.env.MODE === 'development' && (
         <>

@@ -221,9 +221,14 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if err != nil {
 		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
 	}
-	if resp != nil && resp.StatusCode != http.StatusOK {
+	// Video providers answer a submit with 200, 201 or 202 Accepted; only a
+	// non-2xx answer is a failure. The old check compared against 200 exactly,
+	// so every 202 ("accepted, queued") was reported as an error, the task was
+	// never stored and the studio could not find a task id for a generation
+	// that the upstream had already accepted and billed.
+	if resp != nil && (resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices) {
 		responseBody, _ := io.ReadAll(resp.Body)
-		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
+		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", http.StatusBadGateway)
 	}
 
 	// 9.5. Publish the public task id. The upstream body carries the id of the

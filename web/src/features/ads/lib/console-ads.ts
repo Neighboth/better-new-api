@@ -18,8 +18,34 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { ConsoleAd } from '../api'
 
-/** How many ads the console draws in its row. */
+/** How many ads the console draws in its row, when there is room for both. */
 export const CONSOLE_AD_COUNT = 2
+
+/** The narrowest width a banner keeps its text and its call to action. */
+export const CONSOLE_AD_MIN_WIDTH = 18 * 16
+
+/** The gap between two banners of the row (`gap-4`). */
+export const CONSOLE_AD_GAP = 16
+
+/**
+ * How many ads fit side by side in a row of `width` pixels.
+ *
+ * Two banners need both of them at the narrowest readable width plus the gap
+ * between them. A dashboard that is a pixel short of that, or exactly on the
+ * line, gets one banner: two banners squeezed against the line look like a
+ * mistake and cut the campaign image.
+ */
+export function consoleAdCountForWidth(
+  width: number,
+  max: number = CONSOLE_AD_COUNT
+): number {
+  if (width <= 0) return 1
+  const needed = max * CONSOLE_AD_MIN_WIDTH + (max - 1) * CONSOLE_AD_GAP
+  // A little slack keeps a row that barely fits from flipping between one and
+  // two banners while the window is being resized.
+  if (width < needed + 8) return 1
+  return max
+}
 
 /**
  * Picks the ads of one visit of the console.

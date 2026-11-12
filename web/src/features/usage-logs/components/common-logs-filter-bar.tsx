@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQueryClient, useIsFetching } from '@tanstack/react-query'
 import { useNavigate, getRouteApi } from '@tanstack/react-router'
 import type { Table } from '@tanstack/react-table'
-import { Eye, EyeOff } from 'lucide-react'
+import { Download, Eye, EyeOff } from 'lucide-react'
 import { useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -40,9 +40,10 @@ import {
 
 import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
 import { buildSearchParams } from '../lib/filter'
-import { getDefaultTimeRange } from '../lib/utils'
+import { buildApiParams, getDefaultTimeRange } from '../lib/utils'
 import type { CommonLogFilters } from '../types'
 import { CommonLogsStats } from './common-logs-stats'
+import { UsageLogsExportDialog } from './dialogs/export-dialog'
 import { CompactDateTimeRangePicker } from './compact-date-time-range-picker'
 import {
   LogsFilterField,
@@ -118,6 +119,7 @@ export function CommonLogsFilterBar<TData>(
   const searchParams = route.useSearch()
   const { isAdminView: isAdmin } = useLogsViewScope()
   const { sensitiveVisible, setSensitiveVisible } = useUsageLogsContext()
+  const [exportOpen, setExportOpen] = useState(false)
   const fetchingLogs = useIsFetching({ queryKey: ['logs'] })
 
   const searchState = useMemo<CommonLogDraft>(() => {
@@ -268,6 +270,44 @@ export function CommonLogsFilterBar<TData>(
       <CommonLogsStats />
     </div>
   )
+  // The export of the logs: the same filters as the page, so the file holds
+  // exactly the rows the table shows.
+  const exportQuery: Record<string, string> = {}
+  const exportFilterValues: Record<string, unknown> = {
+    ...searchParams,
+    ...(filters.model ? { model: filters.model } : {}),
+  }
+  const exportParams = buildApiParams({
+    page: 1,
+    pageSize: 0,
+    searchParams: exportFilterValues,
+    isAdmin,
+  })
+  for (const [key, value] of Object.entries(exportParams)) {
+    if (key === 'p' || key === 'page_size') continue
+    if (value === undefined || value === null || value === '') continue
+    exportQuery[key] = String(value)
+  }
+  const exportButton = (
+    <Button
+      className='text-muted-foreground hover:text-foreground h-7 gap-1 px-2 text-xs'
+      onClick={() => setExportOpen(true)}
+      size='sm'
+      variant='ghost'
+    >
+      <Download className='size-3.5' />
+      {t('Download')}
+    </Button>
+  )
+  const exportDialog = (
+    <UsageLogsExportDialog
+      endpoint={isAdmin ? '/api/log/export' : '/api/log/self/export'}
+      onOpenChange={setExportOpen}
+      open={exportOpen}
+      query={exportQuery}
+    />
+  )
+
   const sensitiveToggle = (
     <Tooltip>
       <TooltipTrigger
@@ -413,7 +453,13 @@ export function CommonLogsFilterBar<TData>(
     <LogsFilterToolbar
       table={props.table}
       stats={statsBar}
-      actionStart={sensitiveToggle}
+      actionStart={
+        <>
+          {exportButton}
+          {sensitiveToggle}
+          {exportDialog}
+        </>
+      }
       primaryFilters={
         <>
           {dateRangeFilter}

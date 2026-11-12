@@ -90,7 +90,7 @@ export function formatRedemptionQuota(
   t?: (key: string) => string
 ): string {
   if (type === 1) {
-    const label = t ? t('Requests') : 'İstek'
+    const label = t ? t('Requests') : 'Requests'
     return `${quota.toLocaleString()} ${label}`
   }
   if (type === 2) {

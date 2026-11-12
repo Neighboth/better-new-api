@@ -40,6 +40,18 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
+		// The virtual model "auto" is rewritten here, before a channel is
+		// selected: the rest of the relay works on the model the router chose.
+		if shouldSelectChannel {
+			isAutoRequest, autoErr := resolveAutoModelRequest(c, modelRequest)
+			if autoErr != nil {
+				autoModelAbort(c, autoErr)
+				return
+			}
+			if isAutoRequest {
+				c.Set(service.AutoModelRequestedContextKey, true)
+			}
+		}
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {
@@ -73,8 +85,12 @@ func Distribute() func(c *gin.Context) {
 				}
 				matchName := ratio_setting.FormatMatchingModelName(modelRequest.Model) // match gpts & thinking-*
 				if _, ok := tokenModelLimit[matchName]; !ok {
-					abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorTokenModelForbidden, map[string]any{"Model": modelRequest.Model}))
-					return
+					// A token that grants the virtual model grants whatever the
+					// router chose for it.
+					if !(autoModelRequested(c) && tokenAllowsAutoModel(tokenModelLimit)) {
+						abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorTokenModelForbidden, map[string]any{"Model": modelRequest.Model}))
+						return
+					}
 				}
 			}
 

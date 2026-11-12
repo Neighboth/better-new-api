@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useEffect } from 'react'
+
+import { preloadMTCaptchaScript } from '@/components/captcha-widget'
 import { useStatus } from '@/hooks/use-status'
 
 export type CaptchaType =
@@ -140,6 +143,15 @@ export function useCaptcha() {
   const siteKey =
     captchaType === 'off' ? '' : siteKeys[captchaType as ActiveCaptchaType]
   const isCaptchaEnabled = providers.length > 0
+
+  // MTCaptcha is a third party script: fetch it while the reader fills the
+  // form instead of when the dialog opens, otherwise the challenge takes a
+  // whole download to appear.
+  const needsMTCaptcha = providers.some((provider) => provider.type === 'mtcaptcha')
+  useEffect(() => {
+    if (!needsMTCaptcha) return
+    preloadMTCaptchaScript()
+  }, [needsMTCaptcha])
 
   return { captchaType, siteKey, isCaptchaEnabled, providers }
 }

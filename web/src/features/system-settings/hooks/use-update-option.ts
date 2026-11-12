@@ -21,7 +21,7 @@ import i18next from 'i18next'
 import { toast } from 'sonner'
 
 import { updateSystemOption, updateSystemOptionsBulk } from '../api'
-import type { UpdateOptionRequest } from '../types'
+import type { SystemOptionsResponse, UpdateOptionRequest } from '../types'
 
 // Configuration keys that require status refresh
 const STATUS_RELATED_KEYS = new Set([
@@ -57,8 +57,6 @@ const isStatusRelated = (key: string) =>
   key.startsWith('SystemName_') ||
   key.startsWith('Footer_')
 
-type SystemOptionEntry = { key: string; value: string }
-
 function normalizeOptionValue(raw: string | boolean | number): string {
   if (typeof raw === 'boolean') return raw ? 'true' : 'false'
   return String(raw)
@@ -78,11 +76,14 @@ function applyOptionsToCache(
   queryClient: QueryClient,
   values: Record<string, string | boolean | number>
 ) {
-  queryClient.setQueryData<SystemOptionEntry[] | undefined>(
+  queryClient.setQueryData<SystemOptionsResponse | undefined>(
     ['system-options'],
     (current) => {
-      if (!current) return current
-      const next = current.map((option) =>
+      // The cached value is the whole response ({success, message, data}); a
+      // previous version treated it as an array and crashed with
+      // "e.map is not a function" while saving a settings card.
+      if (!current || !Array.isArray(current.data)) return current
+      const next = current.data.map((option) =>
         option.key in values
           ? { ...option, value: normalizeOptionValue(values[option.key]) }
           : option
@@ -93,7 +94,7 @@ function applyOptionsToCache(
           next.push({ key, value: normalizeOptionValue(value) })
         }
       }
-      return next
+      return { ...current, data: next }
     }
   )
 }

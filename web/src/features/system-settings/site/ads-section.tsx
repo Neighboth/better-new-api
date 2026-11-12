@@ -20,7 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
 import { Download, Loader2, Plus, Trash2, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
@@ -90,6 +90,7 @@ const adsSchema = z.object({
   AdsEnabled: z.boolean(),
   AdsMode: z.enum(['adsense', 'custom', 'both']),
   AdsSurfaces: z.string(),
+  AdsPopupSkipSeconds: z.coerce.number().int().min(0).max(60),
   AdSenseClientId: z.string().optional(),
   AdSenseSlotId: z.string().optional(),
   CustomAds: z.string(),
@@ -144,7 +145,9 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
   const [uploadingSlot, setUploadingSlot] = useState<{ index: number; lang: string } | null>(null)
 
   const form = useForm<AdsFormValues>({
-    resolver: zodResolver(adsSchema),
+    // The numeric field coerces its input, so the resolver is cast to the form
+    // type the rest of the card already uses.
+    resolver: zodResolver(adsSchema) as unknown as Resolver<AdsFormValues>,
     defaultValues,
   })
 
@@ -263,6 +266,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
       ['AdsEnabled', String(data.AdsEnabled)],
       ['AdsMode', data.AdsMode],
       ['AdsSurfaces', data.AdsSurfaces],
+      ['AdsPopupSkipSeconds', String(data.AdsPopupSkipSeconds ?? 0)],
       ['AdSenseClientId', data.AdSenseClientId ?? ''],
       ['AdSenseSlotId', data.AdSenseSlotId ?? ''],
       ['CustomAds', customAdsJson],
@@ -375,7 +379,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                   <FormLabel>{t('Enable ads')}</FormLabel>
                   <FormDescription>
                     {t(
-                      'Show ads on the surfaces that are on below: the banners above and below a post of the blog and two ads between the cards of the dashboard.'
+                      'Show ads on the surfaces that are on below: the banners above and below a post of the blog, the ads between the cards of the dashboard and the banner that opens over a page.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>
@@ -394,7 +398,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                   <Label className='text-base'>{t('Ad surfaces')}</Label>
                   <FormDescription>
                     {t(
-                      'Choose where the ads of the installation may appear. The blog draws the banners above and below a post, the console draws two ads between the cards of the dashboard. Every ad also picks its own surfaces below.'
+                      'Choose where the ads of the installation may appear. The blog draws the banners above and below a post, the console draws up to two ads between the cards of the dashboard, the popup opens one large banner over any page. Every ad also picks its own surfaces below.'
                     )}
                   </FormDescription>
                 </div>
@@ -418,7 +422,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                       <FormLabel>{t('Console')}</FormLabel>
                       <FormDescription>
                         {t(
-                          'Two ads side by side between the cards of the dashboard.'
+                          'Up to two ads side by side between the cards of the dashboard.'
                         )}
                       </FormDescription>
                     </SettingsSwitchContent>
@@ -429,8 +433,53 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                       }
                     />
                   </SettingsSwitchItem>
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Popup')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'One large landscape banner over any page of the site, once per visit, closed with a skip button.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <Switch
+                      checked={surfaces.includes('popup')}
+                      onCheckedChange={(value: boolean) =>
+                        toggleSurface('popup', value)
+                      }
+                    />
+                  </SettingsSwitchItem>
                 </div>
               </div>
+
+              {surfaces.includes('popup') && (
+                <FormField
+                  control={form.control}
+                  name='AdsPopupSkipSeconds'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Popup skip delay (seconds)')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          className='max-w-32'
+                          inputMode='numeric'
+                          type='number'
+                          min={0}
+                          max={60}
+                          {...field}
+                          value={field.value ?? 0}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'How long the skip button of the popup stays disabled. 0 closes the ad at once, 3 keeps it for three seconds.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               <FormField
                 control={form.control}
@@ -646,7 +695,9 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                                   <span className={allowed ? '' : 'opacity-50'}>
                                     {surface === 'blog'
                                       ? t('Blog')
-                                      : t('Console')}
+                                      : surface === 'console'
+                                        ? t('Console')
+                                        : t('Popup')}
                                   </span>
                                 </label>
                               )

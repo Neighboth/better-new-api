@@ -121,7 +121,13 @@ export function getOptionValue<
         errors.push({ key: option.key, error: parseResult.error })
       }
     } else {
-      ;(result as Record<string, unknown>)[option.key] = option.value
+      // A key that is missing from the defaults used to be copied as a raw
+      // string, so `"false"` became a truthy value in the UI and a switch that
+      // was saved as off came back on after a reload. Booleans are coerced the
+      // same way the known keys are.
+      const raw = option.value
+      ;(result as Record<string, unknown>)[option.key] =
+        raw === 'true' ? true : raw === 'false' ? false : raw
     }
   })
 

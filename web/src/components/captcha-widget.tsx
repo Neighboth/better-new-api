@@ -298,6 +298,46 @@ function AltchaScript() {
 }
 
 /**
+ * The two hosts of the MTCaptcha client. The primary is the one the provider
+ * documents; the second is its mirror and is used only when the first one does
+ * not answer.
+ */
+const MTCAPTCHA_SOURCES = [
+  'https://service.mtcaptcha.com/mtcv1/client/mtcaptcha.min.js',
+  'https://service2.mtcaptcha.com/mtcv1/client/mtcaptcha2.min.js',
+]
+
+type MTCaptchaWindow = Window & {
+  mtcaptchaConfig?: Record<string, unknown>
+  mtcaptcha?: { render?: (options: Record<string, unknown>) => void }
+}
+
+function mtcaptchaLoaded(): boolean {
+  return Boolean((window as MTCaptchaWindow).mtcaptcha?.render)
+}
+
+/**
+ * Loads the MTCaptcha client ahead of time.
+ *
+ * The client is a small script from a third party, and opening the dialog
+ * first made the reader wait for it on an empty box: the download started when
+ * the dialog opened. The auth pages call this as soon as they know that
+ * MTCaptcha is one of the providers, so the script (and its DNS lookup) is done
+ * before a challenge is needed.
+ */
+export function preloadMTCaptchaScript(): void {
+  if (typeof document === 'undefined') return
+  if (mtcaptchaLoaded()) return
+  if (document.querySelector('#mtcaptcha-client')) return
+
+  const script = document.createElement('script')
+  script.id = 'mtcaptcha-client'
+  script.async = true
+  script.src = MTCAPTCHA_SOURCES[0]
+  document.head.appendChild(script)
+}
+
+/**
  * MTCaptcha renders its own challenge widget and reports the verified token
  * through the global callbacks configured before the script loads.
  */
@@ -307,13 +347,16 @@ export function MTCaptchaWidget({
   onExpire,
   onError,
 }: ThirdPartyCaptchaProps) {
+  const { t } = useTranslation()
   const ref = useRef<HTMLDivElement | null>(null)
+  const [rendered, setRendered] = useState(false)
 
   useEffect(() => {
     const container = ref.current
     if (!container) return
 
     container.innerHTML = ''
+    setRendered(false)
     const widgetId = `mtcaptcha-${Math.random().toString(36).slice(2, 10)}`
     const target = document.createElement('div')
     target.id = widgetId
@@ -327,12 +370,10 @@ export function MTCaptchaWidget({
       return
     }
 
-    const globalWindow = window as unknown as {
-      mtcaptchaConfig?: Record<string, unknown>
-    }
+    const globalWindow = window as MTCaptchaWindow
 
-    // The render queue has to exist before the client script is evaluated,
-    // otherwise the widget id is never rendered.
+    // The render queue and the callbacks have to exist before the client
+    // script is evaluated, otherwise the widget id is never rendered.
     globalWindow.mtcaptchaConfig = {
       sitekey: siteKey,
       render: 'explicit',
@@ -349,39 +390,95 @@ export function MTCaptchaWidget({
       'error-callback': () => onError?.(),
     }
 
-    if (!document.querySelector('#mtcaptcha-client')) {
-      for (const src of [
-        'https://service.mtcaptcha.com/mtcv1/client/mtcaptcha.min.js',
-        'https://service2.mtcaptcha.com/mtcv1/client/mtcaptcha2.min.js',
-      ]) {
-        const script = document.createElement('script')
-        script.async = true
-        script.src = src
-        if (src.includes('mtcaptcha.min.js')) {
-          script.id = 'mtcaptcha-client'
-        }
-        script.addEventListener('error', () => onError?.())
-        document.head.appendChild(script)
-      }
-    } else {
-      // Script already loaded (the dialog was opened before): render the new
-      // widget explicitly.
-      const render = (
-        globalWindow as unknown as {
-          mtcaptcha?: { render?: (options: unknown) => void }
-        }
-      ).mtcaptcha?.render
-      try {
-        render?.({ target: widgetId, sitekey: siteKey })
-      } catch {
-        /* the queue below still covers the retry */
-      }
+    let sourceIndex = 0
+    let disposed = false
+    const startedAt = Date.now()
+    let attemptStartedAt = startedAt
+
+    const isDrawn = () => target.childElementCount > 0
+
+    const loadSource = (index: number) => {
+      document.querySelector('#mtcaptcha-client')?.remove()
+      const script = document.createElement('script')
+      script.id = 'mtcaptcha-client'
+      script.async = true
+      script.src = MTCAPTCHA_SOURCES[index]
+      script.addEventListener('error', () => {
+        script.dataset.failed = 'true'
+      })
+      document.head.appendChild(script)
     }
 
+    // Late loads were the complaint: the client arrived after the reader had
+    // already given up on the empty box. The watchdog draws the widget as soon
+    // as the client is there, moves on to the mirror host when the first one
+    // does not answer, and finally reports the failure so the dialog can fall
+    // back to the next provider.
+    const watchdog = window.setInterval(() => {
+      if (disposed) return
+      if (isDrawn()) {
+        setRendered(true)
+        window.clearInterval(watchdog)
+        return
+      }
+      if (mtcaptchaLoaded()) {
+        // The client is here but the render queue was drained before this
+        // widget existed: render it explicitly.
+        try {
+          globalWindow.mtcaptcha?.render?.({ target: widgetId, sitekey: siteKey })
+        } catch {
+          /* the next tick tries again */
+        }
+        if (Date.now() - startedAt > 20000) {
+          window.clearInterval(watchdog)
+          onError?.()
+        }
+        return
+      }
+      const script = document.querySelector(
+        '#mtcaptcha-client'
+      ) as HTMLScriptElement | null
+      const failed = script?.dataset.failed === 'true'
+      if (!failed && Date.now() - attemptStartedAt < 8000) return
+      if (sourceIndex < MTCAPTCHA_SOURCES.length - 1) {
+        sourceIndex += 1
+        attemptStartedAt = Date.now()
+        loadSource(sourceIndex)
+        return
+      }
+      window.clearInterval(watchdog)
+      onError?.()
+    }, 500)
+
+    if (mtcaptchaLoaded()) {
+      // The script was preloaded before the dialog opened: render at once so
+      // the reader sees the challenge without waiting for a queue drain.
+      try {
+        globalWindow.mtcaptcha?.render?.({ target: widgetId, sitekey: siteKey })
+      } catch {
+        /* the queue in mtcaptchaConfig still covers this widget */
+      }
+    } else if (!document.querySelector('#mtcaptcha-client')) {
+      loadSource(0)
+    }
+    // A script tag from an earlier mount (or from the preload) is still in
+    // flight: the watchdog takes over from here.
+
     return () => {
+      disposed = true
+      window.clearInterval(watchdog)
       container.innerHTML = ''
     }
   }, [siteKey, onVerify, onExpire, onError])
 
-  return <div ref={ref} className='flex justify-center' />
+  return (
+    <div className='w-full space-y-2'>
+      <div className='flex justify-center' ref={ref} />
+      {!rendered && (
+        <p className='text-muted-foreground text-center text-xs'>
+          {t('Loading the captcha…')}
+        </p>
+      )}
+    </div>
+  )
 }

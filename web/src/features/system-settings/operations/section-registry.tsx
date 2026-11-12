@@ -28,10 +28,36 @@ import { MonitoringSettingsSection } from '../integrations/monitoring-settings-s
 import { WorkerSettingsSection } from '../integrations/worker-settings-section'
 import { LogSettingsSection } from '../maintenance/log-settings-section'
 import { PerformanceSection } from '../maintenance/performance-section'
+import { AutoModelSettingsSection } from './auto-model-settings-section'
 import { SystemFilesSection } from '../maintenance/system-files-section'
 import { UpdateCheckerSection } from '../maintenance/update-checker-section'
 import type { OperationsSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+
+/**
+ * Reads the rankings of the Auto Model.
+ *
+ * The option holds a JSON object of ordered model lists; a value that is not
+ * that object (an installation that never saved the card) is an empty map, so
+ * the router uses the general ranking instead of failing on a parse error.
+ */
+function parseAutoModelRankings(raw: unknown): Record<string, string[]> {
+  if (typeof raw !== 'string' || raw.trim() === '') return {}
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const result: Record<string, string[]> = {}
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!Array.isArray(value)) continue
+      result[key] = value
+        .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+        .filter(Boolean)
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
 
 const OPERATIONS_SECTIONS = [
   {
@@ -43,9 +69,7 @@ const OPERATIONS_SECTIONS = [
           DefaultCollapseSidebar: settings.DefaultCollapseSidebar,
           DemoSiteEnabled: settings.DemoSiteEnabled,
           SelfUseModeEnabled: settings.SelfUseModeEnabled,
-          userBlocklistEnabled: Boolean(
-            settings['user_blocklist_setting.enabled'] ?? true
-          ),
+          ModelsAPIRequireKey: settings.ModelsAPIRequireKey ?? true,
         }}
       />
       ),
@@ -72,6 +96,24 @@ const OPERATIONS_SECTIONS = [
             settings['relay_fallback_setting.fallback_video_models'] ?? '',
           fallback_system_prompt:
             settings['relay_fallback_setting.fallback_system_prompt'] ?? '',
+        }}
+      />
+    ),
+  },
+  {
+    id: 'auto-model',
+    titleKey: 'Auto Model',
+    build: (settings: OperationsSettings) => (
+      <AutoModelSettingsSection
+        defaultValues={{
+          enabled: settings['auto_model_setting.enabled'] ?? false,
+          routingModel: settings['auto_model_setting.routing_model'] ?? '',
+          rankings: parseAutoModelRankings(
+            settings['auto_model_setting.rankings']
+          ),
+          systemPrompt: settings['auto_model_setting.system_prompt'] ?? '',
+          defaultBudgetTokens:
+            settings['auto_model_setting.default_budget_tokens'] ?? 0,
         }}
       />
     ),

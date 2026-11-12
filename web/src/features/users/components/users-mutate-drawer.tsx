@@ -62,6 +62,8 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
+import { MultiSelect } from '@/components/multi-select'
+import { getAllModels, getChannels } from '@/features/channels/api'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -80,6 +82,8 @@ import {
   getUser,
   getGroups,
   getPermissionCatalog,
+  getUserBlocklist,
+  updateUserBlocklist,
 } from '../api'
 import { BINDING_FIELDS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
@@ -110,6 +114,10 @@ export function UsersMutateDrawer({
   const currentUser = useAuthStore((s) => s.auth.user)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false)
+  // The blocklist of the target user. An administrator decides which channels
+  // and models one account may not use; the user cannot lift it.
+  const [blockedChannels, setBlockedChannels] = useState<number[]>([])
+  const [blockedModels, setBlockedModels] = useState<string[]>([])
 
   // Fetch groups
   const { data: groupsData } = useQuery({
@@ -119,6 +127,33 @@ export function UsersMutateDrawer({
   })
 
   const groups = groupsData?.data || []
+
+  // The two selectors of the blocklist. Both lists are large (an installation
+  // runs a thousand models), so the selector searches rather than lists.
+  const { data: blocklistChannels } = useQuery({
+    queryKey: ['channels-for-blocklist'],
+    queryFn: () => getChannels({ p: 1, page_size: 1000 }),
+    enabled: open && isUpdate,
+    staleTime: 5 * 60 * 1000,
+  })
+  const { data: blocklistModels } = useQuery({
+    queryKey: ['models-for-blocklist'],
+    queryFn: getAllModels,
+    enabled: open && isUpdate,
+    staleTime: 5 * 60 * 1000,
+  })
+  const channelList = Array.isArray(blocklistChannels?.data)
+    ? blocklistChannels.data
+    : blocklistChannels?.data?.items ?? []
+  const channelOptions = channelList.map((channel) => ({
+    value: String(channel.id),
+    label: `#${channel.id} · ${channel.name}`,
+  }))
+  const modelBlocklistOptions = (blocklistModels?.data ?? [])
+    .map((model) => (typeof model === 'string' ? model : model?.id ?? ''))
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b))
+    .map((model) => ({ value: model, label: model }))
 
   // Permission catalog is owned by the backend; fetched once and reused.
   const { data: permissionCatalog = EMPTY_PERMISSION_CATALOG } = useQuery({
@@ -141,9 +176,17 @@ export function UsersMutateDrawer({
           form.reset(transformUserToFormDefaults(result.data))
         }
       })
+      getUserBlocklist(currentRow.id).then((result) => {
+        if (result.success && result.data) {
+          setBlockedChannels(result.data.blocked_channels ?? [])
+          setBlockedModels(result.data.blocked_models ?? [])
+        }
+      })
     } else if (open && !isUpdate) {
       // For create, reset to defaults
       form.reset(USER_FORM_DEFAULT_VALUES)
+      setBlockedChannels([])
+      setBlockedModels([])
     }
   }, [open, isUpdate, currentRow, form])
 
@@ -178,6 +221,18 @@ export function UsersMutateDrawer({
       const result = isUpdate
         ? await updateUser(payload as typeof payload & { id: number })
         : await createUser(payload)
+
+      if (result.success && isUpdate && currentRow) {
+        const blocklist = await updateUserBlocklist(currentRow.id, {
+          blocked_channels: blockedChannels,
+          blocked_models: blockedModels,
+        })
+        if (!blocklist.success) {
+          toast.error(
+            blocklist.message || t('Failed to save the blocklist of the user')
+          )
+        }
+      }
 
       if (result.success) {
         toast.success(
@@ -457,6 +512,45 @@ export function UsersMutateDrawer({
                       </FormItem>
                     )}
                   />
+                </SideDrawerSection>
+              )}
+
+              {isUpdate && (
+                <SideDrawerSection>
+                  <h3 className='text-sm font-medium'>{t('Blocklist')}</h3>
+                  <p className='text-muted-foreground text-xs'>
+                    {t(
+                      'Channels and models this user may not use. The relay never routes a request of the user through them, not even by the fallback chain, and the user cannot lift the block.'
+                    )}
+                  </p>
+
+                  <div className='space-y-1'>
+                    <Label className='text-xs'>{t('Blocked channels')}</Label>
+                    <MultiSelect
+                      emptyText={t('No channel matches the search')}
+                      onChange={(values) =>
+                        setBlockedChannels(
+                          values
+                            .map((value) => Number(value))
+                            .filter((value) => Number.isFinite(value) && value > 0)
+                        )
+                      }
+                      options={channelOptions}
+                      placeholder={t('Search channels...')}
+                      selected={blockedChannels.map(String)}
+                    />
+                  </div>
+
+                  <div className='space-y-1'>
+                    <Label className='text-xs'>{t('Blocked models')}</Label>
+                    <MultiSelect
+                      emptyText={t('No model matches the search')}
+                      onChange={setBlockedModels}
+                      options={modelBlocklistOptions}
+                      placeholder={t('Search models...')}
+                      selected={blockedModels}
+                    />
+                  </div>
                 </SideDrawerSection>
               )}
 

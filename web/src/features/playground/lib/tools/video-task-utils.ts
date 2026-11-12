@@ -94,21 +94,22 @@ export function resolveSubmittedTaskId(response: unknown): string {
 }
 
 /**
- * Resolves the id of a submitted video task, falling back to the task list.
+ * Resolves the id the polling endpoint understands.
  *
- * Prefer {@link resolveSubmittedTaskId}: the response usually carries the id.
- * When neither the body nor the `X-New-Api-Task-Id` header delivered it (a
- * caching proxy, a provider that answers without an id), the created task is
- * read back from `/api/task/self` so a billed generation is never lost.
+ * The submission response carries the id of the upstream provider (or the
+ * public id of this installation in `X-New-Api-Task-Id`), but `/api/task/self`
+ * is read by the id of the task row this installation stored — the two are not
+ * always the same. The row is therefore the source of truth: it is looked up
+ * right after the submit and only when it cannot be found yet the id of the
+ * response is used as a fallback.
  */
 export async function resolveSubmittedTaskIdWithLookup(
   response: unknown,
   options: { model?: string; submittedAt?: number; signal?: AbortSignal } = {}
 ): Promise<string> {
   const direct = resolveSubmittedTaskId(response)
-  if (direct) return direct
-
   const submittedAt = options.submittedAt ?? Date.now()
+
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const task = await findLatestVideoTask({
@@ -120,10 +121,11 @@ export async function resolveSubmittedTaskIdWithLookup(
     } catch (error) {
       if (options.signal?.aborted) throw error
     }
-    if (options.signal?.aborted) return ''
+    if (options.signal?.aborted) return direct
     await wait(1200, options.signal)
   }
-  return ''
+
+  return direct
 }
 
 /**
@@ -133,10 +135,13 @@ export async function resolveSubmittedTaskIdWithLookup(
  */
 export async function pollVideoTask(
   taskId: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  rescue?: () => Promise<string>
 ): Promise<VideoTaskState> {
   const startedAt = Date.now()
   let last: VideoTaskState | null = null
+  let currentId = taskId
+  let emptyPolls = 0
 
   while (Date.now() - startedAt < MAX_WAIT_MS) {
     if (signal?.aborted) {
@@ -144,10 +149,31 @@ export async function pollVideoTask(
     }
 
     try {
-      last = await getVideoTask(taskId, signal)
+      last = await getVideoTask(currentId, signal)
     } catch (error) {
       if (signal?.aborted) throw error
       last = null
+    }
+
+    if (!last) {
+      emptyPolls += 1
+      // The id we poll does not exist in this installation (the upstream id was
+      // used instead of the id of the task row). Ask for the real one once and
+      // continue polling with it.
+      if (rescue && emptyPolls === 2) {
+        try {
+          const rescued = await rescue()
+          if (rescued && rescued !== currentId) {
+            currentId = rescued
+            emptyPolls = 0
+            continue
+          }
+        } catch (error) {
+          if (signal?.aborted) throw error
+        }
+      }
+    } else {
+      emptyPolls = 0
     }
 
     if (last) {

@@ -74,6 +74,10 @@ type Pricing struct {
 	PinOrder               int                     `json:"pin_order"`
 	PinColor               string                  `json:"pin_color,omitempty"`
 	AnnouncementBar        string                  `json:"announcement_bar,omitempty"`
+	// AutoModel marks the virtual "auto" model of the Auto Model feature. It
+	// has no price of its own: the request is routed to a real model and billed
+	// as that model, so the square shows it without a price.
+	AutoModel bool `json:"auto_model,omitempty"`
 }
 
 type PricingVendor struct {

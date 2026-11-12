@@ -607,6 +607,18 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	attachQuotaSaturation(ctx, relayInfo, other)
 
+	// A request of the virtual model is billed and logged as the model that
+	// answered; this keeps the decision of the router next to it, so a reader of
+	// the usage log sees why that model answered.
+	if selection, ok := ctx.Get(AutoModelDecisionContextKey).(AutoModelSelection); ok {
+		other["auto_model"] = map[string]interface{}{
+			"model":      selection.Model,
+			"reason":     selection.Reason,
+			"dimension":  selection.Dimension,
+			"candidates": selection.Candidates,
+		}
+	}
+
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
 		PromptTokens:     summary.PromptTokens,

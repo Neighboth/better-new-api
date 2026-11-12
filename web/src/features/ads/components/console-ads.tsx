@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { cn } from '@/lib/utils'
@@ -27,13 +27,18 @@ import {
   trackConsoleAdImpression,
   type ConsoleAd,
 } from '../api'
-import { CONSOLE_AD_COUNT, pickConsoleAds } from '../lib/console-ads'
+import { resolveAdImage } from '../lib/ad-image'
+import {
+  CONSOLE_AD_COUNT,
+  consoleAdCountForWidth,
+  pickConsoleAds,
+} from '../lib/console-ads'
 
 // The row of the console: two banners side by side, centred, the same height
 // as the banners of the blog so that an image of the campaign fits both
 // surfaces without a second version.
 const CONSOLE_AD_CLASS =
-  'flex h-[60px] sm:h-[75px] md:h-[90px] w-full max-w-[26rem] items-center justify-center overflow-hidden rounded-lg border'
+  'flex h-[60px] sm:h-[75px] md:h-[90px] w-full min-w-0 flex-1 basis-[18rem] max-w-[26rem] items-center justify-center overflow-hidden rounded-lg border'
 
 /**
  * The row of ads of the console.
@@ -51,12 +56,35 @@ export function ConsoleAds(props: { className?: string }) {
   const ads = data?.custom_ads ?? []
   const adsKey = ads.map((ad) => ad.id).join('|')
 
-  // The row is picked once per set of ads, so a re-render of the dashboard does
-  // not swap the banners under the reader while the images load.
+  // The row holds two banners only when the dashboard is wide enough to show
+  // both at a readable width: a narrow window shows the same banner squeezed
+  // into half a phone, so it gets one ad instead of two unreadable ones.
+  const rowRef = useRef<HTMLDivElement | null>(null)
+  const [rowWidth, setRowWidth] = useState<number | null>(null)
+
+  useEffect(() => {
+    const element = rowRef.current
+    if (!element) return
+    const measure = () => setRowWidth(element.clientWidth)
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [data?.enabled])
+
+  const count = consoleAdCountForWidth(rowWidth ?? 0, CONSOLE_AD_COUNT)
+
+  // The row is picked once per set of ads and per number of slots, so a
+  // re-render of the dashboard does not swap the banners under the reader while
+  // the images load.
   const picked = useMemo(
-    () => pickConsoleAds(ads, CONSOLE_AD_COUNT),
+    () => pickConsoleAds(ads, count),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [adsKey]
+    [adsKey, count]
   )
 
   // The console draws image ads only: AdSense belongs to the blog, where its
@@ -72,10 +100,10 @@ export function ConsoleAds(props: { className?: string }) {
         'flex w-full flex-wrap items-center justify-center gap-3 sm:gap-4',
         props.className
       )}
+      ref={rowRef}
     >
-      {picked.map((ad) => (
-        <ConsoleAdBanner key={ad.id} ad={ad} />
-      ))}
+      {rowWidth !== null &&
+        picked.map((ad) => <ConsoleAdBanner key={ad.id} ad={ad} />)}
     </div>
   )
 }
@@ -89,22 +117,7 @@ function ConsoleAdBanner(props: { ad: ConsoleAd }) {
     void trackConsoleAdImpression(props.ad.id)
   }, [props.ad.id])
 
-  const currentLang = (i18n.language || 'en').toLowerCase()
-  const langKey = currentLang.startsWith('tr')
-    ? 'tr'
-    : currentLang.startsWith('zh-tw') || currentLang.startsWith('zhtw')
-    ? 'zh_TW'
-    : currentLang.startsWith('zh')
-    ? 'zh_CN'
-    : currentLang.slice(0, 2)
-  const anyImage = props.ad.images ? Object.values(props.ad.images).find((val) => val && val.trim() !== '') : ''
-  const displayImage =
-    props.ad.images?.[langKey] ||
-    props.ad.images?.[currentLang] ||
-    props.ad.images?.['en'] ||
-    props.ad.image ||
-    anyImage ||
-    ''
+  const displayImage = resolveAdImage(props.ad, i18n.language)
 
   return (
     <a
