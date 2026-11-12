@@ -304,14 +304,12 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 		systemName = "BYOG"
 		appName = "BYOG Worker"
 	} else {
-		lower := strings.ToLower(systemName)
-		if strings.HasSuffix(lower, "byog worker") {
-			appName = systemName
-		} else if strings.HasSuffix(lower, "byog") {
-			appName = systemName + " Worker"
-		} else {
-			appName = fmt.Sprintf("%s BYOG Worker", systemName)
-		}
+		// The name of the application is the name of the site followed by the
+		// name of the client. The desktop client composes the name it shows
+		// itself (worker/desktop.installationDisplayName), so the settings carry
+		// the name of the installation and not the title of a window: a payload
+		// with "Worker" in it would be a name the client appends twice.
+		appName = byogMobileDisplayName(systemName)
 	}
 
 	// Favicon and Logo resolution:
@@ -3036,9 +3034,13 @@ func DownloadByogWorker(c *gin.Context) {
 					_, _, faviconUrl, faviconBase64 := getBranding(serverUrl)
 					mobileAppName := byogMobileDisplayName(systemName)
 
+					// The settings carry the name of the site and the name of the
+					// application separately: the name of the site is what the
+					// client shows as the installation, the name of the
+					// application is the label of the app.
 					cfgPayload, _ := json.Marshal(map[string]string{
 						"server_url":     serverUrl,
-						"system_name":    mobileAppName,
+						"system_name":    systemName,
 						"app_name":       mobileAppName,
 						"favicon":        faviconUrl,
 						"favicon_base64": faviconBase64,
