@@ -390,7 +390,7 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 // error and never a silent anonymous answer.
 func TokenAuthOptionalModels() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		if operation_setting.ModelsAPIRequireKey() || requestCarriesModelKey(c) {
+		if operation_setting.ModelsAPIRequireKey || requestCarriesModelKey(c) {
 			TokenAuth()(c)
 			return
 		}
