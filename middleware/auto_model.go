@@ -12,7 +12,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/service/byog"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
@@ -58,12 +60,58 @@ func resolveAutoModelRequest(c *gin.Context, modelRequest *ModelRequest) (bool, 
 		groups = service.GetRequestAutoGroups(c, userGroup)
 	}
 	candidates := service.GetGroupsEnabledModels(groups)
+	text, hasImage, hasAudio := autoModelRequestProfile(body, c.Request.URL.Path)
+	// The BYOG network serves its own catalogue; the groups above do not see
+	// it, which is why a BYOG-only installation would otherwise have no
+	// candidates at all. The router must not name a model that no node can
+	// serve right now, which is why only models installed on an online node
+	// are offered. The model_type decides what the request can use: chat
+	// completions need an llm or a vision model.
+	byogCandidates := make([]string, 0)
+	if byogModels, byogErr := model.GetAllByogModels(true); byogErr == nil {
+		installedModels := make(map[string]bool)
+		onlineNodes := 0
+		for _, session := range byog.GlobalHub.GetAllOnlineNodes() {
+			if session == nil || session.IsPaused || session.IsGamerMode {
+				continue
+			}
+			onlineNodes++
+			for modelId := range session.InstalledModels {
+				installedModels[modelId] = true
+			}
+		}
+		if onlineNodes > 0 && len(installedModels) > 0 {
+			for _, byogModel := range byogModels {
+				if byogModel == nil || byogModel.ModelId == "" {
+					continue
+				}
+				if !installedModels[byogModel.ModelId] {
+					continue
+				}
+				modelType := strings.ToLower(byogModel.ModelType)
+				switch {
+				case hasAudio:
+					if modelType != "stt" && modelType != "tts" {
+						continue
+					}
+				case hasImage:
+					if modelType != "llm" && modelType != "vision" {
+						continue
+					}
+				default:
+					if modelType != "llm" && modelType != "vision" {
+						continue
+					}
+				}
+				byogCandidates = append(byogCandidates, byogModel.ModelId)
+			}
+		}
+	}
 
 	blockedModels := service.AutoModelBlockedModels(c.GetInt("id"))
-	text, hasImage, hasAudio := autoModelRequestProfile(body, c.Request.URL.Path)
 	opts := autoModelRequestOptions(body)
 
-	selection, err := service.ResolveAutoModel(candidates, blockedModels, text, hasImage, hasAudio, opts)
+	selection, err := service.ResolveAutoModel(candidates, byogCandidates, blockedModels, text, hasImage, hasAudio, opts)
 	if err != nil {
 		return true, err
 	}

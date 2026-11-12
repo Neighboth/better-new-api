@@ -160,16 +160,70 @@ func AutoModelBlockedModels(userId int) []string {
 	return settings.BlockedModels
 }
 
+// Media-only model names, used to keep a text request away from a video or
+// image generator. A BYOG text catalogue contains none of these, which is
+// the point: without the filter the first candidate is often an image model.
+var autoModelMediaSignals = []string{
+	"ltx", "sora", "veo", "wan", "vidu", "kling", "hailuo",
+	"flux", "dall", "sdxl", "stable-diffusion", "seedance", "photon",
+	"image", "video", "music", "suno", "bark", "musicgen", "dance",
+}
+
+var autoModelSpokenSignals = []string{"whisper", "stt", "asr", "speech", "tts", "transcri"}
+
+var autoModelVisionSignals = []string{"vision", "vl", "multimodal", "image", "gpt-4o", "gpt-4-turbo", "gemini"}
+
+func containsAny(hay string, needles []string) bool {
+	for _, needle := range needles {
+		if strings.Contains(hay, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// autoModelShapeFilter drops the models that cannot answer this shape of
+// request. When the catalogue only contains media models the filter is a
+// no-op: an empty candidate list is worse than a wrong one.
+func autoModelShapeFilter(candidates []string, hasImage bool, hasAudio bool) []string {
+	keep := func(pred func(string) bool) []string {
+		out := make([]string, 0, len(candidates))
+		for _, name := range candidates {
+			if pred(strings.ToLower(strings.TrimSpace(name))) {
+				out = append(out, name)
+			}
+		}
+		if len(out) == 0 {
+			return candidates
+		}
+		return out
+	}
+	switch {
+	case hasAudio:
+		return keep(func(x string) bool { return containsAny(x, autoModelSpokenSignals) })
+	case hasImage:
+		return keep(func(x string) bool { return containsAny(x, autoModelVisionSignals) })
+	default:
+		return keep(func(x string) bool { return !containsAny(x, autoModelMediaSignals) })
+	}
+}
+
+// blockedModelList turns the account blocklist into a lookup set.
+func blockedModelList(blockedModels []string) map[string]bool {
+	blocked := make(map[string]bool, len(blockedModels))
+	for _, name := range blockedModels {
+		blocked[strings.ToLower(strings.TrimSpace(name))] = true
+	}
+	return blocked
+}
+
 // autoModelUsableModels returns the models a request of this user may be routed
 // to: the models of the groups the request may use, without the virtual model
 // itself, without the models the administrator blocked for the account and,
 // outside self-use installations, without models that have no price (the relay
 // refuses them anyway).
-func autoModelUsableModels(candidates []string, blockedModels []string) []string {
-	blocked := make(map[string]bool, len(blockedModels))
-	for _, name := range blockedModels {
-		blocked[strings.ToLower(strings.TrimSpace(name))] = true
-	}
+func autoModelUsableModels(candidates []string, blockedModels []string, hasImage bool, hasAudio bool) []string {
+	blocked := blockedModelList(blockedModels)
 	usable := make([]string, 0, len(candidates))
 	for _, name := range candidates {
 		if name == "" || IsAutoModelRequest(name) {
@@ -183,7 +237,26 @@ func autoModelUsableModels(candidates []string, blockedModels []string) []string
 		}
 		usable = append(usable, name)
 	}
-	return usable
+	return autoModelShapeFilter(usable, hasImage, hasAudio)
+}
+
+// AutoModelUsableByogModels filters the BYOG catalogue the same way, without
+// the billing check: the tunnel prices those models and the installation may
+// legitimately serve them for free. The account blocklist and the shape of
+// the request still apply.
+func AutoModelUsableByogModels(candidates []string, blockedModels []string, hasImage bool, hasAudio bool) []string {
+	blocked := blockedModelList(blockedModels)
+	usable := make([]string, 0, len(candidates))
+	for _, name := range candidates {
+		if name == "" || IsAutoModelRequest(name) {
+			continue
+		}
+		if blocked[strings.ToLower(name)] {
+			continue
+		}
+		usable = append(usable, name)
+	}
+	return autoModelShapeFilter(usable, hasImage, hasAudio)
 }
 
 // hasModelBillingConfig reports whether the installation knows how to bill a
@@ -482,6 +555,7 @@ func parseAutoModelAnswer(answer string, candidates []string) (string, error) {
 // instead of silently routing to a model the caller did not want.
 func ResolveAutoModel(
 	candidates []string,
+	byogCandidates []string,
 	blockedModels []string,
 	requestText string,
 	hasImage bool,
@@ -494,7 +568,19 @@ func ResolveAutoModel(
 	}
 	opts.Preference = NormalizeAutoPreference(opts.Preference)
 
-	usable := autoModelUsableModels(candidates, blockedModels)
+	usable := autoModelUsableModels(candidates, blockedModels, hasImage, hasAudio)
+	byogUsable := AutoModelUsableByogModels(byogCandidates, blockedModels, hasImage, hasAudio)
+	byogSeen := make(map[string]bool, len(usable))
+	for _, name := range usable {
+		byogSeen[name] = true
+	}
+	for _, name := range byogUsable {
+		if byogSeen[name] {
+			continue
+		}
+		byogSeen[name] = true
+		usable = append(usable, name)
+	}
 	if len(usable) == 0 {
 		return AutoModelSelection{}, fmt.Errorf("no model is available for this request")
 	}
