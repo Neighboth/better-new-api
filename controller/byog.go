@@ -331,7 +331,13 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 	}
 
 	if faviconUrl != "" && !strings.HasPrefix(faviconUrl, "http://") && !strings.HasPrefix(faviconUrl, "https://") && !strings.HasPrefix(faviconUrl, "data:") {
+		// The address an administrator wrote for the installation wins, except
+		// when it is a loopback address: the client downloads the icon from the
+		// host it reached, an icon of localhost would be an icon it cannot load.
 		base := strings.TrimRight(system_setting.ServerAddress, "/")
+		if isLoopbackAddress(base) {
+			base = ""
+		}
 		if base == "" && serverUrl != "" {
 			base = strings.TrimRight(serverUrl, "/")
 		}
@@ -2874,6 +2880,22 @@ func decodeFaviconIcon(faviconBase64 string) []byte {
 		return nil
 	}
 	return icon.PNG(raw, icon.MaxResourceSize)
+}
+
+// isLoopbackAddress reports whether an address points at the machine it runs
+// on: such an address is useless in a download, because the client that reads
+// it is another machine.
+func isLoopbackAddress(address string) bool {
+	if address == "" {
+		return false
+	}
+	lower := strings.ToLower(address)
+	for _, loopback := range []string{"localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1"} {
+		if strings.Contains(lower, loopback) {
+			return true
+		}
+	}
+	return false
 }
 
 // byogDisplayName is the name of the installation in the applications of the
