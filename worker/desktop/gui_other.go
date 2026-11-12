@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/worker/desktop/installer"
