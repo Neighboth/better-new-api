@@ -143,7 +143,7 @@ func TestCloudflareDeepgramRequestsPunctuation(t *testing.T) {
 		RelayMode: constant.RelayModeAudioTranscription,
 		ChannelMeta: &relaycommon.ChannelMeta{
 			UpstreamModelName: "@cf/deepgram/nova-3",
-			BaseUrl:           "https://api.cloudflare.com",
+			ChannelBaseUrl:    "https://api.cloudflare.com",
 			ApiVersion:        "account-id",
 		},
 	}

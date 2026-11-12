@@ -304,14 +304,12 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 		systemName = "BYOG"
 		appName = "BYOG Worker"
 	} else {
-		lower := strings.ToLower(systemName)
-		if strings.HasSuffix(lower, "byog worker") {
-			appName = systemName
-		} else if strings.HasSuffix(lower, "byog") {
-			appName = systemName + " Worker"
-		} else {
-			appName = fmt.Sprintf("%s BYOG Worker", systemName)
-		}
+		// The name of the application is the name of the site followed by the
+		// name of the client. The desktop client composes the name it shows
+		// itself (worker/desktop.installationDisplayName), so the settings carry
+		// the name of the installation and not the title of a window: a payload
+		// with "Worker" in it would be a name the client appends twice.
+		appName = byogMobileDisplayName(systemName)
 	}
 
 	// Favicon and Logo resolution:
@@ -333,7 +331,13 @@ func getBranding(serverUrl string) (systemName string, appName string, faviconUr
 	}
 
 	if faviconUrl != "" && !strings.HasPrefix(faviconUrl, "http://") && !strings.HasPrefix(faviconUrl, "https://") && !strings.HasPrefix(faviconUrl, "data:") {
+		// The address an administrator wrote for the installation wins, except
+		// when it is a loopback address: the client downloads the icon from the
+		// host it reached, an icon of localhost would be an icon it cannot load.
 		base := strings.TrimRight(system_setting.ServerAddress, "/")
+		if isLoopbackAddress(base) {
+			base = ""
+		}
 		if base == "" && serverUrl != "" {
 			base = strings.TrimRight(serverUrl, "/")
 		}
@@ -2878,6 +2882,22 @@ func decodeFaviconIcon(faviconBase64 string) []byte {
 	return icon.PNG(raw, icon.MaxResourceSize)
 }
 
+// isLoopbackAddress reports whether an address points at the machine it runs
+// on: such an address is useless in a download, because the client that reads
+// it is another machine.
+func isLoopbackAddress(address string) bool {
+	if address == "" {
+		return false
+	}
+	lower := strings.ToLower(address)
+	for _, loopback := range []string{"localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1"} {
+		if strings.Contains(lower, loopback) {
+			return true
+		}
+	}
+	return false
+}
+
 // byogDisplayName is the name of the installation in the applications of the
 // control panel. The name of the site comes first, the name of the client
 // follows it.
@@ -3036,9 +3056,13 @@ func DownloadByogWorker(c *gin.Context) {
 					_, _, faviconUrl, faviconBase64 := getBranding(serverUrl)
 					mobileAppName := byogMobileDisplayName(systemName)
 
+					// The settings carry the name of the site and the name of the
+					// application separately: the name of the site is what the
+					// client shows as the installation, the name of the
+					// application is the label of the app.
 					cfgPayload, _ := json.Marshal(map[string]string{
 						"server_url":     serverUrl,
-						"system_name":    mobileAppName,
+						"system_name":    systemName,
 						"app_name":       mobileAppName,
 						"favicon":        faviconUrl,
 						"favicon_base64": faviconBase64,
