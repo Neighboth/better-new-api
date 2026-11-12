@@ -18,7 +18,9 @@ func SetRelayRouter(router *gin.Engine) {
 	// https://platform.openai.com/docs/api-reference/introduction
 	modelsRouter := router.Group("/v1/models")
 	modelsRouter.Use(middleware.RouteTag("relay"))
-	modelsRouter.Use(middleware.TokenAuth())
+	// The catalogue answers anonymously when the administrator turned the key
+	// requirement off; every other endpoint below keeps the token check.
+	modelsRouter.Use(middleware.TokenAuthOptionalModels())
 	{
 		modelsRouter.GET("", func(c *gin.Context) {
 			switch {
@@ -43,7 +45,7 @@ func SetRelayRouter(router *gin.Engine) {
 
 	geminiRouter := router.Group("/v1beta/models")
 	geminiRouter.Use(middleware.RouteTag("relay"))
-	geminiRouter.Use(middleware.TokenAuth())
+	geminiRouter.Use(middleware.TokenAuthOptionalModels())
 	{
 		geminiRouter.GET("", func(c *gin.Context) {
 			controller.ListModels(c, constant.ChannelTypeGemini)
@@ -52,7 +54,7 @@ func SetRelayRouter(router *gin.Engine) {
 
 	geminiCompatibleRouter := router.Group("/v1beta/openai/models")
 	geminiCompatibleRouter.Use(middleware.RouteTag("relay"))
-	geminiCompatibleRouter.Use(middleware.TokenAuth())
+	geminiCompatibleRouter.Use(middleware.TokenAuthOptionalModels())
 	{
 		geminiCompatibleRouter.GET("", func(c *gin.Context) {
 			controller.ListModels(c, constant.ChannelTypeOpenAI)

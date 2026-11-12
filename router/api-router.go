@@ -208,6 +208,11 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.GET("/:id/oauth/bindings", middleware.RequirePermission(authz.UserRead), controller.GetUserOAuthBindingsByAdmin)
 				adminRoute.DELETE("/:id/oauth/bindings/:provider_id", middleware.RequirePermission(authz.UserWrite), controller.UnbindCustomOAuthByAdmin)
 				adminRoute.DELETE("/:id/bindings/:binding_type", middleware.RequirePermission(authz.UserWrite), controller.AdminClearUserBinding)
+				// The channel and model blocklist of a user belongs to the
+				// administrator: it hides a channel or a model from one
+				// account and the user cannot lift it.
+				adminRoute.GET("/:id/blocklist", middleware.RequirePermission(authz.UserRead), controller.GetUserBlocklist)
+				adminRoute.PUT("/:id/blocklist", middleware.RequirePermission(authz.UserWrite), controller.UpdateUserBlocklist)
 				adminRoute.GET("/:id", middleware.RequirePermission(authz.UserRead), controller.GetUser)
 				adminRoute.POST("/", middleware.RequirePermission(authz.UserWrite), controller.CreateUser)
 				adminRoute.POST("/manage", controller.ManageUser)
@@ -296,6 +301,10 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.GET("/waffo-pancake/subscription-product-options", middleware.RootAuth(), controller.ListWaffoPancakeSubscriptionProductOptions)
 			optionRoute.POST("/test_email", middleware.AdminAuth(), controller.SendTestEmail)
 			optionRoute.GET("/email_default_templates", middleware.AdminAuth(), controller.GetEmailDefaultTemplates)
+			// The Auto Model card needs the default prompt and the ranking
+			// dimensions, which live in the setting package.
+			optionRoute.GET("/auto_model_meta", middleware.AdminAuth(), controller.GetAutoModelMeta)
+			optionRoute.GET("/auto_model_stats", middleware.AdminAuth(), controller.GetAutoModelStats)
 		}
 
 		// Managed Files (admin only)
@@ -384,6 +393,11 @@ func SetApiRouter(router *gin.Engine) {
 		logRoute.GET("/search", middleware.AdminAuth(), controller.SearchAllLogs)
 		logRoute.GET("/self", middleware.UserAuth(), controller.GetUserLogs)
 		logRoute.GET("/self/search", middleware.UserAuth(), middleware.SearchRateLimit(), controller.SearchUserLogs)
+		// The export of the logs: the captcha of the download and the ten
+		// minute cooldown are checked on the server, the file itself is built
+		// by the panel from the rows this endpoint returns.
+		logRoute.GET("/export", middleware.AdminAuth(), middleware.TurnstileCheck(), controller.GetLogsExport)
+		logRoute.GET("/self/export", middleware.UserAuth(), middleware.TurnstileCheck(), controller.GetLogsExport)
 
 		systemTaskRoute := apiRouter.Group("/system-task")
 		systemTaskRoute.Use(middleware.RootAuth())

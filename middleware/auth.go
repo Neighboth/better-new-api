@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -377,6 +378,41 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 		c.Set("token_key", token.Key)
 		c.Next()
 	}
+}
+
+// TokenAuthOptionalModels is TokenAuth with one exception: when the
+// administrator turned off the requirement of an API key for the catalogue,
+// a request that carries no key at all is served anonymously.
+//
+// The endpoint that lists models is the one a reader looks at before it has a
+// key (a landing page, a price comparison, a client that lists first). A
+// request that does carry a key is still authenticated, so a wrong key is an
+// error and never a silent anonymous answer.
+func TokenAuthOptionalModels() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		if operation_setting.ModelsAPIRequireKey() || requestCarriesModelKey(c) {
+			TokenAuth()(c)
+			return
+		}
+		c.Next()
+	}
+}
+
+// requestCarriesModelKey reports whether the request tries to authenticate.
+func requestCarriesModelKey(c *gin.Context) bool {
+	if strings.TrimSpace(c.GetHeader("Authorization")) != "" {
+		return true
+	}
+	if strings.TrimSpace(c.GetHeader("x-api-key")) != "" {
+		return true
+	}
+	if strings.TrimSpace(c.GetHeader("x-goog-api-key")) != "" {
+		return true
+	}
+	if strings.TrimSpace(c.GetHeader("mj-api-secret")) != "" {
+		return true
+	}
+	return strings.TrimSpace(c.Query("key")) != ""
 }
 
 func TokenAuth() func(c *gin.Context) {

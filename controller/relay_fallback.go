@@ -51,11 +51,10 @@ func isModelBlockedForUser(modelName string, blockedModels []string) bool {
 	return false
 }
 
+// userBlockedModels is the model blocklist an administrator assigned to the
+// account. It is enforced unconditionally: the block belongs to the
+// administrator, not to a preference of the user.
 func userBlockedModels(info *relaycommon.RelayInfo) []string {
-	setting := operation_setting.GetUserBlocklistSetting()
-	if setting == nil || !setting.Enabled || !setting.AllowModels {
-		return nil
-	}
 	return info.UserSetting.BlockedModels
 }
 

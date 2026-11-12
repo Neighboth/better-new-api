@@ -90,6 +90,29 @@ export async function getUser(id: number): Promise<ApiResponse<User>> {
   return res.data
 }
 
+/** The channel and model blocklist an administrator assigned to a user. */
+export type UserBlocklist = {
+  blocked_channels: number[]
+  blocked_models: string[]
+}
+
+/** Reads the blocklist of a user. */
+export async function getUserBlocklist(
+  id: number
+): Promise<ApiResponse<UserBlocklist>> {
+  const res = await api.get(`/api/user/${id}/blocklist`)
+  return res.data
+}
+
+/** Replaces the blocklist of a user. */
+export async function updateUserBlocklist(
+  id: number,
+  blocklist: UserBlocklist
+): Promise<ApiResponse<null>> {
+  const res = await api.put(`/api/user/${id}/blocklist`, blocklist)
+  return res.data
+}
+
 /**
  * Create a new user
  */

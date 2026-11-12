@@ -771,6 +771,112 @@ func UpdateUser(c *gin.Context) {
 	return
 }
 
+// UserBlocklistRequest is the channel and model blocklist that an
+// administrator assigns to a user.
+//
+// The list is enforced by the relay: a request of that user is never routed
+// through a blocked channel and never asks for a blocked model, and the
+// fallback chain skips both. Only an administrator reads and writes it; the
+// user cannot lift a block from the profile page.
+type UserBlocklistRequest struct {
+	BlockedChannels []int    `json:"blocked_channels"`
+	BlockedModels   []string `json:"blocked_models"`
+}
+
+// userBlocklistTarget loads the user of the request and checks that the caller
+// may manage it.
+func userBlocklistTarget(c *gin.Context) (*model.User, bool) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return nil, false
+	}
+	user, err := model.GetUserById(id, true)
+	if err != nil {
+		common.ApiError(c, err)
+		return nil, false
+	}
+	if !canManageTargetRole(c.GetInt("role"), user.Role) {
+		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionSameLevel)
+		return nil, false
+	}
+	return user, true
+}
+
+// GetUserBlocklist returns the blocklist an administrator assigned to a user.
+func GetUserBlocklist(c *gin.Context) {
+	user, ok := userBlocklistTarget(c)
+	if !ok {
+		return
+	}
+	settings := user.GetSetting()
+	channels := settings.BlockedChannels
+	if channels == nil {
+		channels = []int{}
+	}
+	models := settings.BlockedModels
+	if models == nil {
+		models = []string{}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"blocked_channels": channels,
+			"blocked_models":   models,
+		},
+	})
+}
+
+// UpdateUserBlocklist replaces the blocklist of a user.
+//
+// Only the two lists are written: the notification settings of the user and
+// every other field of the setting document stay untouched, so an
+// administrator that blocks a channel never resets the preferences of the
+// account.
+func UpdateUserBlocklist(c *gin.Context) {
+	user, ok := userBlocklistTarget(c)
+	if !ok {
+		return
+	}
+	var req UserBlocklistRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+
+	settings := user.GetSetting()
+	settings.BlockedChannels = nil
+	seen := make(map[int]bool, len(req.BlockedChannels))
+	for _, channelId := range req.BlockedChannels {
+		if channelId <= 0 || seen[channelId] {
+			continue
+		}
+		seen[channelId] = true
+		settings.BlockedChannels = append(settings.BlockedChannels, channelId)
+	}
+	settings.BlockedModels = nil
+	seenModels := make(map[string]bool, len(req.BlockedModels))
+	for _, modelName := range req.BlockedModels {
+		trimmed := strings.TrimSpace(modelName)
+		if trimmed == "" || seenModels[trimmed] {
+			continue
+		}
+		seenModels[trimmed] = true
+		settings.BlockedModels = append(settings.BlockedModels, trimmed)
+	}
+
+	if err := model.UpdateUserSetting(user.Id, settings); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
+		return
+	}
+	recordManageAuditFor(c, user.Id, "user.blocklist", map[string]interface{}{
+		"channels": len(settings.BlockedChannels),
+		"models":   len(settings.BlockedModels),
+	})
+	common.ApiSuccessI18n(c, i18n.MsgSettingSaved, nil)
+}
+
 func AdminClearUserBinding(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {

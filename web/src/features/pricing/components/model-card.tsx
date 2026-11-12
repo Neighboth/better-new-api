@@ -323,7 +323,13 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         )}
 
         {/* Pricing Grid: Matching Image 2 (Dedicated Input, Output, Cache Read columns) */}
-        {isTokenBased ? (
+        {props.model.auto_model ? (
+          // The auto model has no price: the request is billed as the model it
+          // picks, and a price on its card would be a number that never applies.
+          <p className='text-muted-foreground mt-3 text-xs'>
+            {t('No price of its own: every request is billed as the model the router picks for it.')}
+          </p>
+        ) : isTokenBased ? (
           hasCachedPrice ? (
             <div className='mt-3 grid grid-cols-3 gap-2 sm:gap-4'>
               <div className='flex flex-col gap-0.5 min-w-0'>

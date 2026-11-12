@@ -257,7 +257,17 @@ func ListModels(c *gin.Context, modelType int) {
 	if len(ownerGroups) > 0 {
 		ownerByModel = getPreferredModelOwners(userModelNames, ownerGroups)
 	}
-	userOpenAiModels := make([]dto.OpenAIModels, 0, len(userModelNames))
+	userOpenAiModels := make([]dto.OpenAIModels, 0, len(userModelNames)+1)
+	// The virtual model of the Auto Model feature is offered first: it is the
+	// model a client that does not know the catalogue should ask for.
+	if operation_setting.GetAutoModelSetting().Enabled {
+		userOpenAiModels = append(userOpenAiModels, dto.OpenAIModels{
+			Id:      operation_setting.AutoModelName,
+			Object:  "model",
+			Created: 1626777600,
+			OwnedBy: "auto",
+		})
+	}
 	for _, modelName := range userModelNames {
 		userOpenAiModels = append(userOpenAiModels, buildOpenAIModel(modelName, ownerByModel))
 	}

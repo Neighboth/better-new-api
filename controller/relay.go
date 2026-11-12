@@ -220,23 +220,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}()
 
-	// Personal blocklists of the user: a blocked channel is never used (also
-	// not while the fallback chain walks other models) and a blocked model is
-	// never requested on their behalf.
-	blocklistSetting := operation_setting.GetUserBlocklistSetting()
-	var blockedChannels []int
-	var blockedModels []string
-	if blocklistSetting != nil && blocklistSetting.Enabled {
-		if blocklistSetting.AllowChannels {
-			blockedChannels = relayInfo.UserSetting.BlockedChannels
-		}
-		if blocklistSetting.AllowModels {
-			blockedModels = relayInfo.UserSetting.BlockedModels
-		}
-	}
+	// Blocklist of the account, written by an administrator: a blocked channel
+	// is never used (also not while the fallback chain walks other models) and
+	// a blocked model is never requested on their behalf. The list is not a
+	// preference of the user, so it is enforced unconditionally.
+	blockedChannels := relayInfo.UserSetting.BlockedChannels
+	blockedModels := relayInfo.UserSetting.BlockedModels
 	if isModelBlockedForUser(relayInfo.RequestedModelName, blockedModels) {
 		newAPIError = types.NewErrorWithStatusCode(
-			fmt.Errorf("模型 %s 已被你的账号屏蔽（个人屏蔽列表）", relayInfo.RequestedModelName),
+			fmt.Errorf("模型 %s 已被管理员禁止该账号使用", relayInfo.RequestedModelName),
 			types.ErrorCodeInvalidRequest,
 			http.StatusForbidden,
 			types.ErrOptionWithSkipRetry(),

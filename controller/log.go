@@ -3,6 +3,8 @@ package controller
 import (
 	"net/http"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -92,6 +94,121 @@ func GetLogByKey(c *gin.Context) {
 		"success": true,
 		"message": "",
 		"data":    logs,
+	})
+}
+
+// The export of the usage logs.
+//
+// The panel builds the file in the browser (CSV, TXT, log lines, JSON, a SQL
+// dump or Parquet) from the rows of this endpoint, so the server never depends
+// on a file format library. What the server owns is the part a browser cannot
+// own: the captcha of the download, the ten minute cooldown between two
+// downloads and the hard cap of the payload.
+const (
+	// exportMaxBytes is the size of the file a download may produce.
+	exportMaxBytes = 30 << 20
+	// exportCooldown is how long an administrator waits between two downloads.
+	exportCooldown = 10 * time.Minute
+	// exportMaxRows bounds the query: a row is never larger than a few
+	// kilobytes, this is the ceiling of the scan before the byte cap applies.
+	exportMaxRows = 50000
+)
+
+var (
+	exportCooldownMutex sync.Mutex
+	exportCooldownUntil = map[int]int64{}
+)
+
+// exportCooldownRemaining returns the timestamp until which the user may not
+// export, or zero when the download is allowed.
+func exportCooldownRemaining(userId int, now int64) int64 {
+	exportCooldownMutex.Lock()
+	defer exportCooldownMutex.Unlock()
+	until := exportCooldownUntil[userId]
+	if until <= now {
+		return 0
+	}
+	return until
+}
+
+func markExportCooldown(userId int, until int64) {
+	exportCooldownMutex.Lock()
+	defer exportCooldownMutex.Unlock()
+	exportCooldownUntil[userId] = until
+}
+
+// GetLogsExport returns the rows of the filtered logs for the export of the
+// panel.
+//
+// The rows are trimmed from the oldest end when the payload would pass the cap:
+// a download of a year of logs is one year of the newest logs, and the panel
+// tells the reader that the file was trimmed.
+func GetLogsExport(c *gin.Context) {
+	userId := c.GetInt("id")
+	now := time.Now().Unix()
+	if until := exportCooldownRemaining(userId, now); until > now {
+		c.JSON(http.StatusOK, gin.H{
+			"success":         false,
+			"code":            "export_cooldown",
+			"message":         "The next export is available in a few minutes.",
+			"next_allowed_at": until,
+		})
+		return
+	}
+
+	logType, _ := strconv.Atoi(c.Query("type"))
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	username := c.Query("username")
+	tokenName := c.Query("token_name")
+	modelName := c.Query("model_name")
+	channel, _ := strconv.Atoi(c.Query("channel"))
+	group := c.Query("group")
+	requestId := c.Query("request_id")
+	upstreamRequestId := c.Query("upstream_request_id")
+
+	logs, total, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, modelName, username, tokenName, 0, exportMaxRows, channel, group, requestId, upstreamRequestId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	// The rows are kept newest first, which is the order of the query. The cap
+	// trims the oldest ones, so a reader who exports a huge range still gets the
+	// recent history that matters.
+	rows := make([]*model.Log, 0, len(logs))
+	size := 0
+	for _, entry := range logs {
+		encoded, err := common.Marshal(entry)
+		if err != nil {
+			continue
+		}
+		if size+len(encoded) > exportMaxBytes {
+			break
+		}
+		size += len(encoded)
+		rows = append(rows, entry)
+	}
+	trimmed := int64(len(logs)) - int64(len(rows))
+	if total > int64(len(logs)) {
+		trimmed = total - int64(len(rows))
+	}
+
+	nextAllowed := now + int64(exportCooldown.Seconds())
+	markExportCooldown(userId, nextAllowed)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":         true,
+		"message":         "",
+		"data": gin.H{
+			"rows":            rows,
+			"total":           total,
+			"returned":        len(rows),
+			"trimmed":         trimmed,
+			"max_bytes":       exportMaxBytes,
+			"next_allowed_at": nextAllowed,
+			"generated_at":    now,
+		},
 	})
 }
 

@@ -44,13 +44,13 @@ const behaviorSchema = z.object({
   DefaultCollapseSidebar: z.boolean(),
   DemoSiteEnabled: z.boolean(),
   SelfUseModeEnabled: z.boolean(),
-  userBlocklistEnabled: z.boolean().optional(),
+  ModelsAPIRequireKey: z.boolean(),
 })
 
 type BehaviorFormValues = z.infer<typeof behaviorSchema>
 
 type SystemBehaviorSectionProps = {
-  defaultValues: BehaviorFormValues & { userBlocklistEnabled?: boolean }
+  defaultValues: BehaviorFormValues
 }
 
 export function SystemBehaviorSection({
@@ -66,11 +66,10 @@ export function SystemBehaviorSection({
 
   useResetForm(form, defaultValues)
 
-  // Form field name -> stored option key. The blocklist switch is the only
-  // field whose option lives in its own namespace.
-  const OPTION_KEYS: Record<string, string> = {
-    userBlocklistEnabled: 'user_blocklist_setting.enabled',
-  }
+  // Form field name -> stored option key, for the fields whose option lives in
+  // its own namespace. Empty today: the blocklist is written by the
+  // administrator on the user, not by a switch of this card.
+  const OPTION_KEYS: Record<string, string> = {}
 
   const onSubmit = async (data: BehaviorFormValues) => {
     const updates = Object.entries(data).filter(
@@ -125,29 +124,6 @@ export function SystemBehaviorSection({
                 <FormControl>
                   <Switch
                     checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-              </SettingsSwitchItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name='userBlocklistEnabled'
-            render={({ field }) => (
-              <SettingsSwitchItem>
-                <SettingsSwitchContent>
-                  <FormLabel>{t('Personal blocklists')}</FormLabel>
-                  <FormDescription>
-                    {t(
-                      'Let users exclude channels and models from their own requests, including inside the fallback chain.'
-                    )}
-                  </FormDescription>
-                </SettingsSwitchContent>
-                <FormControl>
-                  <Switch
-                    checked={Boolean(field.value)}
                     onCheckedChange={field.onChange}
                   />
                 </FormControl>

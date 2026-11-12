@@ -24,7 +24,6 @@ import { useTranslation } from 'react-i18next'
 import { getPlaygroundRuntimeConfig } from './api'
 import { PlaygroundChat } from './components/chat/playground-chat'
 import { PlaygroundInput } from './components/input/playground-input'
-import { PlaygroundToolStatus } from './components/playground-tool-status'
 import { DEFAULT_TOOLS_ENABLED } from './constants'
 import { EMPTY_PLAYGROUND_RUNTIME_CONFIG } from './types'
 import {
@@ -163,7 +162,6 @@ export function Playground() {
 
       {/* Input area: center content and constrain to the same container width */}
       <div className='mx-auto w-full max-w-4xl'>
-        <PlaygroundToolStatus runtime={runtime} toolsEnabled={toolsEnabled} />
         <PlaygroundInput
           config={config}
           disabled={isBusy}

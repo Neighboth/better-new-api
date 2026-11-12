@@ -36,6 +36,8 @@ export type AdSurfaceConfig = {
   adsense_client_id: string
   adsense_slot_id: string
   custom_ads: ConsoleAd[]
+  /** Seconds the skip button of the popup ad stays disabled. */
+  popup_skip_seconds?: number
 }
 
 /**
@@ -49,6 +51,21 @@ export async function fetchConsoleAds(): Promise<AdSurfaceConfig> {
   const res = await api.get<{ success: boolean; data: AdSurfaceConfig }>(
     '/api/blog/ads',
     { params: { surface: 'console' } }
+  )
+  return res.data.data
+}
+
+/**
+ * Reads the ads of the popup surface.
+ *
+ * The popup is the large banner that opens over any page of the site: the
+ * server sends the ads the administrator placed on it, so a campaign that only
+ * belongs to the blog never opens over the console.
+ */
+export async function fetchPopupAds(): Promise<AdSurfaceConfig> {
+  const res = await api.get<{ success: boolean; data: AdSurfaceConfig }>(
+    '/api/blog/ads',
+    { params: { surface: 'popup' } }
   )
   return res.data.data
 }

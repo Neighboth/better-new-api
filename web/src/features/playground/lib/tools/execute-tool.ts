@@ -185,7 +185,13 @@ async function executeGenerateVideo(
     throw new Error(ERROR_MESSAGES.VIDEO_TASK_FAILED)
   }
 
-  const finished = await pollVideoTask(taskId, ctx.signal)
+  const finished = await pollVideoTask(taskId, ctx.signal, () =>
+    resolveSubmittedTaskIdWithLookup(submitted, {
+      model,
+      submittedAt,
+      signal: ctx.signal,
+    })
+  )
   if (!finished.result_url) {
     throw new Error(finished.fail_reason || ERROR_MESSAGES.VIDEO_TASK_FAILED)
   }

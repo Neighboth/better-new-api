@@ -144,6 +144,8 @@ export type SiteSettings = {
   AdsMode: 'adsense' | 'custom' | 'both'
   /** Surfaces that may carry ads, comma separated (`blog`, `console`). */
   AdsSurfaces: string
+  /** Seconds before the skip button of the popup ad becomes active. */
+  AdsPopupSkipSeconds: number | string
   CustomAds: string
   GoogleAnalyticsId?: string
   UmamiWebsiteId?: string
@@ -556,6 +558,8 @@ export type OperationsSettings = {
   DefaultCollapseSidebar: boolean
   DemoSiteEnabled: boolean
   SelfUseModeEnabled: boolean
+  /** Whether GET /v1/models needs an API key. On by default. */
+  ModelsAPIRequireKey: boolean
   QuotaRemindThreshold: string
   SMTPServer: string
   SMTPPort: string
@@ -710,6 +714,12 @@ export type OperationsSettings = {
   'perf_metrics_setting.flush_interval': number
   'perf_metrics_setting.bucket_time': 'hour' | 'minute' | '5min'
   'perf_metrics_setting.retention_days': number
+  // Auto Model: the virtual "auto" model and its routing configuration.
+  'auto_model_setting.enabled': boolean
+  'auto_model_setting.routing_model': string
+  'auto_model_setting.rankings': string
+  'auto_model_setting.system_prompt': string
+  'auto_model_setting.default_budget_tokens': number
   'relay_fallback_setting.enable_fallback': boolean
   'relay_fallback_setting.fallback_models': string
   'relay_fallback_setting.fallback_chat_models'?: string

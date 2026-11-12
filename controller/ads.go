@@ -23,6 +23,10 @@ const (
 	// AdSurfaceConsole is the console of a signed-in user: the row of two ads
 	// between the cards of the dashboard.
 	AdSurfaceConsole = "console"
+	// AdSurfacePopup is the large banner that opens over any page of the site
+	// once per visit. It is the surface of a campaign that has to be seen: the
+	// reader closes it with a skip button that the administrator may delay.
+	AdSurfacePopup = "popup"
 )
 
 // Custom ad slots are stored in the CustomAds option as a JSON array:
@@ -51,8 +55,8 @@ func placementsOf(ad customAd) []string {
 	}
 	// The surfaces come out in the order of the panel, so that two saves of the
 	// same ad write the same document.
-	surfaces := make([]string, 0, 2)
-	for _, surface := range []string{AdSurfaceBlog, AdSurfaceConsole} {
+	surfaces := make([]string, 0, 3)
+	for _, surface := range []string{AdSurfaceBlog, AdSurfaceConsole, AdSurfacePopup} {
 		if listed[surface] {
 			surfaces = append(surfaces, surface)
 		}
@@ -86,11 +90,11 @@ func adSurfaces() []string {
 	if strings.TrimSpace(raw) == "" {
 		return []string{AdSurfaceBlog}
 	}
-	seen := make(map[string]bool, 2)
-	surfaces := make([]string, 0, 2)
+	seen := make(map[string]bool, 3)
+	surfaces := make([]string, 0, 3)
 	for _, part := range strings.Split(raw, ",") {
 		part = strings.ToLower(strings.TrimSpace(part))
-		if part != AdSurfaceBlog && part != AdSurfaceConsole {
+		if part != AdSurfaceBlog && part != AdSurfaceConsole && part != AdSurfacePopup {
 			continue
 		}
 		if seen[part] {
@@ -115,6 +119,27 @@ func surfaceEnabled(surface string) bool {
 	return false
 }
 
+// AdPopupSkipSeconds is the delay, in seconds, before the skip button of the
+// popup ad becomes active.
+//
+// Zero is instant: the reader closes the banner at once. A negative or a
+// non-numeric value falls back to the default of one second, so a typo in the
+// settings never traps the visitor behind a banner that cannot be skipped.
+func AdPopupSkipSeconds() int {
+	raw := strings.TrimSpace(common.OptionMap["AdsPopupSkipSeconds"])
+	if raw == "" {
+		return 0
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds < 0 {
+		return 0
+	}
+	if seconds > 60 {
+		return 60
+	}
+	return seconds
+}
+
 func getCustomAds() []customAd {
 	raw := common.OptionMap["CustomAds"]
 	if raw == "" {
@@ -135,7 +160,9 @@ func getCustomAds() []customAd {
 // reads the blog, so an old page of the site keeps working.
 func GetAdsStatus(c *gin.Context) {
 	surface := strings.ToLower(strings.TrimSpace(c.Query("surface")))
-	if surface != AdSurfaceConsole {
+	switch surface {
+	case AdSurfaceConsole, AdSurfacePopup:
+	default:
 		surface = AdSurfaceBlog
 	}
 	allowed := surfaceEnabled(surface)
@@ -181,6 +208,10 @@ func GetAdsStatus(c *gin.Context) {
 			"adsense_client_id": common.OptionMap["AdSenseClientId"],
 			"adsense_slot_id":   common.OptionMap["AdSenseSlotId"],
 			"custom_ads":        ads,
+			// Seconds before the skip button of the popup ad becomes active.
+			// The page reads it from here so the value follows the campaign
+			// without a rebuild of the panel.
+			"popup_skip_seconds": AdPopupSkipSeconds(),
 		},
 	})
 }

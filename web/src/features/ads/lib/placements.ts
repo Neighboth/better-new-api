@@ -18,10 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 /** The surfaces of the site where an ad may appear. */
-export type AdSurface = 'blog' | 'console'
+export type AdSurface = 'blog' | 'console' | 'popup'
 
 /** Every surface, in the order that the panel draws them. */
-export const AD_SURFACES: AdSurface[] = ['blog', 'console']
+export const AD_SURFACES: AdSurface[] = ['blog', 'console', 'popup']
 
 /**
  * Reads the surfaces of one ad.

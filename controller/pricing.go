@@ -224,6 +224,23 @@ func GetPricing(c *gin.Context) {
 		}
 	}
 
+	// The virtual model of the Auto Model feature. It is appended after the
+	// filter of the groups on purpose: it belongs to every group, it carries no
+	// price and the request is billed as the model the router chose.
+	if operation_setting.GetAutoModelSetting().Enabled {
+		pricing = append(pricing, model.Pricing{
+			ModelName:              operation_setting.AutoModelName,
+			Description:            "Picks the best model for every request",
+			Icon:                   "auto",
+			Tags:                   "auto",
+			QuotaType:              0,
+			OwnerBy:                "auto",
+			EnableGroup:            []string{"all"},
+			SupportedEndpointTypes: []constant.EndpointType{constant.EndpointTypeOpenAI},
+			AutoModel:              true,
+		})
+	}
+
 	pricing = applyPricingUptime(pricing)
 
 	c.JSON(200, gin.H{
