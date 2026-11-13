@@ -8,7 +8,8 @@ import (
 )
 
 // MaintenanceModeSetting is the plain view of the three options that toggle
-// the whole installation into maintenance mode.
+// the whole installation into maintenance mode. The keys match the option
+// memory map keys used by the settings UI.
 type MaintenanceModeSetting struct {
 	Enabled bool
 	ETA     int64 // unix seconds, zero means no ETA advertised
@@ -16,9 +17,9 @@ type MaintenanceModeSetting struct {
 }
 
 const (
-	MaintenanceModeEnabledKey = "maintenance_mode.enabled"
-	MaintenanceModeETAKey     = "maintenance_mode.eta"
-	MaintenanceModeMessageKey = "maintenance_mode.message"
+	MaintenanceModeEnabledKey = "MaintenanceModeEnabled"
+	MaintenanceModeETAKey     = "MaintenanceModeETA"
+	MaintenanceModeMessageKey = "MaintenanceModeMessage"
 )
 
 // GetMaintenanceModeSetting reads the options straight from the map with the
@@ -28,8 +29,8 @@ const (
 func GetMaintenanceModeSetting() MaintenanceModeSetting {
 	common.OptionMapRWMutex.RLock()
 	defer common.OptionMapRWMutex.RUnlock()
-	rawETA := common.OptionMap[MaintenanceModeETAKey]
-	eta, err := strconv.ParseInt(strings.TrimSpace(rawETA), 10, 64)
+	rawETA := strings.TrimSpace(common.OptionMap[MaintenanceModeETAKey])
+	eta, err := strconv.ParseInt(rawETA, 10, 64)
 	if err != nil {
 		eta = 0
 	}

@@ -168,14 +168,56 @@ func wantsJSON(c *gin.Context) bool {
 // screen: inline CSS + inline JS, no external requests (the installation is
 // fully down, hitting a CDN would leak the outage to the visitor).
 func renderMaintenancePage(message string, eta int64) string {
-	etaAttr := ""
-	dateLine := ""
+	etaBlock := ""
+	etaSeconds := int64(0)
 	if eta > 0 {
-		etaAttr = ` data-eta="` + strconv.FormatInt(eta, 10) + `"`
-		dateLine = `<div class="eta-label">Expected back <span id="eta-date"></span></div>`
+		etaSeconds = eta
+		etaBlock = `<div class="eta"><div class="eta-value">--:--:--</div><div class="eta-label">Expected back <span id="eta-date"></span></div></div>`
 	}
 
-	page := `<!DOCTYPE html>
+	script := `<script>
+(function () {
+  var END = 0;
+  if (END <= 0 || isNaN(END)) {
+    var el = document.querySelector('.eta');
+    if (el) el.style.display = 'none';
+    return;
+  }
+  var end = END * 1000;
+
+  var etaEl = document.getElementById('eta-date');
+  if (etaEl) {
+    var d = new Date(end);
+    etaEl.textContent = d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  }
+
+  function tick() {
+    var now = Date.now();
+    var left = Math.max(0, end - now);
+    var box = document.querySelector('.eta');
+    if (!box) return;
+    var valueEl = box.querySelector('.eta-value');
+    if (left === 0) {
+      if (valueEl) valueEl.textContent = '00:00:00';
+      var label = box.querySelector('.eta-label');
+      if (label) label.textContent = 'Finishing up…';
+      return;
+    }
+    var s = Math.floor(left / 1000);
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    if (valueEl) {
+      valueEl.textContent = (h > 0 ? (h < 10 ? '0' + h : h) + ':' : '') +
+        (m < 10 ? '0' + m : m) + ':' + (sec < 10 ? '0' + sec : sec);
+    }
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
+</script>`
+
+	var sb strings.Builder
+	sb.Grow(6000)
+	sb.WriteString(`<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
 <meta charset="utf-8">
@@ -189,7 +231,6 @@ func renderMaintenancePage(message string, eta int64) string {
   --panel-border: rgba(255,255,255,0.08);
   --text: #e6e8ef;
   --muted: #8b93a7;
-  --accent: #60a5fa;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
@@ -213,7 +254,6 @@ body::before {
     radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
   background-size: 42px 42px, 90px 90px;
   background-position: 0 0, 20px 30px;
-  mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 30%, transparent 80%);
   pointer-events: none;
 }
 .card {
@@ -257,25 +297,25 @@ h1 {
   background-clip: text;
   color: transparent;
 }
-.msg { color: var(--muted); font-size: 1rem; line-height: 1.6; margin: 0 0 26px; }
+.msg { color: var(--muted); font-size: 1rem; line-height: 1.6; margin: 0 0 24px; }
 .eta {
-  display: inline-flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 14px 22px; border-radius: 16px;
+  display: inline-flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 14px 24px; border-radius: 16px;
   background: rgba(0,0,0,0.35);
   border: 1px solid var(--panel-border);
-  margin-bottom: 18px;
+  margin: 0 auto 18px;
 }
-.eta-value { font-variant-numeric: tabular-nums; font-size: 1.45rem; font-weight: 700; letter-spacing: 0.02em; color: #bfdbfe; }
+.eta-value { font-variant-numeric: tabular-nums; font-size: 1.6rem; font-weight: 700; letter-spacing: 0.02em; color: #bfdbfe; }
 .eta-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.14em; }
 .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; margin-right: 8px; box-shadow: 0 0 10px rgba(245,158,11,0.8); animation: blink 1.1s steps(2) infinite; vertical-align: middle; }
 @keyframes blink { 0%, 60% { opacity: 1; } 61%, 100% { opacity: 0.25; } }
-.footer { margin-top: 22px; font-size: 0.75rem; color: #525b72; }
+.footer { margin-top: 16px; font-size: 0.75rem; color: #525b72; }
 .spinner { position: absolute; top: 24px; right: 24px; opacity: 0.4; animation: spin 10s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
-<div class="card"` + etaAttr + `>
+<div class="card">
   <svg class="spinner" width="38" height="38" viewBox="0 0 38 38" fill="none">
     <circle cx="19" cy="19" r="17" stroke="#3b82f6" stroke-width="2" stroke-dasharray="40 70" stroke-linecap="round"/>
   </svg>
@@ -285,51 +325,29 @@ h1 {
     </svg>
   </div>
   <h1>Scheduled maintenance in progress</h1>
-  <p class="msg"><span class="status-dot"></span>` + htmlEscape(message) + `</p>
-  ` + dateLine + `
-  <div class="footer">503 — Service Unavailable · Retry later</div>
+  <p class="msg"><span class="status-dot"></span>`)
+
+	sb.WriteString(htmlEscape(message))
+
+	sb.WriteString(`</p>
+  `)
+
+	sb.WriteString(etaBlock)
+
+	sb.WriteString(`
+  <div class="footer">503 - Service Unavailable - Retry later</div>
 </div>
-<script>
-(function () {
-  var eta = document.currentScript.parentNode.getAttribute('data-eta');
-  if (!eta) return;
-  var end = parseInt(eta, 10) * 1000;
-  if (!isFinite(end) || end <= 0) return;
+`)
 
-  var etaEl = document.getElementById('eta-date');
-  if (etaEl) {
-    var d = new Date(end);
-    etaEl.textContent = d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-  }
+	// Embed the ETA as a literal so the script never relies on
+	// document.currentScript or DOM position.
+	script = strings.Replace(script, "var END = 0;", "var END = "+strconv.FormatInt(etaSeconds, 10)+";", 1)
+	sb.WriteString(script)
 
-  function tick() {
-    var now = Date.now();
-    var left = Math.max(0, end - now);
-    var box = document.querySelector('.eta');
-    if (!box) return;
-    if (left === 0) {
-      box.innerHTML = '<div class="eta-label">Finishing up…</div>';
-      return;
-    }
-    var s = Math.floor(left / 1000);
-    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-    var valueEl = box.querySelector('.eta-value');
-    if (!valueEl) {
-      var valueDiv = document.createElement('div');
-      valueDiv.className = 'eta-value';
-      box.insertBefore(valueDiv, box.firstChild);
-      valueEl = valueDiv;
-    }
-    valueEl.textContent = (h > 0 ? String(h).padStart(2, '0') + ':' : '') +
-      String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
-  }
-  tick();
-  setInterval(tick, 1000);
-})();
-</script>
+	sb.WriteString(`
 </body>
-</html>`
-	return page
+</html>`)
+	return sb.String()
 }
 
 func htmlEscape(s string) string {
@@ -342,5 +360,3 @@ func htmlEscape(s string) string {
 	)
 	return r.Replace(s)
 }
-
-
