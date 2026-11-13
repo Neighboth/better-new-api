@@ -141,6 +141,10 @@ export type SiteSettings = {
   AdSenseClientId: string
   AdSenseSlotId: string
   AdsEnabled: boolean
+  /** System-wide maintenance toggle (stored as maintenance_mode.enabled). */
+  MaintenanceModeEnabled: string
+  MaintenanceModeETA: string
+  MaintenanceModeMessage: string
   AdsMode: 'adsense' | 'custom' | 'both'
   /** Surfaces that may carry ads, comma separated (`blog`, `console`). */
   AdsSurfaces: string

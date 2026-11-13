@@ -283,7 +283,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			retryParam.SetRetry(0)
 			continue
 		}
-		retryParam.IgnoredChannelIds = append(retryParam.IgnoredChannelIds, channel.Id)
 		addUsedChannel(c, channel.Id)
 		if billingErr := service.PrepareTieredBillingForSelectedGroup(c, relayInfo); billingErr != nil {
 			logger.LogWarn(c, fmt.Sprintf("prepare billing failed for model %s: %s", relayInfo.OriginModelName, billingErr.Error()))
@@ -334,11 +333,29 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			StatusCode:  newAPIError.StatusCode,
 		})
 		chErr := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan())
-		logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", chErr.ChannelId, newAPIError.StatusCode, common.LocalLogPreview(newAPIError.Error())))
-		if service.ShouldDisableChannel(newAPIError) && chErr.AutoBan {
+		logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d, multi_key_index: %d): %s", chErr.ChannelId, newAPIError.StatusCode, common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex), common.LocalLogPreview(newAPIError.Error())))
+		keyExhausted := false
+		if chErr.IsMultiKey {
+			// For a multi-key channel, disable the failing key SYNCHRONOUSLY so the
+			// next attempt deterministically picks a fresh key; the channel itself
+			// stays in the pool until every enabled key is gone.
+			if service.ShouldDisableChannel(newAPIError) && chErr.AutoBan {
+				model.UpdateChannelStatus(channel.Id, chErr.UsingKey, common.ChannelStatusAutoDisabled, newAPIError.ErrorWithStatusCode())
+			}
+			if retryParam.AttemptedKeys == nil {
+				retryParam.AttemptedKeys = map[int]int{}
+			}
+			retryParam.AttemptedKeys[channel.Id]++
+			keyExhausted = retryParam.AttemptedKeys[channel.Id] >= channel.ChannelInfo.MultiKeySize
+		} else if service.ShouldDisableChannel(newAPIError) && chErr.AutoBan {
 			gopool.Go(func() {
 				service.DisableChannel(chErr, newAPIError.ErrorWithStatusCode())
 			})
+		}
+		if !chErr.IsMultiKey || keyExhausted {
+			// non-multi-key channels, or a multi-key channel whose pool is
+			// exhausted: exclude from further selection for this request.
+			retryParam.IgnoredChannelIds = append(retryParam.IgnoredChannelIds, channel.Id)
 		}
 
 		// A failed channel must not make the whole request fail while another
@@ -813,7 +830,6 @@ func RelayTask(c *gin.Context) {
 			}
 		}
 
-		retryParam.IgnoredChannelIds = append(retryParam.IgnoredChannelIds, channel.Id)
 		addUsedChannel(c, channel.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
@@ -832,10 +848,24 @@ func RelayTask(c *gin.Context) {
 		}
 
 		if !taskErr.LocalError {
-			processChannelError(c,
-				*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
-					common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()),
-				types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
+			chTaskErr := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
+				common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan())
+			if chTaskErr.IsMultiKey {
+				if service.ShouldDisableChannel(types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode)) && chTaskErr.AutoBan {
+					model.UpdateChannelStatus(channel.Id, chTaskErr.UsingKey, common.ChannelStatusAutoDisabled, types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode).ErrorWithStatusCode())
+				}
+				if retryParam.AttemptedKeys == nil {
+					retryParam.AttemptedKeys = map[int]int{}
+				}
+				retryParam.AttemptedKeys[channel.Id]++
+			} else if service.ShouldDisableChannel(types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode)) && chTaskErr.AutoBan {
+				processChannelError(c,
+					chTaskErr,
+					types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
+			}
+			if !chTaskErr.IsMultiKey || retryParam.AttemptedKeys[channel.Id] >= channel.ChannelInfo.MultiKeySize {
+				retryParam.IgnoredChannelIds = append(retryParam.IgnoredChannelIds, channel.Id)
+			}
 		}
 
 		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {

@@ -7858,6 +7858,17 @@
     "Total available": "總可用",
     "Balance restricted to specific models is listed below.": "僅限特定模型的餘額見下表。",
     "Sponsored": "贊助",
-    "This ad supports the site": "此廣告支持本站"
+    "This ad supports the site": "此廣告支持本站",
+    "Enable maintenance mode": "啟用維護模式",
+    "Expected end (optional)": "預計結束時間（選填）",
+    "Visitor message (optional)": "訪客訊息（選填）",
+    "Blocks every visitor with a maintenance screen and answers API calls with 503. Admins can still sign in to disable it.": "啟用後所有頁面將顯示維護中提示，API 請求返回 503。管理員可登入後關閉。",
+    "If set, the maintenance screen shows the target date and a live countdown for visitors.": "設定後，維護頁面將顯示目標日期和即時倒數。",
+    "Shown to every visitor on the maintenance screen.": "顯示給維護頁面上的所有訪客。",
+    "Where the displayed balance comes from": "顯示的餘額來源",
+    "usable for all models": "可用於所有模型",
+    "Spent before topped-up balance.": "優先於儲值餘額扣除。",
+    "Redemption packages": "兌換碼禮包",
+    "Visit site": "造訪網站"
   }
 }

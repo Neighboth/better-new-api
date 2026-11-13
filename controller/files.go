@@ -686,10 +686,8 @@ func clientWithTimeout() *http.Client {
 
 func verifyManagedFileCaptcha(c *gin.Context) bool {
 	captchaType := common.GetEffectiveCaptchaType()
-	if captchaType == common.CaptchaTypeOff {
-		return true
-	}
-
+	// A file that asks for a captcha must be protected even when the
+	// site-wide captcha is off; the protection is the point.
 	token := c.PostForm("captcha_token")
 	if token == "" {
 		token = c.PostForm("cf-turnstile-response")
@@ -711,7 +709,7 @@ func verifyManagedFileCaptcha(c *gin.Context) bool {
 
 	// The fallback chain: any configured provider is accepted at the
 	// endpoint, so a fallback challenge verifies against its own keys.
-	if provider != captchaType {
+	if captchaType != common.CaptchaTypeOff && provider != captchaType {
 		if !common.CaptchaFallbackEnabled() &&
 			provider != common.CaptchaTypeImage {
 			return false
@@ -879,6 +877,30 @@ func authCaptchaSnippetFor(provider string) (authCaptchaSnippet, bool) {
 	}
 }
 
+
+// pickRenderableAuthCaptchaSnippet selects the captcha to show on the file
+// protection page. It prefers the administrator's effective global type,
+// then any configured provider from the configured order, and finally the
+// self-hosted altcha.
+func pickRenderableAuthCaptchaSnippet() (authCaptchaSnippet, bool) {
+	// Prefer configured third-party providers from the admin's order.
+	// Altcha's widget requires an "obfuscation" plugin on the client side,
+	// so it is excluded here: image always solves.
+	for _, p := range authCaptchaProviderOrder() {
+		if p == common.CaptchaTypeAltcha {
+			continue
+		}
+		if snippet, ok := authCaptchaSnippetFor(p); ok {
+			return snippet, true
+		}
+	}
+	snippet, ok := authCaptchaSnippetFor(common.CaptchaTypeImage)
+	if ok {
+		return snippet, true
+	}
+	return authCaptchaSnippet{}, false
+}
+
 func renderAuthPage(c *gin.Context, relPath string, mf model.ManagedFile, errorMsg string) {
 	var captchaScript, captchaHTML string
 	if mf.EnableCaptcha {
@@ -954,33 +976,14 @@ func renderAuthPage(c *gin.Context, relPath string, mf model.ManagedFile, errorM
 				}(), "") +
 				`</div>`
 		} else {
-			captchaType := common.GetEffectiveCaptchaType()
-		if captchaType == common.CaptchaTypeOff && common.TurnstileSiteKey != "" {
-				captchaType = common.CaptchaTypeTurnstile
-		}
-		if captchaType == common.CaptchaTypeOff && common.RecaptchaSiteKey != "" {
-				captchaType = common.CaptchaTypeRecaptcha
-		}
-		if captchaType == common.CaptchaTypeOff && common.HCaptchaSiteKey != "" {
-				captchaType = common.CaptchaTypeHCaptcha
-		}
-		if captchaType == common.CaptchaTypeOff && common.MTCaptchaSiteKey != "" {
-				captchaType = common.CaptchaTypeMTCaptcha
-		}
-		if captchaType == common.CaptchaTypeOff {
-				captchaType = common.CaptchaTypeImage
-		}
-			if snippet, ok := authCaptchaSnippetFor(captchaType); ok {
-				captchaScript = snippet.script
-				captchaHTML = `<div class="captcha-box flex justify-center my-3">` + snippet.html + `</div>`
-			} else {
-				// The configured provider is missing its keys: fall back to the
-				// self-hosted image captcha so the file is never left open
-				// without protection or blocked for the visitor.
-				snippet, _ := authCaptchaSnippetFor(common.CaptchaTypeImage)
-				captchaScript = snippet.script
-				captchaHTML = `<div class="captcha-box flex justify-center my-3">` + snippet.html + `</div>`
+			snippet, ok := pickRenderableAuthCaptchaSnippet()
+			if !ok {
+				// Image is self-hosted and always works; never leave the
+				// auth page without a solvable captcha.
+				snippet, _ = authCaptchaSnippetFor(common.CaptchaTypeImage)
 			}
+			captchaScript = snippet.script
+			captchaHTML = `<div class="captcha-box flex justify-center my-3">` + snippet.html + `</div>`
 		}
 	}
 

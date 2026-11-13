@@ -5998,7 +5998,7 @@
     "System initialized successfully! Redirecting…": "Система успешно инициализирована! Перенаправление…",
     "System instructions for the AI bot when generating responses": "Инструкции для бота при генерации ответов",
     "System logo": "Логотип системы",
-    "System maintenance": "Обслуживание системы",
+    "System maintenance": "Обслуживание сайта",
     "System Memory": "Системная память",
     "System Memory Stats": "Статистика системной памяти",
     "System Name": "Название системы",
@@ -7858,6 +7858,17 @@
     "Total available": "Всего доступно",
     "Balance restricted to specific models is listed below.": "Баланс, ограниченный определёнными моделями, приведён ниже.",
     "Sponsored": "Реклама",
-    "This ad supports the site": "Эта реклама поддерживает сайт"
+    "This ad supports the site": "Эта реклама поддерживает сайт",
+    "Enable maintenance mode": "Включить режим обслуживания",
+    "Expected end (optional)": "Ожидаемое окончание (необязательно)",
+    "Visitor message (optional)": "Сообщение для посетителей (необязательно)",
+    "Blocks every visitor with a maintenance screen and answers API calls with 503. Admins can still sign in to disable it.": "Блокирует всех посетителей экраном обслуживания и отвечает на API 503. Админ может войти и выключить режим.",
+    "If set, the maintenance screen shows the target date and a live countdown for visitors.": "Если задано, на экране обслуживания показывается целевая дата и обратный отсчёт.",
+    "Shown to every visitor on the maintenance screen.": "Показывается всем посетителям на экране обслуживания.",
+    "Where the displayed balance comes from": "Откуда берётся отображаемый баланс",
+    "usable for all models": "можно использовать для всех моделей",
+    "Spent before topped-up balance.": "Списывается до пополненного баланса.",
+    "Redemption packages": "Пакеты кодов погашения",
+    "Visit site": "Перейти на сайт"
   }
 }

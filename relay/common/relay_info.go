@@ -214,7 +214,7 @@ func (info *RelayInfo) AddFallbackAttempt(attempt FallbackAttempt) {
 	if info == nil {
 		return
 	}
-	const maxFallbackAttempts = 12
+	const maxFallbackAttempts = 64
 	if len(info.FallbackChain) >= maxFallbackAttempts {
 		return
 	}

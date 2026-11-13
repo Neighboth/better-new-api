@@ -7858,6 +7858,17 @@
     "Total available": "Total available",
     "Balance restricted to specific models is listed below.": "Balance restricted to specific models is listed below.",
     "Sponsored": "Sponsored",
-    "This ad supports the site": "This ad supports the site"
+    "This ad supports the site": "This ad supports the site",
+    "Enable maintenance mode": "Enable maintenance mode",
+    "Expected end (optional)": "Expected end (optional)",
+    "Visitor message (optional)": "Visitor message (optional)",
+    "Blocks every visitor with a maintenance screen and answers API calls with 503. Admins can still sign in to disable it.": "Blocks every visitor with a maintenance screen and answers API calls with 503. Admins can still sign in to disable it.",
+    "If set, the maintenance screen shows the target date and a live countdown for visitors.": "If set, the maintenance screen shows the target date and a live countdown for visitors.",
+    "Shown to every visitor on the maintenance screen.": "Shown to every visitor on the maintenance screen.",
+    "Where the displayed balance comes from": "Where the displayed balance comes from",
+    "usable for all models": "usable for all models",
+    "Spent before topped-up balance.": "Spent before topped-up balance.",
+    "Redemption packages": "Redemption packages",
+    "Visit site": "Visit site"
   }
 }

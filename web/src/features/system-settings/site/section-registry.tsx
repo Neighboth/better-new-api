@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { SystemInfoSection } from '../general/system-info-section'
+import { MaintenanceModeSection } from '../general/maintenance-mode-section'
 import {
   parseHeaderNavModules,
   parseSidebarModulesAdmin,
@@ -44,6 +45,19 @@ const SITE_SECTIONS = [
       <SystemInfoSection
         defaultValues={{
           ...settings,
+        }}
+      />
+    ),
+  },
+  {
+    id: 'maintenance',
+    titleKey: 'System maintenance',
+    build: (settings: SiteSettings) => (
+      <MaintenanceModeSection
+        defaultValues={{
+          MaintenanceModeEnabled: settings.MaintenanceModeEnabled ?? 'false',
+          MaintenanceModeETA: settings.MaintenanceModeETA ?? '0',
+          MaintenanceModeMessage: settings.MaintenanceModeMessage ?? '',
         }}
       />
     ),

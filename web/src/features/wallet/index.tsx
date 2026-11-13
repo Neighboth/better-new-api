@@ -17,12 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { ExternalLink, ShieldCheck } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { SectionPageLayout } from '@/components/layout'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -384,48 +383,9 @@ export function Wallet(props: WalletProps) {
               loading={userLoading}
               enabledBillingTypes={enabledBillingTypes}
             />
-            <WalletBreakdownCard user={user} />
 
-            {balancePackages.length > 0 && (
-              <div className='rounded-lg border bg-card p-4 shadow-xs'>
-                <div className='flex items-center gap-2 mb-3'>
-                  <ShieldCheck className='h-4 w-4 text-primary' />
-                  <h3 className='text-sm font-semibold'>{t('Model-Restricted Balances')}</h3>
-                  <Badge variant='outline' className='text-xs'>
-                    {balancePackages.length} {t('Active')}
-                  </Badge>
-                </div>
-                <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
-                  {balancePackages.map((pkg) => (
-                    <div key={pkg.id} className='rounded-md border p-3 bg-muted/20 space-y-2'>
-                      <div className='flex items-center justify-between'>
-                        <span className='font-medium text-xs truncate'>{pkg.name}</span>
-                        <Badge
-                          variant={pkg.model_filter_mode === 'whitelist' ? 'default' : 'secondary'}
-                          className='text-[10px] uppercase font-mono'
-                        >
-                          {pkg.model_filter_mode}
-                        </Badge>
-                      </div>
-                      <div className='text-xs font-mono font-bold'>
-                        {pkg.type === 0
-                          ? formatQuota(pkg.remaining_amount)
-                          : pkg.type === 1
-                          ? `${pkg.remaining_amount.toLocaleString()} ${t('requests')}`
-                          : `${pkg.remaining_amount.toLocaleString()} ${t('tokens')}`}
-                        <span className='text-[10px] text-muted-foreground font-normal ml-1'>
-                          / {pkg.type === 0 ? formatQuota(pkg.initial_amount) : pkg.initial_amount.toLocaleString()}
-                        </span>
-                      </div>
-                      <div className='text-[11px] text-muted-foreground line-clamp-2'>
-                        <span className='font-semibold'>{t('Models')}: </span>
-                        {pkg.models}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* The model balance details are listed inside the breakdown card now; keep the standalone block as fallback if any package is missing. */}
+            {/* Redemption-restricted balances are listed inside the breakdown card. */}
 
             {(enabledBillingTypes.wallet !== false ||
               (enabledBillingTypes.subscription !== false && showSubscriptionPanel)) && (
@@ -486,6 +446,8 @@ export function Wallet(props: WalletProps) {
             )}
 
             <BillingPriorityCard user={user} onPriorityUpdated={fetchUser} />
+
+            <WalletBreakdownCard user={user} packages={balancePackages} />
 
             <AffiliateRewardsCard
               user={user}

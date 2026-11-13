@@ -189,6 +189,7 @@ func main() {
 			},
 		})
 	}))
+	server.Use(middleware.MaintenanceMode())
 	server.Use(controller.ServeManagedFileMiddleware())
 	server.Static("/uploads", "./uploads")
 	// This will cause SSE not to work!!!

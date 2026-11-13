@@ -214,77 +214,83 @@ export function OnlineSearchSettingsSection({
             />
           </SettingsSwitchRow>
 
-          <SettingsSwitchRow>
-            <SettingsSwitchContent>
-              <Label>{t('Discord bot')}</Label>
-              <SettingsDescription>
-                {t('Gives the Discord bot the same web search tool.')}
-              </SettingsDescription>
-            </SettingsSwitchContent>
-            <Switch
-              checked={Boolean(discordEnabled)}
-              onCheckedChange={(checked) =>
-                form.setValue('discordEnabled', checked, {
-                  shouldDirty: true,
-                })
-              }
-            />
-          </SettingsSwitchRow>
-          {discordEnabled && (
-            <p className='text-muted-foreground border-amber-500/40 bg-amber-500/5 rounded-md border px-3 py-2 text-xs'>
-              {t(
-                'Discord users are not signed in to this site, so the search price cannot always be charged: searches made by unlinked accounts may be free.'
-              )}
-            </p>
-          )}
-
-          <SettingsSwitchRow>
-            <SettingsSwitchContent>
-              <Label>{t('Live support')}</Label>
-              <SettingsDescription>
+          <div className='flex min-w-0 flex-col gap-1.5'>
+            <SettingsSwitchRow>
+              <SettingsSwitchContent>
+                <Label>{t('Discord bot')}</Label>
+                <SettingsDescription>
+                  {t('Gives the Discord bot the same web search tool.')}
+                </SettingsDescription>
+              </SettingsSwitchContent>
+              <Switch
+                checked={Boolean(discordEnabled)}
+                onCheckedChange={(checked) =>
+                  form.setValue('discordEnabled', checked, {
+                    shouldDirty: true,
+                  })
+                }
+              />
+            </SettingsSwitchRow>
+            {discordEnabled && (
+              <p className='text-muted-foreground border-amber-500/40 bg-amber-500/5 rounded-md border px-3 py-2 text-xs'>
                 {t(
-                  'Lets the AI live support model search the web when a visitor asks about current information.'
+                  'Discord users are not signed in to this site, so the search price cannot always be charged: searches made by unlinked accounts may be free.'
                 )}
-              </SettingsDescription>
-            </SettingsSwitchContent>
-            <Switch
-              checked={Boolean(liveEnabled)}
-              onCheckedChange={(checked) =>
-                form.setValue('liveEnabled', checked, { shouldDirty: true })
-              }
-            />
-          </SettingsSwitchRow>
-          {liveEnabled && (
-            <p className='text-muted-foreground border-amber-500/40 bg-amber-500/5 rounded-md border px-3 py-2 text-xs'>
-              {t(
-                'Visitors of the live support are often not logged in, so the search price may not be charged for their searches.'
-              )}
-            </p>
-          )}
+              </p>
+            )}
+          </div>
 
-          <SettingsSwitchRow>
-            <SettingsSwitchContent>
-              <Label>{t('Blog generation')}</Label>
-              <SettingsDescription>
+          <div className='flex min-w-0 flex-col gap-1.5'>
+            <SettingsSwitchRow>
+              <SettingsSwitchContent>
+                <Label>{t('Live support')}</Label>
+                <SettingsDescription>
+                  {t(
+                    'Lets the AI live support model search the web when a visitor asks about current information.'
+                  )}
+                </SettingsDescription>
+              </SettingsSwitchContent>
+              <Switch
+                checked={Boolean(liveEnabled)}
+                onCheckedChange={(checked) =>
+                  form.setValue('liveEnabled', checked, { shouldDirty: true })
+                }
+              />
+            </SettingsSwitchRow>
+            {liveEnabled && (
+              <p className='text-muted-foreground border-amber-500/40 bg-amber-500/5 rounded-md border px-3 py-2 text-xs'>
                 {t(
-                  'Lets the AI blog writer search the web and read pages while it drafts an article, so posts carry up-to-date sources.'
+                  'Visitors of the live support are often not logged in, so the search price may not be charged for their searches.'
                 )}
-              </SettingsDescription>
-            </SettingsSwitchContent>
-            <Switch
-              checked={Boolean(blogEnabled)}
-              onCheckedChange={(checked) =>
-                form.setValue('blogEnabled', checked, { shouldDirty: true })
-              }
-            />
-          </SettingsSwitchRow>
-          {blogEnabled && (
-            <p className='text-muted-foreground border-amber-500/40 bg-amber-500/5 rounded-md border px-3 py-2 text-xs'>
-              {t(
-                'Blog posts may take much longer to generate because the model searches and reads pages. Every search and every page is billed at the prices above.'
-              )}
-            </p>
-          )}
+              </p>
+            )}
+          </div>
+
+          <div className='flex min-w-0 flex-col gap-1.5'>
+            <SettingsSwitchRow>
+              <SettingsSwitchContent>
+                <Label>{t('Blog generation')}</Label>
+                <SettingsDescription>
+                  {t(
+                    'Lets the AI blog writer search the web and read pages while it drafts an article, so posts carry up-to-date sources.'
+                  )}
+                </SettingsDescription>
+              </SettingsSwitchContent>
+              <Switch
+                checked={Boolean(blogEnabled)}
+                onCheckedChange={(checked) =>
+                  form.setValue('blogEnabled', checked, { shouldDirty: true })
+                }
+              />
+            </SettingsSwitchRow>
+            {blogEnabled && (
+              <p className='text-muted-foreground border-amber-500/40 bg-amber-500/5 rounded-md border px-3 py-2 text-xs'>
+                {t(
+                  'Blog posts may take much longer to generate because the model searches and reads pages. Every search and every page is billed at the prices above.'
+                )}
+              </p>
+            )}
+          </div>
 
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}

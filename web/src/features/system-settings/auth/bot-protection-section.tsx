@@ -352,13 +352,12 @@ export function BotProtectionSection({
                 />
               </SettingsSwitchItem>
 
-              {/* Captcha Provider Fallback Sequence */}
-              <div className='rounded-lg border p-4 space-y-3 bg-muted/20'>
+              <div className='space-y-3 pt-4'>
                 <div>
-                  <Label className='text-sm font-semibold'>
+                  <h4 className='font-semibold text-sm'>
                     {t('Captcha Fallback Sıralaması')}
-                  </Label>
-                  <p className='text-xs text-muted-foreground mt-0.5'>
+                  </h4>
+                  <p className='text-muted-foreground text-xs mt-1'>
                     {t(
                       'Default order: Turnstile -> reCAPTCHA -> hCaptcha -> MTCaptcha -> ALTCHA -> Built-in image. When a provider fails the next one is used automatically. The order can be changed with the arrow buttons.'
                     )}

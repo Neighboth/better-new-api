@@ -7858,6 +7858,17 @@
     "Total available": "合計",
     "Balance restricted to specific models is listed below.": "特定のモデルに制限された残高は下記の通りです。",
     "Sponsored": "スポンサー",
-    "This ad supports the site": "この広告はサイトを支援します"
+    "This ad supports the site": "この広告はサイトを支援します",
+    "Enable maintenance mode": "メンテナンスモードを有効にする",
+    "Expected end (optional)": "終了予定時刻（任意）",
+    "Visitor message (optional)": "訪問者向けメッセージ（任意）",
+    "Blocks every visitor with a maintenance screen and answers API calls with 503. Admins can still sign in to disable it.": "有効にすると全ページがメンテナンス画面になりAPIは503を返します。管理者はログインして解除できます。",
+    "If set, the maintenance screen shows the target date and a live countdown for visitors.": "設定すると、メンテナンス画面に対象日時とライブカウントダウンが表示されます。",
+    "Shown to every visitor on the maintenance screen.": "メンテナンス画面の全訪問者に表示されます。",
+    "Where the displayed balance comes from": "表示されている残高の内訳",
+    "usable for all models": "すべてのモデルで利用可能",
+    "Spent before topped-up balance.": "チャージ済み残高より先に使用されます。",
+    "Redemption packages": "クーポンパッケージ",
+    "Visit site": "サイトを開く"
   }
 }

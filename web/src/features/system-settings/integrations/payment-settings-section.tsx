@@ -1505,7 +1505,7 @@ export function PaymentSettingsSection({
 
                 <div className='flex items-center justify-between pb-3 border-b pt-2'>
                   <div className='flex items-center gap-2'>
-                    <h4 className='text-sm font-semibold'>{t('Primary EPay Provider')}</h4>
+                    <h4 className='font-semibold text-sm'>{t('Primary EPay Provider')}</h4>
                     <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
                       slug: epay
                     </Badge>
@@ -1616,7 +1616,7 @@ export function PaymentSettingsSection({
                 <div className='mt-8 pt-6 border-t space-y-4'>
                   <div className='flex items-center justify-between'>
                     <div>
-                      <h4 className='text-sm font-semibold'>{t('Other EPay Providers (optional)')}</h4>
+                      <h4 className='font-semibold text-sm'>{t('Other EPay Providers (optional)')}</h4>
                       <p className='text-xs text-muted-foreground'>
                         {t('Configure additional EPay merchants or payment channels for your users.')}
                       </p>
@@ -1651,7 +1651,7 @@ export function PaymentSettingsSection({
                           >
                             <div className='flex items-center justify-between'>
                               <div className='flex items-center gap-2'>
-                                <span className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
+                                <span className='font-semibold text-sm text-muted-foreground'>
                                   #{index + 1} {provider.id || t('Provider')}
                                 </span>
                                 {slugErr && (
@@ -2589,7 +2589,7 @@ export function PaymentSettingsSection({
 
                 <div className='flex items-center justify-between pb-3 border-b pt-2'>
                   <div className='flex items-center gap-2'>
-                    <h4 className='text-sm font-semibold'>{t('Primary Direct Link Provider')}</h4>
+                    <h4 className='font-semibold text-sm'>{t('Primary Direct Link Provider')}</h4>
                     <Badge variant='outline' className='text-[10px] font-mono text-muted-foreground'>
                       slug: direct_link
                     </Badge>
@@ -2670,7 +2670,7 @@ export function PaymentSettingsSection({
                 <div className='mt-8 pt-6 border-t space-y-4'>
                   <div className='flex items-center justify-between'>
                     <div>
-                      <h4 className='text-sm font-semibold'>{t('Other Direct Link Providers (optional)')}</h4>
+                      <h4 className='font-semibold text-sm'>{t('Other Direct Link Providers (optional)')}</h4>
                       <p className='text-xs text-muted-foreground'>
                         {t('Configure additional direct links or external payment shops.')}
                       </p>
@@ -2705,7 +2705,7 @@ export function PaymentSettingsSection({
                           >
                             <div className='flex items-center justify-between'>
                               <div className='flex items-center gap-2'>
-                                <span className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
+                                <span className='font-semibold text-sm text-muted-foreground'>
                                   #{index + 1} {provider.id || t('Provider')}
                                 </span>
                                 {slugErr && (

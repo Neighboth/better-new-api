@@ -55,6 +55,9 @@ const defaultSiteSettings: SiteSettings = {
   AdSenseClientId: '',
   AdSenseSlotId: '',
   AdsEnabled: false,
+  MaintenanceModeEnabled: 'false',
+  MaintenanceModeETA: '0',
+  MaintenanceModeMessage: '',
   AdsMode: 'both',
   AdsSurfaces: 'blog',
 

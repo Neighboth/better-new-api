@@ -7858,6 +7858,17 @@
     "Total available": "Total disponible",
     "Balance restricted to specific models is listed below.": "Le solde limité à certains modèles est listé ci-dessous.",
     "Sponsored": "Sponsorisé",
-    "This ad supports the site": "Cette annonce soutient le site"
+    "This ad supports the site": "Cette annonce soutient le site",
+    "Enable maintenance mode": "Activer le mode maintenance",
+    "Expected end (optional)": "Fin prévue (facultatif)",
+    "Visitor message (optional)": "Message aux visiteurs (facultatif)",
+    "Blocks every visitor with a maintenance screen and answers API calls with 503. Admins can still sign in to disable it.": "Bloque tous les visiteurs avec un écran de maintenance et répond 503 aux appels API. Les admins peuvent se connecter pour le désactiver.",
+    "If set, the maintenance screen shows the target date and a live countdown for visitors.": "Si défini, l'écran de maintenance affiche la date cible et un compte à rebours.",
+    "Shown to every visitor on the maintenance screen.": "Affiché à tous les visiteurs sur l'écran de maintenance.",
+    "Where the displayed balance comes from": "D'où provient le solde affiché",
+    "usable for all models": "utilisable pour tous les modèles",
+    "Spent before topped-up balance.": "Débité avant le solde rechargé.",
+    "Redemption packages": "Forfaits de codes",
+    "Visit site": "Visiter le site"
   }
 }

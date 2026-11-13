@@ -18,6 +18,11 @@ type RetryParam struct {
 	Retry             *int
 	resetNextTry      bool
 	IgnoredChannelIds []int
+	// AttemptedKeys tracks how many distinct keys of a multi-key channel
+	// have been tried in the current request, so a multi-key channel can
+	// stay in the rotation until either every key fails or its pool
+	// is exhausted.
+	AttemptedKeys map[int]int
 	// BlockedChannelIds are the channels the user blocked in the profile
 	// settings; they are excluded exactly like the channels that already
 	// failed in this request.

@@ -7858,6 +7858,17 @@
     "Total available": "Tổng khả dụng",
     "Balance restricted to specific models is listed below.": "Số dư giới hạn cho một số mô hình được liệt kê ở bên dưới.",
     "Sponsored": "Tài trợ",
-    "This ad supports the site": "Quảng cáo này hỗ trợ trang web"
+    "This ad supports the site": "Quảng cáo này hỗ trợ trang web",
+    "Enable maintenance mode": "Bật chế độ bảo trì",
+    "Expected end (optional)": "Kết thúc dự kiến (tùy chọn)",
+    "Visitor message (optional)": "Thông báo cho khách (tùy chọn)",
+    "Blocks every visitor with a maintenance screen and answers API calls with 503. Admins can still sign in to disable it.": "Chặn mọi truy cập bằng màn hình bảo trì và trả về 503 cho API. Quản trị viên vẫn có thể đăng nhập để tắt.",
+    "If set, the maintenance screen shows the target date and a live countdown for visitors.": "Nếu được đặt, trang bảo trì sẽ hiển thị ngày dự kiến và đếm ngược.",
+    "Shown to every visitor on the maintenance screen.": "Hiển thị cho mọi khách truy cập trên màn hình bảo trì.",
+    "Where the displayed balance comes from": "Số dư hiển thị gồm những gì",
+    "usable for all models": "dùng được cho mọi mô hình",
+    "Spent before topped-up balance.": "Chi trước số dư đã nạp.",
+    "Redemption packages": "Gói mã đổi quà",
+    "Visit site": "Đến trang"
   }
 }

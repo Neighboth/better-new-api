@@ -424,7 +424,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
               />
             </SettingsFormGrid>
 
-            <div className='mt-6 rounded-lg border p-4 bg-card shadow-xs'>
+            <div className='rounded-lg border p-4 bg-card shadow-xs'>
               <FormField
                 control={form.control}
                 name='HideHeaderSiteName'
@@ -432,10 +432,10 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                   <FormItem>
                     <SettingsSwitchItem>
                       <SettingsSwitchContent>
-                        <FormLabel className='text-sm font-semibold'>
+                        <FormLabel className='font-semibold text-sm'>
                           {t('Hide Site Name in Header')}
                         </FormLabel>
-                        <FormDescription>
+                        <FormDescription className='text-xs'>
                           {t('Show only logo in header without site name text')}
                         </FormDescription>
                       </SettingsSwitchContent>

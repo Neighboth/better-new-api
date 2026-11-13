@@ -5998,7 +5998,7 @@
     "System initialized successfully! Redirecting…": "Sistem başarıyla başlatıldı! Yönlendiriliyor…",
     "System instructions for the AI bot when generating responses": "Yapay zeka botunun yanıt üretirken takip edeceği sistem talimatları",
     "System logo": "Sistem logosu",
-    "System maintenance": "Sistem bakımı",
+    "System maintenance": "Site bakımı",
     "System Memory": "Sistem belleği",
     "System Memory Stats": "Sistem belleği istatistikleri",
     "System Name": "Sistem Adı",
@@ -7858,6 +7858,17 @@
     "Total available": "Toplam kullanılabilir",
     "Balance restricted to specific models is listed below.": "Belirli modellere özel bakiye aşağıda listelenir.",
     "Sponsored": "Sponsorlu",
-    "This ad supports the site": "Bu reklam siteyi destekler"
+    "This ad supports the site": "Bu reklam siteyi destekler",
+    "Enable maintenance mode": "Bakım modunu etkinleştir",
+    "Expected end (optional)": "Tahmini bitiş (isteğe bağlı)",
+    "Visitor message (optional)": "Ziyaretçi mesajı (isteğe bağlı)",
+    "Blocks every visitor with a maintenance screen and answers API calls with 503. Admins can still sign in to disable it.": "Açılınca tüm sayfalar bakım ekranına çekilir, API istekleri 503 döner. Admin oturumu ile giriş yapıp tekrar kapatabilirsiniz.",
+    "If set, the maintenance screen shows the target date and a live countdown for visitors.": "Doldurulursa bakım ekranında tahmini tarih ve geri sayım gösterilir.",
+    "Shown to every visitor on the maintenance screen.": "Bakım ekranında tüm ziyaretçilere gösterilir.",
+    "Where the displayed balance comes from": "Gösterilen bakiye nereden geliyor",
+    "usable for all models": "tüm modellerde kullanılabilir",
+    "Spent before topped-up balance.": "Yüklenmiş bakiyenizden önce harcanır.",
+    "Redemption packages": "Kod paketleri",
+    "Visit site": "Siteye git"
   }
 }
