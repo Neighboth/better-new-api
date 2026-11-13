@@ -23,7 +23,7 @@ import type { Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
 
-import { getChannels } from '@/features/channels/api'
+import { getAllChannels } from '@/features/channels/api'
 import { MultiSelect } from '@/components/multi-select'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -144,7 +144,7 @@ export function QuotaSettingsSection({
   // referral grants happen, with or without the display inflation.
   const { data: channelsData } = useQuery({
     queryKey: ['quota-channels-for-referral'],
-    queryFn: () => getChannels({ p: 1, page_size: 1000 }),
+    queryFn: () => getAllChannels(),
     staleTime: 5 * 60_000,
   })
 

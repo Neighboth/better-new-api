@@ -88,6 +88,33 @@ export async function getChannels(
 }
 
 /**
+ * Fetch every channel by paging through the list. Used by the referral
+ * exclusion picker where silently truncating at 1000 would hide channels
+ * from the administrator.
+ */
+export async function getAllChannels(): Promise<GetChannelsResponse> {
+  const firstPage = await getChannels({ p: 1, page_size: 200 })
+  const pageData = firstPage?.data
+  const items = [...(pageData?.items ?? [])]
+  const total = pageData?.total ?? items.length
+  const totalPages = Math.min(Math.ceil(total / 200), 25)
+  for (let page = 2; page <= totalPages; page++) {
+    const response = await getChannels({ p: page, page_size: 200 })
+    items.push(...(response?.data?.items ?? []))
+  }
+  return {
+    ...firstPage,
+    data: {
+      ...pageData,
+      items,
+      total: items.length,
+      page: pageData?.page ?? 1,
+      page_size: items.length,
+    },
+  } as GetChannelsResponse
+}
+
+/**
  * Search channels with filters
  */
 export async function searchChannels(
@@ -190,14 +217,28 @@ export async function batchDeleteChannels(
 }
 
 /**
- * Merge several single-key channels into one multi-key channel. All settings
- * other than the API key must be identical, otherwise the merge is refused
- * and the response lists the differing fields.
+ * Merge several single-key channels into one multi-key channel. Every
+ * setting other than the API key must be identical, otherwise the merge is
+ * refused and the response lists the differing fields. Pass `dryRun: true`
+ * to preview the comparison without touching anything.
  */
 export async function mergeChannels(
-  ids: number[]
-): Promise<{ success: boolean; message?: string; data?: { id: number; name: string; key_count: number; merged?: number } }> {
-  const res = await api.post('/api/channel/merge', { ids }, channelActionConfig())
+  params: { ids: number[]; dryRun?: boolean }
+): Promise<{
+  success: boolean
+  message?: string
+  data?: {
+    id?: number
+    name?: string
+    key_count?: number
+    merged?: number
+    dry_run?: boolean
+    identical?: boolean
+    differing_fields?: string[]
+    differing_count?: number
+  }
+}> {
+  const res = await api.post('/api/channel/merge', { ids: params.ids, dry_run: params.dryRun === true }, channelActionConfig())
   return res.data
 }
 

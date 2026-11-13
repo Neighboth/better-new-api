@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
-import { AlertCircle, Languages, Loader2, MessageSquare, Pencil, Plus, RefreshCw, Globe, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { AlertCircle, Languages, Loader2, MessageSquare, Pencil, Plus, RefreshCw, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Markdown } from '@/components/ui/markdown'
@@ -48,7 +48,7 @@ import {
   type BlogComment,
 } from '@/features/blog/api'
 import { sendChatCompletion, getPlaygroundRuntimeConfig, searchWeb, fetchWebpage } from '@/features/playground/api'
-import type { ChatCompletionMessage, ChatCompletionTool } from '@/features/playground/types'
+
 import { createStreamRequestController } from '@/features/playground/hooks/use-stream-request'
 import { getFreshAuthHeaders } from '@/lib/api'
 import { API_ENDPOINTS } from '@/features/playground/constants'
@@ -269,7 +269,8 @@ export function BlogManager() {
     payload: any,
     onStart: () => void,
     onSuccess: (fullContent: string) => void,
-    onError: (errStr?: string) => void
+    onError: (errStr?: string) => void,
+    silent = false
   ) => {
     let text = ''
     onStart()
@@ -295,140 +296,147 @@ export function BlogManager() {
           onSuccess(text)
         },
         onError: (errStr) => {
-          toast.error(errStr || t('Generation failed.'))
+          if (!silent) toast.error(errStr || t('Generation failed.'))
           onError(errStr)
         },
       })
     } catch (e: any) {
-      toast.error(e.message || t('Generation failed.'))
+      if (!silent) toast.error(e.message || t('Generation failed.'))
       onError(e.message)
     }
   }
 
   const pushResearchLog = (kind: 'search' | 'fetch', detail: string) => {
     setResearchLogs((prev) =>
-      [...prev, { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, kind, detail, ts: Date.now() }].slice(-80)
+      [...prev, { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, kind, detail, ts: Date.now() }].slice(-120)
     )
   }
 
-  const WEB_RESEARCH_TOOLS: ChatCompletionTool[] = [
-    {
-      type: 'function',
-      function: {
-        name: 'web_search',
-        description:
-          'Search the public web with the search engine of the installation. Call it several times with different queries in several languages to find fresh, authoritative sources about the topic.',
-        parameters: {
-          type: 'object',
-          properties: {
-            query: { type: 'string', description: 'The search query, in the language of the sources you expect to find.' },
-            max_results: { type: 'number', description: 'How many results to read, between 1 and 10. Defaults to 8.' },
-          },
-          required: ['query'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'fetch_webpage',
-        description:
-          'Fetch one public web page and get its content as markdown text. Use it for every page that looks relevant to the topic â€” documents, blogs, release notes, documentation, news. Read as many pages as it takes to understand the topic deeply; this is the point of researching.',
-        parameters: {
-          type: 'object',
-          properties: {
-            url: { type: 'string', description: 'The full URL of the page to fetch and read.' },
-          },
-          required: ['url'],
-        },
-      },
-    },
-  ]
-
-  const RESEARCH_MAX_FETCH = 150
-  const RESEARCH_MAX_ROUNDS = 100
+  const parseQueryBounds = (raw: string): string[] => {
+    try {
+      const cleaned = raw
+        .trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/```\s*$/i, '')
+        .trim()
+      const parsed = JSON.parse(cleaned) as unknown
+      if (Array.isArray(parsed)) {
+        return parsed.map((entry) => String(entry ?? '').trim()).filter((entry) => entry.length > 2)
+      }
+      if (parsed && typeof parsed === 'object') {
+        for (const key of ['queries', 'search_queries', 'items', 'results']) {
+          const value = (parsed as Record<string, unknown>)[key]
+          if (Array.isArray(value)) {
+            return value.map((entry) => String(entry ?? '').trim()).filter((entry) => entry.length > 2)
+          }
+        }
+      }
+      return []
+    } catch {
+      return []
+    }
+  }
 
   const runResearchPhase = async (prompt: string, model: string): Promise<string> => {
     setResearchLogs([])
     setAiGenerating(true)
-    const system =
-      'You are a rigorous research assistant. The user wants to write a blog post about the topic below and needs up-to-date, authoritative information. Use web_search with many different queries (in several languages, several angles) and fetch_webpage to read the interesting pages. Read as many pages as needed â€” research thoroughly. Do not write the post yet. Reply with ONLY a research digest: the key facts, numbers, dates, quotes, sources with their URLs, and anything a writer must not get wrong. The digest will be given to the writer. Do not add commentary.'
-    const messages: ChatCompletionMessage[] = [
-      { role: 'system', content: system },
-      { role: 'user', content: `Topic: ${prompt}` },
-    ]
-    let fetched = 0
+    const trimmed = prompt.trim()
+
+    // Phase 1 — ask the model for eight varied queries. This is the only
+    // LLM call in the harness. If the model cannot produce them, scripted
+    // fallback queries kick in.
+    const year = new Date().getFullYear()
+    let queries: string[] = []
     try {
-      for (let round = 0; round < RESEARCH_MAX_ROUNDS; round++) {
-        const res = await sendChatCompletion(
-          {
-            model,
-            messages,
-            stream: false,
-            temperature: 0.2,
-            tools: WEB_RESEARCH_TOOLS,
-          },
-          undefined,
-          900000
-        )
-        const choice = res?.choices?.[0]
-        const message = choice?.message
-        const toolCalls = message?.tool_calls
-        if (!toolCalls || toolCalls.length === 0) {
-          return (message?.content ?? '').trim()
-        }
-        messages.push({ role: 'assistant', content: message?.content ?? '', tool_calls: toolCalls })
-        for (const call of toolCalls) {
-          const name = call.function?.name ?? ''
-          let args: Record<string, unknown> = {}
-          try {
-            args = JSON.parse(call.function?.arguments || '{}') as Record<string, unknown>
-          } catch {
-            args = {}
-          }
-          if (name === 'web_search') {
-            const query = String(args.query || '').trim()
-            if (!query) continue
-            pushResearchLog('search', query)
-            try {
-              const results = await searchWeb(query, 8)
-              const hits = Array.isArray(results?.results) ? results.results : []
-              const text = hits.length
-                ? hits
-                    .map((hit, index) => `[${index + 1}] ${hit.title}\n${hit.url}\n${hit.content || ''}`.trim())
-                    .join('\n\n')
-                : 'No results found.'
-              messages.push({ role: 'tool', tool_call_id: call.id, content: `Web search results for "${query}":\n\n${text}` })
-            } catch (error: any) {
-              messages.push({ role: 'tool', tool_call_id: call.id, content: `Search failed: ${error?.message || 'unknown error'}` })
-            }
-            continue
-          }
-          if (name === 'fetch_webpage') {
-            const url = String(args.url || '').trim()
-            if (!url) continue
-            if (fetched >= RESEARCH_MAX_FETCH) {
-              messages.push({ role: 'tool', tool_call_id: call.id, content: 'Fetch limit reached for this research run.' })
-              continue
-            }
-            fetched++
-            pushResearchLog('fetch', url)
-            try {
-              const page = await fetchWebpage(url)
-              const md = (page.markdown || '').slice(0, 16000)
-              messages.push({ role: 'tool', tool_call_id: call.id, content: `# ${page.title}\n${md}` })
-            } catch (error: any) {
-              messages.push({ role: 'tool', tool_call_id: call.id, content: `Fetch failed for ${url}: ${error?.message || 'unknown error'}` })
-            }
-            continue
-          }
-          messages.push({ role: 'tool', tool_call_id: call.id, content: `Unknown tool: ${name}` })
-        }
-      }
-      return ''
-    } finally {
-      setAiGenerating(false)
+      const res = await sendChatCompletion(
+        {
+          model,
+          messages: [
+            {
+              role: 'system',
+              content: 'You output only valid JSON. No commentary. No markdown. No code fences.',
+            },
+            {
+              role: 'user',
+              content: `Topic: ${trimmed}\n\nGenerate exactly eight distinct search queries that a researcher would run to write an authoritative, up-to-date blog post about this topic. Cover: what it is, the latest news of ${year}, how it works, pricing, criticism, history, alternatives, comparisons, and community reactions. Reply with ONLY a JSON array of eight strings.`,
+            },
+          ],
+          stream: false,
+          temperature: 0.4,
+          response_format: { type: 'json_object' },
+        },
+        undefined,
+        300000
+      )
+      const raw = res?.choices?.[0]?.message?.content?.trim() ?? ''
+      queries = parseQueryBounds(raw)
+    } catch (error) {
+      if (import.meta.env.DEV) console.warn('research query generation failed, using scripted queries', error)
     }
+    if (queries.length === 0) {
+      queries = [
+        trimmed,
+        `${trimmed} nedir`,
+        `${trimmed} nasıl çalışır`,
+        `${trimmed} latest news ${year}`,
+        `${trimmed} what is new`,
+        `${trimmed} pricing`,
+        `${trimmed} criticism problems`,
+        `${trimmed} vs alternatives`,
+      ]
+    }
+    queries = queries.slice(0, 8)
+
+    // Phase 2 — search every query and gather candidate URLs.
+    const candidates: Array<{ title: string; url: string; content: string }> = []
+    const seen = new Set<string>()
+    for (const query of queries) {
+      pushResearchLog('search', query)
+      try {
+        const response = await searchWeb(query, 8)
+        const hits = Array.isArray(response?.results) ? response.results : []
+        for (const hit of hits) {
+          const url = String(hit.url ?? '').trim()
+          if (!url || seen.has(url) || !/^https?:\/\//i.test(url)) continue
+          seen.add(url)
+          candidates.push({
+            title: String(hit.title ?? '').trim(),
+            url,
+            content: String(hit.content ?? '').trim(),
+          })
+        }
+      } catch (error) {
+        if (import.meta.env.DEV) console.warn('search failed for', query, error)
+      }
+    }
+
+    // Phase 3 — fetch the qualifying pages, capped to protect context.
+    const MAX_FETCH = 40
+    const pages: Array<{ title: string; url: string; markdown: string }> = []
+    for (const hit of candidates) {
+      if (pages.length >= MAX_FETCH) break
+      pushResearchLog('fetch', hit.url)
+      try {
+        const page = await fetchWebpage(hit.url)
+        const md = String(page.markdown ?? '')
+        if (md.trim()) {
+          pages.push({ title: page.title || hit.title || hit.url, url: hit.url, markdown: md.slice(0, 6000) })
+        }
+      } catch (error) {
+        if (import.meta.env.DEV) console.warn('fetch failed for', hit.url, error)
+      }
+    }
+
+    // Phase 4 — compile the digest that every step of the draft receives.
+    setAiGenerating(false)
+    if (pages.length === 0) return ''
+    const digest = pages
+      .map(
+        (page, index) =>
+          `### Source ${index + 1}: ${page.title || page.url}\nURL: ${page.url}\n\n${page.markdown.slice(0, 5000)}`
+      )
+      .join('\n\n')
+    return digest.slice(0, 50000)
   }
 
   const doAiSequenceStep = async (step: number, currentPrompt: string, kind: 'generate' | 'refine') => {
@@ -459,41 +467,69 @@ export function BlogManager() {
       seo_descriptions: { ...postFormRef.current.seo_descriptions },
     }
 
-    const doStream = (systemMsg: string, userMsg: string, onUpdateObj: (parsed: any) => void) => {
-      return new Promise<void>((resolve, reject) => {
-        const payload = {
-          model,
-          messages: [
-            { role: 'system', content: systemMsg },
-            { role: 'user', content: userMsg },
-          ],
-          stream: true,
-          temperature: 0.7,
-          response_format: { type: 'json_object' },
-        }
-        runAiStreamWithController(
-          payload,
-          () => setAiGenerating(true),
-          (content) => {
-            setAiGenerating(false)
-            const parsed = content ? parseBlogAiResponse(content) : null
-            if (!parsed) {
-              setAiGenerationError(true)
-              setAiErrorMessage(t('AI returned an unparseable response.'))
-              reject(new Error('AI returned an unparseable response.'))
-              return
-            }
-            onUpdateObj(parsed)
-            resolve()
-          },
-          (errStr) => {
-            setAiGenerating(false)
-            setAiGenerationError(true)
-            setAiErrorMessage(errStr || 'Generation failed.')
-            reject(new Error(errStr || 'Generation failed.'))
+    const doStream = async (systemMsg: string, userMsg: string, onUpdateObj: (parsed: any) => void): Promise<void> => {
+      const attempt = async (silent: boolean): Promise<void> =>
+        new Promise<void>((resolve, reject) => {
+          const payload = {
+            model,
+            messages: [
+              { role: 'system', content: systemMsg },
+              { role: 'user', content: userMsg },
+            ],
+            stream: true,
+            temperature: 0.7,
+            response_format: { type: 'json_object' },
           }
-        )
-      })
+          runAiStreamWithController(
+            payload,
+            () => setAiGenerating(true),
+            (content) => {
+              setAiGenerating(false)
+              const parsed = content ? parseBlogAiResponse(content) : null
+              if (!parsed) {
+                reject(new Error('AI returned an unparseable response.'))
+                return
+              }
+              onUpdateObj(parsed)
+              resolve()
+            },
+            (errStr) => {
+              setAiGenerating(false)
+              reject(new Error(errStr || 'Generation failed.'))
+            },
+            silent
+          )
+        })
+
+      let lastError: unknown = new Error('Generation failed.')
+      for (let attemptNumber = 1; attemptNumber <= 3; attemptNumber++) {
+        try {
+          await attempt(attemptNumber < 3)
+          return
+        } catch (error) {
+          lastError = error
+          if (attemptNumber < 3) {
+            await new Promise((resolve) => setTimeout(resolve, 1200 * attemptNumber))
+          }
+        }
+      }
+      throw lastError
+    }
+
+    const withRetry = async (fn: (attempt: number, silent: boolean) => Promise<void>, attempts = 3, delayBase = 1200): Promise<void> => {
+      let lastError: unknown = new Error('Generation failed.')
+      for (let attempt = 1; attempt <= attempts; attempt++) {
+        try {
+          await fn(attempt, attempt < attempts)
+          return
+        } catch (error) {
+          lastError = error
+          if (attempt < attempts) {
+            await new Promise((resolve) => setTimeout(resolve, delayBase * attempt))
+          }
+        }
+      }
+      throw lastError
     }
 
     let curStep = step
@@ -584,49 +620,48 @@ export function BlogManager() {
         if (kind === 'refine') {
            req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}` + researchNote
         }
-        await new Promise<void>((resolve, reject) => {
-          const payload = {
-            model,
-            messages: [
-              { role: 'system', content: sys },
-              { role: 'user', content: req },
-            ],
-            stream: true,
-            temperature: 0.7,
-          }
-          runAiStreamWithController(
-            payload,
-            () => setAiGenerating(true),
-            (content) => {
-              setAiGenerating(false)
-              let text = (content || '').trim()
-              text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
-              const fenceMatch = text.match(/^```(?:markdown)?\s*([\s\S]*?)```$/)
-              if (fenceMatch) text = fenceMatch[1].trim()
-
-              if (!text) {
-                setAiGenerationError(true)
-                setAiErrorMessage(t('AI returned an empty response.'))
-                reject(new Error('AI returned an empty response.'))
-                return
-              }
-
-              currentDraft = {
-                ...currentDraft,
-                contents: { ...currentDraft.contents, en: text },
-                content: text,
-              }
-              postFormRef.current = currentDraft
-              setPostForm({ ...currentDraft })
-              resolve()
-            },
-            (errStr) => {
-              setAiGenerating(false)
-              setAiGenerationError(true)
-              setAiErrorMessage(errStr || 'Generation failed.')
-              reject(new Error(errStr || 'Generation failed.'))
+        await withRetry(async (_attempt, silent) => {
+          await new Promise<void>((resolve, reject) => {
+            const payload = {
+              model,
+              messages: [
+                { role: 'system', content: sys },
+                { role: 'user', content: req },
+              ],
+              stream: true,
+              temperature: 0.7,
             }
-          )
+            runAiStreamWithController(
+              payload,
+              () => setAiGenerating(true),
+              (content) => {
+                setAiGenerating(false)
+                let text = (content || '').trim()
+                text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+                const fenceMatch = text.match(/^```(?:markdown)?\s*([\s\S]*?)```$/)
+                if (fenceMatch) text = fenceMatch[1].trim()
+
+                if (!text) {
+                  reject(new Error('AI returned an empty response.'))
+                  return
+                }
+
+                currentDraft = {
+                  ...currentDraft,
+                  contents: { ...currentDraft.contents, en: text },
+                  content: text,
+                }
+                postFormRef.current = currentDraft
+                setPostForm({ ...currentDraft })
+                resolve()
+              },
+              (errStr) => {
+                setAiGenerating(false)
+                reject(new Error(errStr || 'Generation failed.'))
+              },
+              silent
+            )
+          })
         })
         curStep = 6
         setAiGenerationStep(6)
@@ -645,7 +680,8 @@ export function BlogManager() {
             const req = `Target Language Code: ${langCode}\n\nEnglish Content:\n${enContent}`
 
             try {
-              await new Promise<void>((resolve, reject) => {
+              await withRetry(async (_attempt, silent) => {
+                await new Promise<void>((resolve, reject) => {
                 const payload = {
                   model,
                   messages: [
@@ -666,9 +702,7 @@ export function BlogManager() {
                     if (fenceMatch) text = fenceMatch[1].trim()
 
                     if (!text) {
-                      setAiGenerationError(true)
-                      setAiErrorMessage(`Failed to translate for ${langCode}`)
-                      reject(new Error(`Failed to translate for ${langCode}`))
+                      reject(new Error(`AI returned an empty response for ${langCode}.`))
                       return
                     }
 
@@ -682,11 +716,11 @@ export function BlogManager() {
                   },
                   (errStr) => {
                     setAiGenerating(false)
-                    setAiGenerationError(true)
-                    setAiErrorMessage(errStr || `Generation failed for ${langCode}`)
                     reject(new Error(errStr || `Generation failed for ${langCode}`))
-                  }
+                  },
+                  silent
                 )
+                })
               })
             } catch (err: any) {
               setAiGenerationError(true)
@@ -715,7 +749,11 @@ export function BlogManager() {
         setAiRefinePrompt('')
       }
     } catch (e: any) {
-      // Error is already logged via toast inside runAiStreamWithController or setAiGenerationError
+      // 3 attempts already ran silently before this point; surface the failure once.
+      const message = (e && e.message) ? String(e.message) : t('Generation failed.')
+      setAiGenerationError(true)
+      setAiErrorMessage(message)
+      toast.error(message)
     }
   }
 
@@ -739,8 +777,22 @@ export function BlogManager() {
 
   const retryAiGeneration = async () => {
     const kind = aiPrompt.trim() && !aiRefinePrompt.trim() ? 'generate' : 'refine'
-    const prompt = (kind === 'generate' ? aiPrompt.trim() : aiRefinePrompt.trim()) || postFormRef.current.title || 'Continue blog generation'
-    await doAiSequenceStep(aiGenerationStep || 1, prompt, kind)
+    const prompt =
+      (kind === 'generate' ? aiPrompt.trim() : aiRefinePrompt.trim()) ||
+      postFormRef.current.title ||
+      'Continue blog generation'
+    // Smart resume: if the failed step was before the content step but the
+    // content was already written (e.g. a later translation step failed),
+    // jump straight there instead of starting from titles again.
+    let step = aiGenerationStep || 1
+    const enContent = (postFormRef.current.contents.en || postFormRef.current.content || '').trim()
+    if (step <= 4 && enContent) {
+      step = 5
+    }
+    if (step >= 6) {
+      step = 6
+    }
+    await doAiSequenceStep(step, prompt, kind)
   }
 
   const getStepDescription = (step: number) => {
@@ -1287,13 +1339,10 @@ export function BlogManager() {
           </p>
         </div>
         {webResearchEnabled && (
-          <div className='grid gap-2 rounded-xl border border-border/60 bg-muted/30 p-3'>
+          <div className='grid gap-2'>
             <div className='flex items-center justify-between gap-3'>
               <div className='min-w-0'>
-                <Label className='flex items-center gap-1.5'>
-                  <Globe className='h-4 w-4 text-sky-500' />
-                  {t('Web research')}
-                </Label>
+                <Label>{t('Web research')}</Label>
                 <p className='text-muted-foreground text-xs'>
                   {t('The model searches the web and reads pages before writing, so the post carries fresh facts. Watch the live log below.')}
                 </p>

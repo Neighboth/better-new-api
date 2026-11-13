@@ -7835,6 +7835,18 @@
     "Merge": "Fusionner",
     "Merging…": "Fusion…",
     "The channels must have the same type, URL, models, groups and every other setting. Any difference will stop the merge and tell you which setting differs.": "Les canaux doivent avoir le même type, URL, modèles, groupes et chaque autre réglage. La moindre différence bloque la fusion et indique quel réglage diffère.",
-    "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.": "Le canal créé devient un canal multi-clés (clés concaténées, mode aléatoire). Les canaux d’origine seront supprimés."
+    "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.": "Le canal créé devient un canal multi-clés (clés concaténées, mode aléatoire). Les canaux d’origine seront supprimés.",
+    "Open a support request and talk to the administrators.": "Ouvrez un ticket de support et parlez aux administrateurs.",
+    "Checking the channels…": "Vérification des canaux…",
+    "These settings differ:": "Ces paramètres diffèrent :",
+    "All settings are identical (only the API keys differ).": "Tous les paramètres sont identiques (seules les clés API diffèrent).",
+    "Cannot merge — fix the differences": "Impossible de fusionner — corrigez les différences",
+    "Could not compare the channels": "Impossible de comparer les canaux",
+    "Password set — enter a new one to replace it": "Mot de passe défini — saisissez-en un nouveau pour le remplacer",
+    "Leave empty to store no password": "Laissez vide pour ne pas définir de mot de passe",
+    "Remove the password protection from this file": "Supprimer la protection par mot de passe de ce fichier",
+    "Enter a folder name first": "Saisissez d’abord un nom de dossier",
+    "Folder names cannot contain slashes or dot-dot segments": "Les noms de dossiers ne peuvent pas contenir de barres obliques ni de séquences « .. »",
+    "File names cannot contain slashes": "Les noms de fichiers ne peuvent pas contenir de barres obliques"
   }
 }

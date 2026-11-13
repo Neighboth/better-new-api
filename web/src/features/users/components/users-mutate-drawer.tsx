@@ -63,7 +63,7 @@ import {
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
 import { MultiSelect } from '@/components/multi-select'
-import { getAllModels, getChannels } from '@/features/channels/api'
+import { getAllModels, getAllChannels } from '@/features/channels/api'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -139,7 +139,7 @@ export function UsersMutateDrawer({
   // runs a thousand models), so the selector searches rather than lists.
   const { data: blocklistChannels } = useQuery({
     queryKey: ['channels-for-blocklist'],
-    queryFn: () => getChannels({ p: 1, page_size: 1000 }),
+    queryFn: () => getAllChannels(),
     enabled: open && isUpdate,
     staleTime: 5 * 60 * 1000,
   })
@@ -149,9 +149,7 @@ export function UsersMutateDrawer({
     enabled: open && isUpdate,
     staleTime: 5 * 60 * 1000,
   })
-  const channelList = Array.isArray(blocklistChannels?.data)
-    ? blocklistChannels.data
-    : blocklistChannels?.data?.items ?? []
+  const channelList = blocklistChannels?.data?.items ?? []
   const channelOptions = channelList.map((channel) => ({
     value: String(channel.id),
     label: `#${channel.id} · ${channel.name}`,

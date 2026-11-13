@@ -524,6 +524,24 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 	return &user, err
 }
 
+// generateUniqueAffCode issues a unique affiliate (invite) code. Existing
+// four-character codes are untouched and keep working — they were issued
+// in the past and the admin asked that none of them break. New codes use
+// twelve characters from the same alphanumeric alphabet; on the extremely
+// unlikely event that even a 12-char candidate is taken, the generator
+// simply grows the length rather than ever colliding with an existing code.
+func generateUniqueAffCode(tx *gorm.DB) string {
+	for attempt := 0; ; attempt++ {
+		length := 12 + attempt/50
+		code := common.GetRandomString(length)
+		var existing User
+		err := tx.Select("id").Where("aff_code = ?", code).First(&existing).Error
+		if err != nil {
+			return code
+		}
+	}
+}
+
 func GetUserIdByAffCode(affCode string) (int, error) {
 	if affCode == "" {
 		return 0, errors.New("affCode 为空！")
@@ -659,7 +677,7 @@ func (user *User) Insert(inviterId int) error {
 				return err
 			}
 			user.Quota = common.QuotaForNewUser
-			user.AffCode = common.GetRandomString(4)
+			user.AffCode = generateUniqueAffCode(tx)
 
 			// 初始化用户设置，包括默认的边栏配置
 			if user.Setting == "" {
@@ -756,7 +774,7 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 			return err
 		}
 		user.Quota = common.QuotaForNewUser
-		user.AffCode = common.GetRandomString(4)
+		user.AffCode = generateUniqueAffCode(tx)
 
 		// 初始化用户设置
 		if user.Setting == "" {

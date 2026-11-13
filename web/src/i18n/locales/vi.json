@@ -7835,6 +7835,18 @@
     "Merge": "Gộp",
     "Merging…": "Đang gộp…",
     "The channels must have the same type, URL, models, groups and every other setting. Any difference will stop the merge and tell you which setting differs.": "Các kênh phải có cùng loại, URL, model, nhóm và mọi cài đặt khác. Bất kỳ khác biệt nào cũng sẽ dừng việc gộp và cho bạn biết cài đặt nào khác.",
-    "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.": "Kênh gộp sẽ trở thành kênh đa khoá (các khoá được nối, chế độ ngẫu nhiên). Các kênh gốc sẽ bị xóa."
+    "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.": "Kênh gộp sẽ trở thành kênh đa khoá (các khoá được nối, chế độ ngẫu nhiên). Các kênh gốc sẽ bị xóa.",
+    "Open a support request and talk to the administrators.": "Mở một yêu cầu hỗ trợ và nói chuyện với quản trị viên.",
+    "Checking the channels…": "Đang kiểm tra các kênh…",
+    "These settings differ:": "Các cài đặt này khác nhau:",
+    "All settings are identical (only the API keys differ).": "Tất cả cài đặt đều giống nhau (chỉ API key khác nhau).",
+    "Cannot merge — fix the differences": "Không thể gộp — hãy sửa các khác biệt",
+    "Could not compare the channels": "Không thể so sánh các kênh",
+    "Password set — enter a new one to replace it": "Đã đặt mật khẩu — nhập mật khẩu mới để thay thế",
+    "Leave empty to store no password": "Để trống để không đặt mật khẩu",
+    "Remove the password protection from this file": "Xóa bảo mật mật khẩu khỏi tệp này",
+    "Enter a folder name first": "Hãy nhập tên thư mục trước",
+    "Folder names cannot contain slashes or dot-dot segments": "Tên thư mục không được chứa dấu gạch chéo hoặc dấu hai chấm",
+    "File names cannot contain slashes": "Tên tệp không được chứa dấu gạch chéo"
   }
 }

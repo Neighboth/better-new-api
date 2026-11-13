@@ -69,6 +69,7 @@ export type ManagedFileItem = {
   is_dir: boolean
   size: number
   password?: string
+  has_password?: boolean
   enable_captcha?: boolean
   created_at: number
   updated_at: number
@@ -127,6 +128,8 @@ export function SystemFilesSection() {
   const [protPath, setProtPath] = useState('')
   const [protPassword, setProtPassword] = useState('')
   const [protCaptcha, setProtCaptcha] = useState(false)
+  const [protHasPassword, setProtHasPassword] = useState(false)
+  const [protRemovePassword, setProtRemovePassword] = useState(false)
 
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameOldPath, setRenameOldPath] = useState('')
@@ -168,8 +171,16 @@ export function SystemFilesSection() {
   }
 
   const handleCreateFolder = async () => {
-    if (!newFolderName.trim()) return
-    const targetPath = currentFolder ? `${currentFolder}/${newFolderName.trim()}` : newFolderName.trim()
+    const trimmed = newFolderName.trim()
+    if (!trimmed) {
+      toast.error(t('Enter a folder name first'))
+      return
+    }
+    if (/[\\/]/.test(trimmed) || trimmed === '.' || trimmed === '..') {
+      toast.error(t('Folder names cannot contain slashes or dot-dot segments'))
+      return
+    }
+    const targetPath = currentFolder ? `${currentFolder}/${trimmed}` : trimmed
     const formData = new FormData()
     formData.append('path', targetPath)
     formData.append('is_dir', 'true')
@@ -234,8 +245,10 @@ export function SystemFilesSection() {
 
   const handleOpenProt = (item: ManagedFileItem) => {
     setProtPath(item.path)
-    setProtPassword(item.password || '')
+    setProtPassword('')
     setProtCaptcha(Boolean(item.enable_captcha))
+    setProtHasPassword(Boolean(item.has_password))
+    setProtRemovePassword(false)
     setProtOpen(true)
   }
 
@@ -245,6 +258,7 @@ export function SystemFilesSection() {
         path: protPath,
         password: protPassword,
         enable_captcha: protCaptcha,
+        remove_password: protRemovePassword,
       })
       if (res.data?.success) {
         toast.success(t('Protection settings saved'))
@@ -274,7 +288,14 @@ export function SystemFilesSection() {
   }
 
   const handleRename = async () => {
-    if (!renameNewName.trim()) return
+    if (!renameNewName.trim()) {
+      toast.error(t('Enter a name first'))
+      return
+    }
+    if (/[\\/]/.test(renameNewName.trim())) {
+      toast.error(t('File names cannot contain slashes'))
+      return
+    }
     const dir = renameOldPath.includes('/') ? renameOldPath.substring(0, renameOldPath.lastIndexOf('/')) : ''
     const newPath = dir ? `${dir}/${renameNewName.trim()}` : renameNewName.trim()
 
@@ -643,9 +664,25 @@ export function SystemFilesSection() {
               <Input
                 type='password'
                 value={protPassword}
-                placeholder={t('Leave empty for public access')}
+                placeholder={
+                  protHasPassword
+                    ? t('Password set — enter a new one to replace it')
+                    : t('Leave empty to store no password')
+                }
                 onChange={(e) => setProtPassword(e.target.value)}
+                autoComplete='new-password'
               />
+              {protHasPassword && (
+                <label className='text-muted-foreground flex cursor-pointer items-center gap-2 pt-1 text-xs'>
+                  <input
+                    type='checkbox'
+                    className='h-4 w-4 rounded border-input accent-primary'
+                    checked={protRemovePassword}
+                    onChange={(e) => setProtRemovePassword(e.target.checked)}
+                  />
+                  {t('Remove the password protection from this file')}
+                </label>
+              )}
             </div>
             <div className='flex items-center justify-between'>
               <div>

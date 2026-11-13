@@ -7835,6 +7835,18 @@
     "Merge": "マージ",
     "Merging…": "マージ中…",
     "The channels must have the same type, URL, models, groups and every other setting. Any difference will stop the merge and tell you which setting differs.": "チャネルの種類、URL、モデル、グループ、その他すべての設定が同一である必要があります。差異があるとマージは停止され、どの設定が異なるかを通知します。",
-    "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.": "マージ後のチャネルはマルチキーチャネル（キーを連結、ランダムモード）になります。元のチャネルは削除されます。"
+    "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.": "マージ後のチャネルはマルチキーチャネル（キーを連結、ランダムモード）になります。元のチャネルは削除されます。",
+    "Open a support request and talk to the administrators.": "サポートリクエストを開き、管理者と話してください。",
+    "Checking the channels…": "チャネルを確認しています…",
+    "These settings differ:": "これらの設定が異なります：",
+    "All settings are identical (only the API keys differ).": "すべての設定が同一です（API キーのみ異なります）。",
+    "Cannot merge — fix the differences": "マージできません。差分を修正してください",
+    "Could not compare the channels": "チャネルを比較できませんでした",
+    "Password set — enter a new one to replace it": "パスワードが設定されています。変更するには新しいものを入力してください",
+    "Leave empty to store no password": "パスワードなしで保存するには空のままにしてください",
+    "Remove the password protection from this file": "このファイルのパスワード保護を解除する",
+    "Enter a folder name first": "先にフォルダー名を入力してください",
+    "Folder names cannot contain slashes or dot-dot segments": "フォルダー名にスラッシュや「..」は使えません",
+    "File names cannot contain slashes": "ファイル名にスラッシュは使えません"
   }
 }

@@ -230,7 +230,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
         const referralDisplay = user.referral_display ?? 0
 
         return (
-          <div className='flex max-w-full min-w-0 flex-wrap items-center gap-1 overflow-hidden'>
+          <div className='flex max-w-full min-w-0 flex-nowrap items-center gap-1 overflow-hidden whitespace-nowrap'>
             <Tooltip>
               <TooltipTrigger
                 render={

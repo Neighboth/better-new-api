@@ -7835,6 +7835,18 @@
     "Merge": "Объединить",
     "Merging…": "Объединение…",
     "The channels must have the same type, URL, models, groups and every other setting. Any difference will stop the merge and tell you which setting differs.": "Каналы должны иметь одинаковый тип, URL, модели, группы и все прочие настройки. Любое отличие остановит объединение и укажет, какая настройка отличается.",
-    "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.": "Объединённый канал станет мультиключевым (ключи сцеплены, случайный режим). Исходные каналы будут удалены."
+    "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.": "Объединённый канал станет мультиключевым (ключи сцеплены, случайный режим). Исходные каналы будут удалены.",
+    "Open a support request and talk to the administrators.": "Откройте заявку в поддержку и пообщайтесь с администраторами.",
+    "Checking the channels…": "Проверяем каналы…",
+    "These settings differ:": "Эти настройки отличаются:",
+    "All settings are identical (only the API keys differ).": "Все настройки идентичны (отличаются только API-ключи).",
+    "Cannot merge — fix the differences": "Нельзя объединить — исправьте различия",
+    "Could not compare the channels": "Не удалось сравнить каналы",
+    "Password set — enter a new one to replace it": "Пароль задан — введите новый, чтобы заменить его",
+    "Leave empty to store no password": "Оставьте пустым, чтобы без пароля",
+    "Remove the password protection from this file": "Удалить парольную защиту с этого файла",
+    "Enter a folder name first": "Сначала укажите имя папки",
+    "Folder names cannot contain slashes or dot-dot segments": "Имя папки не может содержать косые черты или «..»",
+    "File names cannot contain slashes": "Имя файла не может содержать косые черты"
   }
 }

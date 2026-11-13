@@ -1,18 +1,26 @@
 package controller
 
 import (
+	"bytes"
+	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service/captcha"
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const managedFilesDir = "managed_files"
@@ -31,6 +39,87 @@ func sanitizeRelPath(relPath string) (string, error) {
 		return "", fmt.Errorf("invalid path traversal")
 	}
 	return clean, nil
+}
+
+// passwordOfRecord returns the raw stored password for a managed file.
+// New files store a bcrypt hash; legacy rows hold plaintext.
+func passwordHashOf(password string) string {
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return password
+	}
+	return string(hashed)
+}
+
+func verifyFilePassword(submitted, stored string) bool {
+	submitted = strings.TrimSpace(submitted)
+	stored = strings.TrimSpace(stored)
+	if stored == "" || submitted == "" {
+		return false
+	}
+	if strings.HasPrefix(stored, "$2a$") || strings.HasPrefix(stored, "$2b$") || strings.HasPrefix(stored, "$2y$") {
+		return bcrypt.CompareHashAndPassword([]byte(stored), []byte(submitted)) == nil
+	}
+	// Legacy plaintext rows: constant-time compare so the response does not
+	// leak prefix matches.
+	return subtle.ConstantTimeCompare([]byte(stored), []byte(submitted)) == 1
+}
+
+// fileAuthCookieKey is the cookie name that stores the signed proof that the
+// visitor authenticated for this exact file path.
+func fileAuthCookieKey(path string) string {
+	sum := sha256.Sum256([]byte(path))
+	return fmt.Sprintf("file_auth_%x", sum[:16])
+}
+
+// fileAuthSign signs the proof token with the installation secret so a
+// visitor cannot forge file_auth_...=1 cookies themselves. The expiry is
+// both inside the token body and mixed into the MAC key, so a forged token
+// for a different expiry cannot be built without the secret.
+func fileAuthSign(path string, expiry int64) string {
+	mac := hmac.New(sha256.New, []byte(common.CryptoSecret+":file-auth-v2|"+strconv.FormatInt(expiry, 10)))
+	_, _ = mac.Write([]byte(path))
+	return fmt.Sprintf("%d.%x", expiry, mac.Sum(nil))
+}
+
+func fileAuthVerify(path string, value string) bool {
+	parts := strings.SplitN(value, ".", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	expiry, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || time.Now().Unix() > expiry {
+		return false
+	}
+	expected := fileAuthSign(path, expiry)
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(value)) == 1
+}
+
+// fileAuthLimiter throttles repeated failed attempts against one file path.
+var fileAuthLimiter = struct {
+	sync.Mutex
+	tries map[string][]int64
+}{tries: map[string][]int64{}}
+
+func fileAuthBlocked(key string) bool {
+	fileAuthLimiter.Lock()
+	defer fileAuthLimiter.Unlock()
+	now := time.Now().Unix()
+	attempts := fileAuthLimiter.tries[key]
+	kept := attempts[:0]
+	for _, t := range attempts {
+		if now-t < 600 {
+			kept = append(kept, t)
+		}
+	}
+	fileAuthLimiter.tries[key] = kept
+	return len(kept) >= 10
+}
+
+func fileAuthFailedAttempt(key string) {
+	fileAuthLimiter.Lock()
+	defer fileAuthLimiter.Unlock()
+	fileAuthLimiter.tries[key] = append(fileAuthLimiter.tries[key], time.Now().Unix())
 }
 
 // scanDirectoryToDB recursively scans disk directory and syncs metadata to DB
@@ -99,14 +188,30 @@ func ListManagedFiles(c *gin.Context) {
 	}
 
 	var files []model.ManagedFile
-	if err := model.DB.Omit("content").Order("is_dir DESC, name ASC").Find(&files).Error; err != nil {
+	if err := model.DB.Order("is_dir DESC, name ASC").Find(&files).Error; err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
+	}
+	// The admin needs to know whether a file has a password, never the
+	// password itself: the list payload exposes a boolean only.
+	items := make([]gin.H, 0, len(files))
+	for _, file := range files {
+		items = append(items, gin.H{
+			"id":             file.Id,
+			"path":           file.Path,
+			"name":           file.Name,
+			"is_dir":         file.IsDir,
+			"size":           file.Size,
+			"created_at":     file.CreatedAt,
+			"updated_at":     file.UpdatedAt,
+			"has_password":   strings.TrimSpace(file.Password) != "",
+			"enable_captcha": file.EnableCaptcha,
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    files,
+		"data":    items,
 	})
 }
 
@@ -280,9 +385,10 @@ func SaveManagedFileContent(c *gin.Context) {
 // UpdateManagedFileSettings updates password / captcha protection settings
 func UpdateManagedFileSettings(c *gin.Context) {
 	var req struct {
-		Path          string `json:"path"`
-		Password      string `json:"password"`
-		EnableCaptcha bool   `json:"enable_captcha"`
+		Path           string `json:"path"`
+		Password       string `json:"password"`
+		EnableCaptcha  bool   `json:"enable_captcha"`
+		RemovePassword bool   `json:"remove_password"`
 	}
 	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid params"})
@@ -303,11 +409,25 @@ func UpdateManagedFileSettings(c *gin.Context) {
 	now := common.GetTimestamp()
 	var fileRecord model.ManagedFile
 	res := model.DB.Where("path = ?", cleanPath).First(&fileRecord)
+	passwordToStore := strings.TrimSpace(req.Password)
+	if req.RemovePassword {
+		// The administrator explicitly asked to drop the stored password.
+		passwordToStore = ""
+	} else if passwordToStore != "" && (res.RowsAffected == 0 || passwordToStore != fileRecord.Password) {
+		passwordToStore = passwordHashOf(passwordToStore)
+	} else if res.RowsAffected > 0 && passwordToStore == fileRecord.Password {
+		// The admin left the password box untouched (an unchanged hash was
+		// round-tripped): keep the stored hash.
+	} else {
+		// Leave the stored password as is when the box is empty and no
+		// explicit removal was requested.
+		passwordToStore = fileRecord.Password
+	}
 	if res.RowsAffected == 0 {
 		fileRecord = model.ManagedFile{
 			Path:          cleanPath,
 			Name:          filepath.Base(cleanPath),
-			Password:      req.Password,
+			Password:      passwordToStore,
 			EnableCaptcha: req.EnableCaptcha,
 			CreatedAt:     now,
 			UpdatedAt:     now,
@@ -315,7 +435,7 @@ func UpdateManagedFileSettings(c *gin.Context) {
 		model.DB.Create(&fileRecord)
 	} else {
 		model.DB.Model(&fileRecord).Updates(map[string]interface{}{
-			"password":       req.Password,
+			"password":       passwordToStore,
 			"enable_captcha": req.EnableCaptcha,
 			"updated_at":     now,
 		})
@@ -479,6 +599,45 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 	}
 }
 
+func verifyMTCaptchaForFiles(privateKey, token, remoteIP string) bool {
+	privateKey = strings.TrimSpace(privateKey)
+	token = strings.TrimSpace(token)
+	if privateKey == "" || token == "" {
+		return false
+	}
+	payload, err := json.Marshal(map[string]string{
+		"privatekey": privateKey,
+		"token":      token,
+		"remoteip":   remoteIP,
+	})
+	if err != nil {
+		return false
+	}
+	req, err := http.NewRequest(http.MethodPost, "https://service.mtcaptcha.com/mtcv1/api/validate", bytes.NewReader(payload))
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	resp, err := clientWithTimeout().Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	var parsed struct {
+		Success bool   `json:"success"`
+		Status  string `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return false
+	}
+	return parsed.Success || strings.EqualFold(parsed.Status, "OK")
+}
+
+func clientWithTimeout() *http.Client {
+	return &http.Client{Timeout: 10 * time.Second}
+}
+
 func verifyManagedFileCaptcha(c *gin.Context) bool {
 	captchaType := common.GetEffectiveCaptchaType()
 	if captchaType == common.CaptchaTypeOff {
@@ -495,6 +654,26 @@ func verifyManagedFileCaptcha(c *gin.Context) bool {
 	if token == "" {
 		token = c.PostForm("h-captcha-response")
 	}
+	if token == "" {
+		token = c.PostForm("mtcaptcha-response")
+	}
+
+	provider := c.PostForm("captcha_provider")
+	if provider == "" {
+		provider = captchaType
+	}
+
+	// The fallback chain: any configured provider is accepted at the
+	// endpoint, so a fallback challenge verifies against its own keys.
+	if provider != captchaType {
+		if !common.CaptchaFallbackEnabled() &&
+			provider != common.CaptchaTypeImage {
+			return false
+		}
+		if !common.IsCaptchaProviderConfigured(provider) {
+			return false
+		}
+	}
 
 	if token == "" {
 		captchaId := c.PostForm("captcha_id")
@@ -505,9 +684,11 @@ func verifyManagedFileCaptcha(c *gin.Context) bool {
 		return false
 	}
 
-	provider := c.PostForm("captcha_provider")
-	if provider == "" {
-		provider = captchaType
+	if provider == common.CaptchaTypeAltcha {
+		return captcha.VerifyAltcha(token, common.AltchaSigningKey())
+	}
+	if provider == common.CaptchaTypeMTCaptcha {
+		return verifyMTCaptchaForFiles(common.MTCaptchaPrivateKey, token, c.ClientIP())
 	}
 
 	if provider == common.CaptchaTypeImage {
@@ -561,106 +742,198 @@ func verifyManagedFileCaptcha(c *gin.Context) bool {
 	return result.Success
 }
 
+
+func authCaptchaProviderOrder() []string {
+	order := []string{}
+	for _, provider := range strings.Split(common.OptionMap["CaptchaProviderOrder"], ",") {
+		provider = strings.TrimSpace(strings.ToLower(provider))
+		if provider == "" || provider == common.CaptchaTypeOff {
+			continue
+		}
+		order = append(order, provider)
+	}
+	if len(order) == 0 {
+		order = []string{"turnstile", "recaptcha", "hcaptcha", "mtcaptcha", "altcha", "image"}
+	}
+	return order
+}
+
+type authCaptchaSnippet struct {
+	script string
+	html   string
+	key    string
+}
+
+func authCaptchaSnippetFor(provider string) (authCaptchaSnippet, bool) {
+	switch provider {
+	case common.CaptchaTypeTurnstile:
+		if strings.TrimSpace(common.TurnstileSiteKey) == "" {
+			return authCaptchaSnippet{}, false
+		}
+		return authCaptchaSnippet{
+			script: `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>`,
+			html:   fmt.Sprintf(`<div class="cf-turnstile" data-sitekey="%s"></div>`, common.TurnstileSiteKey),
+			key:    common.TurnstileSiteKey,
+		}, true
+	case common.CaptchaTypeRecaptcha:
+		if strings.TrimSpace(common.RecaptchaSiteKey) == "" {
+			return authCaptchaSnippet{}, false
+		}
+		return authCaptchaSnippet{
+			script: `<script src="https://www.google.com/recaptcha/api.js" async defer></script>`,
+			html:   fmt.Sprintf(`<div class="g-recaptcha" data-sitekey="%s"></div>`, common.RecaptchaSiteKey),
+			key:    common.RecaptchaSiteKey,
+		}, true
+	case common.CaptchaTypeHCaptcha:
+		if strings.TrimSpace(common.HCaptchaSiteKey) == "" {
+			return authCaptchaSnippet{}, false
+		}
+		return authCaptchaSnippet{
+			script: `<script src="https://js.hcaptcha.com/1/api.js" async defer></script>`,
+			html:   fmt.Sprintf(`<div class="h-captcha" data-sitekey="%s"></div>`, common.HCaptchaSiteKey),
+			key:    common.HCaptchaSiteKey,
+		}, true
+	case common.CaptchaTypeMTCaptcha:
+		if strings.TrimSpace(common.MTCaptchaSiteKey) == "" {
+			return authCaptchaSnippet{}, false
+		}
+		return authCaptchaSnippet{
+			script: fmt.Sprintf(`<script src="https://service.mtcaptcha.com/mtcv1/client/mtcaptcha.min.js" async defer></script>
+<script>window.mtcaptchaConfig = { sitekey: "%s", "verify-callback": function(state) { var el = document.getElementById("mtcaptcha-response"); if (el) { el.value = state.verifiedToken || ""; } }, render: "auto" };</script>`, common.MTCaptchaSiteKey),
+			html:   `<div class="mtcaptcha"></div><input type="hidden" name="mtcaptcha-response" id="mtcaptcha-response" value="" /><input type="hidden" name="captcha_provider" value="mtcaptcha" id="captcha_provider" />`,
+			key:    common.MTCaptchaSiteKey,
+		}, true
+	case common.CaptchaTypeAltcha:
+		// ALTCHA is self-hosted: the challenge is signed by this installation
+		// and the proof-of-work happens in the visitor's browser.
+		return authCaptchaSnippet{
+			script: `<script src="https://cdn.jsdelivr.net/npm/altcha/dist/altcha.min.js" async defer></script>`,
+			html:   `<altcha-widget challengeurl="/api/captcha/altcha" auto="onload" name="captcha_token"></altcha-widget><input type="hidden" name="captcha_provider" value="altcha" />`,
+			key:    "altcha",
+		}, true
+	case common.CaptchaTypeImage:
+		// Self-hosted image captcha: no keys required, always available.
+		return authCaptchaSnippet{
+			script: `<script>
+			function refreshCaptcha() {
+				fetch('/api/captcha/image').then(function (r) { return r.json(); }).then(function (d) {
+					if (d && d.success && document.getElementById('captcha-img')) {
+						document.getElementById('captcha-img').src = d.data.image;
+						document.getElementById('captcha-id').value = d.data.captcha_id;
+					}
+				});
+			}
+			window.addEventListener('DOMContentLoaded', refreshCaptcha);
+			</script>`,
+			html:   `<input type="hidden" id="captcha-id" name="captcha_id" /><div class="flex items-center justify-center gap-2 mb-2"><img id="captcha-img" class="h-10 rounded border cursor-pointer" onclick="refreshCaptcha()" title="Click to refresh" src="" /></div><input type="text" name="captcha_ans" placeholder="Enter captcha code" class="w-full px-3 py-2 border rounded-lg bg-zinc-950/50 border-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary" required /><input type="hidden" name="captcha_provider" value="image" />`,
+			key:    "image",
+		}, true
+	default:
+		return authCaptchaSnippet{}, false
+	}
+}
+
 func renderAuthPage(c *gin.Context, relPath string, mf model.ManagedFile, errorMsg string) {
 	var captchaScript, captchaHTML string
 	if mf.EnableCaptcha {
 		if common.CaptchaFallbackEnabled() {
-			captchaScript = fmt.Sprintf(`
-			<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"></script>
-			<script src="https://js.hcaptcha.com/1/api.js?render=explicit" async defer></script>
-			<script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer></script>
-			<script>
-				const providers = [
-					{ id: 'turnstile', key: '%s', init: (el) => turnstile.render(el, {sitekey: '%s'}) },
-					{ id: 'hcaptcha', key: '%s', init: (el) => hcaptcha.render(el, {sitekey: '%s'}) },
-					{ id: 'recaptcha', key: '%s', init: (el) => grecaptcha.render(el, {sitekey: '%s'}) }
-				];
-				document.addEventListener('DOMContentLoaded', () => {
-					const box = document.getElementById('dynamic-captcha');
-					const providerInput = document.getElementById('captcha_provider');
-					for (let p of providers) {
-						if (p.key) {
-							try {
-								p.init(box);
-								providerInput.value = p.id;
-								return;
-							} catch (e) {
-								console.warn(p.id + ' failed to load', e);
-							}
-						}
-					}
-
-					// Built-in image fallback
-					box.innerHTML = '<img id="captcha-img" class="border rounded cursor-pointer h-12 mx-auto" onclick="refreshCaptcha()" title="Click to refresh" /><input type="hidden" id="captcha-id" name="captcha_id" /><input type="text" id="captcha_ans" name="captcha_ans" class="px-3 py-2 border rounded text-sm w-48 text-center mt-2 mx-auto block" placeholder="Enter characters" required />';
-					providerInput.value = 'image';
-					refreshCaptcha();
-				});
-				function refreshCaptcha() {
-					fetch('/api/captcha/image?t=' + Date.now())
-						.then(r => r.json())
-						.then(data => {
-							if (data.success && document.getElementById('captcha-img')) {
-								document.getElementById('captcha-img').src = data.data.image;
-								document.getElementById('captcha-id').value = data.data.captcha_id;
-							}
-						});
+			// Build the fallback chain: providers in the administrator's
+			// configured order that have their keys, ending with the
+			// self-hosted image captcha as the last resort.
+			order := authCaptchaProviderOrder()
+			snippets := []authCaptchaSnippet{}
+			for _, provider := range order {
+				if snippet, ok := authCaptchaSnippetFor(provider); ok {
+					snippets = append(snippets, snippet)
 				}
-			</script>`, common.TurnstileSiteKey, common.TurnstileSiteKey, common.HCaptchaSiteKey, common.HCaptchaSiteKey, common.RecaptchaSiteKey, common.RecaptchaSiteKey)
-			captchaHTML = `
-				<div class="captcha-box my-3">
-					<div id="dynamic-captcha" class="flex justify-center flex-col"></div>
-					<input type="hidden" id="captcha_provider" name="captcha_provider" value="" />
-				</div>`
+			}
+			if len(snippets) == 0 {
+				if snippet, ok := authCaptchaSnippetFor(common.CaptchaTypeImage); ok {
+					snippets = append(snippets, snippet)
+				}
+			}
+			var scripts strings.Builder
+			var widgets strings.Builder
+			for _, snippet := range snippets {
+				scripts.WriteString(snippet.script)
+				widgets.WriteString(`<div class="captcha-provider-choice" data-provider="` + strings.TrimSuffix(strings.TrimPrefix(snippet.html, "<div"), "></div>") + `" hidden></div>`)
+			}
+			captchaScript = scripts.String() + `
+<script>
+	var retry = 0;
+	function tryProvider(index) {
+		if (index >= document.querySelectorAll('.captcha-provider').length) {
+			document.getElementById('file-captcha-box').insertAdjacentHTML('beforeend', '<p class="text-xs text-amber-400 mt-2">No captcha provider could load. Check your network and refresh.</p>');
+			return;
+		}
+		var choice = document.querySelectorAll('.captcha-provider')[index];
+		choice.hidden = false;
+		var provider = choice.dataset.provider;
+		var submitted = false;
+		var fallbackTimer = setTimeout(function () {
+			if (!submitted) { choice.hidden = true; tryProvider(index + 1); }
+		}, 12000);
+		['input', 'change'].forEach(function (evt) {
+			choice.addEventListener(evt, function () { submitted = true; clearTimeout(fallbackTimer); });
+		});
+	}
+	// Show the first provider after the DOM is ready; the widget scripts
+	// attach themselves to their own container.
+	document.addEventListener('DOMContentLoaded', function () {
+		if (document.querySelectorAll('.captcha-provider').length) { tryProvider(0); }
+	});
+</script>`
+			captchaHTML = `<div id="file-captcha-box" class="captcha-box my-3 flex flex-col items-center gap-2">` +
+				strings.Join(func() []string {
+					items := []string{}
+					for _, snippet := range snippets {
+						provider := ""
+						switch {
+						case strings.Contains(snippet.html, "cf-turnstile"):
+							provider = "turnstile"
+						case strings.Contains(snippet.html, "g-recaptcha"):
+							provider = "recaptcha"
+						case strings.Contains(snippet.html, "h-captcha"):
+							provider = "hcaptcha"
+						case strings.Contains(snippet.html, "mtcaptcha"):
+							provider = "mtcaptcha"
+						case strings.Contains(snippet.html, "altcha"):
+							provider = "altcha"
+						default:
+							provider = "image"
+						}
+						items = append(items, `<div class="captcha-provider" data-provider="`+provider+`" hidden>`+snippet.html+`</div>`)
+					}
+					return items
+				}(), "") +
+				`</div>`
 		} else {
 			captchaType := common.GetEffectiveCaptchaType()
-			if captchaType == common.CaptchaTypeOff && common.TurnstileSiteKey != "" {
+		if captchaType == common.CaptchaTypeOff && common.TurnstileSiteKey != "" {
 				captchaType = common.CaptchaTypeTurnstile
-			}
-			if captchaType != common.CaptchaTypeOff {
-				switch captchaType {
-				case common.CaptchaTypeTurnstile:
-					captchaScript = `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>`
-					captchaHTML = fmt.Sprintf(`
-						<div class="captcha-box flex justify-center my-3">
-							<div class="cf-turnstile" data-sitekey="%s"></div>
-							<input type="hidden" name="captcha_provider" value="turnstile" />
-						</div>`, common.TurnstileSiteKey)
-				case common.CaptchaTypeRecaptcha:
-					captchaScript = `<script src="https://www.google.com/recaptcha/api.js" async defer></script>`
-					captchaHTML = fmt.Sprintf(`
-						<div class="captcha-box flex justify-center my-3">
-							<div class="g-recaptcha" data-sitekey="%s"></div>
-							<input type="hidden" name="captcha_provider" value="recaptcha" />
-						</div>`, common.RecaptchaSiteKey)
-				case common.CaptchaTypeHCaptcha:
-					captchaScript = `<script src="https://js.hcaptcha.com/1/api.js" async defer></script>`
-					captchaHTML = fmt.Sprintf(`
-						<div class="captcha-box flex justify-center my-3">
-							<div class="h-captcha" data-sitekey="%s"></div>
-							<input type="hidden" name="captcha_provider" value="hcaptcha" />
-						</div>`, common.HCaptchaSiteKey)
-				default: // image captcha fallback
-					captchaHTML = `
-						<div class="captcha-box my-3 text-center">
-							<input type="hidden" id="captcha-id" name="captcha_id" />
-							<div class="flex items-center justify-center gap-2 mb-2">
-								<img id="captcha-img" class="h-10 rounded border cursor-pointer" onclick="refreshCaptcha()" title="Click to refresh" src="" />
-							</div>
-							<input type="text" name="captcha_ans" placeholder="Enter captcha code" class="w-full px-3 py-2 border rounded-lg bg-zinc-950/50 border-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary" required />
-							<input type="hidden" name="captcha_provider" value="image" />
-						</div>
-						<script>
-							function refreshCaptcha() {
-								fetch('/api/captcha/image').then(r => r.json()).then(d => {
-									if(d.success) {
-										document.getElementById('captcha-img').src = d.data.image;
-										document.getElementById('captcha-id').value = d.data.captcha_id;
-									}
-								});
-							}
-							window.addEventListener("DOMContentLoaded", refreshCaptcha);
-						</script>`
-				}
+		}
+		if captchaType == common.CaptchaTypeOff && common.RecaptchaSiteKey != "" {
+				captchaType = common.CaptchaTypeRecaptcha
+		}
+		if captchaType == common.CaptchaTypeOff && common.HCaptchaSiteKey != "" {
+				captchaType = common.CaptchaTypeHCaptcha
+		}
+		if captchaType == common.CaptchaTypeOff && common.MTCaptchaSiteKey != "" {
+				captchaType = common.CaptchaTypeMTCaptcha
+		}
+		if captchaType == common.CaptchaTypeOff {
+				captchaType = common.CaptchaTypeImage
+		}
+			if snippet, ok := authCaptchaSnippetFor(captchaType); ok {
+				captchaScript = snippet.script
+				captchaHTML = `<div class="captcha-box flex justify-center my-3">` + snippet.html + `</div>`
+			} else {
+				// The configured provider is missing its keys: fall back to the
+				// self-hosted image captcha so the file is never left open
+				// without protection or blocked for the visitor.
+				snippet, _ := authCaptchaSnippetFor(common.CaptchaTypeImage)
+				captchaScript = snippet.script
+				captchaHTML = `<div class="captcha-box flex justify-center my-3">` + snippet.html + `</div>`
 			}
 		}
 	}
@@ -669,7 +942,6 @@ func renderAuthPage(c *gin.Context, relPath string, mf model.ManagedFile, errorM
 	if systemName == "" {
 		systemName = "New API"
 	}
-
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	html := fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en" class="dark">

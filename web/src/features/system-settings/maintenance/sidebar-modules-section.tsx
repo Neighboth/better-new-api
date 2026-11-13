@@ -134,6 +134,10 @@ export function SidebarModulesSection({
         title: t('Profile'),
         description: t('Personal settings and profile management.'),
       },
+      ticket: {
+        title: t('Support Tickets'),
+        description: t('Open a support request and talk to the administrators.'),
+      },
       byog: {
         title: t('BYOG'),
         description: t('Run your own worker with your hardware and earn.'),

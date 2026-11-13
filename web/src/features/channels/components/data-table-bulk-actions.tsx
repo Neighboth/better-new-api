@@ -20,7 +20,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { type Table } from '@tanstack/react-table'
 import { Merge, Power, PowerOff, SlidersHorizontal, Tag, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { DataTableBulkActions as BulkActionsToolbar } from '@/components/data-table'
@@ -66,6 +66,8 @@ export function DataTableBulkActions<TData>({
   const [showMergeConfirm, setShowMergeConfirm] = useState(false)
   const [tagValue, setTagValue] = useState('')
   const [mergeBusy, setMergeBusy] = useState(false)
+  const [mergeDiffs, setMergeDiffs] = useState<string[] | null>(null)
+  const [mergePreviewLoading, setMergePreviewLoading] = useState(false)
 
   const currentUser = useAuthStore((s) => s.auth.user)
   const canEditSensitive = hasPermission(
@@ -113,11 +115,47 @@ export function DataTableBulkActions<TData>({
     })
   }
 
+  // Dry-run preview: as soon as the merge dialog opens, ask the server to
+  // compare the selected channels without merging. Differences appear inside
+  // the dialog before the administrator commits to anything.
+  useEffect(() => {
+    if (!showMergeConfirm) return
+    if (selectedIds.length < 2) {
+      setMergeDiffs(null)
+      return
+    }
+    let cancelled = false
+    setMergePreviewLoading(true)
+    setMergeDiffs(null)
+    void mergeChannels({ ids: selectedIds, dryRun: true })
+      .then((response) => {
+        if (cancelled) return
+        if (!response.success) {
+          // The backend refused even the dry run (e.g. a multi-key channel
+          // is selected); show the message as a single differing row so the
+          // user learns about it inside the dialog.
+          setMergeDiffs([response.message ?? t('Could not merge the channels')])
+          return
+        }
+        const data = response.data ?? {}
+        setMergeDiffs(Array.isArray(data.differing_fields) ? (data.differing_fields as string[]) : [])
+      })
+      .catch(() => {
+        if (!cancelled) setMergeDiffs([t('Could not compare the channels')])
+      })
+      .finally(() => {
+        if (!cancelled) setMergePreviewLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showMergeConfirm, selectedIds.join(',')])
+
   const handleMergeAll = async () => {
     if (mergeBusy || selectedIds.length < 2) return
     setMergeBusy(true)
     try {
-      const response = await mergeChannels(selectedIds)
+      const response = await mergeChannels({ ids: selectedIds })
       if (!response.success) {
         toast.error(response.message || t('Could not merge the channels'))
         return
@@ -128,6 +166,7 @@ export function DataTableBulkActions<TData>({
         })
       )
       setShowMergeConfirm(false)
+      setMergeDiffs(null)
       queryClient.invalidateQueries({ queryKey: ['channels'] })
       handleClearSelection()
     } catch {
@@ -333,7 +372,10 @@ export function DataTableBulkActions<TData>({
       <Dialog
         open={showMergeConfirm}
         onOpenChange={(open) => {
-          if (!mergeBusy) setShowMergeConfirm(open)
+          if (!mergeBusy) {
+            setShowMergeConfirm(open)
+            if (!open) setMergeDiffs(null)
+          }
         }}
         title={t('Merge channels into one?')}
         description={t('The selected channels must have identical settings except their API key.')}
@@ -342,24 +384,22 @@ export function DataTableBulkActions<TData>({
           <>
             <Button
               variant='outline'
-              onClick={() => setShowMergeConfirm(false)}
+              onClick={() => {
+                setShowMergeConfirm(false)
+                setMergeDiffs(null)
+              }}
               disabled={mergeBusy}
             >
               {t('Cancel')}
             </Button>
-            <Button onClick={handleMergeAll} disabled={mergeBusy}>
-              {mergeBusy ? t('Merging…') : t('Merge')}
+            <Button onClick={handleMergeAll} disabled={mergeBusy || (mergeDiffs !== null && mergeDiffs.length > 0)}>
+              {mergeBusy ? t('Merging…') : mergeDiffs !== null && mergeDiffs.length > 0 ? t('Cannot merge — fix the differences') : t('Merge')}
             </Button>
           </>
         }
       >
         <div className='grid gap-3 py-2'>
-          <p className='text-sm text-muted-foreground'>
-            {t(
-              'The channels must have the same type, URL, models, groups and every other setting. Any difference will stop the merge and tell you which setting differs.'
-            )}
-          </p>
-          <ul className='max-h-48 space-y-1 overflow-y-auto text-sm'>
+          <ul className='max-h-36 space-y-1 overflow-y-auto text-sm'>
             {selectedRows.slice(0, 10).map((row) => {
               const channel = row.original as Channel
               return (
@@ -380,11 +420,28 @@ export function DataTableBulkActions<TData>({
               </li>
             )}
           </ul>
-          <p className='text-sm text-muted-foreground'>
-            {t(
-              'The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.'
-            )}
-          </p>
+
+          {mergePreviewLoading && (
+            <p className='text-muted-foreground text-sm'>{t('Checking the channels…')}</p>
+          )}
+          {mergeDiffs !== null && mergeDiffs.length > 0 && (
+            <div className='rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm'>
+              <p className='font-semibold text-destructive'>{t('These settings differ:')}</p>
+              <ul className='mt-1 max-h-36 list-disc space-y-0.5 overflow-y-auto pe-2'>
+                {mergeDiffs.map((label) => (
+                  <li key={label}>{label}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {mergeDiffs !== null && mergeDiffs.length === 0 && (
+            <div className='rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm'>
+              <p className='font-semibold text-emerald-700 dark:text-emerald-400'>{t('All settings are identical (only the API keys differ).')}</p>
+              <p className='mt-1 text-muted-foreground'>
+                {t('The merged channel becomes one multi-key channel (random mode). The original channels will be deleted.')}
+              </p>
+            </div>
+          )}
         </div>
       </Dialog>
 

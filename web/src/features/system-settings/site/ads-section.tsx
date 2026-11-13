@@ -130,14 +130,14 @@ function parseCustomAds(raw: string): CustomAdDraft[] {
 const AD_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,63}$/
 
 const AD_LANGUAGES = [
-  { code: 'tr', flag: 'ğŸ‡¹ğŸ‡·', label: 'TR' },
-  { code: 'en', flag: 'ğŸ‡¬ğŸ‡§', label: 'EN' },
-  { code: 'zh_CN', flag: 'ğŸ‡¨ğŸ‡³', label: 'ZH' },
-  { code: 'zh_TW', flag: 'ğŸ‡¹ğŸ‡¼', label: 'TW' },
-  { code: 'fr', flag: 'ğŸ‡«ğŸ‡·', label: 'FR' },
-  { code: 'ru', flag: 'ğŸ‡·ğŸ‡º', label: 'RU' },
-  { code: 'ja', flag: 'ğŸ‡¯ğŸ‡µ', label: 'JA' },
-  { code: 'vi', flag: 'ğŸ‡»ğŸ‡³', label: 'VI' },
+  { code: 'tr', flag: '🇹🇷', label: 'TR' },
+  { code: 'en', flag: '🇺🇸', label: 'EN' },
+  { code: 'zh_CN', flag: '🇨🇳', label: 'ZH' },
+  { code: 'zh_TW', flag: '🇹🇼', label: 'TW' },
+  { code: 'fr', flag: '🇫🇷', label: 'FR' },
+  { code: 'ru', flag: '🇷🇺', label: 'RU' },
+  { code: 'ja', flag: '🇯🇵', label: 'JA' },
+  { code: 'vi', flag: '🇻🇳', label: 'VI' },
 ] as const
 
 function LanguageImageGrid(props: {

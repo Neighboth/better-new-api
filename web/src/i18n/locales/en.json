@@ -7835,6 +7835,18 @@
     "Merge": "Merge",
     "Merging…": "Merging…",
     "The channels must have the same type, URL, models, groups and every other setting. Any difference will stop the merge and tell you which setting differs.": "The channels must have the same type, URL, models, groups and every other setting. Any difference will stop the merge and tell you which setting differs.",
-    "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.": "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted."
+    "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.": "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.",
+    "Open a support request and talk to the administrators.": "Open a support request and talk to the administrators.",
+    "Checking the channels…": "Checking the channels…",
+    "These settings differ:": "These settings differ:",
+    "All settings are identical (only the API keys differ).": "All settings are identical (only the API keys differ).",
+    "Cannot merge — fix the differences": "Cannot merge — fix the differences",
+    "Could not compare the channels": "Could not compare the channels",
+    "Password set — enter a new one to replace it": "Password set — enter a new one to replace it",
+    "Leave empty to store no password": "Leave empty to store no password",
+    "Remove the password protection from this file": "Remove the password protection from this file",
+    "Enter a folder name first": "Enter a folder name first",
+    "Folder names cannot contain slashes or dot-dot segments": "Folder names cannot contain slashes or dot-dot segments",
+    "File names cannot contain slashes": "File names cannot contain slashes"
   }
 }

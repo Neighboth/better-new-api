@@ -7835,6 +7835,18 @@
     "Merge": "合併",
     "Merging…": "正在合併…",
     "The channels must have the same type, URL, models, groups and every other setting. Any difference will stop the merge and tell you which setting differs.": "渠道的類型、URL、模型、分組及其他所有設定必須一致；任何差異都會阻止合併並告知您差異所在。",
-    "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.": "合併後的渠道將成為多金鑰渠道（金鑰拼接，隨機模式）。原渠道將被刪除。"
+    "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.": "合併後的渠道將成為多金鑰渠道（金鑰拼接，隨機模式）。原渠道將被刪除。",
+    "Open a support request and talk to the administrators.": "發起支援請求並與管理員溝通。",
+    "Checking the channels…": "正在檢查渠道…",
+    "These settings differ:": "以下設定不同：",
+    "All settings are identical (only the API keys differ).": "所有設定均一致（僅 API 金鑰不同）。",
+    "Cannot merge — fix the differences": "無法合併——請修正差異",
+    "Could not compare the channels": "無法比較渠道",
+    "Password set — enter a new one to replace it": "已設定密碼——輸入新密碼以替換",
+    "Leave empty to store no password": "留空則不設定密碼",
+    "Remove the password protection from this file": "移除此檔案的密碼保護",
+    "Enter a folder name first": "請先輸入資料夾名稱",
+    "Folder names cannot contain slashes or dot-dot segments": "資料夾名稱不能包含斜線或連續點號",
+    "File names cannot contain slashes": "檔案名稱不能包含斜線"
   }
 }

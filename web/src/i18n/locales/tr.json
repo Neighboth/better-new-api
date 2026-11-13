@@ -7835,6 +7835,18 @@
     "Merge": "Birleştir",
     "Merging…": "Birleştiriliyor…",
     "The channels must have the same type, URL, models, groups and every other setting. Any difference will stop the merge and tell you which setting differs.": "Kanalların türü, URL, modelleri, grupları ve diğer tüm ayarları aynı olmalı. Herhangi bir farklılık birleştirmeyi durdurur ve hangi ayarın farklı olduğunu söyler.",
-    "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.": "Birleşik kanal çok anahtarlı bir kanal olur (anahtarlar birleştirilir, rastgele mod). Eski kanallar silinecek."
+    "The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.": "Birleşik kanal çok anahtarlı bir kanal olur (anahtarlar birleştirilir, rastgele mod). Eski kanallar silinecek.",
+    "Open a support request and talk to the administrators.": "Destek talebi açın ve yöneticilerle konuşun.",
+    "Checking the channels…": "Kanallar kontrol ediliyor…",
+    "These settings differ:": "Şu ayarlar farklı:",
+    "All settings are identical (only the API keys differ).": "Tüm ayarlar aynı (yalnızca API anahtarları farklı).",
+    "Cannot merge — fix the differences": "Birleştirilemez — farklılıkları düzeltin",
+    "Could not compare the channels": "Kanallar karşılaştırılamadı",
+    "Password set — enter a new one to replace it": "Parola ayarlı — değiştirmek için yeni bir parola girin",
+    "Leave empty to store no password": "Parolasız kaydetmek için boş bırakın",
+    "Remove the password protection from this file": "Bu dosyanın parola korumasını kaldır",
+    "Enter a folder name first": "Önce bir klasör adı girin",
+    "Folder names cannot contain slashes or dot-dot segments": "Klasör adı eğik çizgi veya çift nokta içeremez",
+    "File names cannot contain slashes": "Dosya adı eğik çizgi içeremez"
   }
 }

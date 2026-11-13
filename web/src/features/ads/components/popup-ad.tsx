@@ -116,7 +116,7 @@ export function PopupAd() {
       className='fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-6'
       role='dialog'
     >
-      <div className='relative w-full max-w-4xl'>
+      <div className='relative w-full max-w-md sm:max-w-4xl'>
         <div className='bg-background overflow-hidden rounded-xl border shadow-2xl'>
           <a
             href={ad.url}
@@ -129,11 +129,7 @@ export function PopupAd() {
               src={image}
               alt={ad.id}
               className={cn(
-                'w-full bg-muted object-contain',
-                // A tall, very wide rectangle: the popup carries its own
-                // tall artwork instead of a crop of the wide strip the
-                // blog and the console draw.
-                'aspect-[16/10] max-h-[70vh]'
+                'max-h-[55vh] w-full bg-muted object-contain sm:max-h-[70vh]'
               )}
             />
           </a>
