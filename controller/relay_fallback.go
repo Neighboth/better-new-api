@@ -184,11 +184,67 @@ func switchRelayModel(c *gin.Context, info *relaycommon.RelayInfo, newModel stri
 	return nil
 }
 
+// composeLayeredSystemPrompt builds the final system message separating the
+// channel prompt, the client prompt and the relay fallback prompt, and stating
+// their authority order. The channel prompt always comes first; the client
+// prompt prevails over the conflicting parts of the fallback prompt.
+func composeLayeredSystemPrompt(existing, fallbackPrompt string) string {
+	channelPrompt, clientPrompt, found := constant.SplitChannelSystemPrompt(existing)
+	if !found {
+		clientPrompt = strings.TrimSpace(existing)
+	}
+
+	var body strings.Builder
+	body.WriteString(constant.SystemPromptLayerTitle)
+	body.WriteString("\n")
+	if channelPrompt != "" {
+		body.WriteString("--- CHANNEL PROMPT ---\n")
+		body.WriteString(channelPrompt)
+		body.WriteString("\n\n")
+	}
+	if clientPrompt != "" {
+		body.WriteString("--- CLIENT PROMPT ---\n")
+		body.WriteString(clientPrompt)
+		body.WriteString("\n\n")
+	}
+	body.WriteString("--- FALLBACK PROMPT ---\n")
+	body.WriteString(fallbackPrompt)
+	body.WriteString("\n\nReminder of authority order: apply the channel prompt exactly as written, then the client prompt, then only the non-conflicting parts of the fallback prompt.")
+	return body.String()
+}
+
+// extractRawSystemContent flattens a "system" value from the raw JSON body
+// (string, or an array of typed content parts for Claude/Anthropic) into a
+// plain text string.
+func extractRawSystemContent(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case []any:
+		parts := []string{}
+		for _, item := range v {
+			switch part := item.(type) {
+			case string:
+				parts = append(parts, part)
+			case map[string]interface{}:
+				text, _ := part["text"].(string)
+				if text != "" {
+					parts = append(parts, text)
+				}
+			}
+		}
+		return strings.Join(parts, "\n")
+	default:
+		return ""
+	}
+}
+
 func applyFallbackSystemPrompt(c *gin.Context, info *relaycommon.RelayInfo, s *fallbackState) error {
 	if s == nil || !s.on || s.done {
 		return nil
 	}
-	// Sadece configured fallback models içinde yer alan bir model'e fallback yapıldığında prompt eklenir
+	// The fallback prompt is only applied when the request actually falls
+	// back inside the configured fallback model list.
 	if !s.configuredModels[info.OriginModelName] {
 		return nil
 	}
@@ -213,16 +269,27 @@ func applyFallbackSystemPrompt(c *gin.Context, info *relaycommon.RelayInfo, s *f
 	case *dto.GeneralOpenAIRequest:
 		found := false
 		for i, msg := range req.Messages {
-			if msg.Role == req.GetSystemRoleName() {
-				if msg.IsStringContent() {
-					req.Messages[i].SetStringContent(prompt + "\n\n" + msg.StringContent())
-				}
-				found = true
-				break
+			if msg.Role != req.GetSystemRoleName() {
+				continue
 			}
+			existing := ""
+			if msg.IsStringContent() {
+				existing = msg.StringContent()
+			} else {
+				textParts := []string{}
+				for _, part := range msg.ParseContent() {
+					if part.Type == dto.ContentTypeText {
+						textParts = append(textParts, part.Text)
+					}
+				}
+				existing = strings.Join(textParts, "\n")
+			}
+			req.Messages[i].SetStringContent(composeLayeredSystemPrompt(existing, prompt))
+			found = true
+			break
 		}
 		if !found {
-			req.Messages = append([]dto.Message{{Role: req.GetSystemRoleName(), Content: prompt}}, req.Messages...)
+			req.Messages = append([]dto.Message{{Role: req.GetSystemRoleName(), Content: composeLayeredSystemPrompt("", prompt)}}, req.Messages...)
 		}
 	}
 
@@ -242,24 +309,29 @@ func applyFallbackSystemPrompt(c *gin.Context, info *relaycommon.RelayInfo, s *f
 	if messages, ok := raw["messages"].([]interface{}); ok {
 		found := false
 		for i, m := range messages {
-			if mm, ok := m.(map[string]interface{}); ok && mm["role"] == "system" {
-				if existingStr, ok := mm["content"].(string); ok {
-					mm["content"] = prompt + "\n\n" + existingStr
-					messages[i] = mm
-				}
-				found = true
-				break
+			mm, ok := m.(map[string]interface{})
+			if !ok {
+				continue
 			}
+			role, _ := mm["role"].(string)
+			if role != "system" {
+				continue
+			}
+			existing := extractRawSystemContent(mm["content"])
+			mm["content"] = composeLayeredSystemPrompt(existing, prompt)
+			messages[i] = mm
+			found = true
+			break
 		}
 		if !found {
-			raw["messages"] = append([]interface{}{map[string]interface{}{"role": "system", "content": prompt}}, messages...)
+			raw["messages"] = append([]interface{}{map[string]interface{}{"role": "system", "content": composeLayeredSystemPrompt("", prompt)}}, messages...)
 		} else {
 			raw["messages"] = messages
 		}
-	} else if sys, ok := raw["system"].(string); ok {
-		raw["system"] = prompt + "\n\n" + sys
+	} else if existing, hasSystem := raw["system"]; hasSystem {
+		raw["system"] = composeLayeredSystemPrompt(extractRawSystemContent(existing), prompt)
 	} else {
-		raw["system"] = prompt
+		raw["system"] = composeLayeredSystemPrompt("", prompt)
 	}
 	updated, err := common.Marshal(raw)
 	if err != nil {

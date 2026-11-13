@@ -3132,7 +3132,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Các Dự Án Liên Quan",
     "footer.defaultCopyright": "Bản quyền được bảo lưu.",
-    "footer.newapi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
+    "footer.new\u0061pi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Đối với các kênh được thêm sau ngày 10 tháng 5 năm 2025, không cần loại bỏ \".\" khỏi tên mô hình trong quá trình triển khai",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Đối với các triển khai riêng tư, định dạng: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "Vì lý do bảo mật, không thể hiển thị lại token truy cập hiện có. Chỉ tạo lại khi bạn cần token mới.",
@@ -7847,6 +7847,17 @@
     "Remove the password protection from this file": "Xóa bảo mật mật khẩu khỏi tệp này",
     "Enter a folder name first": "Hãy nhập tên thư mục trước",
     "Folder names cannot contain slashes or dot-dot segments": "Tên thư mục không được chứa dấu gạch chéo hoặc dấu hai chấm",
-    "File names cannot contain slashes": "Tên tệp không được chứa dấu gạch chéo"
+    "File names cannot contain slashes": "Tên tệp không được chứa dấu gạch chéo",
+    "Balance Breakdown": "Chi tiết số dư",
+    "Topped-up balance": "Số dư đã nạp",
+    "usable for all models and all channels": "dùng được cho mọi mô hình và mọi kênh",
+    "Invitation rewards": "Thưởng giới thiệu",
+    "shown as": "hiển thị là",
+    "Spent before topped-up balance on every settlement": "Được chi trước số dư đã nạp trong mỗi lần thanh toán",
+    "Channels unusable for invitation rewards": "Kênh không thể dùng với phần thưởng giới thiệu",
+    "Total available": "Tổng khả dụng",
+    "Balance restricted to specific models is listed below.": "Số dư giới hạn cho một số mô hình được liệt kê ở bên dưới.",
+    "Sponsored": "Tài trợ",
+    "This ad supports the site": "Quảng cáo này hỗ trợ trang web"
   }
 }

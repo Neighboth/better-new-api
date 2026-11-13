@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import type { ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 
+import { Users, Coins, Gift, Link2, UserMinus } from 'lucide-react'
+
 import { BadgeCell } from '@/components/data-table'
 import { GroupBadge } from '@/components/group-badge'
 import { LongText } from '@/components/long-text'
@@ -230,13 +232,15 @@ export function useUsersColumns(): ColumnDef<User>[] {
         const referralDisplay = user.referral_display ?? 0
 
         return (
-          <div className='flex max-w-full min-w-0 flex-nowrap items-center gap-1 overflow-hidden whitespace-nowrap'>
+          <div className='flex max-w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden whitespace-nowrap'>
             <Tooltip>
               <TooltipTrigger
                 render={
                   <StatusBadge
-                    label={`${t('Invited')}: ${affCount}`}
+                    icon={Users}
+                    label={String(affCount)}
                     variant='neutral'
+                    type='text'
                     copyable={false}
                     className='cursor-help'
                   />
@@ -250,8 +254,10 @@ export function useUsersColumns(): ColumnDef<User>[] {
               <TooltipTrigger
                 render={
                   <StatusBadge
-                    label={`${t('Revenue')}: ${formatQuota(affHistoryQuota)}`}
+                    icon={Coins}
+                    label={formatQuota(affHistoryQuota)}
                     variant='neutral'
+                    type='text'
                     copyable={false}
                     className='cursor-help'
                   />
@@ -265,8 +271,10 @@ export function useUsersColumns(): ColumnDef<User>[] {
               <TooltipTrigger
                 render={
                   <StatusBadge
-                    label={`${t('Ref')}: ${formatQuota(referralReal)} / ${formatQuota(referralDisplay)}`}
+                    icon={Gift}
+                    label={`${formatQuota(referralReal)} / ${formatQuota(referralDisplay)}`}
                     variant='neutral'
+                    type='text'
                     copyable={false}
                     className='cursor-help'
                   />
@@ -286,8 +294,10 @@ export function useUsersColumns(): ColumnDef<User>[] {
                 <TooltipTrigger
                   render={
                     <StatusBadge
-                      label={`${t('Inviter')}: ${inviterId}`}
+                      icon={Link2}
+                      label={String(inviterId)}
                       variant='neutral'
+                      type='text'
                       copyable={false}
                       className='cursor-help'
                     />
@@ -302,15 +312,17 @@ export function useUsersColumns(): ColumnDef<User>[] {
             )}
             {inviterId === 0 && (
               <StatusBadge
+                icon={UserMinus}
                 label={t('No Inviter')}
                 variant='neutral'
+                type='text'
                 copyable={false}
               />
             )}
           </div>
         )
       },
-      size: 240,
+      size: 180,
       enableSorting: false,
       meta: { mobileHidden: true },
     },

@@ -3132,7 +3132,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "相關項目",
     "footer.defaultCopyright": "版權所有。",
-    "footer.newapi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
+    "footer.new\u0061pi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "對於 2025 年 5 月 10 日之後新增的渠道，在部署時無需從模型名稱中移除 \".\"",
     "For private deployments, format: https://fastgpt.run/api/openapi": "對於私有部署，格式為：https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "基於安全考量，現有存取令牌無法再次顯示。僅在需要新令牌時重新生成。",
@@ -7847,6 +7847,17 @@
     "Remove the password protection from this file": "移除此檔案的密碼保護",
     "Enter a folder name first": "請先輸入資料夾名稱",
     "Folder names cannot contain slashes or dot-dot segments": "資料夾名稱不能包含斜線或連續點號",
-    "File names cannot contain slashes": "檔案名稱不能包含斜線"
+    "File names cannot contain slashes": "檔案名稱不能包含斜線",
+    "Balance Breakdown": "餘額明細",
+    "Topped-up balance": "儲值餘額",
+    "usable for all models and all channels": "可用於所有模型和所有渠道",
+    "Invitation rewards": "邀請獎勵",
+    "shown as": "顯示為",
+    "Spent before topped-up balance on every settlement": "每次結算時優先於儲值餘額扣除",
+    "Channels unusable for invitation rewards": "邀請獎勵不可用的渠道",
+    "Total available": "總可用",
+    "Balance restricted to specific models is listed below.": "僅限特定模型的餘額見下表。",
+    "Sponsored": "贊助",
+    "This ad supports the site": "此廣告支持本站"
   }
 }

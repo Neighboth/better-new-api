@@ -187,6 +187,38 @@ export function serializeHeaderNavModules(
   return JSON.stringify(config)
 }
 
+const parseSidebarSection = (
+  sectionKey: string,
+  raw: unknown,
+  defaults: SidebarModulesAdminConfig
+): SidebarSectionConfig => {
+  const defaultSection = defaults[sectionKey] ?? { enabled: true }
+  const rawRecord =
+    raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const sectionConfig: SidebarSectionConfig = {
+    enabled: toBoolean(rawRecord.enabled, defaultSection.enabled ?? true),
+  }
+  // Modules are emitted in the canonical default order first; stored-only
+  // modules (unknown legacy keys) are appended so nothing is dropped.
+  Object.entries(defaultSection).forEach(([moduleKey, defaultValue]) => {
+    if (moduleKey === 'enabled') return
+    sectionConfig[moduleKey] = toBoolean(
+      rawRecord[moduleKey],
+      defaultValue === undefined ? true : defaultValue
+    )
+  })
+  Object.entries(rawRecord).forEach(([moduleKey, moduleValue]) => {
+    if (
+      moduleKey === 'enabled' ||
+      Object.prototype.hasOwnProperty.call(sectionConfig, moduleKey)
+    ) {
+      return
+    }
+    sectionConfig[moduleKey] = toBoolean(moduleValue, true)
+  })
+  return sectionConfig
+}
+
 export function parseSidebarModulesAdmin(
   value: string | null | undefined
 ): SidebarModulesAdminConfig {
@@ -198,42 +230,25 @@ export function parseSidebarModulesAdmin(
     const parsed = JSON.parse(value) as Record<string, unknown>
     const result: SidebarModulesAdminConfig = {}
 
+    // Sections follow the canonical default order; stored-only legacy
+    // sections are appended at the end instead of re-ordering the console.
+    Object.keys(defaults).forEach((sectionKey) => {
+      result[sectionKey] = parseSidebarSection(sectionKey, parsed[sectionKey], defaults)
+    })
     Object.entries(parsed).forEach(([sectionKey, raw]) => {
+      if (result[sectionKey]) return
       if (!raw || typeof raw !== 'object') return
-
-      const defaultSection = defaults[sectionKey] ?? { enabled: true }
-      const sectionConfig: SidebarSectionConfig = {
-        enabled: toBoolean(
-          (raw as Record<string, unknown>).enabled,
-          defaultSection.enabled ?? true
-        ),
-      }
-
+      const sectionConfig: SidebarSectionConfig = { enabled: true }
       Object.entries(raw as Record<string, unknown>).forEach(
         ([moduleKey, moduleValue]) => {
-          if (moduleKey === 'enabled') return
-          sectionConfig[moduleKey] = toBoolean(
-            moduleValue,
-            defaultSection[moduleKey] ?? true
-          )
+          if (moduleKey === 'enabled') {
+            sectionConfig.enabled = toBoolean(moduleValue, true)
+            return
+          }
+          sectionConfig[moduleKey] = toBoolean(moduleValue, true)
         }
       )
-
       result[sectionKey] = sectionConfig
-    })
-
-    // Merge defaults to ensure expected sections exist
-    Object.entries(defaults).forEach(([sectionKey, config]) => {
-      if (!result[sectionKey]) {
-        result[sectionKey] = { ...config }
-        return
-      }
-
-      Object.entries(config).forEach(([moduleKey, moduleValue]) => {
-        if (!(moduleKey in result[sectionKey])) {
-          result[sectionKey][moduleKey] = moduleValue
-        }
-      })
     })
 
     return result

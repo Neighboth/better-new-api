@@ -8,6 +8,8 @@ import argparse
 import urllib.request
 import re
 import io
+import glob
+import platform
 
 # Environment overrides make reproducible builds possible on CI and developer machines.
 # The legacy defaults remain for existing Windows installations.
@@ -778,8 +780,8 @@ html_content = f'''<!DOCTYPE html>
         </button>
       </div>
 
-      <div class="input-group" id="group-server-url" style="margin-top: 10px; display: none !important;">
-        <input id="input-server-url" type="hidden" class="input-text">
+      <div class="input-group" id="group-server-url" style="margin-top: 10px;">
+        <input id="input-server-url" type="text" class="input-text" placeholder="https://your-site.example.com" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false">
       </div>
 
       <button id="btn-connect" class="btn btn-secondary" onclick="connectManual()">
@@ -1572,6 +1574,14 @@ html_content = f'''<!DOCTYPE html>
     window.onload = function() {{
       applyI18n();
       refreshPermissions();
+      // Show the configured server so a user whose installation lives on a
+      // domain can see (and correct) it; the app was previously stuck on
+      // the development default with no way to change it.
+      try {{
+        const srvEl = document.getElementById('input-server-url');
+        const def = "{server_url}".trim();
+        if (srvEl && !srvEl.value && def && !def.startsWith("{{")) srvEl.value = def;
+      }} catch (e) {{}}
       if (window.AndroidBridge && window.AndroidBridge.getInitialState) {{
         const initStr = window.AndroidBridge.getInitialState();
         if (initStr) window.updateState(initStr);
@@ -4569,13 +4579,72 @@ with zipfile.ZipFile(unaligned_apk, "a", compression=zipfile.ZIP_DEFLATED) as zf
                 zf.writestr(zinfo, so_data)
 
     mobile_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # The llama.cpp engine links against LIBCXX and LIBOMP whose runtimes ship
+    # with the Android NDK (they are Apache-2.0 / LLVM). Requiring them makes a
+    # broken APK impossible to ship silently: the engine used to fail at
+    # runtime with "No native library found" when these files were missing.
+    def _ndk_host_tags():
+        if platform.system() == "Windows":
+            return ["windows-x86_64"]
+        if platform.system() == "Darwin":
+            return ["darwin-arm64", "darwin-x86_64"]
+        return ["linux-x86_64"]
+
+    def _candidate_ndk_roots():
+        roots = []
+        for env_key in ("ANDROID_NDK_HOME", "ANDROID_NDK", "ANDROID_NDK_ROOT"):
+            val = os.environ.get(env_key)
+            if val:
+                roots.append(val)
+        sdk_ndk_dirs = []
+        if platform.system() == "Windows":
+            local_app_data = os.environ.get("LOCALAPPDATA")
+            if local_app_data:
+                sdk_ndk_dirs.append(os.path.join(local_app_data, "Android", "Sdk", "ndk"))
+        elif platform.system() == "Darwin":
+            sdk_ndk_dirs.append(os.path.expanduser("~/Library/Android/sdk/ndk"))
+        else:
+            sdk_ndk_dirs.append(os.path.expanduser("~/Android/Sdk/ndk"))
+        for sdk_dir in sdk_ndk_dirs:
+            if os.path.isdir(sdk_dir):
+                versions = sorted(glob.glob(os.path.join(sdk_dir, "*")), reverse=True)
+                roots.extend([v for v in versions if os.path.isdir(v)])
+        return roots
+
+    def _find_native_lib(name):
+        explicit = os.path.join(mobile_dir, name)
+        if os.path.exists(explicit):
+            return explicit
+        searched = [explicit]
+        for root in _candidate_ndk_roots():
+            for host in _ndk_host_tags():
+                toolchain_dir = os.path.join(root, "toolchains", "llvm", "prebuilt", host)
+                if name == "libc++_shared.so":
+                    candidate = os.path.join(toolchain_dir, "sysroot", "usr", "lib", "aarch64-linux-android", name)
+                    searched.append(candidate)
+                    if os.path.exists(candidate):
+                        return candidate
+                elif name == "libomp.so":
+                    clang_dirs = sorted(glob.glob(os.path.join(toolchain_dir, "lib64", "clang", "*")), reverse=True)
+                    for clang_dir in clang_dirs:
+                        candidate = os.path.join(clang_dir, "lib", "linux", "aarch64", name)
+                        searched.append(candidate)
+                        if os.path.exists(candidate):
+                            return candidate
+        print("ERROR: required native library %r was not found. The APK cannot run without it." % name)
+        print("Paths searched:")
+        for path in searched:
+            print("  -", path)
+        print("Install the Android NDK or set ANDROID_NDK_HOME to its path.")
+        sys.exit(1)
+
     for lib_name in ["libc++_shared.so", "libomp.so"]:
-        lib_p = os.path.join(mobile_dir, lib_name)
-        if os.path.exists(lib_p):
-            with open(lib_p, "rb") as lf:
-                zinfo = zipfile.ZipInfo(f"lib/arm64-v8a/{lib_name}")
-                zinfo.compress_type = zipfile.ZIP_STORED
-                zf.writestr(zinfo, lf.read())
+        lib_p = _find_native_lib(lib_name)
+        with open(lib_p, "rb") as lf:
+            zinfo = zipfile.ZipInfo(f"lib/arm64-v8a/{lib_name}")
+            zinfo.compress_type = zipfile.ZIP_STORED
+            zf.writestr(zinfo, lf.read())
 
 # 9. Zipalign
 # The uncompressed native libraries are aligned to a sixteen kilobyte page boundary, the

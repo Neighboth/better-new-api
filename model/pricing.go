@@ -414,17 +414,11 @@ func updatePricing() {
 		Scan(&chRows).Error
 
 	modelChannelsMap := make(map[string][]PricingChannel)
-	seenChannelNames := make(map[string]map[string]bool)
 
 	for _, row := range chRows {
-		if seenChannelNames[row.Model] == nil {
-			seenChannelNames[row.Model] = make(map[string]bool)
-		}
-		if seenChannelNames[row.Model][row.ChannelName] {
-			continue
-		}
-		seenChannelNames[row.Model][row.ChannelName] = true
-
+		// Every enabled channel appears on its own. Two channels with the
+		// same name or the same type still appear separately: merging them
+		// hides real differences such as base URL, price or uptime.
 		multiplier := 1.0
 		if row.ModelRatioOverride != nil && *row.ModelRatioOverride != "" {
 			var m map[string]float64

@@ -36,10 +36,11 @@ func applySystemPromptIfNeeded(c *gin.Context, info *relaycommon.RelayInfo, requ
 			break
 		}
 	}
+	wrapped := constant.WrapChannelSystemPrompt(info.ChannelSetting.SystemPrompt)
 	if !containSystemPrompt {
 		systemMessage := dto.Message{
 			Role:    systemRole,
-			Content: info.ChannelSetting.SystemPrompt,
+			Content: wrapped,
 		}
 		request.Messages = append([]dto.Message{systemMessage}, request.Messages...)
 		return
@@ -55,14 +56,14 @@ func applySystemPromptIfNeeded(c *gin.Context, info *relaycommon.RelayInfo, requ
 			continue
 		}
 		if message.IsStringContent() {
-			request.Messages[i].SetStringContent(info.ChannelSetting.SystemPrompt + "\n" + message.StringContent())
+			request.Messages[i].SetStringContent(wrapped + "\n" + message.StringContent())
 			return
 		}
 		contents := message.ParseContent()
 		contents = append([]dto.MediaContent{
 			{
 				Type: dto.ContentTypeText,
-				Text: info.ChannelSetting.SystemPrompt,
+				Text: wrapped,
 			},
 		}, contents...)
 		request.Messages[i].Content = contents

@@ -504,6 +504,25 @@ func GetSelf(c *gin.Context) {
 	return
 }
 
+// referralExcludedChannelSummaries exposes the channels that invitation
+// rewards may not use, so the wallet can explain which channels the reward
+// balance does not cover, with names only (never keys or settings).
+func referralExcludedChannelSummaries() []gin.H {
+	ids := operation_setting.GetReferralSetting().ExcludedChannelIds
+	if len(ids) == 0 {
+		return []gin.H{}
+	}
+	channels, err := model.GetChannelsByIds(ids)
+	if err != nil {
+		return []gin.H{}
+	}
+	out := make([]gin.H, 0, len(channels))
+	for _, ch := range channels {
+		out = append(out, gin.H{"id": ch.Id, "name": ch.Name})
+	}
+	return out
+}
+
 // buildSelfUserData is the single safe dashboard-user DTO used by GetSelf,
 // login and refresh. It intentionally excludes password, management PAT and
 // administrator-only remarks.
@@ -537,6 +556,7 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"aff_history_quota": user.AffHistoryQuota,
 		"referral_quota":    user.ReferralQuota,
 		"referral_display":  user.ReferralDisplay,
+		"referral_excluded_channels": referralExcludedChannelSummaries(),
 		"inviter_id":        user.InviterId,
 		"linux_do_id":       user.LinuxDOId,
 		"setting":           user.Setting,

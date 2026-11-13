@@ -44,31 +44,53 @@ var ignoredOtherSettingsKeys = map[string]bool{
 	"upstream_model_update_ignored_models":       true,
 }
 
+// ignoredOtherSettingsPrefixes matches any other-settings key that is produced
+// by the upstream model-sync sweeper. Two identical channels would falsely
+// differ on those keys, so they are skipped entirely.
+var ignoredOtherSettingsPrefixes = []string{
+	"upstream_model_update_",
+}
+
+// isIgnoredRuntimeKey reports whether a lower-cased leaf JSON key is runtime
+// metadata that must not block a merge of two otherwise-identical channels.
+func isIgnoredRuntimeKey(lower string) bool {
+	if ignoredOtherSettingsKeys[lower] {
+		return true
+	}
+	for _, prefix := range ignoredOtherSettingsPrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // otherSettingFriendlyLabels maps raw JSON keys (as they appear in the
-// channel form JSON) to human Turkish labels, matching the UI.
+// channel form JSON) to short human Turkish labels. The raw key is still
+// available on the field slot for audit purposes.
 var otherSettingFriendlyLabels = map[string]string{
-	"azure_responses_version":                 "Azure yanıt sürümü (azure_responses_version)",
-	"vertex_key_type":                        "Vertex anahtar tipi (vertex_key_type)",
-	"claude_beta_query":                      "Claude beta sorgu (claude_beta_query)",
-	"allow_service_tier":                     "Servis katmanı izni (allow_service_tier)",
-	"allow_inference_geo":                    "Çıkarım konumu izni (allow_inference_geo)",
-	"allow_speed":                            "Hız ayarı izni (allow_speed)",
-	"allow_safety_identifier":                "Güvenlik kimliği izni (allow_safety_identifier)",
-	"disable_store":                          "store parametresi kapalı (disable_store)",
-	"allow_include_obfuscation":              "Obfuscation izni (allow_include_obfuscation)",
-	"disable_task_polling_sleep":             "Görev bekleme kapalı (disable_task_polling_sleep)",
-	"aws_key_type":                           "AWS anahtar tipi (aws_key_type)",
-	"upstream_model_update_check_enabled":    "Model güncelleme kontrolü (upstream_model_update_check_enabled)",
-	"upstream_model_update_auto_sync_enabled": "Model güncelleme otomatik (upstream_model_update_auto_sync_enabled)",
-	"force_format":                           "Biçim zorlama (force_format)",
-	"thinking_to_content":                    "Düşünceyi içeriğe (thinking_to_content)",
-	"proxy":                                  "Proxy",
-	"pass_through_body_enabled":              "Ham gövde geçir (pass_through_body_enabled)",
-	"system_prompt":                          "Sistem prompt",
-	"system_prompt_override":                 "Sistem promptu üstüne yaz",
-	"http_protocol":                          "HTTP protokolü (http_protocol)",
-	"http2_connection_shards":                "HTTP/2 parçalama (http2_connection_shards)",
-	"advanced_custom":                        "Özel istek dönüştürücü (advanced_custom)",
+	"azure_responses_version":                 "Azure yanıt sürümü",
+	"vertex_key_type":                         "Vertex anahtar tipi",
+	"claude_beta_query":                       "Claude beta sorgu",
+	"allow_service_tier":                      "Servis katmanı izni",
+	"allow_inference_geo":                     "Çıkarım konumu izni",
+	"allow_speed":                             "Hız ayarı izni",
+	"allow_safety_identifier":                 "Güvenlik kimliği izni",
+	"disable_store":                           "store parametresi kapalı",
+	"allow_include_obfuscation":               "Obfuscation izni",
+	"disable_task_polling_sleep":              "Görev bekleme kapalı",
+	"aws_key_type":                            "AWS anahtar tipi",
+	"upstream_model_update_check_enabled":     "Model güncelleme kontrolü",
+	"upstream_model_update_auto_sync_enabled": "Model güncelleme otomatik",
+	"force_format":                            "Biçim zorlama",
+	"thinking_to_content":                     "Düşünceyi içeriğe dönüştür",
+	"proxy":                                   "Proxy",
+	"pass_through_body_enabled":               "Ham gövde geçir",
+	"system_prompt":                           "Sistem prompt",
+	"system_prompt_override":                  "Sistem promptu üstüne yaz",
+	"http_protocol":                           "HTTP protokolü",
+	"http2_connection_shards":                 "HTTP/2 bağlantı parçalama",
+	"advanced_custom":                         "Özel istek dönüştürücü",
 }
 
 func mergeChannelFieldMissing(value *string) string {
@@ -87,22 +109,21 @@ func mergeHumanField(field string) string {
 		"base_url":             "Temel URL",
 		"models":               "Modeller",
 		"group":                "Grup",
-		"model_mapping":        "Model Eşleme",
-		"status_code_mapping":  "Durum Kodu Eşleme",
+		"model_mapping":        "Model eşleme",
+		"status_code_mapping":  "Durum kodu eşleme",
 		"priority":             "Öncelik",
 		"weight":               "Ağırlık",
-		"auto_ban":             "Otomatik Yasaklama",
+		"auto_ban":             "Otomatik yasaklama",
 		"tag":                  "Etiket",
-		"setting":              "Ayarlar (system prompt, proxy, HTTP)",
-		"other_settings":       "Diğer Ayarlar (azure, vertex, claude beta)",
-		"param_override":       "Parametre Geçersiz Kılma",
-		"header_override":      "Başlık Geçersiz Kılma",
-		"model_ratio_override": "Model Oranı Geçersiz Kılma",
+		"setting":              "Ayarlar",
+		"other_settings":       "Diğer ayarlar",
+		"param_override":       "İstek parametresi geçersiz kılma",
+		"header_override":      "İstek başlığı geçersiz kılma",
+		"model_ratio_override": "Model oranı geçersiz kılma",
 		"openai_organization":  "Kuruluş",
-		"test_model":           "Test Modeli",
+		"test_model":           "Test modeli",
 		"remark":               "Not",
-		"other":                "Diğer Bilgi",
-		"other_info":           "Diğer Bilgi 2",
+		"other":                "Diğer bilgi",
 		"status":               "Durum",
 		"multi_key_mode":       "Çok anahtarlı mod",
 		"key_mode":             "Anahtar modu",
@@ -210,7 +231,10 @@ func canonicalJSONValue(value any) string {
 	}
 }
 
-func jsonDifferingPaths(aDoc any, bDoc any) []mergeFieldDiff {
+// jsonDifferingPaths flattens the nested document under the dotted paths and
+// reports the differing leaves. parent is the human name of the section, used
+// to build a readable breadcrumb label (e.g. "Ayarlar › Sistem prompt").
+func jsonDifferingPaths(aDoc any, bDoc any, parent string) []mergeFieldDiff {
 	var diffs []mergeFieldDiff
 	aMap := map[string]any{}
 	bMap := map[string]any{}
@@ -239,7 +263,7 @@ func jsonDifferingPaths(aDoc any, bDoc any) []mergeFieldDiff {
 		if idx := strings.LastIndex(leaf, "."); idx >= 0 {
 			short = leaf[idx+1:]
 		}
-		if ignoredOtherSettingsKeys[strings.ToLower(short)] {
+		if isIgnoredRuntimeKey(strings.ToLower(short)) {
 			continue
 		}
 		aVal, aOk := aMap[k]
@@ -254,8 +278,11 @@ func jsonDifferingPaths(aDoc any, bDoc any) []mergeFieldDiff {
 		if aFlat == bFlat {
 			continue
 		}
-		label := mergeHumanField(short)
-		diffs = append(diffs, mergeFieldDiff{field: leaf, label: label, value: bFlat})
+		diffs = append(diffs, mergeFieldDiff{
+			field: leaf,
+			label: parent + " › " + mergeHumanField(short),
+			value: bFlat,
+		})
 	}
 	return diffs
 }
@@ -291,24 +318,23 @@ func channelsAreEqual(channels []*model.Channel, ignoreFields map[string]bool) [
 		compare("test_model", mergeChannelFieldMissing(first.TestModel), mergeChannelFieldMissing(other.TestModel))
 		compare("remark", mergeChannelFieldMissing(first.Remark), mergeChannelFieldMissing(other.Remark))
 		compare("other", strings.TrimSpace(first.Other), strings.TrimSpace(other.Other))
-		compare("other_info", strings.TrimSpace(first.OtherInfo), strings.TrimSpace(other.OtherInfo))
+		// other_info is runtime metadata produced by channel test pings. It
+		// changes by itself and must not block a merge of identical channels.
 		compare("status", fmt.Sprintf("%d", first.Status), fmt.Sprintf("%d", other.Status))
 
 		var aSettingDoc, bSettingDoc any
 		_ = common.UnmarshalJsonStr(mergeChannelFieldMissing(first.Setting), &aSettingDoc)
 		_ = common.UnmarshalJsonStr(mergeChannelFieldMissing(other.Setting), &bSettingDoc)
-		for _, diff := range jsonDifferingPaths(aSettingDoc, bSettingDoc) {
+		for _, diff := range jsonDifferingPaths(aSettingDoc, bSettingDoc, mergeHumanField("setting")) {
 			diff.field = "setting." + diff.field
-			diff.label = mergeHumanField(strings.TrimPrefix(diff.field, "other."))
 			diffs = append(diffs, diff)
 		}
 
 		var aOtherDoc, bOtherDoc any
 		_ = common.UnmarshalJsonStr(first.OtherSettings, &aOtherDoc)
 		_ = common.UnmarshalJsonStr(other.OtherSettings, &bOtherDoc)
-		for _, diff := range jsonDifferingPaths(aOtherDoc, bOtherDoc) {
+		for _, diff := range jsonDifferingPaths(aOtherDoc, bOtherDoc, mergeHumanField("other_settings")) {
 			diff.field = "other_settings." + diff.field
-			diff.label = mergeHumanField(strings.TrimPrefix(diff.field, "other."))
 			diffs = append(diffs, diff)
 		}
 	}

@@ -21,7 +21,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
 
 import { fetchPopupAds, trackConsoleAdImpression } from '../api'
 import { resolveAdImage } from '../lib/ad-image'
@@ -113,29 +112,32 @@ export function PopupAd() {
     <div
       aria-label={t('Advertisement')}
       aria-modal='true'
-      className='fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-6'
+      className='fixed inset-0 z-[90] flex items-center justify-center bg-black/75 p-4 backdrop-blur-md sm:p-8'
       role='dialog'
     >
-      <div className='relative w-full max-w-md sm:max-w-4xl'>
-        <div className='bg-background overflow-hidden rounded-xl border shadow-2xl'>
+      <div className='relative w-full max-w-[500px] sm:max-w-xl'>
+        <div className='overflow-hidden rounded-2xl border border-white/10 bg-zinc-950 text-zinc-100 shadow-[0_24px_80px_-12px_rgba(0,0,0,0.8)] ring-1 ring-white/5'>
           <a
             href={ad.url}
             target='_blank'
             rel='noopener noreferrer sponsored'
-            className='block'
+            className='group block'
             onClick={close}
           >
-            <img
-              src={image}
-              alt={ad.id}
-              className={cn(
-                'max-h-[55vh] w-full bg-muted object-contain sm:max-h-[70vh]'
-              )}
-            />
+            <div className='relative flex h-52 items-center justify-center overflow-hidden bg-zinc-900 sm:h-64'>
+              <img
+                src={image}
+                alt={ad.id}
+                className='h-full w-full object-contain transition-transform duration-700 ease-out group-hover:scale-[1.02]'
+              />
+              <span className='absolute left-3 top-3 rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-300 backdrop-blur'>
+                {t('Sponsored')}
+              </span>
+            </div>
           </a>
-          <div className='flex items-center justify-between gap-3 border-t px-3 py-2'>
-            <span className='text-muted-foreground text-xs'>
-              {t('Advertisement')}
+          <div className='flex items-center justify-between gap-3 border-t border-white/5 px-4 py-2.5 sm:py-3'>
+            <span className='max-w-[45%] truncate text-[11px] text-zinc-500'>
+              {t('This ad supports the site')}
             </span>
             <Button
               disabled={remaining > 0}
@@ -143,10 +145,21 @@ export function PopupAd() {
               size='sm'
               type='button'
               variant={remaining > 0 ? 'secondary' : 'default'}
+              className={
+                remaining > 0
+                  ? 'h-9 rounded-full border border-white/10 bg-zinc-800/80 px-4 text-zinc-300 hover:bg-zinc-800'
+                  : 'h-9 rounded-full bg-zinc-100 px-4 text-zinc-900 hover:bg-white'
+              }
             >
               {remaining > 0
                 ? t('Skip ad in {{seconds}}s', { seconds: remaining })
                 : t('Skip ad')}
+              {remaining > 0 && (
+                <span
+                  aria-hidden
+                  className='ml-2 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400'
+                />
+              )}
             </Button>
           </div>
         </div>

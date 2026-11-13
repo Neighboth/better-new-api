@@ -335,7 +335,6 @@ func migrateDB() error {
 		return err
 	}
 	InitBuiltinVendors()
-	CleanupOrphanUploadFiles()
 	MigrateLegacyTicketStatus()
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {

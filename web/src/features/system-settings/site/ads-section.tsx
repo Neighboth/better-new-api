@@ -603,25 +603,28 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                             <Trash2 className='h-4 w-4' />
                           </Button>
                         </div>
-                        <LanguageImageGrid
-                          t={t}
-                          required
-                          header={t('Banner images (Blog & Console)')}
-                          hint={t('Banner strip for the blog and the console (1000 x 200). Missing languages fall back to English.')}
-                          values={ad.images ?? {}}
-                          uploadingSlot={uploadingSlot}
-                          adIndex={index}
-                          popup={false}
-                          onImageChange={(lang, url) => {
-                            const updatedImages = { ...(ad.images || {}), [lang]: url }
-                            if (!url) delete updatedImages[lang]
-                            updateCustomAd(index, 'images' as keyof CustomAdDraft, updatedImages)
-                          }}
-                          onUpload={(langKey) => {
-                            setUploadingSlot({ index, lang: langKey })
-                            fileInputRef.current?.click()
-                          }}
-                        />
+                        {(ad.placements.includes('blog') ||
+                          ad.placements.includes('console')) && (
+                          <LanguageImageGrid
+                            t={t}
+                            required
+                            header={t('Banner images (Blog & Console)')}
+                            hint={t('Banner strip for the blog and the console (1000 x 200). Missing languages fall back to English.')}
+                            values={ad.images ?? {}}
+                            uploadingSlot={uploadingSlot}
+                            adIndex={index}
+                            popup={false}
+                            onImageChange={(lang, url) => {
+                              const updatedImages = { ...(ad.images || {}), [lang]: url }
+                              if (!url) delete updatedImages[lang]
+                              updateCustomAd(index, 'images' as keyof CustomAdDraft, updatedImages)
+                            }}
+                            onUpload={(langKey) => {
+                              setUploadingSlot({ index, lang: langKey })
+                              fileInputRef.current?.click()
+                            }}
+                          />
+                        )}
                         {ad.placements.includes('popup') && (
                           <LanguageImageGrid
                             t={t}

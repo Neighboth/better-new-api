@@ -270,6 +270,8 @@ export interface UserWalletData {
   referral_quota?: number
   /** Referral reward balance as the user sees it */
   referral_display?: number
+  /** Channels whose balance cannot be used by invitations for requests */
+  referral_excluded_channels?: Array<{ id: number; name: string }>
   /** User group */
   group: string
   /** Request pool balance */

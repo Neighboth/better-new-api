@@ -3132,7 +3132,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Related Projects",
     "footer.defaultCopyright": "All rights reserved.",
-    "footer.newapi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
+    "footer.new\u0061pi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment",
     "For private deployments, format: https://fastgpt.run/api/openapi": "For private deployments, format: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.",
@@ -7847,6 +7847,17 @@
     "Remove the password protection from this file": "Remove the password protection from this file",
     "Enter a folder name first": "Enter a folder name first",
     "Folder names cannot contain slashes or dot-dot segments": "Folder names cannot contain slashes or dot-dot segments",
-    "File names cannot contain slashes": "File names cannot contain slashes"
+    "File names cannot contain slashes": "File names cannot contain slashes",
+    "Balance Breakdown": "Balance Breakdown",
+    "Topped-up balance": "Topped-up balance",
+    "usable for all models and all channels": "usable for all models and all channels",
+    "Invitation rewards": "Invitation rewards",
+    "shown as": "shown as",
+    "Spent before topped-up balance on every settlement": "Spent before topped-up balance on every settlement",
+    "Channels unusable for invitation rewards": "Channels unusable for invitation rewards",
+    "Total available": "Total available",
+    "Balance restricted to specific models is listed below.": "Balance restricted to specific models is listed below.",
+    "Sponsored": "Sponsored",
+    "This ad supports the site": "This ad supports the site"
   }
 }

@@ -3132,7 +3132,7 @@
     "footer.columns.related.links.oneApi": "1つのAPI",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
     "For private deployments, format: https://fastgpt.run/api/openapi": "プライベートデプロイメントの場合、形式: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "セキュリティ上、既存のアクセストークンは再表示できません。新しいトークンが必要な場合のみ再生成してください。",
@@ -7847,6 +7847,17 @@
     "Remove the password protection from this file": "このファイルのパスワード保護を解除する",
     "Enter a folder name first": "先にフォルダー名を入力してください",
     "Folder names cannot contain slashes or dot-dot segments": "フォルダー名にスラッシュや「..」は使えません",
-    "File names cannot contain slashes": "ファイル名にスラッシュは使えません"
+    "File names cannot contain slashes": "ファイル名にスラッシュは使えません",
+    "Balance Breakdown": "残高内訳",
+    "Topped-up balance": "チャージ済み残高",
+    "usable for all models and all channels": "すべてのモデルとすべてのチャンネルで利用可能",
+    "Invitation rewards": "招待報酬",
+    "shown as": "表示：",
+    "Spent before topped-up balance on every settlement": "毎回の決済でチャージ済み残高より先に使用されます",
+    "Channels unusable for invitation rewards": "招待報酬では利用できないチャンネル",
+    "Total available": "合計",
+    "Balance restricted to specific models is listed below.": "特定のモデルに制限された残高は下記の通りです。",
+    "Sponsored": "スポンサー",
+    "This ad supports the site": "この広告はサイトを支援します"
   }
 }

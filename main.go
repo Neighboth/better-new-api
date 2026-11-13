@@ -189,8 +189,8 @@ func main() {
 			},
 		})
 	}))
-	server.Static("/uploads", "./uploads")
 	server.Use(controller.ServeManagedFileMiddleware())
+	server.Static("/uploads", "./uploads")
 	// This will cause SSE not to work!!!
 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
 	server.Use(middleware.RequestId())
@@ -284,6 +284,9 @@ func InitResources() error {
 		}
 	}
 	model.InitOptionMap()
+	// Options are loaded: the ad cleanup can see the custom ads of the option
+	// map and keeps every image the site still references.
+	model.CleanupOrphanUploadFiles()
 
 	// 清理旧的磁盘缓存文件
 	common.CleanupOldCacheFiles()

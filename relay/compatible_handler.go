@@ -123,11 +123,12 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 						break
 					}
 				}
+				wrapped := constant.WrapChannelSystemPrompt(info.ChannelSetting.SystemPrompt)
 				if !containSystemPrompt {
 					// 如果没有系统提示，则添加系统提示
 					systemMessage := dto.Message{
 						Role:    request.GetSystemRoleName(),
-						Content: info.ChannelSetting.SystemPrompt,
+						Content: wrapped,
 					}
 					request.Messages = append([]dto.Message{systemMessage}, request.Messages...)
 				} else if info.ChannelSetting.SystemPromptOverride {
@@ -136,13 +137,13 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 					for i, message := range request.Messages {
 						if message.Role == request.GetSystemRoleName() {
 							if message.IsStringContent() {
-								request.Messages[i].SetStringContent(info.ChannelSetting.SystemPrompt + "\n" + message.StringContent())
+								request.Messages[i].SetStringContent(wrapped + "\n" + message.StringContent())
 							} else {
 								contents := message.ParseContent()
 								contents = append([]dto.MediaContent{
 									{
 										Type: dto.ContentTypeText,
-										Text: info.ChannelSetting.SystemPrompt,
+										Text: wrapped,
 									},
 								}, contents...)
 								request.Messages[i].Content = contents

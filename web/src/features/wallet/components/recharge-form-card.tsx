@@ -327,10 +327,11 @@ export function RechargeFormCard({
                 {hasStandardPaymentMethods ? (
                   <div className='grid grid-cols-2 gap-1.5 sm:gap-3 lg:grid-cols-3'>
                     {topupInfo?.pay_methods?.map((method) => {
-                      const minTopup = Math.max(
-                        method.min_topup || 0,
-                        getMinTopupAmount(topupInfo)
-                      )
+                      // A method that carries its own minimum (e.g. a direct
+                      // link provider) keeps it; only fall back to the
+                      // global minimum when the method does not define one.
+                      const methodMin = Number(method.min_topup) || 0
+                      const minTopup = methodMin > 0 ? methodMin : getMinTopupAmount(topupInfo)
                       const disabled = minTopup > topupAmount
                       const disabledReason = disabled
                         ? t('Minimum topup amount: {{amount}}', {

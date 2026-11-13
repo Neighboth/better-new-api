@@ -3132,7 +3132,7 @@
     "footer.columns.related.links.oneApi": "Один API",
     "footer.columns.related.title": "Связанные проекты",
     "footer.defaultCopyright": "Все права защищены.",
-    "footer.newapi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
+    "footer.new\u0061pi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Для каналов, добавленных после 10 мая 2025 г., не нужно удалять \".\" из имён моделей при развёртывании",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Для частных развертываний, формат: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "В целях безопасности существующие токены доступа нельзя просмотреть повторно. Создавайте новый токен только при необходимости.",
@@ -7847,6 +7847,17 @@
     "Remove the password protection from this file": "Удалить парольную защиту с этого файла",
     "Enter a folder name first": "Сначала укажите имя папки",
     "Folder names cannot contain slashes or dot-dot segments": "Имя папки не может содержать косые черты или «..»",
-    "File names cannot contain slashes": "Имя файла не может содержать косые черты"
+    "File names cannot contain slashes": "Имя файла не может содержать косые черты",
+    "Balance Breakdown": "Разбивка баланса",
+    "Topped-up balance": "Пополненный баланс",
+    "usable for all models and all channels": "можно использовать для всех моделей и каналов",
+    "Invitation rewards": "Реферальные вознаграждения",
+    "shown as": "показан как",
+    "Spent before topped-up balance on every settlement": "Списывается до пополненного баланса при каждом расчёте",
+    "Channels unusable for invitation rewards": "Каналы, недоступные для призов за приглашение",
+    "Total available": "Всего доступно",
+    "Balance restricted to specific models is listed below.": "Баланс, ограниченный определёнными моделями, приведён ниже.",
+    "Sponsored": "Реклама",
+    "This ad supports the site": "Эта реклама поддерживает сайт"
   }
 }

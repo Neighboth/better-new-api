@@ -32,6 +32,9 @@ func ensureManagedFilesDir() error {
 func sanitizeRelPath(relPath string) (string, error) {
 	relPath = strings.TrimPrefix(relPath, "/")
 	clean := filepath.Clean(relPath)
+	// Store records with forward slashes regardless of the platform the
+	// binary runs on; a browser always uses "/" in URLs.
+	clean = filepath.ToSlash(clean)
 	if clean == "." || clean == "" {
 		return "", nil
 	}
@@ -492,6 +495,33 @@ func RenameManagedFile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+// serveManagedContent writes the stored bytes of a managed file with a
+// content type derived from the file extension, falling back to the
+// detector when the extension is unknown.
+func serveManagedContent(c *gin.Context, cleanPath string, content []byte) {
+	contentType := http.DetectContentType(content)
+	switch {
+	case strings.HasSuffix(cleanPath, ".css"):
+		contentType = "text/css; charset=utf-8"
+	case strings.HasSuffix(cleanPath, ".js"):
+		contentType = "application/javascript; charset=utf-8"
+	case strings.HasSuffix(cleanPath, ".html"):
+		contentType = "text/html; charset=utf-8"
+	case strings.HasSuffix(cleanPath, ".svg"):
+		contentType = "image/svg+xml"
+	case strings.HasSuffix(cleanPath, ".png"):
+		contentType = "image/png"
+	case strings.HasSuffix(cleanPath, ".jpg"), strings.HasSuffix(cleanPath, ".jpeg"):
+		contentType = "image/jpeg"
+	case strings.HasSuffix(cleanPath, ".webp"):
+		contentType = "image/webp"
+	case strings.HasSuffix(cleanPath, ".gif"):
+		contentType = "image/gif"
+	}
+	c.Data(http.StatusOK, contentType, content)
+	c.Abort()
+}
+
 // ServeManagedFileMiddleware handles serving files under /managed_files/ or root fallback
 func ServeManagedFileMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -501,8 +531,22 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 			strings.HasPrefix(reqPath, "/v1") ||
 			strings.HasPrefix(reqPath, "/pg") ||
 			strings.HasPrefix(reqPath, "/mj") ||
-			strings.HasPrefix(reqPath, "/suno") ||
-			strings.HasPrefix(reqPath, "/uploads") {
+			strings.HasPrefix(reqPath, "/suno") {
+			c.Next()
+			return
+		}
+		if strings.HasPrefix(reqPath, "/uploads") {
+			uploadsClean, err := sanitizeRelPath(reqPath)
+			if err != nil || uploadsClean == "" {
+				c.Next()
+				return
+			}
+			var mf model.ManagedFile
+			res := model.DB.Where("path = ?", uploadsClean).First(&mf)
+			if res.RowsAffected > 0 && !mf.IsDir && len(mf.Content) > 0 {
+				serveManagedContent(c, uploadsClean, mf.Content)
+				return
+			}
 			c.Next()
 			return
 		}
@@ -546,30 +590,43 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 
 		needsAuth := mf.Password != "" || mf.EnableCaptcha
 		if needsAuth {
-			// Check session or POST submission
-			authCookieKey := fmt.Sprintf("file_auth_%x", sha256.Sum256([]byte(cleanPath)))
+			// The cookie carries an HMAC-signed proof of authentication for
+			// this exact path, signed with the installation secret. A visitor
+			// cannot mint the cookie themselves.
+			authCookieKey := fileAuthCookieKey(cleanPath)
 			cookieVal, _ := c.Cookie(authCookieKey)
 
 			if c.Request.Method == "POST" && c.PostForm("managed_file_auth") == "1" {
 				submittedPass := c.PostForm("password")
+				limiterKey := cleanPath + "|" + c.ClientIP()
+				if fileAuthBlocked(limiterKey) {
+					renderAuthPage(c, cleanPath, mf, "Too many failed attempts. Please try again later.")
+					c.Abort()
+					return
+				}
 
 				if mf.EnableCaptcha {
 					if !verifyManagedFileCaptcha(c) {
+						fileAuthFailedAttempt(limiterKey)
 						renderAuthPage(c, cleanPath, mf, "Captcha Verification Failed")
 						c.Abort()
 						return
 					}
 				}
 
-				if mf.Password != "" && submittedPass != mf.Password {
+				if mf.Password != "" && !verifyFilePassword(submittedPass, mf.Password) {
+					fileAuthFailedAttempt(limiterKey)
 					renderAuthPage(c, cleanPath, mf, "Incorrect Password")
 					c.Abort()
 					return
 				}
 
-				// Auth passed! Set cookie and serve file
-				c.SetCookie(authCookieKey, "1", 3600*24, "/", "", false, true)
-			} else if cookieVal != "1" {
+				// Auth passed! Set a signed cookie (24h expiry) and serve
+				// the file.
+				expiry := time.Now().Add(24 * time.Hour).Unix()
+				c.SetSameSite(http.SameSiteLaxMode)
+				c.SetCookie(authCookieKey, fileAuthSign(cleanPath, expiry), 3600*24, "/", "", c.Request.TLS != nil, true)
+			} else if !fileAuthVerify(cleanPath, cookieVal) {
 				renderAuthPage(c, cleanPath, mf, "")
 				c.Abort()
 				return
@@ -578,18 +635,7 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 
 		// Serve file content from DB or disk
 		if len(mf.Content) > 0 {
-			contentType := http.DetectContentType(mf.Content)
-			if strings.HasSuffix(cleanPath, ".css") {
-				contentType = "text/css; charset=utf-8"
-			} else if strings.HasSuffix(cleanPath, ".js") {
-				contentType = "application/javascript; charset=utf-8"
-			} else if strings.HasSuffix(cleanPath, ".html") {
-				contentType = "text/html; charset=utf-8"
-			} else if strings.HasSuffix(cleanPath, ".svg") {
-				contentType = "image/svg+xml"
-			}
-			c.Data(http.StatusOK, contentType, mf.Content)
-			c.Abort()
+			serveManagedContent(c, cleanPath, mf.Content)
 			return
 		}
 

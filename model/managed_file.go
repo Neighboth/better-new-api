@@ -46,11 +46,25 @@ func CleanupOrphanUploadFiles() {
 	customAdsRaw := common.OptionMap["CustomAds"]
 	if customAdsRaw != "" {
 		var ads []struct {
-			Image string `json:"image"`
+			Image      string            `json:"image"`
+			Images     map[string]string `json:"images"`
+			PopupImages map[string]string `json:"popup_images"`
 		}
 		if err := common.UnmarshalJsonStr(customAdsRaw, &ads); err == nil {
 			for _, ad := range ads {
-				activeMap[strings.TrimPrefix(ad.Image, "/")] = true
+				addUploadReference := func(v string) {
+					v = strings.TrimPrefix(v, "/")
+					if strings.HasPrefix(v, "uploads/ads/") {
+						activeMap[v] = true
+					}
+				}
+				addUploadReference(ad.Image)
+				for _, img := range ad.Images {
+					addUploadReference(img)
+				}
+				for _, img := range ad.PopupImages {
+					addUploadReference(img)
+				}
 			}
 		}
 	}

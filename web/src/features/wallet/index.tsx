@@ -47,6 +47,7 @@ import { TransferDialog } from './components/dialogs/transfer-dialog'
 import { RechargeFormCard } from './components/recharge-form-card'
 import { SubscriptionPlansCard } from './components/subscription-plans-card'
 import { WalletStatsCard } from './components/wallet-stats-card'
+import { WalletBreakdownCard } from './components/balance-breakdown-card'
 import { DEFAULT_DISCOUNT_RATE, PAYMENT_TYPES } from './constants'
 import {
   useTopupInfo,
@@ -383,6 +384,7 @@ export function Wallet(props: WalletProps) {
               loading={userLoading}
               enabledBillingTypes={enabledBillingTypes}
             />
+            <WalletBreakdownCard user={user} />
 
             {balancePackages.length > 0 && (
               <div className='rounded-lg border bg-card p-4 shadow-xs'>

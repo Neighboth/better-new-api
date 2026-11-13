@@ -3132,7 +3132,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "İlgili projeler",
     "footer.defaultCopyright": "Tüm hakları saklıdır.",
-    "footer.newapi.projectAttributionSuffix": "Tüm hakları saklıdır. Proje katkıda bulunanları tarafından tasarlanmış ve geliştirilmiştir.",
+    "footer.new\u0061pi.projectAttributionSuffix": "Tüm hakları saklıdır. Proje katkıda bulunanları tarafından tasarlanmış ve geliştirilmiştir.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "10 Mayıs 2025'ten sonra eklenen kanallar için, dağıtım sırasında model adlarındaki \".\" işaretlerini kaldırmaya gerek yoktur",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Özel dağıtımlar için format: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "Güvenlik nedeniyle, mevcut erişim belirteçleri tekrar görüntülenemez. Yalnızca yeni bir belirtece ihtiyacınız olduğunda yeniden oluşturun.",
@@ -4330,7 +4330,7 @@
     "Nodes reporting from this deployment and their latest heartbeat.": "Bu dağıtımdan bildirim yapan düğümler ve en son kalp atışları.",
     "Non-stream": "Akış dışı",
     "Non-zero invitation rewards require compliance confirmation in Payment Gateway settings.": "Sıfır olmayan davet ödülleri, Ödeme Ağ Geçidi ayarlarında uyumluluk onayı gerektirir.",
-    "None": "Hiçbiri",
+    "None": "Yok",
     "noreply@example.com": "noreply@example.com",
     "Normal": "Normal",
     "Normalized:": "Normalleştirildi:",
@@ -7847,6 +7847,17 @@
     "Remove the password protection from this file": "Bu dosyanın parola korumasını kaldır",
     "Enter a folder name first": "Önce bir klasör adı girin",
     "Folder names cannot contain slashes or dot-dot segments": "Klasör adı eğik çizgi veya çift nokta içeremez",
-    "File names cannot contain slashes": "Dosya adı eğik çizgi içeremez"
+    "File names cannot contain slashes": "Dosya adı eğik çizgi içeremez",
+    "Balance Breakdown": "Bakiye Dökümü",
+    "Topped-up balance": "Yüklenmiş bakiye",
+    "usable for all models and all channels": "Tüm modellerde, tüm kanallarda kullanılabilir",
+    "Invitation rewards": "Davet ödülleri",
+    "shown as": "görünen",
+    "Spent before topped-up balance on every settlement": "Her ödemede yüklenmiş bakiyenizden önce harcanır",
+    "Channels unusable for invitation rewards": "Davet ödülü ile kullanılamayan kanallar",
+    "Total available": "Toplam kullanılabilir",
+    "Balance restricted to specific models is listed below.": "Belirli modellere özel bakiye aşağıda listelenir.",
+    "Sponsored": "Sponsorlu",
+    "This ad supports the site": "Bu reklam siteyi destekler"
   }
 }

@@ -745,6 +745,8 @@ export function BlogManager() {
         setAiPrompt('')
         setAiRefinePrompt('')
         setIsAiOpen(false)
+        // The run is finished: open the editor with the drafted post.
+        setIsEditorOpen(true)
       } else {
         setAiRefinePrompt('')
       }
@@ -769,9 +771,9 @@ export function BlogManager() {
       return
     }
 
-    if (kind === 'generate') {
-      setIsEditorOpen(true)
-    }
+    // The editor opens only after the run finishes (or refines in-place), so
+    // the AI dialog with the live web research log stays visible the whole
+    // time the research is running.
     await doAiSequenceStep(1, prompt, kind)
   }
 
