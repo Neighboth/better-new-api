@@ -74,6 +74,39 @@ export type ManagedFileItem = {
   updated_at: number
 }
 
+const TEXT_EXTENSIONS = new Set([
+  'txt', 'md', 'markdown', 'json', 'yml', 'yaml', 'xml', 'csv', 'tsv',
+  'html', 'htm', 'css', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'py',
+  'go', 'rb', 'sh', 'bash', 'zsh', 'ini', 'cfg', 'conf', 'env', 'log',
+  'sql', 'php', 'c', 'h', 'cpp', 'hpp', 'java', 'rs', 'swift', 'kt',
+  'toml', 'lock', 'svg', 'gitignore', 'properties', 'gradle',
+])
+
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp', 'avif'])
+const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mov', 'mkv', 'avi'])
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'])
+const PDF_EXTENSIONS = new Set(['pdf'])
+
+type PreviewKind = 'text' | 'image' | 'video' | 'audio' | 'pdf' | 'binary'
+
+function extensionOf(path: string): string {
+  const clean = path.split('?')[0]?.split('#')[0] ?? ''
+  const dot = clean.lastIndexOf('.')
+  if (dot < 0 || dot === clean.length - 1) return ''
+  return clean.slice(dot + 1).toLowerCase()
+}
+
+function previewKindOf(path: string): PreviewKind {
+  const ext = extensionOf(path)
+  if (!ext) return 'binary'
+  if (TEXT_EXTENSIONS.has(ext)) return 'text'
+  if (IMAGE_EXTENSIONS.has(ext)) return 'image'
+  if (VIDEO_EXTENSIONS.has(ext)) return 'video'
+  if (AUDIO_EXTENSIONS.has(ext)) return 'audio'
+  if (PDF_EXTENSIONS.has(ext)) return 'pdf'
+  return 'binary'
+}
+
 export function SystemFilesSection() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -85,6 +118,8 @@ export function SystemFilesSection() {
 
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorPath, setEditorPath] = useState('')
+  const [editorKind, setEditorKind] = useState<PreviewKind>('text')
+  const [editorSize, setEditorSize] = useState(0)
   const [editorContent, setEditorContent] = useState('')
   const [loadingContent, setLoadingContent] = useState(false)
 
@@ -154,10 +189,17 @@ export function SystemFilesSection() {
     }
   }
 
-  const handleOpenEdit = async (path: string) => {
+  const handleOpenEdit = async (path: string, item?: ManagedFileItem) => {
+    const kind = previewKindOf(path)
     setEditorPath(path)
-    setLoadingContent(true)
+    setEditorKind(kind)
+    setEditorSize(item?.size ?? 0)
     setEditorOpen(true)
+    if (kind !== 'text') {
+      setLoadingContent(false)
+      return
+    }
+    setLoadingContent(true)
     try {
       const res = await api.get(`/api/files/content?path=${encodeURIComponent(path)}`)
       if (res.data?.success) {
@@ -406,7 +448,7 @@ export function SystemFilesSection() {
                             type='button'
                             variant='ghost'
                             size='icon'
-                            onClick={() => void handleOpenEdit(item.path)}
+                            onClick={() => void handleOpenEdit(item.path, item)}
                             title={item.path.startsWith('uploads') ? t('View Content') : t('Edit / Preview Content')}
                           >
                             <Eye className='h-4 w-4' />
@@ -498,26 +540,70 @@ export function SystemFilesSection() {
         <DialogContent className='max-w-4xl max-h-[90vh] flex flex-col overflow-hidden'>
           <DialogHeader className='shrink-0'>
             <div className='flex items-center justify-between pr-6'>
-              <DialogTitle className='truncate'>{t('Edit File')} - /{editorPath}</DialogTitle>
-              {editorContent ? (
+              <DialogTitle className='truncate'>
+                {editorKind === 'text' ? t('Edit File') : t('File')} - /{editorPath}
+              </DialogTitle>
+              {editorSize > 0 ? (
                 <span className='text-[11px] font-mono text-muted-foreground'>
-                  {(new Blob([editorContent]).size / 1024).toFixed(1)} KB
+                  {formatBytes(editorSize)}
                 </span>
               ) : null}
             </div>
           </DialogHeader>
           <div className='flex-1 min-h-0 flex flex-col py-2'>
-            {loadingContent ? (
-              <div className='flex items-center justify-center h-48'>
-                <p className='text-muted-foreground text-sm'>{t('Loading...')}</p>
+            {editorKind === 'text' ? (
+              loadingContent ? (
+                <div className='flex items-center justify-center h-48'>
+                  <p className='text-muted-foreground text-sm'>{t('Loading...')}</p>
+                </div>
+              ) : (
+                <Textarea
+                  value={editorContent}
+                  onChange={(e) => setEditorContent(e.target.value)}
+                  className='flex-1 min-h-[350px] max-h-[60vh] font-mono text-xs resize-none overflow-y-auto leading-relaxed'
+                  spellCheck={false}
+                />
+              )
+            ) : editorKind === 'image' ? (
+              <div className='flex flex-1 items-center justify-center overflow-auto py-2'>
+                <img
+                  src={`/${editorPath}`}
+                  alt={editorPath}
+                  className='max-h-[60vh] max-w-full rounded-md border object-contain'
+                />
               </div>
-            ) : (
-              <Textarea
-                value={editorContent}
-                onChange={(e) => setEditorContent(e.target.value)}
-                className='flex-1 min-h-[350px] max-h-[60vh] font-mono text-xs resize-none overflow-y-auto leading-relaxed'
-                spellCheck={false}
+            ) : editorKind === 'video' ? (
+              <div className='flex flex-1 items-center justify-center py-2'>
+                <video
+                  controls
+                  src={`/${editorPath}`}
+                  className='max-h-[60vh] w-full rounded-md bg-black'
+                />
+              </div>
+            ) : editorKind === 'audio' ? (
+              <div className='flex flex-1 items-center justify-center py-6'>
+                <audio controls src={`/${editorPath}`} className='w-full' />
+              </div>
+            ) : editorKind === 'pdf' ? (
+              <iframe
+                title={editorPath}
+                src={`/${editorPath}`}
+                className='min-h-[50vh] w-full flex-1 rounded-md border'
               />
+            ) : (
+              <div className='flex flex-1 flex-col items-center justify-center gap-4 py-10 text-center'>
+                <FileText className='h-12 w-12 text-muted-foreground' />
+                <div>
+                  <p className='font-semibold'>{t('This file type cannot be previewed here.')}</p>
+                  <p className='text-muted-foreground text-xs mt-1'>
+                    {t('Binary and compiled files are not editable as text. Open it in a new tab instead.')}
+                  </p>
+                </div>
+                <Button variant='outline' onClick={() => window.open(`/${editorPath}`, '_blank')}>
+                  <Eye className='me-1 h-4 w-4' />
+                  {t('Open in new tab')}
+                </Button>
+              </div>
             )}
           </div>
           <DialogFooter className='shrink-0 pt-2 border-t flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between'>
@@ -534,10 +620,12 @@ export function SystemFilesSection() {
               <Button variant='outline' className='flex-1 sm:flex-none' onClick={() => setEditorOpen(false)}>
                 {t('Cancel')}
               </Button>
-              <Button className='flex-1 sm:flex-none' onClick={() => void handleSaveContent()}>
-                <Save className='me-1 h-4 w-4' />
-                {t('Save File')}
-              </Button>
+              {editorKind === 'text' && (
+                <Button className='flex-1 sm:flex-none' onClick={() => void handleSaveContent()}>
+                  <Save className='me-1 h-4 w-4' />
+                  {t('Save File')}
+                </Button>
+              )}
             </div>
           </DialogFooter>
         </DialogContent>

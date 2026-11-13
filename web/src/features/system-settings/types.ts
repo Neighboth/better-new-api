@@ -144,8 +144,6 @@ export type SiteSettings = {
   AdsMode: 'adsense' | 'custom' | 'both'
   /** Surfaces that may carry ads, comma separated (`blog`, `console`). */
   AdsSurfaces: string
-  /** Seconds before the skip button of the popup ad becomes active. */
-  AdsPopupSkipSeconds: number | string
   CustomAds: string
   GoogleAnalyticsId?: string
   UmamiWebsiteId?: string
@@ -776,6 +774,7 @@ export type OperationsSettings = {
   'playground_setting.web_search_playground_enabled'?: boolean
   'playground_setting.web_search_discord_enabled'?: boolean
   'playground_setting.web_search_live_enabled'?: boolean
+  'playground_setting.web_search_blog_enabled'?: boolean
   'playground_setting.image_enabled'?: boolean
   /** JSON list of image models with the options of every model. */
   'playground_setting.image_models'?: string

@@ -302,6 +302,8 @@ export interface PlaygroundRuntimeConfig {
     playground: boolean
     discord: boolean
     live: boolean
+    /** The blog AI generator may use web research when the administrator turns this on. */
+    blog?: boolean
     configured: boolean
     price_per_search: number
     max_results: number
@@ -342,6 +344,7 @@ export const EMPTY_PLAYGROUND_RUNTIME_CONFIG: PlaygroundRuntimeConfig = {
     playground: false,
     discord: false,
     live: false,
+    blog: false,
     configured: false,
     price_per_search: 0,
     max_results: 5,

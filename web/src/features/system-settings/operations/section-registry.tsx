@@ -173,6 +173,8 @@ const OPERATIONS_SECTIONS = [
             settings['playground_setting.web_search_discord_enabled'] ?? false,
           liveEnabled:
             settings['playground_setting.web_search_live_enabled'] ?? false,
+          blogEnabled:
+            settings['playground_setting.web_search_blog_enabled'] ?? false,
         }}
       />
     ),

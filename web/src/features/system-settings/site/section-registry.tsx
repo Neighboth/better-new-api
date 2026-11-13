@@ -158,7 +158,6 @@ const SITE_SECTIONS = [
           AdsEnabled: settings.AdsEnabled,
           AdsMode: settings.AdsMode,
           AdsSurfaces: settings.AdsSurfaces || 'blog',
-          AdsPopupSkipSeconds: Number(settings.AdsPopupSkipSeconds ?? 0),
           AdSenseClientId: settings.AdSenseClientId,
           AdSenseSlotId: settings.AdSenseSlotId,
           CustomAds: settings.CustomAds,

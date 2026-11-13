@@ -68,3 +68,4 @@ worker/mobile/release.keystore
 worker/mobile/apk_signing_key.pem
 
 test_run.log
+new-api.exe~

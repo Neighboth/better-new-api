@@ -78,6 +78,7 @@ func SetRelayRouter(router *gin.Engine) {
 	playgroundToolsRouter.Use(middleware.UserAuth())
 	{
 		playgroundToolsRouter.POST("/web-search", controller.PlaygroundWebSearch)
+		playgroundToolsRouter.POST("/fetch-webpage", controller.PlaygroundFetchWebpage)
 	}
 	relayV1Router := router.Group("/v1")
 	relayV1Router.Use(middleware.RouteTag("relay"))

@@ -16,9 +16,12 @@ package main
 import (
 	_ "embed"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"html/template"
+	"encoding/json"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -67,6 +70,10 @@ var (
 	webViewController uintptr
 	webViewPage       uintptr
 	webViewUrl        string
+	// webViewLoadAttempts counts the failed navigations of the page of the
+	// installation. The raw browser error page is replaced with a friendly
+	// page that explains the situation when the server is unreachable.
+	webViewLoadAttempts atomic.Int32
 	webViewHandlers   []any
 	webViewLoaderDLL  *syscall.DLL
 	// webViewReady tells whether the page of the client is shown in the window.
@@ -495,6 +502,28 @@ func newWebViewControllerHandler() uintptr {
 	return uintptr(unsafe.Pointer(handler))
 }
 
+// clientFailurePage returns a page that explains why the page of the client
+// could not be shown, with a button that tries again. The raw browser error
+// page of the WebView runtime shows a cryptic message; this page is shown
+// after several failed attempts instead of the raw error.
+func clientFailurePage(target string) string {
+	jsTarget, _ := json.Marshal(target)
+	htmlTarget := template.HTMLEscapeString(target)
+	html := `<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8">` +
+		`<title>Sunucuya ulaşılamıyor</title>` +
+		`<style>body{font-family:system-ui,sans-serif;background:#0f0f10;color:#e5e7eb;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}` +
+		`.card{max-width:28rem;text-align:center;padding:2rem;border:1px solid #333;border-radius:1rem;background:#18181b}` +
+		`h1{font-size:1.1rem;margin:0 0 .75rem}p{color:#a1a1aa;line-height:1.6}code{word-break:break-all;font-size:.8rem;color:#fbbf24}` +
+		`button{background:#2563eb;color:#fff;border:0;border-radius:.5rem;padding:.6rem 1.5rem;font-size:.95rem;cursor:pointer;margin-top:1rem}button:hover{background:#1d4ed8}` +
+		`</style></head><body><div class="card">` +
+		`<h1>Sunucuya ulaşılamıyor / Server unreachable</h1>` +
+		`<p>Kurulumunuza bağlanılamıyor. Kurulumunuz kapanmış veya adres değişmiş olabilir.</p>` +
+		`<p><code>` + htmlTarget + `</code></p>` +
+		`<button onclick='location.href=` + string(jsTarget) + `'>Tekrar dene / Retry</button>` +
+		`</div></body></html>`
+	return "data:text/html;charset=utf-8," + url.QueryEscape(html)
+}
+
 func navigateWebView(rawUrl string) {
 	if webViewPage == 0 || rawUrl == "" {
 		return
@@ -514,7 +543,14 @@ func newWebViewNavigationHandler() uintptr {
 			var success int32
 			callWebViewMethod(args, 3, uintptr(unsafe.Pointer(&success))) // get_IsSuccess
 			if success == 0 {
-				webViewLog("the page of the client could not be loaded, retrying in 3s...")
+				attempts := webViewLoadAttempts.Add(1)
+				if attempts >= 3 {
+					webViewLoadAttempts.Store(0)
+					webViewLog(fmt.Sprintf("the page could not be loaded after %d attempts, showing the retry page", attempts))
+					navigateWebView(clientFailurePage(webViewUrl))
+					return 0
+				}
+				webViewLog(fmt.Sprintf("the page of the client could not be loaded (attempt %d), retrying in 3s...", attempts))
 				time.AfterFunc(3*time.Second, func() {
 					if !webViewReady.Load() && !webViewUserClosed.Load() {
 						navigateWebView(webViewUrl)
@@ -523,6 +559,7 @@ func newWebViewNavigationHandler() uintptr {
 				return 0
 			}
 			webViewReady.Store(true)
+			webViewLoadAttempts.Store(0)
 			webViewLog("the page of the client is shown")
 			resizeWebView()
 			return 0

@@ -36,6 +36,7 @@ type PlaygroundSetting struct {
 	WebSearchPlaygroundEnabled bool `json:"web_search_playground_enabled"`
 	WebSearchDiscordEnabled    bool `json:"web_search_discord_enabled"`
 	WebSearchLiveEnabled       bool `json:"web_search_live_enabled"`
+	WebSearchBlogEnabled       bool `json:"web_search_blog_enabled"`
 
 	// Image models of the playground tools and of the studio. Each entry has
 	// its own sizes, qualities and defaults.
@@ -75,6 +76,7 @@ var playgroundSetting = PlaygroundSetting{
 	WebSearchPlaygroundEnabled: false,
 	WebSearchDiscordEnabled:    false,
 	WebSearchLiveEnabled:       false,
+	WebSearchBlogEnabled:       false,
 
 	ImageEnabled:        true,
 	ImageModels:         []MediaModel{},

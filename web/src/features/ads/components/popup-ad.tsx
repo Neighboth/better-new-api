@@ -71,7 +71,7 @@ export function PopupAd() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, adsKey])
 
-  const skipSeconds = Math.max(0, Math.floor(data?.popup_skip_seconds ?? 0))
+  const skipSeconds = Math.max(0, Math.floor(ad?.popup_skip_seconds ?? 0))
   const [remaining, setRemaining] = useState(skipSeconds)
   const reported = useRef(false)
 

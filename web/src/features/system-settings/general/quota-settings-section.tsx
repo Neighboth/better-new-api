@@ -140,12 +140,11 @@ export function QuotaSettingsSection({
 
   const referralEnabled = form.watch('referral_setting.enabled')
 
-  // Channels for the referral-balance exclusion: the list is only needed
-  // when the enhanced referral reward is on.
+  // Channels for the referral-balance exclusion: the list is needed whenever
+  // referral grants happen, with or without the display inflation.
   const { data: channelsData } = useQuery({
     queryKey: ['quota-channels-for-referral'],
     queryFn: () => getChannels({ p: 1, page_size: 1000 }),
-    enabled: Boolean(referralEnabled),
     staleTime: 5 * 60_000,
   })
 
@@ -233,7 +232,7 @@ export function QuotaSettingsSection({
             />
 
             <SettingsFormGridItem span='full'>
-              <div className='space-y-3 border-border rounded-lg border border-dashed p-3'>
+              <div className='space-y-4'>
                 <FormField
                   control={form.control}
                   name='referral_setting.enabled'
@@ -257,15 +256,14 @@ export function QuotaSettingsSection({
                     </SettingsSwitchItem>
                   )}
                 />
-                {referralEnabled && (
-                  <div className='space-y-4'>
+                <div className='space-y-4'>
                     <div className='grid gap-4 sm:grid-cols-2'>
                       <FormField
                         control={form.control}
                         name='referral_setting.invitee_real'
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>{t('Invitee real balance (quota units)')}</FormLabel>
+                            <FormLabel>{t('Balance for the invited user')}</FormLabel>
                             <FormControl>
                               <Input
                                 type='number'
@@ -294,11 +292,12 @@ export function QuotaSettingsSection({
                         name='referral_setting.invitee_display'
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>{t('Invitee display balance (quota units)')}</FormLabel>
+                            <FormLabel>{t('Balance to show for the same reward')}</FormLabel>
                             <FormControl>
                               <Input
                                 type='number'
                                 min={0}
+                                disabled={!referralEnabled}
                                 value={field.value ?? 0}
                                 onChange={handleNumberChange(field.onChange)}
                                 name={field.name}
@@ -307,12 +306,16 @@ export function QuotaSettingsSection({
                               />
                             </FormControl>
                             <FormDescription>
-                              {t(
-                                'Display balance shown for the same reward ({{formattedQuota}})',
-                                {
-                                  formattedQuota: formatQuotaInputValue(field.value),
-                                }
-                              )}
+                              {referralEnabled
+                                ? t(
+                                    'Display balance shown for the same reward ({{formattedQuota}})',
+                                    {
+                                      formattedQuota: formatQuotaInputValue(field.value),
+                                    }
+                                  )
+                                : t(
+                                    'Display balance matches the real balance while the enhancement is off'
+                                  )}
                             </FormDescription>
                             <FormMessage />
                           </FormItem>
@@ -323,39 +326,10 @@ export function QuotaSettingsSection({
                     <div className='grid gap-4 sm:grid-cols-2'>
                       <FormField
                         control={form.control}
-                        name='referral_setting.inviter_display'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('Inviter display balance (quota units)')}</FormLabel>
-                            <FormControl>
-                              <Input
-                                type='number'
-                                min={0}
-                                value={field.value ?? 0}
-                                onChange={handleNumberChange(field.onChange)}
-                                name={field.name}
-                                onBlur={field.onBlur}
-                                ref={field.ref}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              {t(
-                                'Display balance shown to the inviter for the same reward ({{formattedQuota}})',
-                                {
-                                  formattedQuota: formatQuotaInputValue(field.value),
-                                }
-                              )}
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
                         name='referral_setting.inviter_real'
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>{t('Inviter real balance (quota units)')}</FormLabel>
+                            <FormLabel>{t('Balance for the inviter')}</FormLabel>
                             <FormControl>
                               <Input
                                 type='number'
@@ -374,6 +348,40 @@ export function QuotaSettingsSection({
                                   formattedQuota: formatQuotaInputValue(field.value),
                                 }
                               )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name='referral_setting.inviter_display'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Balance to show for the same reward')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                type='number'
+                                min={0}
+                                disabled={!referralEnabled}
+                                value={field.value ?? 0}
+                                onChange={handleNumberChange(field.onChange)}
+                                name={field.name}
+                                onBlur={field.onBlur}
+                                ref={field.ref}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {referralEnabled
+                                ? t(
+                                    'Display balance shown to the inviter for the same reward ({{formattedQuota}})',
+                                    {
+                                      formattedQuota: formatQuotaInputValue(field.value),
+                                    }
+                                  )
+                                : t(
+                                    'Display balance matches the real balance while the enhancement is off'
+                                  )}
                             </FormDescription>
                             <FormMessage />
                           </FormItem>
@@ -407,8 +415,7 @@ export function QuotaSettingsSection({
                         </FormItem>
                       )}
                     />
-                  </div>
-                )}
+                </div>
               </div>
             </SettingsFormGridItem>
 

@@ -1,4 +1,4 @@
-/*
+﻿/*
 Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
@@ -77,6 +77,8 @@ type CustomAdDraft = {
   image: string
   images?: Record<string, string>
   popupImages?: Record<string, string>
+  /** Seconds the skip button of the popup ad stays disabled. */
+  popupSkipSeconds?: number
   url: string
   /**
    * Surfaces of the ad. An ad of an older panel carries no list and belongs to
@@ -89,7 +91,6 @@ const adsSchema = z.object({
   AdsEnabled: z.boolean(),
   AdsMode: z.enum(['adsense', 'custom', 'both']),
   AdsSurfaces: z.string(),
-  AdsPopupSkipSeconds: z.coerce.number().int().min(0).max(60),
   AdSenseClientId: z.string().optional(),
   AdSenseSlotId: z.string().optional(),
   CustomAds: z.string(),
@@ -115,6 +116,7 @@ function parseCustomAds(raw: string): CustomAdDraft[] {
         image: typeof ad.image === 'string' ? ad.image : '',
         images: typeof (ad as { images?: unknown }).images === 'object' && (ad as { images?: Record<string, string> }).images ? ((ad as { images: Record<string, string> }).images) : {},
         popupImages: typeof (ad as { popup_images?: unknown }).popup_images === 'object' && (ad as { popup_images?: Record<string, string> }).popup_images ? ((ad as { popup_images: Record<string, string> }).popup_images) : {},
+        popupSkipSeconds: typeof (ad as { popup_skip_seconds?: unknown }).popup_skip_seconds === 'number' && Number.isFinite(Number((ad as { popup_skip_seconds?: number }).popup_skip_seconds)) ? (ad as { popup_skip_seconds?: number }).popup_skip_seconds : 0,
         url: typeof ad.url === 'string' ? ad.url : '',
         placements: parsePlacements(
           (ad as { placements?: unknown }).placements
@@ -128,14 +130,14 @@ function parseCustomAds(raw: string): CustomAdDraft[] {
 const AD_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,63}$/
 
 const AD_LANGUAGES = [
-  { code: 'tr', flag: '🇹🇷', label: 'TR' },
-  { code: 'en', flag: '🇬🇧', label: 'EN' },
-  { code: 'zh_CN', flag: '🇨🇳', label: 'ZH' },
-  { code: 'zh_TW', flag: '🇹🇼', label: 'TW' },
-  { code: 'fr', flag: '🇫🇷', label: 'FR' },
-  { code: 'ru', flag: '🇷🇺', label: 'RU' },
-  { code: 'ja', flag: '🇯🇵', label: 'JA' },
-  { code: 'vi', flag: '🇻🇳', label: 'VI' },
+  { code: 'tr', flag: 'ğŸ‡¹ğŸ‡·', label: 'TR' },
+  { code: 'en', flag: 'ğŸ‡¬ğŸ‡§', label: 'EN' },
+  { code: 'zh_CN', flag: 'ğŸ‡¨ğŸ‡³', label: 'ZH' },
+  { code: 'zh_TW', flag: 'ğŸ‡¹ğŸ‡¼', label: 'TW' },
+  { code: 'fr', flag: 'ğŸ‡«ğŸ‡·', label: 'FR' },
+  { code: 'ru', flag: 'ğŸ‡·ğŸ‡º', label: 'RU' },
+  { code: 'ja', flag: 'ğŸ‡¯ğŸ‡µ', label: 'JA' },
+  { code: 'vi', flag: 'ğŸ‡»ğŸ‡³', label: 'VI' },
 ] as const
 
 function LanguageImageGrid(props: {
@@ -166,7 +168,7 @@ function LanguageImageGrid(props: {
         </div>
         {props.required && (
           <span className='text-[10px] text-muted-foreground'>
-            {props.t('All 8 languages required')}
+            {props.t('At least one image required')}
           </span>
         )}
       </div>
@@ -233,7 +235,6 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
 
   const adsEnabled = form.watch('AdsEnabled')
   const adsMode = form.watch('AdsMode')
-  const anyPopupPlacement = customAds.some((ad) => ad.placements.includes('popup'))
 
   const [logKeyword, setLogKeyword] = useState('')
   const [logPage, setLogPage] = useState(1)
@@ -280,23 +281,33 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
         toast.error(t('Ad ID must be lowercase letters, digits and dashes'))
         return
       }
-      if (ad.placements.includes('popup')) {
-        // The popup draws a tall, very wide rectangle that the strip images
-        // of the console and the blog do not fit: it wants its own images.
-        const missing = AD_LANGUAGES.filter(
-          (lang) => !ad.popupImages?.[lang.code]?.trim()
-        )
-        if (missing.length > 0) {
-          toast.error(
-            t('The popup ad needs an image for every language (missing: {{list}})', {
-              list: missing.map((lang) => lang.label).join(', '),
-            })
-          )
+      const placements = ad.placements ?? []
+      const bannerCount = Object.values(ad.images ?? {}).filter(
+        (img) => img && img.trim() !== ''
+      ).length
+      const popupCount = Object.values(ad.popupImages ?? {}).filter(
+        (img) => img && img.trim() !== ''
+      ).length
+      if (placements.includes('blog') || placements.includes('console')) {
+        // The banner of the blog and the console wants at least one image;
+        // the missing languages fall back to the English one.
+        if (bannerCount === 0) {
+          toast.error(t('Every ad needs at least one banner image'))
           return
         }
-      } else if (!ad.images || !Object.values(ad.images).some((img) => img && img.trim() !== '')) {
-        toast.error(t('Every ad needs at least one language-specific image'))
-        return
+      }
+      if (placements.includes('popup')) {
+        // The popup draws a tall rectangle of its own; one image is enough,
+        // the missing languages fall back to the one that exists.
+        if (popupCount === 0) {
+          toast.error(t('The popup ad needs at least one popup image'))
+          return
+        }
+        const skip = Number(ad.popupSkipSeconds ?? 0)
+        if (!Number.isFinite(skip) || skip < 0 || skip > 60) {
+          toast.error(t('Popup skip delay must be between 0 and 60 seconds'))
+          return
+        }
       }
       if (!ad.url.trim()) {
         toast.error(t('Every ad needs a target URL'))
@@ -334,6 +345,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
         image: anyImg,
         images,
         popup_images: popupImages,
+        popup_skip_seconds: Math.max(0, Math.min(60, Math.floor(Number(ad.popupSkipSeconds) || 0))),
         url: ad.url,
         placements: ad.placements,
       }
@@ -347,7 +359,6 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
       // appears, and every surface is reachable. The stored option is set
       // to all surfaces so an old install behaves the same.
       ['AdsSurfaces', 'blog,console,popup'],
-      ['AdsPopupSkipSeconds', String(data.AdsPopupSkipSeconds ?? 0)],
       ['AdSenseClientId', data.AdSenseClientId ?? ''],
       ['AdSenseSlotId', data.AdSenseSlotId ?? ''],
       ['CustomAds', customAdsJson],
@@ -370,6 +381,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
         image: '',
         images: {},
         popupImages: {},
+        popupSkipSeconds: 0,
         url: '',
         placements: ['blog'],
       },
@@ -379,7 +391,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
   const updateCustomAd = (
     index: number,
     field: keyof CustomAdDraft,
-    value: string | Record<string, string> | AdSurface[]
+    value: string | number | Record<string, string> | AdSurface[]
   ) => {
     setCustomAds((current) =>
       current.map((ad, i) => (i === index ? { ...ad, [field]: value } : ad))
@@ -476,35 +488,6 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
 
           {adsEnabled && (
             <>
-              {anyPopupPlacement && (
-                <FormField
-                  control={form.control}
-                  name='AdsPopupSkipSeconds'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Popup skip delay (seconds)')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          className='max-w-32'
-                          inputMode='numeric'
-                          type='number'
-                          min={0}
-                          max={60}
-                          {...field}
-                          value={field.value ?? 0}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'How long the skip button of the popup stays disabled. 0 closes the ad at once, 3 keeps it for three seconds.'
-                        )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-
               <FormField
                 control={form.control}
                 name='AdsMode'
@@ -585,7 +568,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                   </div>
                   <FormDescription>
                     {t(
-                      'Each ad needs an image URL, a target URL and an ID. The image is stretched to exactly fill the banner slot, and clicks open the URL in a new tab. The ID is only visible here and in impression stats.'
+                      'Each ad needs an ID, images and a target site. The image stretches to fill the banner slot, and clicking it opens the site in a new tab. The ID only shows here and in the stats.'
                     )}
                   </FormDescription>
                   {customAds.length === 0 && (
@@ -622,8 +605,9 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                         </div>
                         <LanguageImageGrid
                           t={t}
+                          required
                           header={t('Banner images (Blog & Console)')}
-                          hint={t('1600 × 200 — short and very wide, the same shape the blog and the console draw.')}
+                          hint={t('Banner strip for the blog and the console (1000 x 200). Missing languages fall back to English.')}
                           values={ad.images ?? {}}
                           uploadingSlot={uploadingSlot}
                           adIndex={index}
@@ -643,7 +627,7 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                             t={t}
                             required
                             header={t('Popup images')}
-                            hint={t('1600 × 900 — a tall and very wide rectangle. The popup never uses the banner images.')}
+                            hint={t('Tall rectangle required for the popup (1600 x 900). The popup never uses banner images.')}
                             values={ad.popupImages ?? {}}
                             uploadingSlot={uploadingSlot}
                             adIndex={index}
@@ -700,6 +684,36 @@ export function AdsSection({ defaultValues }: AdsSectionProps) {
                             ))}
                           </div>
                         </div>
+                        {ad.placements.includes('popup') && (
+                          <div>
+                            <Label className='text-xs'>
+                              {t('Popup skip delay (seconds)')}
+                            </Label>
+                            <div className='mt-1 flex items-center gap-2'>
+                              <Input
+                                className='max-w-28'
+                                inputMode='numeric'
+                                type='number'
+                                min={0}
+                                max={60}
+                                value={ad.popupSkipSeconds ?? 0}
+                                onChange={(event) =>
+                                  updateCustomAd(
+                                    index,
+                                    'popupSkipSeconds',
+                                    Math.max(
+                                      0,
+                                      Math.min(60, Math.floor(Number(event.target.value) || 0))
+                                    )
+                                  )
+                                }
+                              />
+                              <span className='text-[10px] text-muted-foreground'>
+                                {t('0 = skip button active immediately')}
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   ))}

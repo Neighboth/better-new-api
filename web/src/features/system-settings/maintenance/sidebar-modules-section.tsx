@@ -134,6 +134,10 @@ export function SidebarModulesSection({
         title: t('Profile'),
         description: t('Personal settings and profile management.'),
       },
+      byog: {
+        title: t('BYOG'),
+        description: t('Run your own worker with your hardware and earn.'),
+      },
     },
     admin: {
       channel: {
@@ -171,6 +175,10 @@ export function SidebarModulesSection({
       statistics: {
         title: t('Statistics'),
         description: t('Site-wide usage statistics and reports.'),
+      },
+      ticket: {
+        title: t('Ticket Management'),
+        description: t('Manage the tickets users send you, in one place.'),
       },
     },
   }

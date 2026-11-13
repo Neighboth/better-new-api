@@ -72,6 +72,7 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
     enabled: true,
     topup: true,
     personal: true,
+    byog: true,
   },
   admin: {
     enabled: true,
@@ -84,6 +85,7 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
     byog: true,
     blog: true,
     statistics: true,
+    ticket: true,
   },
 }
 

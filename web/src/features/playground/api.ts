@@ -235,3 +235,33 @@ export async function searchWeb(
   )
   return res.data as WebSearchResponse
 }
+
+/** One fetched page, converted to readable markdown. */
+export interface WebpageFetchResult {
+  url: string
+  title: string
+  markdown: string
+  bytes: number
+  fetched: number
+}
+
+/**
+ * Fetch one public page and read it as markdown. Only available when the
+ * installation enables the blog research toggle (`web_search_blog` in the
+ * runtime configuration). Use it to read pages found by `web_search`.
+ */
+export async function fetchWebpage(
+  url: string,
+  signal?: AbortSignal
+): Promise<WebpageFetchResult> {
+  const res = await api.post(
+    '/pg/fetch-webpage',
+    { url },
+    { signal, skipErrorHandler: true } as Record<string, unknown>
+  )
+  if (res.data?.success === false) {
+    throw new Error(res.data?.message || 'Could not fetch the page')
+  }
+  const data = res.data?.data as WebpageFetchResult
+  return data
+}

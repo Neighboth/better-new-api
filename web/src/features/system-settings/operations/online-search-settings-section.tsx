@@ -35,6 +35,7 @@ const schema = z.object({
   playgroundEnabled: z.boolean().optional(),
   discordEnabled: z.boolean().optional(),
   liveEnabled: z.boolean().optional(),
+  blogEnabled: z.boolean().optional(),
 })
 
 type Values = z.infer<typeof schema>
@@ -49,6 +50,7 @@ export function OnlineSearchSettingsSection({
     playgroundEnabled?: boolean
     discordEnabled?: boolean
     liveEnabled?: boolean
+    blogEnabled?: boolean
   }
 }) {
   const { t } = useTranslation()
@@ -63,6 +65,7 @@ export function OnlineSearchSettingsSection({
       playgroundEnabled: defaultValues.playgroundEnabled ?? false,
       discordEnabled: defaultValues.discordEnabled ?? false,
       liveEnabled: defaultValues.liveEnabled ?? false,
+      blogEnabled: defaultValues.blogEnabled ?? false,
     },
   })
 
@@ -86,6 +89,9 @@ export function OnlineSearchSettingsSection({
         'playground_setting.web_search_live_enabled': String(
           Boolean(values.liveEnabled)
         ),
+        'playground_setting.web_search_blog_enabled': String(
+          Boolean(values.blogEnabled)
+        ),
       })
 
       form.reset(values)
@@ -98,6 +104,7 @@ export function OnlineSearchSettingsSection({
   const playgroundEnabled = form.watch('playgroundEnabled')
   const discordEnabled = form.watch('discordEnabled')
   const liveEnabled = form.watch('liveEnabled')
+  const blogEnabled = form.watch('blogEnabled')
 
   return (
     <SettingsSection title={t('Web Search')}>
@@ -251,6 +258,30 @@ export function OnlineSearchSettingsSection({
             <p className='text-muted-foreground border-amber-500/40 bg-amber-500/5 rounded-md border px-3 py-2 text-xs'>
               {t(
                 'Visitors of the live support are often not logged in, so the search price may not be charged for their searches.'
+              )}
+            </p>
+          )}
+
+          <SettingsSwitchRow>
+            <SettingsSwitchContent>
+              <Label>{t('Blog generation')}</Label>
+              <SettingsDescription>
+                {t(
+                  'Lets the AI blog writer search the web and read pages while it drafts an article, so posts carry up-to-date sources.'
+                )}
+              </SettingsDescription>
+            </SettingsSwitchContent>
+            <Switch
+              checked={Boolean(blogEnabled)}
+              onCheckedChange={(checked) =>
+                form.setValue('blogEnabled', checked, { shouldDirty: true })
+              }
+            />
+          </SettingsSwitchRow>
+          {blogEnabled && (
+            <p className='text-muted-foreground border-amber-500/40 bg-amber-500/5 rounded-md border px-3 py-2 text-xs'>
+              {t(
+                'Blog posts may take much longer to generate because the model searches and reads pages. Every search and every page is billed at the prices above.'
               )}
             </p>
           )}

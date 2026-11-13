@@ -18,7 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQueryClient } from '@tanstack/react-query'
 import { type Table } from '@tanstack/react-table'
-import { Power, PowerOff, SlidersHorizontal, Tag, Trash2 } from 'lucide-react'
+import { Merge, Power, PowerOff, SlidersHorizontal, Tag, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -41,6 +42,7 @@ import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { BatchEditChannelsDialog } from './batch-edit-channels-dialog'
+import { mergeChannels } from '../api'
 import {
   handleBatchDelete,
   handleBatchDisable,
@@ -61,7 +63,9 @@ export function DataTableBulkActions<TData>({
   const [showTagDialog, setShowTagDialog] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showBatchEditDialog, setShowBatchEditDialog] = useState(false)
+  const [showMergeConfirm, setShowMergeConfirm] = useState(false)
   const [tagValue, setTagValue] = useState('')
+  const [mergeBusy, setMergeBusy] = useState(false)
 
   const currentUser = useAuthStore((s) => s.auth.user)
   const canEditSensitive = hasPermission(
@@ -107,6 +111,30 @@ export function DataTableBulkActions<TData>({
       setTagValue('')
       handleClearSelection()
     })
+  }
+
+  const handleMergeAll = async () => {
+    if (mergeBusy || selectedIds.length < 2) return
+    setMergeBusy(true)
+    try {
+      const response = await mergeChannels(selectedIds)
+      if (!response.success) {
+        toast.error(response.message || t('Could not merge the channels'))
+        return
+      }
+      toast.success(
+        t('Channels merged into one multi-key channel {{name}}.', {
+          name: response.data?.name ?? '',
+        })
+      )
+      setShowMergeConfirm(false)
+      queryClient.invalidateQueries({ queryKey: ['channels'] })
+      handleClearSelection()
+    } catch {
+      toast.error(t('Could not merge the channels'))
+    } finally {
+      setMergeBusy(false)
+    }
   }
 
   return (
@@ -202,6 +230,30 @@ export function DataTableBulkActions<TData>({
           <TooltipTrigger
             render={
               <Button
+                variant='outline'
+                size='icon'
+                onClick={() => setShowMergeConfirm(true)}
+                disabled={selectedIds.length < 2}
+                className={cn('size-8', selectedIds.length < 2 && 'cursor-not-allowed opacity-50')}
+                aria-label={t('Merge channels')}
+                title={t('Merge channels')}
+              />
+            }
+          >
+            <Merge />
+            <span className='sr-only'>{t('Merge channels')}</span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>
+              {t('Merge identical channels into one multi-key channel')}
+            </p>
+          </TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
                 variant='destructive'
                 size='icon'
                 onClick={() => {
@@ -274,6 +326,65 @@ export function DataTableBulkActions<TData>({
               onChange={(e) => setTagValue(e.target.value)}
             />
           </div>
+        </div>
+      </Dialog>
+
+      {/* Merge Confirmation Dialog */}
+      <Dialog
+        open={showMergeConfirm}
+        onOpenChange={(open) => {
+          if (!mergeBusy) setShowMergeConfirm(open)
+        }}
+        title={t('Merge channels into one?')}
+        description={t('The selected channels must have identical settings except their API key.')}
+        contentHeight='auto'
+        footer={
+          <>
+            <Button
+              variant='outline'
+              onClick={() => setShowMergeConfirm(false)}
+              disabled={mergeBusy}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button onClick={handleMergeAll} disabled={mergeBusy}>
+              {mergeBusy ? t('Merging…') : t('Merge')}
+            </Button>
+          </>
+        }
+      >
+        <div className='grid gap-3 py-2'>
+          <p className='text-sm text-muted-foreground'>
+            {t(
+              'The channels must have the same type, URL, models, groups and every other setting. Any difference will stop the merge and tell you which setting differs.'
+            )}
+          </p>
+          <ul className='max-h-48 space-y-1 overflow-y-auto text-sm'>
+            {selectedRows.slice(0, 10).map((row) => {
+              const channel = row.original as Channel
+              return (
+                <li
+                  key={channel.id}
+                  className='flex items-center justify-between gap-3 rounded-md border px-2 py-1'
+                >
+                  <span className='truncate'>{channel.name}</span>
+                  <span className='text-muted-foreground shrink-0 text-xs'>
+                    #{channel.id}
+                  </span>
+                </li>
+              )
+            })}
+            {selectedRows.length > 10 && (
+              <li className='text-muted-foreground text-xs'>
+                {t('+{{count}} more', { count: selectedRows.length - 10 })}
+              </li>
+            )}
+          </ul>
+          <p className='text-sm text-muted-foreground'>
+            {t(
+              'The merged channel becomes a multi-key channel (concatenated keys, random mode). The original channels will be deleted.'
+            )}
+          </p>
         </div>
       </Dialog>
 

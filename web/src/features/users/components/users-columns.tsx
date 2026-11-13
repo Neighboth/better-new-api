@@ -226,6 +226,8 @@ export function useUsersColumns(): ColumnDef<User>[] {
         const affCount = user.aff_count || 0
         const affHistoryQuota = user.aff_history_quota || 0
         const inviterId = user.inviter_id || 0
+        const referralReal = user.referral_quota ?? 0
+        const referralDisplay = user.referral_display ?? 0
 
         return (
           <div className='flex max-w-full min-w-0 flex-wrap items-center gap-1 overflow-hidden'>
@@ -257,6 +259,26 @@ export function useUsersColumns(): ColumnDef<User>[] {
               />
               <TooltipContent>
                 <p className='text-xs'>{t('Total invitation revenue')}</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <StatusBadge
+                    label={`${t('Ref')}: ${formatQuota(referralReal)} / ${formatQuota(referralDisplay)}`}
+                    variant='neutral'
+                    copyable={false}
+                    className='cursor-help'
+                  />
+                }
+              />
+              <TooltipContent>
+                <p className='text-xs'>
+                  {t('Referral balance: real / shown ({{real}} / {{display}})', {
+                    real: formatQuota(referralReal),
+                    display: formatQuota(referralDisplay),
+                  })}
+                </p>
               </TooltipContent>
             </Tooltip>
             {inviterId > 0 && (

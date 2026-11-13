@@ -699,18 +699,28 @@ func (user *User) finishInsert(inviterId int) {
 	}
 	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
 		rset := operation_setting.GetReferralSetting()
-		if rset != nil && rset.Enabled {
+		if rset != nil {
+			// The enhancement only decides whether the shown balance differs
+			// from the real one; the grant itself always happens, so an
+			// administrator that only wants to give real rewards never has
+			// to touch the display field.
+			inviteeDisplay := rset.InviteeDisplay
+			inviterDisplay := rset.InviterDisplay
+			if !rset.Enabled {
+				inviteeDisplay = rset.InviteeReal
+				inviterDisplay = rset.InviterReal
+			}
 			// The enhanced referral reward grants a tracked reward balance
 			// instead of ordinary wallet quota: it is shown to the user at
 			// the configured display ratio and is spent before the plain
 			// wallet balance.
-			if rset.InviteeReal > 0 || rset.InviteeDisplay > 0 {
-				if err := CreditReferralBalance(user.Id, rset.InviteeReal, rset.InviteeDisplay); err == nil {
+			if rset.InviteeReal > 0 || inviteeDisplay > 0 {
+				if err := CreditReferralBalance(user.Id, rset.InviteeReal, inviteeDisplay); err == nil {
 					RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(rset.InviteeReal)))
 				}
 			}
-			if rset.InviterReal > 0 || rset.InviterDisplay > 0 {
-				if err := CreditReferralBalance(inviterId, rset.InviterReal, rset.InviterDisplay); err == nil {
+			if rset.InviterReal > 0 || inviterDisplay > 0 {
+				if err := CreditReferralBalance(inviterId, rset.InviterReal, inviterDisplay); err == nil {
 					RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(rset.InviterReal)))
 				}
 				// the invite counts towards the inviter's invitation
@@ -779,18 +789,28 @@ func (user *User) FinalizeOAuthUserCreation(inviterId int) {
 	}
 	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
 		rset := operation_setting.GetReferralSetting()
-		if rset != nil && rset.Enabled {
+		if rset != nil {
+			// The enhancement only decides whether the shown balance differs
+			// from the real one; the grant itself always happens, so an
+			// administrator that only wants to give real rewards never has
+			// to touch the display field.
+			inviteeDisplay := rset.InviteeDisplay
+			inviterDisplay := rset.InviterDisplay
+			if !rset.Enabled {
+				inviteeDisplay = rset.InviteeReal
+				inviterDisplay = rset.InviterReal
+			}
 			// The enhanced referral reward grants a tracked reward balance
 			// instead of ordinary wallet quota: it is shown to the user at
 			// the configured display ratio and is spent before the plain
 			// wallet balance.
-			if rset.InviteeReal > 0 || rset.InviteeDisplay > 0 {
-				if err := CreditReferralBalance(user.Id, rset.InviteeReal, rset.InviteeDisplay); err == nil {
+			if rset.InviteeReal > 0 || inviteeDisplay > 0 {
+				if err := CreditReferralBalance(user.Id, rset.InviteeReal, inviteeDisplay); err == nil {
 					RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(rset.InviteeReal)))
 				}
 			}
-			if rset.InviterReal > 0 || rset.InviterDisplay > 0 {
-				if err := CreditReferralBalance(inviterId, rset.InviterReal, rset.InviterDisplay); err == nil {
+			if rset.InviterReal > 0 || inviterDisplay > 0 {
+				if err := CreditReferralBalance(inviterId, rset.InviterReal, inviterDisplay); err == nil {
 					RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(rset.InviterReal)))
 				}
 				// the invite counts towards the inviter's invitation

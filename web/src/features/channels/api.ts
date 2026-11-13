@@ -190,6 +190,18 @@ export async function batchDeleteChannels(
 }
 
 /**
+ * Merge several single-key channels into one multi-key channel. All settings
+ * other than the API key must be identical, otherwise the merge is refused
+ * and the response lists the differing fields.
+ */
+export async function mergeChannels(
+  ids: number[]
+): Promise<{ success: boolean; message?: string; data?: { id: number; name: string; key_count: number; merged?: number } }> {
+  const res = await api.post('/api/channel/merge', { ids }, channelActionConfig())
+  return res.data
+}
+
+/**
  * Batch set tag for channels
  */
 export async function batchSetChannelTag(

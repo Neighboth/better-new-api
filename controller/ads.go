@@ -43,12 +43,13 @@ const (
 // separate set of language-specific popup images; the blog and the console use
 // Images.
 type customAd struct {
-	ID          string            `json:"id"`
-	Image       string            `json:"image"`
-	Images      map[string]string `json:"images,omitempty"`
-	PopupImages map[string]string `json:"popup_images,omitempty"`
-	URL         string            `json:"url"`
-	Placements  []string          `json:"placements,omitempty"`
+	ID               string            `json:"id"`
+	Image            string            `json:"image"`
+	Images           map[string]string `json:"images,omitempty"`
+	PopupImages      map[string]string `json:"popup_images,omitempty"`
+	PopupSkipSeconds int               `json:"popup_skip_seconds,omitempty"`
+	URL              string            `json:"url"`
+	Placements       []string          `json:"placements,omitempty"`
 }
 
 // placementsOf returns the surfaces of an ad, with the legacy default applied.
@@ -127,25 +128,14 @@ func surfaceEnabled(surface string) bool {
 	return false
 }
 
-// AdPopupSkipSeconds is the delay, in seconds, before the skip button of the
-// popup ad becomes active.
-//
-// Zero is instant: the reader closes the banner at once. A negative or a
-// non-numeric value falls back to the default of one second, so a typo in the
-// settings never traps the visitor behind a banner that cannot be skipped.
-func AdPopupSkipSeconds() int {
-	raw := strings.TrimSpace(common.OptionMap["AdsPopupSkipSeconds"])
-	if raw == "" {
+func adPopupSkipSeconds(ad customAd) int {
+	if ad.PopupSkipSeconds < 0 {
 		return 0
 	}
-	seconds, err := strconv.Atoi(raw)
-	if err != nil || seconds < 0 {
-		return 0
-	}
-	if seconds > 60 {
+	if ad.PopupSkipSeconds > 60 {
 		return 60
 	}
-	return seconds
+	return ad.PopupSkipSeconds
 }
 
 func getCustomAds() []customAd {
@@ -211,6 +201,9 @@ func GetAdsStatus(c *gin.Context) {
 				"image":      effectiveImage,
 				"url":        ad.URL,
 				"placements": placementsOf(ad),
+				// Seconds before the skip button of the popup ad becomes active.
+				// Campaigns that need a different delay carry it on the ad.
+				"popup_skip_seconds": adPopupSkipSeconds(ad),
 			}
 			if len(images) > 0 {
 				adH["images"] = images
@@ -228,10 +221,6 @@ func GetAdsStatus(c *gin.Context) {
 			"adsense_client_id": common.OptionMap["AdSenseClientId"],
 			"adsense_slot_id":   common.OptionMap["AdSenseSlotId"],
 			"custom_ads":        ads,
-			// Seconds before the skip button of the popup ad becomes active.
-			// The page reads it from here so the value follows the campaign
-			// without a rebuild of the panel.
-			"popup_skip_seconds": AdPopupSkipSeconds(),
 		},
 	})
 }

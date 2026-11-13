@@ -25,6 +25,8 @@ export type ConsoleAd = {
   images?: Record<string, string>
   url: string
   placements?: string[]
+  /** Seconds before the skip button of the popup ad becomes active. */
+  popup_skip_seconds?: number
 }
 
 /** The ad configuration of one surface of the site. */
@@ -36,8 +38,6 @@ export type AdSurfaceConfig = {
   adsense_client_id: string
   adsense_slot_id: string
   custom_ads: ConsoleAd[]
-  /** Seconds the skip button of the popup ad stays disabled. */
-  popup_skip_seconds?: number
 }
 
 /**

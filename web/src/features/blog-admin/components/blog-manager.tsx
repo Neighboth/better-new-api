@@ -1,4 +1,4 @@
-/*
+﻿/*
 Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
-import { AlertCircle, Languages, Loader2, MessageSquare, Pencil, Plus, RefreshCw, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { AlertCircle, Languages, Loader2, MessageSquare, Pencil, Plus, RefreshCw, Globe, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Markdown } from '@/components/ui/markdown'
@@ -47,7 +47,8 @@ import {
   deleteBlogComment,
   type BlogComment,
 } from '@/features/blog/api'
-import { sendChatCompletion } from '@/features/playground/api'
+import { sendChatCompletion, getPlaygroundRuntimeConfig, searchWeb, fetchWebpage } from '@/features/playground/api'
+import type { ChatCompletionMessage, ChatCompletionTool } from '@/features/playground/types'
 import { createStreamRequestController } from '@/features/playground/hooks/use-stream-request'
 import { getFreshAuthHeaders } from '@/lib/api'
 import { API_ENDPOINTS } from '@/features/playground/constants'
@@ -100,6 +101,7 @@ export function BlogManager() {
   useEffect(() => {
     postFormRef.current = postForm
   }, [postForm])
+  const researchLogRef = useRef<HTMLDivElement | null>(null)
   const [activeLanguage, setActiveLanguage] = useState('en')
   const [commentsPostId, setCommentsPostId] = useState<number | null>(null)
   const [isAiOpen, setIsAiOpen] = useState(false)
@@ -111,6 +113,8 @@ export function BlogManager() {
   const [aiGenerationStep, setAiGenerationStep] = useState(0)
   const [aiGenerationError, setAiGenerationError] = useState(false)
   const [aiErrorMessage, setAiErrorMessage] = useState('')
+  const [webResearch, setWebResearch] = useState(false)
+  const [researchLogs, setResearchLogs] = useState<Array<{ id: string; kind: 'search' | 'fetch'; detail: string; ts: number }>>([])
 
   // Blog on/off toggle lives on the blog admin API so regular admins (not
   // only the root user) can manage the blog.
@@ -130,6 +134,23 @@ export function BlogManager() {
       setBlogEnabled(settings.enabled)
     }
   }, [settings])
+
+  // The administrator decides whether the blog AI writer may research the web.
+  const { data: runtimeConfig } = useQuery({
+    queryKey: ['playground-runtime-config'],
+    queryFn: () => getPlaygroundRuntimeConfig(),
+    staleTime: 60_000,
+  })
+  const webResearchEnabled = Boolean(
+    runtimeConfig?.web_search?.blog && runtimeConfig?.web_search?.configured
+  )
+
+  useEffect(() => {
+    if (!webResearchEnabled) {
+      setWebResearch(false)
+      setResearchLogs([])
+    }
+  }, [webResearchEnabled])
 
   const toggleBlog = useMutation({
     mutationFn: async (enabled: boolean) =>
@@ -284,11 +305,150 @@ export function BlogManager() {
     }
   }
 
+  const pushResearchLog = (kind: 'search' | 'fetch', detail: string) => {
+    setResearchLogs((prev) =>
+      [...prev, { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, kind, detail, ts: Date.now() }].slice(-80)
+    )
+  }
+
+  const WEB_RESEARCH_TOOLS: ChatCompletionTool[] = [
+    {
+      type: 'function',
+      function: {
+        name: 'web_search',
+        description:
+          'Search the public web with the search engine of the installation. Call it several times with different queries in several languages to find fresh, authoritative sources about the topic.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'The search query, in the language of the sources you expect to find.' },
+            max_results: { type: 'number', description: 'How many results to read, between 1 and 10. Defaults to 8.' },
+          },
+          required: ['query'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'fetch_webpage',
+        description:
+          'Fetch one public web page and get its content as markdown text. Use it for every page that looks relevant to the topic â€” documents, blogs, release notes, documentation, news. Read as many pages as it takes to understand the topic deeply; this is the point of researching.',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'The full URL of the page to fetch and read.' },
+          },
+          required: ['url'],
+        },
+      },
+    },
+  ]
+
+  const RESEARCH_MAX_FETCH = 150
+  const RESEARCH_MAX_ROUNDS = 100
+
+  const runResearchPhase = async (prompt: string, model: string): Promise<string> => {
+    setResearchLogs([])
+    setAiGenerating(true)
+    const system =
+      'You are a rigorous research assistant. The user wants to write a blog post about the topic below and needs up-to-date, authoritative information. Use web_search with many different queries (in several languages, several angles) and fetch_webpage to read the interesting pages. Read as many pages as needed â€” research thoroughly. Do not write the post yet. Reply with ONLY a research digest: the key facts, numbers, dates, quotes, sources with their URLs, and anything a writer must not get wrong. The digest will be given to the writer. Do not add commentary.'
+    const messages: ChatCompletionMessage[] = [
+      { role: 'system', content: system },
+      { role: 'user', content: `Topic: ${prompt}` },
+    ]
+    let fetched = 0
+    try {
+      for (let round = 0; round < RESEARCH_MAX_ROUNDS; round++) {
+        const res = await sendChatCompletion(
+          {
+            model,
+            messages,
+            stream: false,
+            temperature: 0.2,
+            tools: WEB_RESEARCH_TOOLS,
+          },
+          undefined,
+          900000
+        )
+        const choice = res?.choices?.[0]
+        const message = choice?.message
+        const toolCalls = message?.tool_calls
+        if (!toolCalls || toolCalls.length === 0) {
+          return (message?.content ?? '').trim()
+        }
+        messages.push({ role: 'assistant', content: message?.content ?? '', tool_calls: toolCalls })
+        for (const call of toolCalls) {
+          const name = call.function?.name ?? ''
+          let args: Record<string, unknown> = {}
+          try {
+            args = JSON.parse(call.function?.arguments || '{}') as Record<string, unknown>
+          } catch {
+            args = {}
+          }
+          if (name === 'web_search') {
+            const query = String(args.query || '').trim()
+            if (!query) continue
+            pushResearchLog('search', query)
+            try {
+              const results = await searchWeb(query, 8)
+              const hits = Array.isArray(results?.results) ? results.results : []
+              const text = hits.length
+                ? hits
+                    .map((hit, index) => `[${index + 1}] ${hit.title}\n${hit.url}\n${hit.content || ''}`.trim())
+                    .join('\n\n')
+                : 'No results found.'
+              messages.push({ role: 'tool', tool_call_id: call.id, content: `Web search results for "${query}":\n\n${text}` })
+            } catch (error: any) {
+              messages.push({ role: 'tool', tool_call_id: call.id, content: `Search failed: ${error?.message || 'unknown error'}` })
+            }
+            continue
+          }
+          if (name === 'fetch_webpage') {
+            const url = String(args.url || '').trim()
+            if (!url) continue
+            if (fetched >= RESEARCH_MAX_FETCH) {
+              messages.push({ role: 'tool', tool_call_id: call.id, content: 'Fetch limit reached for this research run.' })
+              continue
+            }
+            fetched++
+            pushResearchLog('fetch', url)
+            try {
+              const page = await fetchWebpage(url)
+              const md = (page.markdown || '').slice(0, 16000)
+              messages.push({ role: 'tool', tool_call_id: call.id, content: `# ${page.title}\n${md}` })
+            } catch (error: any) {
+              messages.push({ role: 'tool', tool_call_id: call.id, content: `Fetch failed for ${url}: ${error?.message || 'unknown error'}` })
+            }
+            continue
+          }
+          messages.push({ role: 'tool', tool_call_id: call.id, content: `Unknown tool: ${name}` })
+        }
+      }
+      return ''
+    } finally {
+      setAiGenerating(false)
+    }
+  }
+
   const doAiSequenceStep = async (step: number, currentPrompt: string, kind: 'generate' | 'refine') => {
     const model = aiModel || aiModels?.[0] || ''
     setAiGenerationError(false)
     setAiErrorMessage('')
     setAiGenerationStep(step)
+
+    let researchNote = ''
+    if (webResearch && step === 1) {
+      try {
+        const digest = await runResearchPhase(currentPrompt, model)
+        if (digest) {
+          researchNote = `\n\nWeb research notes (fresh facts, prefer them over memory, cite these sources in the article):\n${digest.slice(0, 14000)}`
+        }
+      } catch (error: any) {
+        // Research is best-effort: the post is still generated without it.
+        console.error('web research failed', error)
+      }
+    }
 
     let currentDraft: BlogPostForm = {
       ...postFormRef.current,
@@ -340,9 +500,9 @@ export function BlogManager() {
     try {
       if (curStep <= 1) { // titles
         const sys = buildBlogAiSystemPrompt('titles')
-        let req = currentPrompt.includes("\n") ? currentPrompt : `Write a blog post about: ${currentPrompt}`
+        let req = (currentPrompt.includes("\n") ? currentPrompt : `Write a blog post about: ${currentPrompt}`) + researchNote
         if (kind === 'refine') {
-           req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}`
+           req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}` + researchNote
         }
         await doStream(sys, req, (parsed) => {
           currentDraft = {
@@ -359,10 +519,10 @@ export function BlogManager() {
 
       if (curStep <= 2) { // summaries
         const sys = buildBlogAiSystemPrompt('summaries')
-        let req = `English Title: ${currentDraft.titles.en || currentDraft.title}\n\nUser Prompt: ${currentPrompt}`
+        let req = `English Title: ${currentDraft.titles.en || currentDraft.title}\n\nUser Prompt: ${currentPrompt}` + researchNote
 
         if (kind === 'refine') {
-           req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}`
+           req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}` + researchNote
         }
         await doStream(sys, req, (parsed) => {
           currentDraft = {
@@ -379,10 +539,10 @@ export function BlogManager() {
 
       if (curStep <= 3) { // tags
         const sys = buildBlogAiSystemPrompt('tags')
-        let req = `English Title: ${currentDraft.titles.en || currentDraft.title}\nEnglish Summary: ${currentDraft.summaries.en || currentDraft.summary}\n\nUser Prompt: ${currentPrompt}`
+        let req = `English Title: ${currentDraft.titles.en || currentDraft.title}\nEnglish Summary: ${currentDraft.summaries.en || currentDraft.summary}\n\nUser Prompt: ${currentPrompt}` + researchNote
 
         if (kind === 'refine') {
-           req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}`
+           req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}` + researchNote
         }
         await doStream(sys, req, (parsed) => {
           currentDraft = {
@@ -399,10 +559,10 @@ export function BlogManager() {
 
       if (curStep <= 4) { // seo
         const sys = buildBlogAiSystemPrompt('seo')
-        let req = `English Title: ${currentDraft.titles.en || currentDraft.title}\nEnglish Summary: ${currentDraft.summaries.en || currentDraft.summary}\nEnglish Tags: ${currentDraft.tags_list.en || currentDraft.tags}\n\nUser Prompt: ${currentPrompt}`
+        let req = `English Title: ${currentDraft.titles.en || currentDraft.title}\nEnglish Summary: ${currentDraft.summaries.en || currentDraft.summary}\nEnglish Tags: ${currentDraft.tags_list.en || currentDraft.tags}\n\nUser Prompt: ${currentPrompt}` + researchNote
 
         if (kind === 'refine') {
-           req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}`
+           req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}` + researchNote
         }
         await doStream(sys, req, (parsed) => {
           currentDraft = {
@@ -419,10 +579,10 @@ export function BlogManager() {
 
       if (curStep <= 5) { // content_en
         const sys = buildBlogAiSystemPrompt('content_en')
-        let req = `Title: ${currentDraft.titles.en || currentDraft.title}\nSummary: ${currentDraft.summaries.en || currentDraft.summary}\nTags: ${currentDraft.tags_list.en || currentDraft.tags}\nSEO Description: ${currentDraft.seo_descriptions.en || currentDraft.seo_description}\n\nUser Prompt: ${currentPrompt}`
+        let req = `Title: ${currentDraft.titles.en || currentDraft.title}\nSummary: ${currentDraft.summaries.en || currentDraft.summary}\nTags: ${currentDraft.tags_list.en || currentDraft.tags}\nSEO Description: ${currentDraft.seo_descriptions.en || currentDraft.seo_description}\n\nUser Prompt: ${currentPrompt}` + researchNote
 
         if (kind === 'refine') {
-           req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}`
+           req = `Current Draft:\n${JSON.stringify(draftToAiJson(currentDraft))}\n\nInstructions:\n${currentPrompt}` + researchNote
         }
         await new Promise<void>((resolve, reject) => {
           const payload = {
@@ -834,7 +994,7 @@ export function BlogManager() {
                 </div>
                 <p className='text-muted-foreground truncate text-xs'>
                   {dayjs(post.created_at).format('YYYY-MM-DD HH:mm')}
-                  {post.tags ? ` · ${post.tags}` : ''}
+                  {post.tags ? ` Â· ${post.tags}` : ''}
                 </p>
               </div>
               <div className='flex items-center gap-1'>
@@ -1126,6 +1286,52 @@ export function BlogManager() {
             {t('The AI writes title, summary, tags, SEO description,and full content for every supported language.')}
           </p>
         </div>
+        {webResearchEnabled && (
+          <div className='grid gap-2 rounded-xl border border-border/60 bg-muted/30 p-3'>
+            <div className='flex items-center justify-between gap-3'>
+              <div className='min-w-0'>
+                <Label className='flex items-center gap-1.5'>
+                  <Globe className='h-4 w-4 text-sky-500' />
+                  {t('Web research')}
+                </Label>
+                <p className='text-muted-foreground text-xs'>
+                  {t('The model searches the web and reads pages before writing, so the post carries fresh facts. Watch the live log below.')}
+                </p>
+              </div>
+              <Switch
+                checked={webResearch}
+                onCheckedChange={(checked) => setWebResearch(checked)}
+                disabled={aiGenerating}
+              />
+            </div>
+            {webResearch && researchLogs.length > 0 && (
+              <div
+                ref={researchLogRef}
+                className='max-h-40 overflow-y-auto rounded-md border bg-background/80 p-2 text-[11px] font-mono leading-5'
+              >
+                {researchLogs.map((log) => (
+                  <div key={log.id} className='flex items-center gap-2 whitespace-nowrap'>
+                    <span className='text-muted-foreground shrink-0'>
+                      {new Date(log.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </span>
+                    {log.kind === 'search' ? (
+                      <span className='text-sky-500 shrink-0'>search</span>
+                    ) : (
+                      <span className='text-emerald-500 shrink-0'>fetch</span>
+                    )}
+                    <span className='truncate text-foreground/80' title={log.detail}>{log.detail}</span>
+                  </div>
+                ))}
+                {aiGenerating && (
+                  <div className='flex items-center gap-2 text-muted-foreground'>
+                    <Loader2 className='h-3 w-3 animate-spin' />
+                    {t('Researching the web…')}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {hasAnyLocalizedContent(postForm) && (
           <div className='grid gap-2'>
             <Label>{t('Refine draft')}</Label>
@@ -1201,10 +1407,10 @@ function CommentsDialog(props: { postId: number | null; onClose: () => void }) {
           <div className='min-w-0 flex-1'>
             <p className='text-xs font-medium'>
               {comment.username}
-              {comment.parent_id ? ` · ${t('Reply')} #${comment.parent_id}` : ''}
+              {comment.parent_id ? ` Â· ${t('Reply')} #${comment.parent_id}` : ''}
               <span className='text-muted-foreground font-normal'>
                 {' '}
-                · {dayjs(comment.created_at).format('YYYY-MM-DD HH:mm')}
+                Â· {dayjs(comment.created_at).format('YYYY-MM-DD HH:mm')}
               </span>
             </p>
             <p className='mt-1 text-sm break-words whitespace-pre-wrap'>

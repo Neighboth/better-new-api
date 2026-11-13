@@ -107,6 +107,7 @@ func GetPlaygroundConfig(c *gin.Context) {
 			"playground":       setting.WebSearchPlaygroundEnabled,
 			"discord":          setting.WebSearchDiscordEnabled,
 			"live":             setting.WebSearchLiveEnabled,
+			"blog":             setting.WebSearchBlogEnabled,
 			"configured":       strings.TrimSpace(search.SearXNGURL) != "",
 			"price_per_search": search.PricePerSearch,
 			"max_results":      search.MaxSearches,
