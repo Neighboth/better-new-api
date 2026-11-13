@@ -162,16 +162,25 @@ func (c *webClient) doJSON(ctx context.Context, method, path string, body any, o
 }
 
 func (c *webClient) createSession(ctx context.Context) (string, error) {
+	// DeepSeek changed the session-create envelope: the id now lives under
+	// biz_data.chat_session.id (fall back to id for older builds).
 	var out struct {
-		ID string `json:"id"`
+		ID          string `json:"id"`
+		ChatSession *struct {
+			ID string `json:"id"`
+		} `json:"chat_session"`
 	}
 	if err := c.doJSON(ctx, http.MethodPost, sessionPath, map[string]any{}, &out); err != nil {
 		return "", err
 	}
-	if out.ID == "" {
-		return "", errors.New("deepseek web: session id not returned by server")
+	id := out.ID
+	if id == "" && out.ChatSession != nil {
+		id = out.ChatSession.ID
 	}
-	return out.ID, nil
+	if id == "" {
+		return "", errors.New("deepseek web: session id not returned by server (API envelope changed: biz_data.chat_session.id expected)")
+	}
+	return id, nil
 }
 
 // powHeader fetches and solves a challenge bound to targetPath. DeepSeek issues
