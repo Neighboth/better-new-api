@@ -91,5 +91,8 @@
   "Register http, https, socks5 or socks5h proxies. Only enabled proxies are used for key assignments.": "Register http, https, socks5 or socks5h proxies. Only enabled proxies are used for key assignments.",
   "No multi-key channels found. Create one from the Channels page first.": "No multi-key channels found. Create one from the Channels page first.",
   "All per-key proxy assignments of “{{name}}” will be removed. Keys will fall back to the channel’s default path.": "All per-key proxy assignments of “{{name}}” will be removed. Keys will fall back to the channel’s default path.",
-  "Deleting a proxy also removes its key assignments. Keys bound to it will use the channel’s default path again.": "Deleting a proxy also removes its key assignments. Keys bound to it will use the channel’s default path again."
+  "Deleting a proxy also removes its key assignments. Keys bound to it will use the channel’s default path again.": "Deleting a proxy also removes its key assignments. Keys bound to it will use the channel’s default path again.",
+  "Try one of these prompts to get started, then tune the model and options in the composer.": "Try one of these prompts to get started, then tune the model and options in the composer.",
+  "Back to users": "Back to users",
+  "Referral (available to spend)": "Referral (available to spend)"
 }

@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import type { ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 
-import { Users, Coins, Gift, Link2, UserMinus } from 'lucide-react'
 
 import { BadgeCell } from '@/components/data-table'
 import { GroupBadge } from '@/components/group-badge'
@@ -32,7 +31,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { formatQuota, formatTimestamp } from '@/lib/format'
+import { formatTimestamp } from '@/lib/format'
 
 import {
   USER_STATUS,
@@ -219,112 +218,6 @@ export function useUsersColumns(): ColumnDef<User>[] {
       enableSorting: false,
       size: 120,
       meta: { mobileOrder: 20 },
-    },
-    {
-      id: 'invite_info',
-      header: t('Invite Info'),
-      cell: ({ row }) => {
-        const user = row.original
-        const affCount = user.aff_count || 0
-        const affHistoryQuota = user.aff_history_quota || 0
-        const inviterId = user.inviter_id || 0
-        const referralReal = user.referral_quota ?? 0
-        const referralDisplay = user.referral_display ?? 0
-
-        return (
-          <div className='flex max-w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden whitespace-nowrap'>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <StatusBadge
-                    icon={Users}
-                    label={String(affCount)}
-                    variant='neutral'
-                    type='text'
-                    copyable={false}
-                    className='cursor-help'
-                  />
-                }
-              />
-              <TooltipContent>
-                <p className='text-xs'>{t('Number of users invited')}</p>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <StatusBadge
-                    icon={Coins}
-                    label={formatQuota(affHistoryQuota)}
-                    variant='neutral'
-                    type='text'
-                    copyable={false}
-                    className='cursor-help'
-                  />
-                }
-              />
-              <TooltipContent>
-                <p className='text-xs'>{t('Total invitation revenue')}</p>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <StatusBadge
-                    icon={Gift}
-                    label={`${formatQuota(referralReal)} / ${formatQuota(referralDisplay)}`}
-                    variant='neutral'
-                    type='text'
-                    copyable={false}
-                    className='cursor-help'
-                  />
-                }
-              />
-              <TooltipContent>
-                <p className='text-xs'>
-                  {t('Referral balance: real / shown ({{real}} / {{display}})', {
-                    real: formatQuota(referralReal),
-                    display: formatQuota(referralDisplay),
-                  })}
-                </p>
-              </TooltipContent>
-            </Tooltip>
-            {inviterId > 0 && (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <StatusBadge
-                      icon={Link2}
-                      label={String(inviterId)}
-                      variant='neutral'
-                      type='text'
-                      copyable={false}
-                      className='cursor-help'
-                    />
-                  }
-                />
-                <TooltipContent>
-                  <p className='text-xs'>
-                    {t('Invited by user ID')} {inviterId}
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {inviterId === 0 && (
-              <StatusBadge
-                icon={UserMinus}
-                label={t('No Inviter')}
-                variant='neutral'
-                type='text'
-                copyable={false}
-              />
-            )}
-          </div>
-        )
-      },
-      size: 180,
-      enableSorting: false,
-      meta: { mobileHidden: true },
     },
     {
       accessorKey: 'created_at',

@@ -180,11 +180,12 @@ export function useStudioGeneration() {
         const finished = await pollVideoTask(
           taskId,
           controller.signal,
-          () =>
+          (minCreatedAt) =>
             resolveSubmittedTaskIdWithLookup(submitted, {
               model: params.model,
               submittedAt,
               signal: controller.signal,
+              minCreatedAt,
             }),
           (progress) => patchItem(id, { progress })
         )

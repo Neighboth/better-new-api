@@ -200,7 +200,12 @@ export async function getVideoTask(
  * look it up: the newest video task of the user created after the submit call.
  */
 export async function findLatestVideoTask(
-  options: { model?: string; sinceMs?: number; signal?: AbortSignal } = {}
+  options: {
+    model?: string
+    sinceMs?: number
+    signal?: AbortSignal
+    minCreatedAt?: number
+  } = {}
 ): Promise<VideoTaskState | null> {
   const res = await api.get('/api/task/self', {
     params: { p: 1, page_size: 10 },
@@ -215,6 +220,13 @@ export async function findLatestVideoTask(
     if (!item?.task_id) return false
     const createdAt = Number(item.created_at ?? 0)
     if (since > 0 && createdAt > 0 && createdAt < since - 5) return false
+    if (options.minCreatedAt && options.minCreatedAt > 0) {
+      // A task row created before the anchor we already polled belongs to an
+      // older submission; never rescue onto it.
+      if (!(createdAt > 0) || createdAt < options.minCreatedAt - 1) {
+        return false
+      }
+    }
     if (!options.model) return true
     const origin = item.properties?.origin_model_name
     return !origin || origin === options.model || item.action === 'video'

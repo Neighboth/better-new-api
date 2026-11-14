@@ -105,7 +105,12 @@ export function resolveSubmittedTaskId(response: unknown): string {
  */
 export async function resolveSubmittedTaskIdWithLookup(
   response: unknown,
-  options: { model?: string; submittedAt?: number; signal?: AbortSignal } = {}
+  options: {
+    model?: string
+    submittedAt?: number
+    signal?: AbortSignal
+    minCreatedAt?: number
+  } = {}
 ): Promise<string> {
   const direct = resolveSubmittedTaskId(response)
   const submittedAt = options.submittedAt ?? Date.now()
@@ -116,6 +121,7 @@ export async function resolveSubmittedTaskIdWithLookup(
         model: options.model,
         sinceMs: submittedAt,
         signal: options.signal,
+        minCreatedAt: options.minCreatedAt,
       })
       if (task?.task_id) return task.task_id
     } catch (error) {
@@ -140,13 +146,19 @@ export async function resolveSubmittedTaskIdWithLookup(
 export async function pollVideoTask(
   taskId: string,
   signal?: AbortSignal,
-  rescue?: () => Promise<string>,
+  rescue?: (minCreatedAt: number) => Promise<string>,
   onProgress?: (progress: string) => void
 ): Promise<VideoTaskState> {
   const startedAt = Date.now()
   let last: VideoTaskState | null = null
   let currentId = taskId
   let emptyPolls = 0
+  // Unix seconds of the first poll that actually found the task. A rescue
+  // callback must never return a task created before this anchor; otherwise
+  // the poll can jump backwards onto an unrelated older task and the UI
+  // shows its progress ("88%" -> "14%").
+  let anchorCreatedAt = 0
+  let maxProgress = 0
 
   while (Date.now() - startedAt < MAX_WAIT_MS) {
     if (signal?.aborted) {
@@ -167,10 +179,12 @@ export async function pollVideoTask(
       // continue polling with it.
       if (rescue && emptyPolls === 2) {
         try {
-          const rescued = await rescue()
+          const rescued = await rescue(anchorCreatedAt)
           if (rescued && rescued !== currentId) {
             currentId = rescued
             emptyPolls = 0
+            anchorCreatedAt = 0
+            maxProgress = 0
             continue
           }
         } catch (error) {
@@ -182,8 +196,24 @@ export async function pollVideoTask(
     }
 
     if (last) {
+      if (anchorCreatedAt === 0) {
+        const createdAt = Number(last.created_at ?? 0)
+        if (Number.isFinite(createdAt) && createdAt > 0) {
+          anchorCreatedAt = createdAt
+        }
+      }
       if (onProgress && last.progress) {
-        onProgress(last.progress)
+        const percent = Number.parseFloat(String(last.progress))
+        if (Number.isFinite(percent)) {
+          // Never report a progress lower than what was already shown for
+          // this poll session. Providers occasionally report a stale row.
+          if (percent >= maxProgress) {
+            maxProgress = percent
+            onProgress(last.progress)
+          }
+        } else {
+          onProgress(last.progress)
+        }
       }
       const status = (last.status || '').toLowerCase()
       if (last.result_url && !TERMINAL_FAILURE_STATUSES.has(status)) {

@@ -17,8 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { Row } from '@tanstack/react-table'
+import { useNavigate } from '@tanstack/react-router'
 import {
   Pencil,
+  Eye,
   Trash2,
   Power,
   PowerOff,
@@ -73,6 +75,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const canWrite = hasPermission(currentUser, ADMIN_PERMISSION_RESOURCES.USER, 'write')
   const canDelete = hasPermission(currentUser, ADMIN_PERMISSION_RESOURCES.USER, 'delete')
   const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
+  const navigate = useNavigate()
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
@@ -145,6 +148,17 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
 
   return (
     <div className='-ml-1.5 flex items-center gap-1'>
+      <Button
+        variant='ghost'
+        size='sm'
+        className='h-8 gap-1.5 px-2 text-xs'
+        onClick={() => navigate({ to: '/users/$id', params: { id: String(user.id) } })}
+        aria-label={t('User details')}
+      >
+        <Eye className='size-3.5' />
+        {t('Details')}
+      </Button>
+
       {canWrite && (
         <Tooltip>
           <TooltipTrigger

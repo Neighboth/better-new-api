@@ -342,9 +342,9 @@ export function BlogManager() {
     setAiGenerating(true)
     const trimmed = prompt.trim()
 
-    // Phase 1 — ask the model for eight varied queries. This is the only
-    // LLM call in the harness. If the model cannot produce them, scripted
-    // fallback queries kick in.
+    // Phase 1 — ask the model to design its own research plan. The model
+    // chooses how many queries to run and which angles to cover; the harness
+    // only enforces a hard cap so the research cannot run away.
     const year = new Date().getFullYear()
     let queries: string[] = []
     try {
@@ -358,7 +358,7 @@ export function BlogManager() {
             },
             {
               role: 'user',
-              content: `Topic: ${trimmed}\n\nGenerate exactly eight distinct search queries that a researcher would run to write an authoritative, up-to-date blog post about this topic. Cover: what it is, the latest news of ${year}, how it works, pricing, criticism, history, alternatives, comparisons, and community reactions. Reply with ONLY a JSON array of eight strings.`,
+              content: `Topic: ${trimmed}\n\nYou are preparing to research the web for an authoritative, up-to-date blog post about this topic (year: ${year}). Design the search plan yourself: choose whatever queries you genuinely need, in your own words, at whatever angle you think a careful researcher would use. There is no fixed count and no checklist to fill. Reply with ONLY a JSON object shaped like {"queries": ["...", ...]}; each string is a single search query.`,
             },
           ],
           stream: false,
@@ -371,21 +371,13 @@ export function BlogManager() {
       const raw = res?.choices?.[0]?.message?.content?.trim() ?? ''
       queries = parseQueryBounds(raw)
     } catch (error) {
-      if (import.meta.env.DEV) console.warn('research query generation failed, using scripted queries', error)
+      if (import.meta.env.DEV) console.warn('research query generation failed', error)
     }
     if (queries.length === 0) {
-      queries = [
-        trimmed,
-        `${trimmed} nedir`,
-        `${trimmed} nasıl çalışır`,
-        `${trimmed} latest news ${year}`,
-        `${trimmed} what is new`,
-        `${trimmed} pricing`,
-        `${trimmed} criticism problems`,
-        `${trimmed} vs alternatives`,
-      ]
+      // Last-resort fallback: just search the raw topic, once.
+      queries = [trimmed]
     }
-    queries = queries.slice(0, 8)
+    queries = queries.slice(0, 12)
 
     // Phase 2 — search every query and gather candidate URLs.
     const candidates: Array<{ title: string; url: string; content: string }> = []

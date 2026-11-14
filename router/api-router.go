@@ -213,6 +213,7 @@ func SetApiRouter(router *gin.Engine) {
 				// account and the user cannot lift it.
 				adminRoute.GET("/:id/blocklist", middleware.RequirePermission(authz.UserRead), controller.GetUserBlocklist)
 				adminRoute.PUT("/:id/blocklist", middleware.RequirePermission(authz.UserWrite), controller.UpdateUserBlocklist)
+				adminRoute.GET("/:id/detail", middleware.RequirePermission(authz.UserRead), controller.GetUserDetail)
 				adminRoute.GET("/:id", middleware.RequirePermission(authz.UserRead), controller.GetUser)
 				adminRoute.POST("/", middleware.RequirePermission(authz.UserWrite), controller.CreateUser)
 				adminRoute.POST("/manage", controller.ManageUser)

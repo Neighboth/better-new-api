@@ -53,6 +53,18 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useStudioGeneration } from './hooks/use-studio-generation'
 import type { StudioItem, StudioMode } from './types'
 
+const SUGGESTED_IMAGE_PROMPTS = [
+  'A lighthouse on a cliff during a dramatic storm, oil painting',
+  'Minimal product shot of headphones on concrete, studio lighting',
+  'A fox curled up in a sunbeam in a library, photorealistic',
+]
+
+const SUGGESTED_VIDEO_PROMPTS = [
+  'A paper plane gliding through a sunlit old library',
+  'Timelapse of a thunderstorm gathering over the sea',
+  'A cat leaping across rooftops at sunset, cinematic',
+]
+
 function SettingsChips(props: {
   settings: Record<string, string | number | undefined>
 }) {
@@ -89,9 +101,11 @@ function ResultCard(props: { item: StudioItem; onRemove: () => void }) {
   const progressPercent = item.progress ? progressPercentOf(item.progress) : null
 
   return (
-    <div className='bg-card group relative overflow-hidden rounded-2xl border shadow-sm transition hover:shadow-md'>
+    <div className='group bg-card relative overflow-hidden rounded-2xl border shadow-sm transition duration-300 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5'>
+      {/* Mode ribbon */}
+      <div className='pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-primary/70 via-sky-400/60 to-transparent' />
       <Badge
-        className='absolute start-2 top-2 z-10 gap-1'
+        className='absolute start-2 top-3 z-10 gap-1 border-background/60 bg-background/80 backdrop-blur'
         variant={item.mode === 'video' ? 'secondary' : 'outline'}
       >
         {item.mode === 'video' ? (
@@ -102,29 +116,53 @@ function ResultCard(props: { item: StudioItem; onRemove: () => void }) {
         {item.mode === 'video' ? t('Video') : t('Image')}
       </Badge>
 
-      <div className='bg-muted/40 flex min-h-44 items-center justify-center overflow-hidden'>
+      <div className='bg-muted/40 relative flex min-h-44 items-center justify-center overflow-hidden'>
         {item.status === 'pending' && (
-          <div className='flex w-full flex-col items-center gap-3 px-6 py-12'>
-            <div className='text-muted-foreground flex items-center gap-2 text-sm'>
-              <Loader2Icon className='size-4 animate-spin' />
-              {item.mode === 'video'
-                ? t('Rendering the video, this can take a few minutes…')
-                : t('Generating the image…')}
-            </div>
-            {item.mode === 'video' && progressPercent !== null && (
-              <div className='w-full max-w-xs space-y-1.5'>
-                <Progress value={progressPercent} className='h-2' />
-                <p className='text-center font-mono text-xs tabular-nums text-primary'>
-                  {progressPercent}%
-                </p>
+          <div className='relative flex min-h-44 w-full flex-col items-center justify-center gap-3 px-6 py-12'>
+            <div
+              aria-hidden='true'
+              className='pointer-events-none absolute inset-0 animate-pulse bg-gradient-to-br from-primary/20 via-transparent to-sky-500/10'
+            />
+            <div
+              aria-hidden='true'
+              className='absolute inset-x-6 top-0 h-px animate-pulse bg-gradient-to-r from-transparent via-primary/70 to-transparent'
+            />
+            <div className='relative flex flex-col items-center gap-3'>
+              <div className='relative flex size-12 items-center justify-center'>
+                <span
+                  aria-hidden='true'
+                  className='absolute inset-0 animate-ping rounded-full bg-primary/15'
+                />
+                <Loader2Icon className='text-primary size-6 animate-spin' />
               </div>
-            )}
+              <p className='text-muted-foreground max-w-[16rem] text-center text-xs leading-relaxed'>
+                {item.mode === 'video'
+                  ? t('Rendering the video, this can take a few minutes…')
+                  : t('Generating the image…')}
+              </p>
+              {item.mode === 'video' && progressPercent !== null && (
+                <div className='w-full max-w-[14rem] space-y-1.5'>
+                  <Progress
+                    value={progressPercent}
+                    className='h-1.5 [&>div]:bg-gradient-to-r [&>div]:from-primary [&>div]:to-sky-400'
+                  />
+                  <p className='text-primary text-center font-mono text-[11px] tabular-nums'>
+                    {progressPercent}%
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         )}
         {item.status === 'error' && (
-          <p className='text-destructive px-4 py-16 text-center text-sm'>
-            {item.error || t('The generation failed')}
-          </p>
+          <div className='flex w-full flex-col items-center gap-2 bg-destructive/5 px-4 py-12 text-center'>
+            <span className='flex size-10 items-center justify-center rounded-full bg-destructive/10 text-destructive text-lg'>
+              !
+            </span>
+            <p className='text-destructive/90 max-w-[18rem] text-xs leading-relaxed'>
+              {item.error || t('The generation failed')}
+            </p>
+          </div>
         )}
         {item.status === 'ready' &&
           item.urls.map((url) =>
@@ -140,7 +178,7 @@ function ResultCard(props: { item: StudioItem; onRemove: () => void }) {
             ) : (
               <img
                 alt={item.prompt}
-                className='max-h-[420px] w-full object-contain'
+                className='max-h-[420px] w-full object-contain transition duration-500 group-hover:scale-[1.02]'
                 key={url}
                 src={url}
               />
@@ -148,7 +186,7 @@ function ResultCard(props: { item: StudioItem; onRemove: () => void }) {
           )}
       </div>
 
-      <div className='space-y-2 p-3'>
+      <div className='space-y-2 p-3.5'>
         <p className='line-clamp-2 text-sm'>{item.prompt}</p>
         <SettingsChips settings={item.settings} />
 
@@ -413,8 +451,10 @@ export function Studio() {
     // and nothing on the page could be scrolled.
     <div className='flex h-full min-h-0 w-full flex-col overflow-y-auto overscroll-contain'>
       <div className='mx-auto flex w-full max-w-[1500px] flex-col gap-6 p-4 md:p-6'>
-        <header className='from-primary/10 via-background to-background flex flex-wrap items-start justify-between gap-4 rounded-2xl border bg-gradient-to-r p-4 md:p-5'>
-          <div className='space-y-1'>
+        <header className='border-primary/20 from-primary/15 via-primary/5 to-background relative flex flex-wrap items-start justify-between gap-4 overflow-hidden rounded-2xl border bg-gradient-to-br p-4 md:p-5'>
+          <div aria-hidden='true' className='pointer-events-none absolute -top-16 end-10 size-48 rounded-full bg-primary/20 blur-3xl' />
+          <div aria-hidden='true' className='pointer-events-none absolute -bottom-20 start-24 size-48 rounded-full bg-sky-400/15 blur-3xl' />
+          <div className='relative space-y-1'>
             <h1 className='flex items-center gap-2 text-xl font-semibold'>
               <span className='bg-primary/15 text-primary flex size-9 items-center justify-center rounded-xl'>
                 <SparklesIcon className='size-5' />
@@ -428,7 +468,7 @@ export function Studio() {
             </p>
           </div>
 
-          <div className='flex flex-wrap items-center gap-2'>
+          <div className='relative flex flex-wrap items-center gap-2'>
             {/* Rendered as a segmented control instead of a tab list: the tab
                 list inherited the transparent background of the header and the
                 two modes were invisible. */}
@@ -448,7 +488,7 @@ export function Studio() {
                   className={cn(
                     'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition',
                     mode === entry.value
-                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      ? 'bg-primary text-primary-foreground shadow-md shadow-primary/30'
                       : 'text-muted-foreground hover:text-foreground'
                   )}
                   key={entry.value}
@@ -474,11 +514,22 @@ export function Studio() {
         </header>
 
         <div className='grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]'>
-          <section className='bg-card min-w-0 space-y-4 rounded-2xl border p-4 shadow-sm'>
+          <section className='bg-card min-w-0 space-y-4 overflow-hidden rounded-2xl border p-4 shadow-sm'>
+          <div className='-mx-4 -mt-4 flex items-center justify-between gap-2 border-b bg-gradient-to-r from-primary/10 to-transparent px-4 py-2.5'>
+            <div className='flex items-center gap-2 text-xs font-semibold tracking-wide text-primary uppercase'>
+              <SparklesIcon className='size-3.5' />
+              {t('Composer')}
+            </div>
+            <span className='text-muted-foreground bg-background/80 rounded-full border px-2 py-0.5 font-mono text-[11px] tabular-nums'>
+              {prompt.length} {t('characters')}
+            </span>
+          </div>
           <div className='space-y-2'>
-            <Label htmlFor='studio-prompt'>{t('Prompt')}</Label>
+            <Label htmlFor='studio-prompt' className='text-xs font-medium'>
+              {t('Prompt')}
+            </Label>
             <Textarea
-              className='min-h-36 resize-y'
+              className='min-h-36 resize-y border-primary/10 bg-background/60 leading-relaxed shadow-inner transition focus-visible:border-primary/40 focus-visible:ring-primary/20'
               id='studio-prompt'
               onChange={(event) => setPrompt(event.target.value)}
               placeholder={
@@ -491,7 +542,7 @@ export function Studio() {
           </div>
 
           <div className='space-y-1'>
-            <Label className='text-xs'>{t('Model')}</Label>
+            <Label className='text-xs font-medium'>{t('Model')}</Label>
             {mode === 'image' ? (
               <Select
                 onValueChange={(value) => {
@@ -622,7 +673,7 @@ export function Studio() {
 
           <div className='flex gap-2'>
             <Button
-              className='flex-1'
+              className='from-primary to-primary/75 text-primary-foreground h-11 flex-1 bg-gradient-to-r text-[15px] font-semibold shadow-md shadow-primary/25 transition hover:from-primary/90 hover:to-primary/65 hover:shadow-lg hover:shadow-primary/30'
               disabled={!canGenerate}
               onClick={handleGenerate}
             >
@@ -631,7 +682,7 @@ export function Studio() {
               ) : (
                 <SparklesIcon className='size-4' />
               )}
-              {t('Generate')}
+              {isGenerating ? t('Generating…') : t('Generate')}
             </Button>
             {isGenerating && (
               <Button onClick={stop} variant='outline'>
@@ -650,32 +701,64 @@ export function Studio() {
         </section>
 
         <section className='space-y-4'>
-          <div className='flex items-center justify-between'>
-            <h2 className='text-sm font-semibold'>
+          <div className='flex items-center justify-between border-b pb-2'>
+            <h2 className='text-muted-foreground flex items-center gap-2 text-[11px] font-semibold tracking-widest uppercase'>
+              {mode === 'video' ? (
+                <VideoIcon className='size-3.5 text-primary' />
+              ) : (
+                <ImageIcon className='size-3.5 text-primary' />
+              )}
               {mode === 'video' ? t('Videos') : t('Images')}
             </h2>
-            <span className='text-muted-foreground text-xs'>
-              {modeItems.length > 0 && t('{{count}} result(s)', { count: modeItems.length })}
-            </span>
+            {modeItems.length > 0 && (
+              <span className='text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono text-[11px] tabular-nums'>
+                {t('{{count}} result(s)', { count: modeItems.length })}
+              </span>
+            )}
           </div>
 
           {modeItems.length === 0 ? (
-            <div
-              className={cn(
-                'text-muted-foreground flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed p-16 text-center',
-                'bg-muted/20'
-              )}
-            >
-              {mode === 'video' ? (
-                <VideoIcon className='size-9' />
-              ) : (
-                <ImageIcon className='size-9' />
-              )}
-              <p className='text-sm'>
-                {mode === 'video'
-                  ? t('Your generated videos will appear here.')
-                  : t('Your generated images will appear here.')}
-              </p>
+            <div className='from-primary/5 via-background to-background relative flex flex-col items-center justify-center overflow-hidden rounded-2xl border border-dashed bg-gradient-to-b p-10 text-center md:p-14'>
+              <div
+                aria-hidden='true'
+                className='pointer-events-none absolute -top-20 left-1/2 size-64 -translate-x-1/2 rounded-full bg-primary/10 blur-3xl'
+              />
+              <div className='relative flex flex-col items-center gap-4'>
+                <div className='from-primary/25 to-sky-400/20 ring-primary/10 flex size-20 items-center justify-center rounded-3xl bg-gradient-to-br ring-8'>
+                  {mode === 'video' ? (
+                    <VideoIcon className='text-primary size-9' />
+                  ) : (
+                    <ImageIcon className='text-primary size-9' />
+                  )}
+                </div>
+                <div className='space-y-1'>
+                  <p className='text-base font-semibold'>
+                    {mode === 'video'
+                      ? t('Your generated videos will appear here.')
+                      : t('Your generated images will appear here.')}
+                  </p>
+                  <p className='text-muted-foreground mx-auto max-w-sm text-xs'>
+                    {t(
+                      'Try one of these prompts to get started, then tune the model and options in the composer.'
+                    )}
+                  </p>
+                </div>
+                <div className='flex flex-wrap items-center justify-center gap-2'>
+                  {(mode === 'video'
+                    ? SUGGESTED_VIDEO_PROMPTS
+                    : SUGGESTED_IMAGE_PROMPTS
+                  ).map((suggestion) => (
+                    <button
+                      className='text-muted-foreground hover:border-primary/40 hover:text-primary bg-background/80 rounded-full border px-3 py-1.5 text-xs shadow-sm transition'
+                      key={suggestion}
+                      onClick={() => setPrompt(suggestion)}
+                      type='button'
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           ) : (
             <div className='grid gap-4 sm:grid-cols-2 2xl:grid-cols-3'>

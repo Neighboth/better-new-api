@@ -86,6 +86,7 @@ export function buildBlogAiSystemPrompt(
       'Do NOT output JSON. Do NOT wrap the entire article in code fences (```markdown). Do NOT include conversational commentary, thinking tags, prefaces, or postfaces.',
       'Start immediately with the article content.',
       'Requirements: full comprehensive markdown article (headings, lists, bold, links as appropriate): Aim for 600-1200 words.',
+      'Citation policy (this is mandatory): if web research notes are present in the user message, you may cite, and may only cite, the URLs that appear in those notes. If no web research notes are present, do NOT invent, guess or output any source, reference, link, URL, domain, or citation of any kind - the article must read as if it cites nothing.',
     ].join('\n')
   }
 

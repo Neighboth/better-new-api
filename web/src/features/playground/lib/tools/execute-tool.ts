@@ -185,11 +185,12 @@ async function executeGenerateVideo(
     throw new Error(ERROR_MESSAGES.VIDEO_TASK_FAILED)
   }
 
-  const finished = await pollVideoTask(taskId, ctx.signal, () =>
+  const finished = await pollVideoTask(taskId, ctx.signal, (minCreatedAt) =>
     resolveSubmittedTaskIdWithLookup(submitted, {
       model,
       submittedAt,
       signal: ctx.signal,
+      minCreatedAt,
     })
   )
   if (!finished.result_url) {
