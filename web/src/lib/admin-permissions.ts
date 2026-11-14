@@ -33,6 +33,7 @@ export const ADMIN_PERMISSION_RESOURCES = {
   SYSTEM_SETTING: 'system_setting',
   TICKET: 'ticket',
   BYOG: 'byog',
+  PROXY_POOL: 'proxy_pool',
   STATISTICS: 'statistics',
 } as const
 

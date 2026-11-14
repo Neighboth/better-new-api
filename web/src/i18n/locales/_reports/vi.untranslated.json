@@ -85,5 +85,11 @@
   "Offers the video tool in the playground and the video tab of the studio.": "Offers the video tool in the playground and the video tab of the studio.",
   "Shows the studio page in the dashboard menu.": "Shows the studio page in the dashboard menu.",
   "A free note shown in the channel list.": "A free note shown in the channel list.",
-  "The model the health check of these channels uses.": "The model the health check of these channels uses."
+  "The model the health check of these channels uses.": "The model the health check of these channels uses.",
+  "No proxies in the pool yet": "No proxies in the pool yet",
+  "Add your first proxy to start routing keys through it.": "Add your first proxy to start routing keys through it.",
+  "Register http, https, socks5 or socks5h proxies. Only enabled proxies are used for key assignments.": "Register http, https, socks5 or socks5h proxies. Only enabled proxies are used for key assignments.",
+  "No multi-key channels found. Create one from the Channels page first.": "No multi-key channels found. Create one from the Channels page first.",
+  "All per-key proxy assignments of “{{name}}” will be removed. Keys will fall back to the channel’s default path.": "All per-key proxy assignments of “{{name}}” will be removed. Keys will fall back to the channel’s default path.",
+  "Deleting a proxy also removes its key assignments. Keys bound to it will use the channel’s default path again.": "Deleting a proxy also removes its key assignments. Keys bound to it will use the channel’s default path again."
 }

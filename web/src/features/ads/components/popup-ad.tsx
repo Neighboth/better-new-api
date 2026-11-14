@@ -103,7 +103,7 @@ export function PopupAd() {
     <div
       aria-label={t('Advertisement')}
       aria-modal='true'
-      className='bg-background/85 fixed inset-0 z-[90] flex items-center justify-center p-4 backdrop-blur-md sm:p-6'
+      className='fixed inset-0 z-[90] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm sm:p-6'
       role='dialog'
     >
       <div className='relative w-full max-w-[480px] sm:max-w-2xl'>

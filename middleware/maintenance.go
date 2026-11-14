@@ -172,182 +172,210 @@ func renderMaintenancePage(message string, eta int64) string {
 	etaSeconds := int64(0)
 	if eta > 0 {
 		etaSeconds = eta
-		etaBlock = `<div class="eta"><div class="eta-value">--:--:--</div><div class="eta-label">Expected back <span id="eta-date"></span></div></div>`
+		etaBlock = `<div class="eta" id="eta-box">
+        <div class="eta-value" id="eta-value">--:--:--</div>
+        <div class="eta-label">Expected back <span id="eta-date"></span></div>
+      </div>`
 	}
 
-	script := `<script>
-(function () {
-  var END = 0;
-  if (END <= 0 || isNaN(END)) {
-    var el = document.querySelector('.eta');
-    if (el) el.style.display = 'none';
-    return;
-  }
-  var end = END * 1000;
+	siteName := strings.TrimSpace(common.OptionMap["SystemName"])
+	if siteName == "" {
+		siteName = "PixRouter"
+	}
+	logo := strings.TrimSpace(common.OptionMap["Logo"])
+	if logo == "" {
+		logo = strings.TrimSpace(common.OptionMap["LogoDark"])
+	}
+	logoTag := ""
+	if logo != "" {
+		logoTag = `<img class="logo" src="` + htmlEscape(logo) + `" alt="` + htmlEscape(siteName) + `" onerror="this.style.display='none'">`
+	}
 
-  var etaEl = document.getElementById('eta-date');
-  if (etaEl) {
-    var d = new Date(end);
-    etaEl.textContent = d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-  }
-
-  function tick() {
-    var now = Date.now();
-    var left = Math.max(0, end - now);
-    var box = document.querySelector('.eta');
-    if (!box) return;
-    var valueEl = box.querySelector('.eta-value');
-    if (left === 0) {
-      if (valueEl) valueEl.textContent = '00:00:00';
-      var label = box.querySelector('.eta-label');
-      if (label) label.textContent = 'Finishing up…';
-      return;
-    }
-    var s = Math.floor(left / 1000);
-    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-    if (valueEl) {
-      valueEl.textContent = (h > 0 ? (h < 10 ? '0' + h : h) + ':' : '') +
-        (m < 10 ? '0' + m : m) + ':' + (sec < 10 ? '0' + sec : sec);
-    }
-  }
-  tick();
-  setInterval(tick, 1000);
-})();
-</script>`
-
-	var sb strings.Builder
-	sb.Grow(6000)
-	sb.WriteString(`<!DOCTYPE html>
-<html lang="en" class="dark">
+	page := `<!DOCTYPE html>
+<html lang="tr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Under maintenance</title>
+<title>` + htmlEscape(siteName) + ` — Bakım</title>
 <style>
 :root {
-  --bg: #060913;
+  --bg-from: #0b1020;
+  --bg-to: #171a35;
   --panel: rgba(255,255,255,0.04);
-  --panel-border: rgba(255,255,255,0.08);
-  --text: #e6e8ef;
-  --muted: #8b93a7;
+  --panel-border: rgba(255,255,255,0.10);
+  --text: #e7e9f5;
+  --muted: #9aa0bd;
+  --accent: #8b5cf6;
+  --accent-2: #38bdf8;
+  --accent-soft: rgba(139,92,246,0.25);
+  --logo-shadow: rgba(139,92,246,0.45);
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-from: #eef2ff;
+    --bg-to: #f5f7ff;
+    --panel: #ffffff;
+    --panel-border: rgba(15, 23, 42, 0.08);
+    --text: #1e293b;
+    --muted: #64748b;
+    --accent: #6d28d9;
+    --accent-2: #0284c7;
+    --accent-soft: rgba(109,40,217,0.12);
+    --logo-shadow: rgba(109,40,217,0.25);
+  }
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body {
   min-height: 100vh;
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   color: var(--text);
-  background: radial-gradient(1200px 700px at 20% -10%, #1e3a5f 0%, transparent 55%),
-              radial-gradient(1100px 700px at 90% 110%, #312e81 0%, transparent 55%),
-              var(--bg);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  background:
+    radial-gradient(900px 520px at 15% -10%, var(--accent-soft), transparent 60%),
+    radial-gradient(800px 520px at 110% 110%, rgba(56,189,248,0.18), transparent 55%),
+    linear-gradient(160deg, var(--bg-from), var(--bg-to));
 }
 body::before {
   content: "";
   position: absolute; inset: 0;
   background-image:
-    radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
-    radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
-  background-size: 42px 42px, 90px 90px;
-  background-position: 0 0, 20px 30px;
+    linear-gradient(rgba(127,127,127,0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(127,127,127,0.06) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 90% 80% at 50% 40%, black 35%, transparent 78%);
   pointer-events: none;
 }
 .card {
   position: relative;
+  width: min(560px, calc(100% - 40px));
   text-align: center;
-  padding: 48px 36px 36px;
-  max-width: 560px;
-  width: calc(100% - 48px);
+  padding: 44px 36px 30px;
   border-radius: 24px;
   background: var(--panel);
   border: 1px solid var(--panel-border);
-  backdrop-filter: blur(16px);
-  box-shadow: 0 30px 80px rgba(0,0,0,0.45);
-  animation: float-in 0.9s cubic-bezier(.2,.9,.25,1.2) both;
+  backdrop-filter: blur(18px);
+  box-shadow: 0 40px 90px rgba(0,0,0,0.35), 0 0 0 1px var(--panel-border);
+  animation: rise .7s cubic-bezier(.2,.8,.25,1.15) both;
 }
-@keyframes float-in {
-  from { opacity: 0; transform: translateY(24px) scale(0.96); }
-  to   { opacity: 1; transform: none; }
+@keyframes rise { from { opacity: 0; transform: translateY(22px) scale(.97); } to { opacity: 1; transform: none; } }
+.brand { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 22px; }
+.logo { height: 40px; width: auto; max-width: 190px; object-fit: contain; filter: drop-shadow(0 6px 18px var(--logo-shadow)); }
+.brand-name { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; color: var(--text); }
+.brand-mark {
+  width: 58px; height: 58px; border-radius: 17px; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(145deg, var(--accent), var(--accent-2));
+  border: 1px solid rgba(255,255,255,0.25);
+  box-shadow: 0 12px 34px var(--logo-shadow), inset 0 1px 0 rgba(255,255,255,0.35);
 }
-.glyph {
-  width: 96px; height: 96px; border-radius: 28px;
-  margin: 0 auto 22px;
-  display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(145deg, rgba(96,165,250,0.28), rgba(129,140,248,0.12));
-  border: 1px solid rgba(96,165,250,0.35);
-  box-shadow: 0 0 60px rgba(96,165,250,0.35), inset 0 0 30px rgba(96,165,250,0.15);
-  animation: pulse 2.6s ease-in-out infinite;
+.brand-mark svg { width: 28px; height: 28px; stroke: #fff; }
+.badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 14px; border-radius: 999px;
+  font-size: .72rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+  color: #fbbf24; background: rgba(251,191,36,0.10); border: 1px solid rgba(251,191,36,0.30);
+  margin-bottom: 14px;
 }
-@keyframes pulse {
-  0%, 100% { box-shadow: 0 0 60px rgba(96,165,250,0.35), inset 0 0 30px rgba(96,165,250,0.15); }
-  50%      { box-shadow: 0 0 90px rgba(96,165,250,0.55), inset 0 0 40px rgba(96,165,250,0.3); }
-}
-.glyph svg { width: 44px; height: 44px; stroke: #93c5fd; }
+.badge .dot { width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 10px rgba(245,158,11,.9); animation: blink 1.2s steps(2) infinite; }
+@keyframes blink { 0%,60% {opacity:1} 61%,100% {opacity:.2} }
 h1 {
-  margin: 0 0 10px;
-  font-size: clamp(1.5rem, 4vw, 2.1rem);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  background: linear-gradient(180deg, #ffffff 20%, #a5b4fc 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  margin: 0 0 8px; font-size: clamp(1.5rem, 4.4vw, 2.05rem); font-weight: 800; letter-spacing: -0.03em;
+  background: linear-gradient(180deg, var(--text) 30%, var(--accent-2) 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
 }
-.msg { color: var(--muted); font-size: 1rem; line-height: 1.6; margin: 0 0 24px; }
+.msg { color: var(--muted); font-size: .98rem; line-height: 1.65; margin: 0 0 22px; }
 .eta {
-  display: inline-flex; flex-direction: column; align-items: center; gap: 6px;
-  padding: 14px 24px; border-radius: 16px;
-  background: rgba(0,0,0,0.35);
-  border: 1px solid var(--panel-border);
-  margin: 0 auto 18px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 14px 26px; margin: 0 auto 20px; border-radius: 16px; width: fit-content;
+  background: rgba(127,127,127,0.10); border: 1px solid var(--panel-border);
 }
-.eta-value { font-variant-numeric: tabular-nums; font-size: 1.6rem; font-weight: 700; letter-spacing: 0.02em; color: #bfdbfe; }
-.eta-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.14em; }
-.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; margin-right: 8px; box-shadow: 0 0 10px rgba(245,158,11,0.8); animation: blink 1.1s steps(2) infinite; vertical-align: middle; }
-@keyframes blink { 0%, 60% { opacity: 1; } 61%, 100% { opacity: 0.25; } }
-.footer { margin-top: 16px; font-size: 0.75rem; color: #525b72; }
-.spinner { position: absolute; top: 24px; right: 24px; opacity: 0.4; animation: spin 10s linear infinite; }
+.eta-value { font-variant-numeric: tabular-nums; font-size: 1.55rem; font-weight: 700; letter-spacing: .03em; color: var(--accent-2); }
+.eta-label { font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .16em; }
+.divider { height: 1px; background: var(--panel-border); margin: 6px 0 16px; }
+.hint { font-size: .8rem; color: var(--muted); margin: 0 0 12px; }
+.admin-link {
+  display: inline-flex; align-items: center; gap: 10px;
+  width: 100%; justify-content: center;
+  padding: 12px 18px; border-radius: 14px;
+  font-size: .9rem; font-weight: 600; text-decoration: none;
+  color: #fff; border: 1px solid rgba(255,255,255,0.18);
+  background: linear-gradient(145deg, var(--accent), #6d28d9);
+  box-shadow: 0 12px 30px rgba(109,40,217,0.35), inset 0 1px 0 rgba(255,255,255,0.25);
+  transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+}
+.admin-link:hover { transform: translateY(-1px); filter: brightness(1.06); box-shadow: 0 16px 38px rgba(109,40,217,0.45), inset 0 1px 0 rgba(255,255,255,0.3); }
+.admin-link svg { width: 18px; height: 18px; }
+.foot { margin-top: 16px; font-size: .7rem; color: var(--muted); opacity: .8; }
+.spinner {
+  position: absolute; top: 22px; right: 22px; opacity: .45;
+  animation: spin 9s linear infinite;
+}
 @keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 480px) { .card { padding: 34px 22px 24px; border-radius: 20px; } }
 </style>
 </head>
 <body>
-<div class="card">
-  <svg class="spinner" width="38" height="38" viewBox="0 0 38 38" fill="none">
-    <circle cx="19" cy="19" r="17" stroke="#3b82f6" stroke-width="2" stroke-dasharray="40 70" stroke-linecap="round"/>
+<main class="card" role="main">
+  <svg class="spinner" width="34" height="34" viewBox="0 0 34 34" fill="none" aria-hidden="true">
+    <circle cx="17" cy="17" r="15" stroke="var(--accent-2)" stroke-width="2" stroke-dasharray="40 55" stroke-linecap="round"/>
   </svg>
-  <div class="glyph">
-    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-    </svg>
+  <div class="brand">
+    ` + logoTag + `
+    <div class="brand-name">` + htmlEscape(siteName) + `</div>
   </div>
-  <h1>Scheduled maintenance in progress</h1>
-  <p class="msg"><span class="status-dot"></span>`)
-
-	sb.WriteString(htmlEscape(message))
-
-	sb.WriteString(`</p>
-  `)
-
-	sb.WriteString(etaBlock)
-
-	sb.WriteString(`
-  <div class="footer">503 - Service Unavailable - Retry later</div>
-</div>
-`)
-
-	// Embed the ETA as a literal so the script never relies on
-	// document.currentScript or DOM position.
-	script = strings.Replace(script, "var END = 0;", "var END = "+strconv.FormatInt(etaSeconds, 10)+";", 1)
-	sb.WriteString(script)
-
-	sb.WriteString(`
+  <div class="badge"><span class="dot"></span>Bakım Çalışması</div>
+  <h1>Kısa süreliğine bakımdayız</h1>
+  <p class="msg">` + htmlEscape(message) + `</p>
+  ` + etaBlock + `
+  <div class="divider"></div>
+  <p class="hint">Bu ekranın üzerinden giriş yaparak siteyi yönetin.</p>
+  <a class="admin-link" href="/login" aria-label="Admin girişi">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/><path d="M12 13v4"/><path d="M9.5 15l-1.5 1.5M14.5 15l1.5 1.5"/>
+    </svg>
+    Admin Girişi
+  </a>
+  <div class="foot">503 — Service Unavailable</div>
+</main>
+<script>
+(function () {
+  var END = ` + strconv.FormatInt(etaSeconds, 10) + `;
+  if (!END || END <= 0) {
+    var etaBox = document.getElementById('eta-box');
+    if (etaBox) etaBox.style.display = 'none';
+    return;
+  }
+  var end = END * 1000;
+  var etaDate = document.getElementById('eta-date');
+  var valueEl = document.getElementById('eta-value');
+  if (etaDate) {
+    etaDate.textContent = new Date(end).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  }
+  function tick() {
+    var left = Math.max(0, end - Date.now());
+    if (left === 0) {
+      if (valueEl) valueEl.textContent = '00:00:00';
+      return;
+    }
+    var s = Math.floor(left / 1000);
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    if (valueEl) {
+      valueEl.textContent = (h > 0 ? (h < 10 ? '0' + h : String(h)) + ':' : '') +
+        String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+    }
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
+</script>
 </body>
-</html>`)
-	return sb.String()
+</html>`
+
+	return page
 }
 
 func htmlEscape(s string) string {

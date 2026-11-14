@@ -498,7 +498,14 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 }
 
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
-	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
+	// A proxy-pool assignment for this exact (channel, key index) wins over
+	// the channel's own proxy setting so each key of a multi-key channel can
+	// exit through a different managed proxy.
+	rawProxyURL := info.ChannelSetting.Proxy
+	if info.ChannelIsMultiKey {
+		rawProxyURL = service.EffectiveRelayProxyURL(info.ChannelId, info.ChannelMultiKeyIndex, rawProxyURL)
+	}
+	client, err := service.GetHttpClientWithProxySettings(rawProxyURL, info.ChannelSetting)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
 	}

@@ -152,6 +152,10 @@ export function SidebarModulesSection({
         title: t('Models'),
         description: t('Manage catalog visibility and pricing.'),
       },
+      proxy_pool: {
+        title: t('Proxy Pool'),
+        description: t('Assign managed proxies to each key of multi-key channels.'),
+      },
       redemption: {
         title: t('Redeem codes'),
         description: t('Create and review invite or credit codes.'),

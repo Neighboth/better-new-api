@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
+import { Waypoints, 
   Activity,
   BarChart3,
   Box,
@@ -170,6 +170,15 @@ export function useSidebarData(): SidebarData {
           icon: Radio,
           requiredPermission: {
             resource: ADMIN_PERMISSION_RESOURCES.CHANNEL,
+            action: 'read',
+          },
+        },
+        {
+          title: t('Proxy Pool'),
+          url: '/proxy-pool',
+          icon: Waypoints,
+          requiredPermission: {
+            resource: ADMIN_PERMISSION_RESOURCES.PROXY_POOL,
             action: 'read',
           },
         },

@@ -86,6 +86,7 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
     ticket: true,
     reseller: true,
     byog: true,
+    proxy_pool: true,
     statistics: true,
     system_info: true,
     setting: true,

@@ -319,6 +319,8 @@ func migrateDB() error {
 		&ByogP2PTracker{},
 		&MailCampaign{},
 		&CryptoDeposit{},
+		&ProxyPoolProxy{},
+		&ProxyPoolAssignment{},
 	)
 	if err != nil {
 		return err

@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
+import { AnnouncementBarsBanner } from '@/components/announcement-bar-banner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSystemConfig } from '@/hooks/use-system-config'
 
@@ -32,6 +33,8 @@ export function AuthLayout({ children }: AuthLayoutProps) {
 
   return (
     <div className='relative grid h-svh max-w-none'>
+      <AnnouncementBarsBanner />
+      <div aria-hidden='true' className='h-[var(--announcement-bars-height,0px)] w-full shrink-0' />
       <Link
         to='/'
         className='absolute top-4 left-4 z-10 flex items-center gap-2 transition-opacity hover:opacity-80 sm:top-8 sm:left-8'

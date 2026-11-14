@@ -68,7 +68,6 @@ export type ManagedFileItem = {
   name: string
   is_dir: boolean
   size: number
-  password?: string
   has_password?: boolean
   enable_captcha?: boolean
   created_at: number
@@ -445,7 +444,7 @@ export function SystemFilesSection() {
                     </TableCell>
                     <TableCell>
                       <div className='flex items-center gap-1.5 text-xs'>
-                        {item.password && (
+                        {item.has_password && (
                           <span className='inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-600 dark:text-amber-400'>
                             <Lock className='h-3 w-3' />
                             {t('Password')}
@@ -457,7 +456,7 @@ export function SystemFilesSection() {
                             {t('Captcha')}
                           </span>
                         )}
-                        {!item.password && !item.enable_captcha && (
+                        {!item.has_password && !item.enable_captcha && (
                           <span className='text-muted-foreground'>{t('Public')}</span>
                         )}
                       </div>
