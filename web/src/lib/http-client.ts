@@ -133,6 +133,22 @@ api.interceptors.response.use(
           toast.error(t('Session expired!'))
         }
       }
+    } else if (
+      status === 503 &&
+      (error?.response?.data?.error?.code === 'maintenance_mode' ||
+        error?.response?.data?.type === 'maintenance')
+    ) {
+      const pathname =
+        typeof window !== 'undefined' ? window.location.pathname : ''
+      const isAuthPage =
+        pathname === '/sign-in' ||
+        pathname === '/sign-up' ||
+        pathname === '/login' ||
+        pathname === '/register'
+
+      if (!isAuthPage && typeof window !== 'undefined') {
+        window.location.href = '/'
+      }
     } else if (!skipErrorHandler) {
       const messageKey = getServerErrorMessageKey(error)
       const message = messageKey

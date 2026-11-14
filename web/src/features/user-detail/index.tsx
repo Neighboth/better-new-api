@@ -83,7 +83,7 @@ function StatChip(props: {
 }) {
   return (
     <div className='bg-card flex flex-col items-center gap-1 rounded-xl border p-3 text-center shadow-sm'>
-      <span className='text-primary'>{props.icon}</span>
+      <span className='text-muted-foreground'>{props.icon}</span>
       <span className='text-lg leading-6 font-semibold tabular-nums'>{props.value}</span>
       <span className='text-muted-foreground text-[11px]'>{props.label}</span>
     </div>
@@ -165,13 +165,9 @@ export function UserDetail() {
         </div>
 
         {/* Hero */}
-        <div className='from-primary/10 via-background to-background relative overflow-hidden rounded-2xl border bg-gradient-to-br p-5'>
-          <div
-            aria-hidden='true'
-            className='pointer-events-none absolute -top-16 end-6 size-48 rounded-full bg-primary/15 blur-3xl'
-          />
-          <div className='relative flex flex-wrap items-center gap-4'>
-            <div className='from-primary to-primary/60 text-primary-foreground flex size-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br font-mono text-2xl font-bold shadow-md shadow-primary/25'>
+        <div className='bg-card rounded-xl border p-5 shadow-sm'>
+          <div className='flex flex-wrap items-center gap-4'>
+            <div className='bg-muted text-foreground flex size-14 shrink-0 items-center justify-center rounded-xl font-mono text-xl font-semibold'>
               {user.username.slice(0, 2).toUpperCase()}
             </div>
             <div className='min-w-0 flex-1 space-y-1.5'>

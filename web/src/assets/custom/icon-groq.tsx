@@ -19,31 +19,11 @@ export function IconGroq({ size = 20, className, ...props }: IconGroqProps) {
       viewBox='0 0 24 24'
       width={size}
       height={size}
-      fill='none'
+      fill='#F55036'
       className={className}
       {...props}
     >
-      <rect
-        x='1.75'
-        y='1.75'
-        width='20.5'
-        height='20.5'
-        rx='5.25'
-        fill='#F55036'
-      />
-      {/* The Groq "G" mark. */}
-      <path
-        d='M17.6 9.15A6.2 6.2 0 0 0 12.05 6.4a6.35 6.35 0 1 0 0 11.2 6.25 6.25 0 0 0 5.55-2.72'
-        stroke='#FFFFFF'
-        strokeWidth='1.9'
-        strokeLinecap='round'
-      />
-      <path
-        d='M13.1 10.9H17.4'
-        stroke='#FFFFFF'
-        strokeWidth='1.9'
-        strokeLinecap='round'
-      />
+      <path d='M12.036 2c-3.853-.035-7 3-7.036 6.781-.035 3.782 3.055 6.872 6.908 6.907h2.42v-2.566h-2.292c-2.407.028-4.38-1.866-4.408-4.23-.029-2.362 1.901-4.298 4.308-4.326h.1c2.407 0 4.358 1.915 4.365 4.278v6.305c0 2.342-1.944 4.25-4.323 4.279a4.375 4.375 0 01-3.033-1.252l-1.851 1.818A7 7 0 0012.029 22h.092c3.803-.056 6.858-3.083 6.879-6.816v-6.5C18.907 4.963 15.817 2 12.036 2z' />
     </svg>
   )
 }

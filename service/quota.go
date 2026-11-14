@@ -557,7 +557,7 @@ func postConsumeQuotaWithHoldAndReservation(relayInfo *relaycommon.RelayInfo, qu
 	// models on every settlement path; otherwise a whitelisted code never
 	// leaves its "remaining" balance and the plain wallet pays instead.
 	if relayInfo != nil && quota > 0 {
-		if deducted, pkgErr := model.DeductUserBalancePackage(relayInfo.UserId, relayInfo.OriginModelName, 0, int64(quota)); pkgErr != nil {
+		if deducted, pkgErr := model.DeductUserBalancePackage(relayInfo.UserId, relayInfo.OriginModelName, 0, int64(quota), relayInfo.GetUpstreamModelName(), relayInfo.RequestedModelName); pkgErr != nil {
 			common.SysLog(fmt.Sprintf("failed to consume redemption balance package (userId=%d, model=%s): %v",
 				relayInfo.UserId, relayInfo.OriginModelName, pkgErr))
 		} else if deducted > 0 {

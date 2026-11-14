@@ -16,38 +16,15 @@ export function IconOpenCode({ size = 20, className, ...props }: IconOpenCodePro
   return (
     <svg
       xmlns='http://www.w3.org/2000/svg'
-      viewBox='0 0 24 24'
+      viewBox='0 0 240 300'
       width={size}
       height={size}
       fill='none'
       className={className}
       {...props}
     >
-      <rect
-        x='1.75'
-        y='1.75'
-        width='20.5'
-        height='20.5'
-        rx='5'
-        fill='#111111'
-        stroke='#FFFFFF'
-        strokeOpacity='0.12'
-        strokeWidth='1.5'
-      />
-      {/* Terminal prompt chevron + underscore: the OpenCode mark. */}
-      <path
-        d='M6.75 8.5L10.25 12L6.75 15.5'
-        stroke='#FFFFFF'
-        strokeWidth='1.7'
-        strokeLinecap='round'
-        strokeLinejoin='round'
-      />
-      <path
-        d='M12.25 15.75H16.75'
-        stroke='#FFFFFF'
-        strokeWidth='1.7'
-        strokeLinecap='round'
-      />
+      <path d='M180 240H60V120H180V240Z' fill='currentColor' opacity='0.45' />
+      <path d='M180 60H60V240H180V60ZM240 300H0V0H240V300Z' fill='currentColor' />
     </svg>
   )
 }

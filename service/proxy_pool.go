@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/http"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,9 +23,10 @@ import (
 const proxyPoolCacheTTL = 30 * time.Second
 
 var (
-	proxyPoolMu        sync.RWMutex
-	proxyPoolMap       map[int]map[int]string // channel_id -> key_index -> proxy url
-	proxyPoolExpiresAt time.Time
+	proxyPoolMu         sync.RWMutex
+	proxyPoolMap        map[int]map[int]string // channel_id -> key_index -> proxy url
+	proxyPoolEnabled    []model.ProxyPoolProxy // sorted by ID for stable hashing
+	proxyPoolExpiresAt  time.Time
 )
 
 // InvalidateProxyPoolCache drops the cached mapping. Call it after every
@@ -30,56 +34,101 @@ var (
 func InvalidateProxyPoolCache() {
 	proxyPoolMu.Lock()
 	proxyPoolMap = nil
+	proxyPoolEnabled = nil
 	proxyPoolExpiresAt = time.Time{}
 	proxyPoolMu.Unlock()
 }
 
-func loadProxyPoolMap() map[int]map[int]string {
+// PickStickyProxy deterministically maps any key string to an enabled proxy
+// using FNV-1a hash modulo the number of enabled proxies. As long as that
+// proxy is not deleted or disabled, the same key string always maps to the
+// exact same proxy.
+func PickStickyProxy(key string, enabledProxies []model.ProxyPoolProxy) *model.ProxyPoolProxy {
+	if len(enabledProxies) == 0 {
+		return nil
+	}
+	trimmed := strings.TrimSpace(key)
+	if trimmed == "" {
+		return &enabledProxies[0]
+	}
+	h := fnv.New32a()
+	h.Write([]byte(trimmed))
+	idx := int(h.Sum32() % uint32(len(enabledProxies)))
+	return &enabledProxies[idx]
+}
+
+func loadProxyPoolData() (map[int]map[int]string, []model.ProxyPoolProxy) {
 	proxyPoolMu.RLock()
 	if proxyPoolMap != nil && time.Now().Before(proxyPoolExpiresAt) {
 		defer proxyPoolMu.RUnlock()
-		return proxyPoolMap
+		return proxyPoolMap, proxyPoolEnabled
 	}
 	proxyPoolMu.RUnlock()
 
 	proxyPoolMu.Lock()
 	defer proxyPoolMu.Unlock()
 	if proxyPoolMap != nil && time.Now().Before(proxyPoolExpiresAt) {
-		return proxyPoolMap
+		return proxyPoolMap, proxyPoolEnabled
 	}
 	m, err := model.ProxyPoolAssignmentURLMap()
 	if err != nil {
-		// Fail open to the channel's own path rather than routing through an
-		// unknown exit point. The stale cache (if any) is kept.
 		if proxyPoolMap == nil {
 			proxyPoolMap = map[int]map[int]string{}
+			proxyPoolEnabled = nil
 			proxyPoolExpiresAt = time.Now().Add(5 * time.Second)
 		}
-		return proxyPoolMap
+		return proxyPoolMap, proxyPoolEnabled
 	}
+
+	var enabled []model.ProxyPoolProxy
+	allProxies, pErr := model.ListProxyPoolProxies()
+	if pErr == nil {
+		for _, p := range allProxies {
+			if p.Enabled && strings.TrimSpace(p.URL) != "" {
+				enabled = append(enabled, p)
+			}
+		}
+		sort.Slice(enabled, func(i, j int) bool {
+			return enabled[i].Id < enabled[j].Id
+		})
+	}
+
 	proxyPoolMap = m
+	proxyPoolEnabled = enabled
 	proxyPoolExpiresAt = time.Now().Add(proxyPoolCacheTTL)
-	return proxyPoolMap
+	return proxyPoolMap, proxyPoolEnabled
 }
 
 // EffectiveRelayProxyURL resolves which proxy URL the relay should use for a
-// specific (channel, key index) pair. When a proxy pool assignment exists for
-// that key it wins over the channel's own proxy setting; otherwise the
-// channel's own setting (possibly empty) is used.
-func EffectiveRelayProxyURL(channelId, keyIndex int, channelProxy string) string {
-	if channelId <= 0 || keyIndex < 0 {
+// specific (channel, key index, key string) tuple.
+// 1. If an explicit proxy pool assignment exists for (channelId, keyIndex), it wins.
+// 2. If the channel configured its own proxy setting, that is used.
+// 3. Otherwise, if enabled proxies exist in the pool, a sticky proxy is deterministically
+//    selected based on the key string so key X, Y, Z always consistently route through the
+//    same proxy until that proxy is deleted.
+func EffectiveRelayProxyURL(channelId, keyIndex int, keyString string, channelProxy string) string {
+	urlMap, enabled := loadProxyPoolData()
+
+	if channelId > 0 && keyIndex >= 0 {
+		if channelKeys, ok := urlMap[channelId]; ok {
+			if url, ok := channelKeys[keyIndex]; ok && url != "" {
+				return url
+			}
+		}
+	}
+
+	if channelProxy != "" {
 		return channelProxy
 	}
-	m := loadProxyPoolMap()
-	channelKeys, ok := m[channelId]
-	if !ok {
-		return channelProxy
+
+	// Sticky fallback from the pool for this key
+	if len(enabled) > 0 && strings.TrimSpace(keyString) != "" {
+		if sticky := PickStickyProxy(keyString, enabled); sticky != nil {
+			return sticky.URL
+		}
 	}
-	url, ok := channelKeys[keyIndex]
-	if !ok || url == "" {
-		return channelProxy
-	}
-	return url
+
+	return channelProxy
 }
 
 // TestProxyEgress checks that a proxy resolves and can reach the public

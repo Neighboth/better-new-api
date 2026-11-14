@@ -404,11 +404,6 @@ func UpdateManagedFileSettings(c *gin.Context) {
 		return
 	}
 
-	if isReadOnlyPath(cleanPath) {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Uploads directory is read-only"})
-		return
-	}
-
 	now := common.GetTimestamp()
 	var fileRecord model.ManagedFile
 	res := model.DB.Where("path = ?", cleanPath).First(&fileRecord)
@@ -535,21 +530,6 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if strings.HasPrefix(reqPath, "/uploads") {
-			uploadsClean, err := sanitizeRelPath(reqPath)
-			if err != nil || uploadsClean == "" {
-				c.Next()
-				return
-			}
-			var mf model.ManagedFile
-			res := model.DB.Where("path = ?", uploadsClean).First(&mf)
-			if res.RowsAffected > 0 && !mf.IsDir && len(mf.Content) > 0 {
-				serveManagedContent(c, uploadsClean, mf.Content)
-				return
-			}
-			c.Next()
-			return
-		}
 
 		cleanPath, err := sanitizeRelPath(reqPath)
 		if err != nil || cleanPath == "" {
@@ -564,8 +544,13 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 			fullPath := filepath.Join(managedFilesDir, cleanPath)
 			info, err := os.Stat(fullPath)
 			if err != nil || info.IsDir() {
-				c.Next()
-				return
+				if strings.HasPrefix(cleanPath, "uploads/") || cleanPath == "uploads" {
+					info, err = os.Stat(cleanPath)
+				}
+				if err != nil || info.IsDir() {
+					c.Next()
+					return
+				}
 			}
 		} else if mf.IsDir {
 			c.Next()
@@ -621,11 +606,13 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 					return
 				}
 
-				// Auth passed! Set a signed cookie (24h expiry) and serve
-				// the file.
+				// Auth passed! Set a signed cookie (24h expiry) and redirect
 				expiry := time.Now().Add(24 * time.Hour).Unix()
 				c.SetSameSite(http.SameSiteLaxMode)
 				c.SetCookie(authCookieKey, fileAuthSign(cleanPath, expiry), 3600*24, "/", "", c.Request.TLS != nil, true)
+				c.Redirect(http.StatusSeeOther, c.Request.RequestURI)
+				c.Abort()
+				return
 			} else if !fileAuthVerify(cleanPath, cookieVal) {
 				renderAuthPage(c, cleanPath, mf, "")
 				c.Abort()
@@ -640,6 +627,9 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 		}
 
 		fullPath := filepath.Join(managedFilesDir, cleanPath)
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) && (strings.HasPrefix(cleanPath, "uploads/") || cleanPath == "uploads") {
+			fullPath = cleanPath
+		}
 		http.ServeFile(c.Writer, c.Request, fullPath)
 		c.Abort()
 	}

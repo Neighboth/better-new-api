@@ -23,7 +23,10 @@ For commercial licensing, please contact support@quantumnous.com
 
 export const CHANNEL_TYPE_NEW_API = 60
 export const CHANNEL_TYPE_ANTIGRAVITY = 61
+export const CHANNEL_TYPE_AGNES = 62
 export const CHANNEL_TYPE_AEPI = 64
+export const CHANNEL_TYPE_OPENCODE = 65
+export const CHANNEL_TYPE_GROQ = 66
 export const CHANNEL_TYPE_CLAUDE_SUB = 67
 
 export const CHANNEL_TYPES = {
@@ -399,7 +402,7 @@ export const FIELD_DESCRIPTIONS = {
 
 export const MODEL_FETCHABLE_TYPES = new Set([
   1, 4, 14, 17, 20, 23, 24, 25, 26, 27, 31, 34, 35, 40, 42, 43, 47, 48, 57, 58,
-  59, 60, CHANNEL_TYPE_AEPI,
+  59, 60, CHANNEL_TYPE_AGNES, CHANNEL_TYPE_AEPI, CHANNEL_TYPE_OPENCODE, CHANNEL_TYPE_GROQ,
 ])
 
 export const FIELD_PASSTHROUGH_TYPES = new Set([
@@ -437,6 +440,7 @@ export const TYPE_TO_KEY_PROMPT: Record<number, string> = {
   57: 'Paste Codex OAuth JSON credential (access_token / refresh_token / account_id)',
   59: 'Enter API key for this channel',
   60: 'Enter API key for this channel',
+  67: 'Paste Claude Code OAuth access_token (sk-ant-oat01-...) or JSON credential {"access_token":"...","refresh_token":"..."}',
 }
 
 export const CHANNEL_TYPE_WARNINGS: Record<number, string> = {

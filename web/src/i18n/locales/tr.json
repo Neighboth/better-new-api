@@ -7882,6 +7882,7 @@
     "Default: https://opencode.ai/zen": "Varsayılan: https://opencode.ai/zen/v1",
     "Default: https://api.groq.com/openai": "Varsayılan: https://api.groq.com/openai/v1",
     "Proxy Pool": "Proxy Havuzu",
+    "Assign managed proxies to each key of multi-key channels.": "Çoklu anahtarlı kanalların her bir anahtarına yönetilen proxy atayın.",
     "Proxies": "Proxyler",
     "Add proxy": "Proxy Ekle",
     "Edit proxy": "Proxy Düzenle",

@@ -83,11 +83,11 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	}
 	// 4) 扣减受限兑换包额度（Requirement 24）
 	if s.funding.Source() == BillingSourceWallet && actualQuota > 0 {
-		_, _ = model.DeductUserBalancePackage(s.relayInfo.UserId, s.relayInfo.OriginModelName, 0, int64(actualQuota))
+		_, _ = model.DeductUserBalancePackage(s.relayInfo.UserId, s.relayInfo.OriginModelName, 0, int64(actualQuota), s.relayInfo.GetUpstreamModelName(), s.relayInfo.RequestedModelName)
 	} else if s.funding.Source() == BillingSourceTokens && actualQuota > 0 {
-		_, _ = model.DeductUserBalancePackage(s.relayInfo.UserId, s.relayInfo.OriginModelName, 2, int64(actualQuota))
+		_, _ = model.DeductUserBalancePackage(s.relayInfo.UserId, s.relayInfo.OriginModelName, 2, int64(actualQuota), s.relayInfo.GetUpstreamModelName(), s.relayInfo.RequestedModelName)
 	} else if s.funding.Source() == BillingSourceRequests {
-		_, _ = model.DeductUserBalancePackage(s.relayInfo.UserId, s.relayInfo.OriginModelName, 1, 1)
+		_, _ = model.DeductUserBalancePackage(s.relayInfo.UserId, s.relayInfo.OriginModelName, 1, 1, s.relayInfo.GetUpstreamModelName(), s.relayInfo.RequestedModelName)
 	}
 	s.settled = true
 	return tokenErr
@@ -311,6 +311,7 @@ func (s *BillingSession) reserveFunding(delta int) error {
 			return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 		}
 		funding.consumed += delta
+		funding.consumedQuota += delta
 		return nil
 	case *SubscriptionFunding:
 		if err := model.PostConsumeUserSubscriptionDelta(funding.subscriptionId, int64(delta)); err != nil {
@@ -368,6 +369,7 @@ func (s *BillingSession) rollbackFundingReserve(delta int) {
 			common.SysLog("error rolling back wallet funding reserve: " + err.Error())
 		} else {
 			funding.consumed -= delta
+			funding.consumedQuota -= walletPart
 		}
 	case *SubscriptionFunding:
 		if err := model.PostConsumeUserSubscriptionDelta(funding.subscriptionId, -int64(delta)); err != nil {
@@ -480,7 +482,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		if err != nil || reqBalance <= 0 {
 			return nil, types.NewErrorWithStatusCode(fmt.Errorf("insufficient requests"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
 		}
-		available, restricted, err := model.UserBalancePackageAvailable(relayInfo.UserId, relayInfo.OriginModelName, 1, int64(reqBalance))
+		available, restricted, err := model.UserBalancePackageAvailable(relayInfo.UserId, relayInfo.OriginModelName, 1, int64(reqBalance), relayInfo.GetUpstreamModelName(), relayInfo.RequestedModelName)
 		if err != nil || available < 1 {
 			return nil, types.NewErrorWithStatusCode(fmt.Errorf("model %s is not allowed by the available request balance", relayInfo.OriginModelName), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
 		}
@@ -504,7 +506,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		if err != nil || tokensBalance <= 0 {
 			return nil, types.NewErrorWithStatusCode(fmt.Errorf("insufficient tokens"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
 		}
-		available, restricted, err := model.UserBalancePackageAvailable(relayInfo.UserId, relayInfo.OriginModelName, 2, tokensBalance)
+		available, restricted, err := model.UserBalancePackageAvailable(relayInfo.UserId, relayInfo.OriginModelName, 2, tokensBalance, relayInfo.GetUpstreamModelName(), relayInfo.RequestedModelName)
 		if err != nil || available <= 0 {
 			return nil, types.NewErrorWithStatusCode(fmt.Errorf("model %s is not allowed by the available token balance", relayInfo.OriginModelName), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
 		}
@@ -570,7 +572,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
 				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
-		available, restricted, err := model.UserBalancePackageAvailable(relayInfo.UserId, relayInfo.OriginModelName, 0, int64(userQuota))
+		available, restricted, err := model.UserBalancePackageAvailable(relayInfo.UserId, relayInfo.OriginModelName, 0, int64(userQuota), relayInfo.GetUpstreamModelName(), relayInfo.RequestedModelName)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 		}

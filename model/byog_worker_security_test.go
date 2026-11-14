@@ -15,9 +15,14 @@ import (
 func TestStaleByogWorkerCannotUndoBanDeletionOrOwnership(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "nodes.db")), &gorm.Config{})
 	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
 	old := DB
 	DB = db
-	t.Cleanup(func() { DB = old })
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+		DB = old
+	})
 	require.NoError(t, db.AutoMigrate(&ByogNode{}))
 	node := &ByogNode{NodeId: "device-a", UserId: 12, WorkerSecretHash: "original", HWID: "same-hardware", DeviceName: "A", Status: "online"}
 	other := &ByogNode{NodeId: "device-b", UserId: 13, WorkerSecretHash: "other", HWID: "same-hardware", DeviceName: "B", Status: "online"}

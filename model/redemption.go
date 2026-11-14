@@ -263,13 +263,66 @@ func GetUserBalancePackages(userId int) ([]*UserBalancePackage, error) {
 	return packages, err
 }
 
-func DeductUserBalancePackage(userId int, modelName string, poolType int, amount int64) (deducted int64, err error) {
+func matchModelName(filterModel, targetModel string) bool {
+	f := strings.TrimSpace(filterModel)
+	t := strings.TrimSpace(targetModel)
+	if f == "" || t == "" {
+		return false
+	}
+	if strings.EqualFold(f, t) {
+		return true
+	}
+	normF := normalizeModelForMatch(f)
+	normT := normalizeModelForMatch(t)
+	if normF == normT {
+		return true
+	}
+	stripF := stripModelPrefix(normF)
+	stripT := stripModelPrefix(normT)
+	if stripF == stripT {
+		return true
+	}
+	if strings.HasSuffix(f, "*") && strings.HasPrefix(strings.ToLower(t), strings.ToLower(strings.TrimSuffix(f, "*"))) {
+		return true
+	}
+	if strings.HasPrefix(f, "*") && strings.HasSuffix(strings.ToLower(t), strings.ToLower(strings.TrimPrefix(f, "*"))) {
+		return true
+	}
+	return false
+}
+
+func normalizeModelForMatch(name string) string {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	r := strings.NewReplacer(" ", "-", "_", "-", ".", "-")
+	clean := r.Replace(lower)
+	for strings.Contains(clean, "--") {
+		clean = strings.ReplaceAll(clean, "--", "-")
+	}
+	return clean
+}
+
+func stripModelPrefix(name string) string {
+	prefixes := []string{"claude-", "anthropic/", "openai/", "google/", "meta-llama/", "deepseek/"}
+	lower := strings.ToLower(name)
+	for _, p := range prefixes {
+		if strings.HasPrefix(lower, p) {
+			return strings.TrimPrefix(lower, p)
+		}
+	}
+	return lower
+}
+
+func DeductUserBalancePackage(userId int, modelName string, poolType int, amount int64, extraModelNames ...string) (deducted int64, err error) {
+	if DB == nil {
+		return 0, nil
+	}
 	if amount <= 0 {
 		return 0, nil
 	}
 	if !DB.Migrator().HasTable(&UserBalancePackage{}) {
 		return 0, nil
 	}
+	candidates := append([]string{modelName}, extraModelNames...)
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		var packages []*UserBalancePackage
 		now := common.GetTimestamp()
@@ -281,7 +334,7 @@ func DeductUserBalancePackage(userId int, modelName string, poolType int, amount
 
 		remaining := amount
 		for _, pkg := range packages {
-			if !userBalancePackageAllowsModel(pkg, modelName) {
+			if !userBalancePackageAllowsModel(pkg, candidates...) {
 				continue
 			}
 			toDeduct := min(remaining, pkg.RemainingAmount)
@@ -312,7 +365,10 @@ func DeductUserBalancePackage(userId int, modelName string, poolType int, amount
 // that may be spent on modelName. Restricted redemption balances are
 // subtracted from the shared balance and added back only when their model
 // filter allows this request.
-func UserBalancePackageAvailable(userId int, modelName string, poolType int, aggregate int64) (available int64, restricted bool, err error) {
+func UserBalancePackageAvailable(userId int, modelName string, poolType int, aggregate int64, extraModelNames ...string) (available int64, restricted bool, err error) {
+	if DB == nil {
+		return aggregate, false, nil
+	}
 	if aggregate <= 0 {
 		return 0, false, nil
 	}
@@ -323,6 +379,7 @@ func UserBalancePackageAvailable(userId int, modelName string, poolType int, agg
 	if err != nil {
 		return 0, false, err
 	}
+	candidates := append([]string{modelName}, extraModelNames...)
 	var restrictedTotal int64
 	var allowedRestricted int64
 	for _, pkg := range packages {
@@ -331,7 +388,7 @@ func UserBalancePackageAvailable(userId int, modelName string, poolType int, agg
 		}
 		restricted = true
 		restrictedTotal += pkg.RemainingAmount
-		if userBalancePackageAllowsModel(pkg, modelName) {
+		if userBalancePackageAllowsModel(pkg, candidates...) {
 			allowedRestricted += pkg.RemainingAmount
 		}
 	}
@@ -342,11 +399,20 @@ func UserBalancePackageAvailable(userId int, modelName string, poolType int, agg
 	return unrestricted + allowedRestricted, restricted, nil
 }
 
-func userBalancePackageAllowsModel(pkg *UserBalancePackage, modelName string) bool {
+func userBalancePackageAllowsModel(pkg *UserBalancePackage, modelNames ...string) bool {
+	if pkg.ModelFilterMode != "whitelist" && pkg.ModelFilterMode != "blacklist" {
+		return true
+	}
 	found := false
-	for _, model := range strings.Split(pkg.Models, ",") {
-		if strings.TrimSpace(model) == modelName {
-			found = true
+	filterModels := strings.Split(pkg.Models, ",")
+	for _, filterModel := range filterModels {
+		for _, m := range modelNames {
+			if matchModelName(filterModel, m) {
+				found = true
+				break
+			}
+		}
+		if found {
 			break
 		}
 	}

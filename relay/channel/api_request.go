@@ -502,9 +502,11 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	// the channel's own proxy setting so each key of a multi-key channel can
 	// exit through a different managed proxy.
 	rawProxyURL := info.ChannelSetting.Proxy
+	keyIndex := -1
 	if info.ChannelIsMultiKey {
-		rawProxyURL = service.EffectiveRelayProxyURL(info.ChannelId, info.ChannelMultiKeyIndex, rawProxyURL)
+		keyIndex = info.ChannelMultiKeyIndex
 	}
+	rawProxyURL = service.EffectiveRelayProxyURL(info.ChannelId, keyIndex, info.ApiKey, rawProxyURL)
 	client, err := service.GetHttpClientWithProxySettings(rawProxyURL, info.ChannelSetting)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)

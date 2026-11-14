@@ -32,34 +32,40 @@ export function AuthLayout({ children }: AuthLayoutProps) {
   const { systemName, logo, loading, hideHeaderSiteName } = useSystemConfig()
 
   return (
-    <div className='relative grid h-svh max-w-none'>
+    <div className='relative flex min-h-svh flex-col'>
       <AnnouncementBarsBanner />
-      <div aria-hidden='true' className='h-[var(--announcement-bars-height,0px)] w-full shrink-0' />
-      <Link
-        to='/'
-        className='absolute top-4 left-4 z-10 flex items-center gap-2 transition-opacity hover:opacity-80 sm:top-8 sm:left-8'
-      >
-        <div className='flex h-8 items-center'>
+      <div
+        aria-hidden='true'
+        className='w-full shrink-0 transition-[height] duration-200'
+        style={{ height: 'var(--announcement-bars-height, 0px)' }}
+      />
+      <div className='w-full px-4 pt-4 sm:px-8 sm:pt-8'>
+        <Link
+          to='/'
+          className='inline-flex items-center gap-2 transition-opacity hover:opacity-80'
+        >
+          <div className='flex h-8 items-center'>
+            {loading ? (
+              <Skeleton className='h-8 w-32 rounded-md' />
+            ) : (
+              <img
+                src={logo}
+                alt={t('Logo')}
+                className='h-8 w-auto max-w-48 object-contain'
+              />
+            )}
+          </div>
           {loading ? (
-            <Skeleton className='h-8 w-32 rounded-md' />
+            <Skeleton className='h-6 w-24' />
           ) : (
-            <img
-              src={logo}
-              alt={t('Logo')}
-              className='h-8 w-auto max-w-48 object-contain'
-            />
+            !hideHeaderSiteName && (
+              <h1 className='text-xl font-medium'>{systemName}</h1>
+            )
           )}
-        </div>
-        {loading ? (
-          <Skeleton className='h-6 w-24' />
-        ) : (
-          !hideHeaderSiteName && (
-            <h1 className='text-xl font-medium'>{systemName}</h1>
-          )
-        )}
-      </Link>
-      <div className='container flex items-center pt-16 sm:pt-0'>
-        <div className='mx-auto flex w-full flex-col justify-center space-y-2 px-4 py-8 sm:w-[480px] sm:p-8'>
+        </Link>
+      </div>
+      <div className='container flex flex-1 items-center justify-center py-6'>
+        <div className='mx-auto flex w-full flex-col justify-center space-y-2 px-4 sm:w-[480px] sm:p-8'>
           {children}
         </div>
       </div>

@@ -274,7 +274,12 @@ func AutoAssignProxyPool(c *gin.Context) {
 	}
 	mapping := make(map[int]int, len(keyLines))
 	for index := 0; index < len(keyLines); index++ {
-		mapping[index] = enabled[index%len(enabled)].Id
+		stickyProxy := service.PickStickyProxy(keyLines[index], enabled)
+		if stickyProxy != nil {
+			mapping[index] = stickyProxy.Id
+		} else {
+			mapping[index] = enabled[index%len(enabled)].Id
+		}
 	}
 	if err := model.ReplaceProxyPoolAssignments(req.ChannelId, mapping); err != nil {
 		common.ApiError(c, err)

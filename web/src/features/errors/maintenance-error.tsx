@@ -34,7 +34,12 @@ export function MaintenanceError() {
           {t("We'll be back online shortly.")}
         </p>
         <div className='mt-6 flex gap-4'>
-          <Button variant='outline'>{t('Learn more')}</Button>
+          <Button onClick={() => window.location.reload()} variant='outline'>
+            {t('Refresh')}
+          </Button>
+          <Button asChild>
+            <a href='/sign-in'>{t('Admin Sign In')}</a>
+          </Button>
         </div>
       </div>
     </div>

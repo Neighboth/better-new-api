@@ -250,36 +250,35 @@ export function ProxyPool() {
   }
 
   return (
-    <SectionPageLayout>
-      <SectionPageLayout.Title>
-        <span className='inline-flex min-w-0 items-center gap-2'>
-          <Waypoints className='h-5 w-5 shrink-0' />
-          <span className='truncate'>{t('Proxy Pool')}</span>
-          <Badge variant='outline' className='shrink-0'>
-            Admin
-          </Badge>
-        </span>
-      </SectionPageLayout.Title>
-      <SectionPageLayout.Content>
-        <div className='mx-auto flex w-full max-w-6xl flex-col gap-6'>
-          <Card>
-            <CardHeader className='flex flex-row flex-wrap items-center justify-between gap-3'>
-              <div>
-                <CardTitle className='flex items-center gap-2'>
-                  <Network className='h-4 w-4' />
-                  {t('Proxies')}
-                </CardTitle>
-                <CardDescription className='mt-1.5'>
-                  {t(
-                    'Register http, https, socks5 or socks5h proxies. Only enabled proxies are used for key assignments.'
-                  )}
-                </CardDescription>
-              </div>
-              <Button onClick={openCreateDialog} className='shrink-0'>
-                <Plus className='mr-2 h-4 w-4' />
-                {t('Add proxy')}
-              </Button>
-            </CardHeader>
+    <>
+      <SectionPageLayout>
+        <SectionPageLayout.Title>
+          <span className='inline-flex min-w-0 items-center gap-2'>
+            <span className='truncate'>{t('Proxy Pool')}</span>
+            <Badge variant='outline' className='shrink-0'>
+              Admin
+            </Badge>
+          </span>
+        </SectionPageLayout.Title>
+        <SectionPageLayout.Content>
+          <div className='mx-auto flex w-full max-w-6xl flex-col gap-6'>
+            <Card>
+              <CardHeader className='flex flex-row flex-wrap items-center justify-between gap-3'>
+                <div>
+                  <CardTitle>
+                    {t('Proxies')}
+                  </CardTitle>
+                  <CardDescription className='mt-1.5'>
+                    {t(
+                      'Register http, https, socks5 or socks5h proxies. Only enabled proxies are used for key assignments.'
+                    )}
+                  </CardDescription>
+                </div>
+                <Button onClick={openCreateDialog} className='shrink-0'>
+                  <Plus className='mr-2 h-4 w-4' />
+                  {t('Add proxy')}
+                </Button>
+              </CardHeader>
             <CardContent>
               {proxiesQuery.isLoading ? (
                 <div className='flex h-24 items-center justify-center text-muted-foreground text-sm'>
@@ -407,8 +406,7 @@ export function ProxyPool() {
 
           <Card>
             <CardHeader>
-              <CardTitle className='flex items-center gap-2'>
-                <Zap className='h-4 w-4' />
+              <CardTitle>
                 {t('Multi-key channel assignments')}
               </CardTitle>
               <CardDescription className='mt-1.5'>
@@ -500,6 +498,7 @@ export function ProxyPool() {
           </Card>
         </div>
       </SectionPageLayout.Content>
+    </SectionPageLayout>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
@@ -601,7 +600,7 @@ export function ProxyPool() {
         }}
         confirmText={t('Clear')}
       />
-    </SectionPageLayout>
+    </>
   )
 }
 

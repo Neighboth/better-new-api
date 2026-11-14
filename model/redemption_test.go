@@ -242,3 +242,18 @@ func TestRedeemFailedCreditLeavesCodeUsable(t *testing.T) {
 	require.Equal(t, 100, quota)
 	require.Equal(t, common.MaxQuota, getUserQuotaFromDB(t, userID))
 }
+
+func TestUserBalancePackageFlexibleModelMatching(t *testing.T) {
+	pkg := &UserBalancePackage{
+		ModelFilterMode: "whitelist",
+		Models:          "opus 5.5,gpt-4o",
+	}
+	assert.True(t, userBalancePackageAllowsModel(pkg, "opus 5.5"))
+	assert.True(t, userBalancePackageAllowsModel(pkg, "claude-opus-5.5"))
+	assert.True(t, userBalancePackageAllowsModel(pkg, "opus-5-5"))
+	assert.True(t, userBalancePackageAllowsModel(pkg, "claude-opus-5-5"))
+	assert.True(t, userBalancePackageAllowsModel(pkg, "claude-opus-5.5", "claude-opus-5-5"))
+	assert.True(t, userBalancePackageAllowsModel(pkg, "gpt-4o"))
+	assert.False(t, userBalancePackageAllowsModel(pkg, "claude-sonnet-4-6"))
+	assert.False(t, userBalancePackageAllowsModel(pkg, "gpt-3.5-turbo"))
+}

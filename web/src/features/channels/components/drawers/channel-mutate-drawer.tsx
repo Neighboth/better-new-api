@@ -3162,6 +3162,10 @@ export function ChannelMutateDrawer({
                                     keyPlaceholder = t(
                                       'Enter key, one per line, format: AccessKey|SecretAccessKey|Region'
                                     )
+                                  } else if (currentType === 67) {
+                                    keyPlaceholder = t(
+                                      'Paste Claude Code OAuth access_token (sk-ant-oat01-...) or JSON credential {"access_token":"...","refresh_token":"..."}'
+                                    )
                                   } else if (currentType === 33) {
                                     keyPlaceholder = t(
                                       'Enter key, format: AccessKey|SecretAccessKey|Region'
@@ -3172,9 +3176,12 @@ export function ChannelMutateDrawer({
                                     )
                                   }
 
-                                  let keyDescription: ReactNode = t(
-                                    FIELD_DESCRIPTIONS.KEY
-                                  )
+                                  let keyDescription: ReactNode =
+                                    currentType === 67
+                                      ? t(
+                                          'Claude Subscription requires a Claude Code OAuth token (sk-ant-oat01-...) or full OAuth JSON credential. Standard Anthropic API keys (sk-ant-api...) are not supported on this channel.'
+                                        )
+                                      : t(FIELD_DESCRIPTIONS.KEY)
                                   if (isEditing) {
                                     let keyModeDescription = t(
                                       'Append mode: New keys will be added to the end of the existing key list'
@@ -3203,7 +3210,11 @@ export function ChannelMutateDrawer({
                                   }
                                   return (
                                     <FormItem>
-                                      <FormLabel>{t('API Key *')}</FormLabel>
+                                      <FormLabel>
+                                        {currentType === 67
+                                          ? t('Claude Code OAuth Token / Session Key *')
+                                          : t('API Key *')}
+                                      </FormLabel>
                                       <FormControl>
                                         <Textarea
                                           placeholder={keyPlaceholder}
@@ -3565,6 +3576,26 @@ export function ChannelMutateDrawer({
                                         )
                                       })()}
                                     </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {currentType === 67 && (
+                                <div className='border-border/60 flex flex-col gap-3 rounded-lg border bg-muted/20 p-4'>
+                                  <div className='flex flex-col gap-1'>
+                                    <div className='font-semibold text-sm'>
+                                      {t('Claude Aboneliği (Claude Code OAuth / Token) Yapılandırması')}
+                                    </div>
+                                    <div className='text-muted-foreground text-xs'>
+                                      {t(
+                                        'Bu kanal Anthropic API Key (sk-ant-api...) değil, Claude Code OAuth Access Token (sk-ant-oat01-...) veya JSON oturum kimlik bilgisi gerektirir.'
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className='text-xs space-y-1.5 rounded bg-muted/40 p-2.5 font-mono text-muted-foreground'>
+                                    <div>{t('Token formatı:')}</div>
+                                    <div>• Tekil token: sk-ant-oat01-...</div>
+                                    <div>• JSON kimlik: {'{"access_token": "sk-ant-oat01-...", "refresh_token": "sk-ant-ort01-..."}'}</div>
                                   </div>
                                 </div>
                               )}

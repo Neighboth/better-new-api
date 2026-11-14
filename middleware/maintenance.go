@@ -20,7 +20,10 @@ import (
 // the login page and the login API, and the public status probes that
 // clients read before deciding to show anything.
 var maintenanceAllowedPrefixes = []string{
+	"/sign-in",
+	"/sign-up",
 	"/login",
+	"/register",
 	"/api/user/login",
 	"/api/user/auth/refresh",
 	"/api/user/logout",
@@ -174,7 +177,7 @@ func renderMaintenancePage(message string, eta int64) string {
 		etaSeconds = eta
 		etaBlock = `<div class="eta" id="eta-box">
         <div class="eta-value" id="eta-value">--:--:--</div>
-        <div class="eta-label">Expected back <span id="eta-date"></span></div>
+        <div class="eta-label">Tahmini Bitiş: <span id="eta-date"></span></div>
       </div>`
 	}
 
@@ -200,129 +203,171 @@ func renderMaintenancePage(message string, eta int64) string {
 <title>` + htmlEscape(siteName) + ` — Bakım</title>
 <style>
 :root {
-  --bg-from: #0b1020;
-  --bg-to: #171a35;
-  --panel: rgba(255,255,255,0.04);
-  --panel-border: rgba(255,255,255,0.10);
-  --text: #e7e9f5;
-  --muted: #9aa0bd;
-  --accent: #8b5cf6;
-  --accent-2: #38bdf8;
-  --accent-soft: rgba(139,92,246,0.25);
-  --logo-shadow: rgba(139,92,246,0.45);
+  --bg: #09090b;
+  --card: #18181b;
+  --card-border: #27272a;
+  --text: #f4f4f5;
+  --text-muted: #a1a1aa;
+  --btn-bg: #2563eb;
+  --btn-hover: #1d4ed8;
+  --btn-text: #ffffff;
+  --badge-bg: #27272a;
+  --badge-border: #3f3f46;
+  --badge-text: #e4e4e7;
+  --eta-bg: #121214;
 }
 @media (prefers-color-scheme: light) {
   :root {
-    --bg-from: #eef2ff;
-    --bg-to: #f5f7ff;
-    --panel: #ffffff;
-    --panel-border: rgba(15, 23, 42, 0.08);
-    --text: #1e293b;
-    --muted: #64748b;
-    --accent: #6d28d9;
-    --accent-2: #0284c7;
-    --accent-soft: rgba(109,40,217,0.12);
-    --logo-shadow: rgba(109,40,217,0.25);
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --card-border: #e2e8f0;
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --btn-bg: #2563eb;
+    --btn-hover: #1d4ed8;
+    --btn-text: #ffffff;
+    --badge-bg: #f1f5f9;
+    --badge-border: #e2e8f0;
+    --badge-text: #475569;
+    --eta-bg: #f8fafc;
   }
 }
 * { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; }
-body {
-  min-height: 100vh;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background-color: var(--bg);
   color: var(--text);
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
-  background:
-    radial-gradient(900px 520px at 15% -10%, var(--accent-soft), transparent 60%),
-    radial-gradient(800px 520px at 110% 110%, rgba(56,189,248,0.18), transparent 55%),
-    linear-gradient(160deg, var(--bg-from), var(--bg-to));
-}
-body::before {
-  content: "";
-  position: absolute; inset: 0;
-  background-image:
-    linear-gradient(rgba(127,127,127,0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(127,127,127,0.06) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: radial-gradient(ellipse 90% 80% at 50% 40%, black 35%, transparent 78%);
-  pointer-events: none;
+  padding: 16px;
+  -webkit-font-smoothing: antialiased;
 }
 .card {
-  position: relative;
-  width: min(560px, calc(100% - 40px));
+  width: 100%;
+  max-width: 440px;
+  background-color: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 32px 28px;
   text-align: center;
-  padding: 44px 36px 30px;
-  border-radius: 24px;
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
-  backdrop-filter: blur(18px);
-  box-shadow: 0 40px 90px rgba(0,0,0,0.35), 0 0 0 1px var(--panel-border);
-  animation: rise .7s cubic-bezier(.2,.8,.25,1.15) both;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
 }
-@keyframes rise { from { opacity: 0; transform: translateY(22px) scale(.97); } to { opacity: 1; transform: none; } }
-.brand { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 22px; }
-.logo { height: 40px; width: auto; max-width: 190px; object-fit: contain; filter: drop-shadow(0 6px 18px var(--logo-shadow)); }
-.brand-name { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; color: var(--text); }
-.brand-mark {
-  width: 58px; height: 58px; border-radius: 17px; display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(145deg, var(--accent), var(--accent-2));
-  border: 1px solid rgba(255,255,255,0.25);
-  box-shadow: 0 12px 34px var(--logo-shadow), inset 0 1px 0 rgba(255,255,255,0.35);
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 20px;
 }
-.brand-mark svg { width: 28px; height: 28px; stroke: #fff; }
+.logo {
+  height: 38px;
+  width: auto;
+  margin-bottom: 12px;
+  display: block;
+}
+.brand-name {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
 .badge {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 6px 14px; border-radius: 999px;
-  font-size: .72rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
-  color: #fbbf24; background: rgba(251,191,36,0.10); border: 1px solid rgba(251,191,36,0.30);
-  margin-bottom: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 9999px;
+  background-color: var(--badge-bg);
+  border: 1px solid var(--badge-border);
+  color: var(--badge-text);
+  margin-bottom: 16px;
 }
-.badge .dot { width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 10px rgba(245,158,11,.9); animation: blink 1.2s steps(2) infinite; }
-@keyframes blink { 0%,60% {opacity:1} 61%,100% {opacity:.2} }
+.badge .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #3b82f6;
+}
 h1 {
-  margin: 0 0 8px; font-size: clamp(1.5rem, 4.4vw, 2.05rem); font-weight: 800; letter-spacing: -0.03em;
-  background: linear-gradient(180deg, var(--text) 30%, var(--accent-2) 100%);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0 0 8px;
+  letter-spacing: -0.02em;
 }
-.msg { color: var(--muted); font-size: .98rem; line-height: 1.65; margin: 0 0 22px; }
+.msg {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin: 0 0 20px;
+}
 .eta {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 14px 26px; margin: 0 auto 20px; border-radius: 16px; width: fit-content;
-  background: rgba(127,127,127,0.10); border: 1px solid var(--panel-border);
+  background: var(--eta-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0 0 20px;
 }
-.eta-value { font-variant-numeric: tabular-nums; font-size: 1.55rem; font-weight: 700; letter-spacing: .03em; color: var(--accent-2); }
-.eta-label { font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .16em; }
-.divider { height: 1px; background: var(--panel-border); margin: 6px 0 16px; }
-.hint { font-size: .8rem; color: var(--muted); margin: 0 0 12px; }
+.eta-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #3b82f6;
+  margin-bottom: 2px;
+}
+.eta-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.divider {
+  height: 1px;
+  background-color: var(--card-border);
+  margin: 20px 0;
+}
+.hint {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin: 0 0 12px;
+}
 .admin-link {
-  display: inline-flex; align-items: center; gap: 10px;
-  width: 100%; justify-content: center;
-  padding: 12px 18px; border-radius: 14px;
-  font-size: .9rem; font-weight: 600; text-decoration: none;
-  color: #fff; border: 1px solid rgba(255,255,255,0.18);
-  background: linear-gradient(145deg, var(--accent), #6d28d9);
-  box-shadow: 0 12px 30px rgba(109,40,217,0.35), inset 0 1px 0 rgba(255,255,255,0.25);
-  transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background-color: var(--btn-bg);
+  color: var(--btn-text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background-color 0.15s ease;
 }
-.admin-link:hover { transform: translateY(-1px); filter: brightness(1.06); box-shadow: 0 16px 38px rgba(109,40,217,0.45), inset 0 1px 0 rgba(255,255,255,0.3); }
-.admin-link svg { width: 18px; height: 18px; }
-.foot { margin-top: 16px; font-size: .7rem; color: var(--muted); opacity: .8; }
-.spinner {
-  position: absolute; top: 22px; right: 22px; opacity: .45;
-  animation: spin 9s linear infinite;
+.admin-link:hover {
+  background-color: var(--btn-hover);
 }
-@keyframes spin { to { transform: rotate(360deg); } }
-@media (max-width: 480px) { .card { padding: 34px 22px 24px; border-radius: 20px; } }
+.admin-link svg {
+  width: 16px;
+  height: 16px;
+}
+.foot {
+  margin-top: 16px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+@media (max-width: 480px) {
+  .card {
+    padding: 24px 20px;
+    border-radius: 12px;
+  }
+}
 </style>
 </head>
 <body>
 <main class="card" role="main">
-  <svg class="spinner" width="34" height="34" viewBox="0 0 34 34" fill="none" aria-hidden="true">
-    <circle cx="17" cy="17" r="15" stroke="var(--accent-2)" stroke-width="2" stroke-dasharray="40 55" stroke-linecap="round"/>
-  </svg>
   <div class="brand">
     ` + logoTag + `
     <div class="brand-name">` + htmlEscape(siteName) + `</div>
@@ -332,10 +377,11 @@ h1 {
   <p class="msg">` + htmlEscape(message) + `</p>
   ` + etaBlock + `
   <div class="divider"></div>
-  <p class="hint">Bu ekranın üzerinden giriş yaparak siteyi yönetin.</p>
-  <a class="admin-link" href="/login" aria-label="Admin girişi">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/><path d="M12 13v4"/><path d="M9.5 15l-1.5 1.5M14.5 15l1.5 1.5"/>
+  <p class="hint">Yönetici paneline erişmek için giriş yapın.</p>
+  <a class="admin-link" href="/sign-in" aria-label="Admin girişi">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
     </svg>
     Admin Girişi
   </a>

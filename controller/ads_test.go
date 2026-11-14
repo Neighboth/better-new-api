@@ -42,10 +42,11 @@ func TestAdSurfacesAreNormalised(t *testing.T) {
 
 func TestInstallationSurfaces(t *testing.T) {
 	withOptionMap(t, map[string]string{})
-	// An installation that never saved the option keeps the blog only.
-	require.Equal(t, []string{AdSurfaceBlog}, adSurfaces())
+	// An installation that never saved the option enables all surfaces by default.
+	require.Equal(t, []string{AdSurfaceBlog, AdSurfaceConsole, AdSurfacePopup}, adSurfaces())
 	require.True(t, surfaceEnabled(AdSurfaceBlog))
-	require.False(t, surfaceEnabled(AdSurfaceConsole))
+	require.True(t, surfaceEnabled(AdSurfaceConsole))
+	require.True(t, surfaceEnabled(AdSurfacePopup))
 
 	withOptionMap(t, map[string]string{"AdsSurfaces": "blog, console,blog,wat"})
 	require.Equal(t, []string{AdSurfaceBlog, AdSurfaceConsole}, adSurfaces())
