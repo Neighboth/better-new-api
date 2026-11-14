@@ -229,6 +229,17 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile',
     },
   },
+  67: {
+    id: 67,
+    name: CHANNEL_TYPES[67],
+    icon: 'Claude',
+    defaultBaseUrl: 'https://api.anthropic.com',
+    hints: {
+      baseUrl: 'Default: https://api.anthropic.com',
+      key: 'Çok anahtarlı: {"access_token":"sk-ant-oat01-...","refresh_token":"sk-ant-ort01-...","expired":"2026-11-20T10:00:00Z"} ya da tek access token',
+      models: 'claude-opus-4-8,claude-opus-5,claude-opus-5-5,claude-sonnet-4-6,claude-sonnet-5,claude-haiku-5-5',
+    },
+  },
 }
 
 /**

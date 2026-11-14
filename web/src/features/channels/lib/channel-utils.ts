@@ -110,6 +110,7 @@ export function getChannelTypeIcon(type: number): string {
     64: 'Aepi', // Aepi Media
   65: 'OpenCode', // OpenCode Zen
   66: 'Groq', // Groq
+  67: 'Claude', // Claude Subscription
 
     // Tools & Platforms
     37: 'Dify', // Dify

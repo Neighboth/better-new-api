@@ -64,6 +64,7 @@ const (
 	ChannelTypeAepi           = 64
 	ChannelTypeOpenCode       = 65
 	ChannelTypeGroq           = 66
+	ChannelTypeClaudeSub      = 67
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 )
 
@@ -135,6 +136,7 @@ var ChannelBaseURLs = []string{
 	"https://videoapi.aerobox.eu.cc",            //64
 	"https://opencode.ai/zen",                //65
 	"https://api.groq.com/openai",            //66
+	"https://api.anthropic.com",              //67 Claude subscription
 }
 
 var ChannelTypeNames = map[int]string{
@@ -201,6 +203,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeAepi:           "Aepi Media",
 	ChannelTypeOpenCode:       "OpenCode",
 	ChannelTypeGroq:           "Groq",
+	ChannelTypeClaudeSub:      "Claude Subscription (Claude Code)",
 }
 
 func GetChannelTypeName(channelType int) string {

@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/baidu"
 	"github.com/QuantumNous/new-api/relay/channel/baidu_v2"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
+	"github.com/QuantumNous/new-api/relay/channel/claudesub"
 	"github.com/QuantumNous/new-api/relay/channel/cloudflare"
 	"github.com/QuantumNous/new-api/relay/channel/codex"
 	"github.com/QuantumNous/new-api/relay/channel/cohere"
@@ -145,6 +146,8 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		// Both are OpenAI-compatible gateways: OpenCode Zen and Groq
 		// expose the /v1/chat/completions surface.
 		return &openai.Adaptor{}
+	case constant.APITypeClaudeSub:
+		return &claudesub.Adaptor{}
 	}
 	return nil
 }

@@ -24,6 +24,7 @@ For commercial licensing, please contact support@quantumnous.com
 export const CHANNEL_TYPE_NEW_API = 60
 export const CHANNEL_TYPE_ANTIGRAVITY = 61
 export const CHANNEL_TYPE_AEPI = 64
+export const CHANNEL_TYPE_CLAUDE_SUB = 67
 
 export const CHANNEL_TYPES = {
   0: 'Unknown',
@@ -89,12 +90,13 @@ export const CHANNEL_TYPES = {
   64: 'Aepi Media',
   65: 'OpenCode',
   66: 'Groq',
+  67: 'Claude Subscription (Claude Code)',
 } as const
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
   1, 14, 33, 24, 61, 62, 63, 43, 57, 3, 41, 48, 60, 58, 42, 34, 20, 4, 40, 27, 25, 17, 26, 15,
   46, 23, 18, 45, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 59, 22, 21, 44, 2,
-  5, 36, 50, 51, 52, 53, 54, 55, 56, 64, 65, 66,
+  5, 36, 50, 51, 52, 53, 54, 55, 56, 64, 65, 66, 67,
 ]
 
 export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {
