@@ -7875,11 +7875,11 @@
     "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.": "Le canal fusionné devient un canal multi-clé (mode partagé si tous les canaux d'entrée s'accordent, sinon aléatoire). Les canaux d'origine seront supprimés.",
     "OpenCode": "OpenCode",
     "Groq": "Groq",
-    "Default: https://opencode.ai/zen/v1": "Par défaut : https://opencode.ai/zen/v1",
     "OpenCode Zen API Key (sk-...)": "Clé API OpenCode Zen (sk-...)",
     "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free": "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free",
-    "Default: https://api.groq.com/openai/v1": "Par défaut : https://api.groq.com/openai/v1",
     "Groq API Key (gsk_...)": "Clé API Groq (gsk_...)",
-    "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile": "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile"
+    "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile": "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile",
+    "Default: https://opencode.ai/zen": "Par défaut : https://opencode.ai/zen/v1",
+    "Default: https://api.groq.com/openai": "Par défaut : https://api.groq.com/openai/v1"
   }
 }

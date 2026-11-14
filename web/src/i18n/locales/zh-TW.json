@@ -7875,11 +7875,11 @@
     "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.": "合併後的頻道將變為一個多 key 頻道（所有輸入模式一致時保留該模式，否則使用隨機模式）。原頻道將被刪除。",
     "OpenCode": "OpenCode",
     "Groq": "Groq",
-    "Default: https://opencode.ai/zen/v1": "預設：https://opencode.ai/zen/v1",
     "OpenCode Zen API Key (sk-...)": "OpenCode Zen API 金鑰 (sk-...)",
     "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free": "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free",
-    "Default: https://api.groq.com/openai/v1": "預設：https://api.groq.com/openai/v1",
     "Groq API Key (gsk_...)": "Groq API 金鑰 (gsk_...)",
-    "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile": "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile"
+    "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile": "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile",
+    "Default: https://opencode.ai/zen": "預設：https://opencode.ai/zen/v1",
+    "Default: https://api.groq.com/openai": "預設：https://api.groq.com/openai/v1"
   }
 }

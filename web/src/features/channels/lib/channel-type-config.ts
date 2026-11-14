@@ -211,9 +211,9 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     id: 65,
     name: CHANNEL_TYPES[65],
     icon: 'OpenCode',
-    defaultBaseUrl: 'https://opencode.ai/zen/v1',
+    defaultBaseUrl: 'https://opencode.ai/zen',
     hints: {
-      baseUrl: 'Default: https://opencode.ai/zen/v1',
+      baseUrl: 'Default: https://opencode.ai/zen',
       key: 'OpenCode Zen API Key (sk-...)',
       models: 'opencode/grok-code,big-pickle,deepseek-v4.1-flash-free',
     },
@@ -222,9 +222,9 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     id: 66,
     name: CHANNEL_TYPES[66],
     icon: 'Groq',
-    defaultBaseUrl: 'https://api.groq.com/openai/v1',
+    defaultBaseUrl: 'https://api.groq.com/openai',
     hints: {
-      baseUrl: 'Default: https://api.groq.com/openai/v1',
+      baseUrl: 'Default: https://api.groq.com/openai',
       key: 'Groq API Key (gsk_...)',
       models: 'openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile',
     },

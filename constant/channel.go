@@ -133,8 +133,8 @@ var ChannelBaseURLs = []string{
 	"https://api.agnes-ai.com",                  //62
 	"https://chat.deepseek.com",                 //63
 	"https://videoapi.aerobox.eu.cc",            //64
-	"https://opencode.ai/zen/v1",              //65
-	"https://api.groq.com/openai/v1",         //66
+	"https://opencode.ai/zen",                //65
+	"https://api.groq.com/openai",            //66
 }
 
 var ChannelTypeNames = map[int]string{
