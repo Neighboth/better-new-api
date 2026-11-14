@@ -3132,7 +3132,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Projets liés",
     "footer.defaultCopyright": "Tous droits réservés.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Tous droits réservés. Conçu et développé par les contributeurs du projet.",
+    "footer.newapi.projectAttributionSuffix": "Tous droits réservés. Conçu et développé par les contributeurs du projet.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Pour les canaux ajoutés après le 10 mai 2025, pas besoin de supprimer \".\" des noms de modèles lors du déploiement",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Pour les déploiements privés, format : https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "Pour des raisons de sécurité, les jetons d'accès existants ne peuvent pas être réaffichés. Ne les régénérez que si vous en avez besoin d'un nouveau.",
@@ -7869,6 +7869,9 @@
     "usable for all models": "utilisable pour tous les modèles",
     "Spent before topped-up balance.": "Débité avant le solde rechargé.",
     "Redemption packages": "Forfaits de codes",
-    "Visit site": "Visiter le site"
+    "Visit site": "Visiter le site",
+    "Reseller program for bulk account onboarding.": "Programme revendeur pour l'intégration en masse.",
+    "Runtime and build information for the platform.": "Informations d'exécution et de build de la plateforme.",
+    "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.": "Le canal fusionné devient un canal multi-clé (mode partagé si tous les canaux d'entrée s'accordent, sinon aléatoire). Les canaux d'origine seront supprimés."
   }
 }

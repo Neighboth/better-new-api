@@ -62,8 +62,10 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
     redemption: true,
     subscription: true,
     ticket: true,
+    reseller: true,
     byog: true,
     statistics: true,
+    system_info: true,
     setting: true,
   },
 }
@@ -121,8 +123,10 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/redemption-codes': { section: 'admin', module: 'redemption' },
   '/subscriptions': { section: 'admin', module: 'subscription' },
   '/byog-admin': { section: 'admin', module: 'byog' },
+  '/reseller': { section: 'admin', module: 'reseller' },
   '/blog-management': { section: 'admin', module: 'blog' },
   '/statistics': { section: 'admin', module: 'statistics' },
+  '/system-info': { section: 'admin', module: 'system_info' },
   '/system-settings': { section: 'admin', module: 'setting' },
   '/system-settings/site': { section: 'admin', module: 'setting' },
 }

@@ -84,8 +84,10 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
     redemption: true,
     subscription: true,
     ticket: true,
+    reseller: true,
     byog: true,
     statistics: true,
+    system_info: true,
     setting: true,
   },
 }

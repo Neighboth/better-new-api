@@ -379,9 +379,11 @@ func isVertexStyleChannel(ch *model.Channel) bool {
 	return ch.Type == constant.ChannelTypeVertexAi
 }
 
-// MergeChannels merges several single-key channels into one multi-key
-// channel. Every setting except the API key must be identical; otherwise the
-// merge is refused and the differing fields are reported.
+// MergeChannels merges channels into one multi-key channel. Every setting
+// except the API key must be identical; otherwise the merge is refused and
+// the differing fields are reported. Multi-key channels are supported: the
+// union of their keys (deduplicated) is used, and if every multi-key input
+// shares the same polling/random mode that mode is preserved.
 func MergeChannels(c *gin.Context) {
 	req := mergeChannelsRequest{}
 	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
@@ -413,10 +415,6 @@ func MergeChannels(c *gin.Context) {
 	}
 
 	for _, ch := range channels {
-		if ch.ChannelInfo.IsMultiKey {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("Kanal #%d zaten çok anahtarlı. Çok anahtarlı kanallar birleştirilemez.", ch.Id)})
-			return
-		}
 		if isVertexStyleChannel(ch) {
 			c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("Kanal #%d Vertex AI. Bu tip anahtarlar virgülle birleştirilemez; tek tek düzenleyin.", ch.Id)})
 			return
@@ -491,10 +489,33 @@ func MergeChannels(c *gin.Context) {
 	}
 	merged.UsedQuota = totalUsed
 	merged.Key = strings.Join(keys, "\n")
+
+	// Combined mode: if every multi-key input agrees on a polling/random
+	// mode we keep it; otherwise fall back to random (mixed pools).
+	mergedMode := constant.MultiKeyModeRandom
+	agree := true
+	firstMode := constant.MultiKeyMode("")
+	for _, ch := range channels {
+		if !ch.ChannelInfo.IsMultiKey {
+			continue
+		}
+		if firstMode == "" {
+			firstMode = ch.ChannelInfo.MultiKeyMode
+			continue
+		}
+		if ch.ChannelInfo.MultiKeyMode != firstMode {
+			agree = false
+			break
+		}
+	}
+	if agree && firstMode != "" {
+		mergedMode = firstMode
+	}
+
 	merged.ChannelInfo = model.ChannelInfo{
 		IsMultiKey:   true,
 		MultiKeySize: len(keys),
-		MultiKeyMode: constant.MultiKeyModeRandom,
+		MultiKeyMode: mergedMode,
 	}
 
 	// Create abilities for the merged channel first, then drop the originals

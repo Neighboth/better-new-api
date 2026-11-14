@@ -3132,7 +3132,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "相关项目",
     "footer.defaultCopyright": "版权所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
+    "footer.newapi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "对于 2025 年 5 月 10 日之后添加的渠道，在部署时无需从模型名称中移除 \".\"",
     "For private deployments, format: https://fastgpt.run/api/openapi": "对于私有部署，格式为：https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "出于安全考虑，现有访问令牌无法再次显示。仅在需要新令牌时重新生成。",
@@ -7869,6 +7869,9 @@
     "usable for all models": "可用于所有模型",
     "Spent before topped-up balance.": "优先于充值余额扣除。",
     "Redemption packages": "兑换码礼包",
-    "Visit site": "访问网站"
+    "Visit site": "访问网站",
+    "Reseller program for bulk account onboarding.": "面向经销商的批量开户计划。",
+    "Runtime and build information for the platform.": "平台的运行时与构建信息。",
+    "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.": "合并后的频道将变为一个多 key 频道（所有输入模式一致时保留该模式，否则使用随机模式）。原频道将被删除。"
   }
 }

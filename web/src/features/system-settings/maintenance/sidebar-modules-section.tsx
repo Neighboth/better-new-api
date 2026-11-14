@@ -160,6 +160,14 @@ export function SidebarModulesSection({
         title: t('Users'),
         description: t('Administer user accounts and roles.'),
       },
+      reseller: {
+        title: t('Reseller'),
+        description: t('Reseller program for bulk account onboarding.'),
+      },
+      system_info: {
+        title: t('System Info'),
+        description: t('Runtime and build information for the platform.'),
+      },
       setting: {
         title: t('System settings'),
         description: t('Advanced platform configuration.'),

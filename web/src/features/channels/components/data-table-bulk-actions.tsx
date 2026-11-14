@@ -438,7 +438,7 @@ export function DataTableBulkActions<TData>({
             <div className='rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm'>
               <p className='font-semibold text-emerald-700 dark:text-emerald-400'>{t('All settings are identical (only the API keys differ).')}</p>
               <p className='mt-1 text-muted-foreground'>
-                {t('The merged channel becomes one multi-key channel (random mode). The original channels will be deleted.')}
+                {t('The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.')}
               </p>
             </div>
           )}

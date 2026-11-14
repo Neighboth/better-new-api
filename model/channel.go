@@ -449,13 +449,20 @@ func BatchInsertChannels(channels []Channel) error {
 		}
 	}()
 
-	for _, chunk := range lo.Chunk(channels, 50) {
+	for i := 0; i < len(channels); i += 50 {
+		end := i + 50
+		if end > len(channels) {
+			end = len(channels)
+		}
+		// Chunks share the backing array, so the ids gorm assigns on
+		// Create are visible in the caller's slice.
+		chunk := channels[i:end]
 		if err := tx.Create(&chunk).Error; err != nil {
 			tx.Rollback()
 			return err
 		}
-		for _, channel_ := range chunk {
-			if err := channel_.AddAbilities(tx); err != nil {
+		for j := range chunk {
+			if err := chunk[j].AddAbilities(tx); err != nil {
 				tx.Rollback()
 				return err
 			}

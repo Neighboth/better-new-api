@@ -3132,7 +3132,7 @@
     "footer.columns.related.links.oneApi": "1つのAPI",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
     "For private deployments, format: https://fastgpt.run/api/openapi": "プライベートデプロイメントの場合、形式: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "セキュリティ上、既存のアクセストークンは再表示できません。新しいトークンが必要な場合のみ再生成してください。",
@@ -7869,6 +7869,9 @@
     "usable for all models": "すべてのモデルで利用可能",
     "Spent before topped-up balance.": "チャージ済み残高より先に使用されます。",
     "Redemption packages": "クーポンパッケージ",
-    "Visit site": "サイトを開く"
+    "Visit site": "サイトを開く",
+    "Reseller program for bulk account onboarding.": "リセラー向けの一括アカウント開設プログラム。",
+    "Runtime and build information for the platform.": "プラットフォームの実行時およびビルド情報。",
+    "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.": "結合されたチャンネルは1つのマルチキーチャンネルになります（全ての入力がポーリング/ランダムで一致していればそのモード、それ以外はランダム）。元のチャンネルは削除されます。"
   }
 }
