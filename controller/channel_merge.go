@@ -302,7 +302,9 @@ func channelsAreEqual(channels []*model.Channel, ignoreFields map[string]bool) [
 
 		compare("type", fmt.Sprintf("%d", first.Type), fmt.Sprintf("%d", other.Type))
 		compare("base_url", mergeChannelFieldMissing(first.BaseURL), mergeChannelFieldMissing(other.BaseURL))
-		compare("models", normalizeListSetting(first.Models), normalizeListSetting(other.Models))
+		// The model list is merged instead of compared: two channels of the
+		// same provider often serve different model sets and the merged
+		// channel must serve the union of them.
 		compare("group", normalizeListSetting(first.Group), normalizeListSetting(other.Group))
 		compare("model_mapping", normalizeJSONSetting(mergeChannelFieldMissing(first.ModelMapping)), normalizeJSONSetting(mergeChannelFieldMissing(other.ModelMapping)))
 		compare("status_code_mapping", mergeChannelFieldMissing(first.StatusCodeMapping), mergeChannelFieldMissing(other.StatusCodeMapping))
@@ -373,6 +375,22 @@ func derefInt(value *int) int {
 		return 0
 	}
 	return *value
+}
+
+func mergeModelLists(channels []*model.Channel) string {
+	seen := map[string]bool{}
+	models := make([]string, 0)
+	for _, ch := range channels {
+		for _, m := range ch.GetModels() {
+			m = strings.TrimSpace(m)
+			if m == "" || seen[m] {
+				continue
+			}
+			seen[m] = true
+			models = append(models, m)
+		}
+	}
+	return strings.Join(models, ",")
 }
 
 func isVertexStyleChannel(ch *model.Channel) bool {
@@ -489,6 +507,12 @@ func MergeChannels(c *gin.Context) {
 	}
 	merged.UsedQuota = totalUsed
 	merged.Key = strings.Join(keys, "\n")
+	// The runtime key cache of the source channel must not survive the
+	// merge: GetKeys() returns the cached slice when it is filled, so a
+	// stale cache would keep serving the pre-merge key list.
+	merged.Keys = nil
+	// The merged channel serves the union of the model lists of all inputs.
+	merged.Models = mergeModelLists(channels)
 
 	// Combined mode: if every multi-key input agrees on a polling/random
 	// mode we keep it; otherwise fall back to random (mixed pools).
@@ -537,6 +561,12 @@ func MergeChannels(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("Birleşik kanal oluşturuldu ancak eski kanallar silinemedi: %v", err)})
 		return
 	}
+
+	// Refresh the in-memory channel cache. Without it the router keeps
+	// serving the deleted source channels (their stale keys included) and
+	// never sees the merged one, so every request would fail with the
+	// upstream credentials of the old channels.
+	model.InitChannelCache()
 
 	recordManageAudit(c, "channel.merge", map[string]interface{}{
 		"name":     merged.Name,

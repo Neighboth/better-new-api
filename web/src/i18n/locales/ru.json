@@ -7872,6 +7872,14 @@
     "Visit site": "Перейти на сайт",
     "Reseller program for bulk account onboarding.": "Программа партнёров и реселлеров для массового онбординга.",
     "Runtime and build information for the platform.": "Информация о рантайме и сборке платформы.",
-    "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.": "Объединённый канал становится одним мультиключевым каналом (общий режим, если все совпадают, иначе случайный). Исходные каналы будут удалены."
+    "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.": "Объединённый канал становится одним мультиключевым каналом (общий режим, если все совпадают, иначе случайный). Исходные каналы будут удалены.",
+    "OpenCode": "OpenCode",
+    "Groq": "Groq",
+    "Default: https://opencode.ai/zen/v1": "По умолчанию: https://opencode.ai/zen/v1",
+    "OpenCode Zen API Key (sk-...)": "API-ключ OpenCode Zen (sk-...)",
+    "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free": "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free",
+    "Default: https://api.groq.com/openai/v1": "По умолчанию: https://api.groq.com/openai/v1",
+    "Groq API Key (gsk_...)": "API-ключ Groq (gsk_...)",
+    "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile": "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile"
   }
 }

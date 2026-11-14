@@ -7872,6 +7872,14 @@
     "Visit site": "Visit site",
     "Reseller program for bulk account onboarding.": "Reseller program for bulk account onboarding.",
     "Runtime and build information for the platform.": "Runtime and build information for the platform.",
-    "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.": "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted."
+    "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.": "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.",
+    "OpenCode": "OpenCode",
+    "Groq": "Groq",
+    "Default: https://opencode.ai/zen/v1": "Default: https://opencode.ai/zen/v1",
+    "OpenCode Zen API Key (sk-...)": "OpenCode Zen API Key (sk-...)",
+    "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free": "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free",
+    "Default: https://api.groq.com/openai/v1": "Default: https://api.groq.com/openai/v1",
+    "Groq API Key (gsk_...)": "Groq API Key (gsk_...)",
+    "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile": "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile"
   }
 }

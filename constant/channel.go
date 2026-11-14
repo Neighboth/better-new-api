@@ -62,6 +62,8 @@ const (
 	ChannelTypeAgnes          = 62
 	ChannelTypeDeepSeekWeb    = 63
 	ChannelTypeAepi           = 64
+	ChannelTypeOpenCode       = 65
+	ChannelTypeGroq           = 66
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 )
 
@@ -131,6 +133,8 @@ var ChannelBaseURLs = []string{
 	"https://api.agnes-ai.com",                  //62
 	"https://chat.deepseek.com",                 //63
 	"https://videoapi.aerobox.eu.cc",            //64
+	"https://opencode.ai/zen/v1",              //65
+	"https://api.groq.com/openai/v1",         //66
 }
 
 var ChannelTypeNames = map[int]string{
@@ -195,6 +199,8 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeAgnes:          "Agnes AI",
 	ChannelTypeDeepSeekWeb:    "DeepSeek Web",
 	ChannelTypeAepi:           "Aepi Media",
+	ChannelTypeOpenCode:       "OpenCode",
+	ChannelTypeGroq:           "Groq",
 }
 
 func GetChannelTypeName(channelType int) string {

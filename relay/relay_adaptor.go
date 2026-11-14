@@ -141,6 +141,10 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &deepseekweb.Adaptor{}
 	case constant.APITypeAepi:
 		return &aepi.Adaptor{}
+	case constant.APITypeOpenCode, constant.APITypeGroq:
+		// Both are OpenAI-compatible gateways: OpenCode Zen and Groq
+		// expose the /v1/chat/completions surface.
+		return &openai.Adaptor{}
 	}
 	return nil
 }

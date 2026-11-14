@@ -400,6 +400,11 @@ func advanceFallbackModel(c *gin.Context, relayInfo *relaycommon.RelayInfo, retr
 		retryParam.ModelName = cand
 		retryParam.SetRetry(0)
 		retryParam.IgnoredChannelIds = nil // Clear ignored channels for the new model
+		// The per-channel key counter belongs to the previous model: the new
+		// model may serve the same channel, and a stale counter would make
+		// the relay treat its key pool as exhausted and skip the channel
+		// entirely ("model not available for your current group").
+		retryParam.AttemptedKeys = nil
 		return true
 	}
 }

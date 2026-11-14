@@ -7872,6 +7872,14 @@
     "Visit site": "Đến trang",
     "Reseller program for bulk account onboarding.": "Chương trình đại lý để đăng ký tài khoản hàng loạt.",
     "Runtime and build information for the platform.": "Thông tin runtime và bản dựng của nền tảng.",
-    "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.": "Kênh được hợp nhất sẽ trở thành một kênh đa khóa (giữ chế độ chung nếu tất cả đồng ý, ngược lại dùng chế độ ngẫu nhiên). Các kênh gốc sẽ bị xóa."
+    "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.": "Kênh được hợp nhất sẽ trở thành một kênh đa khóa (giữ chế độ chung nếu tất cả đồng ý, ngược lại dùng chế độ ngẫu nhiên). Các kênh gốc sẽ bị xóa.",
+    "OpenCode": "OpenCode",
+    "Groq": "Groq",
+    "Default: https://opencode.ai/zen/v1": "Mặc định: https://opencode.ai/zen/v1",
+    "OpenCode Zen API Key (sk-...)": "Khóa API OpenCode Zen (sk-...)",
+    "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free": "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free",
+    "Default: https://api.groq.com/openai/v1": "Mặc định: https://api.groq.com/openai/v1",
+    "Groq API Key (gsk_...)": "Khóa API Groq (gsk_...)",
+    "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile": "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile"
   }
 }

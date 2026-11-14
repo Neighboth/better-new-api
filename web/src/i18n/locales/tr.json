@@ -7872,6 +7872,14 @@
     "Visit site": "Siteye git",
     "Reseller program for bulk account onboarding.": "Bayiler için toplu hesap kayıt programı.",
     "Runtime and build information for the platform.": "Platformun çalışma zamanı ve derleme bilgileri.",
-    "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.": "Birleştirilen kanal tek bir çok anahtarlı kanala dönüşür (tüm girdilerde aynı mod paylaşılıyorsa o mod, aksi halde rastgele mod). Orijinal kanallar silinecek."
+    "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.": "Birleştirilen kanal tek bir çok anahtarlı kanala dönüşür (tüm girdilerde aynı mod paylaşılıyorsa o mod, aksi halde rastgele mod). Orijinal kanallar silinecek.",
+    "OpenCode": "OpenCode",
+    "Groq": "Groq",
+    "Default: https://opencode.ai/zen/v1": "Varsayılan: https://opencode.ai/zen/v1",
+    "OpenCode Zen API Key (sk-...)": "OpenCode Zen API Anahtarı (sk-...)",
+    "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free": "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free",
+    "Default: https://api.groq.com/openai/v1": "Varsayılan: https://api.groq.com/openai/v1",
+    "Groq API Key (gsk_...)": "Groq API Anahtarı (gsk_...)",
+    "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile": "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile"
   }
 }

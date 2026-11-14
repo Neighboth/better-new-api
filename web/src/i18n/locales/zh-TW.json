@@ -7872,6 +7872,14 @@
     "Visit site": "造訪網站",
     "Reseller program for bulk account onboarding.": "面向經銷商的批量開戶計劃。",
     "Runtime and build information for the platform.": "平台的執行時與建置資訊。",
-    "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.": "合併後的頻道將變為一個多 key 頻道（所有輸入模式一致時保留該模式，否則使用隨機模式）。原頻道將被刪除。"
+    "The merged channel becomes one multi-key channel (shared mode if all inputs agree, otherwise random). The original channels will be deleted.": "合併後的頻道將變為一個多 key 頻道（所有輸入模式一致時保留該模式，否則使用隨機模式）。原頻道將被刪除。",
+    "OpenCode": "OpenCode",
+    "Groq": "Groq",
+    "Default: https://opencode.ai/zen/v1": "預設：https://opencode.ai/zen/v1",
+    "OpenCode Zen API Key (sk-...)": "OpenCode Zen API 金鑰 (sk-...)",
+    "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free": "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free",
+    "Default: https://api.groq.com/openai/v1": "預設：https://api.groq.com/openai/v1",
+    "Groq API Key (gsk_...)": "Groq API 金鑰 (gsk_...)",
+    "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile": "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile"
   }
 }
