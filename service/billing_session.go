@@ -339,11 +339,26 @@ func (s *BillingSession) reserveFunding(delta int) error {
 func (s *BillingSession) rollbackFundingReserve(delta int) {
 	switch funding := s.funding.(type) {
 	case *WalletFunding:
+		// The referral reward balance is spent before the plain wallet, so a
+		// rollback gives it back first — the wallet only receives its own share.
+		referralPart := funding.referralConsumed
+		if referralPart > delta {
+			referralPart = delta
+		}
+		if referralPart > 0 {
+			if err := model.RefundReferralQuota(funding.userId, int64(referralPart)); err != nil {
+				common.SysLog("error rolling back referral portion of wallet funding reserve: " + err.Error())
+			} else {
+				funding.referralConsumed -= referralPart
+			}
+		}
+		walletPart := delta - referralPart
+
 		var err error
 		if funding.holdID != "" && !common.BatchUpdateEnabled {
-			err = model.ApplyWalletHoldDelta(funding.userId, funding.holdID, s.reserveEvent+"-rollback", delta)
+			err = model.ApplyWalletHoldDelta(funding.userId, funding.holdID, s.reserveEvent+"-rollback", walletPart)
 		} else {
-			err = model.IncreaseUserQuota(funding.userId, delta, false)
+			err = model.IncreaseUserQuota(funding.userId, walletPart, false)
 		}
 		if err != nil {
 			s.reserveUncertain = true
