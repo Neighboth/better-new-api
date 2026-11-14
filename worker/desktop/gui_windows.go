@@ -1321,6 +1321,21 @@ func (w *guiWindow) show() {
 
 // addTrayIcon shows the client in the notification area of the system.
 func (w *guiWindow) addTrayIcon() {
+	if w.icon == 0 {
+		// Fallback to the stock application icon: the install icon may be
+		// missing (fresh install before the dashboard branding arrives).
+		icon, _, _ := procLoadIcon.Call(0, uintptr(resourceAppIcon))
+		if icon != 0 {
+			w.icon = icon
+		}
+	}
+	if w.icon == 0 {
+		// The caller (create) always falls back to the stock icon, so this
+		// is a belt-and-braces guard: never call Shell_NotifyIcon with a
+		// zero icon handle and fail silently.
+		fmt.Println("[BYOG] tray icon not added: no icon available")
+		return
+	}
 	data := notifyIconData{
 		Size:            uint32(unsafe.Sizeof(notifyIconData{})),
 		Window:          w.window,
@@ -1331,7 +1346,11 @@ func (w *guiWindow) addTrayIcon() {
 	}
 	tip, _ := syscall.UTF16FromString(windowTitle())
 	copy(data.Tip[:], tip)
-	procShellNotifyIcon.Call(uintptr(iconAdd), uintptr(unsafe.Pointer(&data)))
+	result, _, _ := procShellNotifyIcon.Call(uintptr(iconAdd), uintptr(unsafe.Pointer(&data)))
+	if result == 0 {
+		fmt.Println("[BYOG] Shell_NotifyIcon failed to add the tray icon")
+		return
+	}
 	w.trayAdded = true
 }
 

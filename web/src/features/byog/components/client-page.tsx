@@ -674,7 +674,7 @@ export function ClientPage() {
   const [batteryCutoffPercent, setBatteryCutoffPercent] = useState(20)
   const [maxBatteryTemp, setMaxBatteryTemp] = useState(50)
   const [autoPauseOnGame, setAutoPauseOnGame] = useState(true)
-  const [operatingMode, setOperatingMode] = useState<'mode_a' | 'mode_b'>('mode_a')
+  const [operatingMode, setOperatingMode] = useState<'mode_a' | 'mode_b'>('mode_b')
   const [powerProfile, setPowerProfile] = useState<'full_power' | 'half_power' | 'active_hours' | 'dual_schedule'>('half_power')
   const [scheduleConfig, setScheduleConfig] = useState<string>('')
   const [qrModalOpen, setQrModalOpen] = useState(false)
@@ -1421,8 +1421,8 @@ export function ClientPage() {
     latitude: 0,
     longitude: 0,
     status: (state?.status === 'online' ? 'online' : 'offline') as any,
-    operating_mode: 'mode_b',
-    power_profile: 'full_power',
+    operating_mode: operatingMode,
+    power_profile: powerProfile,
     schedule_config: '',
     allocated_disk_gb: diskGB,
     total_disk_gb: (state?.disks && state.disks.length > 0)
