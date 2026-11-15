@@ -8002,6 +8002,13 @@
     "Görsel": "Image",
     "Temizle": "Clear",
     "Sahneyi Temizle": "Clear Stage",
-    "Clear Stage": "Clear Stage"
+    "Clear Stage": "Clear Stage",
+    "Default duration": "Default duration",
+    "Varsayılan süre": "Default duration",
+    "First duration": "First duration",
+    "Only audio files can be attached for music": "Only audio files can be attached for music",
+    "Müzik için yalnızca ses dosyası ekleyebilirsiniz": "Only audio files can be attached for music",
+    "Please select an image or video": "Please select an image or video",
+    "Lütfen bir görsel veya video seçin": "Please select an image or video"
   }
 }

@@ -48,7 +48,7 @@ function DialogOverlay({
     <DialogPrimitive.Backdrop
       data-slot='dialog-overlay'
       className={cn(
-        'data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs',
+        'data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 fixed inset-x-0 bottom-0 top-[var(--announcement-bars-height,0px)] isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs',
         className
       )}
       {...props}
@@ -60,6 +60,7 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  style,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
@@ -70,9 +71,14 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot='dialog-content'
         className={cn(
-          'bg-popover text-popover-foreground ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl p-4 text-sm ring-1 duration-100 outline-none sm:max-w-sm',
+          'bg-popover text-popover-foreground ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 fixed left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl p-4 text-sm ring-1 duration-100 outline-none sm:max-w-sm',
           className
         )}
+        style={{
+          top: 'calc(50% + (var(--announcement-bars-height, 0px) / 2))',
+          maxHeight: 'calc(94vh - var(--announcement-bars-height, 0px))',
+          ...style,
+        }}
         {...props}
       >
         {children}

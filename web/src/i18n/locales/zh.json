@@ -8002,6 +8002,13 @@
     "Görsel": "图像",
     "Temizle": "清除",
     "Sahneyi Temizle": "清空舞台",
-    "Clear Stage": "清空舞台"
+    "Clear Stage": "清空舞台",
+    "Default duration": "默认时长",
+    "Varsayılan süre": "默认时长",
+    "First duration": "首选时长",
+    "Only audio files can be attached for music": "音乐模式仅支持附加音频文件",
+    "Müzik için yalnızca ses dosyası ekleyebilirsiniz": "音乐模式仅支持附加音频文件",
+    "Please select an image or video": "请选择图片或视频",
+    "Lütfen bir görsel veya video seçin": "请选择图片或视频"
   }
 }

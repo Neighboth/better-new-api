@@ -292,6 +292,7 @@ export interface MediaModelRuntime {
   default_size?: string
   default_quality?: string
   default_ratio?: string
+  default_duration?: number
 }
 
 /**

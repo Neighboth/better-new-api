@@ -49,6 +49,7 @@ export type MediaModelConfig = {
   default_size?: string
   default_quality?: string
   default_ratio?: string
+  default_duration?: number
 }
 
 export type PlaygroundSettingsDefaults = {
@@ -73,6 +74,7 @@ export type PlaygroundSettingsDefaults = {
   videoQualities?: string
   videoDefaultRatio?: string
   videoDefaultQuality?: string
+  videoDefaultDuration?: number
   videoReferenceImage?: boolean
 }
 
@@ -125,6 +127,7 @@ export function normalizeVideoModels(
       ratios: splitLegacyList(defaults.videoRatios),
       qualities: splitLegacyList(defaults.videoQualities),
       default_ratio: defaults.videoDefaultRatio,
+      default_duration: defaults.videoDefaultDuration,
       default_quality: defaults.videoDefaultQuality,
       reference_image: defaults.videoReferenceImage ?? true,
     },
@@ -194,6 +197,7 @@ function ModelCard(props: ModelCardProps) {
   const sizeOptions = useMemo(() => value.sizes ?? [], [value.sizes])
   const qualityOptions = useMemo(() => value.qualities ?? [], [value.qualities])
   const ratioOptions = useMemo(() => value.ratios ?? [], [value.ratios])
+  const durationOptions = useMemo(() => value.durations ?? [], [value.durations])
 
   return (
     <div className='border border-border rounded-xl p-4 bg-card/50 space-y-3 shadow-xs'>
@@ -315,23 +319,51 @@ function ModelCard(props: ModelCardProps) {
               placeholder='standard, high'
               values={value.qualities ?? []}
             />
-            <div className='space-y-1'>
-              <Label className='text-xs'>{t('Default ratio')}</Label>
-              <Select
-                onValueChange={(next) => update({ default_ratio: String(next) })}
-                value={value.default_ratio || ratioOptions[0] || ''}
-              >
-                <SelectTrigger className='h-9'>
-                  <SelectValue placeholder={t('First ratio')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {ratioOptions.map((ratio) => (
-                    <SelectItem key={ratio} value={ratio}>
-                      {ratio}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+              <div className='space-y-1'>
+                <Label className='text-xs'>{t('Default ratio')}</Label>
+                <Select
+                  onValueChange={(next) => update({ default_ratio: String(next) })}
+                  value={value.default_ratio || ratioOptions[0] || ''}
+                >
+                  <SelectTrigger className='h-9'>
+                    <SelectValue placeholder={t('First ratio')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ratioOptions.map((ratio) => (
+                      <SelectItem key={ratio} value={ratio}>
+                        {ratio}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className='space-y-1'>
+                <Label className='text-xs'>{t('Default duration')}</Label>
+                <Select
+                  onValueChange={(next) =>
+                    update({ default_duration: Number(next) || undefined })
+                  }
+                  value={
+                    value.default_duration
+                      ? String(value.default_duration)
+                      : durationOptions[0]
+                        ? String(durationOptions[0])
+                        : ''
+                  }
+                >
+                  <SelectTrigger className='h-9'>
+                    <SelectValue placeholder={t('First duration')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {durationOptions.map((duration) => (
+                      <SelectItem key={duration} value={String(duration)}>
+                        {duration}s
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </SettingsFormGrid>
           <SettingsSwitchRow>
@@ -515,6 +547,7 @@ export function PlaygroundSettingsSection({
             ratios: ['16:9', '9:16', '1:1'],
             qualities: ['standard', 'high'],
             default_ratio: '16:9',
+            default_duration: 5,
             default_quality: 'standard',
             reference_image: true,
           }

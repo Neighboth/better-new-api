@@ -8003,6 +8003,13 @@
     "Görsel": "Görsel",
     "Temizle": "Temizle",
     "Sahneyi Temizle": "Sahneyi Temizle",
-    "Clear Stage": "Sahneyi Temizle"
+    "Clear Stage": "Sahneyi Temizle",
+    "Default duration": "Varsayılan süre",
+    "Varsayılan süre": "Varsayılan süre",
+    "First duration": "İlk süre",
+    "Only audio files can be attached for music": "Müzik için yalnızca ses dosyası ekleyebilirsiniz",
+    "Müzik için yalnızca ses dosyası ekleyebilirsiniz": "Müzik için yalnızca ses dosyası ekleyebilirsiniz",
+    "Please select an image or video": "Lütfen bir görsel veya video seçin",
+    "Lütfen bir görsel veya video seçin": "Lütfen bir görsel veya video seçin"
   }
 }

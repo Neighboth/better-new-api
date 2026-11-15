@@ -64,6 +64,24 @@ func MaintenanceMode() gin.HandlerFunc {
 			return
 		}
 
+		message := s.Message
+		if message == "" {
+			message = "We'll be back shortly. The installation is undergoing scheduled maintenance."
+		}
+
+		path := c.Request.URL.Path
+
+		// If visitor explicitly navigates to root `/`, ALWAYS render the maintenance page!
+		// Even for admins, so an admin can see the maintenance page without random SPA re-hydration,
+		// header flashes, or 503 toast errors.
+		if path == "/" || path == "" {
+			c.Abort()
+			c.Header("Retry-After", "300")
+			c.Header("Content-Type", "text/html; charset=utf-8")
+			c.String(http.StatusServiceUnavailable, renderMaintenancePage(message, s.ETA))
+			return
+		}
+
 		// Administrators bypass the block, either with the Authorization
 		// header (the SPA keeps the JWT in memory) or with the refresh
 		// cookie (the SPA is re-hydrated by the refresh endpoint).
@@ -76,8 +94,6 @@ func MaintenanceMode() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-
-		path := c.Request.URL.Path
 
 		if maintenanceAllowedPaths[path] {
 			c.Next()
@@ -93,11 +109,6 @@ func MaintenanceMode() gin.HandlerFunc {
 		if isMaintenanceAsset(path) {
 			c.Next()
 			return
-		}
-
-		message := s.Message
-		if message == "" {
-			message = "We'll be back shortly. The installation is undergoing scheduled maintenance."
 		}
 
 		if wantsJSON(c) {
@@ -194,9 +205,9 @@ func renderMaintenancePage(message string, eta int64) string {
 		logoTag = `<img class="logo" src="` + htmlEscape(logo) + `" alt="` + htmlEscape(siteName) + `" onerror="this.style.display='none'">`
 	}
 
-	hideSiteName := common.HideHeaderSiteName || common.OptionMap["HideHeaderSiteName"] == "true"
+	hideSiteName := common.HideHeaderSiteName || common.OptionMap["HideHeaderSiteName"] == "true" || common.OptionMap["HideHeaderSiteName"] == "1"
 	siteNameTag := ""
-	if !hideSiteName {
+	if !hideSiteName || logoTag == "" {
 		siteNameTag = `<div class="brand-name">` + htmlEscape(siteName) + `</div>`
 	}
 
@@ -214,28 +225,28 @@ func renderMaintenancePage(message string, eta int64) string {
   --card-border: #27272a;
   --text: #f4f4f5;
   --text-muted: #a1a1aa;
-  --btn-bg: #2563eb;
-  --btn-hover: #1d4ed8;
-  --btn-text: #ffffff;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-foreground: #ffffff;
   --badge-bg: rgba(37, 99, 235, 0.1);
-  --badge-border: rgba(37, 99, 235, 0.2);
+  --badge-border: rgba(37, 99, 235, 0.25);
   --badge-text: #60a5fa;
-  --eta-bg: #09090b;
+  --eta-bg: #111114;
 }
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #f4f4f5;
+    --bg: #f8fafc;
     --card: #ffffff;
-    --card-border: #e4e4e7;
-    --text: #09090b;
-    --text-muted: #71717a;
-    --btn-bg: #2563eb;
-    --btn-hover: #1d4ed8;
-    --btn-text: #ffffff;
-    --badge-bg: rgba(37, 99, 235, 0.08);
-    --badge-border: rgba(37, 99, 235, 0.2);
+    --card-border: #e2e8f0;
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --primary-foreground: #ffffff;
+    --badge-bg: #eff6ff;
+    --badge-border: #bfdbfe;
     --badge-text: #2563eb;
-    --eta-bg: #f4f4f5;
+    --eta-bg: #f1f5f9;
   }
 }
 * { box-sizing: border-box; }
@@ -253,24 +264,25 @@ html, body {
 }
 .card {
   width: 100%;
-  max-width: 420px;
+  max-width: 440px;
   background-color: var(--card);
   border: 1px solid var(--card-border);
-  border-radius: 12px;
-  padding: 32px 28px;
+  border-radius: 16px;
+  padding: 36px 32px;
   text-align: center;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
 }
 .brand {
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-bottom: 20px;
+  gap: 8px;
+  margin-bottom: 24px;
 }
 .logo {
-  height: 38px;
-  width: auto;
-  margin-bottom: 10px;
+  height: 40px;
+  max-width: 180px;
+  object-fit: contain;
   display: block;
 }
 .brand-name {
@@ -297,7 +309,7 @@ html, body {
   height: 6px;
   border-radius: 50%;
   background-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
 }
 h1 {
   font-size: 1.25rem;
@@ -315,8 +327,8 @@ h1 {
 .eta {
   background: var(--eta-bg);
   border: 1px solid var(--card-border);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: 12px;
+  padding: 14px;
   margin: 0 0 20px;
 }
 .eta-value {
@@ -324,7 +336,7 @@ h1 {
   font-size: 1.25rem;
   font-weight: 600;
   color: #3b82f6;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 .eta-label {
   font-size: 0.75rem;
@@ -346,31 +358,31 @@ h1 {
   justify-content: center;
   gap: 8px;
   width: 100%;
-  padding: 9px 16px;
-  border-radius: 8px;
-  background-color: var(--btn-bg);
-  color: var(--btn-text);
+  padding: 10px 16px;
+  border-radius: 10px;
+  background-color: var(--primary);
+  color: var(--primary-foreground);
   font-size: 0.875rem;
   font-weight: 500;
   text-decoration: none;
-  transition: background-color 0.15s ease;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
 }
 .admin-link:hover {
-  background-color: var(--btn-hover);
+  background-color: var(--primary-hover);
 }
 .admin-link svg {
   width: 15px;
   height: 15px;
 }
 .foot {
-  margin-top: 16px;
+  margin-top: 18px;
   font-size: 0.75rem;
   color: var(--text-muted);
 }
 @media (max-width: 480px) {
   .card {
     padding: 24px 20px;
-    border-radius: 12px;
+    border-radius: 14px;
   }
 }
 </style>

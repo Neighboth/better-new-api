@@ -769,7 +769,8 @@ export function BlogManager() {
       const currentEnTags = currentDraft.tags_list.en || currentDraft.tags || ''
 
       const sys = `You are an expert multilingual blog post writer and editor. Modify the existing blog post draft based on the user's instructions.
-Produce refined content in English, and also provide localized versions for other supported languages (${BLOG_LOCALE_CODES.filter((c) => c !== 'en').join(', ')}).
+CRITICAL CASING & STYLE RULE: If the user instructions specify casing rules (such as ALL UPPERCASE, all lowercase, or specific formatting), you MUST strictly enforce it on the English title, content, summary, and all localized metadata without exception!
+CRITICAL LANGUAGE RULE: Each localized title, description, and tags in "translations" must be written in that specific NATIVE language.
 Return ONLY a valid JSON object matching this structure:
 {
   "title": "refined english title",
@@ -777,13 +778,13 @@ Return ONLY a valid JSON object matching this structure:
   "description": "refined short summary in english",
   "tags": "refined comma separated tags in english",
   "translations": {
-    "tr": { "title": "...", "content": "...", "description": "...", "tags": "..." },
-    "zh": { "title": "...", "content": "...", "description": "...", "tags": "..." },
-    "zh-TW": { "title": "...", "content": "...", "description": "...", "tags": "..." },
-    "fr": { "title": "...", "content": "...", "description": "...", "tags": "..." },
-    "ru": { "title": "...", "content": "...", "description": "...", "tags": "..." },
-    "ja": { "title": "...", "content": "...", "description": "...", "tags": "..." },
-    "vi": { "title": "...", "content": "...", "description": "...", "tags": "..." }
+    "tr": { "title": "...", "description": "...", "tags": "..." },
+    "zh": { "title": "...", "description": "...", "tags": "..." },
+    "zh-TW": { "title": "...", "description": "...", "tags": "..." },
+    "fr": { "title": "...", "description": "...", "tags": "..." },
+    "ru": { "title": "...", "description": "...", "tags": "..." },
+    "ja": { "title": "...", "description": "...", "tags": "..." },
+    "vi": { "title": "...", "description": "...", "tags": "..." }
   }
 }`
       const req = `Current Title:\n${currentEnTitle}\n\nCurrent Summary:\n${currentEnDesc}\n\nCurrent Content:\n${currentEnContent}\n\nCurrent Tags:\n${currentEnTags}\n\nUser Instructions for Changes:\n${promptInstruction}`
@@ -800,52 +801,90 @@ Return ONLY a valid JSON object matching this structure:
       const content = res.choices?.[0]?.message?.content
       if (content) {
         const parsed = JSON.parse(content)
-        setPostForm((prev) => {
-          const next = { ...prev }
-          const targetLangs = BLOG_LOCALE_CODES
+        const refinedEnContent = parsed.content || currentEnContent
 
-          if (parsed.title) {
-            next.title = parsed.title
-            next.titles = { ...next.titles, en: parsed.title }
-          }
-          if (parsed.content) {
-            next.content = parsed.content
-            next.contents = { ...next.contents, en: parsed.content }
-          }
-          if (parsed.description) {
-            next.summary = parsed.description
-            next.summaries = { ...next.summaries, en: parsed.description }
-            next.seo_description = parsed.description
-            next.seo_descriptions = { ...next.seo_descriptions, en: parsed.description }
-          }
-          if (parsed.tags) {
-            next.tags = parsed.tags
-            next.tags_list = { ...next.tags_list, en: parsed.tags }
-          }
+        const updatedPost: BlogPostForm = {
+          ...postFormRef.current,
+          titles: { ...postFormRef.current.titles },
+          summaries: { ...postFormRef.current.summaries },
+          contents: { ...postFormRef.current.contents },
+          tags_list: { ...postFormRef.current.tags_list },
+          seo_descriptions: { ...postFormRef.current.seo_descriptions },
+        }
 
-          if (parsed.translations && typeof parsed.translations === 'object') {
-            for (const code of targetLangs) {
-              if (code === 'en') continue
-              const tData = parsed.translations[code]
-              if (tData) {
-                if (tData.title) next.titles[code] = tData.title
-                if (tData.content) next.contents[code] = tData.content
-                if (tData.description) {
-                  next.summaries[code] = tData.description
-                  next.seo_descriptions[code] = tData.description
-                }
-                if (tData.tags) next.tags_list[code] = tData.tags
-              } else {
-                // Fallback to active/english if omitted
-                if (!next.titles[code] && parsed.title) next.titles[code] = parsed.title
-                if (!next.contents[code] && parsed.content) next.contents[code] = parsed.content
-                if (!next.summaries[code] && parsed.description) next.summaries[code] = parsed.description
-                if (!next.tags_list[code] && parsed.tags) next.tags_list[code] = parsed.tags
+        if (parsed.title) {
+          updatedPost.title = parsed.title
+          updatedPost.titles.en = parsed.title
+        }
+        if (refinedEnContent) {
+          updatedPost.content = refinedEnContent
+          updatedPost.contents.en = refinedEnContent
+        }
+        if (parsed.description) {
+          updatedPost.summary = parsed.description
+          updatedPost.summaries.en = parsed.description
+          updatedPost.seo_description = parsed.description
+          updatedPost.seo_descriptions.en = parsed.description
+        }
+        if (parsed.tags) {
+          updatedPost.tags = parsed.tags
+          updatedPost.tags_list.en = parsed.tags
+        }
+
+        if (parsed.translations && typeof parsed.translations === 'object') {
+          for (const code of BLOG_LOCALE_CODES) {
+            if (code === 'en') continue
+            const tData = parsed.translations[code]
+            if (tData) {
+              if (tData.title) updatedPost.titles[code] = tData.title
+              if (tData.description) {
+                updatedPost.summaries[code] = tData.description
+                updatedPost.seo_descriptions[code] = tData.description
               }
+              if (tData.tags) updatedPost.tags_list[code] = tData.tags
             }
           }
-          return next
-        })
+        }
+
+        // Translate the full refined content for each target language individually so token limits are never exceeded
+        const nonEnLangs = BLOG_LOCALE_CODES.filter((code) => code !== 'en')
+        await Promise.all(
+          nonEnLangs.map(async (code) => {
+            try {
+              const transRes = await sendChatCompletion({
+                model,
+                stream: false,
+                messages: [
+                  {
+                    role: 'system',
+                    content: `You are an expert technical translator. Translate the given markdown article into the target language (${code}).
+CRITICAL RULES:
+1. Output MUST be entirely in the target language (${code}). Never keep it in English or Turkish unless the target is that language.
+2. The user has given these refinement instructions: "${promptInstruction}". You MUST strictly follow these rules (for example, if instructed to make ALL UPPERCASE or all lowercase or specific tone, apply it strictly to this entire translated article!).
+3. Generate the FULL complete markdown article without omitting any section or paragraph. NEVER truncate and NEVER output ellipses (...) to skip text!
+4. Output ONLY the raw Markdown article directly without any code fences or conversational prefaces/postfaces.`,
+                  },
+                  {
+                    role: 'user',
+                    content: `Target Language Code: ${code}\n\nEnglish Content:\n${refinedEnContent}`,
+                  },
+                ],
+              })
+              let translated = transRes.choices?.[0]?.message?.content?.trim() || ''
+              translated = translated.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+              const fenceMatch = translated.match(/^```(?:markdown)?\s*([\s\S]*?)```$/)
+              if (fenceMatch) translated = fenceMatch[1].trim()
+              if (translated) {
+                updatedPost.contents[code] = translated
+              }
+            } catch (err) {
+              console.error(`Failed to refine/translate content for ${code}:`, err)
+            }
+          })
+        )
+
+        postFormRef.current = updatedPost
+        setPostForm({ ...updatedPost })
         toast.success(t('Taslak başarıyla güncellendi ve tüm dillere uygulandı'))
         setAiRefinePrompt('')
       }

@@ -34,6 +34,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -59,7 +60,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
 import { getPlaygroundRuntimeConfig } from '@/features/playground/api'
 import {
   EMPTY_PLAYGROUND_RUNTIME_CONFIG,
@@ -291,7 +291,11 @@ export function Studio() {
   useEffect(() => {
     if (selectedVideoModel && selectedVideoModel.model !== videoModel) {
       setVideoModel(selectedVideoModel.model)
-      setVideoDuration('')
+      setVideoDuration(
+        selectedVideoModel.default_duration
+          ? String(selectedVideoModel.default_duration)
+          : ''
+      )
       setVideoRatio('')
       setVideoQuality('')
     }
@@ -308,6 +312,17 @@ export function Studio() {
       setUpscaleModel(selectedUpscaleModel.model)
     }
   }, [selectedUpscaleModel, upscaleModel])
+
+  // Clear incompatible attachments when switching between media modes
+  useEffect(() => {
+    if (attachedMedia) {
+      if (mode === 'music' && attachedMedia.type !== 'audio') {
+        setAttachedMedia(null)
+      } else if (mode !== 'music' && attachedMedia.type === 'audio') {
+        setAttachedMedia(null)
+      }
+    }
+  }, [mode, attachedMedia])
 
   const imageSizes = selectedImageModel?.sizes?.length
     ? selectedImageModel.sizes
@@ -332,7 +347,11 @@ export function Studio() {
     ? selectedVideoModel.qualities
     : runtime.video.qualities
   const duration = Number(
-    videoDuration || videoDurations[0] || runtime.video.default_duration || 0
+    videoDuration ||
+      selectedVideoModel?.default_duration ||
+      runtime.video.default_duration ||
+      videoDurations[0] ||
+      0
   )
   const ratio =
     videoRatio || selectedVideoModel?.default_ratio || runtime.video.default_ratio
@@ -352,8 +371,14 @@ export function Studio() {
   } = useStudioGeneration()
 
   const activeItem = useMemo(() => {
-    if (!activeSessionItemId) return null
-    return items.find((item) => item.id === activeSessionItemId) || null
+    if (activeSessionItemId) {
+      const match = items.find((item) => item.id === activeSessionItemId)
+      if (match) return match
+    }
+    // If an item is active/pending, always display it on the stage even after page refresh
+    const pendingItem = items.find((item) => item.status === 'pending')
+    if (pendingItem) return pendingItem
+    return null
   }, [items, activeSessionItemId])
 
   const canGenerate =
@@ -408,6 +433,14 @@ export function Studio() {
       setAttachedMedia(null)
       return
     }
+    if (mode === 'music' && !file.type.startsWith('audio/')) {
+      toast.error(t('Only audio files can be attached for music'))
+      return
+    }
+    if (mode !== 'music' && file.type.startsWith('audio/')) {
+      toast.error(t('Please select an image or video'))
+      return
+    }
     const reader = new FileReader()
     reader.onload = () => {
       if (typeof reader.result === 'string') {
@@ -437,6 +470,10 @@ export function Studio() {
     setIsDragging(false)
     const file = e.dataTransfer.files?.[0]
     if (file) {
+      if (mode === 'music' && !file.type.startsWith('audio/')) {
+        toast.error(t('Only audio files can be attached for music'))
+        return
+      }
       handleFileAttach(file)
     }
   }
@@ -639,46 +676,63 @@ export function Studio() {
 
         {/* Google Flow Floating Bottom Input Capsule */}
         <div className='sticky bottom-6 z-20 w-full pt-4'>
-          <div className='relative rounded-3xl border border-border/60 bg-card/95 shadow-2xl backdrop-blur-xl p-3.5 transition-all focus-within:border-border'>
-            {/* Attached Reference Chip (if any) */}
-            {attachedMedia && (
-              <div className='mb-2.5 flex items-center gap-2 rounded-xl bg-muted/60 p-1.5 pr-2.5 w-fit border border-border/40'>
-                {attachedMedia.type === 'image' ? (
-                  <img
-                    src={attachedMedia.url}
-                    alt='Reference'
-                    className='size-7 rounded-lg object-cover'
-                  />
-                ) : attachedMedia.type === 'audio' ? (
-                  <div className='size-7 rounded-lg bg-background flex items-center justify-center'>
-                    <FileAudioIcon className='size-4 text-foreground' />
-                  </div>
-                ) : (
-                  <div className='size-7 rounded-lg bg-background flex items-center justify-center'>
-                    <VideoIcon className='size-4 text-foreground' />
-                  </div>
-                )}
-                <span className='max-w-[200px] truncate text-xs text-muted-foreground font-medium'>
-                  {attachedMedia.name ||
-                    (attachedMedia.type === 'audio'
-                      ? t('Referans Ses')
-                      : attachedMedia.type === 'video'
-                        ? t('Referans Video')
-                        : t('Referans Görsel'))}
-                </span>
-                <button
-                  type='button'
-                  onClick={() => setAttachedMedia(null)}
-                  className='text-muted-foreground hover:text-foreground transition'
-                >
-                  <XIcon className='size-3.5' />
-                </button>
-              </div>
-            )}
+          {/* Attached Reference Chip (if any) positioned cleanly above the capsule */}
+          {attachedMedia && (
+            <div className='mb-2 flex items-center gap-2 rounded-xl bg-card/90 border border-border/60 p-1.5 pr-2.5 w-fit shadow-md backdrop-blur-md'>
+              {attachedMedia.type === 'image' ? (
+                <img
+                  src={attachedMedia.url}
+                  alt='Reference'
+                  className='size-7 rounded-lg object-cover'
+                />
+              ) : attachedMedia.type === 'audio' ? (
+                <div className='size-7 rounded-lg bg-background flex items-center justify-center'>
+                  <FileAudioIcon className='size-4 text-foreground' />
+                </div>
+              ) : (
+                <div className='size-7 rounded-lg bg-background flex items-center justify-center'>
+                  <VideoIcon className='size-4 text-foreground' />
+                </div>
+              )}
+              <span className='max-w-[200px] truncate text-xs text-muted-foreground font-medium'>
+                {attachedMedia.name ||
+                  (attachedMedia.type === 'audio'
+                    ? t('Referans Ses')
+                    : attachedMedia.type === 'video'
+                      ? t('Referans Video')
+                      : t('Referans Görsel'))}
+              </span>
+              <button
+                type='button'
+                onClick={() => setAttachedMedia(null)}
+                className='text-muted-foreground hover:text-foreground transition'
+              >
+                <XIcon className='size-3.5' />
+              </button>
+            </div>
+          )}
 
-            {/* Prompt Textarea */}
-            <div className='w-full px-2 py-1'>
-              <Textarea
+          <div className='relative flex items-center gap-2.5 rounded-full border border-border/70 bg-card/95 shadow-2xl backdrop-blur-xl px-3 py-2 transition-all focus-within:border-border'>
+            {/* Left Action: Plus file attach button */}
+            <label
+              htmlFor='studio-file-upload'
+              className='flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition shadow-xs'
+              title={mode === 'music' ? t('Ses dosyası ekle') : t('Medya ekle')}
+            >
+              <PlusIcon className='size-4' />
+              <input
+                id='studio-file-upload'
+                ref={fileInputRef}
+                type='file'
+                accept={mode === 'music' ? 'audio/*' : 'image/*,video/*'}
+                className='hidden'
+                onChange={(e) => handleFileAttach(e.target.files?.[0])}
+              />
+            </label>
+
+            {/* Prompt Input / Textarea */}
+            <div className='flex-1 min-w-0'>
+              <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -687,258 +741,237 @@ export function Studio() {
                     ? t('Şarkı sözleri, tarz veya melodi tarif edin...')
                     : t('Ne oluşturmak istiyorsunuz?')
                 }
-                className='min-h-[48px] max-h-[140px] resize-none border-0 bg-transparent px-2 py-1 text-sm focus-visible:ring-0 leading-relaxed placeholder:text-muted-foreground/50'
+                className='w-full resize-none border-0 bg-transparent py-1.5 px-2 text-sm focus:outline-none focus:ring-0 leading-normal placeholder:text-muted-foreground/60 overflow-hidden'
                 rows={1}
+                style={{ height: '36px', maxHeight: '100px' }}
+                onInput={(e) => {
+                  const target = e.currentTarget
+                  target.style.height = '36px'
+                  target.style.height = `${Math.min(target.scrollHeight, 100)}px`
+                }}
               />
             </div>
 
-            {/* Controls Row */}
-            <div className='mt-2.5 flex items-center justify-between gap-2 pt-1 border-t border-border/30'>
-              {/* Left Action Buttons */}
-              <div className='flex items-center gap-1.5'>
-                {/* Plus file attach button */}
-                <label
-                  htmlFor='studio-file-upload'
-                  className='flex size-8 cursor-pointer items-center justify-center rounded-full bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition shadow-xs'
-                  title={mode === 'music' ? t('Ses dosyası ekle') : t('Medya ekle')}
+            {/* Right Controls: Model Pill & Send Arrow */}
+            <div className='flex items-center gap-2 shrink-0'>
+              {/* Model Pill Trigger displaying ONLY model name per requirements */}
+              <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+                <PopoverTrigger
+                  className='inline-flex h-9 items-center gap-1.5 rounded-full bg-muted/70 hover:bg-muted border border-border/50 px-3.5 text-xs font-medium text-foreground transition shadow-xs'
                 >
-                  <PlusIcon className='size-4' />
-                  <input
-                    id='studio-file-upload'
-                    ref={fileInputRef}
-                    type='file'
-                    accept={
-                      mode === 'music'
-                        ? 'audio/*,image/*'
-                        : 'image/*,video/*'
-                    }
-                    className='hidden'
-                    onChange={(e) => handleFileAttach(e.target.files?.[0])}
-                  />
-                </label>
-              </div>
+                  <span className='max-w-[140px] truncate'>
+                    {currentModelDisplayName}
+                  </span>
+                </PopoverTrigger>
 
-              {/* Right Controls: Model Pill & Send Arrow */}
-              <div className='flex items-center gap-2'>
-                {/* Model Pill Trigger displaying ONLY model name per requirements */}
-                <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-                  <PopoverTrigger
-                    className='inline-flex h-8 items-center gap-1.5 rounded-full bg-muted/70 hover:bg-muted border border-border/50 px-3 text-xs font-medium text-foreground transition shadow-xs'
-                  >
-                    <span className='max-w-[160px] truncate'>
-                      {currentModelDisplayName}
-                    </span>
-                  </PopoverTrigger>
+                <PopoverContent
+                  align='end'
+                  side='top'
+                  className='w-80 rounded-2xl border border-border/80 bg-card p-3.5 shadow-xl backdrop-blur-md space-y-3'
+                >
+                  {/* Mode selection segmented control */}
+                  <div className='space-y-1.5'>
+                    <Label className='text-xs font-medium text-foreground/80'>{t('Tür')}</Label>
+                    <div className='flex items-center rounded-xl bg-muted/60 p-1 border border-border/40 gap-1'>
+                      {runtime.video.enabled && (
+                        <button
+                          type='button'
+                          onClick={() => setMode('video')}
+                          className={cn(
+                            'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5',
+                            mode === 'video'
+                              ? 'bg-background text-foreground shadow-xs font-semibold'
+                              : 'text-muted-foreground hover:text-foreground'
+                          )}
+                        >
+                          <VideoIcon className='size-3.5' />
+                          <span>{t('Video')}</span>
+                        </button>
+                      )}
+                      {runtime.image.enabled && (
+                        <button
+                          type='button'
+                          onClick={() => setMode('image')}
+                          className={cn(
+                            'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5',
+                            mode === 'image'
+                              ? 'bg-background text-foreground shadow-xs font-semibold'
+                              : 'text-muted-foreground hover:text-foreground'
+                          )}
+                        >
+                          <ImageIcon className='size-3.5' />
+                          <span>{t('Görsel')}</span>
+                        </button>
+                      )}
+                      {runtime.music?.enabled && (
+                        <button
+                          type='button'
+                          onClick={() => setMode('music')}
+                          className={cn(
+                            'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5',
+                            mode === 'music'
+                              ? 'bg-background text-foreground shadow-xs font-semibold'
+                              : 'text-muted-foreground hover:text-foreground'
+                          )}
+                        >
+                          <span>{t('Müzik')}</span>
+                        </button>
+                      )}
+                      {runtime.upscale?.enabled && (
+                        <button
+                          type='button'
+                          onClick={() => setMode('upscale')}
+                          className={cn(
+                            'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5',
+                            mode === 'upscale'
+                              ? 'bg-background text-foreground shadow-xs font-semibold'
+                              : 'text-muted-foreground hover:text-foreground'
+                          )}
+                        >
+                          <span>{t('Büyüt')}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
 
-                  <PopoverContent
-                    align='end'
-                    side='top'
-                    className='w-80 rounded-2xl border border-border/80 bg-card p-3.5 shadow-xl backdrop-blur-md space-y-3'
-                  >
-                    {/* Mode selection segmented control */}
-                    <div className='space-y-1.5'>
-                      <Label className='text-xs font-medium text-foreground/80'>{t('Tür')}</Label>
-                      <div className='flex items-center rounded-xl bg-muted/60 p-1 border border-border/40 gap-1'>
-                        {runtime.video.enabled && (
-                          <button
-                            type='button'
-                            onClick={() => setMode('video')}
-                            className={cn(
-                              'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5',
-                              mode === 'video'
-                                ? 'bg-background text-foreground shadow-xs font-semibold'
-                                : 'text-muted-foreground hover:text-foreground'
-                            )}
-                          >
-                            <VideoIcon className='size-3.5' />
-                            <span>{t('Video')}</span>
-                          </button>
-                        )}
-                        {runtime.image.enabled && (
-                          <button
-                            type='button'
-                            onClick={() => setMode('image')}
-                            className={cn(
-                              'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5',
-                              mode === 'image'
-                                ? 'bg-background text-foreground shadow-xs font-semibold'
-                                : 'text-muted-foreground hover:text-foreground'
-                            )}
-                          >
-                            <ImageIcon className='size-3.5' />
-                            <span>{t('Görsel')}</span>
-                          </button>
-                        )}
-                        {runtime.music?.enabled && (
-                          <button
-                            type='button'
-                            onClick={() => setMode('music')}
-                            className={cn(
-                              'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5',
-                              mode === 'music'
-                                ? 'bg-background text-foreground shadow-xs font-semibold'
-                                : 'text-muted-foreground hover:text-foreground'
-                            )}
-                          >
-                            <span>{t('Müzik')}</span>
-                          </button>
-                        )}
-                        {runtime.upscale?.enabled && (
-                          <button
-                            type='button'
-                            onClick={() => setMode('upscale')}
-                            className={cn(
-                              'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5',
-                              mode === 'upscale'
-                                ? 'bg-background text-foreground shadow-xs font-semibold'
-                                : 'text-muted-foreground hover:text-foreground'
-                            )}
-                          >
-                            <span>{t('Büyüt')}</span>
-                          </button>
-                        )}
+                  {/* Model select */}
+                  <div className='space-y-1.5'>
+                    <Label className='text-xs font-medium text-foreground/80'>{t('Model')}</Label>
+                    <Select
+                      onValueChange={(val) => {
+                        const v = String(val)
+                        if (mode === 'video') setVideoModel(v)
+                        else if (mode === 'image') setImageModel(v)
+                        else if (mode === 'music') setMusicModel(v)
+                        else if (mode === 'upscale') setUpscaleModel(v)
+                      }}
+                      value={currentModelName}
+                    >
+                      <SelectTrigger className='h-9 w-full rounded-xl border border-border/60 bg-background px-3 text-xs font-medium'>
+                        <SelectValue placeholder={t('Model Seç')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(mode === 'video'
+                          ? videoModels
+                          : mode === 'image'
+                            ? imageModels
+                            : mode === 'music'
+                              ? musicModels
+                              : upscaleModels
+                        ).map((m) => (
+                          <SelectItem key={m.model} value={m.model} className='text-xs'>
+                            {m.display_name || m.model}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Video parameters (Oran, Süre, Kalite) */}
+                  {mode === 'video' && (
+                    <div className='grid grid-cols-3 gap-2 pt-0.5'>
+                      <div className='space-y-1'>
+                        <Label className='text-xs font-medium text-muted-foreground'>{t('Oran')}</Label>
+                        <Select onValueChange={(val) => setVideoRatio(val ?? '')} value={ratio}>
+                          <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {videoRatios.map((r) => (
+                              <SelectItem key={r} value={r} className='text-xs'>
+                                {r}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className='space-y-1'>
+                        <Label className='text-xs font-medium text-muted-foreground'>{t('Süre')}</Label>
+                        <Select onValueChange={(val) => setVideoDuration(val ?? '')} value={String(duration)}>
+                          <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {videoDurations.map((d) => (
+                              <SelectItem key={d} value={String(d)} className='text-xs'>
+                                {d}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className='space-y-1'>
+                        <Label className='text-xs font-medium text-muted-foreground'>{t('Kalite')}</Label>
+                        <Select onValueChange={(val) => setVideoQuality(val ?? '')} value={videoQualityValue}>
+                          <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {videoQualities.map((q) => (
+                              <SelectItem key={q} value={q} className='text-xs'>
+                                {q}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
-
-                    {/* Model select */}
-                    <div className='space-y-1.5'>
-                      <Label className='text-xs font-medium text-foreground/80'>{t('Model')}</Label>
-                      <Select
-                        onValueChange={(val) => {
-                          const v = String(val)
-                          if (mode === 'video') setVideoModel(v)
-                          else if (mode === 'image') setImageModel(v)
-                          else if (mode === 'music') setMusicModel(v)
-                          else if (mode === 'upscale') setUpscaleModel(v)
-                        }}
-                        value={currentModelName}
-                      >
-                        <SelectTrigger className='h-9 w-full rounded-xl border border-border/60 bg-background px-3 text-xs font-medium'>
-                          <SelectValue placeholder={t('Model Seç')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(mode === 'video'
-                            ? videoModels
-                            : mode === 'image'
-                              ? imageModels
-                              : mode === 'music'
-                                ? musicModels
-                                : upscaleModels
-                          ).map((m) => (
-                            <SelectItem key={m.model} value={m.model} className='text-xs'>
-                              {m.display_name || m.model}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Video parameters (Oran, Süre, Kalite) */}
-                    {mode === 'video' && (
-                      <div className='grid grid-cols-3 gap-2 pt-0.5'>
-                        <div className='space-y-1'>
-                          <Label className='text-xs font-medium text-muted-foreground'>{t('Oran')}</Label>
-                          <Select onValueChange={(val) => setVideoRatio(val ?? '')} value={ratio}>
-                            <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {videoRatios.map((r) => (
-                                <SelectItem key={r} value={r} className='text-xs'>
-                                  {r}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className='space-y-1'>
-                          <Label className='text-xs font-medium text-muted-foreground'>{t('Süre')}</Label>
-                          <Select onValueChange={(val) => setVideoDuration(val ?? '')} value={String(duration)}>
-                            <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {videoDurations.map((d) => (
-                                <SelectItem key={d} value={String(d)} className='text-xs'>
-                                  {d}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className='space-y-1'>
-                          <Label className='text-xs font-medium text-muted-foreground'>{t('Kalite')}</Label>
-                          <Select onValueChange={(val) => setVideoQuality(val ?? '')} value={videoQualityValue}>
-                            <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {videoQualities.map((q) => (
-                                <SelectItem key={q} value={q} className='text-xs'>
-                                  {q}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Image parameters */}
-                    {mode === 'image' && (
-                      <div className='grid grid-cols-2 gap-2 pt-0.5'>
-                        <div className='space-y-1'>
-                          <Label className='text-xs font-medium text-muted-foreground'>{t('Boyut')}</Label>
-                          <Select onValueChange={(val) => setImageSize(val ?? '')} value={size}>
-                            <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {imageSizes.map((s) => (
-                                <SelectItem key={s} value={s} className='text-xs'>
-                                  {s}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className='space-y-1'>
-                          <Label className='text-xs font-medium text-muted-foreground'>{t('Kalite')}</Label>
-                          <Select onValueChange={(val) => setImageQuality(val ?? '')} value={quality}>
-                            <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {imageQualities.map((q) => (
-                                <SelectItem key={q} value={q} className='text-xs'>
-                                  {q}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                    )}
-                  </PopoverContent>
-                </Popover>
-
-                {/* Circular Send Arrow Button */}
-                <button
-                  type='button'
-                  disabled={!canGenerate}
-                  onClick={() => void handleGenerate()}
-                  className='flex size-8 items-center justify-center rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-30 disabled:pointer-events-none transition shadow-sm'
-                >
-                  {isGenerating ? (
-                    <Loader2Icon className='size-4 animate-spin' />
-                  ) : (
-                    <ArrowRightIcon className='size-4' />
                   )}
-                </button>
-              </div>
+
+                  {/* Image parameters */}
+                  {mode === 'image' && (
+                    <div className='grid grid-cols-2 gap-2 pt-0.5'>
+                      <div className='space-y-1'>
+                        <Label className='text-xs font-medium text-muted-foreground'>{t('Boyut')}</Label>
+                        <Select onValueChange={(val) => setImageSize(val ?? '')} value={size}>
+                          <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {imageSizes.map((s) => (
+                              <SelectItem key={s} value={s} className='text-xs'>
+                                {s}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className='space-y-1'>
+                        <Label className='text-xs font-medium text-muted-foreground'>{t('Kalite')}</Label>
+                        <Select onValueChange={(val) => setImageQuality(val ?? '')} value={quality}>
+                          <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {imageQualities.map((q) => (
+                              <SelectItem key={q} value={q} className='text-xs'>
+                                {q}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+                </PopoverContent>
+              </Popover>
+
+              {/* Circular Send Arrow Button */}
+              <button
+                type='button'
+                disabled={!canGenerate}
+                onClick={() => void handleGenerate()}
+                className='flex size-9 shrink-0 items-center justify-center rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-30 disabled:pointer-events-none transition shadow-sm'
+              >
+                {isGenerating ? (
+                  <Loader2Icon className='size-4 animate-spin' />
+                ) : (
+                  <ArrowRightIcon className='size-4' />
+                )}
+              </button>
             </div>
           </div>
         </div>
@@ -946,7 +979,7 @@ export function Studio() {
 
       {/* Previous Generations Dialog (Item 11) */}
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-        <DialogContent className='max-w-4xl w-[95vw] max-h-[85vh] flex flex-col p-0 overflow-hidden'>
+        <DialogContent className='max-w-6xl w-[96vw] max-h-[90vh] flex flex-col p-0 overflow-hidden'>
           <DialogHeader className='p-4 border-b flex flex-row items-center justify-between space-y-0'>
             <div>
               <DialogTitle className='text-base font-semibold'>
@@ -1002,7 +1035,7 @@ export function Studio() {
                 {t('Henüz geçmiş üretim bulunmuyor.')}
               </div>
             ) : (
-              <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-3'>
+              <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
                 {filteredHistoryItems.map((item) => (
                   <div
                     key={item.id}
