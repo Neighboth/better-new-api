@@ -50,6 +50,7 @@ import { SectionPageLayout } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -120,6 +121,86 @@ export function ProxyPool() {
   const [cfApiToken, setCfApiToken] = useState('')
   const [cfWorkerName, setCfWorkerName] = useState('better-api-proxy')
   const [cfDeploying, setCfDeploying] = useState(false)
+
+  const [selectedProxyIds, setSelectedProxyIds] = useState<number[]>([])
+  const [batchNameDialogOpen, setBatchNameDialogOpen] = useState(false)
+  const [batchNameValue, setBatchNameValue] = useState('')
+  const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false)
+  const [isBatchTesting, setIsBatchTesting] = useState(false)
+  const [isBatchRenaming, setIsBatchRenaming] = useState(false)
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false)
+
+  const handleBatchTest = async () => {
+    if (selectedProxyIds.length === 0) return
+    setIsBatchTesting(true)
+    let okCount = 0
+    let failCount = 0
+    try {
+      await Promise.all(
+        selectedProxyIds.map(async (id) => {
+          try {
+            const res = await testProxy(id)
+            if (res.data?.ok) {
+              okCount++
+            } else {
+              failCount++
+            }
+          } catch {
+            failCount++
+          }
+        })
+      )
+      toast.success(
+        t('Toplu test tamamlandı: {{ok}} başarılı, {{fail}} başarısız', {
+          ok: okCount,
+          fail: failCount,
+        })
+      )
+      void queryClient.invalidateQueries({ queryKey: ['proxy-pool-proxies'] })
+    } finally {
+      setIsBatchTesting(false)
+    }
+  }
+
+  const handleBatchRename = async () => {
+    const baseName = batchNameValue.trim()
+    if (!baseName) {
+      toast.error(t('Lütfen bir isim girin'))
+      return
+    }
+    setIsBatchRenaming(true)
+    try {
+      await Promise.all(
+        selectedProxyIds.map(async (id, idx) => {
+          const name = selectedProxyIds.length > 1 ? `${baseName} ${idx + 1}` : baseName
+          await updateProxy(id, { name })
+        })
+      )
+      toast.success(t('{{count}} proxynin ismi güncellendi', { count: selectedProxyIds.length }))
+      setBatchNameDialogOpen(false)
+      void queryClient.invalidateQueries({ queryKey: ['proxy-pool-proxies'] })
+    } catch {
+      toast.error(t('İsimler güncellenirken bir hata oluştu'))
+    } finally {
+      setIsBatchRenaming(false)
+    }
+  }
+
+  const handleBatchDelete = async () => {
+    setIsBatchDeleting(true)
+    try {
+      await Promise.all(selectedProxyIds.map((id) => deleteProxy(id)))
+      toast.success(t('{{count}} proxy silindi', { count: selectedProxyIds.length }))
+      setSelectedProxyIds([])
+      setBatchDeleteDialogOpen(false)
+      void queryClient.invalidateQueries({ queryKey: ['proxy-pool-proxies'] })
+      void queryClient.invalidateQueries({ queryKey: ['proxy-pool-channels'] })
+    } catch {
+      toast.error(t('Proxyler silinirken bir hata oluştu'))
+    } finally {
+      setIsBatchDeleting(false)
+    }
+  }
 
   const copyWorkerScript = async () => {
     try {
@@ -417,6 +498,22 @@ export function ProxyPool() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className='w-[40px]'>
+                        <Checkbox
+                          checked={
+                            (proxiesQuery.data ?? []).length > 0 &&
+                            selectedProxyIds.length === (proxiesQuery.data ?? []).length
+                          }
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedProxyIds((proxiesQuery.data ?? []).map((p) => p.id))
+                            } else {
+                              setSelectedProxyIds([])
+                            }
+                          }}
+                          aria-label={t('Select all')}
+                        />
+                      </TableHead>
                       <TableHead>{t('Name')}</TableHead>
                       <TableHead>{t('URL')}</TableHead>
                       <TableHead>{t('Status')}</TableHead>
@@ -428,21 +525,35 @@ export function ProxyPool() {
                   </TableHeader>
                   <TableBody>
                     {(proxiesQuery.data ?? []).map((proxy) => (
-                      <TableRow key={proxy.id}>
+                      <TableRow
+                        key={proxy.id}
+                        className={selectedProxyIds.includes(proxy.id) ? 'bg-muted/40' : undefined}
+                      >
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedProxyIds.includes(proxy.id)}
+                            onCheckedChange={(checked) => {
+                              setSelectedProxyIds((prev) =>
+                                checked ? [...prev, proxy.id] : prev.filter((id) => id !== proxy.id)
+                              )
+                            }}
+                            aria-label={`Select ${proxy.name}`}
+                          />
+                        </TableCell>
                         <TableCell className='font-medium'>
                           <div className='flex items-center gap-2'>
                             <span>{proxy.name || t('Unnamed')}</span>
                             {proxy.assigned_keys !== undefined && proxy.assigned_keys > 0 ? (
                               <Badge
                                 variant='outline'
-                                className='border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300 font-medium text-[11px]'
+                                className='font-medium text-[11px]'
                               >
                                 {proxy.assigned_keys} / Eşli
                               </Badge>
                             ) : (
                               <Badge
                                 variant='secondary'
-                                className='bg-muted text-muted-foreground font-normal text-[11px]'
+                                className='font-normal text-[11px]'
                               >
                                 {t('Yedek')}
                               </Badge>
@@ -457,7 +568,7 @@ export function ProxyPool() {
                         </TableCell>
                         <TableCell>
                           {proxy.enabled ? (
-                            <Badge variant='outline' className='text-emerald-600'>
+                            <Badge variant='outline'>
                               {t('Enabled')}
                             </Badge>
                           ) : (
@@ -921,7 +1032,7 @@ export function ProxyPool() {
           if (!open) setDetailTarget(null)
         }}
       >
-        <DialogContent className='max-w-2xl max-h-[85vh] overflow-y-auto'>
+        <DialogContent className='max-w-4xl max-h-[90vh] overflow-y-auto'>
           <DialogHeader>
             <DialogTitle className='flex items-center gap-2'>
               <span>{detailTarget?.name || t('Proxy Details')}</span>
@@ -929,7 +1040,7 @@ export function ProxyPool() {
                 detailQuery.data.assigned_keys > 0 && (
                   <Badge
                     variant='outline'
-                    className='border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300 font-medium text-xs'
+                    className='font-medium text-xs'
                   >
                     {detailQuery.data.assigned_keys} / Eşli
                   </Badge>
@@ -977,7 +1088,7 @@ export function ProxyPool() {
                   <div className='text-muted-foreground text-xs font-medium'>
                     {t('Eşli Anahtarlar')}
                   </div>
-                  <div className='mt-1 text-base font-bold font-mono text-amber-600 dark:text-amber-400'>
+                  <div className='mt-1 text-base font-bold font-mono'>
                     {detailQuery.data.assigned_keys}
                   </div>
                 </div>
@@ -987,7 +1098,7 @@ export function ProxyPool() {
                   </div>
                   <div className='mt-1 text-sm font-semibold'>
                     {detailQuery.data.proxy.enabled ? (
-                      <span className='text-emerald-600 dark:text-emerald-400'>
+                      <span>
                         {t('Aktif')}
                       </span>
                     ) : (
@@ -1099,6 +1210,113 @@ export function ProxyPool() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Bulk Operations Toolbar */}
+      {selectedProxyIds.length > 0 && (
+        <div className='fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-wrap items-center gap-2 rounded-full border bg-background/95 px-4 py-2 shadow-xl backdrop-blur'>
+          <span className='text-xs font-medium px-2'>
+            {t('{{count}} proxy seçildi', { count: selectedProxyIds.length })}
+          </span>
+          <Button
+            size='sm'
+            variant='outline'
+            className='h-8 text-xs'
+            disabled={isBatchTesting}
+            onClick={handleBatchTest}
+          >
+            {isBatchTesting ? (
+              <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+            ) : (
+              <Gauge className='mr-1.5 h-3.5 w-3.5' />
+            )}
+            {t('Toplu Test')}
+          </Button>
+          <Button
+            size='sm'
+            variant='outline'
+            className='h-8 text-xs'
+            disabled={isBatchRenaming}
+            onClick={() => {
+              setBatchNameValue('')
+              setBatchNameDialogOpen(true)
+            }}
+          >
+            <Pencil className='mr-1.5 h-3.5 w-3.5' />
+            {t('Toplu İsim Değiştir')}
+          </Button>
+          <Button
+            size='sm'
+            variant='destructive'
+            className='h-8 text-xs'
+            disabled={isBatchDeleting}
+            onClick={() => setBatchDeleteDialogOpen(true)}
+          >
+            <Trash2 className='mr-1.5 h-3.5 w-3.5' />
+            {t('Toplu Sil')}
+          </Button>
+          <Button
+            size='sm'
+            variant='ghost'
+            className='h-8 text-xs'
+            onClick={() => setSelectedProxyIds([])}
+          >
+            {t('Temizle')}
+          </Button>
+        </div>
+      )}
+
+      {/* Batch Rename Dialog */}
+      <Dialog open={batchNameDialogOpen} onOpenChange={setBatchNameDialogOpen}>
+        <DialogContent className='max-w-md'>
+          <DialogHeader>
+            <DialogTitle>{t('Toplu İsim Değiştir')}</DialogTitle>
+            <DialogDescription>
+              {t('Seçilen {{count}} proxy için temel isim belirleyin. Birden fazla proxy seçiliyse isimlerin sonuna otomatik sıra numarası eklenecektir.', {
+                count: selectedProxyIds.length,
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className='py-2 space-y-2'>
+            <Label htmlFor='batch-proxy-name'>{t('Yeni İsim')}</Label>
+            <Input
+              id='batch-proxy-name'
+              placeholder='Örn: Proxy-TR'
+              value={batchNameValue}
+              onChange={(e) => setBatchNameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  void handleBatchRename()
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant='outline' onClick={() => setBatchNameDialogOpen(false)}>
+              {t('Cancel')}
+            </Button>
+            <Button disabled={isBatchRenaming || !batchNameValue.trim()} onClick={handleBatchRename}>
+              {isBatchRenaming && <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />}
+              {t('Kaydet')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch Delete ConfirmDialog */}
+      <ConfirmDialog
+        open={batchDeleteDialogOpen}
+        onOpenChange={setBatchDeleteDialogOpen}
+        title={t('Seçili proxyleri sil?')}
+        desc={t(
+          'Seçilen {{count}} proxy silinecektir. Bu proxylere atanmış anahtarlar kanalın varsayılan yoluna geri dönecektir.',
+          { count: selectedProxyIds.length }
+        )}
+        destructive
+        isLoading={isBatchDeleting}
+        handleConfirm={handleBatchDelete}
+        confirmText={t('Sil')}
+      />
     </>
   )
 }

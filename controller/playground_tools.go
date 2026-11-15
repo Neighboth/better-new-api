@@ -23,6 +23,25 @@ func GetPlaygroundConfig(c *gin.Context) {
 	imageModels := setting.ImageModelOptions()
 	videoModels := setting.VideoModelOptions()
 
+	enrichMediaModels := func(models []operation_setting.MediaModel) []operation_setting.MediaModel {
+		out := make([]operation_setting.MediaModel, len(models))
+		for i, m := range models {
+			out[i] = m
+			if out[i].DisplayName == "" {
+				out[i].DisplayName = model.GetModelDisplayName(m.Model)
+			}
+			if out[i].DisplayName == "" {
+				out[i].DisplayName = m.Model
+			}
+		}
+		return out
+	}
+
+	imageModels = enrichMediaModels(imageModels)
+	videoModels = enrichMediaModels(videoModels)
+	musicModels := enrichMediaModels(setting.MusicModelOptions())
+	upscaleModels := enrichMediaModels(setting.UpscaleModelOptions())
+
 	// The tools and older dashboards read the first model of the list; the
 	// studio reads the whole list with the options of every model.
 	imageModel := ""
@@ -138,11 +157,11 @@ func GetPlaygroundConfig(c *gin.Context) {
 		},
 		"music": gin.H{
 			"enabled": setting.MusicEnabled,
-			"models":  setting.MusicModelOptions(),
+			"models":  musicModels,
 		},
 		"upscale": gin.H{
 			"enabled": setting.UpscaleEnabled,
-			"models":  setting.UpscaleModelOptions(),
+			"models":  upscaleModels,
 		},
 		"studio": gin.H{
 			"enabled": setting.StudioEnabled,

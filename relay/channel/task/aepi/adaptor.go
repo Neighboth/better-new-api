@@ -178,7 +178,11 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 				}
 			}
 			if seconds > 0 {
-				ratios["seconds"] = float64(seconds)
+				if seconds <= 5 {
+					ratios["duration"] = 1.0
+				} else {
+					ratios["duration"] = float64(seconds) / 5.0
+				}
 			}
 			if req.Size == "1920x1080" || req.Size == "1080x1920" || strings.Contains(req.Size, "1080p") {
 				ratios["size"] = 1.5

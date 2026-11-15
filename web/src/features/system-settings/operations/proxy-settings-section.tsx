@@ -79,11 +79,11 @@ export function ProxySettingsSection({
             <Switch checked={enabled} onCheckedChange={setEnabled} />
           </SettingsSwitchItem>
 
-          <div className='rounded-xl border p-4 bg-card/50 space-y-2 shadow-xs'>
-            <Label className='text-xs font-semibold'>
+          <div className='space-y-2'>
+            <Label>
               {t('Automatic Speed Test Interval (Minutes)')}
             </Label>
-            <SettingsDescription className='text-xs'>
+            <SettingsDescription>
               {t(
                 'Background worker runs latency ping tests across all proxies at this interval to keep ms and speed up-to-date.'
               )}
@@ -94,7 +94,7 @@ export function ProxySettingsSection({
               max={1440}
               value={interval}
               onChange={(e) => setInterval(Math.max(1, Number(e.target.value) || 15))}
-              className='max-w-[200px] h-9 text-xs'
+              className='max-w-[200px]'
             />
           </div>
 

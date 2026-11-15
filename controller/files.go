@@ -32,11 +32,13 @@ func ensureManagedFilesDir() error {
 }
 
 func sanitizeRelPath(relPath string) (string, error) {
-	relPath = strings.TrimPrefix(relPath, "/")
+	relPath = strings.ReplaceAll(relPath, "\\", "/")
+	relPath = strings.Trim(relPath, "/")
 	clean := filepath.Clean(relPath)
 	// Store records with forward slashes regardless of the platform the
 	// binary runs on; a browser always uses "/" in URLs.
 	clean = filepath.ToSlash(clean)
+	clean = strings.Trim(clean, "/")
 	if clean == "." || clean == "" {
 		return "", nil
 	}
@@ -104,15 +106,16 @@ func fileAuthVerify(path string, passwordHash string, updatedAt int64, value str
 // using normalized forward-slash paths so inherited password or captcha settings apply
 // on all platforms (including Windows).
 func findManagedFileWithProtection(cleanPath string) (model.ManagedFile, bool) {
+	cleanPath = strings.Trim(strings.ReplaceAll(cleanPath, "\\", "/"), "/")
 	var mf model.ManagedFile
-	res := model.DB.Where("path = ?", cleanPath).First(&mf)
+	res := model.DB.Where("path = ? OR path = ?", cleanPath, "/"+cleanPath).First(&mf)
 	exists := res.RowsAffected > 0
 
 	if mf.Password == "" && !mf.EnableCaptcha {
 		dir := filepath.ToSlash(filepath.Dir(cleanPath))
 		for dir != "." && dir != "/" && dir != "" {
 			var parentMf model.ManagedFile
-			if model.DB.Where("path = ?", dir).First(&parentMf).RowsAffected > 0 {
+			if model.DB.Where("path = ? OR path = ?", dir, "/"+dir).First(&parentMf).RowsAffected > 0 {
 				if parentMf.Password != "" || parentMf.EnableCaptcha {
 					mf.Password = parentMf.Password
 					mf.EnableCaptcha = parentMf.EnableCaptcha
@@ -491,7 +494,7 @@ func UpdateManagedFileSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// DeleteManagedFile removes a file/directory from DB
+// DeleteManagedFile removes a file/directory from DB and disk
 func DeleteManagedFile(c *gin.Context) {
 	relPath := c.Query("path")
 	cleanPath, err := sanitizeRelPath(relPath)
@@ -500,12 +503,18 @@ func DeleteManagedFile(c *gin.Context) {
 		return
 	}
 
-	model.DB.Where("path = ? OR path LIKE ?", cleanPath, cleanPath+"/%").Delete(&model.ManagedFile{})
+	model.DB.Where("path = ? OR path = ? OR path LIKE ? OR path LIKE ?", cleanPath, "/"+cleanPath, cleanPath+"/%", "/"+cleanPath+"/%").Delete(&model.ManagedFile{})
+
+	fullPath := filepath.Join(managedFilesDir, cleanPath)
+	_ = os.RemoveAll(fullPath)
+	if strings.HasPrefix(cleanPath, "uploads/") || cleanPath == "uploads" {
+		_ = os.RemoveAll(cleanPath)
+	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// RenameManagedFile renames a file/directory in DB
+// RenameManagedFile renames a file/directory in DB and on disk
 func RenameManagedFile(c *gin.Context) {
 	var req struct {
 		OldPath string `json:"old_path"`
@@ -529,11 +538,16 @@ func RenameManagedFile(c *gin.Context) {
 	}
 
 	var record model.ManagedFile
-	if model.DB.Where("path = ?", oldClean).First(&record).RowsAffected > 0 {
+	if model.DB.Where("path = ? OR path = ?", oldClean, "/"+oldClean).First(&record).RowsAffected > 0 {
 		record.Path = newClean
 		record.Name = filepath.Base(newClean)
 		record.UpdatedAt = common.GetTimestamp()
 		model.DB.Save(&record)
+
+		oldFullPath := filepath.Join(managedFilesDir, oldClean)
+		newFullPath := filepath.Join(managedFilesDir, newClean)
+		_ = os.MkdirAll(filepath.Dir(newFullPath), 0755)
+		_ = os.Rename(oldFullPath, newFullPath)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
@@ -834,29 +848,24 @@ func VerifyManagedFileAuth(c *gin.Context) {
 		return
 	}
 
-	// Admin users can always unlock/verify files directly from the admin panel
-	isAdmin := c.GetInt("role") >= common.RoleAdminUser || c.GetBool("is_admin")
+	limiterKey := cleanPath + "|" + c.ClientIP()
+	if fileAuthBlocked(limiterKey) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Too many failed attempts. Please try again later."})
+		return
+	}
 
-	if !isAdmin {
-		limiterKey := cleanPath + "|" + c.ClientIP()
-		if fileAuthBlocked(limiterKey) {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Too many failed attempts. Please try again later."})
-			return
-		}
-
-		if mf.EnableCaptcha {
-			if !verifyManagedFileCaptchaToken(c.ClientIP(), req.Provider, req.Token, req.CaptchaId, req.CaptchaAns) {
-				fileAuthFailedAttempt(limiterKey)
-				c.JSON(http.StatusOK, gin.H{"success": false, "message": "Captcha verification failed"})
-				return
-			}
-		}
-
-		if mf.Password != "" && !verifyFilePassword(req.Password, mf.Password) {
+	if mf.EnableCaptcha {
+		if !verifyManagedFileCaptchaToken(c.ClientIP(), req.Provider, req.Token, req.CaptchaId, req.CaptchaAns) {
 			fileAuthFailedAttempt(limiterKey)
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Incorrect password"})
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Captcha verification failed"})
 			return
 		}
+	}
+
+	if mf.Password != "" && !verifyFilePassword(req.Password, mf.Password) {
+		fileAuthFailedAttempt(limiterKey)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Incorrect password"})
+		return
 	}
 
 	expiry := time.Now().Add(24 * time.Hour).Unix()

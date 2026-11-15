@@ -610,7 +610,13 @@ export function SystemFilesSection() {
                             {item.name}
                           </button>
                         ) : (
-                          <span>{item.name}</span>
+                          <button
+                            type='button'
+                            className='hover:underline text-left font-medium'
+                            onClick={() => void handleOpenEdit(item.path, item)}
+                          >
+                            {item.name}
+                          </button>
                         )}
                       </div>
                     </TableCell>

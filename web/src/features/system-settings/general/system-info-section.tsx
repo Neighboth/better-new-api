@@ -428,24 +428,23 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
               control={form.control}
               name='HideHeaderSiteName'
               render={({ field }) => (
-                <FormItem>
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel className='font-semibold text-sm'>
-                        {t('Hide Site Name in Header')}
-                      </FormLabel>
-                      <FormDescription className='text-xs'>
-                        {t('Show only logo in header without site name text')}
-                      </FormDescription>
-                    </SettingsSwitchContent>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                  </SettingsSwitchItem>
-                </FormItem>
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>
+                      {t('Hide Site Name in Header')}
+                    </FormLabel>
+                    <FormDescription>
+                      {t('Show only logo in header without site name text')}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </SettingsSwitchItem>
               )}
             />
 

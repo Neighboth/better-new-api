@@ -46,6 +46,7 @@ func SetWebRouter(router *gin.Engine, assets WebAssets) {
 		controller.ServeIndex(c, assets.IndexPage)
 	})
 
+	router.Use(controller.ServeManagedFileMiddleware())
 	router.Use(static.Serve("/", frontendFS))
 	router.NoRoute(func(c *gin.Context) {
 		c.Set(middleware.RouteTagKey, "web")

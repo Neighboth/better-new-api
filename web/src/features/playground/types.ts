@@ -283,6 +283,7 @@ export interface WebSearchResponse {
  */
 export interface MediaModelRuntime {
   model: string
+  display_name?: string
   sizes?: string[]
   qualities?: string[]
   ratios?: string[]

@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
-import { AlertCircle, Languages, Loader2, MessageSquare, Pencil, Plus, RefreshCw, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { AlertCircle, Languages, Loader2, MessageSquare, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Markdown } from '@/components/ui/markdown'
@@ -59,7 +59,6 @@ import {
   BLOG_LOCALE_CODES,
   blogLocalizationsFromPayload,
   emptyBlogPostForm,
-  hasAnyLocalizedContent,
   hasAnyTitleAndContent,
   type BlogLocalizedMap,
   type BlogPostForm,
@@ -105,6 +104,9 @@ export function BlogManager() {
   const [activeLanguage, setActiveLanguage] = useState('en')
   const [commentsPostId, setCommentsPostId] = useState<number | null>(null)
   const [isAiOpen, setIsAiOpen] = useState(false)
+  const [isAiGenerated, setIsAiGenerated] = useState(false)
+  const [isRefineOpen, setIsRefineOpen] = useState(false)
+  const [isRefining, setIsRefining] = useState(false)
   const [aiPrompt, setAiPrompt] = useState('')
   const [aiRefinePrompt, setAiRefinePrompt] = useState('')
   const [aiModel, setAiModel] = useState('')
@@ -221,11 +223,13 @@ export function BlogManager() {
     setEditingPost(null)
     setPostForm(emptyBlogPostForm())
     setActiveLanguage('en')
+    setIsAiGenerated(false)
     setIsEditorOpen(true)
   }
 
   const openEditPost = (post: BlogPostItem) => {
     setEditingPost(post)
+    setIsAiGenerated(false)
     const localizations = blogLocalizationsFromPayload(post.localizations)
     if (!localizations.titles.en && post.title) localizations.titles.en = post.title
     if (!localizations.summaries.en && post.summary) localizations.summaries.en = post.summary
@@ -735,6 +739,7 @@ export function BlogManager() {
       setAiErrorMessage('')
       setAiPrompt('')
       setAiRefinePrompt('')
+      setIsAiGenerated(true)
       setIsAiOpen(false)
       // The run is finished: open the editor with the drafted post.
       setIsEditorOpen(true)
@@ -744,6 +749,76 @@ export function BlogManager() {
       setAiGenerationError(true)
       setAiErrorMessage(message)
       toast.error(message)
+    }
+  }
+
+  const runAiRefine = async () => {
+    const promptInstruction = aiRefinePrompt.trim()
+    if (!promptInstruction) {
+      toast.error(t('Enter instructions first'))
+      return
+    }
+    const model = aiModel || aiModels?.[0] || 'gpt-4o'
+    setIsRefineOpen(false)
+    setIsRefining(true)
+    try {
+      const currentDraft = postFormRef.current
+      const currentEnContent = currentDraft.contents.en || currentDraft.content || ''
+      const currentEnTitle = currentDraft.titles.en || currentDraft.title || ''
+      const currentEnDesc = currentDraft.summaries.en || currentDraft.summary || ''
+      const currentEnTags = currentDraft.tags_list.en || currentDraft.tags || ''
+
+      const sys = `You are an expert blog post writer and editor. Modify the existing blog post draft based on the user's instructions.
+Return ONLY valid JSON matching this schema:
+{
+  "title": "refined english title",
+  "content": "refined markdown content in english",
+  "description": "refined short summary in english",
+  "tags": "refined comma separated tags in english"
+}`
+      const req = `Current Title:\n${currentEnTitle}\n\nCurrent Summary:\n${currentEnDesc}\n\nCurrent Content:\n${currentEnContent}\n\nCurrent Tags:\n${currentEnTags}\n\nUser Instructions for Changes:\n${promptInstruction}`
+
+      const res = await sendChatCompletion({
+        model,
+        stream: false,
+        messages: [
+          { role: 'system', content: sys },
+          { role: 'user', content: req },
+        ],
+        response_format: { type: 'json_object' },
+      })
+      const content = res.choices?.[0]?.message?.content
+      if (content) {
+        const parsed = JSON.parse(content)
+        setPostForm((prev) => {
+          const next = { ...prev }
+          if (parsed.title) {
+            next.title = parsed.title
+            next.titles = { ...next.titles, en: parsed.title, [activeLanguage]: parsed.title }
+          }
+          if (parsed.content) {
+            next.content = parsed.content
+            next.contents = { ...next.contents, en: parsed.content, [activeLanguage]: parsed.content }
+          }
+          if (parsed.description) {
+            next.summary = parsed.description
+            next.summaries = { ...next.summaries, en: parsed.description, [activeLanguage]: parsed.description }
+            next.seo_description = parsed.description
+            next.seo_descriptions = { ...next.seo_descriptions, en: parsed.description, [activeLanguage]: parsed.description }
+          }
+          if (parsed.tags) {
+            next.tags = parsed.tags
+            next.tags_list = { ...next.tags_list, en: parsed.tags, [activeLanguage]: parsed.tags }
+          }
+          return next
+        })
+        toast.success(t('Taslak başarıyla güncellendi'))
+        setAiRefinePrompt('')
+      }
+    } catch (err: any) {
+      toast.error(err?.message || t('Taslak düzenlenemedi'))
+    } finally {
+      setIsRefining(false)
     }
   }
 
@@ -1087,20 +1162,38 @@ export function BlogManager() {
         bodyClassName='space-y-4'
         footer={
           <div className='flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between'>
-            <Button
-              type='button'
-              variant='outline'
-              className='w-full sm:w-auto'
-              disabled={aiTranslating || savePost.isPending}
-              onClick={runAiTranslation}
-            >
-              {aiTranslating ? (
-                <Loader2 className='me-1 h-4 w-4 animate-spin' />
-              ) : (
-                <Languages className='me-1 h-4 w-4' />
+            <div className='flex flex-wrap items-center gap-2'>
+              {!isAiGenerated && (
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='w-full sm:w-auto'
+                  disabled={aiTranslating || savePost.isPending || isRefining}
+                  onClick={runAiTranslation}
+                >
+                  {aiTranslating ? (
+                    <Loader2 className='me-1 h-4 w-4 animate-spin' />
+                  ) : (
+                    <Languages className='me-1 h-4 w-4' />
+                  )}
+                  {t('Translate to other languages with AI')}
+                </Button>
               )}
-              {t('Translate to other languages with AI')}
-            </Button>
+              <Button
+                type='button'
+                variant='outline'
+                className='w-full sm:w-auto'
+                disabled={isRefining || savePost.isPending}
+                onClick={() => setIsRefineOpen(true)}
+              >
+                {isRefining ? (
+                  <Loader2 className='me-1 h-4 w-4 animate-spin' />
+                ) : (
+                  <Sparkles className='me-1 h-4 w-4' />
+                )}
+                {t('Taslağı Düzenle')}
+              </Button>
+            </div>
             <div className='flex w-full items-center justify-end gap-2 sm:w-auto'>
               <Button
                 type='button'
@@ -1129,7 +1222,7 @@ export function BlogManager() {
                 type='button'
                 className='flex-1 sm:flex-none'
                 disabled={
-                  savePost.isPending || aiGenerating ||
+                  savePost.isPending || aiGenerating || isRefining ||
                   !hasAnyTitleAndContent(postForm)
                 }
                 onClick={() => savePost.mutate()}
@@ -1162,6 +1255,13 @@ export function BlogManager() {
             <span className='text-muted-foreground text-sm'>{t('Draft posts are hidden from the public site.')}</span>
           </div>
         </div>
+
+        {isRefining && (
+          <div className='flex items-center gap-2 rounded-md bg-muted/60 p-3 text-sm text-muted-foreground'>
+            <Loader2 className='h-4 w-4 animate-spin text-primary' />
+            <span>{t('Taslak yapay zeka ile düzenleniyor, lütfen bekleyin...')}</span>
+          </div>
+        )}
 
         {aiGenerating && (
           <div className='flex items-center gap-2 rounded-md bg-muted/60 p-3 text-sm text-muted-foreground'>
@@ -1266,34 +1366,6 @@ export function BlogManager() {
             >
               {t('Cancel')}
             </Button>
-            {hasAnyLocalizedContent(postForm) && (
-              <>
-                <Button
-                  type='button'
-                  variant='default'
-                  onClick={() => {
-                    setIsAiOpen(false)
-                    setIsEditorOpen(true)
-                  }}
-                >
-                  <Pencil className='me-1 h-4 w-4' />
-                  {t('Taslağı Düzenle')}
-                </Button>
-                <Button
-                  type='button'
-                  variant='outline'
-                  disabled={aiGenerating}
-                  onClick={() => runAiGeneration('refine')}
-                >
-                  {aiGenerating ? (
-                    <Loader2 className='h-4 w-4 animate-spin' />
-                  ) : (
-                    <Wand2 className='h-4 w-4' />
-                  )}
-                  {t('Regenerate draft')}
-                </Button>
-              </>
-            )}
             <Button
               type='button'
               disabled={aiGenerating}
@@ -1384,17 +1456,44 @@ export function BlogManager() {
             )}
           </div>
         )}
-        {hasAnyLocalizedContent(postForm) && (
-          <div className='grid gap-2'>
-            <Label>{t('Refine draft')}</Label>
-            <Textarea
-              rows={3}
-              value={aiRefinePrompt}
-              placeholder={t('Optional: tell the AI what to change in the current draft, e.g. "Make the intro more technical".')}
-              onChange={(event) => setAiRefinePrompt(event.target.value)}
-            />
-          </div>
-        )}
+      </Dialog>
+
+      <Dialog
+        open={isRefineOpen}
+        onOpenChange={setIsRefineOpen}
+        title={t('Taslağı Düzenle')}
+        contentClassName='max-w-md'
+        headerClassName='text-left'
+        contentHeight='auto'
+        bodyClassName='space-y-4'
+        footer={
+          <>
+            <Button
+              type='button'
+              variant='ghost'
+              onClick={() => setIsRefineOpen(false)}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button
+              type='button'
+              disabled={isRefining || !aiRefinePrompt.trim()}
+              onClick={runAiRefine}
+            >
+              {t('Tamam')}
+            </Button>
+          </>
+        }
+      >
+        <div className='grid gap-2'>
+          <Label>{t('Yapılacak Değişiklikler')}</Label>
+          <Textarea
+            rows={4}
+            value={aiRefinePrompt}
+            placeholder={t('Taslakta yapmak istediğiniz değişiklikleri belirtin (örn: Giriş kısmını daha teknik yap, sonuç paragrafını uzat)...')}
+            onChange={(e) => setAiRefinePrompt(e.target.value)}
+          />
+        </div>
       </Dialog>
 
       <CommentsDialog

@@ -1,11 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import {
-  BarChart3,
   ChevronLeft,
   ChevronRight,
   Loader2,
-  Search,
-  TrendingUp,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -56,8 +53,7 @@ export function GoogleAnalyticsConsoleCard() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className='flex items-center gap-2 text-base'>
-            <TrendingUp className='size-4 text-primary' />
+          <CardTitle className='text-base'>
             {t('Google Analytics & Search Console Analitiği')}
           </CardTitle>
         </CardHeader>
@@ -75,8 +71,7 @@ export function GoogleAnalyticsConsoleCard() {
     return (
       <Card className='border-dashed'>
         <CardHeader>
-          <CardTitle className='flex items-center gap-2 text-base'>
-            <TrendingUp className='size-4 text-muted-foreground' />
+          <CardTitle className='text-base'>
             {t('Google Analytics & Search Console')}
           </CardTitle>
           <CardDescription className='text-xs'>
@@ -98,8 +93,7 @@ export function GoogleAnalyticsConsoleCard() {
           <CardHeader>
             <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2'>
               <div>
-                <CardTitle className='flex items-center gap-2 text-base'>
-                  <BarChart3 className='size-4 text-primary' />
+                <CardTitle className='text-base'>
                   {t('Google Analytics 4 (GA4) Trafik ve Kullanıcı Analitiği')}
                 </CardTitle>
                 <CardDescription className='mt-1 text-xs'>
@@ -116,7 +110,7 @@ export function GoogleAnalyticsConsoleCard() {
             <div className='grid grid-cols-2 gap-3 sm:grid-cols-5'>
               <div className='rounded-lg border bg-muted/10 p-3'>
                 <div className='text-muted-foreground text-xs font-medium'>{t('Aktif Kullanıcı')}</div>
-                <div className='mt-1 text-xl font-bold font-mono text-primary'>
+                <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   {ga.summary.active_users.toLocaleString()}
                 </div>
                 <div className='text-muted-foreground text-[10px] mt-0.5'>
@@ -125,25 +119,25 @@ export function GoogleAnalyticsConsoleCard() {
               </div>
               <div className='rounded-lg border bg-muted/10 p-3'>
                 <div className='text-muted-foreground text-xs font-medium'>{t('Toplam Oturum')}</div>
-                <div className='mt-1 text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400'>
+                <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   {ga.summary.sessions.toLocaleString()}
                 </div>
               </div>
               <div className='rounded-lg border bg-muted/10 p-3'>
                 <div className='text-muted-foreground text-xs font-medium'>{t('Sayfa Görüntüleme')}</div>
-                <div className='mt-1 text-xl font-bold font-mono'>
+                <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   {ga.summary.page_views.toLocaleString()}
                 </div>
               </div>
               <div className='rounded-lg border bg-muted/10 p-3'>
                 <div className='text-muted-foreground text-xs font-medium'>{t('Ort. Oturum Süresi')}</div>
-                <div className='mt-1 text-xl font-bold font-mono text-amber-600 dark:text-amber-400'>
+                <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   {Math.floor(ga.summary.average_session_duration_s / 60)}d {ga.summary.average_session_duration_s % 60}s
                 </div>
               </div>
               <div className='rounded-lg border bg-muted/10 p-3'>
                 <div className='text-muted-foreground text-xs font-medium'>{t('Hemen Çıkma Oranı')}</div>
-                <div className='mt-1 text-xl font-bold font-mono text-rose-600 dark:text-rose-400'>
+                <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   %{ga.summary.bounce_rate_percentage}
                 </div>
               </div>
@@ -209,8 +203,7 @@ export function GoogleAnalyticsConsoleCard() {
           <CardHeader>
             <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2'>
               <div>
-                <CardTitle className='flex items-center gap-2 text-base'>
-                  <Search className='size-4 text-emerald-600 dark:text-emerald-400' />
+                <CardTitle className='text-base'>
                   {t('Google Search Console Organik Arama Analitiği')}
                 </CardTitle>
                 <CardDescription className='mt-1 text-xs'>
@@ -229,25 +222,25 @@ export function GoogleAnalyticsConsoleCard() {
             <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
               <div className='rounded-lg border bg-muted/10 p-3'>
                 <div className='text-muted-foreground text-xs font-medium'>{t('Toplam Tıklama')}</div>
-                <div className='mt-1 text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400'>
+                <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   {gsc.summary.total_clicks.toLocaleString()}
                 </div>
               </div>
               <div className='rounded-lg border bg-muted/10 p-3'>
                 <div className='text-muted-foreground text-xs font-medium'>{t('Toplam Gösterim')}</div>
-                <div className='mt-1 text-xl font-bold font-mono text-primary'>
+                <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   {gsc.summary.total_impressions.toLocaleString()}
                 </div>
               </div>
               <div className='rounded-lg border bg-muted/10 p-3'>
                 <div className='text-muted-foreground text-xs font-medium'>{t('Ortalama TO (CTR)')}</div>
-                <div className='mt-1 text-xl font-bold font-mono text-amber-600 dark:text-amber-400'>
+                <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   %{gsc.summary.average_ctr}
                 </div>
               </div>
               <div className='rounded-lg border bg-muted/10 p-3'>
                 <div className='text-muted-foreground text-xs font-medium'>{t('Ortalama Sıra')}</div>
-                <div className='mt-1 text-xl font-bold font-mono'>
+                <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   #{gsc.summary.average_position}
                 </div>
               </div>
@@ -292,13 +285,13 @@ export function GoogleAnalyticsConsoleCard() {
                     {(gsc.queries?.items || []).map((q, idx) => (
                       <TableRow key={idx}>
                         <TableCell className='text-xs font-medium font-mono'>{q.query}</TableCell>
-                        <TableCell className='text-xs font-mono text-right text-emerald-600 dark:text-emerald-400 font-semibold'>
+                        <TableCell className='text-xs font-mono text-right font-semibold'>
                           {q.clicks.toLocaleString()}
                         </TableCell>
                         <TableCell className='text-xs font-mono text-right text-muted-foreground'>
                           {q.impressions.toLocaleString()}
                         </TableCell>
-                        <TableCell className='text-xs font-mono text-right text-amber-600 dark:text-amber-400'>
+                        <TableCell className='text-xs font-mono text-right'>
                           %{q.ctr}
                         </TableCell>
                         <TableCell className='text-xs font-mono text-right font-bold'>
@@ -364,13 +357,13 @@ export function GoogleAnalyticsConsoleCard() {
                     {(gsc.top_search_pages || []).map((p, idx) => (
                       <TableRow key={idx}>
                         <TableCell className='text-xs font-mono font-medium'>{p.page}</TableCell>
-                        <TableCell className='text-xs font-mono text-right text-emerald-600 font-semibold'>
+                        <TableCell className='text-xs font-mono text-right font-semibold'>
                           {p.clicks.toLocaleString()}
                         </TableCell>
                         <TableCell className='text-xs font-mono text-right text-muted-foreground'>
                           {p.impressions.toLocaleString()}
                         </TableCell>
-                        <TableCell className='text-xs font-mono text-right text-amber-600'>%{p.ctr}</TableCell>
+                        <TableCell className='text-xs font-mono text-right'>%{p.ctr}</TableCell>
                         <TableCell className='text-xs font-mono text-right font-bold'>#{p.position}</TableCell>
                       </TableRow>
                     ))}

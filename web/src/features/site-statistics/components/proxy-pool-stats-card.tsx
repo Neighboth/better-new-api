@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, Network } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   Area,
@@ -36,8 +36,7 @@ export function ProxyPoolStatsCard() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className='flex items-center gap-2 text-base'>
-            <Network className='size-4 text-primary' />
+          <CardTitle className='text-base'>
             {t('Proxy Havuzu Kullanımı')}
           </CardTitle>
         </CardHeader>
@@ -66,8 +65,7 @@ export function ProxyPoolStatsCard() {
       <CardHeader>
         <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2'>
           <div>
-            <CardTitle className='flex items-center gap-2 text-base'>
-              <Network className='size-4 text-primary' />
+            <CardTitle className='text-base'>
               {t('Proxy Havuzu Kullanımı & Trafik')}
             </CardTitle>
             <CardDescription className='mt-1 text-xs'>
@@ -160,14 +158,14 @@ export function ProxyPoolStatsCard() {
                         {p.assigned_keys !== undefined && p.assigned_keys > 0 ? (
                           <Badge
                             variant='outline'
-                            className='border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300 font-medium text-[10px]'
+                            className='font-medium text-[10px]'
                           >
                             {p.assigned_keys} / Eşli
                           </Badge>
                         ) : (
                           <Badge
                             variant='secondary'
-                            className='bg-muted text-muted-foreground font-normal text-[10px]'
+                            className='font-normal text-[10px]'
                           >
                             {t('Yedek')}
                           </Badge>
@@ -179,7 +177,7 @@ export function ProxyPoolStatsCard() {
                     </TableCell>
                     <TableCell>
                       {p.enabled ? (
-                        <Badge variant='outline' className='text-emerald-600 text-[10px]'>
+                        <Badge variant='outline' className='text-[10px]'>
                           {t('Aktif')}
                         </Badge>
                       ) : (

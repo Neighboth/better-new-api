@@ -17,6 +17,7 @@ import (
 // model the user picked.
 type MediaModel struct {
 	Model          string   `json:"model"`
+	DisplayName    string   `json:"display_name,omitempty"`
 	Sizes          []string `json:"sizes,omitempty"`
 	Qualities      []string `json:"qualities,omitempty"`
 	Ratios         []string `json:"ratios,omitempty"`

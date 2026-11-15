@@ -1,11 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import {
-  Globe,
-  Laptop,
-  Loader2,
-  ShieldAlert,
-  Sparkles,
-} from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   Bar,
@@ -42,8 +36,7 @@ export function ClarityStatsCard() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className='flex items-center gap-2 text-base'>
-            <Sparkles className='size-4 text-primary' />
+          <CardTitle className='text-base'>
             {t('Microsoft Clarity Canlı Analiz')}
           </CardTitle>
         </CardHeader>
@@ -61,8 +54,7 @@ export function ClarityStatsCard() {
     return (
       <Card className='border-dashed'>
         <CardHeader>
-          <CardTitle className='flex items-center gap-2 text-base'>
-            <Sparkles className='size-4 text-muted-foreground' />
+          <CardTitle className='text-base'>
             {t('Microsoft Clarity Analitiği')}
           </CardTitle>
           <CardDescription className='text-xs'>
@@ -102,8 +94,7 @@ export function ClarityStatsCard() {
       <CardHeader>
         <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2'>
           <div>
-            <CardTitle className='flex items-center gap-2 text-base'>
-              <Sparkles className='size-4 text-primary' />
+            <CardTitle className='text-base'>
               {t('Microsoft Clarity Kullanıcı Deneyimi & Sürtünme Analizi')}
             </CardTitle>
             <CardDescription className='mt-1 text-xs'>
@@ -120,7 +111,7 @@ export function ClarityStatsCard() {
         <div className='grid grid-cols-2 gap-3 sm:grid-cols-5'>
           <div className='rounded-lg border bg-muted/10 p-3'>
             <div className='text-muted-foreground text-xs font-medium'>{t('Toplam Oturum')}</div>
-            <div className='mt-1 text-xl font-bold font-mono text-primary'>
+            <div className='mt-1 text-xl font-bold font-mono text-foreground'>
               {summary.total_sessions.toLocaleString()}
             </div>
             <div className='text-muted-foreground text-[10px] mt-0.5'>
@@ -130,7 +121,7 @@ export function ClarityStatsCard() {
 
           <div className='rounded-lg border bg-muted/10 p-3'>
             <div className='text-muted-foreground text-xs font-medium'>{t('Ortalama Kaydırma')}</div>
-            <div className='mt-1 text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400'>
+            <div className='mt-1 text-xl font-bold font-mono text-foreground'>
               %{summary.scroll_depth}
             </div>
             <div className='text-muted-foreground text-[10px] mt-0.5'>{t('Sayfa derinliği')}</div>
@@ -138,7 +129,7 @@ export function ClarityStatsCard() {
 
           <div className='rounded-lg border bg-muted/10 p-3'>
             <div className='text-muted-foreground text-xs font-medium'>{t('Aktif Süre')}</div>
-            <div className='mt-1 text-xl font-bold font-mono'>
+            <div className='mt-1 text-xl font-bold font-mono text-foreground'>
               {summary.active_time_seconds}s
             </div>
             <div className='text-muted-foreground text-[10px] mt-0.5'>{summary.pages_per_session} {t('Sayfa/oturum')}</div>
@@ -146,7 +137,7 @@ export function ClarityStatsCard() {
 
           <div className='rounded-lg border bg-muted/10 p-3'>
             <div className='text-muted-foreground text-xs font-medium'>{t('Öfkeli Tıklama (Rage)')}</div>
-            <div className='mt-1 text-xl font-bold font-mono text-amber-600 dark:text-amber-400'>
+            <div className='mt-1 text-xl font-bold font-mono text-foreground'>
               %{friction.rage_click_rate}
             </div>
             <div className='text-muted-foreground text-[10px] mt-0.5'>{friction.rage_clicks} {t('Olay')}</div>
@@ -154,7 +145,7 @@ export function ClarityStatsCard() {
 
           <div className='rounded-lg border bg-muted/10 p-3'>
             <div className='text-muted-foreground text-xs font-medium'>{t('Ölü Tıklama (Dead)')}</div>
-            <div className='mt-1 text-xl font-bold font-mono text-rose-600 dark:text-rose-400'>
+            <div className='mt-1 text-xl font-bold font-mono text-foreground'>
               %{friction.dead_click_rate}
             </div>
             <div className='text-muted-foreground text-[10px] mt-0.5'>{friction.dead_clicks} {t('Olay')}</div>
@@ -165,8 +156,7 @@ export function ClarityStatsCard() {
         <div className='grid gap-4 md:grid-cols-2'>
           {/* Friction Breakdown */}
           <div className='rounded-lg border p-4 space-y-3'>
-            <div className='text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5'>
-              <ShieldAlert className='size-3.5 text-amber-500' />
+            <div className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
               {t('Kullanıcı Sürtünme ve Hata Göstergeleri')}
             </div>
             <div className='grid grid-cols-2 gap-2 text-xs'>
@@ -185,7 +175,7 @@ export function ClarityStatsCard() {
                   <div className='text-muted-foreground'>{t('JavaScript İstemci Hataları')}</div>
                   <div className='text-[10px] text-muted-foreground'>{t('Tarayıcı konsoluna düşen istisnalar')}</div>
                 </div>
-                <Badge variant='outline' className='font-mono text-xs text-rose-600 border-rose-300'>
+                <Badge variant='outline' className='font-mono text-xs'>
                   {friction.javascript_errors} {t('Hata')}
                 </Badge>
               </div>
@@ -194,8 +184,7 @@ export function ClarityStatsCard() {
 
           {/* Device Distribution */}
           <div className='rounded-lg border p-4 space-y-3'>
-            <div className='text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5'>
-              <Laptop className='size-3.5 text-primary' />
+            <div className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
               {t('Cihaz Dağılımı')}
             </div>
             <div className='h-40 w-full'>
@@ -231,7 +220,7 @@ export function ClarityStatsCard() {
                   <TableRow key={idx}>
                     <TableCell className='text-xs font-mono font-medium'>{page.url}</TableCell>
                     <TableCell className='text-xs font-mono text-right'>{page.sessions.toLocaleString()}</TableCell>
-                    <TableCell className='text-xs font-mono text-right text-emerald-600'>%{page.scroll_depth}</TableCell>
+                    <TableCell className='text-xs font-mono text-right'>%{page.scroll_depth}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -239,8 +228,7 @@ export function ClarityStatsCard() {
           </div>
 
           <div className='rounded-lg border p-4'>
-            <div className='text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5'>
-              <Globe className='size-3.5 text-primary' />
+            <div className='text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3'>
               {t('Ülkelere Göre Ziyaretçi Dağılımı')}
             </div>
             <div className='space-y-2'>

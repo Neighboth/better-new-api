@@ -145,47 +145,45 @@ function ResultCard(props: { item: StudioItem; onRemove: () => void }) {
   const progressPercent = item.progress ? progressPercentOf(item.progress) : null
 
   return (
-    <div className='group relative overflow-hidden rounded-2xl border border-border/70 bg-card shadow-xs transition hover:border-border'>
-      <Badge
-        className='absolute start-2.5 top-2.5 z-10 gap-1 border-border/50 bg-background/80 backdrop-blur'
-        variant={item.mode === 'video' ? 'secondary' : 'outline'}
-      >
-        {item.mode === 'video' ? (
-          <VideoIcon className='size-3' />
-        ) : (
-          <ImageIcon className='size-3' />
-        )}
-        {item.mode === 'video' ? t('Video') : t('Görsel')}
-      </Badge>
+    <div className='group relative overflow-hidden rounded-xl border border-border/70 bg-card shadow-xs transition hover:border-border'>
+      <div className='absolute start-2 top-2 z-10 flex items-center gap-1.5'>
+        <Badge
+          className='gap-1 border-border/50 bg-background/80 backdrop-blur text-[10px]'
+          variant='outline'
+        >
+          {item.mode === 'video' ? (
+            <VideoIcon className='size-2.5' />
+          ) : (
+            <ImageIcon className='size-2.5' />
+          )}
+          {item.mode === 'video'
+            ? t('Video')
+            : item.mode === 'image'
+              ? t('Görsel')
+              : item.mode === 'music'
+                ? t('Müzik')
+                : t('Upscale')}
+        </Badge>
+      </div>
 
-      <div className='relative flex min-h-44 items-center justify-center overflow-hidden bg-muted/20'>
+      <div className='relative flex min-h-36 max-h-52 items-center justify-center overflow-hidden bg-muted/20'>
         {item.status === 'pending' && (
-          <div className='relative flex min-h-44 w-full flex-col items-center justify-center gap-3 px-6 py-10'>
+          <div className='flex flex-col items-center justify-center gap-2 p-6'>
             <Loader2Icon className='size-5 animate-spin text-muted-foreground' />
-            <p className='max-w-[16rem] text-center text-xs text-muted-foreground'>
-              {item.mode === 'video'
-                ? t('Video üretiliyor...')
-                : t('Görsel üretiliyor...')}
+            <p className='text-center text-xs text-muted-foreground'>
+              {item.mode === 'video' ? t('Video üretiliyor...') : t('Görsel üretiliyor...')}
             </p>
             {item.mode === 'video' && progressPercent !== null && (
-              <div className='w-full max-w-[12rem] space-y-1'>
-                <Progress value={progressPercent} className='h-1.5' />
-                <p className='text-center font-mono text-[11px] text-muted-foreground'>
-                  {progressPercent}%
-                </p>
-              </div>
+              <p className='font-mono text-[10px] text-muted-foreground'>
+                {progressPercent}%
+              </p>
             )}
           </div>
         )}
 
         {item.status === 'error' && (
-          <div className='flex w-full flex-col items-center gap-2 p-6 text-center text-destructive'>
-            <span className='flex size-8 items-center justify-center rounded-full bg-destructive/10 text-xs font-bold'>
-              !
-            </span>
-            <p className='max-w-[16rem] text-xs leading-relaxed'>
-              {item.error || t('Üretim başarısız oldu')}
-            </p>
+          <div className='p-4 text-center text-destructive text-xs'>
+            {item.error || t('Üretim başarısız oldu')}
           </div>
         )}
 
@@ -193,7 +191,7 @@ function ResultCard(props: { item: StudioItem; onRemove: () => void }) {
           item.urls.map((url) =>
             item.mode === 'video' ? (
               <video
-                className='max-h-[360px] w-full rounded-t-2xl object-contain bg-black/90'
+                className='max-h-52 w-full object-contain bg-black'
                 controls
                 key={url}
                 playsInline
@@ -203,7 +201,7 @@ function ResultCard(props: { item: StudioItem; onRemove: () => void }) {
             ) : (
               <img
                 alt={item.prompt}
-                className='max-h-[360px] w-full rounded-t-2xl object-contain'
+                className='max-h-52 w-full object-contain'
                 key={url}
                 src={url}
               />
@@ -211,42 +209,36 @@ function ResultCard(props: { item: StudioItem; onRemove: () => void }) {
           )}
       </div>
 
-      <div className='space-y-2 p-3.5'>
-        <p className='line-clamp-2 text-xs font-medium leading-relaxed'>{item.prompt}</p>
+      <div className='space-y-1.5 p-2.5'>
+        <p className='line-clamp-2 text-xs font-medium'>{item.prompt}</p>
         <SettingsChips settings={item.settings} />
 
-        <div className='flex items-center justify-between gap-2 pt-1'>
-          <div className='flex flex-wrap gap-1.5'>
+        <div className='flex items-center justify-between gap-2 pt-1 border-t'>
+          <div className='flex items-center gap-1'>
             {item.status === 'ready' &&
               item.urls.map((url, index) => (
-                <Button
+                <a
                   key={url}
-                  size='sm'
-                  variant='outline'
-                  className='h-7 rounded-lg text-xs'
-                  render={
-                    <a
-                      download
-                      href={url}
-                      rel='noreferrer'
-                      target='_blank'
-                    >
-                      <DownloadIcon className='mr-1 size-3' />
-                      {t('İndir')}
-                      {item.urls.length > 1 ? ` ${index + 1}` : ''}
-                    </a>
-                  }
-                />
+                  download
+                  href={url}
+                  rel='noreferrer'
+                  target='_blank'
+                  className='inline-flex items-center gap-1 h-6 px-2 rounded-md border bg-background hover:bg-muted text-[11px] font-medium text-foreground transition'
+                >
+                  <DownloadIcon className='size-3' />
+                  {t('İndir')}
+                  {item.urls.length > 1 ? ` ${index + 1}` : ''}
+                </a>
               ))}
           </div>
           <Button
             aria-label={t('Sil')}
             onClick={props.onRemove}
-            size='icon-sm'
+            size='icon'
             variant='ghost'
-            className='size-7 text-muted-foreground hover:text-destructive'
+            className='size-6 text-muted-foreground hover:text-destructive'
           >
-            <XIcon className='size-3.5' />
+            <XIcon className='size-3' />
           </Button>
         </div>
       </div>
@@ -259,7 +251,6 @@ export function Studio() {
   const user = useAuthStore((state) => state.auth.user)
   const [mode, setMode] = useState<StudioMode>('video')
   const [prompt, setPrompt] = useState('')
-  const [isAgentActive, setIsAgentActive] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
 
   const [imageModel, setImageModel] = useState('')
@@ -273,6 +264,9 @@ export function Studio() {
   const [videoQuality, setVideoQuality] = useState('')
   const [referenceImage, setReferenceImage] = useState('')
 
+  const [musicModel, setMusicModel] = useState('')
+  const [upscaleModel, setUpscaleModel] = useState('')
+
   const { data: runtimeData } = useQuery({
     queryKey: ['playground-runtime-config'],
     queryFn: ({ signal }) => getPlaygroundRuntimeConfig(signal),
@@ -280,12 +274,18 @@ export function Studio() {
   })
   const runtime = runtimeData ?? EMPTY_PLAYGROUND_RUNTIME_CONFIG
 
-  // Automatically fall back to video if image generation is disabled
+  // Automatically fall back to video if selected mode is disabled
   useEffect(() => {
     if (!runtime.image.enabled && mode === 'image') {
       setMode('video')
     }
-  }, [runtime.image.enabled, mode])
+    if (!runtime.music?.enabled && mode === 'music') {
+      setMode('video')
+    }
+    if (!runtime.upscale?.enabled && mode === 'upscale') {
+      setMode('video')
+    }
+  }, [runtime.image.enabled, runtime.music?.enabled, runtime.upscale?.enabled, mode])
 
   const imageModels = useMemo<MediaModelRuntime[]>(
     () =>
@@ -305,15 +305,52 @@ export function Studio() {
           : [],
     [runtime.video]
   )
+  const musicModels = useMemo<MediaModelRuntime[]>(
+    () => runtime.music?.models || [{ model: 'music' }],
+    [runtime.music]
+  )
+  const upscaleModels = useMemo<MediaModelRuntime[]>(
+    () => runtime.upscale?.models || [{ model: 'upscale' }, { model: 'image-upscale' }],
+    [runtime.upscale]
+  )
 
   const selectedImageModel = useMemo(() => {
     const match = imageModels.find((entry) => entry.model === imageModel)
     return match ?? imageModels[0]
   }, [imageModels, imageModel])
+
   const selectedVideoModel = useMemo(() => {
     const match = videoModels.find((entry) => entry.model === videoModel)
     return match ?? videoModels[0]
   }, [videoModels, videoModel])
+
+  const selectedMusicModel = useMemo(() => {
+    const match = musicModels.find((entry) => entry.model === musicModel)
+    return match ?? musicModels[0]
+  }, [musicModels, musicModel])
+
+  const selectedUpscaleModel = useMemo(() => {
+    const match = upscaleModels.find((entry) => entry.model === upscaleModel)
+    return match ?? upscaleModels[0]
+  }, [upscaleModels, upscaleModel])
+
+  const currentModelRuntime = useMemo(() => {
+    switch (mode) {
+      case 'video':
+        return selectedVideoModel
+      case 'image':
+        return selectedImageModel
+      case 'music':
+        return selectedMusicModel
+      case 'upscale':
+        return selectedUpscaleModel
+      default:
+        return undefined
+    }
+  }, [mode, selectedVideoModel, selectedImageModel, selectedMusicModel, selectedUpscaleModel])
+
+  const currentModelName = currentModelRuntime?.model || ''
+  const currentModelDisplayName = currentModelRuntime?.display_name || currentModelName || t('Model Seç')
 
   useEffect(() => {
     if (selectedImageModel && selectedImageModel.model !== imageModel) {
@@ -331,6 +368,18 @@ export function Studio() {
       setVideoQuality('')
     }
   }, [selectedVideoModel, videoModel])
+
+  useEffect(() => {
+    if (selectedMusicModel && selectedMusicModel.model !== musicModel) {
+      setMusicModel(selectedMusicModel.model)
+    }
+  }, [selectedMusicModel, musicModel])
+
+  useEffect(() => {
+    if (selectedUpscaleModel && selectedUpscaleModel.model !== upscaleModel) {
+      setUpscaleModel(selectedUpscaleModel.model)
+    }
+  }, [selectedUpscaleModel, upscaleModel])
 
   const imageSizes = selectedImageModel?.sizes?.length
     ? selectedImageModel.sizes
@@ -382,21 +431,19 @@ export function Studio() {
   const canGenerate =
     prompt.trim().length > 0 &&
     !isGenerating &&
-    (mode === 'image'
-      ? runtime.image.enabled && Boolean(selectedImageModel)
-      : runtime.video.enabled && Boolean(selectedVideoModel))
+    Boolean(currentModelName)
 
   const handleGenerate = () => {
     if (!canGenerate) return
     const text = prompt.trim()
 
-    if (mode === 'image') {
+    if (mode === 'image' || mode === 'upscale') {
       void generateImage({
         prompt: text,
-        model: selectedImageModel?.model ?? '',
+        model: currentModelName,
         group: user?.group,
-        size,
-        quality,
+        size: mode === 'image' ? size : undefined,
+        quality: mode === 'image' ? quality : undefined,
         count: imageCount,
       })
       return
@@ -404,11 +451,11 @@ export function Studio() {
 
     void generateVideo({
       prompt: text,
-      model: selectedVideoModel?.model ?? '',
+      model: currentModelName,
       group: user?.group,
-      duration,
-      ratio,
-      quality: videoQualityValue,
+      duration: mode === 'video' ? duration : undefined,
+      ratio: mode === 'video' ? ratio : undefined,
+      quality: mode === 'video' ? videoQualityValue : undefined,
       imageUrl: referenceImage || undefined,
     })
   }
@@ -487,18 +534,18 @@ export function Studio() {
           {latestItem ? (
             <div className='space-y-6'>
               {/* Active / Latest Generation Display */}
-              <div className='relative overflow-hidden rounded-3xl border border-border/80 bg-card shadow-sm'>
-                <div className='relative flex min-h-[340px] max-h-[540px] items-center justify-center overflow-hidden bg-muted/20'>
+              <div className='relative mx-auto w-full max-w-2xl overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm'>
+                <div className='relative flex min-h-[200px] max-h-[360px] items-center justify-center overflow-hidden bg-muted/20'>
                   {latestItem.status === 'pending' && (
-                    <div className='flex flex-col items-center justify-center gap-4 p-8 text-center'>
-                      <Loader2Icon className='size-8 animate-spin text-muted-foreground' />
-                      <div className='space-y-1.5'>
+                    <div className='flex flex-col items-center justify-center gap-3 p-6 text-center'>
+                      <Loader2Icon className='size-7 animate-spin text-muted-foreground' />
+                      <div className='space-y-1'>
                         <p className='text-sm font-medium'>
                           {latestItem.mode === 'video'
                             ? t('Video üretiliyor...')
                             : t('Görsel üretiliyor...')}
                         </p>
-                        <p className='line-clamp-2 max-w-md text-xs text-muted-foreground'>
+                        <p className='line-clamp-2 max-w-sm text-xs text-muted-foreground'>
                           &ldquo;{latestItem.prompt}&rdquo;
                         </p>
                       </div>
@@ -518,7 +565,7 @@ export function Studio() {
                           onClick={stop}
                           size='sm'
                           variant='outline'
-                          className='mt-2 h-7 rounded-lg text-xs'
+                          className='mt-1 h-7 rounded-lg text-xs'
                         >
                           {t('Durdur')}
                         </Button>
@@ -527,11 +574,11 @@ export function Studio() {
                   )}
 
                   {latestItem.status === 'error' && (
-                    <div className='flex flex-col items-center gap-3 p-8 text-center text-destructive'>
-                      <span className='flex size-10 items-center justify-center rounded-full bg-destructive/10 text-sm font-bold'>
+                    <div className='flex flex-col items-center gap-2 p-6 text-center text-destructive'>
+                      <span className='flex size-8 items-center justify-center rounded-full bg-destructive/10 text-xs font-bold'>
                         !
                       </span>
-                      <p className='text-sm font-medium'>
+                      <p className='text-xs font-medium'>
                         {latestItem.error || t('Üretim başarısız oldu')}
                       </p>
                     </div>
@@ -542,7 +589,7 @@ export function Studio() {
                       latestItem.mode === 'video' ? (
                         <video
                           autoPlay
-                          className='max-h-[540px] w-full rounded-2xl object-contain bg-black'
+                          className='max-h-[360px] w-full object-contain bg-black'
                           controls
                           key={url}
                           loop
@@ -552,7 +599,7 @@ export function Studio() {
                       ) : (
                         <img
                           alt={latestItem.prompt}
-                          className='max-h-[540px] w-full rounded-2xl object-contain'
+                          className='max-h-[360px] w-full object-contain'
                           key={url}
                           src={url}
                         />
@@ -561,25 +608,24 @@ export function Studio() {
                 </div>
 
                 {/* Metadata & Download Bar */}
-                <div className='flex flex-wrap items-center justify-between gap-3 border-t border-border/60 bg-card/90 p-4'>
+                <div className='flex flex-wrap items-center justify-between gap-3 border-t border-border/60 bg-card p-3'>
                   <div className='min-w-0 flex-1 space-y-1'>
-                    <p className='truncate text-sm font-medium leading-relaxed'>
+                    <p className='truncate text-xs font-medium leading-relaxed'>
                       {latestItem.prompt}
                     </p>
                     <SettingsChips settings={latestItem.settings} />
                   </div>
                   {latestItem.status === 'ready' && latestItem.urls[0] && (
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      className='h-8 rounded-xl text-xs'
-                      render={
-                        <a download href={latestItem.urls[0]} rel='noreferrer' target='_blank'>
-                          <DownloadIcon className='mr-1.5 size-3.5' />
-                          {t('İndir')}
-                        </a>
-                      }
-                    />
+                    <a
+                      download
+                      href={latestItem.urls[0]}
+                      rel='noreferrer'
+                      target='_blank'
+                      className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs'
+                    >
+                      <DownloadIcon className='size-3.5' />
+                      {t('İndir')}
+                    </a>
                   )}
                 </div>
               </div>
@@ -649,14 +695,16 @@ export function Studio() {
             )}
 
             {/* Prompt Textarea */}
-            <Textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={t('Ne oluşturmak istiyorsunuz?')}
-              className='min-h-[44px] max-h-[140px] resize-none border-0 bg-transparent p-0 text-sm focus-visible:ring-0 leading-relaxed placeholder:text-muted-foreground/50'
-              rows={1}
-            />
+            <div className='w-full px-2 py-1'>
+              <Textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={t('Ne oluşturmak istiyorsunuz?')}
+                className='min-h-[48px] max-h-[140px] resize-none border-0 bg-transparent px-2 py-1 text-sm focus-visible:ring-0 leading-relaxed placeholder:text-muted-foreground/50'
+                rows={1}
+              />
+            </div>
 
             {/* Controls Row */}
             <div className='mt-2.5 flex items-center justify-between gap-2 pt-1 border-t border-border/30'>
@@ -677,21 +725,6 @@ export function Studio() {
                     onChange={(e) => handleReferenceFile(e.target.files?.[0])}
                   />
                 </label>
-
-                {/* Ajan (Agent) Toggle Pill */}
-                <button
-                  type='button'
-                  onClick={() => setIsAgentActive(!isAgentActive)}
-                  className={cn(
-                    'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition border',
-                    isAgentActive
-                      ? 'bg-blue-600/15 border-blue-500/30 text-blue-500'
-                      : 'bg-muted/60 border-border/40 text-muted-foreground hover:bg-muted hover:text-foreground'
-                  )}
-                >
-                  <SparklesIcon className='size-3' />
-                  <span>{t('Ajan')}</span>
-                </button>
               </div>
 
               {/* Right Controls: Model Pill & Send Arrow */}
@@ -701,11 +734,8 @@ export function Studio() {
                   <PopoverTrigger
                     className='inline-flex h-8 items-center gap-1.5 rounded-full bg-muted/70 hover:bg-muted border border-border/50 px-3 text-xs font-medium text-foreground transition'
                   >
-                    <span className='text-amber-500'>✨</span>
-                    <span className='max-w-[130px] truncate'>
-                      {mode === 'video'
-                        ? selectedVideoModel?.model || t('Model Seç')
-                        : selectedImageModel?.model || t('Model Seç')}
+                    <span className='max-w-[150px] truncate'>
+                      {currentModelDisplayName}
                     </span>
                     {mode === 'video' && ratio && (
                       <>
@@ -736,96 +766,112 @@ export function Studio() {
                   <PopoverContent
                     align='end'
                     side='top'
-                    className='w-80 space-y-3.5 rounded-2xl border bg-card p-4 shadow-xl backdrop-blur-md'
+                    className='w-72 space-y-2.5 rounded-xl border bg-card p-3 shadow-lg backdrop-blur-md'
                   >
-                    {/* Mode selection (Only show Görsel if runtime.image.enabled is true) */}
-                    {runtime.image.enabled && (
-                      <div className='space-y-1.5'>
-                        <Label className='text-xs text-muted-foreground'>{t('Tür')}</Label>
-                        <div className='grid grid-cols-2 gap-1 rounded-xl bg-muted/60 p-1 border'>
+                    {/* Mode selection tabs */}
+                    <div className='space-y-1'>
+                      <Label className='text-[11px] text-muted-foreground'>{t('Tür')}</Label>
+                      <div className='flex flex-wrap gap-1 rounded-lg bg-muted/60 p-1 border'>
+                        {runtime.video.enabled && (
                           <button
                             type='button'
                             onClick={() => setMode('video')}
                             className={cn(
-                              'inline-flex h-7 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition',
+                              'flex-1 h-6 px-2 inline-flex items-center justify-center gap-1 rounded-md text-[11px] font-medium transition',
                               mode === 'video'
                                 ? 'bg-background text-foreground shadow-xs'
                                 : 'text-muted-foreground hover:text-foreground'
                             )}
                           >
-                            <VideoIcon className='size-3.5' />
+                            <VideoIcon className='size-3' />
                             {t('Video')}
                           </button>
+                        )}
+                        {runtime.image.enabled && (
                           <button
                             type='button'
                             onClick={() => setMode('image')}
                             className={cn(
-                              'inline-flex h-7 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition',
+                              'flex-1 h-6 px-2 inline-flex items-center justify-center gap-1 rounded-md text-[11px] font-medium transition',
                               mode === 'image'
                                 ? 'bg-background text-foreground shadow-xs'
                                 : 'text-muted-foreground hover:text-foreground'
                             )}
                           >
-                            <ImageIcon className='size-3.5' />
+                            <ImageIcon className='size-3' />
                             {t('Görsel')}
                           </button>
-                        </div>
+                        )}
+                        {runtime.music?.enabled && (
+                          <button
+                            type='button'
+                            onClick={() => setMode('music')}
+                            className={cn(
+                              'flex-1 h-6 px-2 inline-flex items-center justify-center gap-1 rounded-md text-[11px] font-medium transition',
+                              mode === 'music'
+                                ? 'bg-background text-foreground shadow-xs'
+                                : 'text-muted-foreground hover:text-foreground'
+                            )}
+                          >
+                            {t('Müzik')}
+                          </button>
+                        )}
+                        {runtime.upscale?.enabled && (
+                          <button
+                            type='button'
+                            onClick={() => setMode('upscale')}
+                            className={cn(
+                              'flex-1 h-6 px-2 inline-flex items-center justify-center gap-1 rounded-md text-[11px] font-medium transition',
+                              mode === 'upscale'
+                                ? 'bg-background text-foreground shadow-xs'
+                                : 'text-muted-foreground hover:text-foreground'
+                            )}
+                          >
+                            {t('Upscale')}
+                          </button>
+                        )}
                       </div>
-                    )}
+                    </div>
 
                     {/* Model select */}
-                    <div className='space-y-1.5'>
-                      <Label className='text-xs text-muted-foreground'>{t('Model')}</Label>
-                      {mode === 'video' ? (
-                        <Select
-                          onValueChange={(val) => {
-                            setVideoModel(String(val))
-                            setVideoDuration('')
-                            setVideoRatio('')
-                            setVideoQuality('')
-                          }}
-                          value={selectedVideoModel?.model ?? ''}
-                        >
-                          <SelectTrigger className='h-8 text-xs rounded-lg'>
-                            <SelectValue placeholder={t('Model Seç')} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {videoModels.map((m) => (
-                              <SelectItem key={m.model} value={m.model} className='text-xs'>
-                                {m.model}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <Select
-                          onValueChange={(val) => {
-                            setImageModel(String(val))
-                            setImageSize('')
-                            setImageQuality('')
-                          }}
-                          value={selectedImageModel?.model ?? ''}
-                        >
-                          <SelectTrigger className='h-8 text-xs rounded-lg'>
-                            <SelectValue placeholder={t('Model Seç')} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {imageModels.map((m) => (
-                              <SelectItem key={m.model} value={m.model} className='text-xs'>
-                                {m.model}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
+                    <div className='space-y-1'>
+                      <Label className='text-[11px] text-muted-foreground'>{t('Model')}</Label>
+                      <Select
+                        onValueChange={(val) => {
+                          const v = String(val)
+                          if (mode === 'video') setVideoModel(v)
+                          else if (mode === 'image') setImageModel(v)
+                          else if (mode === 'music') setMusicModel(v)
+                          else if (mode === 'upscale') setUpscaleModel(v)
+                        }}
+                        value={currentModelName}
+                      >
+                        <SelectTrigger className='h-7 text-xs rounded-md'>
+                          <SelectValue placeholder={t('Model Seç')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(mode === 'video'
+                            ? videoModels
+                            : mode === 'image'
+                              ? imageModels
+                              : mode === 'music'
+                                ? musicModels
+                                : upscaleModels
+                          ).map((m) => (
+                            <SelectItem key={m.model} value={m.model} className='text-xs'>
+                              {m.display_name || m.model}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
 
                     {/* Video parameters */}
                     {mode === 'video' && (
-                      <div className='grid grid-cols-3 gap-2'>
+                      <div className='grid grid-cols-3 gap-1.5 pt-0.5'>
                         {videoRatios.length > 0 && (
-                          <div className='space-y-1'>
-                            <Label className='text-[11px] text-muted-foreground'>{t('Oran')}</Label>
+                          <div className='space-y-0.5'>
+                            <Label className='text-[10px] text-muted-foreground'>{t('Oran')}</Label>
                             <Select onValueChange={(val) => setVideoRatio(val ?? '')} value={ratio}>
                               <SelectTrigger className='h-7 text-xs rounded-md'>
                                 <SelectValue />
@@ -841,8 +887,8 @@ export function Studio() {
                           </div>
                         )}
                         {videoDurations.length > 0 && (
-                          <div className='space-y-1'>
-                            <Label className='text-[11px] text-muted-foreground'>{t('Süre')}</Label>
+                          <div className='space-y-0.5'>
+                            <Label className='text-[10px] text-muted-foreground'>{t('Süre')}</Label>
                             <Select onValueChange={(val) => setVideoDuration(val ?? '')} value={String(duration)}>
                               <SelectTrigger className='h-7 text-xs rounded-md'>
                                 <SelectValue />
@@ -858,8 +904,8 @@ export function Studio() {
                           </div>
                         )}
                         {videoQualities.length > 0 && (
-                          <div className='space-y-1'>
-                            <Label className='text-[11px] text-muted-foreground'>{t('Kalite')}</Label>
+                          <div className='space-y-0.5'>
+                            <Label className='text-[10px] text-muted-foreground'>{t('Kalite')}</Label>
                             <Select onValueChange={(val) => setVideoQuality(val ?? '')} value={videoQualityValue}>
                               <SelectTrigger className='h-7 text-xs rounded-md'>
                                 <SelectValue />
@@ -879,10 +925,10 @@ export function Studio() {
 
                     {/* Image parameters */}
                     {mode === 'image' && (
-                      <div className='grid grid-cols-2 gap-2'>
+                      <div className='grid grid-cols-2 gap-1.5 pt-0.5'>
                         {imageSizes.length > 0 && (
-                          <div className='space-y-1'>
-                            <Label className='text-[11px] text-muted-foreground'>{t('Boyut')}</Label>
+                          <div className='space-y-0.5'>
+                            <Label className='text-[10px] text-muted-foreground'>{t('Boyut')}</Label>
                             <Select onValueChange={(val) => setImageSize(val ?? '')} value={size}>
                               <SelectTrigger className='h-7 text-xs rounded-md'>
                                 <SelectValue />
@@ -898,8 +944,8 @@ export function Studio() {
                           </div>
                         )}
                         {imageQualities.length > 0 && (
-                          <div className='space-y-1'>
-                            <Label className='text-[11px] text-muted-foreground'>{t('Kalite')}</Label>
+                          <div className='space-y-0.5'>
+                            <Label className='text-[10px] text-muted-foreground'>{t('Kalite')}</Label>
                             <Select onValueChange={(val) => setImageQuality(val ?? '')} value={quality}>
                               <SelectTrigger className='h-7 text-xs rounded-md'>
                                 <SelectValue />

@@ -158,27 +158,25 @@ export function MaintenanceModeSection({
             control={form.control}
             name='maintenanceModeEnabled'
             render={({ field }) => (
-              <FormItem>
-                <SettingsSwitchItem>
-                  <SettingsSwitchContent>
-                    <FormLabel className='text-sm font-semibold'>
-                      {t('Enable maintenance mode')}
-                    </FormLabel>
-                    <FormDescription>
-                      {t(
-                        'Blocks every visitor with a maintenance screen and answers API calls with 503. Admins can still sign in to disable it.',
-                      )}
-                    </FormDescription>
-                  </SettingsSwitchContent>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </SettingsSwitchItem>
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>
+                    {t('Enable maintenance mode')}
+                  </FormLabel>
+                  <FormDescription>
+                    {t(
+                      'Blocks every visitor with a maintenance screen and answers API calls with 503. Admins can still sign in to disable it.',
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
                 <FormMessage />
-              </FormItem>
+              </SettingsSwitchItem>
             )}
           />
 

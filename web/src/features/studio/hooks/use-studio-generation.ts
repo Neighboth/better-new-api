@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { nanoid } from 'nanoid'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { toGeneratedImageAttachments } from '@/features/playground/lib/message/image-message-utils'
 import { parseRequestErrorDetails } from '@/features/playground/lib/streaming/request-error-utils'
@@ -54,10 +54,27 @@ function errorMessageOf(error: unknown): string {
   return errorMessage || 'The generation failed'
 }
 
+const STORAGE_KEY = 'better_studio_generations'
+
 export function useStudioGeneration() {
-  const [items, setItems] = useState<StudioItem[]>([])
+  const [items, setItems] = useState<StudioItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
   const [isGenerating, setIsGenerating] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
+    } catch {
+      // ignore storage error
+    }
+  }, [items])
 
   const patchItem = useCallback((id: string, patch: Partial<StudioItem>) => {
     setItems((prev) =>
