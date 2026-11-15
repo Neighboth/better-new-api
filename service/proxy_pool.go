@@ -124,6 +124,103 @@ func EffectiveRelayProxyURL(channelId, keyIndex int, keyString string, channelPr
 	return channelProxy
 }
 
+var (
+	proxy429Cooldown   sync.Map // string -> time.Time
+	anonChannelCounter sync.Map // int -> uint64
+)
+
+// RecordProxyRateLimited places a proxy on a short 60s cooldown following a 429 response.
+func RecordProxyRateLimited(proxyURL string) {
+	trimmed := strings.TrimSpace(proxyURL)
+	if trimmed == "" {
+		return
+	}
+	proxy429Cooldown.Store(trimmed, time.Now().Add(60*time.Second))
+}
+
+// IsProxyRateLimited checks whether a proxy is currently within its 429 cooldown period.
+func IsProxyRateLimited(proxyURL string) bool {
+	trimmed := strings.TrimSpace(proxyURL)
+	if trimmed == "" {
+		return false
+	}
+	val, ok := proxy429Cooldown.Load(trimmed)
+	if !ok {
+		return false
+	}
+	expiresAt, ok := val.(time.Time)
+	if !ok || time.Now().After(expiresAt) {
+		proxy429Cooldown.Delete(trimmed)
+		return false
+	}
+	return true
+}
+
+// GetProxiesForChannel returns all configured proxy URLs for a channel from the proxy pool.
+// If no explicit assignments exist, it falls back to all enabled proxies in the pool.
+func GetProxiesForChannel(channelId int) []string {
+	urlMap, enabled := loadProxyPoolData()
+	var assignedURLs []string
+	if channelKeys, ok := urlMap[channelId]; ok && len(channelKeys) > 0 {
+		seen := make(map[string]bool, len(channelKeys))
+		for _, u := range channelKeys {
+			u = strings.TrimSpace(u)
+			if u != "" && !seen[u] {
+				seen[u] = true
+				assignedURLs = append(assignedURLs, u)
+			}
+		}
+	}
+	if len(assignedURLs) > 0 {
+		return assignedURLs
+	}
+	// Fallback to all enabled proxies
+	fallback := make([]string, 0, len(enabled))
+	for _, p := range enabled {
+		if strings.TrimSpace(p.URL) != "" {
+			fallback = append(fallback, strings.TrimSpace(p.URL))
+		}
+	}
+	return fallback
+}
+
+// GetNextProxyForAnonChannel selects the next healthy proxy for an anonymous channel
+// (such as OpenCode or Kilo Code). It filters out currentProxy and proxies in 429 cooldown.
+func GetNextProxyForAnonChannel(channelId int, currentProxy string) string {
+	candidates := GetProxiesForChannel(channelId)
+	if len(candidates) == 0 {
+		return currentProxy
+	}
+
+	trimmedCurrent := strings.TrimSpace(currentProxy)
+
+	// Filter out current proxy and proxies on cooldown
+	var healthy []string
+	for _, p := range candidates {
+		if p == trimmedCurrent {
+			continue
+		}
+		if !IsProxyRateLimited(p) {
+			healthy = append(healthy, p)
+		}
+	}
+
+	if len(healthy) > 0 {
+		val, _ := anonChannelCounter.LoadOrStore(channelId, uint64(0))
+		idx := val.(uint64)
+		anonChannelCounter.Store(channelId, idx+1)
+		return healthy[idx%uint64(len(healthy))]
+	}
+
+	for _, p := range candidates {
+		if p != trimmedCurrent {
+			return p
+		}
+	}
+
+	return candidates[0]
+}
+
 // IsCloudflareWorkerProxy reports whether a proxy URL represents a Cloudflare Worker
 // proxy that expects requests via X-Target-URL rather than HTTP CONNECT tunneling.
 func IsCloudflareWorkerProxy(proxyURL string) bool {
@@ -175,10 +272,6 @@ func TestProxyEgress(rawProxyURL string) (string, int64, error) {
 		resp, err := client.Do(req)
 		latency := time.Since(started).Milliseconds()
 		if err != nil {
-			errStr := err.Error()
-			if strings.Contains(errStr, "tls:") || strings.Contains(errStr, "handshake") || strings.Contains(workerURL, "workers.dev") {
-				return "", latency, fmt.Errorf("workers.dev alan adı servis sağlayıcınız tarafından engelleniyor (Türk Telekom/BTK). Lütfen Cloudflare panelinden Worker'ınıza özel alan adı (Custom Domain, örn: https://proxy.siteniz.com) ekleyerek bu adresi giriniz. Detay: %v", err)
-			}
 			return "", latency, err
 		}
 		defer resp.Body.Close()
@@ -187,9 +280,6 @@ func TestProxyEgress(rawProxyURL string) (string, int64, error) {
 			return "", latency, err
 		}
 		bodyStr := string(body)
-		if resp.StatusCode == http.StatusTemporaryRedirect || resp.StatusCode == http.StatusMovedPermanently || strings.Contains(bodyStr, "guvenliinternet.turktelekom.com.tr") {
-			return "", latency, fmt.Errorf("workers.dev alan adı servis sağlayıcınız tarafından engelleniyor (Türk Telekom/BTK). Lütfen Cloudflare panelinden Worker'ınıza özel alan adı (Custom Domain, örn: https://proxy.siteniz.com) ekleyerek bu adresi giriniz")
-		}
 		if resp.StatusCode != http.StatusOK {
 			return "", latency, fmt.Errorf("worker status %d: %s", resp.StatusCode, bodyStr)
 		}
@@ -224,10 +314,6 @@ func TestProxyEgress(rawProxyURL string) (string, int64, error) {
 	resp, err := client.Do(req)
 	latency := time.Since(started).Milliseconds()
 	if err != nil {
-		errStr := err.Error()
-		if (strings.Contains(errStr, "tls:") || strings.Contains(errStr, "handshake")) && strings.Contains(rawProxyURL, "workers.dev") {
-			return "", latency, fmt.Errorf("workers.dev alan adı servis sağlayıcınız tarafından engelleniyor (Türk Telekom/BTK). Lütfen Cloudflare panelinden Worker'ınıza özel alan adı (Custom Domain, örn: https://proxy.siteniz.com) ekleyerek bu adresi giriniz. Detay: %v", err)
-		}
 		return "", latency, err
 	}
 	defer resp.Body.Close()

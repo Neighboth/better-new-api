@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 
@@ -290,8 +291,9 @@ func AutoAssignProxyPool(c *gin.Context) {
 		return
 	}
 	keyLines := splitKeyLines(ch.Key)
-	if !ch.ChannelInfo.IsMultiKey || len(keyLines) == 0 {
-		common.ApiErrorMsg(c, "channel is not a multi-key channel")
+	isAnon := ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon
+	if (!ch.ChannelInfo.IsMultiKey && !isAnon) || (len(keyLines) == 0 && !isAnon) {
+		common.ApiErrorMsg(c, "channel is not a multi-key or pool channel")
 		return
 	}
 	proxies, err := model.ListProxyPoolProxies()
@@ -309,7 +311,16 @@ func AutoAssignProxyPool(c *gin.Context) {
 		common.ApiErrorMsg(c, "no enabled proxy in the pool")
 		return
 	}
-	mapping := fairAssignKeysToProxies(req.ChannelId, len(keyLines), enabled)
+	var mapping map[int]int
+	if isAnon {
+		// Anonymous channels can bind unlimited proxies across the pool
+		mapping = make(map[int]int, len(enabled))
+		for i, p := range enabled {
+			mapping[i] = p.Id
+		}
+	} else {
+		mapping = fairAssignKeysToProxies(req.ChannelId, len(keyLines), enabled)
+	}
 	if err := model.ReplaceProxyPoolAssignments(req.ChannelId, mapping); err != nil {
 		common.ApiError(c, err)
 		return

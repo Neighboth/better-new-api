@@ -247,7 +247,15 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 		}
 	} else {
 		if !hasAuthOverride {
-			header.Set("Authorization", "Bearer "+info.ApiKey)
+			isAnon := info.ChannelType == constant.ChannelTypeOpenCode || info.ChannelType == constant.ChannelTypeKiloCodeAnon
+			if isAnon {
+				key := strings.TrimSpace(info.ApiKey)
+				if key != "" && key != "default" && key != "local" {
+					header.Set("Authorization", "Bearer "+key)
+				}
+			} else {
+				header.Set("Authorization", "Bearer "+info.ApiKey)
+			}
 		}
 	}
 	if info.ChannelType == constant.ChannelTypeOpenRouter {

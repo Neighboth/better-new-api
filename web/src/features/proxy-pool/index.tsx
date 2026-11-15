@@ -830,7 +830,7 @@ export function ProxyPool() {
                       id='proxy-url'
                       value={form.url}
                       onChange={(event) => setForm({ ...form, url: event.target.value })}
-                      placeholder='http://user:password@host:port'
+                      placeholder='http://user:password@host:port, [ipv6]:port or socks5://...'
                       autoComplete='off'
                       spellCheck={false}
                     />
@@ -948,7 +948,7 @@ export function ProxyPool() {
                   id='proxy-url'
                   value={form.url}
                   onChange={(event) => setForm({ ...form, url: event.target.value })}
-                  placeholder='http://user:password@host:port'
+                  placeholder='http://user:password@host:port, [ipv6]:port or socks5://...'
                   autoComplete='off'
                   spellCheck={false}
                 />

@@ -508,8 +508,8 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 	// 如果是添加操作，检查 channel 和 key 是否为空
 	if isAdd {
 		if channel.Key == "" {
-			if channel.Type == constant.ChannelTypeOpenCode {
-				channel.Key = "local"
+			if channel.Type == constant.ChannelTypeOpenCode || channel.Type == constant.ChannelTypeKiloCodeAnon {
+				channel.Key = "default"
 			} else {
 				return fmt.Errorf("channel key cannot be empty")
 			}
@@ -1520,12 +1520,13 @@ func CopyChannel(c *gin.Context) {
 
 // MultiKeyManageRequest represents the request for multi-key management operations
 type MultiKeyManageRequest struct {
-	ChannelId int    `json:"channel_id"`
-	Action    string `json:"action"`              // "disable_key", "enable_key", "delete_key", "delete_disabled_keys", "get_key_status"
-	KeyIndex  *int   `json:"key_index,omitempty"` // for disable_key, enable_key, and delete_key actions
-	Page      int    `json:"page,omitempty"`      // for get_key_status pagination
-	PageSize  int    `json:"page_size,omitempty"` // for get_key_status pagination
-	Status    *int   `json:"status,omitempty"`    // for get_key_status filtering: 1=enabled, 2=manual_disabled, 3=auto_disabled, nil=all
+	ChannelId  int    `json:"channel_id"`
+	Action     string `json:"action"`              // "disable_key", "enable_key", "delete_key", "delete_keys", "delete_disabled_keys", "get_key_status"
+	KeyIndex   *int   `json:"key_index,omitempty"` // for disable_key, enable_key, and delete_key actions
+	KeyIndices []int  `json:"key_indices,omitempty"` // for delete_keys action
+	Page       int    `json:"page,omitempty"`      // for get_key_status pagination
+	PageSize   int    `json:"page_size,omitempty"` // for get_key_status pagination
+	Status     *int   `json:"status,omitempty"`    // for get_key_status filtering: 1=enabled, 2=manual_disabled, 3=auto_disabled, nil=all
 }
 
 // MultiKeyStatusResponse represents the response for key status query
@@ -1945,6 +1946,76 @@ func ManageMultiKeys(c *gin.Context) {
 		})
 		return
 
+	case "delete_keys":
+		if len(request.KeyIndices) == 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "未指定要删除的密钥索引列表",
+			})
+			return
+		}
+		toDelete := make(map[int]bool, len(request.KeyIndices))
+		for _, idx := range request.KeyIndices {
+			toDelete[idx] = true
+		}
+		keys := channel.GetKeys()
+		var remainingKeys []string
+		newIndex := 0
+		newStatusList := make(map[int]int)
+		newDisabledTime := make(map[int]int64)
+		newDisabledReason := make(map[int]string)
+
+		for i, key := range keys {
+			if toDelete[i] {
+				continue
+			}
+			remainingKeys = append(remainingKeys, key)
+			if channel.ChannelInfo.MultiKeyStatusList != nil {
+				if status, exists := channel.ChannelInfo.MultiKeyStatusList[i]; exists && status != 1 {
+					newStatusList[newIndex] = status
+				}
+			}
+			if channel.ChannelInfo.MultiKeyDisabledTime != nil {
+				if t, exists := channel.ChannelInfo.MultiKeyDisabledTime[i]; exists {
+					newDisabledTime[newIndex] = t
+				}
+			}
+			if channel.ChannelInfo.MultiKeyDisabledReason != nil {
+				if r, exists := channel.ChannelInfo.MultiKeyDisabledReason[i]; exists {
+					newDisabledReason[newIndex] = r
+				}
+			}
+			newIndex++
+		}
+
+		if len(remainingKeys) == 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "不能删除所有密钥，请保留至少一个密钥",
+			})
+			return
+		}
+
+		channel.Key = strings.Join(remainingKeys, "\n")
+		channel.ChannelInfo.MultiKeySize = len(remainingKeys)
+		channel.ChannelInfo.MultiKeyStatusList = newStatusList
+		channel.ChannelInfo.MultiKeyDisabledTime = newDisabledTime
+		channel.ChannelInfo.MultiKeyDisabledReason = newDisabledReason
+
+		err = channel.Update()
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+
+		model.InitChannelCache()
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": fmt.Sprintf("已成功删除 %d 个密钥", len(keys)-len(remainingKeys)),
+			"data":    len(remainingKeys),
+		})
+		return
+
 	case "delete_disabled_keys":
 		keys := channel.GetKeys()
 		var remainingKeys []string
@@ -2024,7 +2095,7 @@ func ManageMultiKeys(c *gin.Context) {
 }
 
 func multiKeyActionRequiresSensitiveWrite(action string) bool {
-	return action == "delete_key" || action == "delete_disabled_keys"
+	return action == "delete_key" || action == "delete_keys" || action == "delete_disabled_keys"
 }
 
 // OllamaPullModel 拉取 Ollama 模型

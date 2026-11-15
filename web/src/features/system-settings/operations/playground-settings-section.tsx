@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import { MultiSelect } from '@/components/multi-select'
 import { getAllModels } from '@/features/channels/api'
 
@@ -62,6 +63,9 @@ export type PlaygroundSettingsDefaults = {
   upscaleEnabled?: boolean
   upscaleModels?: MediaModelConfig[]
   studioEnabled?: boolean
+  promptOptimizerEnabled?: boolean
+  promptOptimizerModel?: string
+  promptOptimizerSystemPrompt?: string
   imageDefaultCount?: number
   imageModel?: string
   imageSizes?: string
@@ -423,6 +427,16 @@ export function PlaygroundSettingsSection({
   const [videoModels, setVideoModels] = useState<MediaModelConfig[]>(
     normalizeVideoModels(defaultValues)
   )
+  const [promptOptimizerEnabled, setPromptOptimizerEnabled] = useState<boolean>(
+    defaultValues.promptOptimizerEnabled ?? false
+  )
+  const [promptOptimizerModel, setPromptOptimizerModel] = useState<string>(
+    defaultValues.promptOptimizerModel ?? ''
+  )
+  const [promptOptimizerSystemPrompt, setPromptOptimizerSystemPrompt] = useState<string>(
+    defaultValues.promptOptimizerSystemPrompt ??
+      'You are a professional video generation prompt optimizer and safety enhancer. Rewrite the given prompt into safe, detailed, cinematic English that generative video AI models accept without content violations. Describe camera movement, lighting, visual details, and style cleanly and vividly. CRITICAL REQUIREMENT: If the prompt contains any dialogue, spoken quotes, or speech lines, DO NOT translate the spoken dialogue — keep all spoken words/quotes in Turkish exactly as written. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes around the prompt.'
+  )
 
   // Whole-page JSON mode: the same options, edited as one document.
   const [jsonMode, setJsonMode] = useState(false)
@@ -439,6 +453,9 @@ export function PlaygroundSettingsSection({
     upscale_enabled: upscaleEnabled,
     upscale_models: upscaleModels.filter((model) => model.model.trim() !== ''),
     studio_enabled: studioEnabled,
+    prompt_optimizer_enabled: promptOptimizerEnabled,
+    prompt_optimizer_model: promptOptimizerModel,
+    prompt_optimizer_system_prompt: promptOptimizerSystemPrompt,
     image_model: imageModels[0]?.model ?? '',
     video_model: videoModels[0]?.model ?? '',
   })
@@ -520,6 +537,9 @@ export function PlaygroundSettingsSection({
           upscaleModels.filter((model) => model.model.trim() !== '')
         ),
         'playground_setting.studio_enabled': String(studioEnabled),
+        'playground_setting.prompt_optimizer_enabled': String(promptOptimizerEnabled),
+        'playground_setting.prompt_optimizer_model': promptOptimizerModel,
+        'playground_setting.prompt_optimizer_system_prompt': promptOptimizerSystemPrompt,
         // The per-model list replaces the single-model fields; keep them in
         // sync so older clients and the playground tool still work.
         'playground_setting.image_model': imageModels[0]?.model ?? '',
@@ -726,6 +746,55 @@ export function PlaygroundSettingsSection({
               </Button>
             </div>
           )}
+
+          <div className='border border-border rounded-xl p-4 bg-card/50 space-y-4 shadow-xs'>
+            <SettingsSwitchRow>
+              <SettingsSwitchContent>
+                <Label className='text-sm font-medium'>{t('Video Prompt Optimizer')}</Label>
+                <SettingsDescription>
+                  {t('Automatically refines prompts into cinematic, safe English to prevent moderation/safety blocks, while preserving Turkish spoken dialogue.')}
+                </SettingsDescription>
+              </SettingsSwitchContent>
+              <Switch checked={promptOptimizerEnabled} onCheckedChange={setPromptOptimizerEnabled} />
+            </SettingsSwitchRow>
+
+            {promptOptimizerEnabled && (
+              <div className='space-y-3 pt-2 border-t border-border/40'>
+                <div className='space-y-1.5'>
+                  <Label className='text-xs font-medium'>{t('Refiner / Optimizer Model')}</Label>
+                  <Input
+                    className='font-mono text-xs'
+                    list='playground-optimizer-models'
+                    placeholder='gpt-4o-mini, gemini-2.5-flash...'
+                    value={promptOptimizerModel}
+                    onChange={(e) => setPromptOptimizerModel(e.target.value)}
+                  />
+                  <datalist id='playground-optimizer-models'>
+                    {modelOptions.map((model) => (
+                      <option key={model} value={model} />
+                    ))}
+                  </datalist>
+                  <p className='text-muted-foreground text-[11px]'>
+                    {t('Fast and capable chat model to rewrite video prompts before sending to video generators.')}
+                  </p>
+                </div>
+
+                <div className='space-y-1.5'>
+                  <Label className='text-xs font-medium'>{t('Optimizer System Prompt')}</Label>
+                  <Textarea
+                    rows={4}
+                    className='text-xs font-mono'
+                    value={promptOptimizerSystemPrompt}
+                    onChange={(e) => setPromptOptimizerSystemPrompt(e.target.value)}
+                    placeholder={t('System instructions for prompt rewriting...')}
+                  />
+                  <p className='text-muted-foreground text-[11px]'>
+                    {t('Instructs the model how to refine prompts. Quotes/dialogue in Turkish are kept intact.')}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
 
           <SettingsSwitchItem>
             <SettingsSwitchContent>

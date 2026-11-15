@@ -399,65 +399,96 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	}
 
 	if channel.Type == constant.ChannelTypeOpenCode {
-		opencodeBase := channel.GetBaseURL()
-		if opencodeBase == "" {
-			opencodeBase = "http://localhost:4096"
-		}
-		key := strings.TrimSpace(channel.Key)
 		reqHeaders := make(http.Header)
 		reqHeaders.Set("Accept", "application/json")
-		if key != "" && key != "local" {
+		key := strings.TrimSpace(channel.Key)
+		if key != "" && key != "local" && key != "default" {
 			reqHeaders.Set("Authorization", "Bearer "+key)
 		}
-		body, err := getFetchModelsResponseBody(http.MethodGet, opencodeBase+"/v1/models", channel, reqHeaders)
-		if err == nil {
+		urls := []string{
+			"https://opencode.ai/inference/v1/models",
+		}
+		if base := strings.TrimRight(channel.GetBaseURL(), "/"); base != "" && !strings.Contains(base, "localhost") {
+			urls = append([]string{base + "/v1/models", base + "/models"}, urls...)
+		}
+		for _, fetchURL := range urls {
+			body, err := getFetchModelsResponseBody(http.MethodGet, fetchURL, channel, reqHeaders)
+			if err != nil {
+				continue
+			}
 			var result OpenAIModelsResponse
 			if err := common.Unmarshal(body, &result); err == nil {
 				items := result.Data
 				if len(items) == 0 && len(result.Models) > 0 {
 					items = result.Models
 				}
-				if len(items) > 0 {
-					return normalizeModelNames(lo.Map(items, func(item OpenAIModel, _ int) string {
-						return item.ID
-					})), nil
-				}
-			}
-		}
-		// Also try GET /config/providers for native OpenCode server
-		body, err = getFetchModelsResponseBody(http.MethodGet, opencodeBase+"/config/providers", channel, reqHeaders)
-		if err == nil {
-			var provResult struct {
-				Providers []struct {
-					ID     string `json:"id"`
-					Models []struct {
-						ID string `json:"id"`
-					} `json:"models"`
-				} `json:"providers"`
-			}
-			if err := common.Unmarshal(body, &provResult); err == nil && len(provResult.Providers) > 0 {
-				var ids []string
-				for _, p := range provResult.Providers {
-					for _, m := range p.Models {
-						if m.ID != "" {
-							ids = append(ids, fmt.Sprintf("%s/%s", p.ID, m.ID))
-						}
+				var freeModels []string
+				for _, item := range items {
+					idLower := strings.ToLower(item.ID)
+					if strings.HasSuffix(idLower, "-free") {
+						freeModels = append(freeModels, item.ID)
 					}
 				}
-				if len(ids) > 0 {
-					return normalizeModelNames(ids), nil
+				if len(freeModels) > 0 {
+					return normalizeModelNames(freeModels), nil
 				}
 			}
 		}
 		return []string{
-			"opencode/grok-code",
-			"opencode/big-pickle",
-			"opencode/deepseek-v4.1",
-			"opencode/claude-3-7-sonnet",
-			"opencode/claude-3-5-sonnet",
-			"opencode/gpt-4o",
-			"opencode/codestral",
-			"opencode/qwen-2.5-coder-32b",
+			"mimo-v2.6-flash-free",
+			"deepseek-v4.1-flash-free",
+			"glm-5.3-flash-free",
+			"longcat-2.5-free",
+			"iceman-free",
+			"inkling-2-small-free",
+			"beam-free",
+			"flint-40b-free",
+			"nemotron-3.5-super-vl-free",
+			"nemotron-3.5-lightning-free",
+			"minimax-m3.1-flash-free",
+		}, nil
+	}
+
+	if channel.Type == constant.ChannelTypeKiloCodeAnon {
+		reqHeaders := make(http.Header)
+		reqHeaders.Set("Accept", "application/json")
+		fetchURL := "https://ai-gateway.kilo.ai/api/v1/models"
+		body, err := getFetchModelsResponseBody(http.MethodGet, fetchURL, channel, reqHeaders)
+		if err == nil {
+			var result struct {
+				Data []struct {
+					ID     string `json:"id"`
+					IsFree bool   `json:"isFree"`
+				} `json:"data"`
+			}
+			if err := common.Unmarshal(body, &result); err == nil {
+				var freeModels []string
+				for _, item := range result.Data {
+					idLower := strings.ToLower(item.ID)
+					if strings.HasSuffix(idLower, "free") || item.IsFree {
+						freeModels = append(freeModels, item.ID)
+					}
+				}
+				if len(freeModels) > 0 {
+					return normalizeModelNames(freeModels), nil
+				}
+			}
+		}
+		return []string{
+			"kilo-auto/free",
+			"nvidia/nemotron-3.5-super-vl:free",
+			"stealth/glyph-cluster",
+			"inclusionai/ling-3.2-flash:free",
+			"baidu/ernie-5.5-flash-preview:free",
+			"liquid/lfm-3-1.7b:free",
+			"particle-ai/particle-1:free",
+			"dots-studio/dots-3-note-preview:free",
+			"nvidia/nemotron-3.5-lightning:free",
+			"cohere/north-mini-code:free",
+			"nvidia/nemotron-3-ultra-550b-a55b:free",
+			"nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+			"openrouter/free",
+			"reflection/beam-free",
 		}, nil
 	}
 

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 
 	"gorm.io/gorm"
 )
@@ -268,8 +269,13 @@ func ListMultiKeyChannels() ([]MultiKeyChannelSummary, error) {
 	}
 	summaries := make([]MultiKeyChannelSummary, 0, len(channels))
 	for _, ch := range channels {
-		if !ch.ChannelInfo.IsMultiKey {
+		isPoolEligible := ch.ChannelInfo.IsMultiKey || ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon
+		if !isPoolEligible {
 			continue
+		}
+		keyCount := ch.ChannelInfo.MultiKeySize
+		if keyCount <= 0 {
+			keyCount = 1
 		}
 		summaries = append(summaries, MultiKeyChannelSummary{
 			Id:           ch.Id,
@@ -277,7 +283,7 @@ func ListMultiKeyChannels() ([]MultiKeyChannelSummary, error) {
 			Type:         ch.Type,
 			Status:       ch.Status,
 			Group:        ch.Group,
-			MultiKeySize: ch.ChannelInfo.MultiKeySize,
+			MultiKeySize: keyCount,
 		})
 	}
 	return summaries, nil

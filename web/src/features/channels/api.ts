@@ -33,6 +33,7 @@ import type {
   GetChannelResponse,
   GetChannelsParams,
   GetChannelsResponse,
+  KeyTestOutcome,
   MultiKeyManageParams,
   MultiKeyStatusResponse,
   SearchChannelsParams,
@@ -581,6 +582,34 @@ export async function deleteDisabledMultiKeys(
     channel_id: channelId,
     action: 'delete_disabled_keys',
   }) as Promise<{ success: boolean; message?: string; data?: number }>
+}
+
+/**
+ * Test all keys of a multi-key channel in parallel
+ */
+export async function testAllKeysOfChannel(
+  channelId: number
+): Promise<{ success: boolean; message?: string; data?: KeyTestOutcome[] }> {
+  const res = await api.post(
+    `/api/channel/${channelId}/test_all_keys`,
+    {},
+    channelActionConfig()
+  )
+  return res.data
+}
+
+/**
+ * Bulk delete specific keys by index
+ */
+export async function deleteMultiKeys(
+  channelId: number,
+  keyIndices: number[]
+): Promise<{ success: boolean; message?: string }> {
+  return manageMultiKeys({
+    channel_id: channelId,
+    action: 'delete_keys',
+    key_indices: keyIndices,
+  }) as Promise<{ success: boolean; message?: string }>
 }
 
 // ============================================================================

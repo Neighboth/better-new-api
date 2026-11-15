@@ -40,14 +40,57 @@ func NormalizeProxyLine(raw string) (string, error) {
 			user = userinfo
 		}
 
-		if colonIdx := strings.LastIndex(hostport, ":"); colonIdx != -1 {
+		if strings.HasPrefix(hostport, "[") {
+			closeBracket := strings.Index(hostport, "]")
+			if closeBracket == -1 {
+				return "", fmt.Errorf("invalid IPv6 address in proxy URL: missing closing bracket")
+			}
+			host = hostport[1:closeBracket]
+			after := hostport[closeBracket+1:]
+			if strings.HasPrefix(after, ":") {
+				port = after[1:]
+			}
+		} else if strings.Count(hostport, ":") > 1 {
+			if ip := net.ParseIP(hostport); ip != nil {
+				host = hostport
+			} else if h, p, err := net.SplitHostPort(hostport); err == nil {
+				host = h
+				port = p
+			} else {
+				host = hostport
+			}
+		} else if colonIdx := strings.LastIndex(hostport, ":"); colonIdx != -1 {
 			host = hostport[:colonIdx]
 			port = hostport[colonIdx+1:]
 		} else {
 			host = hostport
 		}
+	} else if strings.HasPrefix(rest, "[") {
+		// Case B: Bracketed IPv6, e.g. [2001:db8::1]:1080:user:pass or [2001:db8::1]:1080 or [2001:db8::1]
+		closeBracket := strings.Index(rest, "]")
+		if closeBracket == -1 {
+			return "", fmt.Errorf("invalid IPv6 address in proxy URL: missing closing bracket")
+		}
+		host = rest[1:closeBracket]
+		after := rest[closeBracket+1:]
+		if strings.HasPrefix(after, ":") {
+			parts := strings.Split(after[1:], ":")
+			if len(parts) >= 3 {
+				port = parts[0]
+				user = parts[1]
+				pass = strings.Join(parts[2:], ":")
+			} else if len(parts) == 2 {
+				port = parts[0]
+				user = parts[1]
+			} else if len(parts) == 1 {
+				port = parts[0]
+			}
+		}
+	} else if ip := net.ParseIP(rest); ip != nil {
+		// Bare IPv6 address
+		host = rest
 	} else {
-		// Case B: host:port:user:pass or host:port
+		// Case C: host:port:user:pass or host:port
 		parts := strings.Split(rest, ":")
 		if len(parts) >= 4 {
 			host = parts[0]
@@ -63,6 +106,8 @@ func NormalizeProxyLine(raw string) (string, error) {
 			return "", fmt.Errorf("invalid proxy format: %s", raw)
 		}
 	}
+
+	host = strings.TrimPrefix(strings.TrimSuffix(strings.TrimSpace(host), "]"), "[")
 
 	if host == "" {
 		return "", fmt.Errorf("proxy URL must include a host")

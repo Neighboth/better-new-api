@@ -28,6 +28,7 @@ export const CHANNEL_TYPE_AEPI = 64
 export const CHANNEL_TYPE_OPENCODE = 65
 export const CHANNEL_TYPE_GROQ = 66
 export const CHANNEL_TYPE_CLAUDE_SUB = 67
+export const CHANNEL_TYPE_KILO_CODE_ANON = 68
 
 export const CHANNEL_TYPES = {
   0: 'Unknown',
@@ -94,12 +95,13 @@ export const CHANNEL_TYPES = {
   65: 'OpenCode',
   66: 'Groq',
   67: 'Claude Subscription (Claude Code)',
+  68: 'Kilo Code (Anon)',
 } as const
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
   1, 14, 33, 24, 61, 62, 63, 43, 57, 3, 41, 48, 60, 58, 42, 34, 20, 4, 40, 27, 25, 17, 26, 15,
   46, 23, 18, 45, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 59, 22, 21, 44, 2,
-  5, 36, 50, 51, 52, 53, 54, 55, 56, 64, 65, 66, 67,
+  5, 36, 50, 51, 52, 53, 54, 55, 56, 64, 65, 66, 67, 68,
 ]
 
 export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {
@@ -402,7 +404,7 @@ export const FIELD_DESCRIPTIONS = {
 
 export const MODEL_FETCHABLE_TYPES = new Set([
   1, 4, 14, 17, 20, 23, 24, 25, 26, 27, 31, 34, 35, 40, 42, 43, 47, 48, 57, 58,
-  59, 60, CHANNEL_TYPE_AGNES, CHANNEL_TYPE_AEPI, CHANNEL_TYPE_OPENCODE, CHANNEL_TYPE_GROQ,
+  59, 60, CHANNEL_TYPE_AGNES, CHANNEL_TYPE_AEPI, CHANNEL_TYPE_OPENCODE, CHANNEL_TYPE_GROQ, CHANNEL_TYPE_KILO_CODE_ANON,
 ])
 
 export const FIELD_PASSTHROUGH_TYPES = new Set([

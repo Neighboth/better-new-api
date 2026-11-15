@@ -1036,17 +1036,20 @@ export function ChannelMutateDrawer({
     formErrors.status ||
     formErrors.openai_organization
   )
-  const credentialsHaveErrors = Boolean(
-    formErrors.key ||
-    formErrors.base_url ||
-    formErrors.other ||
-    formErrors.multi_key_mode ||
-    formErrors.multi_key_type ||
-    formErrors.key_mode ||
-    formErrors.vertex_key_type ||
-    formErrors.aws_key_type ||
-    formErrors.azure_responses_version
-  )
+  const isKeylessChannel = currentType === 65 || currentType === 68
+  const credentialsHaveErrors =
+    !isKeylessChannel &&
+    Boolean(
+      formErrors.key ||
+      formErrors.base_url ||
+      formErrors.other ||
+      formErrors.multi_key_mode ||
+      formErrors.multi_key_type ||
+      formErrors.key_mode ||
+      formErrors.vertex_key_type ||
+      formErrors.aws_key_type ||
+      formErrors.azure_responses_version
+    )
   const modelsHaveErrors = Boolean(
     formErrors.models || formErrors.group || formErrors.model_mapping
   )
@@ -1189,14 +1192,18 @@ export function ChannelMutateDrawer({
       status: identityStatus,
       icon: <Server className='h-4 w-4' aria-hidden='true' />,
     },
-    {
-      id: CHANNEL_EDITOR_SECTION_IDS.credentials,
-      title: t('Credentials'),
-      description: getSectionStatusLabel(credentialsStatus, t),
-      statusLabel: getSectionStatusLabel(credentialsStatus, t),
-      status: credentialsStatus,
-      icon: <KeyRound className='h-4 w-4' aria-hidden='true' />,
-    },
+    ...(!isKeylessChannel
+      ? [
+          {
+            id: CHANNEL_EDITOR_SECTION_IDS.credentials,
+            title: t('Credentials'),
+            description: getSectionStatusLabel(credentialsStatus, t),
+            statusLabel: getSectionStatusLabel(credentialsStatus, t),
+            status: credentialsStatus,
+            icon: <KeyRound className='h-4 w-4' aria-hidden='true' />,
+          },
+        ]
+      : []),
     {
       id: CHANNEL_EDITOR_SECTION_IDS.models,
       title: t('Models & Groups'),
@@ -1738,11 +1745,15 @@ export function ChannelMutateDrawer({
     async (data: ChannelFormValues) => {
       // Validate key is required when creating
       if (!isEditing && !data.key?.trim()) {
-        form.setError('key', {
-          type: 'manual',
-          message: ERROR_MESSAGES.REQUIRED_KEY,
-        })
-        return
+        if (data.type === 65 || data.type === 68) {
+          data.key = 'default'
+        } else {
+          form.setError('key', {
+            type: 'manual',
+            message: ERROR_MESSAGES.REQUIRED_KEY,
+          })
+          return
+        }
       }
 
       if (sensitiveLocked) {
@@ -2217,10 +2228,11 @@ export function ChannelMutateDrawer({
                     </div>
 
                     {/* ── API Access ── */}
-                    <div
-                      id={CHANNEL_EDITOR_SECTION_IDS.credentials}
-                      className='scroll-mt-4'
-                    >
+                    {!isKeylessChannel && (
+                      <div
+                        id={CHANNEL_EDITOR_SECTION_IDS.credentials}
+                        className='scroll-mt-4'
+                      >
                       <ChannelApiAccessSection>
                         {CHANNEL_TYPE_WARNINGS[currentType] && (
                           <Alert>
@@ -3767,6 +3779,7 @@ export function ChannelMutateDrawer({
                         </div>
                       </ChannelApiAccessSection>
                     </div>
+                  )}
 
                     {/* ── Models & Groups ── */}
                     <div

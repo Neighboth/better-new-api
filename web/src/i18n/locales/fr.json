@@ -8214,5 +8214,7 @@
     "After logging in, copy the redirected localhost URL from your browser address bar and paste it here.": "Après connexion, copiez l'URL localhost redirigée depuis la barre d'adresse du navigateur et collez-la ici.",
     "Auto Speed Test Interval (Minutes)": "Intervalle de test de vitesse automatique (minutes)",
     "Disable Failed Proxies Automatically": "Désactiver automatiquement les proxys défaillants"
-  }
+  },
+  "Register http, https, socks5 or socks5h proxies. Only enabled proxies are used for key assignments.": "Enregistrez des proxys http, https, socks5 ou socks5h. Seuls les proxys activés sont utilisés pour l'attribution des clés.",
+  "Keys are handed out round-robin across enabled proxies. If a channel has more keys than you have proxies, each proxy serves multiple keys.": "Les clés sont distribuées à tour de rôle (round-robin) entre les proxys activés. Si un canal a plus de clés que de proxys, chaque proxy dessert plusieurs clés."
 }

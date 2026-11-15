@@ -61,6 +61,11 @@ type PlaygroundSetting struct {
 	// Studio page availability.
 	StudioEnabled bool `json:"studio_enabled"`
 
+	// Prompt Optimizer settings for Studio / Video generations
+	PromptOptimizerEnabled      bool   `json:"prompt_optimizer_enabled"`
+	PromptOptimizerModel        string `json:"prompt_optimizer_model"`
+	PromptOptimizerSystemPrompt string `json:"prompt_optimizer_system_prompt"`
+
 	// ── Legacy single-model fields ──────────────────────────────────────────
 	// They are kept so an installation that configured the studio before the
 	// per-model options existed keeps working: when the model lists are empty
@@ -114,6 +119,10 @@ var playgroundSetting = PlaygroundSetting{
 	UpscaleModels:  []MediaModel{{Model: "upscale"}, {Model: "image-upscale"}},
 
 	StudioEnabled: true,
+
+	PromptOptimizerEnabled:      false,
+	PromptOptimizerModel:        "",
+	PromptOptimizerSystemPrompt: "You are a professional video generation prompt optimizer and safety enhancer. Rewrite the given prompt into safe, detailed, cinematic English that generative video AI models accept without content violations. Describe camera movement, lighting, visual details, and style cleanly and vividly. CRITICAL REQUIREMENT: If the prompt contains any dialogue, spoken quotes, or speech lines, DO NOT translate the spoken dialogue — keep all spoken words/quotes in Turkish exactly as written. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes around the prompt.",
 }
 
 func init() {

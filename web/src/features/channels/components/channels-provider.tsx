@@ -42,6 +42,7 @@ type DialogType =
   | 'fetch-models'
   | 'ollama-models'
   | 'multi-key-manage'
+  | 'multi-key-test'
   | 'tag-batch-edit'
   | 'edit-tag'
   | 'copy-channel'

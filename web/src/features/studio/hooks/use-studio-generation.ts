@@ -27,6 +27,7 @@ import { findLatestVideoTask } from '@/features/playground/api'
 import {
   generateImages as submitImageGeneration,
   generateVideo as submitVideoGeneration,
+  getPlaygroundRuntimeConfig,
   pollVideoTask,
   resolveSubmittedTaskIdWithLookup,
 } from '../api'
@@ -134,11 +135,13 @@ export function useStudioGeneration() {
             return
           }
 
+          const initialProg = item.progress ? parseFloat(item.progress) : 0
           const finished = await pollVideoTask(
             currentTaskId,
             controller.signal,
             undefined,
-            (progress) => patchItem(item.id, { progress })
+            (progress) => patchItem(item.id, { progress }),
+            initialProg
           )
 
           if (finished.result_url) {
@@ -271,11 +274,44 @@ export function useStudioGeneration() {
       setIsGenerating(true)
 
       try {
+        let finalPrompt = params.prompt
+        try {
+          const runtimeConfig = await getPlaygroundRuntimeConfig(controller.signal)
+          if (
+            runtimeConfig?.studio?.prompt_optimizer_enabled &&
+            runtimeConfig?.studio?.prompt_optimizer_model
+          ) {
+            const sysPrompt =
+              runtimeConfig.studio.prompt_optimizer_system_prompt ||
+              'You are a professional video generation prompt optimizer and safety enhancer. Rewrite the given prompt into safe, detailed, cinematic English that generative video AI models accept without content violations. Describe camera movement, lighting, visual details, and style cleanly and vividly. CRITICAL REQUIREMENT: If the prompt contains any dialogue, spoken quotes, or speech lines, DO NOT translate the spoken dialogue — keep all spoken words/quotes in Turkish exactly as written. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes around the prompt.'
+
+            const chatRes = await api.post(
+              '/v1/chat/completions',
+              {
+                model: runtimeConfig.studio.prompt_optimizer_model,
+                messages: [
+                  { role: 'system', content: sysPrompt },
+                  { role: 'user', content: params.prompt },
+                ],
+                temperature: 0.7,
+              },
+              { signal: controller.signal }
+            )
+            const optimized = chatRes.data?.choices?.[0]?.message?.content?.trim()
+            if (optimized) {
+              finalPrompt = optimized
+              patchItem(id, { prompt: finalPrompt })
+            }
+          }
+        } catch (optErr) {
+          console.warn('Video prompt optimizer skipped or failed:', optErr)
+        }
+
         const submitted = await submitVideoGeneration(
           {
             model: params.model,
             group: params.group,
-            prompt: params.prompt,
+            prompt: finalPrompt,
             duration: params.duration,
             ratio: params.ratio,
             quality: params.quality,
@@ -311,7 +347,8 @@ export function useStudioGeneration() {
               signal: controller.signal,
               minCreatedAt,
             }),
-          (progress) => patchItem(id, { progress })
+          (progress) => patchItem(id, { progress }),
+          0
         )
         if (!finished.result_url) {
           const isStillRunning = ['in_progress', 'running', 'pending', 'queued'].includes((finished.status || '').toLowerCase())

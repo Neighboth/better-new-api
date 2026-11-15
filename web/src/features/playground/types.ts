@@ -338,6 +338,9 @@ export interface PlaygroundRuntimeConfig {
   }
   studio: {
     enabled: boolean
+    prompt_optimizer_enabled?: boolean
+    prompt_optimizer_model?: string
+    prompt_optimizer_system_prompt?: string
   }
   music?: {
     enabled: boolean

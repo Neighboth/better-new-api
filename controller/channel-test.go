@@ -2235,3 +2235,92 @@ func TestAllChannels(c *gin.Context) {
 		},
 	})
 }
+
+type KeyTestOutcome struct {
+	Index     int    `json:"index"`
+	Key       string `json:"key"`
+	MaskedKey string `json:"masked_key"`
+	Status    string `json:"status"` // "success" or "error"
+	LatencyMs int64  `json:"latency_ms"`
+	Error     string `json:"error,omitempty"`
+}
+
+func maskChannelKey(k string) string {
+	k = strings.TrimSpace(k)
+	if len(k) <= 8 {
+		return k
+	}
+	return k[:4] + "..." + k[len(k)-4:]
+}
+
+func TestAllKeysOfChannel(c *gin.Context) {
+	channelId, err := strconv.Atoi(c.Param("id"))
+	if err != nil || channelId <= 0 {
+		common.ApiErrorMsg(c, "invalid channel id")
+		return
+	}
+	channel, err := model.GetChannelById(channelId, true)
+	if err != nil || channel == nil {
+		common.ApiErrorMsg(c, "channel not found")
+		return
+	}
+	keys := channel.GetKeys()
+	if len(keys) == 0 {
+		common.ApiErrorMsg(c, "channel has no keys")
+		return
+	}
+
+	testModel := c.Query("model")
+	endpointType := c.Query("endpoint_type")
+	testUserID, err := resolveChannelTestUserID(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	outcomes := make([]KeyTestOutcome, len(keys))
+	var wg sync.WaitGroup
+	// Concurrency limit of 5 parallel key tests
+	sem := make(chan struct{}, 5)
+
+	requestCtx := context.Background()
+	if c.Request != nil {
+		requestCtx = c.Request.Context()
+	}
+
+	for i, k := range keys {
+		outcomes[i] = KeyTestOutcome{
+			Index:     i,
+			Key:       k,
+			MaskedKey: maskChannelKey(k),
+			Status:    "pending",
+		}
+		wg.Add(1)
+		go func(idx int, keyStr string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			chCopy := *channel
+			chCopy.Key = keyStr
+			chCopy.ChannelInfo.IsMultiKey = false
+
+			tik := time.Now()
+			res := testChannel(requestCtx, &chCopy, testUserID, testModel, endpointType, false)
+			tok := time.Now()
+			latency := tok.Sub(tik).Milliseconds()
+
+			if res.localErr != nil {
+				outcomes[idx].Status = "error"
+				outcomes[idx].Error = res.localErr.Error()
+				outcomes[idx].LatencyMs = latency
+			} else {
+				outcomes[idx].Status = "success"
+				outcomes[idx].LatencyMs = latency
+			}
+		}(i, k)
+	}
+	wg.Wait()
+
+	common.ApiSuccess(c, outcomes)
+}

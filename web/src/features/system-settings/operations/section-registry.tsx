@@ -406,5 +406,12 @@ function playgroundDefaults(settings: OperationsSettings) {
     videoReferenceImage:
       settings['playground_setting.video_reference_image'] ?? true,
     studioEnabled: settings['playground_setting.studio_enabled'] ?? true,
+    promptOptimizerEnabled:
+      settings['playground_setting.prompt_optimizer_enabled'] ?? false,
+    promptOptimizerModel:
+      settings['playground_setting.prompt_optimizer_model'] ?? '',
+    promptOptimizerSystemPrompt:
+      settings['playground_setting.prompt_optimizer_system_prompt'] ??
+      'You are a professional video generation prompt optimizer and safety enhancer. Rewrite the given prompt into safe, detailed, cinematic English that generative video AI models accept without content violations. Describe camera movement, lighting, visual details, and style cleanly and vividly. CRITICAL REQUIREMENT: If the prompt contains any dialogue, spoken quotes, or speech lines, DO NOT translate the spoken dialogue — keep all spoken words/quotes in Turkish exactly as written. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes around the prompt.',
   }
 }

@@ -241,6 +241,17 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'claude-opus-4-8,claude-opus-5,claude-opus-5-5,claude-sonnet-4-6,claude-sonnet-5,claude-haiku-5-5',
     },
   },
+  68: {
+    id: 68,
+    name: CHANNEL_TYPES[68],
+    icon: 'Kilo',
+    defaultBaseUrl: 'https://ai-gateway.kilo.ai/api',
+    hints: {
+      baseUrl: 'Default: https://ai-gateway.kilo.ai/api',
+      key: 'Keyless (Anonymous)',
+      models: 'kilo-auto/free,nvidia/nemotron-3.5-super-vl:free,baidu/ernie-5.5-flash-preview:free',
+    },
+  },
 }
 
 /**

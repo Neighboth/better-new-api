@@ -8214,5 +8214,7 @@
     "After logging in, copy the redirected localhost URL from your browser address bar and paste it here.": "После входа скопируйте перенаправленный URL localhost из адресной строки браузера и вставьте сюда.",
     "Auto Speed Test Interval (Minutes)": "Интервал автопроверки скорости (минуты)",
     "Disable Failed Proxies Automatically": "Автоматически отключать неработающие прокси"
-  }
+  },
+  "Register http, https, socks5 or socks5h proxies. Only enabled proxies are used for key assignments.": "Регистрируйте прокси http, https, socks5 или socks5h. Для назначения ключей используются только включенные прокси.",
+  "Keys are handed out round-robin across enabled proxies. If a channel has more keys than you have proxies, each proxy serves multiple keys.": "Ключи распределяются циклически (round-robin) между включенными прокси. Если у канала больше ключей, чем прокси, каждый прокси обслуживает несколько ключей."
 }

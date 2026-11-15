@@ -8214,5 +8214,7 @@
     "After logging in, copy the redirected localhost URL from your browser address bar and paste it here.": "登录后，从浏览器地址栏复制重定向的 localhost 链接并粘贴在此处。",
     "Auto Speed Test Interval (Minutes)": "自动测速间隔（分钟）",
     "Disable Failed Proxies Automatically": "自动禁用故障代理"
-  }
+  },
+  "Register http, https, socks5 or socks5h proxies. Only enabled proxies are used for key assignments.": "注册 http、https、socks5 或 socks5h 代理。仅启用的代理会用于密钥分配。",
+  "Keys are handed out round-robin across enabled proxies. If a channel has more keys than you have proxies, each proxy serves multiple keys.": "密钥在已启用的代理之间轮询分配。如果渠道的密钥数多于代理数，每个代理将为多个密钥提供服务。"
 }

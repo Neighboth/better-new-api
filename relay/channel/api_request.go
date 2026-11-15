@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	common2 "github.com/QuantumNous/new-api/common"
+	rootconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
@@ -317,11 +319,21 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", common.SanitizeURLForLog(fullRequestURL))
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	var bodyBytes []byte
+	if requestBody != nil {
+		bodyBytes, err = io.ReadAll(requestBody)
+		if err != nil {
+			return nil, fmt.Errorf("read request body failed: %w", err)
+		}
+	}
+	req, err := http.NewRequest(c.Request.Method, fullRequestURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
-	ApplyUpstreamBodyMetadata(req, requestBody)
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+	}
+	ApplyUpstreamBodyMetadata(req, bytes.NewReader(bodyBytes))
 	headers := req.Header
 	err = a.SetupRequestHeader(c, &headers, info)
 	if err != nil {
@@ -539,6 +551,10 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		keyIndex = info.ChannelMultiKeyIndex
 	}
 	rawProxyURL = service.EffectiveRelayProxyURL(info.ChannelId, keyIndex, info.ApiKey, rawProxyURL)
+	isAnonChannel := info != nil && (info.ChannelType == rootconstant.ChannelTypeOpenCode || info.ChannelType == rootconstant.ChannelTypeKiloCodeAnon)
+	if isAnonChannel && common2.OptionMap["ProxyPoolEnabled"] == "true" {
+		rawProxyURL = service.GetNextProxyForAnonChannel(info.ChannelId, rawProxyURL)
+	}
 	if service.IsCloudflareWorkerProxy(rawProxyURL) {
 		if req != nil && req.URL != nil {
 			originalURL := req.URL.String()
@@ -602,6 +618,40 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 	if resp == nil {
 		return nil, errors.New("resp is nil")
+	}
+
+	// Smart retry on 429 for anonymous channels (OpenCode / Kilo Code) across proxy pool
+	if isAnonChannel && resp.StatusCode == http.StatusTooManyRequests && common2.OptionMap["ProxyPoolEnabled"] == "true" && req.GetBody != nil {
+		for retry := 0; retry < 2; retry++ {
+			service.RecordProxyRateLimited(rawProxyURL)
+			nextProxy := service.GetNextProxyForAnonChannel(info.ChannelId, rawProxyURL)
+			if nextProxy == "" || nextProxy == rawProxyURL {
+				break
+			}
+			rawProxyURL = nextProxy
+			_ = resp.Body.Close()
+
+			newBody, getBodyErr := req.GetBody()
+			if getBodyErr != nil {
+				break
+			}
+			req.Body = newBody
+
+			retryClient, clientErr := service.GetHttpClientWithProxySettings(rawProxyURL, info.ChannelSetting)
+			if clientErr != nil {
+				break
+			}
+			rClient := *retryClient
+			rClient.CheckRedirect = keepUpstreamRedirectResponse
+			newResp, doErr := rClient.Do(req)
+			if doErr != nil {
+				break
+			}
+			resp = newResp
+			if resp.StatusCode != http.StatusTooManyRequests {
+				break
+			}
+		}
 	}
 	if common2.DebugEnabled {
 		policy := service.NormalizeHTTPTransportPolicy(info.ChannelSetting)

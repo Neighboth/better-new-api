@@ -147,7 +147,8 @@ export async function pollVideoTask(
   taskId: string,
   signal?: AbortSignal,
   rescue?: (minCreatedAt: number) => Promise<string>,
-  onProgress?: (progress: string) => void
+  onProgress?: (progress: string) => void,
+  initialProgress?: number
 ): Promise<VideoTaskState> {
   const startedAt = Date.now()
   let last: VideoTaskState | null = null
@@ -158,7 +159,7 @@ export async function pollVideoTask(
   // the poll can jump backwards onto an unrelated older task and the UI
   // shows its progress ("88%" -> "14%").
   let anchorCreatedAt = 0
-  let maxProgress = 0
+  let maxProgress = Math.max(0, initialProgress ?? 0)
 
   while (Date.now() - startedAt < MAX_WAIT_MS) {
     if (signal?.aborted) {

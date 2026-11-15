@@ -8214,5 +8214,7 @@
     "After logging in, copy the redirected localhost URL from your browser address bar and paste it here.": "ログイン後、ブラウザのアドレスバーからリダイレクトされた localhost URL をコピーしてここに貼り付けます。",
     "Auto Speed Test Interval (Minutes)": "自動速度テスト間隔（分）",
     "Disable Failed Proxies Automatically": "障害が発生したプロキシを自動的に無効化"
-  }
+  },
+  "Register http, https, socks5 or socks5h proxies. Only enabled proxies are used for key assignments.": "http、https、socks5、または socks5h プロキシを登録します。有効なプロキシのみがキーの割り当てに使用されます。",
+  "Keys are handed out round-robin across enabled proxies. If a channel has more keys than you have proxies, each proxy serves multiple keys.": "キーは有効なプロキシ間でラウンドロビン方式で分散されます。チャネルのキー数がプロキシ数より多い場合、各プロキシが複数のキーを処理します。"
 }

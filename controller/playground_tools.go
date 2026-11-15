@@ -168,7 +168,10 @@ func GetPlaygroundConfig(c *gin.Context) {
 			"models":  upscaleModels,
 		},
 		"studio": gin.H{
-			"enabled": setting.StudioEnabled,
+			"enabled":                        setting.StudioEnabled,
+			"prompt_optimizer_enabled":       setting.PromptOptimizerEnabled,
+			"prompt_optimizer_model":         setting.PromptOptimizerModel,
+			"prompt_optimizer_system_prompt": setting.PromptOptimizerSystemPrompt,
 		},
 	})
 }

@@ -21,6 +21,7 @@ import type { Row } from '@tanstack/react-table'
 import {
   MoreHorizontal,
   Boxes,
+  CheckCheck,
   Pencil,
   PlugZap,
   Gauge,
@@ -143,6 +144,11 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     setOpen('multi-key-manage')
   }
 
+  const handleTestAllKeys = () => {
+    setCurrentRow(channel)
+    setOpen('multi-key-test')
+  }
+
   const handleToggleStatus = async (
     e?: React.MouseEvent<HTMLButtonElement>
   ) => {
@@ -205,6 +211,28 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         </TooltipTrigger>
         <TooltipContent>{t('Test Connection')}</TooltipContent>
       </Tooltip>
+
+      {isMultiKey && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant='ghost'
+                size='icon-sm'
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleTestAllKeys()
+                }}
+                aria-label={t('Test All Keys')}
+                className='text-primary hover:text-primary'
+              />
+            }
+          >
+            <CheckCheck className='size-4' />
+          </TooltipTrigger>
+          <TooltipContent>{t('Test All Keys')}</TooltipContent>
+        </Tooltip>
+      )}
 
       {layout === 'card' && (
         <Tooltip>
@@ -354,12 +382,20 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
 
           {/* Manage Keys (only for multi-key channels) */}
           {isMultiKey && (
-            <DropdownMenuItem onClick={handleManageKeys}>
-              {t('Manage Keys')}
-              <DropdownMenuShortcut>
-                <Key size={16} />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem onClick={handleTestAllKeys}>
+                {t('Test All Keys')}
+                <DropdownMenuShortcut>
+                  <CheckCheck size={16} />
+                </DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleManageKeys}>
+                {t('Manage Keys')}
+                <DropdownMenuShortcut>
+                  <Key size={16} />
+                </DropdownMenuShortcut>
+              </DropdownMenuItem>
+            </>
           )}
 
           <DropdownMenuSeparator />

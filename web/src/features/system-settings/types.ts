@@ -805,6 +805,9 @@ export type OperationsSettings = {
   'playground_setting.video_default_quality'?: string
   'playground_setting.video_reference_image'?: boolean
   'playground_setting.studio_enabled'?: boolean
+  'playground_setting.prompt_optimizer_enabled'?: boolean
+  'playground_setting.prompt_optimizer_model'?: string
+  'playground_setting.prompt_optimizer_system_prompt'?: string
 }
 
 export type SecuritySettings = {

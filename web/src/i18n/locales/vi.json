@@ -8214,5 +8214,7 @@
     "After logging in, copy the redirected localhost URL from your browser address bar and paste it here.": "Sau khi đăng nhập, sao chép URL localhost được chuyển hướng từ thanh địa chỉ trình duyệt và dán vào đây.",
     "Auto Speed Test Interval (Minutes)": "Khoảng thời gian tự động kiểm tra tốc độ (phút)",
     "Disable Failed Proxies Automatically": "Tự động vô hiệu hóa proxy lỗi"
-  }
+  },
+  "Register http, https, socks5 or socks5h proxies. Only enabled proxies are used for key assignments.": "Đăng ký proxy http, https, socks5 hoặc socks5h. Chỉ các proxy được bật mới được sử dụng để gán khóa.",
+  "Keys are handed out round-robin across enabled proxies. If a channel has more keys than you have proxies, each proxy serves multiple keys.": "Các khóa được phân phối theo vòng tròn (round-robin) giữa các proxy đã bật. Nếu một kênh có nhiều khóa hơn số lượng proxy, mỗi proxy sẽ phục vụ nhiều khóa."
 }

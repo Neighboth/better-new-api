@@ -312,11 +312,27 @@ export interface MultiKeyManageParams {
     | 'enable_all_keys'
     | 'disable_all_keys'
     | 'delete_key'
+    | 'delete_keys'
     | 'delete_disabled_keys'
   key_index?: number
+  key_indices?: number[]
   page?: number
   page_size?: number
   status?: number // 1=enabled, 2=manual_disabled, 3=auto_disabled
+}
+
+export interface KeyTestOutcome {
+  index: number
+  key: string
+  status: 'success' | 'error'
+  latency_ms: number
+  error?: string
+}
+
+export interface TestAllKeysResponse {
+  success: boolean
+  message?: string
+  data?: KeyTestOutcome[]
 }
 
 export interface BatchDeleteParams {
