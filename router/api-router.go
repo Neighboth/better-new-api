@@ -320,7 +320,6 @@ func SetApiRouter(router *gin.Engine) {
 			managedFilesRoute.POST("/settings", controller.UpdateManagedFileSettings)
 			managedFilesRoute.DELETE("/", controller.DeleteManagedFile)
 			managedFilesRoute.POST("/rename", controller.RenameManagedFile)
-			managedFilesRoute.POST("/verify", controller.VerifyManagedFileAuth)
 		}
 
 		// Custom OAuth provider management (root only)
