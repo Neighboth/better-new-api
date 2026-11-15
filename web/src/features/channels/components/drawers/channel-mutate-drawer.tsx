@@ -3029,9 +3029,9 @@ export function ChannelMutateDrawer({
                                 <div className='border-border/60 flex flex-col gap-3 rounded-lg border bg-muted/20 p-4'>
                                   <div className='flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between'>
                                     <div>
-                                      <div className='font-semibold text-sm'>{t('DeepSeek Web Giriş Bilgileri')}</div>
+                                      <div className='font-semibold text-sm'>{t('DeepSeek Web Credentials')}</div>
                                       <div className='text-muted-foreground text-xs'>
-                                        {t('Tersine mühendislik ile DeepSeek Web hesabınız API kanalına dönüştürülür.')}
+                                        {t('Converts your DeepSeek Web account into an API channel via reverse engineering.')}
                                       </div>
                                     </div>
                                     <div className='flex items-center gap-1 bg-muted p-1 rounded-md text-xs'>
@@ -3049,7 +3049,7 @@ export function ChannelMutateDrawer({
                                           }
                                         }}
                                       >
-                                        {t('User Token (Önerilen)')}
+                                        {t('User Token (Recommended)')}
                                       </Button>
                                       <Button
                                         type='button'
@@ -3065,7 +3065,7 @@ export function ChannelMutateDrawer({
                                           }
                                         }}
                                       >
-                                        {t('E-Posta & Şifre')}
+                                        {t('Email & Password')}
                                       </Button>
                                     </div>
                                   </div>
@@ -3088,14 +3088,14 @@ export function ChannelMutateDrawer({
                                         className='text-xs font-mono'
                                       />
                                       <div className='text-[11px] text-muted-foreground'>
-                                        💡 {t('chat.deepseek.com adresine tarayıcınızdan giriş yapın. F12 tuşuna basıp Application (Uygulama) -> Local Storage altındaki "userToken" değerini kopyalayıp buraya yapıştırın. Bu yöntem CAPTCHA / 202 doğrulamasını tamamen atlar.')}
+                                        💡 {t('Sign in to chat.deepseek.com in your browser. Press F12 -> Application -> Local Storage, copy the "userToken" value and paste it here. This completely bypasses CAPTCHA / 202 verification.')}
                                       </div>
                                     </div>
                                   ) : (
                                     <div className='space-y-3'>
                                       <div className='grid gap-3 sm:grid-cols-2'>
                                         <div>
-                                          <label className='text-xs font-medium mb-1 block'>{t('E-posta / Telefon / Kullanıcı Adı')}</label>
+                                          <label className='text-xs font-medium mb-1 block'>{t('Email / Phone / Username')}</label>
                                           <Input
                                             placeholder='user@example.com'
                                             value={deepseekEmail}
@@ -3112,7 +3112,7 @@ export function ChannelMutateDrawer({
                                           />
                                         </div>
                                         <div>
-                                          <label className='text-xs font-medium mb-1 block'>{t('Şifre')}</label>
+                                          <label className='text-xs font-medium mb-1 block'>{t('Password')}</label>
                                           <Input
                                             type='password'
                                             placeholder='••••••••'
@@ -3131,7 +3131,7 @@ export function ChannelMutateDrawer({
                                         </div>
                                       </div>
                                       <div className='text-[11px] text-muted-foreground'>
-                                        {t('Not: Sunucu güvenlik doğrulaması (HTTP 202 CAPTCHA) isterse, üstteki "User Token" seçeneğini kullanınız.')}
+                                        {t('Note: If the server requires security verification (HTTP 202 CAPTCHA), please use the "User Token" option above.')}
                                       </div>
                                     </div>
                                   )}
@@ -3139,7 +3139,7 @@ export function ChannelMutateDrawer({
                               ) : currentType === 65 ? (
                                 <div className='rounded-lg border border-border/60 bg-muted/20 p-3.5 text-xs text-muted-foreground flex items-center gap-2'>
                                   <Info className='size-4 text-primary shrink-0' />
-                                  <span>{t('OpenCode kanalı yerel (http://localhost:4096) veya uzak sunucu bağlantısı kullandığı için API Anahtarı gerektirmez.')}</span>
+                                  <span>{t('OpenCode channel does not require an API key as it uses a local (http://localhost:4096) or remote server connection.')}</span>
                                 </div>
                               ) : (
                                 <FormField
@@ -3323,9 +3323,9 @@ export function ChannelMutateDrawer({
                                 <div className='border-border/60 flex flex-col gap-3 rounded-lg border bg-muted/20 p-4'>
                                   <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
                                     <div>
-                                      <div className='font-semibold text-sm'>{t('ChatGPT (Codex) OAuth Entegrasyonu')}</div>
+                                      <div className='font-semibold text-sm'>{t('ChatGPT (Codex) OAuth Integration')}</div>
                                       <div className='text-muted-foreground text-xs'>
-                                        {t('OpenAI ile giriş yapın, yönlendirilen localhost linkini yapıştırarak kimlik bilgisini alın.')}
+                                        {t('Sign in with OpenAI and paste the redirected localhost link to obtain credentials.')}
                                       </div>
                                     </div>
                                     <div className='flex flex-wrap items-center gap-2'>
@@ -3336,7 +3336,7 @@ export function ChannelMutateDrawer({
                                         onClick={() => handleStartOAuth('codex')}
                                       >
                                         <Wand2 className='mr-2 h-4 w-4' />
-                                        {t('1. OAuth Girişini Başlat')}
+                                        {t('1. Start OAuth Login')}
                                       </Button>
                                       {isEditing && channelId && (
                                         <Button
@@ -3365,7 +3365,7 @@ export function ChannelMutateDrawer({
                                     <div className='flex flex-col gap-2 pt-2 border-t'>
                                       <div className='text-xs font-medium text-primary'>
                                         <a href={oauthAuthUrl} target='_blank' rel='noopener noreferrer' className='hover:underline'>
-                                          🔗 {t('Pencere açılmadıysa buraya tıklayarak giriş yapın (Yeni Sekme)')}
+                                          🔗 {t('If the window did not open, click here to log in (New Tab)')}
                                         </a>
                                       </div>
                                       <div className='flex items-center gap-2'>
@@ -3382,7 +3382,7 @@ export function ChannelMutateDrawer({
                                           disabled={isOauthExchanging || !oauthCallbackUrl}
                                         >
                                           {isOauthExchanging && <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />}
-                                          {t('Doğrula ve Al')}
+                                          {t('Verify and Get')}
                                         </Button>
                                       </div>
                                     </div>
@@ -3401,9 +3401,9 @@ export function ChannelMutateDrawer({
                                 <div className='border-border/60 flex flex-col gap-3 rounded-lg border bg-muted/20 p-4'>
                                   <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
                                     <div>
-                                      <div className='font-semibold text-sm'>{t('Google Antigravity OAuth & Plan Entegrasyonu')}</div>
+                                      <div className='font-semibold text-sm'>{t('Google Antigravity OAuth & Plan Integration')}</div>
                                       <div className='text-muted-foreground text-xs'>
-                                        {t('Google ile giriş yapın veya mevcut Key JSON bilginizi kullanın. Planı otomatik algılar, dilerseniz değiştirebilirsiniz.')}
+                                        {t('Sign in with Google or use existing Key JSON credentials. The plan is auto-detected and can be customized.')}
                                       </div>
                                     </div>
                                     <div className='flex flex-wrap items-center gap-2'>
@@ -3414,7 +3414,7 @@ export function ChannelMutateDrawer({
                                         onClick={() => handleStartOAuth('antigravity')}
                                       >
                                         <Wand2 className='mr-2 h-4 w-4' />
-                                        {t('1. OAuth Girişini Başlat')}
+                                        {t('1. Start OAuth Login')}
                                       </Button>
                                     </div>
                                   </div>
@@ -3422,7 +3422,7 @@ export function ChannelMutateDrawer({
                                     <div className='flex flex-col gap-2 pt-2 border-t'>
                                       <div className='text-xs font-medium text-primary'>
                                         <a href={oauthAuthUrl} target='_blank' rel='noopener noreferrer' className='hover:underline'>
-                                          🔗 {t('Pencere açılmadıysa buraya tıklayarak giriş yapın (Yeni Sekme)')}
+                                          🔗 {t('If the window did not open, click here to log in (New Tab)')}
                                         </a>
                                       </div>
                                       <div className='flex items-center gap-2'>
@@ -3439,7 +3439,7 @@ export function ChannelMutateDrawer({
                                           disabled={isOauthExchanging || !oauthCallbackUrl}
                                         >
                                           {isOauthExchanging && <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />}
-                                          {t('Doğrula ve Al')}
+                                          {t('Verify and Get')}
                                         </Button>
                                       </div>
                                     </div>
@@ -3448,9 +3448,9 @@ export function ChannelMutateDrawer({
                                   {/* Plan Selection for Antigravity */}
                                   <div className='pt-2 border-t flex flex-col sm:flex-row sm:items-center justify-between gap-2'>
                                     <div className='text-xs'>
-                                      <span className='font-medium text-foreground'>{t('Google AI Abonelik Planı:')}</span>
+                                      <span className='font-medium text-foreground'>{t('Google AI Subscription Plan:')}</span>
                                       <span className='text-muted-foreground ml-1.5'>
-                                        {t('(Başta token içeriğinden otomatik algılanır, buradan özelleştirebilirsiniz)')}
+                                        {t('(Auto-detected from token, can be customized here)')}
                                       </span>
                                     </div>
                                     <div className='flex items-center gap-2'>
@@ -3521,9 +3521,9 @@ export function ChannelMutateDrawer({
                                   {/* Thinking Level Selection for Antigravity */}
                                   <div className='pt-2 border-t flex flex-col sm:flex-row sm:items-center justify-between gap-2'>
                                     <div className='text-xs'>
-                                      <span className='font-medium text-foreground'>{t('Thinking (Düşünme) Seviyesi:')}</span>
+                                      <span className='font-medium text-foreground'>{t('Thinking Level:')}</span>
                                       <span className='text-muted-foreground ml-1.5'>
-                                        {t('(None: dokunulmaz/kapalı, Low, Medium, High)')}
+                                        {t('(None: untouched/disabled, Low, Medium, High)')}
                                       </span>
                                     </div>
                                     <div className='flex items-center gap-2'>
@@ -3597,9 +3597,9 @@ export function ChannelMutateDrawer({
                                 <div className='border-border/60 flex flex-col gap-3 rounded-lg border bg-muted/20 p-4'>
                                   <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-3'>
                                     <div>
-                                      <div className='font-semibold text-sm'>{t('Claude Code OAuth Entegrasyonu')}</div>
+                                      <div className='font-semibold text-sm'>{t('Claude Code OAuth Integration')}</div>
                                       <div className='text-muted-foreground text-xs'>
-                                        {t('Anthropic Claude hesabınızla tek tıkla OAuth girişi yaparak oturum anahtarı alın.')}
+                                        {t('Sign in with your Anthropic Claude account via one-click OAuth to obtain a session key.')}
                                       </div>
                                     </div>
                                     <div className='flex flex-wrap items-center gap-2'>
@@ -3610,7 +3610,7 @@ export function ChannelMutateDrawer({
                                         onClick={() => handleStartOAuth('claudesub')}
                                       >
                                         <Wand2 className='mr-2 h-4 w-4' />
-                                        {t('OAuth Girişini Başlat')}
+                                        {t('Start OAuth Login')}
                                       </Button>
                                     </div>
                                   </div>
@@ -3618,7 +3618,7 @@ export function ChannelMutateDrawer({
                                     <div className='flex flex-col gap-2 pt-2 border-t'>
                                       <div className='text-xs font-medium text-primary'>
                                         <a href={oauthAuthUrl} target='_blank' rel='noopener noreferrer' className='hover:underline'>
-                                          🔗 {t('Pencere açılmadıysa buraya tıklayarak giriş yapın (Yeni Sekme)')}
+                                          🔗 {t('If the window did not open, click here to log in (New Tab)')}
                                         </a>
                                       </div>
                                       <div className='flex items-center gap-2'>
@@ -3635,7 +3635,7 @@ export function ChannelMutateDrawer({
                                           disabled={isOauthExchanging || !oauthCallbackUrl}
                                         >
                                           {isOauthExchanging && <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />}
-                                          {t('Doğrula ve Al')}
+                                          {t('Verify and Get')}
                                         </Button>
                                       </div>
                                     </div>
@@ -4775,7 +4775,7 @@ export function ChannelMutateDrawer({
                                 render={({ field }) => (
                                   <FormItem>
                                     <FormLabel>
-                                      {t('İstek Arası Bekleme (saniye)')}
+                                      {t('Inter-request Delay (seconds)')}
                                     </FormLabel>
                                     <FormControl>
                                       <Input
@@ -4794,7 +4794,7 @@ export function ChannelMutateDrawer({
                                     </FormControl>
                                     <FormDescription>
                                       {t(
-                                        'Bu kanaldaki tüm anahtarlar genelinde iki istek arasında beklenecek minimum süre (saniye). 0 ise bekleme yapılmaz.'
+                                        'Minimum wait time (seconds) between two requests across all keys in this channel. 0 means no waiting.'
                                       )}
                                     </FormDescription>
                                     <FormMessage />
@@ -5484,25 +5484,25 @@ export function ChannelMutateDrawer({
           <div className="flex flex-col gap-4 py-4">
             {oauthAuthUrl && (
               <div className="rounded-md border p-3 bg-muted/40 text-xs space-y-1.5">
-                <span className="font-semibold block text-foreground">{t('1. Pencere açılmadıysa aşağıdaki bağlantıya tıklayarak giriş yapın:')}</span>
+                <span className="font-semibold block text-foreground">{t('1. If the window did not open, click the link below to log in:')}</span>
                 <a
                   href={oauthAuthUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-primary hover:underline font-mono break-all inline-block"
                 >
-                  🔗 {t('Giriş Sayfasını Aç (Yeni Sekme)')}
+                  🔗 {t('Open Login Page (New Tab)')}
                 </a>
               </div>
             )}
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">{t('2. Yönlendirilen Localhost URL Adresi')}</label>
+              <label className="text-sm font-medium">{t('2. Redirected Localhost URL')}</label>
               <Input
                 placeholder="http://localhost:1455/auth/callback?code=... veya http://localhost:8085/callback?code=..."
                 value={oauthCallbackUrl}
                 onChange={(e) => setOauthCallbackUrl(e.target.value)}
               />
-              <p className="text-muted-foreground text-xs">{t('Giriş yaptıktan sonra tarayıcınızın adres çubuğunda açılan localhost linkini kopyalayıp buraya yapıştırın.')}</p>
+              <p className="text-muted-foreground text-xs">{t('After logging in, copy the redirected localhost URL from your browser address bar and paste it here.')}</p>
             </div>
           </div>
           <DialogFooter>

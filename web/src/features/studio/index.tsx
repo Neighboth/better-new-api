@@ -28,6 +28,7 @@ import {
   MusicIcon,
   PlusIcon,
   SparklesIcon,
+  Square as SquareIcon,
   Trash2Icon,
   VideoIcon,
   XIcon,
@@ -374,6 +375,17 @@ export function Studio() {
     clearItems,
   } = useStudioGeneration()
 
+  const [isMobileScreen, setIsMobileScreen] = useState(false)
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobileScreen(window.innerWidth < 640)
+    }
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+
   const activeItem = useMemo(() => {
     if (activeSessionItemId) {
       const match = items.find((item) => item.id === activeSessionItemId)
@@ -385,7 +397,8 @@ export function Studio() {
     return null
   }, [items, activeSessionItemId])
 
-  const hasActivePending = isGenerating || items.some((item) => item.status === 'pending')
+  // Only the active stage item being pending or an active generation blocks the send button
+  const hasActivePending = isGenerating || activeItem?.status === 'pending'
 
   const canGenerate =
     prompt.trim().length > 0 &&
@@ -397,34 +410,34 @@ export function Studio() {
     const text = prompt.trim()
 
     if (mode === 'image' || mode === 'upscale') {
-      const newId = await generateImage({
+      await generateImage(
+        {
+          prompt: text,
+          model: currentModelName,
+          mode,
+          group: user?.group,
+          size: mode === 'image' ? size : undefined,
+          quality: mode === 'image' ? quality : undefined,
+          count: imageCount,
+        },
+        (id) => setActiveSessionItemId(id)
+      )
+      return
+    }
+
+    await generateVideo(
+      {
         prompt: text,
         model: currentModelName,
         mode,
         group: user?.group,
-        size: mode === 'image' ? size : undefined,
-        quality: mode === 'image' ? quality : undefined,
-        count: imageCount,
-      })
-      if (newId) {
-        setActiveSessionItemId(newId)
-      }
-      return
-    }
-
-    const newId = await generateVideo({
-      prompt: text,
-      model: currentModelName,
-      mode,
-      group: user?.group,
-      duration: mode === 'video' ? duration : undefined,
-      ratio: mode === 'video' ? ratio : undefined,
-      quality: mode === 'video' ? videoQualityValue : undefined,
-      imageUrl: attachedMedia?.url || undefined,
-    })
-    if (newId) {
-      setActiveSessionItemId(newId)
-    }
+        duration: mode === 'video' ? duration : undefined,
+        ratio: mode === 'video' ? ratio : undefined,
+        quality: mode === 'video' ? videoQualityValue : undefined,
+        imageUrl: attachedMedia?.url || undefined,
+      },
+      (id) => setActiveSessionItemId(id)
+    )
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -548,11 +561,25 @@ export function Studio() {
                       }
                       setActiveSessionItemId(null)
                     }}
-                    className='h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground bg-background/80 backdrop-blur-sm border border-border/50 hover:bg-background rounded-lg gap-1.5 shadow-xs'
-                    title={t('Clear Stage')}
+                    className={cn(
+                      'h-7 px-2.5 text-xs backdrop-blur-sm border border-border/50 rounded-lg gap-1.5 shadow-xs transition',
+                      activeItem.status === 'pending'
+                        ? 'text-destructive hover:text-destructive bg-destructive/10 hover:bg-destructive/20 border-destructive/30 font-medium'
+                        : 'text-muted-foreground hover:text-foreground bg-background/80 hover:bg-background'
+                    )}
+                    title={activeItem.status === 'pending' ? t('Stop') : t('Delete All')}
                   >
-                    <XIcon className='size-3.5' />
-                    <span>{t('Clear')}</span>
+                    {activeItem.status === 'pending' ? (
+                      <>
+                        <SquareIcon className='size-3 fill-current' />
+                        <span>{t('Stop')}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Trash2Icon className='size-3.5' />
+                        <span>{t('Delete All')}</span>
+                      </>
+                    )}
                   </Button>
                 </div>
 
@@ -583,16 +610,19 @@ export function Studio() {
                           </p>
                         </div>
                       )}
-                      {isGenerating && (
-                        <Button
-                          onClick={() => stop()}
-                          size='sm'
-                          variant='outline'
-                          className='mt-1 h-7 rounded-lg text-xs'
-                        >
-                          {t('Stop')}
-                        </Button>
-                      )}
+                      <Button
+                        onClick={() => {
+                          stop(activeItem.id)
+                          removeItem(activeItem.id)
+                          setActiveSessionItemId(null)
+                        }}
+                        size='sm'
+                        variant='outline'
+                        className='mt-1 h-7 rounded-lg text-xs gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30'
+                      >
+                        <SquareIcon className='size-3 fill-current' />
+                        {t('Stop')}
+                      </Button>
                     </div>
                   )}
 
@@ -711,9 +741,9 @@ export function Studio() {
               <span className='max-w-[200px] truncate text-xs text-muted-foreground font-medium'>
                 {attachedMedia.name ||
                   (attachedMedia.type === 'audio'
-                    ? t('Referans Ses')
+                    ? t('Reference Audio')
                     : attachedMedia.type === 'video'
-                      ? t('Referans Video')
+                      ? t('Reference Video')
                       : t('Reference Image'))}
               </span>
               <button
@@ -726,11 +756,11 @@ export function Studio() {
             </div>
           )}
 
-          <div className='relative flex items-center gap-2.5 rounded-full border border-border/70 bg-card/95 shadow-2xl backdrop-blur-xl px-3 py-2 transition-all focus-within:border-border'>
+          <div className='relative flex items-center gap-1.5 sm:gap-2.5 rounded-full border border-border/70 bg-card/95 shadow-2xl backdrop-blur-xl px-2.5 sm:px-3 py-1.5 sm:py-2 transition-all focus-within:border-border'>
             {/* Left Action: Plus file attach button */}
             <label
               htmlFor='studio-file-upload'
-              className='flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition shadow-xs'
+              className='flex size-8 sm:size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition shadow-xs'
               title={mode === 'music' ? t('Add audio file') : t('Add media file')}
             >
               <PlusIcon className='size-4' />
@@ -752,10 +782,10 @@ export function Studio() {
                 onKeyDown={handleKeyDown}
                 placeholder={
                   mode === 'music'
-                    ? t('Describe lyrics, style or melody...')
-                    : t('What do you want to create?')
+                    ? (isMobileScreen ? t('Describe melody...') : t('Describe lyrics, style or melody...'))
+                    : (isMobileScreen ? t('Describe your idea...') : t('What do you want to create?'))
                 }
-                className='w-full resize-none border-0 bg-transparent py-2 px-2 text-sm focus:outline-none focus:ring-0 leading-5 placeholder:text-muted-foreground/60 overflow-hidden align-middle my-auto'
+                className='w-full resize-none border-0 bg-transparent py-2 px-1.5 sm:px-2 text-xs sm:text-sm focus:outline-none focus:ring-0 leading-5 placeholder:text-muted-foreground/60 overflow-hidden align-middle my-auto placeholder:truncate whitespace-nowrap'
                 rows={1}
                 style={{ height: '36px', maxHeight: '100px' }}
                 onInput={(e) => {
@@ -767,13 +797,13 @@ export function Studio() {
             </div>
 
             {/* Right Controls: Model Pill & Send Arrow */}
-            <div className='flex items-center gap-2 shrink-0'>
+            <div className='flex items-center gap-1.5 sm:gap-2 shrink-0'>
               {/* Model Pill Trigger displaying ONLY model name per requirements */}
               <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
                 <PopoverTrigger
-                  className='inline-flex h-9 items-center gap-1.5 rounded-full bg-muted/70 hover:bg-muted border border-border/50 px-3.5 text-xs font-medium text-foreground transition shadow-xs'
+                  className='inline-flex h-8 sm:h-9 items-center gap-1 sm:gap-1.5 rounded-full bg-muted/70 hover:bg-muted border border-border/50 px-2.5 sm:px-3.5 text-xs font-medium text-foreground transition shadow-xs'
                 >
-                  <span className='max-w-[140px] truncate'>
+                  <span className='max-w-[85px] sm:max-w-[140px] truncate text-[11px] sm:text-xs'>
                     {currentModelDisplayName}
                   </span>
                 </PopoverTrigger>
@@ -922,7 +952,7 @@ export function Studio() {
                       </div>
 
                       <div className='space-y-1'>
-                        <Label className='text-xs font-medium text-muted-foreground'>{t('Kalite')}</Label>
+                        <Label className='text-xs font-medium text-muted-foreground'>{t('Quality')}</Label>
                         <Select onValueChange={(val) => setVideoQuality(val ?? '')} value={videoQualityValue}>
                           <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
                             <SelectValue />
@@ -959,7 +989,7 @@ export function Studio() {
                       </div>
 
                       <div className='space-y-1'>
-                        <Label className='text-xs font-medium text-muted-foreground'>{t('Kalite')}</Label>
+                        <Label className='text-xs font-medium text-muted-foreground'>{t('Quality')}</Label>
                         <Select onValueChange={(val) => setImageQuality(val ?? '')} value={quality}>
                           <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
                             <SelectValue />
@@ -1007,10 +1037,10 @@ export function Studio() {
 
       {/* Previous Generations Dialog (Item 11) */}
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-        <DialogContent className='w-[95vw] sm:max-w-[95vw] md:max-w-6xl lg:max-w-7xl h-[85vh] max-h-[88vh] flex flex-col p-0 overflow-hidden'>
-          <DialogHeader className='p-4 border-b flex flex-row items-center justify-between space-y-0'>
+        <DialogContent className='w-[96vw] sm:w-[95vw] md:max-w-6xl lg:max-w-7xl h-[90vh] sm:h-[85vh] max-h-[92vh] flex flex-col p-0 overflow-hidden rounded-2xl'>
+          <DialogHeader className='p-3 sm:p-4 border-b flex flex-row items-center justify-between space-y-0'>
             <div>
-              <DialogTitle className='text-base font-semibold'>
+              <DialogTitle className='text-sm sm:text-base font-semibold'>
                 {t('Previous Generations')}
               </DialogTitle>
               <DialogDescription className='text-xs text-muted-foreground'>
@@ -1034,22 +1064,22 @@ export function Studio() {
           </DialogHeader>
 
           {/* Filter tabs */}
-          <div className='px-4 pt-3 border-b pb-2 flex items-center justify-between gap-2 overflow-x-auto'>
-            <Tabs value={historyTab} onValueChange={(val) => setHistoryTab(val as typeof historyTab)}>
-              <TabsList className='h-8'>
-                <TabsTrigger value='all' className='text-xs px-3'>
+          <div className='px-3 sm:px-4 pt-2.5 sm:pt-3 border-b pb-2 sm:pb-2.5 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar'>
+            <Tabs value={historyTab} onValueChange={(val) => setHistoryTab(val as typeof historyTab)} className='w-full sm:w-auto'>
+              <TabsList className='inline-flex h-8 w-auto min-w-full sm:min-w-0 justify-start gap-1 p-1'>
+                <TabsTrigger value='all' className='text-xs px-2.5 sm:px-3 shrink-0'>
                   {t('All')} ({items.length})
                 </TabsTrigger>
-                <TabsTrigger value='video' className='text-xs px-3'>
+                <TabsTrigger value='video' className='text-xs px-2.5 sm:px-3 shrink-0'>
                   {t('Video')} ({items.filter((i) => i.mode === 'video').length})
                 </TabsTrigger>
-                <TabsTrigger value='image' className='text-xs px-3'>
+                <TabsTrigger value='image' className='text-xs px-2.5 sm:px-3 shrink-0'>
                   {t('Image')} ({items.filter((i) => i.mode === 'image').length})
                 </TabsTrigger>
-                <TabsTrigger value='music' className='text-xs px-3'>
+                <TabsTrigger value='music' className='text-xs px-2.5 sm:px-3 shrink-0'>
                   {t('Music')} ({items.filter((i) => i.mode === 'music').length})
                 </TabsTrigger>
-                <TabsTrigger value='upscale' className='text-xs px-3'>
+                <TabsTrigger value='upscale' className='text-xs px-2.5 sm:px-3 shrink-0'>
                   {t('Upscale')} ({items.filter((i) => i.mode === 'upscale').length})
                 </TabsTrigger>
               </TabsList>

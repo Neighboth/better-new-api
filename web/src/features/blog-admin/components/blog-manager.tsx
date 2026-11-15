@@ -277,6 +277,16 @@ export function BlogManager() {
     silent = false
   ) => {
     let text = ''
+    let isFinished = false
+    let inactivityTimer: ReturnType<typeof setTimeout> | null = null
+
+    const clearTimer = () => {
+      if (inactivityTimer) {
+        clearTimeout(inactivityTimer)
+        inactivityTimer = null
+      }
+    }
+
     onStart()
     const controller = createStreamRequestController({
       getHeaders: getFreshAuthHeaders,
@@ -289,22 +299,51 @@ export function BlogManager() {
       setStreaming: () => {}, // unused
     })
 
+    const resetTimer = () => {
+      clearTimer()
+      inactivityTimer = setTimeout(() => {
+        if (!isFinished) {
+          isFinished = true
+          try {
+            controller.stop()
+          } catch {
+            // ignore
+          }
+          const err = t('Generation timed out due to stream inactivity.')
+          if (!silent) toast.error(err)
+          onError(err)
+        }
+      }, 45000)
+    }
+
+    resetTimer()
+
     try {
       await controller.send(payload, {
         onUpdate: (type, chunk) => {
+          resetTimer()
           if (type === 'content') {
             text += chunk
           }
         },
         onComplete: () => {
+          if (isFinished) return
+          isFinished = true
+          clearTimer()
           onSuccess(text)
         },
         onError: (errStr) => {
+          if (isFinished) return
+          isFinished = true
+          clearTimer()
           if (!silent) toast.error(errStr || t('Generation failed.'))
           onError(errStr)
         },
       })
     } catch (e: any) {
+      if (isFinished) return
+      isFinished = true
+      clearTimer()
       if (!silent) toast.error(e.message || t('Generation failed.'))
       onError(e.message)
     }
@@ -370,7 +409,7 @@ export function BlogManager() {
           response_format: { type: 'json_object' },
         },
         undefined,
-        300000
+        60000
       )
       const raw = res?.choices?.[0]?.message?.content?.trim() ?? ''
       queries = parseQueryBounds(raw)
@@ -381,15 +420,15 @@ export function BlogManager() {
       // Last-resort fallback: just search the raw topic, once.
       queries = [trimmed]
     }
-    queries = queries.slice(0, 12)
+    queries = queries.slice(0, 3)
 
-    // Phase 2 — search every query and gather candidate URLs.
+    // Phase 2 — search queries and gather candidate URLs.
     const candidates: Array<{ title: string; url: string; content: string }> = []
     const seen = new Set<string>()
     for (const query of queries) {
       pushResearchLog('search', query)
       try {
-        const response = await searchWeb(query, 8)
+        const response = await searchWeb(query, 5)
         const hits = Array.isArray(response?.results) ? response.results : []
         for (const hit of hits) {
           const url = String(hit.url ?? '').trim()
@@ -406,20 +445,34 @@ export function BlogManager() {
       }
     }
 
-    // Phase 3 — fetch the qualifying pages, capped to protect context.
-    const MAX_FETCH = 40
+    // Phase 3 — fetch qualifying pages concurrently with 6s timeout, capped at 4 pages.
+    const MAX_FETCH = 4
+    const selectedHits = candidates.slice(0, MAX_FETCH)
     const pages: Array<{ title: string; url: string; markdown: string }> = []
-    for (const hit of candidates) {
-      if (pages.length >= MAX_FETCH) break
+
+    const fetchWithTimeout = async (hit: { title: string; url: string }) => {
       pushResearchLog('fetch', hit.url)
-      try {
-        const page = await fetchWebpage(hit.url)
+      const fetchPromise = fetchWebpage(hit.url)
+      const timeoutPromise = new Promise<{ markdown?: string; title?: string }>((_, reject) =>
+        setTimeout(() => reject(new Error('Fetch timeout')), 6000)
+      )
+      return Promise.race([fetchPromise, timeoutPromise])
+    }
+
+    const settled = await Promise.allSettled(
+      selectedHits.map(async (hit) => {
+        const page = await fetchWithTimeout(hit)
         const md = String(page.markdown ?? '')
         if (md.trim()) {
-          pages.push({ title: page.title || hit.title || hit.url, url: hit.url, markdown: md.slice(0, 6000) })
+          return { title: page.title || hit.title || hit.url, url: hit.url, markdown: md.slice(0, 6000) }
         }
-      } catch (error) {
-        if (import.meta.env.DEV) console.warn('fetch failed for', hit.url, error)
+        return null
+      })
+    )
+
+    for (const result of settled) {
+      if (result.status === 'fulfilled' && result.value) {
+        pages.push(result.value)
       }
     }
 
@@ -432,7 +485,7 @@ export function BlogManager() {
           `### Source ${index + 1}: ${page.title || page.url}\nURL: ${page.url}\n\n${page.markdown.slice(0, 5000)}`
       )
       .join('\n\n')
-    return digest.slice(0, 50000)
+    return digest.slice(0, 30000)
   }
 
   const doAiSequenceStep = async (step: number, currentPrompt: string, kind: 'generate' | 'refine') => {
@@ -719,10 +772,16 @@ export function BlogManager() {
                 })
               })
             } catch (err: any) {
-              setAiGenerationError(true)
-              setAiErrorMessage(err?.message || `Translation for ${langCode} failed`)
-              setAiGenerationStep(6 + i)
-              return
+              console.warn(`Translation for ${langCode} failed, continuing with generated content:`, err)
+              toast.warning(t('Translation for {{lang}} could not be completed, continuing...', { lang: langCode }))
+              if (!currentDraft.contents?.[langCode] && enContent) {
+                currentDraft = {
+                  ...currentDraft,
+                  contents: { ...currentDraft.contents, [langCode]: enContent },
+                }
+                postFormRef.current = currentDraft
+                setPostForm({ ...currentDraft })
+              }
             }
 
             if (i < targetLangs.length - 1) {
@@ -1136,7 +1195,7 @@ CRITICAL RULES:
 
   return (
     <div className='space-y-4 py-2'>
-      <div className='flex items-center justify-between gap-3'>
+      <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3'>
         <div className='flex items-center gap-3'>
           <Switch
             checked={blogEnabled === true}
@@ -1151,16 +1210,16 @@ CRITICAL RULES:
             </p>
           </div>
         </div>
-        <div className='flex items-center gap-2'>
-        <Button type='button' size='sm' variant='outline' onClick={() => { setEditingPost(null); setPostForm(emptyBlogPostForm()); setActiveLanguage('en'); setIsAiOpen(true); }}>
-          <Sparkles className='me-1 h-4 w-4' />
-          {t('Generate with AI')}
-        </Button>
-        <Button type='button' size='sm' onClick={openNewPost}>
-          <Plus className='me-1 h-4 w-4' />
-          {t('New post')}
-        </Button>
-      </div>
+        <div className='flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto'>
+          <Button type='button' size='sm' variant='outline' className='w-full sm:w-auto justify-center' onClick={() => { setEditingPost(null); setPostForm(emptyBlogPostForm()); setActiveLanguage('en'); setIsAiOpen(true); }}>
+            <Sparkles className='me-1 h-4 w-4' />
+            {t('Generate with AI')}
+          </Button>
+          <Button type='button' size='sm' className='w-full sm:w-auto justify-center' onClick={openNewPost}>
+            <Plus className='me-1 h-4 w-4' />
+            {t('New post')}
+          </Button>
+        </div>
       </div>
 
       {isLoadingPosts && (

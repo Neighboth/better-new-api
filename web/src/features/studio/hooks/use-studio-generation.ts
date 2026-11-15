@@ -73,13 +73,18 @@ export function useStudioGeneration() {
   const abortRef = useRef<AbortController | null>(null)
   const controllersRef = useRef<Map<string, AbortController>>(new Map())
   const activePollingTasks = useRef<Set<string>>(new Set())
+  const hasMountedResumeRef = useRef(false)
 
+  // Debounced persistence to avoid lag on frequent progress updates
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
-    } catch {
-      // ignore storage error
-    }
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
+      } catch {
+        // ignore storage error
+      }
+    }, 500)
+    return () => clearTimeout(timer)
   }, [items])
 
   const patchItem = useCallback((id: string, patch: Partial<StudioItem>) => {
@@ -88,8 +93,11 @@ export function useStudioGeneration() {
     )
   }, [])
 
-  // Auto-resume background polling for any pending video items on mount or page reload
+  // Auto-resume background polling for any pending video items on mount once
   useEffect(() => {
+    if (hasMountedResumeRef.current) return
+    hasMountedResumeRef.current = true
+
     const pendingVideos = items.filter(
       (item) => item.status === 'pending' && item.mode === 'video'
     )
@@ -159,6 +167,7 @@ export function useStudioGeneration() {
         } finally {
           activePollingTasks.current.delete(item.id)
           controllersRef.current.delete(item.id)
+          setIsGenerating(false)
         }
       }
 
@@ -179,7 +188,7 @@ export function useStudioGeneration() {
   )
 
   const generateImage = useCallback(
-    async (params: ImageParams) => {
+    async (params: ImageParams, onStarted?: (id: string) => void) => {
       const id = startItem({
         mode: params.mode || 'image',
         prompt: params.prompt,
@@ -190,6 +199,7 @@ export function useStudioGeneration() {
           count: params.count,
         },
       })
+      onStarted?.(id)
       const controller = new AbortController()
       abortRef.current = controller
       controllersRef.current.set(id, controller)
@@ -243,7 +253,7 @@ export function useStudioGeneration() {
   )
 
   const generateVideo = useCallback(
-    async (params: VideoParams) => {
+    async (params: VideoParams, onStarted?: (id: string) => void) => {
       const id = startItem({
         mode: params.mode || 'video',
         prompt: params.prompt,
@@ -254,6 +264,7 @@ export function useStudioGeneration() {
           quality: params.quality,
         },
       })
+      onStarted?.(id)
       const controller = new AbortController()
       abortRef.current = controller
       controllersRef.current.set(id, controller)
@@ -336,23 +347,26 @@ export function useStudioGeneration() {
       controllersRef.current.get(id)?.abort()
       controllersRef.current.delete(id)
       activePollingTasks.current.delete(id)
+      patchItem(id, { status: 'error', error: 'Cancelled' })
     } else {
       abortRef.current?.abort()
       controllersRef.current.forEach((ctrl) => ctrl.abort())
       controllersRef.current.clear()
       activePollingTasks.current.clear()
-      setIsGenerating(false)
     }
-  }, [])
+    setIsGenerating(false)
+  }, [patchItem])
 
   const removeItem = useCallback((id: string) => {
     controllersRef.current.get(id)?.abort()
     controllersRef.current.delete(id)
     activePollingTasks.current.delete(id)
+    setIsGenerating(false)
     setItems((prev) => prev.filter((item) => item.id !== id))
   }, [])
 
   const clearItems = useCallback((mode?: StudioItem['mode']) => {
+    setIsGenerating(false)
     if (mode) {
       items.filter((i) => i.mode === mode).forEach((i) => {
         controllersRef.current.get(i.id)?.abort()
