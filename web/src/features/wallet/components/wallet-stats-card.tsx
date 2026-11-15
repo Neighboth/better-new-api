@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatQuota } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
 import type { UserWalletData } from '../types'
 
@@ -40,9 +41,15 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   const { t } = useTranslation()
   if (props.loading) {
     return (
-      <div className='grid grid-cols-2 md:grid-cols-5 divide-x divide-y md:divide-y-0 rounded-lg border'>
-        {['balance', 'requests_pool', 'tokens_pool', 'usage', 'requests'].map((key) => (
-          <div key={key} className='min-w-0 px-2.5 py-2.5 sm:px-5 sm:py-4'>
+      <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-px bg-border rounded-lg border overflow-hidden'>
+        {['balance', 'requests_pool', 'tokens_pool', 'usage', 'requests'].map((key, idx) => (
+          <div
+            key={key}
+            className={cn(
+              'bg-card min-w-0 p-3 sm:p-4',
+              idx === 4 ? 'col-span-2 sm:col-span-1' : ''
+            )}
+          >
             <Skeleton className='h-3.5 w-full' />
             <Skeleton className='mt-2 h-6 w-full sm:h-7' />
             <Skeleton className='mt-1.5 hidden h-3.5 w-24 md:block' />
@@ -115,12 +122,15 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   ]
 
   return (
-    <div
-      className='grid grid-cols-2 divide-x divide-y md:divide-y-0 rounded-lg border'
-      style={{ gridTemplateColumns: `repeat(${stats.length}, minmax(0, 1fr))` }}
-    >
-      {stats.map((item) => (
-        <div key={item.label} className='min-w-0 px-2.5 py-2.5 sm:px-5 sm:py-4'>
+    <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-px bg-border rounded-lg border overflow-hidden'>
+      {stats.map((item, idx) => (
+        <div
+          key={item.label}
+          className={cn(
+            'bg-card min-w-0 p-3 sm:p-4.5 flex flex-col justify-between',
+            idx === stats.length - 1 && stats.length % 2 === 1 ? 'col-span-2 sm:col-span-1' : ''
+          )}
+        >
           <div className='flex items-center gap-1.5 sm:gap-2.5'>
             <IconBadge tone={item.tone} size='stat'>
               <item.icon />
@@ -130,10 +140,10 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
             </div>
           </div>
 
-          <div className='text-foreground mt-1.5 font-mono text-sm font-bold tracking-tight break-all tabular-nums sm:mt-2.5 sm:text-xl xl:text-2xl'>
+          <div className='text-foreground mt-1.5 font-mono text-sm sm:text-xl xl:text-2xl font-bold tracking-tight break-all tabular-nums sm:mt-2.5'>
             {item.value}
           </div>
-          <div className='text-muted-foreground/60 mt-1 hidden text-xs md:block'>
+          <div className='text-muted-foreground/60 mt-1 hidden text-xs md:block truncate'>
             {item.description}
           </div>
         </div>

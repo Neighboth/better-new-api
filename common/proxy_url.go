@@ -71,6 +71,10 @@ func NormalizeProxyLine(raw string) (string, error) {
 	if port == "" {
 		if scheme == "socks5" || scheme == "socks5h" {
 			port = "1080"
+		} else if scheme == "https" {
+			port = "443"
+		} else if scheme == "http" {
+			port = "80"
 		} else {
 			port = "8080"
 		}

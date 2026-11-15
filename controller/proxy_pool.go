@@ -486,47 +486,49 @@ type cloudflareWorkerDeployRequest struct {
 	Name       string `json:"name"`
 }
 
-const CloudflareWorkerProxyScript = `export default {
-  async fetch(request) {
-    const url = new URL(request.url);
-    let target = request.headers.get("X-Target-URL") || url.searchParams.get("url");
-    if (!target && url.pathname.length > 1) {
-      const raw = url.pathname.slice(1) + url.search;
-      if (raw.startsWith("http://") || raw.startsWith("https://")) {
-        target = raw;
-      }
-    }
+const CloudflareWorkerProxyScript = `addEventListener('fetch', event => {
+  event.respondWith(handleRequest(event.request));
+});
 
-    if (!target) {
-      return new Response(JSON.stringify({
-        status: "ok",
-        service: "Cloudflare Worker Proxy for Better-New-API",
-        ip: request.headers.get("cf-connecting-ip")
-      }), {
-        headers: { "content-type": "application/json" }
-      });
-    }
-
-    const modifiedHeaders = new Headers(request.headers);
-    modifiedHeaders.delete("x-target-url");
-    modifiedHeaders.delete("host");
-
-    try {
-      const response = await fetch(target, {
-        method: request.method,
-        headers: modifiedHeaders,
-        body: request.method !== "GET" && request.method !== "HEAD" ? request.body : undefined,
-        redirect: "follow",
-      });
-      return response;
-    } catch (err) {
-      return new Response(JSON.stringify({ error: err.message }), {
-        status: 502,
-        headers: { "content-type": "application/json" }
-      });
+async function handleRequest(request) {
+  const url = new URL(request.url);
+  let target = request.headers.get("X-Target-URL") || url.searchParams.get("url");
+  if (!target && url.pathname.length > 1) {
+    const raw = url.pathname.slice(1) + url.search;
+    if (raw.startsWith("http://") || raw.startsWith("https://")) {
+      target = raw;
     }
   }
-};`
+
+  if (!target) {
+    return new Response(JSON.stringify({
+      status: "ok",
+      service: "Cloudflare Worker Proxy for Better-New-API",
+      ip: request.headers.get("cf-connecting-ip")
+    }), {
+      headers: { "content-type": "application/json" }
+    });
+  }
+
+  const modifiedHeaders = new Headers(request.headers);
+  modifiedHeaders.delete("x-target-url");
+  modifiedHeaders.delete("host");
+
+  try {
+    const response = await fetch(target, {
+      method: request.method,
+      headers: modifiedHeaders,
+      body: request.method !== "GET" && request.method !== "HEAD" ? request.body : undefined,
+      redirect: "follow",
+    });
+    return response;
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502,
+      headers: { "content-type": "application/json" }
+    });
+  }
+}`
 
 func GetCloudflareWorkerScript(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{

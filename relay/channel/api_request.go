@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -538,6 +539,21 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		keyIndex = info.ChannelMultiKeyIndex
 	}
 	rawProxyURL = service.EffectiveRelayProxyURL(info.ChannelId, keyIndex, info.ApiKey, rawProxyURL)
+	if service.IsCloudflareWorkerProxy(rawProxyURL) {
+		if req != nil && req.URL != nil {
+			originalURL := req.URL.String()
+			req.Header.Set("X-Target-URL", originalURL)
+			workerURL := rawProxyURL
+			if !strings.HasPrefix(workerURL, "http://") && !strings.HasPrefix(workerURL, "https://") {
+				workerURL = "https://" + workerURL
+			}
+			if wURL, err := url.Parse(workerURL); err == nil {
+				req.URL = wURL
+				req.Host = wURL.Host
+			}
+		}
+		rawProxyURL = ""
+	}
 	client, err := service.GetHttpClientWithProxySettings(rawProxyURL, info.ChannelSetting)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)

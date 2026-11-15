@@ -124,11 +124,85 @@ func EffectiveRelayProxyURL(channelId, keyIndex int, keyString string, channelPr
 	return channelProxy
 }
 
+// IsCloudflareWorkerProxy reports whether a proxy URL represents a Cloudflare Worker
+// proxy that expects requests via X-Target-URL rather than HTTP CONNECT tunneling.
+func IsCloudflareWorkerProxy(proxyURL string) bool {
+	trimmed := strings.TrimSpace(proxyURL)
+	if trimmed == "" {
+		return false
+	}
+	if strings.Contains(trimmed, ".workers.dev") {
+		return true
+	}
+	_, enabled := loadProxyPoolData()
+	for _, p := range enabled {
+		if (p.URL == trimmed || strings.TrimRight(p.URL, "/") == strings.TrimRight(trimmed, "/")) && p.ProxyType == "cloudflare_worker" {
+			return true
+		}
+	}
+	return false
+}
+
 // TestProxyEgress checks that a proxy resolves and can reach the public
 // internet, returning the egress IP as seen by a remote service and the
 // round-trip duration in milliseconds. The call uses a short context timeout
 // so a dead proxy never blocks the admin UI.
 func TestProxyEgress(rawProxyURL string) (string, int64, error) {
+	trimmed := strings.TrimSpace(rawProxyURL)
+	if trimmed == "" {
+		return "", 0, fmt.Errorf("empty proxy URL")
+	}
+
+	// 1. Dedicated handling for Cloudflare Worker proxies
+	if IsCloudflareWorkerProxy(trimmed) {
+		workerURL := trimmed
+		if !strings.HasPrefix(workerURL, "http://") && !strings.HasPrefix(workerURL, "https://") {
+			workerURL = "https://" + workerURL
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, workerURL, nil)
+		if err != nil {
+			return "", 0, err
+		}
+		req.Header.Set("X-Target-URL", "https://api.ipify.org?format=json")
+		req.Header.Set("User-Agent", "curl/8.4.0")
+		started := time.Now()
+		client := GetHttpClient()
+		if client == nil {
+			client = http.DefaultClient
+		}
+		resp, err := client.Do(req)
+		latency := time.Since(started).Milliseconds()
+		if err != nil {
+			errStr := err.Error()
+			if strings.Contains(errStr, "tls:") || strings.Contains(errStr, "handshake") || strings.Contains(workerURL, "workers.dev") {
+				return "", latency, fmt.Errorf("workers.dev alan adı servis sağlayıcınız tarafından engelleniyor (Türk Telekom/BTK). Lütfen Cloudflare panelinden Worker'ınıza özel alan adı (Custom Domain, örn: https://proxy.siteniz.com) ekleyerek bu adresi giriniz. Detay: %v", err)
+			}
+			return "", latency, err
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if err != nil {
+			return "", latency, err
+		}
+		bodyStr := string(body)
+		if resp.StatusCode == http.StatusTemporaryRedirect || resp.StatusCode == http.StatusMovedPermanently || strings.Contains(bodyStr, "guvenliinternet.turktelekom.com.tr") {
+			return "", latency, fmt.Errorf("workers.dev alan adı servis sağlayıcınız tarafından engelleniyor (Türk Telekom/BTK). Lütfen Cloudflare panelinden Worker'ınıza özel alan adı (Custom Domain, örn: https://proxy.siteniz.com) ekleyerek bu adresi giriniz")
+		}
+		if resp.StatusCode != http.StatusOK {
+			return "", latency, fmt.Errorf("worker status %d: %s", resp.StatusCode, bodyStr)
+		}
+		var parsed struct {
+			IP string `json:"ip"`
+		}
+		if err := json.Unmarshal(body, &parsed); err == nil && parsed.IP != "" {
+			return parsed.IP, latency, nil
+		}
+		return "cloudflare-worker", latency, nil
+	}
+
+	// 2. Standard HTTP/HTTPS/SOCKS5 Proxies
 	if normURL, err := common.NormalizeProxyLine(rawProxyURL); err == nil && normURL != "" {
 		rawProxyURL = normURL
 	}
@@ -148,27 +222,32 @@ func TestProxyEgress(rawProxyURL string) (string, int64, error) {
 	req.Header.Set("User-Agent", "curl/8.4.0")
 	started := time.Now()
 	resp, err := client.Do(req)
+	latency := time.Since(started).Milliseconds()
 	if err != nil {
-		return "", time.Since(started).Milliseconds(), err
+		errStr := err.Error()
+		if (strings.Contains(errStr, "tls:") || strings.Contains(errStr, "handshake")) && strings.Contains(rawProxyURL, "workers.dev") {
+			return "", latency, fmt.Errorf("workers.dev alan adı servis sağlayıcınız tarafından engelleniyor (Türk Telekom/BTK). Lütfen Cloudflare panelinden Worker'ınıza özel alan adı (Custom Domain, örn: https://proxy.siteniz.com) ekleyerek bu adresi giriniz. Detay: %v", err)
+		}
+		return "", latency, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if err != nil {
-		return "", time.Since(started).Milliseconds(), err
+		return "", latency, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", time.Since(started).Milliseconds(), fmt.Errorf("unexpected status %d from egress endpoint", resp.StatusCode)
+		return "", latency, fmt.Errorf("unexpected status %d from egress endpoint", resp.StatusCode)
 	}
 	var parsed struct {
 		IP string `json:"ip"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "", time.Since(started).Milliseconds(), fmt.Errorf("unexpected egress response")
+		return "", latency, fmt.Errorf("unexpected egress response")
 	}
 	if parsed.IP == "" {
-		return "", time.Since(started).Milliseconds(), fmt.Errorf("unexpected egress response")
+		return "", latency, fmt.Errorf("unexpected egress response")
 	}
-	return parsed.IP, time.Since(started).Milliseconds(), nil
+	return parsed.IP, latency, nil
 }
 
 // StartProxyPoolAutoTester periodically runs health/latency checks on registered

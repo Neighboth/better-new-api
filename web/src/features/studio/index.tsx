@@ -33,7 +33,7 @@ import {
   VideoIcon,
   XIcon,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -176,8 +176,25 @@ export function Studio() {
   const [attachedMedia, setAttachedMedia] = useState<AttachedMedia | null>(null)
   const [popoverOpen, setPopoverOpen] = useState(false)
 
-  // Track active stage item during this session (resets to null on page refresh so Google Flow empty state appears)
-  const [activeSessionItemId, setActiveSessionItemId] = useState<string | null>(null)
+  // Track active stage item during this session (stored in localStorage so returning to tab keeps finished item on stage)
+  const [activeSessionItemId, setActiveSessionItemIdState] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('studio_active_item_id') || null
+    } catch {
+      return null
+    }
+  })
+
+  const setActiveSessionItemId = useCallback((id: string | null) => {
+    setActiveSessionItemIdState(id)
+    try {
+      if (id) {
+        localStorage.setItem('studio_active_item_id', id)
+      } else {
+        localStorage.removeItem('studio_active_item_id')
+      }
+    } catch {}
+  }, [])
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyTab, setHistoryTab] = useState<'all' | StudioMode>('all')
 
@@ -394,6 +411,20 @@ export function Studio() {
     // If an item is active/pending, always display it on the stage even after page refresh
     const pendingItem = items.find((item) => item.status === 'pending')
     if (pendingItem) return pendingItem
+
+    // If an item was active before navigating away/reloading and completed, show it
+    const storedId = (() => {
+      try {
+        return localStorage.getItem('studio_active_item_id')
+      } catch {
+        return null
+      }
+    })()
+    if (storedId) {
+      const match = items.find((item) => item.id === storedId)
+      if (match) return match
+    }
+
     return null
   }, [items, activeSessionItemId])
 
@@ -600,29 +631,16 @@ export function Studio() {
                         </p>
                       </div>
                       {activeItem.mode === 'video' && activeItem.progress && (
-                        <div className='w-full max-w-xs space-y-1'>
+                        <div className='w-full max-w-xs flex items-center gap-3'>
                           <Progress
                             value={progressPercentOf(activeItem.progress) ?? 25}
-                            className='h-1.5'
+                            className='h-1.5 flex-1'
                           />
-                          <p className='font-mono text-[11px] text-muted-foreground'>
+                          <span className='font-mono text-xs text-muted-foreground shrink-0 min-w-[36px] text-right'>
                             {activeItem.progress}
-                          </p>
+                          </span>
                         </div>
                       )}
-                      <Button
-                        onClick={() => {
-                          stop(activeItem.id)
-                          removeItem(activeItem.id)
-                          setActiveSessionItemId(null)
-                        }}
-                        size='sm'
-                        variant='outline'
-                        className='mt-1 h-7 rounded-lg text-xs gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30'
-                      >
-                        <SquareIcon className='size-3 fill-current' />
-                        {t('Stop')}
-                      </Button>
                     </div>
                   )}
 
@@ -822,13 +840,12 @@ export function Studio() {
                           type='button'
                           onClick={() => setMode('video')}
                           className={cn(
-                            'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5',
+                            'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center',
                             mode === 'video'
                               ? 'bg-background text-foreground shadow-xs font-semibold'
                               : 'text-muted-foreground hover:text-foreground'
                           )}
                         >
-                          <VideoIcon className='size-3.5' />
                           <span>{t('Video')}</span>
                         </button>
                       )}
@@ -837,13 +854,12 @@ export function Studio() {
                           type='button'
                           onClick={() => setMode('image')}
                           className={cn(
-                            'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5',
+                            'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center',
                             mode === 'image'
                               ? 'bg-background text-foreground shadow-xs font-semibold'
                               : 'text-muted-foreground hover:text-foreground'
                           )}
                         >
-                          <ImageIcon className='size-3.5' />
                           <span>{t('Image')}</span>
                         </button>
                       )}
