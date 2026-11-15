@@ -132,17 +132,20 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		}
 	}
 
-	// Rescale operations do not require a prompt
-	isRescale := req.Model == "rescale"
+	// Rescale, upscale and dub operations do not require a prompt
+	isMediaTool := req.Model == "rescale" || req.Model == "upscale" || req.Model == "image-upscale" || req.Model == "image_upscale" || req.Model == "dub"
 	if req.Metadata != nil {
-		if op, ok := req.Metadata["operation"].(string); ok && op == "rescale" {
-			isRescale = true
+		if op, ok := req.Metadata["operation"].(string); ok {
+			op = strings.ToLower(op)
+			if op == "rescale" || op == "upscale" || op == "image_upscale" || op == "dub" {
+				isMediaTool = true
+			}
 		}
 	}
 
 	if strings.TrimSpace(req.Prompt) == "" {
-		if isRescale {
-			req.Prompt = "Rescale media"
+		if isMediaTool {
+			req.Prompt = "Process media"
 		} else {
 			return service.TaskErrorWrapperLocal(fmt.Errorf("prompt is required"), "invalid_request", http.StatusBadRequest)
 		}
@@ -199,6 +202,8 @@ func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+a.apiKey)
 	req.Header.Set("X-API-Key", a.apiKey)
+	req.Header.Set("User-Agent", "curl/8.4.0")
+	req.Header.Set("User-Agent", "curl/8.4.0")
 	return nil
 }
 
@@ -271,6 +276,7 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("X-API-Key", key)
+	req.Header.Set("User-Agent", "curl/8.4.0")
 
 	client, err := service.GetHttpClientWithProxy(proxy)
 	if err != nil {
@@ -432,6 +438,14 @@ func (a *TaskAdaptor) convertToAepiJobRequest(c *gin.Context, req *relaycommon.T
 			operation = "music"
 		} else if modelName == "rescale" {
 			operation = "rescale"
+		} else if modelName == "upscale" || modelName == "video_upscale" {
+			operation = "upscale"
+		} else if modelName == "image_upscale" || modelName == "image-upscale" {
+			operation = "image_upscale"
+		} else if modelName == "dub" {
+			operation = "dub"
+		} else if strings.HasSuffix(modelName, "-edit") {
+			operation = "edit"
 		} else if IsImageModel(modelName) {
 			if job.Source != "" {
 				operation = "image_edit"
@@ -444,10 +458,10 @@ func (a *TaskAdaptor) convertToAepiJobRequest(c *gin.Context, req *relaycommon.T
 	}
 	job.Operation = operation
 
-	// 3. Determine Model (Music and Rescale must have NO model!)
-	if operation == "music" || operation == "rescale" {
+	// 3. Determine Model (Music, Rescale, Upscale, Image Upscale, Dub must have NO model!)
+	if operation == "music" || operation == "rescale" || operation == "upscale" || operation == "image_upscale" || operation == "dub" {
 		job.Model = ""
-	} else if modelName != "" && modelName != "music" && modelName != "rescale" {
+	} else if modelName != "" && modelName != "music" && modelName != "rescale" && modelName != "upscale" && modelName != "image_upscale" && modelName != "dub" {
 		job.Model = modelName
 	} else {
 		if strings.HasPrefix(operation, "image") {
@@ -685,6 +699,7 @@ func (a *TaskAdaptor) uploadBinary(filename, contentType string, data []byte) (s
 	}
 	req.Header.Set("Authorization", "Bearer "+a.apiKey)
 	req.Header.Set("X-API-Key", a.apiKey)
+	req.Header.Set("User-Agent", "curl/8.4.0")
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	} else {

@@ -33,7 +33,6 @@ import {
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { getSelf } from '@/lib/api'
-import { formatQuota } from '@/lib/format'
 import { getBillingPoolInfo, getUserBalancePackages, type UserBalancePackage } from './api'
 
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'

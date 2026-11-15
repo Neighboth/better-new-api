@@ -733,15 +733,11 @@ export function BlogManager() {
       setAiGenerationStep(0)
       setAiGenerationError(false)
       setAiErrorMessage('')
-      if (kind === 'generate') {
-        setAiPrompt('')
-        setAiRefinePrompt('')
-        setIsAiOpen(false)
-        // The run is finished: open the editor with the drafted post.
-        setIsEditorOpen(true)
-      } else {
-        setAiRefinePrompt('')
-      }
+      setAiPrompt('')
+      setAiRefinePrompt('')
+      setIsAiOpen(false)
+      // The run is finished: open the editor with the drafted post.
+      setIsEditorOpen(true)
     } catch (e: any) {
       // 3 attempts already ran silently before this point; surface the failure once.
       const message = (e && e.message) ? String(e.message) : t('Generation failed.')
@@ -1271,19 +1267,32 @@ export function BlogManager() {
               {t('Cancel')}
             </Button>
             {hasAnyLocalizedContent(postForm) && (
-              <Button
-                type='button'
-                variant='outline'
-                disabled={aiGenerating}
-                onClick={() => runAiGeneration('refine')}
-              >
-                {aiGenerating ? (
-                  <Loader2 className='h-4 w-4 animate-spin' />
-                ) : (
-                  <Wand2 className='h-4 w-4' />
-                )}
-                {t('Regenerate draft')}
-              </Button>
+              <>
+                <Button
+                  type='button'
+                  variant='default'
+                  onClick={() => {
+                    setIsAiOpen(false)
+                    setIsEditorOpen(true)
+                  }}
+                >
+                  <Pencil className='me-1 h-4 w-4' />
+                  {t('Taslağı Düzenle')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='outline'
+                  disabled={aiGenerating}
+                  onClick={() => runAiGeneration('refine')}
+                >
+                  {aiGenerating ? (
+                    <Loader2 className='h-4 w-4 animate-spin' />
+                  ) : (
+                    <Wand2 className='h-4 w-4' />
+                  )}
+                  {t('Regenerate draft')}
+                </Button>
+              </>
             )}
             <Button
               type='button'

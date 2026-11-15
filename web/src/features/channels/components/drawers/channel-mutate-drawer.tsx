@@ -26,6 +26,7 @@ import {
   Circle,
   ClipboardPaste,
   HelpCircle,
+  Info,
   KeyRound,
   Loader2,
   Server,
@@ -1552,7 +1553,7 @@ export function ChannelMutateDrawer({
     }
 
     // Advanced Custom and OpenCode can fetch models without an API key.
-    if (!isEditing && type !== CHANNEL_TYPE_ADVANCED_CUSTOM && type !== CHANNEL_TYPE_OPENCODE) {
+    if (!isEditing && type !== CHANNEL_TYPE_ADVANCED_CUSTOM && type !== 65) {
       const key = form.getValues('key')
       if (!key?.trim()) {
         toast.error(t('Please enter API key first'))

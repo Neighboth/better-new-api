@@ -30,6 +30,9 @@ var proxyPoolRoutes = []proxyPoolRoute{
 	{http.MethodPost, "/assign", authz.ProxyPoolWrite, controller.AutoAssignProxyPool},
 	{http.MethodPost, "/rebalance", authz.ProxyPoolWrite, controller.RebalanceAllProxyPoolChannels},
 	{http.MethodDelete, "/assignments", authz.ProxyPoolWrite, controller.ClearProxyPoolAssignments},
+	{http.MethodPost, "/channels/:id/clear", authz.ProxyPoolWrite, controller.ClearChannelProxyPoolAssignments},
+	{http.MethodGet, "/cloudflare-worker/script", authz.ProxyPoolRead, controller.GetCloudflareWorkerScript},
+	{http.MethodPost, "/cloudflare-worker/deploy", authz.ProxyPoolWrite, controller.DeployCloudflareWorkerProxy},
 	{http.MethodGet, "/usage-stats", authz.ProxyPoolRead, controller.GetProxyPoolUsageStats},
 }
 

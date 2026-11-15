@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { CheckCircle2, CircleX, Gauge, Loader2, Network, Waypoints } from 'lucide-react'
+import { Loader2, Network } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   Area,
@@ -21,7 +21,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { formatTimestampRelative } from '@/lib/format'
 
 import { getProxyPoolStats } from '../api'
 
@@ -83,27 +82,27 @@ export function ProxyPoolStatsCard() {
       <CardContent className='space-y-5'>
         {/* Metric Highlights */}
         <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
-          <div className='rounded-lg border bg-muted/10 p-3'>
+          <div className='rounded-lg border bg-card p-3 shadow-xs'>
             <div className='text-muted-foreground text-xs font-medium'>{t('Toplam MB Aktarımı')}</div>
-            <div className='mt-1 text-xl font-bold font-mono text-primary'>
+            <div className='mt-1 text-xl font-bold font-mono text-foreground'>
               {totalMB.toFixed(2)} MB
             </div>
           </div>
-          <div className='rounded-lg border bg-muted/10 p-3'>
+          <div className='rounded-lg border bg-card p-3 shadow-xs'>
             <div className='text-muted-foreground text-xs font-medium'>{t('Aktif Proxyler')}</div>
-            <div className='mt-1 text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400'>
+            <div className='mt-1 text-xl font-bold font-mono text-foreground'>
               {activeProxies.length} / {proxies.length}
             </div>
           </div>
-          <div className='rounded-lg border bg-muted/10 p-3'>
+          <div className='rounded-lg border bg-card p-3 shadow-xs'>
             <div className='text-muted-foreground text-xs font-medium'>{t('Eşli Anahtarlar')}</div>
-            <div className='mt-1 text-xl font-bold font-mono text-amber-600 dark:text-amber-400'>
+            <div className='mt-1 text-xl font-bold font-mono text-foreground'>
               {totalAssignedKeys}
             </div>
           </div>
-          <div className='rounded-lg border bg-muted/10 p-3'>
+          <div className='rounded-lg border bg-card p-3 shadow-xs'>
             <div className='text-muted-foreground text-xs font-medium'>{t('Günlük Ortalama')}</div>
-            <div className='mt-1 text-xl font-bold font-mono'>
+            <div className='mt-1 text-xl font-bold font-mono text-foreground'>
               {(totalMB / (dailyHistory.length || 1)).toFixed(2)} MB
             </div>
           </div>
@@ -158,12 +157,19 @@ export function ProxyPoolStatsCard() {
                     <TableCell className='text-xs font-medium'>
                       <div className='flex items-center gap-2'>
                         <span>{p.name || t('Unnamed')}</span>
-                        {p.assigned_keys !== undefined && p.assigned_keys > 0 && (
+                        {p.assigned_keys !== undefined && p.assigned_keys > 0 ? (
                           <Badge
                             variant='outline'
                             className='border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300 font-medium text-[10px]'
                           >
                             {p.assigned_keys} / Eşli
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant='secondary'
+                            className='bg-muted text-muted-foreground font-normal text-[10px]'
+                          >
+                            {t('Yedek')}
                           </Badge>
                         )}
                       </div>

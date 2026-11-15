@@ -435,7 +435,7 @@ export async function resetCodexUsage(
   return res.data
 }
 
-export type ChannelOAuthProvider = 'codex' | 'antigravity'
+export type ChannelOAuthProvider = 'codex' | 'antigravity' | 'claudesub'
 
 export type ChannelOAuthFlowResponse = {
   success: boolean

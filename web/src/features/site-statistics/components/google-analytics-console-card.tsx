@@ -3,26 +3,12 @@ import {
   BarChart3,
   ChevronLeft,
   ChevronRight,
-  Globe,
-  Laptop,
   Loader2,
   Search,
   TrendingUp,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -375,7 +361,7 @@ export function GoogleAnalyticsConsoleCard() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {gsc.top_search_pages.map((p, idx) => (
+                    {(gsc.top_search_pages || []).map((p, idx) => (
                       <TableRow key={idx}>
                         <TableCell className='text-xs font-mono font-medium'>{p.page}</TableCell>
                         <TableCell className='text-xs font-mono text-right text-emerald-600 font-semibold'>

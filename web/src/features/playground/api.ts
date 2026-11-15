@@ -131,6 +131,14 @@ export async function getPlaygroundRuntimeConfig(
         ...EMPTY_PLAYGROUND_RUNTIME_CONFIG.studio,
         ...(data.studio ?? {}),
       },
+      music: {
+        enabled: Boolean(data.music?.enabled ?? EMPTY_PLAYGROUND_RUNTIME_CONFIG.music?.enabled ?? true),
+        models: data.music?.models ?? EMPTY_PLAYGROUND_RUNTIME_CONFIG.music?.models ?? [],
+      },
+      upscale: {
+        enabled: Boolean(data.upscale?.enabled ?? EMPTY_PLAYGROUND_RUNTIME_CONFIG.upscale?.enabled ?? true),
+        models: data.upscale?.models ?? EMPTY_PLAYGROUND_RUNTIME_CONFIG.upscale?.models ?? [],
+      },
     }
   } catch {
     return EMPTY_PLAYGROUND_RUNTIME_CONFIG

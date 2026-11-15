@@ -19,12 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 package aepi
 
 import (
-	"fmt"
-	"net/http"
 	"strings"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/service"
 
 	taskdto "github.com/QuantumNous/new-api/dto"
 )
@@ -49,19 +46,15 @@ func normalizeAndValidateVideoRequest(req *relaycommon.TaskSubmitReq) *taskdto.T
 			ratio = entry.Aspects[0]
 		}
 		if ratio != "" && len(entry.Aspects) > 0 && !constraintContains(entry.Aspects, ratio) {
-			return service.TaskErrorWrapperLocal(
-				fmt.Errorf("model %s does not support aspect %q (allowed: %s)", req.Model, ratio, strings.Join(entry.Aspects, ", ")),
-				"invalid_request", http.StatusBadRequest,
-			)
+			// Fall back safely to first supported aspect ratio instead of rejecting
+			ratio = entry.Aspects[0]
 		}
 		if quality == "" && len(entry.RenderRes) > 0 {
 			quality = entry.RenderRes[0]
 		}
 		if quality != "" && len(entry.RenderRes) > 0 && !constraintContains(entry.RenderRes, quality) {
-			return service.TaskErrorWrapperLocal(
-				fmt.Errorf("model %s does not support resolution %q (allowed: %s)", req.Model, quality, strings.Join(entry.RenderRes, ", ")),
-				"invalid_request", http.StatusBadRequest,
-			)
+			// Fall back safely to first supported resolution instead of rejecting
+			quality = entry.RenderRes[0]
 		}
 	}
 

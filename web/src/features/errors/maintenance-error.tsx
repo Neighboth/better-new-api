@@ -37,9 +37,7 @@ export function MaintenanceError() {
           <Button onClick={() => window.location.reload()} variant='outline'>
             {t('Refresh')}
           </Button>
-          <Button asChild>
-            <a href='/sign-in'>{t('Admin Sign In')}</a>
-          </Button>
+          <Button render={<a href='/sign-in'>{t('Admin Sign In')}</a>} />
         </div>
       </div>
     </div>

@@ -29,6 +29,7 @@ import { WorkerSettingsSection } from '../integrations/worker-settings-section'
 import { LogSettingsSection } from '../maintenance/log-settings-section'
 import { PerformanceSection } from '../maintenance/performance-section'
 import { AutoModelSettingsSection } from './auto-model-settings-section'
+import { ProxySettingsSection } from './proxy-settings-section'
 import { SystemFilesSection } from '../maintenance/system-files-section'
 import { UpdateCheckerSection } from '../maintenance/update-checker-section'
 import type { OperationsSettings } from '../types'
@@ -223,6 +224,19 @@ const OPERATIONS_SECTIONS = [
           imageModel: settings['discord_bot.image_model'] ?? '',
           onlyLinkedAccounts:
             settings['discord_bot.only_linked_accounts'] ?? false,
+        }}
+      />
+    ),
+  },
+  {
+    id: 'proxy-settings',
+    titleKey: 'Proxy Settings',
+    build: (settings: OperationsSettings) => (
+      <ProxySettingsSection
+        defaultValues={{
+          ProxyPoolEnabled: settings.ProxyPoolEnabled ?? true,
+          ProxyAutoTestIntervalMinutes: settings.ProxyAutoTestIntervalMinutes ? Number(settings.ProxyAutoTestIntervalMinutes) : 15,
+          ProxyAutoDisableUnhealthy: settings.ProxyAutoDisableUnhealthy ?? false,
         }}
       />
     ),

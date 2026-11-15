@@ -555,7 +555,17 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"aff_quota":         user.AffQuota,
 		"aff_history_quota": user.AffHistoryQuota,
 		"referral_quota":    user.ReferralQuota,
-		"referral_display":  user.ReferralDisplay,
+		"referral_display": func() int64 {
+			if user.ReferralDisplay > 0 {
+				return user.ReferralDisplay
+			}
+			if user.ReferralQuota > 0 {
+				if rset := operation_setting.GetReferralSetting(); rset != nil && rset.Enabled {
+					return int64(rset.InviteeDisplay)
+				}
+			}
+			return 0
+		}(),
 		"referral_excluded_channels": referralExcludedChannelSummaries(),
 		"inviter_id":        user.InviterId,
 		"linux_do_id":       user.LinuxDOId,

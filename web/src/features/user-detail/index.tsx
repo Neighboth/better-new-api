@@ -25,8 +25,6 @@ import {
   MonitorSmartphone,
   RefreshCw,
   ShieldCheck,
-  Sparkles,
-  Ticket,
   Users,
   UsersRound,
   Wallet,
@@ -576,7 +574,7 @@ export function UserDetail() {
                         {log.model_name || '—'}
                       </TableCell>
                       <TableCell className='max-w-[140px] truncate font-mono text-xs'>
-                        {log.channel_name || (log.token_name ? `#${log.token_id ?? ''}` : '—')}
+                        {log.channel_name || log.token_name || '—'}
                       </TableCell>
                       <TableCell className='text-right font-mono text-xs'>
                         {formatQuota(log.quota)}

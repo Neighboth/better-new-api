@@ -28,8 +28,9 @@ import {
   Upload,
   Eye,
   Save,
+  Download,
 } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -113,6 +114,7 @@ export function SystemFilesSection() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [currentFolder, setCurrentFolder] = useState('')
+  const isCurrentFolderReadOnly = currentFolder === 'uploads' || currentFolder.startsWith('uploads/')
   const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
 
@@ -139,8 +141,16 @@ export function SystemFilesSection() {
   const [unlockPassword, setUnlockPassword] = useState('')
   const [unlockHasPassword, setUnlockHasPassword] = useState(false)
   const [unlockEnableCaptcha, setUnlockEnableCaptcha] = useState(false)
+  const [unlockCaptchaId, setUnlockCaptchaId] = useState('')
+  const [unlockCaptchaImg, setUnlockCaptchaImg] = useState('')
+  const [unlockCaptchaAns, setUnlockCaptchaAns] = useState('')
   const [unlockLoading, setUnlockLoading] = useState(false)
   const [unlockCallback, setUnlockCallback] = useState<(() => void) | null>(null)
+
+  const [downloadUrlOpen, setDownloadUrlOpen] = useState(false)
+  const [downloadUrl, setDownloadUrl] = useState('')
+  const [downloadName, setDownloadName] = useState('')
+  const [downloading, setDownloading] = useState(false)
 
   const filesQuery = useQuery({
     queryKey: ['admin-managed-files'],
@@ -207,13 +217,30 @@ export function SystemFilesSection() {
     }
   }
 
+  const refreshUnlockCaptcha = async () => {
+    try {
+      const res = await api.get('/api/captcha/image')
+      if (res.data?.success && res.data?.data) {
+        setUnlockCaptchaImg(res.data.data.image)
+        setUnlockCaptchaId(res.data.data.captcha_id)
+        setUnlockCaptchaAns('')
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const promptUnlock = (path: string, hasPassword: boolean, enableCaptcha: boolean, onUnlocked: () => void) => {
     setUnlockPath(path)
     setUnlockPassword('')
     setUnlockHasPassword(hasPassword)
     setUnlockEnableCaptcha(enableCaptcha)
+    setUnlockCaptchaAns('')
     setUnlockCallback(() => onUnlocked)
     setUnlockOpen(true)
+    if (enableCaptcha) {
+      void refreshUnlockCaptcha()
+    }
   }
 
   const handleUnlockSubmit = async (e?: React.FormEvent) => {
@@ -223,6 +250,9 @@ export function SystemFilesSection() {
       const res = await api.post('/api/files/verify', {
         path: unlockPath,
         password: unlockPassword,
+        captcha_id: unlockCaptchaId,
+        captcha_ans: unlockCaptchaAns,
+        captcha_provider: 'image',
       })
       if (res.data?.success) {
         toast.success(t('Unlocked successfully'))
@@ -239,6 +269,79 @@ export function SystemFilesSection() {
       setUnlockLoading(false)
     }
   }
+
+  const uploadFile = async (file: File) => {
+    if (isCurrentFolderReadOnly) {
+      toast.error(t('Uploads directory is read-only'))
+      return
+    }
+    const targetPath = currentFolder ? `${currentFolder}/${file.name}` : file.name
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('path', targetPath)
+    try {
+      const res = await api.post('/api/files/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      if (res.data?.success) {
+        toast.success(t('Uploaded: {{name}}', { name: file.name }))
+        invalidate()
+      } else {
+        toast.error(res.data?.message || t('Upload failed'))
+      }
+    } catch {
+      toast.error(t('Upload failed'))
+    }
+  }
+
+  const handleDownloadFromUrl = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    if (!downloadUrl.trim()) {
+      toast.error(t('URL is required'))
+      return
+    }
+    setDownloading(true)
+    try {
+      const res = await api.post('/api/files/download-url', {
+        url: downloadUrl.trim(),
+        path: currentFolder,
+        name: downloadName.trim(),
+      })
+      if (res.data?.success) {
+        toast.success(t('File downloaded successfully'))
+        setDownloadUrlOpen(false)
+        setDownloadUrl('')
+        setDownloadName('')
+        invalidate()
+      } else {
+        toast.error(res.data?.message || t('Download failed'))
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || t('Download failed'))
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        if (!e.clipboardData?.files || e.clipboardData.files.length === 0) {
+          return
+        }
+      }
+      const files = e.clipboardData?.files
+      if (files && files.length > 0) {
+        e.preventDefault()
+        for (let i = 0; i < files.length; i++) {
+          void uploadFile(files[i])
+        }
+      }
+    }
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [currentFolder, isCurrentFolderReadOnly])
 
   const proceedOpenEdit = async (path: string, item?: ManagedFileItem) => {
     const kind = previewKindOf(path)
@@ -389,7 +492,6 @@ export function SystemFilesSection() {
   }
 
   const allItems = filesQuery.data ?? []
-  const isCurrentFolderReadOnly = currentFolder === 'uploads' || currentFolder.startsWith('uploads/')
 
   // Filter items in current folder
   const currentItems = allItems.filter((item) => {
@@ -438,6 +540,16 @@ export function SystemFilesSection() {
           </div>
 
           <div className='flex items-center gap-2'>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              disabled={isCurrentFolderReadOnly}
+              onClick={() => setDownloadUrlOpen(true)}
+            >
+              <Download className='me-1 h-4 w-4' />
+              {t("URL'den İndir")}
+            </Button>
             <Button
               type='button'
               variant='outline'
@@ -803,6 +915,45 @@ export function SystemFilesSection() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Download from URL Dialog */}
+      <Dialog open={downloadUrlOpen} onOpenChange={setDownloadUrlOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("URL'den Dosya İndir")}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleDownloadFromUrl} className='space-y-4 py-2'>
+            <div className='space-y-2'>
+              <Label>{t('Dosya URL')}</Label>
+              <Input
+                type='url'
+                autoFocus
+                value={downloadUrl}
+                placeholder='https://example.com/file.png'
+                onChange={(e) => setDownloadUrl(e.target.value)}
+                required
+              />
+            </div>
+            <div className='space-y-2'>
+              <Label>{t('Dosya Adı (İsteğe bağlı)')}</Label>
+              <Input
+                value={downloadName}
+                placeholder='file.png'
+                onChange={(e) => setDownloadName(e.target.value)}
+              />
+            </div>
+            <DialogFooter>
+              <Button type='button' variant='outline' onClick={() => setDownloadUrlOpen(false)}>
+                {t('Cancel')}
+              </Button>
+              <Button type='submit' disabled={downloading}>
+                {downloading ? t('İndiriliyor...') : t('İndir')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {/* Protection Unlock Dialog */}
       <Dialog open={unlockOpen} onOpenChange={setUnlockOpen}>
         <DialogContent>
@@ -826,8 +977,31 @@ export function SystemFilesSection() {
               </div>
             )}
             {unlockEnableCaptcha && (
-              <div className='rounded border border-indigo-500/20 bg-indigo-500/5 p-3 text-xs text-indigo-400'>
-                {t('Captcha verification is required.')}
+              <div className='space-y-2'>
+                <Label>{t('Captcha Verification')}</Label>
+                <div className='flex items-center gap-2'>
+                  {unlockCaptchaImg ? (
+                    <img
+                      src={unlockCaptchaImg}
+                      alt='Captcha'
+                      className='h-10 rounded border cursor-pointer'
+                      onClick={() => void refreshUnlockCaptcha()}
+                      title={t('Click to refresh')}
+                    />
+                  ) : (
+                    <div className='h-10 w-24 rounded border flex items-center justify-center text-xs text-muted-foreground'>
+                      {t('Loading...')}
+                    </div>
+                  )}
+                  <Button type='button' variant='outline' size='sm' onClick={() => void refreshUnlockCaptcha()}>
+                    {t('Refresh')}
+                  </Button>
+                </div>
+                <Input
+                  value={unlockCaptchaAns}
+                  placeholder={t('Enter captcha code')}
+                  onChange={(e) => setUnlockCaptchaAns(e.target.value)}
+                />
               </div>
             )}
             <DialogFooter>

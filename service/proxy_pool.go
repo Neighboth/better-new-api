@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -101,30 +102,22 @@ func loadProxyPoolData() (map[int]map[int]string, []model.ProxyPoolProxy) {
 
 // EffectiveRelayProxyURL resolves which proxy URL the relay should use for a
 // specific (channel, key index, key string) tuple.
-// 1. If an explicit proxy pool assignment exists for (channelId, keyIndex), it wins.
-// 2. If the channel configured its own proxy setting, that is used.
-// 3. Otherwise, if enabled proxies exist in the pool, a sticky proxy is deterministically
-//    selected based on the key string so key X, Y, Z always consistently route through the
-//    same proxy until that proxy is deleted.
+// 1. If global proxy pool is disabled (ProxyPoolEnabled != "true"), always use the channel's proxy setting.
+// 2. If an explicit proxy pool assignment exists for (channelId, keyIndex), it wins.
+// 3. Otherwise, use the channel's own proxy setting (or direct if empty).
+// Unassigned channels are never hijacked by arbitrary proxies.
 func EffectiveRelayProxyURL(channelId, keyIndex int, keyString string, channelProxy string) string {
-	urlMap, enabled := loadProxyPoolData()
+	if common.OptionMap["ProxyPoolEnabled"] != "true" {
+		return channelProxy
+	}
+
+	urlMap, _ := loadProxyPoolData()
 
 	if channelId > 0 && keyIndex >= 0 {
 		if channelKeys, ok := urlMap[channelId]; ok {
 			if url, ok := channelKeys[keyIndex]; ok && url != "" {
 				return url
 			}
-		}
-	}
-
-	if channelProxy != "" {
-		return channelProxy
-	}
-
-	// Sticky fallback from the pool for this key
-	if len(enabled) > 0 && strings.TrimSpace(keyString) != "" {
-		if sticky := PickStickyProxy(keyString, enabled); sticky != nil {
-			return sticky.URL
 		}
 	}
 
@@ -136,6 +129,9 @@ func EffectiveRelayProxyURL(channelId, keyIndex int, keyString string, channelPr
 // round-trip duration in milliseconds. The call uses a short context timeout
 // so a dead proxy never blocks the admin UI.
 func TestProxyEgress(rawProxyURL string) (string, int64, error) {
+	if normURL, err := common.NormalizeProxyLine(rawProxyURL); err == nil && normURL != "" {
+		rawProxyURL = normURL
+	}
 	if _, err := common.ParseProxyURLStrict(rawProxyURL); err != nil {
 		return "", 0, err
 	}
@@ -149,6 +145,7 @@ func TestProxyEgress(rawProxyURL string) (string, int64, error) {
 	if err != nil {
 		return "", 0, err
 	}
+	req.Header.Set("User-Agent", "curl/8.4.0")
 	started := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
@@ -172,4 +169,61 @@ func TestProxyEgress(rawProxyURL string) (string, int64, error) {
 		return "", time.Since(started).Milliseconds(), fmt.Errorf("unexpected egress response")
 	}
 	return parsed.IP, time.Since(started).Milliseconds(), nil
+}
+
+// StartProxyPoolAutoTester periodically runs health/latency checks on registered
+// proxies in the pool when enabled via System Settings.
+func StartProxyPoolAutoTester() {
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		lastTestTime := time.Now()
+
+		for range ticker.C {
+			if common.OptionMap["ProxyPoolEnabled"] != "true" {
+				continue
+			}
+
+			intervalMin := 15
+			if raw := strings.TrimSpace(common.OptionMap["ProxyAutoTestIntervalMinutes"]); raw != "" {
+				if v, err := strconv.Atoi(raw); err == nil && v > 0 {
+					intervalMin = v
+				}
+			}
+
+			if time.Since(lastTestTime) < time.Duration(intervalMin)*time.Minute {
+				continue
+			}
+			lastTestTime = time.Now()
+
+			proxies, err := model.ListProxyPoolProxies()
+			if err != nil || len(proxies) == 0 {
+				continue
+			}
+
+			autoDisable := common.OptionMap["ProxyAutoDisableUnhealthy"] == "true"
+			for _, p := range proxies {
+				egressIP, latency, testErr := TestProxyEgress(p.URL)
+				p.LastTestedAt = time.Now().Unix()
+				p.LatencyMs = latency
+				if testErr != nil {
+					p.LastTestStatus = "fail"
+					p.LastTestError = testErr.Error()
+					p.EgressIP = ""
+					if autoDisable {
+						p.Enabled = false
+					}
+				} else {
+					p.LastTestStatus = "ok"
+					p.LastTestError = ""
+					p.EgressIP = egressIP
+					if autoDisable && !p.Enabled {
+						p.Enabled = true
+					}
+				}
+				_ = model.UpdateProxyPoolProxy(&p)
+			}
+			InvalidateProxyPoolCache()
+		}
+	}()
 }

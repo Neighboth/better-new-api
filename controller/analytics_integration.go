@@ -199,13 +199,19 @@ func GetGoogleAnalyticsReport(c *gin.Context) {
 		return
 	}
 
+	var activeUsers int64
+	_ = model.DB.Model(&model.User{}).Where("status = ?", common.UserStatusEnabled).Count(&activeUsers)
+	if activeUsers == 0 {
+		activeUsers = 1
+	}
+
 	result := gin.H{
 		"configured":  true,
 		"ga_id":       gaId,
 		"property_id": propertyId,
 		"cached_at":   time.Now().Unix(),
 		"summary": gin.H{
-			"active_users":               18450,
+			"active_users":               activeUsers,
 			"new_users":                  6230,
 			"sessions":                   29800,
 			"page_views":                 98400,

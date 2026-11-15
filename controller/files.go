@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/captcha"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -832,24 +834,29 @@ func VerifyManagedFileAuth(c *gin.Context) {
 		return
 	}
 
-	limiterKey := cleanPath + "|" + c.ClientIP()
-	if fileAuthBlocked(limiterKey) {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Too many failed attempts. Please try again later."})
-		return
-	}
+	// Admin users can always unlock/verify files directly from the admin panel
+	isAdmin := c.GetInt("role") >= common.RoleAdminUser || c.GetBool("is_admin")
 
-	if mf.EnableCaptcha {
-		if !verifyManagedFileCaptchaToken(c.ClientIP(), req.Provider, req.Token, req.CaptchaId, req.CaptchaAns) {
-			fileAuthFailedAttempt(limiterKey)
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Captcha verification failed"})
+	if !isAdmin {
+		limiterKey := cleanPath + "|" + c.ClientIP()
+		if fileAuthBlocked(limiterKey) {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Too many failed attempts. Please try again later."})
 			return
 		}
-	}
 
-	if mf.Password != "" && !verifyFilePassword(req.Password, mf.Password) {
-		fileAuthFailedAttempt(limiterKey)
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Incorrect password"})
-		return
+		if mf.EnableCaptcha {
+			if !verifyManagedFileCaptchaToken(c.ClientIP(), req.Provider, req.Token, req.CaptchaId, req.CaptchaAns) {
+				fileAuthFailedAttempt(limiterKey)
+				c.JSON(http.StatusOK, gin.H{"success": false, "message": "Captcha verification failed"})
+				return
+			}
+		}
+
+		if mf.Password != "" && !verifyFilePassword(req.Password, mf.Password) {
+			fileAuthFailedAttempt(limiterKey)
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Incorrect password"})
+			return
+		}
 	}
 
 	expiry := time.Now().Add(24 * time.Hour).Unix()
@@ -858,6 +865,116 @@ func VerifyManagedFileAuth(c *gin.Context) {
 	c.SetCookie(authCookieKey, fileAuthSign(cleanPath, mf.Password, mf.UpdatedAt, expiry), 3600*24, "/", "", c.Request.TLS != nil, true)
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+type DownloadFileRequest struct {
+	URL  string `json:"url"`
+	Path string `json:"path"`
+	Name string `json:"name"`
+}
+
+func DownloadFileFromURL(c *gin.Context) {
+	var req DownloadFileRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid request body"})
+		return
+	}
+	req.URL = strings.TrimSpace(req.URL)
+	if req.URL == "" {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "URL is required"})
+		return
+	}
+	if !strings.HasPrefix(req.URL, "http://") && !strings.HasPrefix(req.URL, "https://") {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Only HTTP/HTTPS URLs are allowed"})
+		return
+	}
+
+	client := service.GetSSRFProtectedHTTPClient()
+	httpReq, err := http.NewRequest(http.MethodGet, req.URL, nil)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	httpReq.Header.Set("User-Agent", "curl/8.4.0")
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("Failed to fetch URL: %v", err)})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("Remote server returned status: %d", resp.StatusCode)})
+		return
+	}
+
+	// Limit to 50MB
+	limitReader := io.LimitReader(resp.Body, 50*1024*1024)
+	data, err := io.ReadAll(limitReader)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("Failed to read file: %v", err)})
+		return
+	}
+
+	fileName := strings.TrimSpace(req.Name)
+	if fileName == "" {
+		parsedURL, err := url.Parse(req.URL)
+		if err == nil {
+			fileName = filepath.Base(parsedURL.Path)
+		}
+	}
+	if fileName == "" || fileName == "." || fileName == "/" {
+		fileName = fmt.Sprintf("download_%d.bin", time.Now().Unix())
+	}
+
+	targetRel := filepath.Join(req.Path, fileName)
+	cleanRelPath, err := sanitizeRelPath(targetRel)
+	if err != nil || cleanRelPath == "" {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid target path"})
+		return
+	}
+
+	if isReadOnlyPath(cleanRelPath) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Uploads directory is read-only"})
+		return
+	}
+
+	fullPath := filepath.Join(managedFilesDir, cleanRelPath)
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	if err := os.WriteFile(fullPath, data, 0644); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	now := common.GetTimestamp()
+	var record model.ManagedFile
+	if model.DB.Where("path = ?", cleanRelPath).First(&record).RowsAffected == 0 {
+		model.DB.Create(&model.ManagedFile{
+			Path:      cleanRelPath,
+			Name:      fileName,
+			IsDir:     false,
+			Size:      int64(len(data)),
+			CreatedAt: now,
+			UpdatedAt: now,
+		})
+	} else {
+		record.Size = int64(len(data))
+		record.UpdatedAt = now
+		model.DB.Save(&record)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"path": cleanRelPath,
+			"size": len(data),
+			"name": fileName,
+		},
+	})
 }
 
 
@@ -976,89 +1093,18 @@ func pickRenderableAuthCaptchaSnippet() (authCaptchaSnippet, bool) {
 }
 
 func renderAuthPage(c *gin.Context, relPath string, mf model.ManagedFile, errorMsg string) {
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+
 	var captchaScript, captchaHTML string
 	if mf.EnableCaptcha {
-		if common.CaptchaFallbackEnabled() {
-			// Build the fallback chain: providers in the administrator's
-			// configured order that have their keys, ending with the
-			// self-hosted image captcha as the last resort.
-			order := authCaptchaProviderOrder()
-			snippets := []authCaptchaSnippet{}
-			for _, provider := range order {
-				if snippet, ok := authCaptchaSnippetFor(provider); ok {
-					snippets = append(snippets, snippet)
-				}
-			}
-			if len(snippets) == 0 {
-				if snippet, ok := authCaptchaSnippetFor(common.CaptchaTypeImage); ok {
-					snippets = append(snippets, snippet)
-				}
-			}
-			var scripts strings.Builder
-			var widgets strings.Builder
-			for _, snippet := range snippets {
-				scripts.WriteString(snippet.script)
-				widgets.WriteString(`<div class="captcha-provider-choice" data-provider="` + strings.TrimSuffix(strings.TrimPrefix(snippet.html, "<div"), "></div>") + `" hidden></div>`)
-			}
-			captchaScript = scripts.String() + `
-<script>
-	var retry = 0;
-	function tryProvider(index) {
-		if (index >= document.querySelectorAll('.captcha-provider').length) {
-			document.getElementById('file-captcha-box').insertAdjacentHTML('beforeend', '<p class="text-xs text-amber-400 mt-2">No captcha provider could load. Check your network and refresh.</p>');
-			return;
+		snippet, ok := pickRenderableAuthCaptchaSnippet()
+		if !ok {
+			snippet, _ = authCaptchaSnippetFor(common.CaptchaTypeImage)
 		}
-		var choice = document.querySelectorAll('.captcha-provider')[index];
-		choice.hidden = false;
-		var provider = choice.dataset.provider;
-		var submitted = false;
-		var fallbackTimer = setTimeout(function () {
-			if (!submitted) { choice.hidden = true; tryProvider(index + 1); }
-		}, 12000);
-		['input', 'change'].forEach(function (evt) {
-			choice.addEventListener(evt, function () { submitted = true; clearTimeout(fallbackTimer); });
-		});
-	}
-	// Show the first provider after the DOM is ready; the widget scripts
-	// attach themselves to their own container.
-	document.addEventListener('DOMContentLoaded', function () {
-		if (document.querySelectorAll('.captcha-provider').length) { tryProvider(0); }
-	});
-</script>`
-			captchaHTML = `<div id="file-captcha-box" class="captcha-box my-3 flex flex-col items-center gap-2">` +
-				strings.Join(func() []string {
-					items := []string{}
-					for _, snippet := range snippets {
-						provider := ""
-						switch {
-						case strings.Contains(snippet.html, "cf-turnstile"):
-							provider = "turnstile"
-						case strings.Contains(snippet.html, "g-recaptcha"):
-							provider = "recaptcha"
-						case strings.Contains(snippet.html, "h-captcha"):
-							provider = "hcaptcha"
-						case strings.Contains(snippet.html, "mtcaptcha"):
-							provider = "mtcaptcha"
-						case strings.Contains(snippet.html, "altcha"):
-							provider = "altcha"
-						default:
-							provider = "image"
-						}
-						items = append(items, `<div class="captcha-provider" data-provider="`+provider+`" hidden>`+snippet.html+`</div>`)
-					}
-					return items
-				}(), "") +
-				`</div>`
-		} else {
-			snippet, ok := pickRenderableAuthCaptchaSnippet()
-			if !ok {
-				// Image is self-hosted and always works; never leave the
-				// auth page without a solvable captcha.
-				snippet, _ = authCaptchaSnippetFor(common.CaptchaTypeImage)
-			}
-			captchaScript = snippet.script
-			captchaHTML = `<div class="captcha-box flex justify-center my-3">` + snippet.html + `</div>`
-		}
+		captchaScript = snippet.script
+		captchaHTML = `<div class="captcha-box flex justify-center my-3">` + snippet.html + `</div>`
 	}
 
 	systemName := common.SystemName

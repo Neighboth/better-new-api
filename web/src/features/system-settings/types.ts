@@ -561,6 +561,9 @@ export type BillingSettings = {
 }
 
 export type OperationsSettings = {
+  ProxyPoolEnabled?: boolean
+  ProxyAutoTestIntervalMinutes?: string | number
+  ProxyAutoDisableUnhealthy?: boolean
   DefaultCollapseSidebar: boolean
   DemoSiteEnabled: boolean
   SelfUseModeEnabled: boolean

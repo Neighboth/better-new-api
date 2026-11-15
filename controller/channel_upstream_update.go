@@ -361,7 +361,7 @@ func getFetchModelsResponseBody(method string, requestURL string, channel *model
 }
 
 func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
-	baseURL := constant.ChannelBaseURLs[channel.Type]
+	baseURL := constant.GetChannelBaseURL(channel.Type)
 	if channel.GetBaseURL() != "" {
 		baseURL = channel.GetBaseURL()
 	}
@@ -406,7 +406,7 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		key := strings.TrimSpace(channel.Key)
 		reqHeaders := make(http.Header)
 		reqHeaders.Set("Accept", "application/json")
-		if key != "" {
+		if key != "" && key != "local" {
 			reqHeaders.Set("Authorization", "Bearer "+key)
 		}
 		body, err := getFetchModelsResponseBody(http.MethodGet, opencodeBase+"/v1/models", channel, reqHeaders)
@@ -421,6 +421,31 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 					return normalizeModelNames(lo.Map(items, func(item OpenAIModel, _ int) string {
 						return item.ID
 					})), nil
+				}
+			}
+		}
+		// Also try GET /config/providers for native OpenCode server
+		body, err = getFetchModelsResponseBody(http.MethodGet, opencodeBase+"/config/providers", channel, reqHeaders)
+		if err == nil {
+			var provResult struct {
+				Providers []struct {
+					ID     string `json:"id"`
+					Models []struct {
+						ID string `json:"id"`
+					} `json:"models"`
+				} `json:"providers"`
+			}
+			if err := common.Unmarshal(body, &provResult); err == nil && len(provResult.Providers) > 0 {
+				var ids []string
+				for _, p := range provResult.Providers {
+					for _, m := range p.Models {
+						if m.ID != "" {
+							ids = append(ids, fmt.Sprintf("%s/%s", p.ID, m.ID))
+						}
+					}
+				}
+				if len(ids) > 0 {
+					return normalizeModelNames(ids), nil
 				}
 			}
 		}

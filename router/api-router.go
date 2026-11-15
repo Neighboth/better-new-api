@@ -310,11 +310,13 @@ func SetApiRouter(router *gin.Engine) {
 
 		// Managed Files (admin only, verify is also public)
 		apiRouter.POST("/files/verify", controller.VerifyManagedFileAuth)
+		apiRouter.POST("/files/verify-auth", controller.VerifyManagedFileAuth)
 		managedFilesRoute := apiRouter.Group("/files")
 		managedFilesRoute.Use(middleware.AdminAuth())
 		{
 			managedFilesRoute.GET("/", controller.ListManagedFiles)
 			managedFilesRoute.POST("/upload", controller.UploadManagedFile)
+			managedFilesRoute.POST("/download-url", controller.DownloadFileFromURL)
 			managedFilesRoute.GET("/content", controller.GetManagedFileContent)
 			managedFilesRoute.POST("/content", controller.SaveManagedFileContent)
 			managedFilesRoute.POST("/settings", controller.UpdateManagedFileSettings)

@@ -1,26 +1,16 @@
 import { useQuery } from '@tanstack/react-query'
 import {
-  Activity,
-  AlertTriangle,
-  ArrowRight,
-  Eye,
   Globe,
   Laptop,
   Loader2,
-  MousePointerClick,
   ShieldAlert,
-  Smartphone,
   Sparkles,
-  Zap,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -39,8 +29,6 @@ import {
 } from '@/components/ui/table'
 
 import { getClarityInsights } from '../api'
-
-const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#64748b']
 
 export function ClarityStatsCard() {
   const { t } = useTranslation()
@@ -106,7 +94,6 @@ export function ClarityStatsCard() {
   }
 
   const devices = data.devices || []
-  const browsers = data.browsers || []
   const topPages = data.top_pages || []
   const countries = data.countries || []
 

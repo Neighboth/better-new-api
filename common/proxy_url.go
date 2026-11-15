@@ -8,6 +8,89 @@ import (
 	"strings"
 )
 
+// NormalizeProxyLine converts any standard proxy format (including host:port:user:pass,
+// socks5://host:port:user:pass, user:pass@host:port, or raw host:port) into a
+// valid normalized URL string with properly escaped credentials.
+func NormalizeProxyLine(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", fmt.Errorf("empty proxy URL")
+	}
+
+	scheme := "socks5"
+	rest := trimmed
+
+	// Check if scheme prefix is present
+	if idx := strings.Index(rest, "://"); idx != -1 {
+		scheme = strings.ToLower(rest[:idx])
+		rest = rest[idx+3:]
+	}
+
+	var host, port, user, pass string
+
+	// Case A: contains '@' -> user:pass@host:port (split on LAST '@' in case pass contains '@')
+	if atIdx := strings.LastIndex(rest, "@"); atIdx != -1 {
+		userinfo := rest[:atIdx]
+		hostport := rest[atIdx+1:]
+
+		if colonIdx := strings.Index(userinfo, ":"); colonIdx != -1 {
+			user = userinfo[:colonIdx]
+			pass = userinfo[colonIdx+1:]
+		} else {
+			user = userinfo
+		}
+
+		if colonIdx := strings.LastIndex(hostport, ":"); colonIdx != -1 {
+			host = hostport[:colonIdx]
+			port = hostport[colonIdx+1:]
+		} else {
+			host = hostport
+		}
+	} else {
+		// Case B: host:port:user:pass or host:port
+		parts := strings.Split(rest, ":")
+		if len(parts) >= 4 {
+			host = parts[0]
+			port = parts[1]
+			user = parts[2]
+			pass = strings.Join(parts[3:], ":")
+		} else if len(parts) == 2 {
+			host = parts[0]
+			port = parts[1]
+		} else if len(parts) == 1 {
+			host = parts[0]
+		} else {
+			return "", fmt.Errorf("invalid proxy format: %s", raw)
+		}
+	}
+
+	if host == "" {
+		return "", fmt.Errorf("proxy URL must include a host")
+	}
+
+	if port == "" {
+		if scheme == "socks5" || scheme == "socks5h" {
+			port = "1080"
+		} else {
+			port = "8080"
+		}
+	} else {
+		p, err := strconv.Atoi(port)
+		if err != nil || p < 1 || p > 65535 {
+			return "", fmt.Errorf("proxy URL must include a valid port")
+		}
+	}
+
+	u := &url.URL{
+		Scheme: scheme,
+		Host:   net.JoinHostPort(host, port),
+	}
+	if user != "" || pass != "" {
+		u.User = url.UserPassword(user, pass)
+	}
+	return u.String(), nil
+}
+
 // ParseProxyURLStrict validates and normalizes a proxy URL for persistence.
 func ParseProxyURLStrict(rawProxyURL string) (*url.URL, error) {
 	parsedURL, _, err := parseProxyURL(rawProxyURL, false)
@@ -26,9 +109,18 @@ func parseProxyURL(rawProxyURL string, allowLegacySuffix bool) (*url.URL, bool, 
 		return nil, false, nil
 	}
 
+	// Try standard url.Parse first
 	parsedURL, err := url.Parse(trimmedProxyURL)
-	if err != nil {
-		return nil, false, fmt.Errorf("invalid proxy URL")
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Hostname() == "" {
+		// Fallback to NormalizeProxyLine for non-standard formats (e.g. host:port:user:pass)
+		normalized, normErr := NormalizeProxyLine(trimmedProxyURL)
+		if normErr != nil {
+			return nil, false, fmt.Errorf("invalid proxy URL")
+		}
+		parsedURL, err = url.Parse(normalized)
+		if err != nil {
+			return nil, false, fmt.Errorf("invalid proxy URL")
+		}
 	}
 	parsedURL.Scheme = strings.ToLower(parsedURL.Scheme)
 	switch parsedURL.Scheme {

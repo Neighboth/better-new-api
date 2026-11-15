@@ -337,6 +337,14 @@ export interface PlaygroundRuntimeConfig {
   studio: {
     enabled: boolean
   }
+  music?: {
+    enabled: boolean
+    models: MediaModelRuntime[]
+  }
+  upscale?: {
+    enabled: boolean
+    models: MediaModelRuntime[]
+  }
 }
 
 export const EMPTY_PLAYGROUND_RUNTIME_CONFIG: PlaygroundRuntimeConfig = {
@@ -375,6 +383,14 @@ export const EMPTY_PLAYGROUND_RUNTIME_CONFIG: PlaygroundRuntimeConfig = {
   },
   studio: {
     enabled: true,
+  },
+  music: {
+    enabled: true,
+    models: [],
+  },
+  upscale: {
+    enabled: true,
+    models: [],
   },
 }
 

@@ -56,6 +56,10 @@ export type PlaygroundSettingsDefaults = {
   imageModels?: MediaModelConfig[]
   videoEnabled?: boolean
   videoModels?: MediaModelConfig[]
+  musicEnabled?: boolean
+  musicModels?: MediaModelConfig[]
+  upscaleEnabled?: boolean
+  upscaleModels?: MediaModelConfig[]
   studioEnabled?: boolean
   imageDefaultCount?: number
   imageModel?: string
@@ -192,7 +196,7 @@ function ModelCard(props: ModelCardProps) {
   const ratioOptions = useMemo(() => value.ratios ?? [], [value.ratios])
 
   return (
-    <div className='bg-muted/20 space-y-3 rounded-lg p-3'>
+    <div className='border border-border rounded-xl p-4 bg-card/50 space-y-3 shadow-xs'>
       <div className='flex items-start gap-2'>
         <div className='flex-1 space-y-1'>
           <Label className='text-xs'>{t('Model')}</Label>
@@ -365,6 +369,22 @@ export function PlaygroundSettingsSection({
   const [studioEnabled, setStudioEnabled] = useState<boolean>(
     defaultValues.studioEnabled ?? true
   )
+  const [musicEnabled, setMusicEnabled] = useState<boolean>(
+    defaultValues.musicEnabled ?? true
+  )
+  const [upscaleEnabled, setUpscaleEnabled] = useState<boolean>(
+    defaultValues.upscaleEnabled ?? true
+  )
+  const [musicModels, setMusicModels] = useState<MediaModelConfig[]>(
+    defaultValues.musicModels && defaultValues.musicModels.length > 0
+      ? defaultValues.musicModels
+      : [{ model: 'music' }]
+  )
+  const [upscaleModels, setUpscaleModels] = useState<MediaModelConfig[]>(
+    defaultValues.upscaleModels && defaultValues.upscaleModels.length > 0
+      ? defaultValues.upscaleModels
+      : [{ model: 'upscale' }, { model: 'image-upscale' }]
+  )
   const [imageModels, setImageModels] = useState<MediaModelConfig[]>(
     normalizeImageModels(defaultValues)
   )
@@ -382,6 +402,10 @@ export function PlaygroundSettingsSection({
     image_models: imageModels.filter((model) => model.model.trim() !== ''),
     video_enabled: videoEnabled,
     video_models: videoModels.filter((model) => model.model.trim() !== ''),
+    music_enabled: musicEnabled,
+    music_models: musicModels.filter((model) => model.model.trim() !== ''),
+    upscale_enabled: upscaleEnabled,
+    upscale_models: upscaleModels.filter((model) => model.model.trim() !== ''),
     studio_enabled: studioEnabled,
     image_model: imageModels[0]?.model ?? '',
     video_model: videoModels[0]?.model ?? '',
@@ -454,6 +478,14 @@ export function PlaygroundSettingsSection({
         'playground_setting.video_enabled': String(videoEnabled),
         'playground_setting.video_models': JSON.stringify(
           videoModels.filter((model) => model.model.trim() !== '')
+        ),
+        'playground_setting.music_enabled': String(musicEnabled),
+        'playground_setting.music_models': JSON.stringify(
+          musicModels.filter((model) => model.model.trim() !== '')
+        ),
+        'playground_setting.upscale_enabled': String(upscaleEnabled),
+        'playground_setting.upscale_models': JSON.stringify(
+          upscaleModels.filter((model) => model.model.trim() !== '')
         ),
         'playground_setting.studio_enabled': String(studioEnabled),
         // The per-model list replaces the single-model fields; keep them in
@@ -658,6 +690,102 @@ export function PlaygroundSettingsSection({
               >
                 <PlusIcon className='size-4' />
                 {t('Add video model')}
+              </Button>
+            </div>
+          )}
+
+          <SettingsSwitchItem>
+            <SettingsSwitchContent>
+              <Label>{t('Music generation')}</Label>
+              <SettingsDescription>
+                {t('Offers music creation in the studio and through playground tools.')}
+              </SettingsDescription>
+            </SettingsSwitchContent>
+            <Switch checked={musicEnabled} onCheckedChange={setMusicEnabled} />
+          </SettingsSwitchItem>
+
+          {musicEnabled && (
+            <div className='space-y-3'>
+              {musicModels.map((model, index) => (
+                <div key={`music-${index}`} className='border border-border rounded-xl p-4 bg-card/50 space-y-2 shadow-xs'>
+                  <div className='flex items-center justify-between gap-2'>
+                    <Label className='text-xs'>{t('Model / Engine')}</Label>
+                    <Button
+                      size='icon-sm'
+                      type='button'
+                      variant='ghost'
+                      onClick={() => setMusicModels((prev) => prev.filter((_, i) => i !== index))}
+                    >
+                      <XIcon className='size-4' />
+                    </Button>
+                  </div>
+                  <Input
+                    className='font-mono text-xs'
+                    value={model.model}
+                    placeholder='music'
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setMusicModels((prev) => prev.map((item, i) => i === index ? { ...item, model: val } : item))
+                    }}
+                  />
+                </div>
+              ))}
+              <Button
+                onClick={() => setMusicModels((prev) => [...prev, { model: 'music' }])}
+                size='sm'
+                type='button'
+                variant='outline'
+              >
+                <PlusIcon className='size-4' />
+                {t('Add music model')}
+              </Button>
+            </div>
+          )}
+
+          <SettingsSwitchItem>
+            <SettingsSwitchContent>
+              <Label>{t('Media Upscale')}</Label>
+              <SettingsDescription>
+                {t('Offers image and video upscaling in the studio.')}
+              </SettingsDescription>
+            </SettingsSwitchContent>
+            <Switch checked={upscaleEnabled} onCheckedChange={setUpscaleEnabled} />
+          </SettingsSwitchItem>
+
+          {upscaleEnabled && (
+            <div className='space-y-3'>
+              {upscaleModels.map((model, index) => (
+                <div key={`upscale-${index}`} className='border border-border rounded-xl p-4 bg-card/50 space-y-2 shadow-xs'>
+                  <div className='flex items-center justify-between gap-2'>
+                    <Label className='text-xs'>{t('Model / Operation')}</Label>
+                    <Button
+                      size='icon-sm'
+                      type='button'
+                      variant='ghost'
+                      onClick={() => setUpscaleModels((prev) => prev.filter((_, i) => i !== index))}
+                    >
+                      <XIcon className='size-4' />
+                    </Button>
+                  </div>
+                  <Input
+                    className='font-mono text-xs'
+                    value={model.model}
+                    placeholder='upscale or image-upscale'
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setUpscaleModels((prev) => prev.map((item, i) => i === index ? { ...item, model: val } : item))
+                    }}
+                  />
+                </div>
+              ))}
+              <Button
+                onClick={() => setUpscaleModels((prev) => [...prev, { model: 'upscale' }])}
+                size='sm'
+                type='button'
+                variant='outline'
+              >
+                <PlusIcon className='size-4' />
+                {t('Add upscale model')}
               </Button>
             </div>
           )}

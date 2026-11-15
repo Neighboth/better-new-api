@@ -92,6 +92,10 @@ var ImageModels = []string{
 var UtilityModels = []string{
 	"music",
 	"rescale",
+	"upscale",
+	"image-upscale",
+	"image_upscale",
+	"dub",
 }
 
 var AllModels = append(append(append([]string{}, VideoModels...), ImageModels...), UtilityModels...)

@@ -134,9 +134,9 @@ var ChannelBaseURLs = []string{
 	"https://api.agnes-ai.com",                  //62
 	"https://chat.deepseek.com",                 //63
 	"https://videoapi.aerobox.eu.cc",            //64
-	"https://opencode.ai/zen",                //65
-	"https://api.groq.com/openai",            //66
-	"https://api.anthropic.com",              //67 Claude subscription
+	"http://localhost:4096",                     //65
+	"https://api.groq.com/openai",               //66
+	"https://api.anthropic.com",                 //67 Claude subscription
 }
 
 var ChannelTypeNames = map[int]string{
@@ -211,6 +211,13 @@ func GetChannelTypeName(channelType int) string {
 		return name
 	}
 	return "Unknown"
+}
+
+func GetChannelBaseURL(channelType int) string {
+	if channelType >= 0 && channelType < len(ChannelBaseURLs) {
+		return ChannelBaseURLs[channelType]
+	}
+	return ""
 }
 
 type ChannelSpecialBase struct {

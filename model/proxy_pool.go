@@ -15,6 +15,7 @@ type ProxyPoolProxy struct {
 	Id             int    `json:"id" gorm:"primaryKey;autoIncrement"`
 	Name           string `json:"name" gorm:"type:varchar(191);not null;default:''"`
 	URL            string `json:"url" gorm:"type:text;not null"`
+	ProxyType      string `json:"proxy_type" gorm:"type:varchar(32);default:'standard'"`
 	Enabled        bool   `json:"enabled" gorm:"not null;default:true"`
 	LastTestStatus string `json:"last_test_status" gorm:"type:varchar(32);default:''"`
 	LastTestError  string `json:"last_test_error" gorm:"type:text;default:''"`
@@ -22,6 +23,7 @@ type ProxyPoolProxy struct {
 	LatencyMs      int64  `json:"latency_ms" gorm:"default:0"`
 	EgressIP       string `json:"egress_ip" gorm:"type:varchar(64);default:''"`
 	AssignedKeys   int    `json:"assigned_keys" gorm:"-"`
+	IsBackup       bool   `json:"is_backup" gorm:"-"`
 	CreatedAt      int64  `json:"created_at"`
 	UpdatedAt      int64  `json:"updated_at"`
 }
@@ -76,6 +78,9 @@ func ListProxyPoolProxies() ([]ProxyPoolProxy, error) {
 	}
 	for i := range proxies {
 		proxies[i].AssignedKeys = countMap[proxies[i].Id]
+		if proxies[i].Enabled && proxies[i].AssignedKeys == 0 {
+			proxies[i].IsBackup = true
+		}
 	}
 	return proxies, nil
 }

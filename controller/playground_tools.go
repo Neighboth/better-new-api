@@ -136,6 +136,14 @@ func GetPlaygroundConfig(c *gin.Context) {
 			"default_quality":  videoDefaultQuality,
 			"reference_image":  setting.VideoReferenceImage,
 		},
+		"music": gin.H{
+			"enabled": setting.MusicEnabled,
+			"models":  setting.MusicModelOptions(),
+		},
+		"upscale": gin.H{
+			"enabled": setting.UpscaleEnabled,
+			"models":  setting.UpscaleModelOptions(),
+		},
 		"studio": gin.H{
 			"enabled": setting.StudioEnabled,
 		},

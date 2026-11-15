@@ -424,32 +424,30 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
               />
             </SettingsFormGrid>
 
-            <div className='rounded-lg border p-4 bg-card shadow-xs'>
-              <FormField
-                control={form.control}
-                name='HideHeaderSiteName'
-                render={({ field }) => (
-                  <FormItem>
-                    <SettingsSwitchItem>
-                      <SettingsSwitchContent>
-                        <FormLabel className='font-semibold text-sm'>
-                          {t('Hide Site Name in Header')}
-                        </FormLabel>
-                        <FormDescription className='text-xs'>
-                          {t('Show only logo in header without site name text')}
-                        </FormDescription>
-                      </SettingsSwitchContent>
-                      <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                    </SettingsSwitchItem>
-                  </FormItem>
-                )}
-              />
-            </div>
+            <FormField
+              control={form.control}
+              name='HideHeaderSiteName'
+              render={({ field }) => (
+                <FormItem>
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel className='font-semibold text-sm'>
+                        {t('Hide Site Name in Header')}
+                      </FormLabel>
+                      <FormDescription className='text-xs'>
+                        {t('Show only logo in header without site name text')}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                </FormItem>
+              )}
+            />
 
             {/* Multilingual System Content Tabs */}
             <div className='rounded-lg border p-4 space-y-4 bg-card shadow-xs mt-6'>

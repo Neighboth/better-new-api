@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -231,11 +233,47 @@ type proxyPoolAssignRequest struct {
 	ChannelId int `json:"channel_id"`
 }
 
+func fairAssignKeysToProxies(channelId int, keyCount int, enabled []model.ProxyPoolProxy) map[int]int {
+	mapping := make(map[int]int, keyCount)
+	if len(enabled) == 0 || keyCount == 0 {
+		return mapping
+	}
+
+	// Count existing assignments per proxy across all channels excluding this channel
+	usage := make(map[int]int, len(enabled))
+	allAssignments, _ := model.ListProxyPoolAssignments(0)
+	for _, a := range allAssignments {
+		if a.ChannelId != channelId {
+			usage[a.ProxyId]++
+		}
+	}
+
+	roundUsage := make(map[int]int, len(enabled))
+	for _, p := range enabled {
+		roundUsage[p.Id] = usage[p.Id]
+	}
+
+	for k := 0; k < keyCount; k++ {
+		bestIdx := 0
+		bestVal := roundUsage[enabled[0].Id]
+		for i := 1; i < len(enabled); i++ {
+			val := roundUsage[enabled[i].Id]
+			if val < bestVal {
+				bestVal = val
+				bestIdx = i
+			}
+		}
+		chosenId := enabled[bestIdx].Id
+		mapping[k] = chosenId
+		roundUsage[chosenId]++
+	}
+
+	return mapping
+}
+
 // AutoAssignProxyPool distributes the enabled proxies across every key of a
-// multi-key channel: keys are handed out round-robin so each proxy carries
-// as equal a share as possible. With more keys than proxies, proxies split
-// (e.g. one proxy serves three keys). Existing assignments for the channel
-// are replaced atomically.
+// multi-key channel: keys are handed out with balanced, least-loaded distribution
+// so each proxy carries as equal a share as possible across the entire system.
 func AutoAssignProxyPool(c *gin.Context) {
 	var req proxyPoolAssignRequest
 	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
@@ -246,14 +284,10 @@ func AutoAssignProxyPool(c *gin.Context) {
 		common.ApiErrorMsg(c, "invalid channel id")
 		return
 	}
-	var ch *model.Channel
-	{
-		var err error
-		ch, err = model.GetChannelById(req.ChannelId, true)
-		if err != nil {
-			common.ApiErrorMsg(c, "channel not found")
-			return
-		}
+	ch, err := model.GetChannelById(req.ChannelId, true)
+	if err != nil {
+		common.ApiErrorMsg(c, "channel not found")
+		return
 	}
 	keyLines := splitKeyLines(ch.Key)
 	if !ch.ChannelInfo.IsMultiKey || len(keyLines) == 0 {
@@ -275,10 +309,7 @@ func AutoAssignProxyPool(c *gin.Context) {
 		common.ApiErrorMsg(c, "no enabled proxy in the pool")
 		return
 	}
-	mapping := make(map[int]int, len(keyLines))
-	for index := 0; index < len(keyLines); index++ {
-		mapping[index] = enabled[index%len(enabled)].Id
-	}
+	mapping := fairAssignKeysToProxies(req.ChannelId, len(keyLines), enabled)
 	if err := model.ReplaceProxyPoolAssignments(req.ChannelId, mapping); err != nil {
 		common.ApiError(c, err)
 		return
@@ -389,6 +420,10 @@ func RebalanceAllProxyPoolChannels(c *gin.Context) {
 	rebalancedChannels := 0
 	totalKeysAssigned := 0
 
+	// Clear all existing assignments first so fair allocation runs globally
+	_ = model.DeleteProxyPoolAssignments(0)
+
+	roundUsage := make(map[int]int, len(enabled))
 	for _, summary := range channels {
 		ch, err := model.GetChannelById(summary.Id, true)
 		if err != nil {
@@ -399,8 +434,19 @@ func RebalanceAllProxyPoolChannels(c *gin.Context) {
 			continue
 		}
 		mapping := make(map[int]int, len(keyLines))
-		for idx := 0; idx < len(keyLines); idx++ {
-			mapping[idx] = enabled[idx%len(enabled)].Id
+		for k := 0; k < len(keyLines); k++ {
+			bestIdx := 0
+			bestVal := roundUsage[enabled[0].Id]
+			for i := 1; i < len(enabled); i++ {
+				val := roundUsage[enabled[i].Id]
+				if val < bestVal {
+					bestVal = val
+					bestIdx = i
+				}
+			}
+			chosenId := enabled[bestIdx].Id
+			mapping[k] = chosenId
+			roundUsage[chosenId]++
 		}
 		if err := model.ReplaceProxyPoolAssignments(summary.Id, mapping); err == nil {
 			rebalancedChannels++
@@ -414,6 +460,182 @@ func RebalanceAllProxyPoolChannels(c *gin.Context) {
 		"total_keys_assigned": totalKeysAssigned,
 		"proxy_count":         len(enabled),
 	})
+}
+
+func ClearChannelProxyPoolAssignments(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "invalid channel id")
+		return
+	}
+	if err := model.DeleteProxyPoolAssignments(id); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	service.InvalidateProxyPoolCache()
+	common.ApiSuccess(c, gin.H{
+		"channel_id": id,
+	})
+}
+
+type cloudflareWorkerDeployRequest struct {
+	ApiToken   string `json:"api_token"`
+	AccountId  string `json:"account_id"`
+	WorkerName string `json:"worker_name"`
+	WorkerURL  string `json:"worker_url"`
+	Name       string `json:"name"`
+}
+
+const CloudflareWorkerProxyScript = `export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    let target = request.headers.get("X-Target-URL") || url.searchParams.get("url");
+    if (!target && url.pathname.length > 1) {
+      const raw = url.pathname.slice(1) + url.search;
+      if (raw.startsWith("http://") || raw.startsWith("https://")) {
+        target = raw;
+      }
+    }
+
+    if (!target) {
+      return new Response(JSON.stringify({
+        status: "ok",
+        service: "Cloudflare Worker Proxy for Better-New-API",
+        ip: request.headers.get("cf-connecting-ip")
+      }), {
+        headers: { "content-type": "application/json" }
+      });
+    }
+
+    const modifiedHeaders = new Headers(request.headers);
+    modifiedHeaders.delete("x-target-url");
+    modifiedHeaders.delete("host");
+
+    try {
+      const response = await fetch(target, {
+        method: request.method,
+        headers: modifiedHeaders,
+        body: request.method !== "GET" && request.method !== "HEAD" ? request.body : undefined,
+        redirect: "follow",
+      });
+      return response;
+    } catch (err) {
+      return new Response(JSON.stringify({ error: err.message }), {
+        status: 502,
+        headers: { "content-type": "application/json" }
+      });
+    }
+  }
+};`
+
+func GetCloudflareWorkerScript(c *gin.Context) {
+	common.ApiSuccess(c, gin.H{
+		"script": CloudflareWorkerProxyScript,
+	})
+}
+
+func DeployCloudflareWorkerProxy(c *gin.Context) {
+	var req cloudflareWorkerDeployRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		common.ApiErrorMsg(c, "invalid request body")
+		return
+	}
+
+	workerURL := strings.TrimSpace(req.WorkerURL)
+	apiToken := strings.TrimSpace(req.ApiToken)
+	accountId := strings.TrimSpace(req.AccountId)
+	workerName := strings.TrimSpace(req.WorkerName)
+	if workerName == "" {
+		workerName = "better-new-api-proxy"
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = "Cloudflare Worker Proxy"
+	}
+
+	// If user provided CF API token & Account ID, deploy worker via Cloudflare API
+	if apiToken != "" && accountId != "" {
+		deployURL := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%s/workers/scripts/%s", accountId, workerName)
+		httpReq, err := http.NewRequest(http.MethodPut, deployURL, strings.NewReader(CloudflareWorkerProxyScript))
+		if err != nil {
+			common.ApiErrorMsg(c, "failed to create deployment request: "+err.Error())
+			return
+		}
+		httpReq.Header.Set("Authorization", "Bearer "+apiToken)
+		httpReq.Header.Set("Content-Type", "application/javascript")
+
+		client := &http.Client{Timeout: 30 * time.Second}
+		resp, err := client.Do(httpReq)
+		if err != nil {
+			common.ApiErrorMsg(c, "Cloudflare API request failed: "+err.Error())
+			return
+		}
+		defer resp.Body.Close()
+		respBytes, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+			common.ApiErrorMsg(c, fmt.Sprintf("Cloudflare deployment failed (status %d): %s", resp.StatusCode, string(respBytes)))
+			return
+		}
+
+		// Enable workers.dev subdomain for this script
+		subdomainURL := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%s/workers/scripts/%s/subdomain", accountId, workerName)
+		subdomainReq, _ := http.NewRequest(http.MethodPost, subdomainURL, strings.NewReader(`{"enabled":true}`))
+		if subdomainReq != nil {
+			subdomainReq.Header.Set("Authorization", "Bearer "+apiToken)
+			subdomainReq.Header.Set("Content-Type", "application/json")
+			subResp, subErr := client.Do(subdomainReq)
+			if subErr == nil {
+				subResp.Body.Close()
+			}
+		}
+
+		// Determine subdomain URL if workerURL was not provided
+		if workerURL == "" {
+			subAccURL := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%s/workers/subdomain", accountId)
+			subAccReq, _ := http.NewRequest(http.MethodGet, subAccURL, nil)
+			if subAccReq != nil {
+				subAccReq.Header.Set("Authorization", "Bearer "+apiToken)
+				if subResp, err := client.Do(subAccReq); err == nil {
+					defer subResp.Body.Close()
+					var subData struct {
+						Result struct {
+							Subdomain string `json:"subdomain"`
+						} `json:"result"`
+					}
+					if b, err := io.ReadAll(subResp.Body); err == nil {
+						_ = json.Unmarshal(b, &subData)
+						if subData.Result.Subdomain != "" {
+							workerURL = fmt.Sprintf("https://%s.%s.workers.dev", workerName, subData.Result.Subdomain)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if workerURL == "" {
+		common.ApiErrorMsg(c, "worker_url is required when API token and Account ID are not provided")
+		return
+	}
+
+	if !strings.HasPrefix(workerURL, "http://") && !strings.HasPrefix(workerURL, "https://") {
+		workerURL = "https://" + workerURL
+	}
+	workerURL = strings.TrimRight(workerURL, "/")
+
+	// Create the proxy record
+	proxy := &model.ProxyPoolProxy{
+		Name:      name,
+		URL:       workerURL,
+		ProxyType: "cloudflare_worker",
+		Enabled:   true,
+	}
+	if err := model.CreateProxyPoolProxy(proxy); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	service.InvalidateProxyPoolCache()
+	common.ApiSuccess(c, proxy)
 }
 
 func GetProxyPoolUsageStats(c *gin.Context) {
