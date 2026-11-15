@@ -518,7 +518,7 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		return item.ID
 	})
 	if channel.Type == constant.ChannelTypeAepi {
-		ids = append(ids, "music", "rescale")
+		ids = append(ids, "music", "rescale", "upscale", "image-upscale", "image_upscale", "dub")
 	}
 	return normalizeModelNames(ids), nil
 }

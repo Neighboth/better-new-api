@@ -32,6 +32,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
@@ -450,9 +451,11 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
 
             {/* Multilingual System Content Tabs */}
             <div className='rounded-lg border p-4 space-y-4 bg-card shadow-xs mt-6'>
-              <div>
-                <h4 className='font-semibold text-sm'>{t('Multilingual System Content')}</h4>
-                <p className='text-muted-foreground text-xs mt-1'>
+              <div className='space-y-0.5'>
+                <Label className='text-sm font-semibold text-foreground tracking-tight'>
+                  {t('Multilingual System Content')}
+                </Label>
+                <p className='text-xs text-muted-foreground'>
                   {t(
                     'Configure system name, footer, about, homepage content and legal policies for each language supported by the system.'
                   )}

@@ -21,6 +21,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { toGeneratedImageAttachments } from '@/features/playground/lib/message/image-message-utils'
 import { parseRequestErrorDetails } from '@/features/playground/lib/streaming/request-error-utils'
+import { api } from '@/lib/api'
 
 import {
   generateImages as submitImageGeneration,
@@ -33,6 +34,7 @@ import type { StudioItem } from '../types'
 type ImageParams = {
   prompt: string
   model: string
+  mode?: StudioItem['mode']
   group?: string
   size?: string
   quality?: string
@@ -42,6 +44,7 @@ type ImageParams = {
 type VideoParams = {
   prompt: string
   model: string
+  mode?: StudioItem['mode']
   group?: string
   duration?: number
   ratio?: string
@@ -97,7 +100,7 @@ export function useStudioGeneration() {
   const generateImage = useCallback(
     async (params: ImageParams) => {
       const id = startItem({
-        mode: 'image',
+        mode: params.mode || 'image',
         prompt: params.prompt,
         settings: {
           model: params.model,
@@ -130,16 +133,24 @@ export function useStudioGeneration() {
           })
           return
         }
+        const urls = attachments.map((attachment) => attachment.url).filter(Boolean)
         patchItem(id, {
           status: 'ready',
-          urls: attachments.map((attachment) => attachment.url),
+          urls,
         })
+        urls.forEach((u) => {
+          if (u.startsWith('http')) {
+            void api.post('/api/media/cache', { url: u }).catch(() => {})
+          }
+        })
+        return id
       } catch (error) {
         if (controller.signal.aborted) {
           patchItem(id, { status: 'error', error: 'Cancelled' })
-          return
+          return id
         }
         patchItem(id, { status: 'error', error: errorMessageOf(error) })
+        return id
       } finally {
         setIsGenerating(false)
         abortRef.current = null
@@ -151,7 +162,7 @@ export function useStudioGeneration() {
   const generateVideo = useCallback(
     async (params: VideoParams) => {
       const id = startItem({
-        mode: 'video',
+        mode: params.mode || 'video',
         prompt: params.prompt,
         settings: {
           model: params.model,
@@ -207,19 +218,25 @@ export function useStudioGeneration() {
           (progress) => patchItem(id, { progress })
         )
         if (!finished.result_url) {
+          const isStillRunning = ['in_progress', 'running', 'pending', 'queued'].includes((finished.status || '').toLowerCase())
           patchItem(id, {
             status: 'error',
-            error: finished.fail_reason || 'The video could not be generated',
+            error: finished.fail_reason || (isStillRunning ? 'Video is still processing upstream. You can check it under Previous Generations.' : 'The video could not be generated'),
           })
           return
         }
         patchItem(id, { status: 'ready', urls: [finished.result_url] })
+        if (finished.result_url && finished.result_url.startsWith('http')) {
+          void api.post('/api/media/cache', { url: finished.result_url }).catch(() => {})
+        }
+        return id
       } catch (error) {
         if (controller.signal.aborted) {
           patchItem(id, { status: 'error', error: 'Cancelled' })
-          return
+          return id
         }
         patchItem(id, { status: 'error', error: errorMessageOf(error) })
+        return id
       } finally {
         setIsGenerating(false)
         abortRef.current = null

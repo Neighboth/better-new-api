@@ -106,6 +106,8 @@ func SetApiRouter(router *gin.Engine) {
 		// Universal secure verification routes
 		apiRouter.POST("/verify", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.UniversalVerify)
 		apiRouter.GET("/test-media/:id", controller.GetChannelTestMedia)
+		apiRouter.GET("/media/cache", controller.GetCachedMedia)
+		apiRouter.POST("/media/cache", controller.PreCacheMedia)
 
 		userRoute := apiRouter.Group("/user")
 		{

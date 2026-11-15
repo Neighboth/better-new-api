@@ -205,6 +205,7 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     hints: {
       baseUrl: 'Default: https://videoapi.aerobox.eu.cc',
       key: 'Aepi API Key (sk_live_...) veya Session Cookie',
+      models: 'seedance-2.5,seedance-2.0-fast,nano-banana-2.1,music,upscale,image-upscale',
     },
   },
   65: {

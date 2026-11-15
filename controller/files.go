@@ -721,18 +721,28 @@ func clientWithTimeout() *http.Client {
 }
 
 func verifyManagedFileCaptchaToken(clientIP, provider, token, captchaId, captchaAns string) bool {
-	captchaType := common.GetEffectiveCaptchaType()
+	provider = strings.TrimSpace(strings.ToLower(provider))
+	token = strings.TrimSpace(token)
+	captchaId = strings.TrimSpace(captchaId)
+	captchaAns = strings.TrimSpace(captchaAns)
+
 	if provider == "" {
-		provider = captchaType
+		if captchaId != "" && captchaAns != "" {
+			provider = common.CaptchaTypeImage
+		} else {
+			provider = common.GetEffectiveCaptchaType()
+		}
 	}
 
-	if captchaType != common.CaptchaTypeOff && provider != captchaType {
-		if !common.CaptchaFallbackEnabled() && provider != common.CaptchaTypeImage {
-			return false
+	if provider == common.CaptchaTypeImage {
+		parts := strings.SplitN(token, ":", 2)
+		if len(parts) == 2 {
+			return captcha.Verify(parts[0], parts[1])
 		}
-		if !common.IsCaptchaProviderConfigured(provider) {
-			return false
+		if captchaId != "" && captchaAns != "" {
+			return captcha.Verify(captchaId, captchaAns)
 		}
+		return false
 	}
 
 	if token == "" {
@@ -749,17 +759,6 @@ func verifyManagedFileCaptchaToken(clientIP, provider, token, captchaId, captcha
 		return verifyMTCaptchaForFiles(common.MTCaptchaPrivateKey, token, clientIP)
 	}
 
-	if provider == common.CaptchaTypeImage {
-		parts := strings.SplitN(token, ":", 2)
-		if len(parts) == 2 {
-			return captcha.Verify(parts[0], parts[1])
-		}
-		if captchaId != "" && captchaAns != "" {
-			return captcha.Verify(captchaId, captchaAns)
-		}
-		return false
-	}
-
 	var verifyURL, secret string
 	switch provider {
 	case common.CaptchaTypeTurnstile:
@@ -772,7 +771,16 @@ func verifyManagedFileCaptchaToken(clientIP, provider, token, captchaId, captcha
 		verifyURL = "https://hcaptcha.com/siteverify"
 		secret = common.HCaptchaSecretKey
 	default:
-		return false
+		// Attempt configured provider
+		if common.TurnstileSecretKey != "" {
+			verifyURL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+			secret = common.TurnstileSecretKey
+		} else if common.RecaptchaSecretKey != "" {
+			verifyURL = "https://www.google.com/recaptcha/api/siteverify"
+			secret = common.RecaptchaSecretKey
+		} else {
+			return false
+		}
 	}
 
 	if secret == "" {
@@ -799,23 +807,39 @@ func verifyManagedFileCaptchaToken(clientIP, provider, token, captchaId, captcha
 }
 
 func verifyManagedFileCaptcha(c *gin.Context) bool {
-	token := c.PostForm("captcha_token")
-	if token == "" {
-		token = c.PostForm("cf-turnstile-response")
+	provider := strings.TrimSpace(c.PostForm("captcha_provider"))
+	token := strings.TrimSpace(c.PostForm("captcha_token"))
+
+	if cf := strings.TrimSpace(c.PostForm("cf-turnstile-response")); cf != "" {
+		token = cf
+		if provider == "" {
+			provider = common.CaptchaTypeTurnstile
+		}
 	}
-	if token == "" {
-		token = c.PostForm("g-recaptcha-response")
+	if gr := strings.TrimSpace(c.PostForm("g-recaptcha-response")); gr != "" {
+		token = gr
+		if provider == "" {
+			provider = common.CaptchaTypeRecaptcha
+		}
 	}
-	if token == "" {
-		token = c.PostForm("h-captcha-response")
+	if hc := strings.TrimSpace(c.PostForm("h-captcha-response")); hc != "" {
+		token = hc
+		if provider == "" {
+			provider = common.CaptchaTypeHCaptcha
+		}
 	}
-	if token == "" {
-		token = c.PostForm("mtcaptcha-response")
+	if mt := strings.TrimSpace(c.PostForm("mtcaptcha-response")); mt != "" {
+		token = mt
+		if provider == "" {
+			provider = common.CaptchaTypeMTCaptcha
+		}
 	}
 
-	provider := c.PostForm("captcha_provider")
-	captchaId := c.PostForm("captcha_id")
-	captchaAns := c.PostForm("captcha_ans")
+	captchaId := strings.TrimSpace(c.PostForm("captcha_id"))
+	captchaAns := strings.TrimSpace(c.PostForm("captcha_ans"))
+	if provider == "" && captchaId != "" && captchaAns != "" {
+		provider = common.CaptchaTypeImage
+	}
 
 	return verifyManagedFileCaptchaToken(c.ClientIP(), provider, token, captchaId, captchaAns)
 }
@@ -1011,34 +1035,34 @@ type authCaptchaSnippet struct {
 func authCaptchaSnippetFor(provider string) (authCaptchaSnippet, bool) {
 	switch provider {
 	case common.CaptchaTypeTurnstile:
-		if strings.TrimSpace(common.TurnstileSiteKey) == "" {
+		if strings.TrimSpace(common.TurnstileSiteKey) == "" || strings.TrimSpace(common.TurnstileSecretKey) == "" {
 			return authCaptchaSnippet{}, false
 		}
 		return authCaptchaSnippet{
 			script: `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>`,
-			html:   fmt.Sprintf(`<div class="cf-turnstile" data-sitekey="%s"></div>`, common.TurnstileSiteKey),
+			html:   fmt.Sprintf(`<div class="cf-turnstile" data-sitekey="%s"></div><input type="hidden" name="captcha_provider" value="turnstile" />`, common.TurnstileSiteKey),
 			key:    common.TurnstileSiteKey,
 		}, true
 	case common.CaptchaTypeRecaptcha:
-		if strings.TrimSpace(common.RecaptchaSiteKey) == "" {
+		if strings.TrimSpace(common.RecaptchaSiteKey) == "" || strings.TrimSpace(common.RecaptchaSecretKey) == "" {
 			return authCaptchaSnippet{}, false
 		}
 		return authCaptchaSnippet{
 			script: `<script src="https://www.google.com/recaptcha/api.js" async defer></script>`,
-			html:   fmt.Sprintf(`<div class="g-recaptcha" data-sitekey="%s"></div>`, common.RecaptchaSiteKey),
+			html:   fmt.Sprintf(`<div class="g-recaptcha" data-sitekey="%s"></div><input type="hidden" name="captcha_provider" value="recaptcha" />`, common.RecaptchaSiteKey),
 			key:    common.RecaptchaSiteKey,
 		}, true
 	case common.CaptchaTypeHCaptcha:
-		if strings.TrimSpace(common.HCaptchaSiteKey) == "" {
+		if strings.TrimSpace(common.HCaptchaSiteKey) == "" || strings.TrimSpace(common.HCaptchaSecretKey) == "" {
 			return authCaptchaSnippet{}, false
 		}
 		return authCaptchaSnippet{
 			script: `<script src="https://js.hcaptcha.com/1/api.js" async defer></script>`,
-			html:   fmt.Sprintf(`<div class="h-captcha" data-sitekey="%s"></div>`, common.HCaptchaSiteKey),
+			html:   fmt.Sprintf(`<div class="h-captcha" data-sitekey="%s"></div><input type="hidden" name="captcha_provider" value="hcaptcha" />`, common.HCaptchaSiteKey),
 			key:    common.HCaptchaSiteKey,
 		}, true
 	case common.CaptchaTypeMTCaptcha:
-		if strings.TrimSpace(common.MTCaptchaSiteKey) == "" {
+		if strings.TrimSpace(common.MTCaptchaSiteKey) == "" || strings.TrimSpace(common.MTCaptchaPrivateKey) == "" {
 			return authCaptchaSnippet{}, false
 		}
 		return authCaptchaSnippet{
@@ -1081,17 +1105,23 @@ func authCaptchaSnippetFor(provider string) (authCaptchaSnippet, bool) {
 // pickRenderableAuthCaptchaSnippet selects the captcha to show on the file
 // protection page. It prefers the administrator's effective global type,
 // then any configured provider from the configured order, and finally the
-// self-hosted altcha.
+// self-hosted altcha or image.
 func pickRenderableAuthCaptchaSnippet() (authCaptchaSnippet, bool) {
-	// Prefer configured third-party providers from the admin's order.
-	// Altcha's widget requires an "obfuscation" plugin on the client side,
-	// so it is excluded here: image always solves.
+	effective := common.GetEffectiveCaptchaType()
+	if effective != common.CaptchaTypeOff && common.IsCaptchaProviderConfigured(effective) {
+		if snippet, ok := authCaptchaSnippetFor(effective); ok {
+			return snippet, true
+		}
+	}
+
 	for _, p := range authCaptchaProviderOrder() {
 		if p == common.CaptchaTypeAltcha {
 			continue
 		}
-		if snippet, ok := authCaptchaSnippetFor(p); ok {
-			return snippet, true
+		if common.IsCaptchaProviderConfigured(p) {
+			if snippet, ok := authCaptchaSnippetFor(p); ok {
+				return snippet, true
+			}
 		}
 	}
 	snippet, ok := authCaptchaSnippetFor(common.CaptchaTypeImage)

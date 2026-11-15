@@ -32,6 +32,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -229,9 +230,11 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
 
           {/* Multilingual SEO Details Tabs at the TOP */}
           <div className='rounded-lg border p-4 space-y-4 bg-card shadow-xs'>
-            <div>
-              <h4 className='font-semibold text-sm'>{t('Multilingual SEO Details')}</h4>
-              <p className='text-muted-foreground text-xs mt-1'>
+            <div className='space-y-0.5'>
+              <Label className='text-sm font-semibold text-foreground tracking-tight'>
+                {t('Multilingual SEO Details')}
+              </Label>
+              <p className='text-xs text-muted-foreground'>
                 {t(
                   'Configure custom title prefix, description and keywords per language for search engines.'
                 )}

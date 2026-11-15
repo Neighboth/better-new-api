@@ -768,13 +768,23 @@ export function BlogManager() {
       const currentEnDesc = currentDraft.summaries.en || currentDraft.summary || ''
       const currentEnTags = currentDraft.tags_list.en || currentDraft.tags || ''
 
-      const sys = `You are an expert blog post writer and editor. Modify the existing blog post draft based on the user's instructions.
-Return ONLY valid JSON matching this schema:
+      const sys = `You are an expert multilingual blog post writer and editor. Modify the existing blog post draft based on the user's instructions.
+Produce refined content in English, and also provide localized versions for other supported languages (${BLOG_LOCALE_CODES.filter((c) => c !== 'en').join(', ')}).
+Return ONLY a valid JSON object matching this structure:
 {
   "title": "refined english title",
   "content": "refined markdown content in english",
   "description": "refined short summary in english",
-  "tags": "refined comma separated tags in english"
+  "tags": "refined comma separated tags in english",
+  "translations": {
+    "tr": { "title": "...", "content": "...", "description": "...", "tags": "..." },
+    "zh": { "title": "...", "content": "...", "description": "...", "tags": "..." },
+    "zh-TW": { "title": "...", "content": "...", "description": "...", "tags": "..." },
+    "fr": { "title": "...", "content": "...", "description": "...", "tags": "..." },
+    "ru": { "title": "...", "content": "...", "description": "...", "tags": "..." },
+    "ja": { "title": "...", "content": "...", "description": "...", "tags": "..." },
+    "vi": { "title": "...", "content": "...", "description": "...", "tags": "..." }
+  }
 }`
       const req = `Current Title:\n${currentEnTitle}\n\nCurrent Summary:\n${currentEnDesc}\n\nCurrent Content:\n${currentEnContent}\n\nCurrent Tags:\n${currentEnTags}\n\nUser Instructions for Changes:\n${promptInstruction}`
 
@@ -792,27 +802,51 @@ Return ONLY valid JSON matching this schema:
         const parsed = JSON.parse(content)
         setPostForm((prev) => {
           const next = { ...prev }
+          const targetLangs = BLOG_LOCALE_CODES
+
           if (parsed.title) {
             next.title = parsed.title
-            next.titles = { ...next.titles, en: parsed.title, [activeLanguage]: parsed.title }
+            next.titles = { ...next.titles, en: parsed.title }
           }
           if (parsed.content) {
             next.content = parsed.content
-            next.contents = { ...next.contents, en: parsed.content, [activeLanguage]: parsed.content }
+            next.contents = { ...next.contents, en: parsed.content }
           }
           if (parsed.description) {
             next.summary = parsed.description
-            next.summaries = { ...next.summaries, en: parsed.description, [activeLanguage]: parsed.description }
+            next.summaries = { ...next.summaries, en: parsed.description }
             next.seo_description = parsed.description
-            next.seo_descriptions = { ...next.seo_descriptions, en: parsed.description, [activeLanguage]: parsed.description }
+            next.seo_descriptions = { ...next.seo_descriptions, en: parsed.description }
           }
           if (parsed.tags) {
             next.tags = parsed.tags
-            next.tags_list = { ...next.tags_list, en: parsed.tags, [activeLanguage]: parsed.tags }
+            next.tags_list = { ...next.tags_list, en: parsed.tags }
+          }
+
+          if (parsed.translations && typeof parsed.translations === 'object') {
+            for (const code of targetLangs) {
+              if (code === 'en') continue
+              const tData = parsed.translations[code]
+              if (tData) {
+                if (tData.title) next.titles[code] = tData.title
+                if (tData.content) next.contents[code] = tData.content
+                if (tData.description) {
+                  next.summaries[code] = tData.description
+                  next.seo_descriptions[code] = tData.description
+                }
+                if (tData.tags) next.tags_list[code] = tData.tags
+              } else {
+                // Fallback to active/english if omitted
+                if (!next.titles[code] && parsed.title) next.titles[code] = parsed.title
+                if (!next.contents[code] && parsed.content) next.contents[code] = parsed.content
+                if (!next.summaries[code] && parsed.description) next.summaries[code] = parsed.description
+                if (!next.tags_list[code] && parsed.tags) next.tags_list[code] = parsed.tags
+              }
+            }
           }
           return next
         })
-        toast.success(t('Taslak başarıyla güncellendi'))
+        toast.success(t('Taslak başarıyla güncellendi ve tüm dillere uygulandı'))
         setAiRefinePrompt('')
       }
     } catch (err: any) {
@@ -1236,6 +1270,7 @@ Return ONLY valid JSON matching this schema:
         <div className='grid gap-2'>
           <Label>{t('Cover image URL')}</Label>
           <Input
+            disabled={aiGenerating || isRefining}
             value={postForm.cover_image}
             placeholder='https://...'
             onChange={(event) =>
@@ -1247,6 +1282,7 @@ Return ONLY valid JSON matching this schema:
           <Label>{t('Published')}</Label>
           <div className='flex items-center gap-2'>
             <Switch
+              disabled={aiGenerating || isRefining}
               checked={postForm.published}
               onCheckedChange={(checked) =>
                 setPostForm({ ...postForm, published: checked })
@@ -1337,7 +1373,7 @@ Return ONLY valid JSON matching this schema:
             <TabsContent key={lang.code} value={lang.code} className='mt-4 space-y-4'>
               <PostLanguageFields
                 langCode={lang.code}
-                readOnly={aiGenerating}
+                readOnly={aiGenerating || isRefining}
                 languageLabel={lang.label}
                 form={postForm}
                 onChange={(patch: Partial<BlogPostForm>) =>

@@ -21,7 +21,7 @@ import { ERROR_MESSAGES } from '../../constants'
 import type { VideoTaskState } from '../../types'
 
 const POLL_INTERVAL_MS = 4000
-const MAX_WAIT_MS = 10 * 60 * 1000
+const MAX_WAIT_MS = 45 * 60 * 1000 // 45 minutes for long video models (e.g. Seedance 30s clips)
 
 const TERMINAL_FAILURE_STATUSES = new Set([
   'failure',
@@ -230,6 +230,8 @@ export async function pollVideoTask(
     await wait(POLL_INTERVAL_MS, signal)
   }
 
-  if (last) return last
-  throw new Error(ERROR_MESSAGES.VIDEO_TASK_TIMEOUT)
+  if (last && (last.result_url || TERMINAL_FAILURE_STATUSES.has((last.status || '').toLowerCase()))) {
+    return last
+  }
+  throw new Error(last?.fail_reason || ERROR_MESSAGES.VIDEO_TASK_TIMEOUT)
 }
