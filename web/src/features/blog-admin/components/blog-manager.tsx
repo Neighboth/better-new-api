@@ -366,7 +366,7 @@ export function BlogManager() {
             },
           ],
           stream: false,
-          temperature: 0.4,
+          temperature: 0.7,
           response_format: { type: 'json_object' },
         },
         undefined,
@@ -685,7 +685,7 @@ export function BlogManager() {
                     { role: 'user', content: req },
                   ],
                   stream: true,
-                  temperature: 0.3,
+                  temperature: 0.7,
                 }
                 runAiStreamWithController(
                   payload,
@@ -769,7 +769,8 @@ export function BlogManager() {
       const currentEnTags = currentDraft.tags_list.en || currentDraft.tags || ''
 
       const sys = `You are an expert multilingual blog post writer and editor. Modify the existing blog post draft based on the user's instructions.
-CRITICAL CASING & STYLE RULE: If the user instructions specify casing rules (such as ALL UPPERCASE, all lowercase, or specific formatting), you MUST strictly enforce it on the English title, content, summary, and all localized metadata without exception!
+CRITICAL STYLE, CASING & PUNCTUATION RULE: If the user instructions specify casing rules (such as ALL UPPERCASE/tamamen büyük harf, all lowercase) or punctuation rules (no punctuation/noktalama olmasın), you MUST strictly and aggressively enforce it on the English title, content, summary, tags, and on ALL localized translations in the translations object! For example, if all uppercase is requested, every character in title, content, description, tags, and every localized field must be UPPERCASE without exception. Never revert to normal sentence casing in summaries or titles!
+CRITICAL COMPLETENESS RULE: Output the FULL complete content. Never truncate and never use ellipses (...) to omit text!
 CRITICAL LANGUAGE RULE: Each localized title, description, and tags in "translations" must be written in that specific NATIVE language.
 Return ONLY a valid JSON object matching this structure:
 {
@@ -792,6 +793,7 @@ Return ONLY a valid JSON object matching this structure:
       const res = await sendChatCompletion({
         model,
         stream: false,
+        temperature: 0.7,
         messages: [
           { role: 'system', content: sys },
           { role: 'user', content: req },
@@ -846,50 +848,49 @@ Return ONLY a valid JSON object matching this structure:
           }
         }
 
-        // Translate the full refined content for each target language individually so token limits are never exceeded
+        // Translate the full refined content for each target language sequentially so token limits are never exceeded
         const nonEnLangs = BLOG_LOCALE_CODES.filter((code) => code !== 'en')
-        await Promise.all(
-          nonEnLangs.map(async (code) => {
-            try {
-              const transRes = await sendChatCompletion({
-                model,
-                stream: false,
-                messages: [
-                  {
-                    role: 'system',
-                    content: `You are an expert technical translator. Translate the given markdown article into the target language (${code}).
+        for (const code of nonEnLangs) {
+          try {
+            const transRes = await sendChatCompletion({
+              model,
+              stream: false,
+              temperature: 0.7,
+              messages: [
+                {
+                  role: 'system',
+                  content: `You are an expert technical translator. Translate the given markdown article into the target language (${code}).
 CRITICAL RULES:
 1. Output MUST be entirely in the target language (${code}). Never keep it in English or Turkish unless the target is that language.
-2. The user has given these refinement instructions: "${promptInstruction}". You MUST strictly follow these rules (for example, if instructed to make ALL UPPERCASE or all lowercase or specific tone, apply it strictly to this entire translated article!).
+2. The user has given these refinement instructions: "${promptInstruction}". You MUST strictly follow these rules (for example, if instructed to make ALL UPPERCASE, all lowercase, or no punctuation, apply it strictly to this entire translated article without exception!).
 3. Generate the FULL complete markdown article without omitting any section or paragraph. NEVER truncate and NEVER output ellipses (...) to skip text!
 4. Output ONLY the raw Markdown article directly without any code fences or conversational prefaces/postfaces.`,
-                  },
-                  {
-                    role: 'user',
-                    content: `Target Language Code: ${code}\n\nEnglish Content:\n${refinedEnContent}`,
-                  },
-                ],
-              })
-              let translated = transRes.choices?.[0]?.message?.content?.trim() || ''
-              translated = translated.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
-              const fenceMatch = translated.match(/^```(?:markdown)?\s*([\s\S]*?)```$/)
-              if (fenceMatch) translated = fenceMatch[1].trim()
-              if (translated) {
-                updatedPost.contents[code] = translated
-              }
-            } catch (err) {
-              console.error(`Failed to refine/translate content for ${code}:`, err)
+                },
+                {
+                  role: 'user',
+                  content: `Target Language Code: ${code}\n\nEnglish Content:\n${refinedEnContent}`,
+                },
+              ],
+            })
+            let translated = transRes.choices?.[0]?.message?.content?.trim() || ''
+            translated = translated.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+            const fenceMatch = translated.match(/^```(?:markdown)?\s*([\s\S]*?)```$/)
+            if (fenceMatch) translated = fenceMatch[1].trim()
+            if (translated) {
+              updatedPost.contents[code] = translated
             }
-          })
-        )
+          } catch (err) {
+            console.error(`Failed to refine/translate content for ${code}:`, err)
+          }
+        }
 
         postFormRef.current = updatedPost
         setPostForm({ ...updatedPost })
-        toast.success(t('Taslak başarıyla güncellendi ve tüm dillere uygulandı'))
+        toast.success(t('Draft updated successfully and applied to all languages'))
         setAiRefinePrompt('')
       }
     } catch (err: any) {
-      toast.error(err?.message || t('Taslak düzenlenemedi'))
+      toast.error(err?.message || t('Failed to update draft'))
     } finally {
       setIsRefining(false)
     }
@@ -1024,7 +1025,7 @@ CRITICAL RULES:
             { role: 'user', content: JSON.stringify(sourceMetadata) },
           ],
           stream: false,
-          temperature: 0.3,
+          temperature: 0.7,
           response_format: { type: 'json_object' }
         }, undefined, 900000)
         metaContent = res.choices?.[0]?.message?.content || ''
@@ -1064,7 +1065,7 @@ CRITICAL RULES:
               { role: 'user', content: srcContent },
             ],
             stream: false,
-            temperature: 0.3,
+            temperature: 0.7,
           }, undefined, 900000)
 
           let rawContent = contentRes.choices?.[0]?.message?.content || ''
@@ -1264,7 +1265,7 @@ CRITICAL RULES:
                 ) : (
                   <Sparkles className='me-1 h-4 w-4' />
                 )}
-                {t('Taslağı Düzenle')}
+                {t('Edit Draft')}
               </Button>
             </div>
             <div className='flex w-full items-center justify-end gap-2 sm:w-auto'>
@@ -1334,7 +1335,7 @@ CRITICAL RULES:
         {isRefining && (
           <div className='flex items-center gap-2 rounded-md bg-muted/60 p-3 text-sm text-muted-foreground'>
             <Loader2 className='h-4 w-4 animate-spin text-primary' />
-            <span>{t('Taslak yapay zeka ile düzenleniyor, lütfen bekleyin...')}</span>
+            <span>{t('Refining draft with AI, please wait...')}</span>
           </div>
         )}
 
@@ -1536,7 +1537,7 @@ CRITICAL RULES:
       <Dialog
         open={isRefineOpen}
         onOpenChange={setIsRefineOpen}
-        title={t('Taslağı Düzenle')}
+        title={t('Edit Draft')}
         contentClassName='max-w-md'
         headerClassName='text-left'
         contentHeight='auto'
@@ -1555,17 +1556,17 @@ CRITICAL RULES:
               disabled={isRefining || !aiRefinePrompt.trim()}
               onClick={runAiRefine}
             >
-              {t('Tamam')}
+              {t('Apply Changes')}
             </Button>
           </>
         }
       >
         <div className='grid gap-2'>
-          <Label>{t('Yapılacak Değişiklikler')}</Label>
+          <Label>{t('Requested Changes')}</Label>
           <Textarea
             rows={4}
             value={aiRefinePrompt}
-            placeholder={t('Taslakta yapmak istediğiniz değişiklikleri belirtin (örn: Giriş kısmını daha teknik yap, sonuç paragrafını uzat)...')}
+            placeholder={t('Describe your requested changes to the draft (e.g., make the introduction more technical, expand the conclusion)...')}
             onChange={(e) => setAiRefinePrompt(e.target.value)}
           />
         </div>

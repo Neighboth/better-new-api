@@ -98,8 +98,12 @@ func GetPlaygroundConfig(c *gin.Context) {
 		if videoDefaultQuality == "" {
 			videoDefaultQuality = model.DefaultQuality
 		}
-		if defaultDuration == 0 && len(model.Durations) > 0 {
-			defaultDuration = model.Durations[0]
+		if defaultDuration == 0 {
+			if model.DefaultDuration > 0 {
+				defaultDuration = model.DefaultDuration
+			} else if len(model.Durations) > 0 {
+				defaultDuration = model.Durations[0]
+			}
 		}
 	}
 	ratios = uniqueStrings(ratios)

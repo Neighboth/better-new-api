@@ -26,6 +26,7 @@ type MediaModel struct {
 	DefaultSize    string   `json:"default_size,omitempty"`
 	DefaultQuality string   `json:"default_quality,omitempty"`
 	DefaultRatio   string   `json:"default_ratio,omitempty"`
+	DefaultDuration int     `json:"default_duration,omitempty"`
 }
 
 // PlaygroundSetting is the administrator configuration of the playground and

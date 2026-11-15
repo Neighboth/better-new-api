@@ -22,6 +22,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { toGeneratedImageAttachments } from '@/features/playground/lib/message/image-message-utils'
 import { parseRequestErrorDetails } from '@/features/playground/lib/streaming/request-error-utils'
 import { api } from '@/lib/api'
+import { findLatestVideoTask } from '@/features/playground/api'
 
 import {
   generateImages as submitImageGeneration,
@@ -70,6 +71,8 @@ export function useStudioGeneration() {
   })
   const [isGenerating, setIsGenerating] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const controllersRef = useRef<Map<string, AbortController>>(new Map())
+  const activePollingTasks = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     try {
@@ -84,6 +87,84 @@ export function useStudioGeneration() {
       prev.map((item) => (item.id === id ? { ...item, ...patch } : item))
     )
   }, [])
+
+  // Auto-resume background polling for any pending video items on mount or page reload
+  useEffect(() => {
+    const pendingVideos = items.filter(
+      (item) => item.status === 'pending' && item.mode === 'video'
+    )
+
+    pendingVideos.forEach((item) => {
+      if (activePollingTasks.current.has(item.id)) return
+      activePollingTasks.current.add(item.id)
+
+      const controller = new AbortController()
+      controllersRef.current.set(item.id, controller)
+
+      const resumePolling = async () => {
+        try {
+          let currentTaskId = item.taskId
+          if (!currentTaskId) {
+            const foundTask = await findLatestVideoTask({
+              model: item.settings?.model as string,
+              sinceMs: item.createdAt,
+              signal: controller.signal,
+            })
+            if (foundTask?.task_id) {
+              currentTaskId = foundTask.task_id
+              patchItem(item.id, { taskId: currentTaskId })
+            }
+          }
+
+          if (!currentTaskId) {
+            if (Date.now() - item.createdAt > 3 * 60 * 1000) {
+              patchItem(item.id, {
+                status: 'error',
+                error: 'The video task could not be found',
+              })
+            }
+            return
+          }
+
+          const finished = await pollVideoTask(
+            currentTaskId,
+            controller.signal,
+            undefined,
+            (progress) => patchItem(item.id, { progress })
+          )
+
+          if (finished.result_url) {
+            patchItem(item.id, { status: 'ready', urls: [finished.result_url] })
+            if (finished.result_url.startsWith('http')) {
+              void api.post('/api/media/cache', { url: finished.result_url }).catch(() => {})
+            }
+          } else {
+            const isStillRunning = ['in_progress', 'running', 'pending', 'queued'].includes(
+              (finished.status || '').toLowerCase()
+            )
+            patchItem(item.id, {
+              status: 'error',
+              error:
+                finished.fail_reason ||
+                (isStillRunning
+                  ? 'Video is still processing upstream. You can check it under Previous Generations.'
+                  : 'The video could not be generated'),
+            })
+          }
+        } catch (error) {
+          if (controller.signal.aborted) {
+            patchItem(item.id, { status: 'error', error: 'Cancelled' })
+            return
+          }
+        } finally {
+          activePollingTasks.current.delete(item.id)
+          controllersRef.current.delete(item.id)
+        }
+      }
+
+      void resumePolling()
+    })
+  }, [items, patchItem])
 
   const startItem = useCallback(
     (item: Omit<StudioItem, 'id' | 'createdAt' | 'status' | 'urls'>) => {
@@ -111,6 +192,7 @@ export function useStudioGeneration() {
       })
       const controller = new AbortController()
       abortRef.current = controller
+      controllersRef.current.set(id, controller)
       setIsGenerating(true)
 
       try {
@@ -154,6 +236,7 @@ export function useStudioGeneration() {
       } finally {
         setIsGenerating(false)
         abortRef.current = null
+        controllersRef.current.delete(id)
       }
     },
     [patchItem, startItem]
@@ -173,6 +256,7 @@ export function useStudioGeneration() {
       })
       const controller = new AbortController()
       abortRef.current = controller
+      controllersRef.current.set(id, controller)
       setIsGenerating(true)
 
       try {
@@ -204,6 +288,7 @@ export function useStudioGeneration() {
           })
           return
         }
+        patchItem(id, { taskId })
 
         const finished = await pollVideoTask(
           taskId,
@@ -240,24 +325,48 @@ export function useStudioGeneration() {
       } finally {
         setIsGenerating(false)
         abortRef.current = null
+        controllersRef.current.delete(id)
       }
     },
     [patchItem, startItem]
   )
 
-  const stop = useCallback(() => {
-    abortRef.current?.abort()
+  const stop = useCallback((id?: string) => {
+    if (id) {
+      controllersRef.current.get(id)?.abort()
+      controllersRef.current.delete(id)
+      activePollingTasks.current.delete(id)
+    } else {
+      abortRef.current?.abort()
+      controllersRef.current.forEach((ctrl) => ctrl.abort())
+      controllersRef.current.clear()
+      activePollingTasks.current.clear()
+      setIsGenerating(false)
+    }
   }, [])
 
   const removeItem = useCallback((id: string) => {
+    controllersRef.current.get(id)?.abort()
+    controllersRef.current.delete(id)
+    activePollingTasks.current.delete(id)
     setItems((prev) => prev.filter((item) => item.id !== id))
   }, [])
 
   const clearItems = useCallback((mode?: StudioItem['mode']) => {
-    setItems((prev) =>
-      mode ? prev.filter((item) => item.mode !== mode) : []
-    )
-  }, [])
+    if (mode) {
+      items.filter((i) => i.mode === mode).forEach((i) => {
+        controllersRef.current.get(i.id)?.abort()
+        controllersRef.current.delete(i.id)
+        activePollingTasks.current.delete(i.id)
+      })
+      setItems((prev) => prev.filter((item) => item.mode !== mode))
+    } else {
+      controllersRef.current.forEach((ctrl) => ctrl.abort())
+      controllersRef.current.clear()
+      activePollingTasks.current.clear()
+      setItems([])
+    }
+  }, [items])
 
   return {
     items,

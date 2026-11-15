@@ -113,6 +113,7 @@ export function MaintenanceModeSection({
   })
 
   useEffect(() => {
+    initialRef.current = { ...defaultValues }
     form.reset({
       maintenanceModeEnabled:
         String(defaultValues.MaintenanceModeEnabled).toLowerCase() === 'true',
@@ -141,8 +142,10 @@ export function MaintenanceModeSection({
       const initial = initialRef.current as Record<string, unknown>
       if (String(initial[key] ?? '') !== value) {
         await updateOption.mutateAsync({ key, value })
+        initial[key] = value
       }
     }
+    form.reset(values)
   }
 
   return (

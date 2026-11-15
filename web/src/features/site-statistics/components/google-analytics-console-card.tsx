@@ -54,13 +54,13 @@ export function GoogleAnalyticsConsoleCard() {
       <Card>
         <CardHeader>
           <CardTitle className='text-base'>
-            {t('Google Analytics & Search Console Analitiği')}
+            {t('Google Analytics & Search Console Analytics')}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className='flex h-36 items-center justify-center text-muted-foreground text-sm'>
             <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-            {t('Google Cloud Console analitik verileri yükleniyor...')}
+            {t('Loading Google Cloud Console analytics data...')}
           </div>
         </CardContent>
       </Card>
@@ -75,7 +75,7 @@ export function GoogleAnalyticsConsoleCard() {
             {t('Google Analytics & Search Console')}
           </CardTitle>
           <CardDescription className='text-xs'>
-            {t('System Settings > SEO sayfasından Google Analytics GA4 ve Search Console Cloud Console kimlik bilgilerini (API anahtarı veya servis hesabı) girerek organik arama terimleri, sıralamalar ve GA4 trafik analitiğini aktif edebilirsiniz.')}
+            {t('Configure Google Analytics GA4 and Search Console credentials in System Settings > SEO to enable search terms, rankings, and traffic analytics.')}
           </CardDescription>
         </CardHeader>
       </Card>
@@ -94,10 +94,10 @@ export function GoogleAnalyticsConsoleCard() {
             <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2'>
               <div>
                 <CardTitle className='text-base'>
-                  {t('Google Analytics 4 (GA4) Trafik ve Kullanıcı Analitiği')}
+                  {t('Google Analytics 4 (GA4) Traffic & User Analytics')}
                 </CardTitle>
                 <CardDescription className='mt-1 text-xs'>
-                  {t('Etkin kullanıcılar, oturum süresi, hemen çıkma oranı ve trafik kaynakları.')}
+                  {t('Active users, session duration, bounce rate, and acquisition traffic channels.')}
                 </CardDescription>
               </div>
               <Badge variant='outline' className='w-fit text-xs font-mono'>
@@ -109,34 +109,34 @@ export function GoogleAnalyticsConsoleCard() {
             {/* GA4 KPI Cards */}
             <div className='grid grid-cols-2 gap-3 sm:grid-cols-5'>
               <div className='rounded-lg border bg-muted/10 p-3'>
-                <div className='text-muted-foreground text-xs font-medium'>{t('Aktif Kullanıcı')}</div>
+                <div className='text-muted-foreground text-xs font-medium'>{t('Active Users')}</div>
                 <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   {ga.summary.active_users.toLocaleString()}
                 </div>
                 <div className='text-muted-foreground text-[10px] mt-0.5'>
-                  +{ga.summary.new_users.toLocaleString()} {t('Yeni')}
+                  +{ga.summary.new_users.toLocaleString()} {t('New')}
                 </div>
               </div>
               <div className='rounded-lg border bg-muted/10 p-3'>
-                <div className='text-muted-foreground text-xs font-medium'>{t('Toplam Oturum')}</div>
+                <div className='text-muted-foreground text-xs font-medium'>{t('Total Sessions')}</div>
                 <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   {ga.summary.sessions.toLocaleString()}
                 </div>
               </div>
               <div className='rounded-lg border bg-muted/10 p-3'>
-                <div className='text-muted-foreground text-xs font-medium'>{t('Sayfa Görüntüleme')}</div>
+                <div className='text-muted-foreground text-xs font-medium'>{t('Page Views')}</div>
                 <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   {ga.summary.page_views.toLocaleString()}
                 </div>
               </div>
               <div className='rounded-lg border bg-muted/10 p-3'>
-                <div className='text-muted-foreground text-xs font-medium'>{t('Ort. Oturum Süresi')}</div>
+                <div className='text-muted-foreground text-xs font-medium'>{t('Avg. Session Duration')}</div>
                 <div className='mt-1 text-xl font-bold font-mono text-foreground'>
-                  {Math.floor(ga.summary.average_session_duration_s / 60)}d {ga.summary.average_session_duration_s % 60}s
+                  {Math.floor(ga.summary.average_session_duration_s / 60)}m {ga.summary.average_session_duration_s % 60}s
                 </div>
               </div>
               <div className='rounded-lg border bg-muted/10 p-3'>
-                <div className='text-muted-foreground text-xs font-medium'>{t('Hemen Çıkma Oranı')}</div>
+                <div className='text-muted-foreground text-xs font-medium'>{t('Bounce Rate')}</div>
                 <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   %{ga.summary.bounce_rate_percentage}
                 </div>
@@ -148,7 +148,7 @@ export function GoogleAnalyticsConsoleCard() {
               {/* Traffic Channels */}
               <div className='rounded-lg border p-4 space-y-3'>
                 <div className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
-                  {t('Trafik Edinme Kanalları')}
+                  {t('Traffic Acquisition Channels')}
                 </div>
                 <div className='space-y-2'>
                   {(ga.acquisition_channels || []).map((ch, idx) => (
@@ -158,7 +158,7 @@ export function GoogleAnalyticsConsoleCard() {
                         <span className='font-medium'>{ch.channel}</span>
                       </div>
                       <div className='flex items-center gap-3'>
-                        <span className='font-mono text-muted-foreground'>{ch.users.toLocaleString()} {t('kullanıcı')}</span>
+                        <span className='font-mono text-muted-foreground'>{ch.users.toLocaleString()} {t('users')}</span>
                         <Badge variant='outline' className='font-mono text-[10px]'>%{ch.percentage}</Badge>
                       </div>
                     </div>
@@ -169,14 +169,14 @@ export function GoogleAnalyticsConsoleCard() {
               {/* Top Landing Pages */}
               <div className='rounded-lg border p-4 space-y-3'>
                 <div className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
-                  {t('Popüler Açılış Sayfaları')}
+                  {t('Top Landing Pages')}
                 </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className='text-xs'>{t('Sayfa')}</TableHead>
-                      <TableHead className='text-xs text-right'>{t('Görüntüleme')}</TableHead>
-                      <TableHead className='text-xs text-right'>{t('Ort. Süre')}</TableHead>
+                      <TableHead className='text-xs'>{t('Page')}</TableHead>
+                      <TableHead className='text-xs text-right'>{t('Views')}</TableHead>
+                      <TableHead className='text-xs text-right'>{t('Avg. Duration')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -204,10 +204,10 @@ export function GoogleAnalyticsConsoleCard() {
             <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2'>
               <div>
                 <CardTitle className='text-base'>
-                  {t('Google Search Console Organik Arama Analitiği')}
+                  {t('Google Search Console Organic Search Analytics')}
                 </CardTitle>
                 <CardDescription className='mt-1 text-xs'>
-                  {t('Arama terimleri, tıklama sayıları, gösterimler, tıklama oranı (TO/CTR) ve ortalama sıra.')}
+                  {t('Top organic search queries, impressions, clicks, click-through rate (CTR), and average search ranking position.')}
                 </CardDescription>
               </div>
               {gsc.site_url && (
@@ -221,25 +221,25 @@ export function GoogleAnalyticsConsoleCard() {
             {/* GSC KPI Cards */}
             <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
               <div className='rounded-lg border bg-muted/10 p-3'>
-                <div className='text-muted-foreground text-xs font-medium'>{t('Toplam Tıklama')}</div>
+                <div className='text-muted-foreground text-xs font-medium'>{t('Total Clicks')}</div>
                 <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   {gsc.summary.total_clicks.toLocaleString()}
                 </div>
               </div>
               <div className='rounded-lg border bg-muted/10 p-3'>
-                <div className='text-muted-foreground text-xs font-medium'>{t('Toplam Gösterim')}</div>
+                <div className='text-muted-foreground text-xs font-medium'>{t('Total Impressions')}</div>
                 <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   {gsc.summary.total_impressions.toLocaleString()}
                 </div>
               </div>
               <div className='rounded-lg border bg-muted/10 p-3'>
-                <div className='text-muted-foreground text-xs font-medium'>{t('Ortalama TO (CTR)')}</div>
+                <div className='text-muted-foreground text-xs font-medium'>{t('Average CTR')}</div>
                 <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   %{gsc.summary.average_ctr}
                 </div>
               </div>
               <div className='rounded-lg border bg-muted/10 p-3'>
-                <div className='text-muted-foreground text-xs font-medium'>{t('Ortalama Sıra')}</div>
+                <div className='text-muted-foreground text-xs font-medium'>{t('Average Position')}</div>
                 <div className='mt-1 text-xl font-bold font-mono text-foreground'>
                   #{gsc.summary.average_position}
                 </div>
@@ -251,15 +251,15 @@ export function GoogleAnalyticsConsoleCard() {
               <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3'>
                 <div>
                   <div className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
-                    {t('Google Arama Terimleri & Sorgular')}
+                    {t('Google Search Queries')}
                   </div>
                   <div className='text-[11px] text-muted-foreground mt-0.5'>
-                    {t('Sitenize Google üzerinden gelen kullanıcıların aradığı tam kelimeler.')}
+                    {t('Exact search terms used by visitors finding your site via Google Search.')}
                   </div>
                 </div>
                 <div className='w-full sm:w-64'>
                   <Input
-                    placeholder={t('Arama terimi filtrele...')}
+                    placeholder={t('Filter search query...')}
                     value={queryFilter}
                     onChange={(e) => {
                       setQueryFilter(e.target.value)
@@ -274,11 +274,11 @@ export function GoogleAnalyticsConsoleCard() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className='text-xs'>{t('Arama Terimi (Sorgu)')}</TableHead>
-                      <TableHead className='text-xs text-right'>{t('Tıklamalar')}</TableHead>
-                      <TableHead className='text-xs text-right'>{t('Gösterimler')}</TableHead>
-                      <TableHead className='text-xs text-right'>{t('TO (CTR)')}</TableHead>
-                      <TableHead className='text-xs text-right'>{t('Sıralama')}</TableHead>
+                      <TableHead className='text-xs'>{t('Search Query')}</TableHead>
+                      <TableHead className='text-xs text-right'>{t('Clicks')}</TableHead>
+                      <TableHead className='text-xs text-right'>{t('Impressions')}</TableHead>
+                      <TableHead className='text-xs text-right'>{t('CTR')}</TableHead>
+                      <TableHead className='text-xs text-right'>{t('Ranking')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -307,7 +307,7 @@ export function GoogleAnalyticsConsoleCard() {
               {gsc.queries && gsc.queries.total_pages > 1 && (
                 <div className='flex items-center justify-between pt-2 border-t'>
                   <span className='text-xs text-muted-foreground'>
-                    {t('Sayfa {{page}} / {{total}} (Toplam {{count}} arama terimi)', {
+                    {t('Page {{page}} / {{total}} (Total {{count}} queries)', {
                       page: gsc.queries.page,
                       total: gsc.queries.total_pages,
                       count: gsc.queries.total_count,
@@ -341,16 +341,16 @@ export function GoogleAnalyticsConsoleCard() {
             {(gsc.top_search_pages || []).length > 0 && (
               <div className='rounded-lg border p-4 space-y-3'>
                 <div className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
-                  {t('En Çok Tıklanan Sayfalar')}
+                  {t('Top Clicked Pages')}
                 </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className='text-xs'>{t('Açılış Sayfası URL')}</TableHead>
-                      <TableHead className='text-xs text-right'>{t('Tıklamalar')}</TableHead>
-                      <TableHead className='text-xs text-right'>{t('Gösterimler')}</TableHead>
-                      <TableHead className='text-xs text-right'>{t('TO')}</TableHead>
-                      <TableHead className='text-xs text-right'>{t('Sıra')}</TableHead>
+                      <TableHead className='text-xs'>{t('Landing Page URL')}</TableHead>
+                      <TableHead className='text-xs text-right'>{t('Clicks')}</TableHead>
+                      <TableHead className='text-xs text-right'>{t('Impressions')}</TableHead>
+                      <TableHead className='text-xs text-right'>{t('CTR')}</TableHead>
+                      <TableHead className='text-xs text-right'>{t('Position')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

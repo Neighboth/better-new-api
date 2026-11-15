@@ -151,7 +151,7 @@ export function ProxyPool() {
         })
       )
       toast.success(
-        t('Toplu test tamamlandı: {{ok}} başarılı, {{fail}} başarısız', {
+        t('Batch test completed: {{ok}} succeeded, {{fail}} failed', {
           ok: okCount,
           fail: failCount,
         })
@@ -165,7 +165,7 @@ export function ProxyPool() {
   const handleBatchRename = async () => {
     const baseName = batchNameValue.trim()
     if (!baseName) {
-      toast.error(t('Lütfen bir isim girin'))
+      toast.error(t('Please enter a name'))
       return
     }
     setIsBatchRenaming(true)
@@ -176,11 +176,11 @@ export function ProxyPool() {
           await updateProxy(id, { name })
         })
       )
-      toast.success(t('{{count}} proxynin ismi güncellendi', { count: selectedProxyIds.length }))
+      toast.success(t('Renamed {{count}} proxies', { count: selectedProxyIds.length }))
       setBatchNameDialogOpen(false)
       void queryClient.invalidateQueries({ queryKey: ['proxy-pool-proxies'] })
     } catch {
-      toast.error(t('İsimler güncellenirken bir hata oluştu'))
+      toast.error(t('Failed to rename proxies'))
     } finally {
       setIsBatchRenaming(false)
     }
@@ -190,13 +190,13 @@ export function ProxyPool() {
     setIsBatchDeleting(true)
     try {
       await Promise.all(selectedProxyIds.map((id) => deleteProxy(id)))
-      toast.success(t('{{count}} proxy silindi', { count: selectedProxyIds.length }))
+      toast.success(t('Deleted {{count}} proxies', { count: selectedProxyIds.length }))
       setSelectedProxyIds([])
       setBatchDeleteDialogOpen(false)
       void queryClient.invalidateQueries({ queryKey: ['proxy-pool-proxies'] })
       void queryClient.invalidateQueries({ queryKey: ['proxy-pool-channels'] })
     } catch {
-      toast.error(t('Proxyler silinirken bir hata oluştu'))
+      toast.error(t('Failed to delete proxies'))
     } finally {
       setIsBatchDeleting(false)
     }
@@ -208,18 +208,18 @@ export function ProxyPool() {
       const script = res.data?.data?.script
       if (script) {
         await navigator.clipboard.writeText(script)
-        toast.success(t('Cloudflare Worker scripti panoya kopyalandı'))
+        toast.success(t('Cloudflare Worker script copied to clipboard'))
       } else {
-        toast.error(t('Script alınamadı'))
+        toast.error(t('Failed to fetch script'))
       }
     } catch {
-      toast.error(t('Script alınamadı'))
+      toast.error(t('Failed to fetch script'))
     }
   }
 
   const handleDeployWorker = async () => {
     if (!cfAccountId.trim() || !cfApiToken.trim()) {
-      toast.error(t('Account ID ve API Token gereklidir'))
+      toast.error(t('Account ID and API Token are required'))
       return
     }
     setCfDeploying(true)
@@ -230,14 +230,14 @@ export function ProxyPool() {
         worker_name: cfWorkerName.trim() || 'better-api-proxy',
       })
       if (res.data?.success) {
-        toast.success(t('Cloudflare Worker başarıyla deploy edildi ve proxy olarak eklendi'))
+        toast.success(t('Cloudflare Worker deployed and added as proxy successfully'))
         setDialogOpen(false)
         invalidateAll()
       } else {
-        toast.error(res.data?.message || t('Deploy başarısız'))
+        toast.error(res.data?.message || t('Deployment failed'))
       }
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || t('Deploy başarısız'))
+      toast.error(err?.response?.data?.message || t('Deployment failed'))
     } finally {
       setCfDeploying(false)
     }
@@ -368,15 +368,15 @@ export function ProxyPool() {
     mutationFn: (id: number) => unassignProxy(id),
     onSuccess: (res) => {
       if (!res.success) {
-        toast.error(res.message || t('Proxy eşlemesi kaldırılamadı'))
+        toast.error(res.message || t('Failed to remove proxy assignment'))
         return
       }
-      toast.success(t('Proxy eşlemesi kaldırıldı'))
+      toast.success(t('Proxy assignment removed'))
       queryClient.invalidateQueries({ queryKey: ['proxy-pool-detail'] })
       invalidateAll()
     },
     onError: (err: Error) => {
-      toast.error(err.message || t('Proxy eşlemesi kaldırılamadı'))
+      toast.error(err.message || t('Failed to remove proxy assignment'))
     },
   })
 
@@ -384,12 +384,12 @@ export function ProxyPool() {
     mutationFn: () => rebalanceAllChannels(),
     onSuccess: (res) => {
       if (!res.success) {
-        toast.error(res.message || t('Yeniden dengeleme başarısız'))
+        toast.error(res.message || t('Rebalance failed'))
         return
       }
       const data = res.data
       toast.success(
-        t('{{channels}} kanal, {{keys}} anahtar {{proxies}} proxy arasında eşit olarak dengelendi', {
+        t('Balanced {{keys}} keys across {{proxies}} proxies for {{channels}} channels', {
           channels: data.rebalanced_channels,
           keys: data.total_keys_assigned,
           proxies: data.proxy_count,
@@ -398,7 +398,7 @@ export function ProxyPool() {
       invalidateAll()
     },
     onError: (err: Error) => {
-      toast.error(err.message || t('Yeniden dengeleme başarısız'))
+      toast.error(err.message || t('Rebalance failed'))
     },
   })
 
@@ -548,14 +548,14 @@ export function ProxyPool() {
                                 variant='outline'
                                 className='font-medium text-[11px]'
                               >
-                                {proxy.assigned_keys} / Eşli
+                                {proxy.assigned_keys} / {t('Assigned')}
                               </Badge>
                             ) : (
                               <Badge
                                 variant='secondary'
                                 className='font-normal text-[11px]'
                               >
-                                {t('Yedek')}
+                                {t('Backup')}
                               </Badge>
                             )}
                           </div>
@@ -705,7 +705,7 @@ export function ProxyPool() {
                 ) : (
                   <RefreshCw className='mr-1.5 h-3.5 w-3.5' />
                 )}
-                {t('Yeniden Dengele')}
+                {t('Rebalance All')}
               </Button>
             </CardHeader>
             <CardContent>
@@ -779,7 +779,7 @@ export function ProxyPool() {
                               onClick={() => setClearTarget(channel)}
                             >
                               <Trash2 className='mr-1.5 h-3.5 w-3.5 text-muted-foreground' />
-                              {t('Dağıtımı Geri Al')}
+                              {t('Revert Distribution')}
                             </Button>
                           </div>
                         </TableCell>
@@ -801,14 +801,14 @@ export function ProxyPool() {
               {form.id !== undefined ? t('Edit proxy') : t('Add proxy')}
             </DialogTitle>
             <DialogDescription>
-              {t('HTTP/HTTPS/SOCKS5 proxy veya Cloudflare Worker proxy ekleyin.')}
+              {t('Add an HTTP/HTTPS/SOCKS5 proxy or a Cloudflare Worker proxy.')}
             </DialogDescription>
           </DialogHeader>
 
           {form.id === undefined && (
             <Tabs value={proxyTab} onValueChange={(v) => setProxyTab(v as any)} className='w-full'>
               <TabsList className='grid grid-cols-2 w-full'>
-                <TabsTrigger value='line'>{t('Proxy Satırı')}</TabsTrigger>
+                <TabsTrigger value='line'>{t('Proxy URL')}</TabsTrigger>
                 <TabsTrigger value='cloudflare'>{t('Cloudflare Worker')}</TabsTrigger>
               </TabsList>
 
@@ -856,19 +856,19 @@ export function ProxyPool() {
               <TabsContent value='cloudflare' className='mt-3 space-y-4'>
                 <div className='rounded-xl border p-3 bg-muted/20 space-y-2'>
                   <div className='flex items-center justify-between'>
-                    <div className='text-xs font-semibold'>{t('1. Worker Scripti')}</div>
+                    <div className='text-xs font-semibold'>{t('1. Worker Script')}</div>
                     <Button size='sm' variant='outline' type='button' onClick={() => void copyWorkerScript()}>
                       <Copy className='me-1.5 h-3.5 w-3.5' />
-                      {t('Scripti Kopyala')}
+                      {t('Copy Script')}
                     </Button>
                   </div>
                   <p className='text-xs text-muted-foreground'>
-                    {t('Cloudflare panelinde yeni bir Worker açıp bu scripti yapıştırarak yayınlayabilirsiniz.')}
+                    {t('You can create a new Worker in the Cloudflare dashboard and paste this script to deploy it.')}
                   </p>
                 </div>
 
                 <div className='rounded-xl border p-3 space-y-3'>
-                  <div className='text-xs font-semibold'>{t('2. Tek Tıkla Otomatik Deploy')}</div>
+                  <div className='text-xs font-semibold'>{t('2. One-Click Auto Deploy')}</div>
                   <div className='space-y-2'>
                     <Label className='text-xs'>{t('Cloudflare Account ID')}</Label>
                     <Input
@@ -885,11 +885,11 @@ export function ProxyPool() {
                       type='password'
                       value={cfApiToken}
                       onChange={(e) => setCfApiToken(e.target.value)}
-                      placeholder='Workers Edit izinli token'
+                      placeholder='Workers Edit token'
                     />
                   </div>
                   <div className='space-y-2'>
-                    <Label className='text-xs'>{t('Worker Adı')}</Label>
+                    <Label className='text-xs'>{t('Worker Name')}</Label>
                     <Input
                       className='text-xs'
                       value={cfWorkerName}
@@ -906,19 +906,19 @@ export function ProxyPool() {
                     {cfDeploying ? (
                       <>
                         <Loader2 className='me-2 h-4 w-4 animate-spin' />
-                        {t('Deploy Ediliyor...')}
+                        {t('Deploying...')}
                       </>
                     ) : (
                       <>
                         <Cloud className='me-2 h-4 w-4' />
-                        {t('Cloudflare Workers\'a Deploy Et & Bağla')}
+                        {t('Deploy to Cloudflare Workers & Add')}
                       </>
                     )}
                   </Button>
                 </div>
 
                 <div className='space-y-2'>
-                  <Label className='text-xs'>{t('Veya Var Olan Worker URL\'si Girin')}</Label>
+                  <Label className='text-xs'>{t('Or Enter Existing Worker URL')}</Label>
                   <Input
                     className='text-xs font-mono'
                     value={form.url}
@@ -1042,7 +1042,7 @@ export function ProxyPool() {
                     variant='outline'
                     className='font-medium text-xs'
                   >
-                    {detailQuery.data.assigned_keys} / Eşli
+                    {detailQuery.data.assigned_keys} / {t('Assigned')}
                   </Badge>
                 )}
             </DialogTitle>
@@ -1065,7 +1065,7 @@ export function ProxyPool() {
               <div className='grid grid-cols-2 sm:grid-cols-4 gap-3'>
                 <div className='rounded-lg border bg-muted/20 p-3'>
                   <div className='text-muted-foreground text-xs font-medium'>
-                    {t('Ping / Hız')}
+                    {t('Latency / Speed')}
                   </div>
                   <div className='mt-1 text-base font-bold font-mono'>
                     {detailQuery.data.proxy.latency_ms
@@ -1075,7 +1075,7 @@ export function ProxyPool() {
                 </div>
                 <div className='rounded-lg border bg-muted/20 p-3'>
                   <div className='text-muted-foreground text-xs font-medium'>
-                    {t('Çıkış IP (Egress)')}
+                    {t('Egress IP')}
                   </div>
                   <div
                     className='mt-1 text-sm font-semibold font-mono truncate'
@@ -1086,7 +1086,7 @@ export function ProxyPool() {
                 </div>
                 <div className='rounded-lg border bg-muted/20 p-3'>
                   <div className='text-muted-foreground text-xs font-medium'>
-                    {t('Eşli Anahtarlar')}
+                    {t('Assigned Keys')}
                   </div>
                   <div className='mt-1 text-base font-bold font-mono'>
                     {detailQuery.data.assigned_keys}
@@ -1094,15 +1094,15 @@ export function ProxyPool() {
                 </div>
                 <div className='rounded-lg border bg-muted/20 p-3'>
                   <div className='text-muted-foreground text-xs font-medium'>
-                    {t('Durum')}
+                    {t('Status')}
                   </div>
                   <div className='mt-1 text-sm font-semibold'>
                     {detailQuery.data.proxy.enabled ? (
                       <span>
-                        {t('Aktif')}
+                        {t('Active')}
                       </span>
                     ) : (
-                      <span className='text-muted-foreground'>{t('Pasif')}</span>
+                      <span className='text-muted-foreground'>{t('Inactive')}</span>
                     )}
                   </div>
                 </div>
@@ -1111,7 +1111,7 @@ export function ProxyPool() {
               {/* 30 Day Usage Chart */}
               <div className='rounded-lg border p-4'>
                 <div className='text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3'>
-                  {t('Son 30 Günlük Veri Kullanımı (MB)')}
+                  {t('Last 30 Days Data Transfer (MB)')}
                 </div>
                 <div className='h-44 w-full'>
                   <ResponsiveContainer width='100%' height='100%'>
@@ -1125,7 +1125,7 @@ export function ProxyPool() {
                       <ChartTooltip
                         formatter={(val: any) => [
                           `${Number(val).toFixed(2)} MB`,
-                          t('Kullanım'),
+                          t('Usage'),
                         ]}
                       />
                       <Area
@@ -1144,7 +1144,7 @@ export function ProxyPool() {
               <div className='rounded-lg border p-4'>
                 <div className='flex items-center justify-between mb-2'>
                   <div className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
-                    {t('Atanmış Kanallar ve Anahtarlar')}
+                    {t('Assigned Channels and Keys')}
                   </div>
                   {detailQuery.data.assigned_keys > 0 && (
                     <Button
@@ -1159,23 +1159,23 @@ export function ProxyPool() {
                       ) : (
                         <Trash2 className='mr-1.5 h-3 w-3' />
                       )}
-                      {t('Eşlemeyi Kaldır')}
+                      {t('Unassign')}
                     </Button>
                   )}
                 </div>
                 {detailQuery.data.assignments.length === 0 ? (
                   <p className='text-muted-foreground text-xs py-3 text-center'>
-                    {t('Bu proxy şu anda herhangi bir kanal anahtarına atanmamış.')}
+                    {t('This proxy is not currently assigned to any channel key.')}
                   </p>
                 ) : (
                   <div className='max-h-48 overflow-y-auto'>
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className='text-xs'>{t('Kanal Adı')}</TableHead>
-                          <TableHead className='text-xs'>{t('Kanal ID')}</TableHead>
+                          <TableHead className='text-xs'>{t('Channel Name')}</TableHead>
+                          <TableHead className='text-xs'>{t('Channel ID')}</TableHead>
                           <TableHead className='text-xs'>
-                            {t('Anahtar Sırası')}
+                            {t('Key Index')}
                           </TableHead>
                         </TableRow>
                       </TableHeader>
@@ -1191,7 +1191,7 @@ export function ProxyPool() {
                               #{item.channel_id}
                             </TableCell>
                             <TableCell className='text-xs font-mono'>
-                              {t('Anahtar')} #{item.key_index + 1}
+                              {t('Key')} #{item.key_index + 1}
                             </TableCell>
                           </TableRow>
                         ))}
@@ -1205,7 +1205,7 @@ export function ProxyPool() {
 
           <DialogFooter>
             <Button variant='outline' onClick={() => setDetailTarget(null)}>
-              {t('Kapat')}
+              {t('Close')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1215,7 +1215,7 @@ export function ProxyPool() {
       {selectedProxyIds.length > 0 && (
         <div className='fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-wrap items-center gap-2 rounded-full border bg-background/95 px-4 py-2 shadow-xl backdrop-blur'>
           <span className='text-xs font-medium px-2'>
-            {t('{{count}} proxy seçildi', { count: selectedProxyIds.length })}
+            {t('{{count}} proxies selected', { count: selectedProxyIds.length })}
           </span>
           <Button
             size='sm'
@@ -1229,7 +1229,7 @@ export function ProxyPool() {
             ) : (
               <Gauge className='mr-1.5 h-3.5 w-3.5' />
             )}
-            {t('Toplu Test')}
+            {t('Batch Test')}
           </Button>
           <Button
             size='sm'
@@ -1242,7 +1242,7 @@ export function ProxyPool() {
             }}
           >
             <Pencil className='mr-1.5 h-3.5 w-3.5' />
-            {t('Toplu İsim Değiştir')}
+            {t('Batch Rename')}
           </Button>
           <Button
             size='sm'
@@ -1252,7 +1252,7 @@ export function ProxyPool() {
             onClick={() => setBatchDeleteDialogOpen(true)}
           >
             <Trash2 className='mr-1.5 h-3.5 w-3.5' />
-            {t('Toplu Sil')}
+            {t('Batch Delete')}
           </Button>
           <Button
             size='sm'
@@ -1260,7 +1260,7 @@ export function ProxyPool() {
             className='h-8 text-xs'
             onClick={() => setSelectedProxyIds([])}
           >
-            {t('Temizle')}
+            {t('Clear')}
           </Button>
         </div>
       )}
@@ -1269,18 +1269,18 @@ export function ProxyPool() {
       <Dialog open={batchNameDialogOpen} onOpenChange={setBatchNameDialogOpen}>
         <DialogContent className='max-w-md'>
           <DialogHeader>
-            <DialogTitle>{t('Toplu İsim Değiştir')}</DialogTitle>
+            <DialogTitle>{t('Batch Rename')}</DialogTitle>
             <DialogDescription>
-              {t('Seçilen {{count}} proxy için temel isim belirleyin. Birden fazla proxy seçiliyse isimlerin sonuna otomatik sıra numarası eklenecektir.', {
+              {t('Enter base name for {{count}} proxies. Sequence numbers will be appended automatically if multiple are selected.', {
                 count: selectedProxyIds.length,
               })}
             </DialogDescription>
           </DialogHeader>
           <div className='py-2 space-y-2'>
-            <Label htmlFor='batch-proxy-name'>{t('Yeni İsim')}</Label>
+            <Label htmlFor='batch-proxy-name'>{t('New Name')}</Label>
             <Input
               id='batch-proxy-name'
-              placeholder='Örn: Proxy-TR'
+              placeholder={t('e.g., Proxy-TR')}
               value={batchNameValue}
               onChange={(e) => setBatchNameValue(e.target.value)}
               onKeyDown={(e) => {
@@ -1297,7 +1297,7 @@ export function ProxyPool() {
             </Button>
             <Button disabled={isBatchRenaming || !batchNameValue.trim()} onClick={handleBatchRename}>
               {isBatchRenaming && <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />}
-              {t('Kaydet')}
+              {t('Save')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1307,15 +1307,15 @@ export function ProxyPool() {
       <ConfirmDialog
         open={batchDeleteDialogOpen}
         onOpenChange={setBatchDeleteDialogOpen}
-        title={t('Seçili proxyleri sil?')}
+        title={t('Delete selected proxies?')}
         desc={t(
-          'Seçilen {{count}} proxy silinecektir. Bu proxylere atanmış anahtarlar kanalın varsayılan yoluna geri dönecektir.',
+          '{{count}} proxies will be deleted. Keys assigned to these proxies will revert to the default route.',
           { count: selectedProxyIds.length }
         )}
         destructive
         isLoading={isBatchDeleting}
         handleConfirm={handleBatchDelete}
-        confirmText={t('Sil')}
+        confirmText={t('Delete')}
       />
     </>
   )

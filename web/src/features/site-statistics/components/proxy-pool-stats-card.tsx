@@ -37,13 +37,13 @@ export function ProxyPoolStatsCard() {
       <Card>
         <CardHeader>
           <CardTitle className='text-base'>
-            {t('Proxy Havuzu Kullanımı')}
+            {t('Proxy Pool Usage')}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className='flex h-36 items-center justify-center text-muted-foreground text-sm'>
             <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-            {t('Proxy kullanım verileri yükleniyor...')}
+            {t('Loading proxy usage data...')}
           </div>
         </CardContent>
       </Card>
@@ -66,14 +66,14 @@ export function ProxyPoolStatsCard() {
         <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2'>
           <div>
             <CardTitle className='text-base'>
-              {t('Proxy Havuzu Kullanımı & Trafik')}
+              {t('Proxy Pool Usage & Traffic')}
             </CardTitle>
             <CardDescription className='mt-1 text-xs'>
-              {t('Son 30 günlük proxy veri aktarımı (MB) ve havuzdaki proxylerin eşleme durumları.')}
+              {t('Last 30 days proxy data transfer (MB) and pool key assignment status.')}
             </CardDescription>
           </div>
           <Badge variant='outline' className='w-fit'>
-            {proxies.length} {t('Proxy')} · {totalAssignedKeys} {t('Eşli Anahtar')}
+            {proxies.length} {t('Proxies')} · {totalAssignedKeys} {t('Assigned Keys')}
           </Badge>
         </div>
       </CardHeader>
@@ -81,25 +81,25 @@ export function ProxyPoolStatsCard() {
         {/* Metric Highlights */}
         <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
           <div className='rounded-lg border bg-card p-3 shadow-xs'>
-            <div className='text-muted-foreground text-xs font-medium'>{t('Toplam MB Aktarımı')}</div>
+            <div className='text-muted-foreground text-xs font-medium'>{t('Total MB Transferred')}</div>
             <div className='mt-1 text-xl font-bold font-mono text-foreground'>
               {totalMB.toFixed(2)} MB
             </div>
           </div>
           <div className='rounded-lg border bg-card p-3 shadow-xs'>
-            <div className='text-muted-foreground text-xs font-medium'>{t('Aktif Proxyler')}</div>
+            <div className='text-muted-foreground text-xs font-medium'>{t('Active Proxies')}</div>
             <div className='mt-1 text-xl font-bold font-mono text-foreground'>
               {activeProxies.length} / {proxies.length}
             </div>
           </div>
           <div className='rounded-lg border bg-card p-3 shadow-xs'>
-            <div className='text-muted-foreground text-xs font-medium'>{t('Eşli Anahtarlar')}</div>
+            <div className='text-muted-foreground text-xs font-medium'>{t('Assigned Keys')}</div>
             <div className='mt-1 text-xl font-bold font-mono text-foreground'>
               {totalAssignedKeys}
             </div>
           </div>
           <div className='rounded-lg border bg-card p-3 shadow-xs'>
-            <div className='text-muted-foreground text-xs font-medium'>{t('Günlük Ortalama')}</div>
+            <div className='text-muted-foreground text-xs font-medium'>{t('Daily Average')}</div>
             <div className='mt-1 text-xl font-bold font-mono text-foreground'>
               {(totalMB / (dailyHistory.length || 1)).toFixed(2)} MB
             </div>
@@ -109,7 +109,7 @@ export function ProxyPoolStatsCard() {
         {/* 30-Day MB Chart */}
         <div className='rounded-lg border p-4'>
           <div className='text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3'>
-            {t('Son 30 Günlük Veri Akışı (MB)')}
+            {t('Last 30 Days Data Transfer (MB)')}
           </div>
           <div className='h-52 w-full'>
             <ResponsiveContainer width='100%' height='100%'>
@@ -121,7 +121,7 @@ export function ProxyPoolStatsCard() {
                 <XAxis dataKey='date' tick={{ fontSize: 10 }} tickLine={false} />
                 <YAxis tick={{ fontSize: 10 }} unit='M' tickLine={false} />
                 <Tooltip
-                  formatter={(val: any) => [`${Number(val).toFixed(2)} MB`, t('Kullanım')]}
+                  formatter={(val: any) => [`${Number(val).toFixed(2)} MB`, t('Usage')]}
                 />
                 <Area
                   type='monotone'
@@ -144,8 +144,8 @@ export function ProxyPoolStatsCard() {
                 <TableRow>
                   <TableHead className='text-xs'>{t('Proxy')}</TableHead>
                   <TableHead className='text-xs'>{t('URL')}</TableHead>
-                  <TableHead className='text-xs'>{t('Durum')}</TableHead>
-                  <TableHead className='text-xs'>{t('Gecikme / Ping')}</TableHead>
+                  <TableHead className='text-xs'>{t('Status')}</TableHead>
+                  <TableHead className='text-xs'>{t('Latency / Speed')}</TableHead>
                   <TableHead className='text-xs'>{t('Egress IP')}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -160,14 +160,14 @@ export function ProxyPoolStatsCard() {
                             variant='outline'
                             className='font-medium text-[10px]'
                           >
-                            {p.assigned_keys} / Eşli
+                            {p.assigned_keys} / {t('Assigned')}
                           </Badge>
                         ) : (
                           <Badge
                             variant='secondary'
                             className='font-normal text-[10px]'
                           >
-                            {t('Yedek')}
+                            {t('Backup')}
                           </Badge>
                         )}
                       </div>
@@ -178,11 +178,11 @@ export function ProxyPoolStatsCard() {
                     <TableCell>
                       {p.enabled ? (
                         <Badge variant='outline' className='text-[10px]'>
-                          {t('Aktif')}
+                          {t('Active')}
                         </Badge>
                       ) : (
                         <Badge variant='secondary' className='text-[10px]'>
-                          {t('Pasif')}
+                          {t('Inactive')}
                         </Badge>
                       )}
                     </TableCell>

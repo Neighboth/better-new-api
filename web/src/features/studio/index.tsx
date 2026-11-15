@@ -278,7 +278,7 @@ export function Studio() {
   }, [mode, selectedVideoModel, selectedImageModel, selectedMusicModel, selectedUpscaleModel])
 
   const currentModelName = currentModelRuntime?.model || ''
-  const currentModelDisplayName = currentModelRuntime?.display_name || currentModelName || t('Model Seç')
+  const currentModelDisplayName = currentModelRuntime?.display_name || currentModelName || t('Select Model')
 
   useEffect(() => {
     if (selectedImageModel && selectedImageModel.model !== imageModel) {
@@ -289,17 +289,21 @@ export function Studio() {
   }, [selectedImageModel, imageModel])
 
   useEffect(() => {
-    if (selectedVideoModel && selectedVideoModel.model !== videoModel) {
-      setVideoModel(selectedVideoModel.model)
-      setVideoDuration(
-        selectedVideoModel.default_duration
-          ? String(selectedVideoModel.default_duration)
-          : ''
-      )
-      setVideoRatio('')
-      setVideoQuality('')
+    if (selectedVideoModel) {
+      if (selectedVideoModel.model !== videoModel) {
+        setVideoModel(selectedVideoModel.model)
+        setVideoDuration(
+          selectedVideoModel.default_duration
+            ? String(selectedVideoModel.default_duration)
+            : ''
+        )
+        setVideoRatio('')
+        setVideoQuality('')
+      } else if (!videoDuration && selectedVideoModel.default_duration) {
+        setVideoDuration(String(selectedVideoModel.default_duration))
+      }
     }
-  }, [selectedVideoModel, videoModel])
+  }, [selectedVideoModel, videoModel, videoDuration])
 
   useEffect(() => {
     if (selectedMusicModel && selectedMusicModel.model !== musicModel) {
@@ -381,13 +385,15 @@ export function Studio() {
     return null
   }, [items, activeSessionItemId])
 
+  const hasActivePending = isGenerating || items.some((item) => item.status === 'pending')
+
   const canGenerate =
     prompt.trim().length > 0 &&
-    !isGenerating &&
+    !hasActivePending &&
     Boolean(currentModelName)
 
   const handleGenerate = async () => {
-    if (!canGenerate) return
+    if (!canGenerate || hasActivePending) return
     const text = prompt.trim()
 
     if (mode === 'image' || mode === 'upscale') {
@@ -424,7 +430,9 @@ export function Studio() {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      void handleGenerate()
+      if (canGenerate && !hasActivePending) {
+        void handleGenerate()
+      }
     }
   }
 
@@ -488,7 +496,7 @@ export function Studio() {
       <div className='flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-muted-foreground'>
         <SparklesIcon className='size-8' />
         <p className='text-sm'>
-          {t('Stüdyo yönetici tarafından devre dışı bırakıldı.')}
+          {t('Studio is disabled by administrator.')}
         </p>
       </div>
     )
@@ -505,7 +513,7 @@ export function Studio() {
       {isDragging && (
         <div className='absolute inset-0 z-50 flex items-center justify-center bg-background/85 backdrop-blur-sm border-2 border-dashed border-primary/50 m-4 rounded-3xl pointer-events-none'>
           <p className='text-sm font-medium'>
-            {t('Medya dosyasını buraya bırakın')}
+            {t('Drop media file here')}
           </p>
         </div>
       )}
@@ -525,20 +533,26 @@ export function Studio() {
                     variant='ghost'
                     onClick={() => setHistoryOpen(true)}
                     className='h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground bg-background/80 backdrop-blur-sm border border-border/50 hover:bg-background rounded-lg gap-1.5 shadow-xs'
-                    title={t('Önceki Üretimler')}
+                    title={t('Previous Generations')}
                   >
                     <HistoryIcon className='size-3.5' />
-                    <span>{t('Önceki Üretimler')}</span>
+                    <span>{t('Previous Generations')}</span>
                   </Button>
                   <Button
                     size='sm'
                     variant='ghost'
-                    onClick={() => setActiveSessionItemId(null)}
+                    onClick={() => {
+                      if (activeItem) {
+                        stop(activeItem.id)
+                        removeItem(activeItem.id)
+                      }
+                      setActiveSessionItemId(null)
+                    }}
                     className='h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground bg-background/80 backdrop-blur-sm border border-border/50 hover:bg-background rounded-lg gap-1.5 shadow-xs'
-                    title={t('Sahneyi Temizle')}
+                    title={t('Clear Stage')}
                   >
                     <XIcon className='size-3.5' />
-                    <span>{t('Temizle')}</span>
+                    <span>{t('Clear')}</span>
                   </Button>
                 </div>
 
@@ -549,10 +563,10 @@ export function Studio() {
                       <div className='space-y-1'>
                         <p className='text-sm font-medium'>
                           {activeItem.mode === 'video'
-                            ? t('Video üretiliyor...')
+                            ? t('Generating video...')
                             : activeItem.mode === 'music'
-                              ? t('Müzik üretiliyor...')
-                              : t('Görsel üretiliyor...')}
+                              ? t('Generating music...')
+                              : t('Generating image...')}
                         </p>
                         <p className='line-clamp-2 max-w-sm text-xs text-muted-foreground'>
                           &ldquo;{activeItem.prompt}&rdquo;
@@ -571,12 +585,12 @@ export function Studio() {
                       )}
                       {isGenerating && (
                         <Button
-                          onClick={stop}
+                          onClick={() => stop()}
                           size='sm'
                           variant='outline'
                           className='mt-1 h-7 rounded-lg text-xs'
                         >
-                          {t('Durdur')}
+                          {t('Stop')}
                         </Button>
                       )}
                     </div>
@@ -588,7 +602,7 @@ export function Studio() {
                         !
                       </span>
                       <p className='text-xs font-medium max-w-md'>
-                        {activeItem.error || t('Üretim başarısız oldu')}
+                        {activeItem.error || t('Generation failed')}
                       </p>
                     </div>
                   )}
@@ -643,7 +657,7 @@ export function Studio() {
                       className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs'
                     >
                       <DownloadIcon className='size-3.5' />
-                      {t('İndir')}
+                      {t('Download')}
                     </a>
                   )}
                 </div>
@@ -654,7 +668,7 @@ export function Studio() {
             <div className='my-auto flex flex-col items-center justify-center gap-4 py-12 text-center select-none'>
               <PixelFlowerIcon className='size-20 transition-transform duration-300 hover:scale-105' />
               <h1 className='text-xl sm:text-2xl font-normal tracking-tight text-foreground/90 max-w-lg'>
-                {t('Oluşturmaya başlayın veya medya dosyası bırakın')}
+                {t('Start creating or drop media files')}
               </h1>
               {items.length > 0 && (
                 <Button
@@ -664,7 +678,7 @@ export function Studio() {
                   className='mt-2 inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-card hover:bg-muted text-xs font-medium px-4 py-1.5 h-8 text-muted-foreground hover:text-foreground shadow-xs transition'
                 >
                   <HistoryIcon className='size-3.5' />
-                  <span>{t('Önceki Üretimler')}</span>
+                  <span>{t('Previous Generations')}</span>
                   <span className='rounded-full bg-muted px-1.5 py-0.2 text-[10px] font-mono text-foreground'>
                     {items.length}
                   </span>
@@ -700,7 +714,7 @@ export function Studio() {
                     ? t('Referans Ses')
                     : attachedMedia.type === 'video'
                       ? t('Referans Video')
-                      : t('Referans Görsel'))}
+                      : t('Reference Image'))}
               </span>
               <button
                 type='button'
@@ -717,7 +731,7 @@ export function Studio() {
             <label
               htmlFor='studio-file-upload'
               className='flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition shadow-xs'
-              title={mode === 'music' ? t('Ses dosyası ekle') : t('Medya ekle')}
+              title={mode === 'music' ? t('Add audio file') : t('Add media file')}
             >
               <PlusIcon className='size-4' />
               <input
@@ -731,17 +745,17 @@ export function Studio() {
             </label>
 
             {/* Prompt Input / Textarea */}
-            <div className='flex-1 min-w-0'>
+            <div className='flex-1 min-w-0 flex items-center'>
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={
                   mode === 'music'
-                    ? t('Şarkı sözleri, tarz veya melodi tarif edin...')
-                    : t('Ne oluşturmak istiyorsunuz?')
+                    ? t('Describe lyrics, style or melody...')
+                    : t('What do you want to create?')
                 }
-                className='w-full resize-none border-0 bg-transparent py-1.5 px-2 text-sm focus:outline-none focus:ring-0 leading-normal placeholder:text-muted-foreground/60 overflow-hidden'
+                className='w-full resize-none border-0 bg-transparent py-2 px-2 text-sm focus:outline-none focus:ring-0 leading-5 placeholder:text-muted-foreground/60 overflow-hidden align-middle my-auto'
                 rows={1}
                 style={{ height: '36px', maxHeight: '100px' }}
                 onInput={(e) => {
@@ -771,7 +785,7 @@ export function Studio() {
                 >
                   {/* Mode selection segmented control */}
                   <div className='space-y-1.5'>
-                    <Label className='text-xs font-medium text-foreground/80'>{t('Tür')}</Label>
+                    <Label className='text-xs font-medium text-foreground/80'>{t('Type')}</Label>
                     <div className='flex items-center rounded-xl bg-muted/60 p-1 border border-border/40 gap-1'>
                       {runtime.video.enabled && (
                         <button
@@ -800,7 +814,7 @@ export function Studio() {
                           )}
                         >
                           <ImageIcon className='size-3.5' />
-                          <span>{t('Görsel')}</span>
+                          <span>{t('Image')}</span>
                         </button>
                       )}
                       {runtime.music?.enabled && (
@@ -814,7 +828,7 @@ export function Studio() {
                               : 'text-muted-foreground hover:text-foreground'
                           )}
                         >
-                          <span>{t('Müzik')}</span>
+                          <span>{t('Music')}</span>
                         </button>
                       )}
                       {runtime.upscale?.enabled && (
@@ -828,7 +842,7 @@ export function Studio() {
                               : 'text-muted-foreground hover:text-foreground'
                           )}
                         >
-                          <span>{t('Büyüt')}</span>
+                          <span>{t('Upscale')}</span>
                         </button>
                       )}
                     </div>
@@ -840,15 +854,20 @@ export function Studio() {
                     <Select
                       onValueChange={(val) => {
                         const v = String(val)
-                        if (mode === 'video') setVideoModel(v)
-                        else if (mode === 'image') setImageModel(v)
+                        if (mode === 'video') {
+                          setVideoModel(v)
+                          const target = videoModels.find((m) => m.model === v)
+                          if (target?.default_duration) {
+                            setVideoDuration(String(target.default_duration))
+                          }
+                        } else if (mode === 'image') setImageModel(v)
                         else if (mode === 'music') setMusicModel(v)
                         else if (mode === 'upscale') setUpscaleModel(v)
                       }}
                       value={currentModelName}
                     >
                       <SelectTrigger className='h-9 w-full rounded-xl border border-border/60 bg-background px-3 text-xs font-medium'>
-                        <SelectValue placeholder={t('Model Seç')} />
+                        <SelectValue placeholder={t('Select Model')} />
                       </SelectTrigger>
                       <SelectContent>
                         {(mode === 'video'
@@ -887,7 +906,7 @@ export function Studio() {
                       </div>
 
                       <div className='space-y-1'>
-                        <Label className='text-xs font-medium text-muted-foreground'>{t('Süre')}</Label>
+                        <Label className='text-xs font-medium text-muted-foreground'>{t('Duration')}</Label>
                         <Select onValueChange={(val) => setVideoDuration(val ?? '')} value={String(duration)}>
                           <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
                             <SelectValue />
@@ -924,7 +943,7 @@ export function Studio() {
                   {mode === 'image' && (
                     <div className='grid grid-cols-2 gap-2 pt-0.5'>
                       <div className='space-y-1'>
-                        <Label className='text-xs font-medium text-muted-foreground'>{t('Boyut')}</Label>
+                        <Label className='text-xs font-medium text-muted-foreground'>{t('Size')}</Label>
                         <Select onValueChange={(val) => setImageSize(val ?? '')} value={size}>
                           <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
                             <SelectValue />
@@ -962,11 +981,20 @@ export function Studio() {
               {/* Circular Send Arrow Button */}
               <button
                 type='button'
-                disabled={!canGenerate}
+                disabled={!canGenerate || hasActivePending}
+                title={
+                  hasActivePending
+                    ? t('An active generation is in progress. Please wait for it to complete or clear it from the stage.')
+                    : !prompt.trim()
+                    ? t('Please enter a prompt')
+                    : !currentModelName
+                    ? t('Please select a model')
+                    : t('Generate')
+                }
                 onClick={() => void handleGenerate()}
-                className='flex size-9 shrink-0 items-center justify-center rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-30 disabled:pointer-events-none transition shadow-sm'
+                className='flex size-9 shrink-0 items-center justify-center rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-30 disabled:cursor-not-allowed transition shadow-sm'
               >
-                {isGenerating ? (
+                {isGenerating || hasActivePending ? (
                   <Loader2Icon className='size-4 animate-spin' />
                 ) : (
                   <ArrowRightIcon className='size-4' />
@@ -979,14 +1007,14 @@ export function Studio() {
 
       {/* Previous Generations Dialog (Item 11) */}
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-        <DialogContent className='max-w-6xl w-[96vw] max-h-[90vh] flex flex-col p-0 overflow-hidden'>
+        <DialogContent className='w-[95vw] sm:max-w-[95vw] md:max-w-6xl lg:max-w-7xl h-[85vh] max-h-[88vh] flex flex-col p-0 overflow-hidden'>
           <DialogHeader className='p-4 border-b flex flex-row items-center justify-between space-y-0'>
             <div>
               <DialogTitle className='text-base font-semibold'>
-                {t('Önceki Üretimler')}
+                {t('Previous Generations')}
               </DialogTitle>
               <DialogDescription className='text-xs text-muted-foreground'>
-                {t('Daha önce oluşturduğunuz video, görsel ve müzik kayıtları.')}
+                {t('Your previous video, image, and music creations.')}
               </DialogDescription>
             </div>
             {items.length > 0 && (
@@ -1000,7 +1028,7 @@ export function Studio() {
                 className='h-8 text-xs text-muted-foreground hover:text-destructive gap-1.5'
               >
                 <Trash2Icon className='size-3.5' />
-                <span>{t('Tümünü Temizle')}</span>
+                <span>{t('Clear All')}</span>
               </Button>
             )}
           </DialogHeader>
@@ -1010,19 +1038,19 @@ export function Studio() {
             <Tabs value={historyTab} onValueChange={(val) => setHistoryTab(val as typeof historyTab)}>
               <TabsList className='h-8'>
                 <TabsTrigger value='all' className='text-xs px-3'>
-                  {t('Tümü')} ({items.length})
+                  {t('All')} ({items.length})
                 </TabsTrigger>
                 <TabsTrigger value='video' className='text-xs px-3'>
                   {t('Video')} ({items.filter((i) => i.mode === 'video').length})
                 </TabsTrigger>
                 <TabsTrigger value='image' className='text-xs px-3'>
-                  {t('Görsel')} ({items.filter((i) => i.mode === 'image').length})
+                  {t('Image')} ({items.filter((i) => i.mode === 'image').length})
                 </TabsTrigger>
                 <TabsTrigger value='music' className='text-xs px-3'>
-                  {t('Müzik')} ({items.filter((i) => i.mode === 'music').length})
+                  {t('Music')} ({items.filter((i) => i.mode === 'music').length})
                 </TabsTrigger>
                 <TabsTrigger value='upscale' className='text-xs px-3'>
-                  {t('Büyüt')} ({items.filter((i) => i.mode === 'upscale').length})
+                  {t('Upscale')} ({items.filter((i) => i.mode === 'upscale').length})
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -1032,7 +1060,7 @@ export function Studio() {
           <div className='flex-1 overflow-y-auto p-4'>
             {filteredHistoryItems.length === 0 ? (
               <div className='py-12 text-center text-xs text-muted-foreground'>
-                {t('Henüz geçmiş üretim bulunmuyor.')}
+                {t('No previous generations yet.')}
               </div>
             ) : (
               <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
@@ -1056,10 +1084,10 @@ export function Studio() {
                         {item.mode === 'video'
                           ? t('Video')
                           : item.mode === 'image'
-                            ? t('Görsel')
+                            ? t('Image')
                             : item.mode === 'music'
-                              ? t('Müzik')
-                              : t('Büyüt')}
+                              ? t('Music')
+                              : t('Upscale')}
                       </Badge>
                       <span className='text-[10px] text-muted-foreground font-mono'>
                         {new Date(item.createdAt).toLocaleDateString()}
@@ -1070,12 +1098,12 @@ export function Studio() {
                       {item.status === 'pending' && (
                         <div className='flex flex-col items-center justify-center gap-1.5 p-4 text-center'>
                           <Loader2Icon className='size-5 animate-spin text-muted-foreground' />
-                          <span className='text-xs text-muted-foreground'>{t('Üretiliyor...')}</span>
+                          <span className='text-xs text-muted-foreground'>{t('Generating...')}</span>
                         </div>
                       )}
                       {item.status === 'error' && (
                         <div className='p-3 text-center text-destructive text-xs'>
-                          {item.error || t('Üretim başarısız oldu')}
+                          {item.error || t('Generation failed')}
                         </div>
                       )}
                       {item.status === 'ready' && item.urls[0] && (
@@ -1119,7 +1147,7 @@ export function Studio() {
                           className='h-7 px-2 text-[11px] gap-1'
                         >
                           <EyeIcon className='size-3' />
-                          {t('Sahnede Göster')}
+                          {t('Show on Stage')}
                         </Button>
 
                         <div className='flex items-center gap-1'>
@@ -1130,7 +1158,7 @@ export function Studio() {
                               rel='noreferrer'
                               target='_blank'
                               className='inline-flex items-center justify-center size-7 rounded-md border bg-background hover:bg-muted text-foreground transition'
-                              title={t('İndir')}
+                              title={t('Download')}
                             >
                               <DownloadIcon className='size-3.5' />
                             </a>
@@ -1145,7 +1173,7 @@ export function Studio() {
                               }
                             }}
                             className='size-7 text-muted-foreground hover:text-destructive'
-                            title={t('Sil')}
+                            title={t('Delete')}
                           >
                             <Trash2Icon className='size-3.5' />
                           </Button>

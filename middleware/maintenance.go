@@ -196,13 +196,32 @@ func renderMaintenancePage(message string, eta int64) string {
 	if siteName == "" {
 		siteName = "PixRouter"
 	}
-	logo := strings.TrimSpace(common.OptionMap["Logo"])
-	if logo == "" {
-		logo = strings.TrimSpace(common.OptionMap["LogoDark"])
+	logoLight := strings.TrimSpace(common.OptionMap["Logo"])
+	logoDark := strings.TrimSpace(common.OptionMap["LogoDark"])
+	if logoLight == "" && logoDark != "" {
+		logoLight = logoDark
 	}
+	if logoDark == "" && logoLight != "" {
+		logoDark = logoLight
+	}
+
+	logoHeight := 40
+	if hStr := strings.TrimSpace(common.OptionMap["HeaderLogoHeight"]); hStr != "" {
+		if h, err := strconv.Atoi(hStr); err == nil && h >= 10 && h <= 200 {
+			logoHeight = h
+		}
+	}
+
 	logoTag := ""
-	if logo != "" {
-		logoTag = `<img class="logo" src="` + htmlEscape(logo) + `" alt="` + htmlEscape(siteName) + `" onerror="this.style.display='none'">`
+	if logoLight != "" && logoDark != "" {
+		if logoLight == logoDark {
+			logoTag = `<img class="logo" src="` + htmlEscape(logoLight) + `" alt="` + htmlEscape(siteName) + `" onerror="this.style.display='none'">`
+		} else {
+			logoTag = `<picture class="logo-picture">
+        <source media="(prefers-color-scheme: light)" srcset="` + htmlEscape(logoLight) + `">
+        <img class="logo" src="` + htmlEscape(logoDark) + `" alt="` + htmlEscape(siteName) + `" onerror="this.style.display='none'">
+      </picture>`
+		}
 	}
 
 	hideSiteName := common.HideHeaderSiteName || common.OptionMap["HideHeaderSiteName"] == "true" || common.OptionMap["HideHeaderSiteName"] == "1"
@@ -279,9 +298,12 @@ html, body {
   gap: 8px;
   margin-bottom: 24px;
 }
+.logo-picture {
+  display: block;
+}
 .logo {
-  height: 40px;
-  max-width: 180px;
+  height: ` + strconv.Itoa(logoHeight) + `px;
+  max-width: 220px;
   object-fit: contain;
   display: block;
 }

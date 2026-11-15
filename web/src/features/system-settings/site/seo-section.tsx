@@ -413,7 +413,7 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
                   <FormLabel>{t('Google Cloud Console API / Credentials (Analytics)')}</FormLabel>
                   <FormControl>
                     <Input
-                      placeholder={t('API Key veya Service Account JSON (Opsiyonel)')}
+                      placeholder={t('API Key or Service Account JSON (Optional)')}
                       autoComplete='off'
                       {...field}
                       value={field.value ?? ''}
@@ -421,7 +421,7 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
                   </FormControl>
                   <FormDescription>
                     {t(
-                      'Opsiyonel. Google Analytics Data API (GA4) entegrasyonu için. İstatistikler sayfasında trafik ve kullanıcı verilerini görüntüler.'
+                      'Optional. For Google Analytics Data API (GA4) integration. Displays traffic and user metrics on the statistics page.'
                     )}
                   </FormDescription>
                   <FormMessage />
@@ -437,7 +437,7 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
                   <FormLabel>{t('Microsoft Clarity API Token')}</FormLabel>
                   <FormControl>
                     <Input
-                      placeholder={t('Clarity API Token (Opsiyonel)')}
+                      placeholder={t('Clarity API Token (Optional)')}
                       autoComplete='off'
                       {...field}
                       value={field.value ?? ''}
@@ -445,7 +445,7 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
                   </FormControl>
                   <FormDescription>
                     {t(
-                      'Opsiyonel. Microsoft Clarity Live Insights API tokenı. Günlük 10 istek limitine uyum için 4 saatlik önbellekle çekilir.'
+                      'Optional. Microsoft Clarity Live Insights API token. Cached for 4 hours to respect the daily rate limit.'
                     )}
                   </FormDescription>
                   <FormMessage />
@@ -470,7 +470,7 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('Google Analytics 4 Property ID (sayısal mülk kimliği).')}
+                    {t('Google Analytics 4 Property ID (numeric property ID).')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -492,7 +492,7 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('Search Console mülk URL adresi.')}
+                    {t('Search Console property URL address.')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -509,7 +509,7 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
                   <FormLabel>{t('Google Cloud Console API / Credentials (Search Console)')}</FormLabel>
                   <FormControl>
                     <Input
-                      placeholder={t('API Key veya JSON (Ayrı hesap desteklenir)')}
+                      placeholder={t('API Key or JSON (Separate account supported)')}
                       autoComplete='off'
                       {...field}
                       value={field.value ?? ''}
@@ -517,7 +517,7 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
                   </FormControl>
                   <FormDescription>
                     {t(
-                      'Ayrı Google/Cloud Console hesabındaki Search Console için API Key veya kimlik bilgisi. İstatistikler sayfasında arama terimleri ve tıklama analitiğini sunar.'
+                      'API Key or credentials for Search Console in a separate Google/Cloud Console account. Provides search queries and click analytics on the statistics page.'
                     )}
                   </FormDescription>
                   <FormMessage />

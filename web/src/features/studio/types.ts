@@ -29,6 +29,8 @@ export type StudioItem = {
   /** Image or video source. */
   urls: string[]
   error?: string
+  /** Video task ID for asynchronous polling across sessions and page reloads. */
+  taskId?: string
   /** Raw progress string of a video task ("0%", "42%", "100%"). */
   progress?: string
   /** Settings used for the generation, shown under the result. */

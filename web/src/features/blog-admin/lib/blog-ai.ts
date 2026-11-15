@@ -32,7 +32,7 @@ export function buildBlogAiSystemPrompt(
     'Respond ONLY with a single valid JSON object. Do not include markdown fences, do not output any reasoning/thinking logic, do not include any commentary.',
     'Your output MUST start exactly with { and end with }.',
     'CRITICAL LANGUAGE RULE: Every language key ("en", "tr", "zh", "zh-TW", "fr", "ru", "ja", "vi") MUST contain text written in that specific NATIVE language. For example, "en" MUST be in English, "tr" in Turkish, "zh" in Simplified Chinese, "fr" in French, "ru" in Russian, "ja" in Japanese, and "vi" in Vietnamese. NEVER repeat the prompt language across all fields if they are different languages!',
-    'CRITICAL STYLE & CASING RULE: If the user prompt contains ANY casing or style rule (such as ALL UPPERCASE, all lowercase, specific tone, or structure), you MUST strictly and consistently apply that constraint across ALL languages and all keys!',
+    'CRITICAL STYLE, PUNCTUATION & CASING RULE: If the user prompt contains ANY casing or style rule (such as ALL UPPERCASE/tamamen büyük harf, all lowercase, no punctuation/noktalama yok, specific tone, or structure), you MUST strictly and aggressively apply that constraint across ALL languages and all keys! For example, if all uppercase is requested, every single character in title, summary, tags, and seo_description must be UPPERCASE in all languages.',
   ]
 
   const langs = BLOG_LOCALE_CODES
@@ -43,7 +43,7 @@ export function buildBlogAiSystemPrompt(
       'Generate ONLY titles for all languages based on the prompt.',
       'The JSON must have this structure:',
       JSON.stringify({ title: langs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}) }, null, 2),
-      'Requirements: max ~70 chars, catchy.',
+      'Requirements: max ~70 chars, catchy. Strictly apply requested casing/punctuation to all languages.',
       BLOG_AI_LANGUAGE_PROMPT,
     ].join('\n')
   }
@@ -54,7 +54,7 @@ export function buildBlogAiSystemPrompt(
       'Generate ONLY summaries for all languages based on the title and prompt.',
       'The JSON must have this structure:',
       JSON.stringify({ summary: langs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}) }, null, 2),
-      'Requirements: 1-2 sentences teaser shown in the blog list.',
+      'Requirements: 1-2 sentences teaser shown in the blog list. Strictly apply requested casing/punctuation (e.g. ALL UPPERCASE) to every character in every summary!',
       BLOG_AI_LANGUAGE_PROMPT,
     ].join('\n')
   }
@@ -65,7 +65,7 @@ export function buildBlogAiSystemPrompt(
       'Generate ONLY tags for all languages based on the title, summary, and prompt.',
       'The JSON must have this structure:',
       JSON.stringify({ tags: langs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}) }, null, 2),
-      'Requirements: comma-separated, 3-5 tags in each language.',
+      'Requirements: comma-separated, 3-5 tags in each language. Strictly apply requested casing/punctuation.',
       BLOG_AI_LANGUAGE_PROMPT,
     ].join('\n')
   }
@@ -76,7 +76,7 @@ export function buildBlogAiSystemPrompt(
       'Generate ONLY SEO descriptions for all languages.',
       'The JSON must have this structure:',
       JSON.stringify({ seo_description: langs.reduce((acc, code) => ({ ...acc, [code]: '...' }), {}) }, null, 2),
-      'Requirements: meta description for search engines, 1-2 sentences in each language, include relevant keywords, no quotes.',
+      'Requirements: meta description for search engines, 1-2 sentences in each language, include relevant keywords, no quotes. Strictly apply requested casing/punctuation.',
       BLOG_AI_LANGUAGE_PROMPT,
     ].join('\n')
   }
@@ -88,7 +88,7 @@ export function buildBlogAiSystemPrompt(
       'Do NOT output JSON. Do NOT wrap the entire article in code fences (```markdown). Do NOT include conversational commentary, thinking tags, prefaces, or postfaces.',
       'Start immediately with the article content.',
       'Requirements: full comprehensive markdown article (headings, lists, bold, links as appropriate): Aim for 600-1200 words.',
-      'CRITICAL CASING & STYLE RULE: If the user prompt specifies casing rules (such as ALL UPPERCASE or all lowercase) or specific formatting rules, you MUST strictly follow them for every character in the generated article.',
+      'CRITICAL CASING & STYLE RULE: If the user prompt specifies casing rules (such as ALL UPPERCASE/tamamen büyük harf, all lowercase) or punctuation rules (no punctuation), you MUST strictly follow them for every character in the generated article from start to finish. Never truncate and never use ellipses (...) to skip content.',
       'Citation policy (this is mandatory): if web research notes are present in the user message, you may cite, and may only cite, the URLs that appear in those notes. If no web research notes are present, do NOT invent, guess or output any source, reference, link, URL, domain, or citation of any kind - the article must read as if it cites nothing.',
     ].join('\n')
   }
@@ -103,7 +103,7 @@ export function buildBlogAiSystemPrompt(
       'CRITICAL RULES:',
       '1. You MUST translate into the exact target language requested. Never leave the output in English, Turkish, or another language unless that is the target language!',
       '2. You MUST output the FULL complete article from start to finish. NEVER truncate, summarize, or stop early, and NEVER use ellipses (...) to skip text!',
-      '3. If the user provided casing or formatting instructions (e.g. ALL UPPERCASE, all lowercase), you MUST strictly enforce it on the entire translated article.',
+      '3. If the user provided casing or formatting instructions (e.g. ALL UPPERCASE, all lowercase, no punctuation), you MUST strictly enforce it on the entire translated article.',
     ].join('\n')
   }
 
