@@ -81,9 +81,14 @@ const seoSchema = z.object({
   LLMSTxt: z.string().optional(),
   LLMSFullTxt: z.string().optional(),
   GoogleAnalyticsId: z.string().optional(),
+  GoogleAnalyticsCredentials: z.string().optional(),
+  GoogleAnalyticsPropertyId: z.string().optional(),
+  GoogleSearchConsoleCredentials: z.string().optional(),
+  GoogleSearchConsoleSiteUrl: z.string().optional(),
   UmamiWebsiteId: z.string().optional(),
   UmamiScriptUrl: z.string().optional(),
   ClarityProjectId: z.string().optional(),
+  ClarityApiToken: z.string().optional(),
 
   // 8 Languages for Title Prefix
   SEOTitlePrefix_tr: z.string().optional(),
@@ -158,9 +163,14 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
       LLMSTxt: defaultValues.LLMSTxt ?? '',
       LLMSFullTxt: defaultValues.LLMSFullTxt ?? '',
       GoogleAnalyticsId: defaultValues.GoogleAnalyticsId ?? '',
+      GoogleAnalyticsCredentials: (defaultValues as any).GoogleAnalyticsCredentials ?? '',
+      GoogleAnalyticsPropertyId: (defaultValues as any).GoogleAnalyticsPropertyId ?? '',
+      GoogleSearchConsoleCredentials: (defaultValues as any).GoogleSearchConsoleCredentials ?? '',
+      GoogleSearchConsoleSiteUrl: (defaultValues as any).GoogleSearchConsoleSiteUrl ?? '',
       UmamiWebsiteId: defaultValues.UmamiWebsiteId ?? '',
       UmamiScriptUrl: defaultValues.UmamiScriptUrl ?? 'https://analytics.umami.is/script.js',
       ClarityProjectId: defaultValues.ClarityProjectId ?? '',
+      ClarityApiToken: (defaultValues as any).ClarityApiToken ?? '',
     }
     SEO_LANGUAGES.forEach((lang) => {
       res[`SEOTitlePrefix_${lang.key}`] = (defaultValues as any)[`SEOTitlePrefix_${lang.key}`] ?? ''
@@ -383,6 +393,128 @@ export function SEOSection({ defaultValues }: SEOSectionProps) {
                   <FormDescription>
                     {t(
                       'Leave empty to disable. Injects Microsoft Clarity analytics script into public pages.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <div className='grid gap-6 md:grid-cols-2'>
+            <FormField
+              control={form.control}
+              name='GoogleAnalyticsCredentials'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Google Cloud Console API / Credentials (Analytics)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder={t('API Key veya Service Account JSON (Opsiyonel)')}
+                      autoComplete='off'
+                      {...field}
+                      value={field.value ?? ''}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Opsiyonel. Google Analytics Data API (GA4) entegrasyonu için. İstatistikler sayfasında trafik ve kullanıcı verilerini görüntüler.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='ClarityApiToken'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Microsoft Clarity API Token')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder={t('Clarity API Token (Opsiyonel)')}
+                      autoComplete='off'
+                      {...field}
+                      value={field.value ?? ''}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Opsiyonel. Microsoft Clarity Live Insights API tokenı. Günlük 10 istek limitine uyum için 4 saatlik önbellekle çekilir.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <div className='grid gap-6 md:grid-cols-2'>
+            <FormField
+              control={form.control}
+              name='GoogleAnalyticsPropertyId'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Google Analytics GA4 Property ID')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder='123456789'
+                      autoComplete='off'
+                      {...field}
+                      value={field.value ?? ''}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t('Google Analytics 4 Property ID (sayısal mülk kimliği).')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='GoogleSearchConsoleSiteUrl'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Google Search Console Site URL')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder='sc-domain:example.com veya https://example.com/'
+                      autoComplete='off'
+                      {...field}
+                      value={field.value ?? ''}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t('Search Console mülk URL adresi.')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <div className='grid gap-6 md:grid-cols-2'>
+            <FormField
+              control={form.control}
+              name='GoogleSearchConsoleCredentials'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Google Cloud Console API / Credentials (Search Console)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder={t('API Key veya JSON (Ayrı hesap desteklenir)')}
+                      autoComplete='off'
+                      {...field}
+                      value={field.value ?? ''}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Ayrı Google/Cloud Console hesabındaki Search Console için API Key veya kimlik bilgisi. İstatistikler sayfasında arama terimleri ve tıklama analitiğini sunar.'
                     )}
                   </FormDescription>
                   <FormMessage />

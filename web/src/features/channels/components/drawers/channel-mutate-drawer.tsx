@@ -689,6 +689,11 @@ export function ChannelMutateDrawer({
           if (!form.getValues('base_url')) {
             form.setValue('base_url', 'https://chatgpt.com')
           }
+        } else if (oauthProvider === 'claudesub') {
+          const currentModels = form.getValues('models')
+          if (!currentModels || (typeof currentModels === 'string' && currentModels.trim() === '')) {
+            form.setValue('models', 'claude-3-7-sonnet-20250219,claude-3-5-sonnet-20241022,claude-3-5-haiku-20241022,claude-3-opus-20240229')
+          }
         }
         setOauthDialogOpen(false)
         toast.success(t('Successfully acquired credentials'))
@@ -794,6 +799,8 @@ export function ChannelMutateDrawer({
 
   // Watch form values for conditional rendering
   const multiKeyMode = form.watch('multi_key_mode')
+  const isMultiKey =
+    isMultiKeyChannel || (!isEditing && multiKeyMode === 'multi_to_single')
   const multiKeyType = form.watch('multi_key_type')
   const keyMode = form.watch('key_mode')
   const currentGroups = form.watch('group')
@@ -1544,8 +1551,8 @@ export function ChannelMutateDrawer({
       return
     }
 
-    // Advanced Custom may use a model discovery route with no authentication.
-    if (!isEditing && type !== CHANNEL_TYPE_ADVANCED_CUSTOM) {
+    // Advanced Custom and OpenCode can fetch models without an API key.
+    if (!isEditing && type !== CHANNEL_TYPE_ADVANCED_CUSTOM && type !== CHANNEL_TYPE_OPENCODE) {
       const key = form.getValues('key')
       if (!key?.trim()) {
         toast.error(t('Please enter API key first'))
@@ -3128,6 +3135,11 @@ export function ChannelMutateDrawer({
                                     </div>
                                   )}
                                 </div>
+                              ) : currentType === 65 ? (
+                                <div className='rounded-lg border border-border/60 bg-muted/20 p-3.5 text-xs text-muted-foreground flex items-center gap-2'>
+                                  <Info className='size-4 text-primary shrink-0' />
+                                  <span>{t('OpenCode kanalı yerel (http://localhost:4096) veya uzak sunucu bağlantısı kullandığı için API Anahtarı gerektirmez.')}</span>
+                                </div>
                               ) : (
                                 <FormField
                                   control={form.control}
@@ -3582,21 +3594,51 @@ export function ChannelMutateDrawer({
 
                               {currentType === 67 && (
                                 <div className='border-border/60 flex flex-col gap-3 rounded-lg border bg-muted/20 p-4'>
-                                  <div className='flex flex-col gap-1'>
-                                    <div className='font-semibold text-sm'>
-                                      {t('Claude Aboneliği (Claude Code OAuth / Token) Yapılandırması')}
+                                  <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-3'>
+                                    <div>
+                                      <div className='font-semibold text-sm'>{t('Claude Code OAuth Entegrasyonu')}</div>
+                                      <div className='text-muted-foreground text-xs'>
+                                        {t('Anthropic Claude hesabınızla tek tıkla OAuth girişi yaparak oturum anahtarı alın.')}
+                                      </div>
                                     </div>
-                                    <div className='text-muted-foreground text-xs'>
-                                      {t(
-                                        'Bu kanal Anthropic API Key (sk-ant-api...) değil, Claude Code OAuth Access Token (sk-ant-oat01-...) veya JSON oturum kimlik bilgisi gerektirir.'
-                                      )}
+                                    <div className='flex flex-wrap items-center gap-2'>
+                                      <Button
+                                        type='button'
+                                        variant='default'
+                                        size='sm'
+                                        onClick={() => handleStartOAuth('claudesub')}
+                                      >
+                                        <Wand2 className='mr-2 h-4 w-4' />
+                                        {t('OAuth Girişini Başlat')}
+                                      </Button>
                                     </div>
                                   </div>
-                                  <div className='text-xs space-y-1.5 rounded bg-muted/40 p-2.5 font-mono text-muted-foreground'>
-                                    <div>{t('Token formatı:')}</div>
-                                    <div>• Tekil token: sk-ant-oat01-...</div>
-                                    <div>• JSON kimlik: {'{"access_token": "sk-ant-oat01-...", "refresh_token": "sk-ant-ort01-..."}'}</div>
-                                  </div>
+                                  {oauthAuthUrl && oauthProvider === 'claudesub' && (
+                                    <div className='flex flex-col gap-2 pt-2 border-t'>
+                                      <div className='text-xs font-medium text-primary'>
+                                        <a href={oauthAuthUrl} target='_blank' rel='noopener noreferrer' className='hover:underline'>
+                                          🔗 {t('Pencere açılmadıysa buraya tıklayarak giriş yapın (Yeni Sekme)')}
+                                        </a>
+                                      </div>
+                                      <div className='flex items-center gap-2'>
+                                        <Input
+                                          placeholder='https://console.anthropic.com/oauth/code/callback?code=...'
+                                          value={oauthCallbackUrl}
+                                          onChange={(e) => setOauthCallbackUrl(e.target.value)}
+                                          className='text-xs'
+                                        />
+                                        <Button
+                                          type='button'
+                                          size='sm'
+                                          onClick={handleExchangeOAuth}
+                                          disabled={isOauthExchanging || !oauthCallbackUrl}
+                                        >
+                                          {isOauthExchanging && <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />}
+                                          {t('Doğrula ve Al')}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               )}
 
@@ -4699,29 +4741,66 @@ export function ChannelMutateDrawer({
                               />
                             </div>
 
-                            <FormField
-                              control={form.control}
-                              name='proxy'
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>{t('Proxy Address')}</FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      placeholder={t(
-                                        'socks5://user:pass@host:port'
+                            {!isMultiKey && (
+                              <FormField
+                                control={form.control}
+                                name='proxy'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>{t('Proxy Address')}</FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        placeholder={t(
+                                          'socks5://user:pass@host:port'
+                                        )}
+                                        {...field}
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t(
+                                        'Network proxy for this channel (supports HTTP, HTTPS, SOCKS5, and SOCKS5H)'
                                       )}
-                                      {...field}
-                                    />
-                                  </FormControl>
-                                  <FormDescription>
-                                    {t(
-                                      'Network proxy for this channel (supports HTTP, HTTPS, SOCKS5, and SOCKS5H)'
-                                    )}
-                                  </FormDescription>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            )}
+
+                            {isMultiKey && (
+                              <FormField
+                                control={form.control}
+                                name='request_interval_seconds'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>
+                                      {t('İstek Arası Bekleme (saniye)')}
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type='number'
+                                        min={0}
+                                        placeholder='0'
+                                        value={field.value ?? 0}
+                                        onChange={(e) =>
+                                          field.onChange(
+                                            e.target.value === ''
+                                              ? 0
+                                              : parseInt(e.target.value, 10) || 0
+                                          )
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t(
+                                        'Bu kanaldaki tüm anahtarlar genelinde iki istek arasında beklenecek minimum süre (saniye). 0 ise bekleme yapılmaz.'
+                                      )}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            )}
 
                             <FormField
                               control={form.control}

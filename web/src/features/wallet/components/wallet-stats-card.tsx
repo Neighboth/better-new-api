@@ -66,7 +66,11 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
             value: formatQuota(
               (props.user?.quota ?? 0) + (props.user?.referral_display ?? 0)
             ),
-            description: t('Standard wallet quota'),
+            description:
+              (props.user?.referral_display ?? 0) > 0 &&
+              (props.user?.quota ?? 0) === 0
+                ? t('Includes promotional referral credits')
+                : t('Standard wallet quota'),
             icon: WalletCards,
             tone: 'success' as IconBadgeTone,
           },

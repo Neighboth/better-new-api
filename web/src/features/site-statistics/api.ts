@@ -269,3 +269,163 @@ export async function getSiteStatsGroupOptions(): Promise<string[]> {
   }
   return res.data.data as string[]
 }
+
+// ---------------------------------------------------------------------------
+// External & Integration Analytics APIs
+// ---------------------------------------------------------------------------
+
+export interface ClarityInsightsResponse {
+  configured: boolean
+  message?: string
+  source?: string
+  project_id?: string
+  cached_at?: number
+  summary?: {
+    total_sessions: number
+    distinct_users: number
+    pages_per_session: number
+    scroll_depth: number
+    active_time_seconds: number
+  }
+  friction?: {
+    rage_clicks: number
+    rage_click_rate: number
+    dead_clicks: number
+    dead_click_rate: number
+    excessive_scrolling: number
+    excessive_scroll_rate: number
+    quick_backs: number
+    quick_back_rate: number
+    javascript_errors: number
+  }
+  devices?: Array<{ device: string; sessions: number; percentage: number }>
+  browsers?: Array<{ browser: string; sessions: number; percentage: number }>
+  operating_systems?: Array<{ os: string; percentage: number }>
+  top_pages?: Array<{ url: string; sessions: number; scroll_depth: number }>
+  countries?: Array<{ country: string; code: string; sessions: number; percentage: number }>
+  insights?: any
+}
+
+export interface GoogleAnalyticsReportResponse {
+  configured: boolean
+  message?: string
+  ga_id?: string
+  property_id?: string
+  cached_at?: number
+  summary?: {
+    active_users: number
+    new_users: number
+    sessions: number
+    page_views: number
+    average_session_duration_s: number
+    bounce_rate_percentage: number
+  }
+  acquisition_channels?: Array<{
+    channel: string
+    users: number
+    sessions: number
+    percentage: number
+  }>
+  top_landing_pages?: Array<{
+    page: string
+    views: number
+    users: number
+    avg_duration_s: number
+  }>
+  device_categories?: Array<{
+    category: string
+    users: number
+    percentage: number
+  }>
+  user_countries?: Array<{
+    country: string
+    users: number
+    sessions: number
+  }>
+}
+
+export interface SearchConsoleQueryItem {
+  query: string
+  clicks: number
+  impressions: number
+  ctr: number
+  position: number
+}
+
+export interface SearchConsoleReportResponse {
+  configured: boolean
+  message?: string
+  site_url?: string
+  cached_at?: number
+  summary?: {
+    total_clicks: number
+    total_impressions: number
+    average_ctr: number
+    average_position: number
+  }
+  queries?: {
+    items: SearchConsoleQueryItem[]
+    total_count: number
+    page: number
+    page_size: number
+    total_pages: number
+  }
+  top_search_pages?: Array<{
+    page: string
+    clicks: number
+    impressions: number
+    ctr: number
+    position: number
+  }>
+  device_distribution?: Array<{
+    device: string
+    clicks: number
+    impressions: number
+    ctr: number
+  }>
+}
+
+export interface ProxyDailyPoint {
+  date: string
+  mb: number
+  requests: number
+}
+
+export interface ProxyPoolStatsResponse {
+  daily_history: ProxyDailyPoint[]
+  proxies: Array<{
+    id: number
+    name: string
+    url: string
+    enabled: boolean
+    assigned_keys?: number
+    latency_ms?: number
+    egress_ip?: string
+    last_test_status?: string
+    last_tested_at?: number
+  }>
+}
+
+export async function getClarityInsights(): Promise<ClarityInsightsResponse> {
+  const res = await api.get('/api/statistics/clarity')
+  return res.data.data
+}
+
+export async function getGoogleAnalyticsReport(): Promise<GoogleAnalyticsReportResponse> {
+  const res = await api.get('/api/statistics/google-analytics')
+  return res.data.data
+}
+
+export async function getGoogleSearchConsoleReport(params?: {
+  page?: number
+  page_size?: number
+  query?: string
+}): Promise<SearchConsoleReportResponse> {
+  const res = await api.get('/api/statistics/google-search-console', { params })
+  return res.data.data
+}
+
+export async function getProxyPoolStats(): Promise<ProxyPoolStatsResponse> {
+  const res = await api.get('/api/statistics/proxy-pool')
+  return res.data.data
+}

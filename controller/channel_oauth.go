@@ -29,7 +29,7 @@ func StartChannelOAuth(c *gin.Context) {
 		return
 	}
 	provider := strings.ToLower(strings.TrimSpace(req.Provider))
-	if provider != service.ChannelOAuthCodex && provider != service.ChannelOAuthAntigravity {
+	if provider != service.ChannelOAuthCodex && provider != service.ChannelOAuthAntigravity && provider != service.ChannelOAuthClaudeSub {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "unsupported channel OAuth provider"})
 		return
 	}
@@ -48,7 +48,7 @@ func ExchangeChannelOAuth(c *gin.Context) {
 		return
 	}
 	provider := strings.ToLower(strings.TrimSpace(req.Provider))
-	if provider != service.ChannelOAuthCodex && provider != service.ChannelOAuthAntigravity {
+	if provider != service.ChannelOAuthCodex && provider != service.ChannelOAuthAntigravity && provider != service.ChannelOAuthClaudeSub {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "unsupported channel OAuth provider"})
 		return
 	}
@@ -60,6 +60,8 @@ func ExchangeChannelOAuth(c *gin.Context) {
 	channelType := constant.ChannelTypeCodex
 	if provider == service.ChannelOAuthAntigravity {
 		channelType = constant.ChannelTypeAntigravity
+	} else if provider == service.ChannelOAuthClaudeSub {
+		channelType = constant.ChannelTypeClaudeSub
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"provider": provider, "channel_type": channelType, "key": credential}})
 }

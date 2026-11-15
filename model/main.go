@@ -321,6 +321,7 @@ func migrateDB() error {
 		&CryptoDeposit{},
 		&ProxyPoolProxy{},
 		&ProxyPoolAssignment{},
+		&ProxyPoolDailyUsage{},
 	)
 	if err != nil {
 		return err

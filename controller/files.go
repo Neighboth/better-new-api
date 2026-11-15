@@ -75,17 +75,17 @@ func fileAuthCookieKey(path string) string {
 	return fmt.Sprintf("file_auth_%x", sum[:16])
 }
 
-// fileAuthSign signs the proof token with the installation secret so a
-// visitor cannot forge file_auth_...=1 cookies themselves. The expiry is
-// both inside the token body and mixed into the MAC key, so a forged token
-// for a different expiry cannot be built without the secret.
-func fileAuthSign(path string, expiry int64) string {
-	mac := hmac.New(sha256.New, []byte(common.CryptoSecret+":file-auth-v2|"+strconv.FormatInt(expiry, 10)))
-	_, _ = mac.Write([]byte(path))
+// fileAuthSign signs the proof token with the installation secret, path, password hash,
+// and file updated timestamp. When the password changes or the file is updated,
+// existing session cookies are instantly invalidated.
+func fileAuthSign(path string, passwordHash string, updatedAt int64, expiry int64) string {
+	payload := fmt.Sprintf("%s|%s|%d|%d", path, passwordHash, updatedAt, expiry)
+	mac := hmac.New(sha256.New, []byte(common.CryptoSecret+":file-auth-v3"))
+	_, _ = mac.Write([]byte(payload))
 	return fmt.Sprintf("%d.%x", expiry, mac.Sum(nil))
 }
 
-func fileAuthVerify(path string, value string) bool {
+func fileAuthVerify(path string, passwordHash string, updatedAt int64, value string) bool {
 	parts := strings.SplitN(value, ".", 2)
 	if len(parts) != 2 {
 		return false
@@ -94,8 +94,40 @@ func fileAuthVerify(path string, value string) bool {
 	if err != nil || time.Now().Unix() > expiry {
 		return false
 	}
-	expected := fileAuthSign(path, expiry)
+	expected := fileAuthSign(path, passwordHash, updatedAt, expiry)
 	return subtle.ConstantTimeCompare([]byte(expected), []byte(value)) == 1
+}
+
+// findManagedFileWithProtection retrieves a managed file and walks parent directories
+// using normalized forward-slash paths so inherited password or captcha settings apply
+// on all platforms (including Windows).
+func findManagedFileWithProtection(cleanPath string) (model.ManagedFile, bool) {
+	var mf model.ManagedFile
+	res := model.DB.Where("path = ?", cleanPath).First(&mf)
+	exists := res.RowsAffected > 0
+
+	if mf.Password == "" && !mf.EnableCaptcha {
+		dir := filepath.ToSlash(filepath.Dir(cleanPath))
+		for dir != "." && dir != "/" && dir != "" {
+			var parentMf model.ManagedFile
+			if model.DB.Where("path = ?", dir).First(&parentMf).RowsAffected > 0 {
+				if parentMf.Password != "" || parentMf.EnableCaptcha {
+					mf.Password = parentMf.Password
+					mf.EnableCaptcha = parentMf.EnableCaptcha
+					if mf.UpdatedAt < parentMf.UpdatedAt {
+						mf.UpdatedAt = parentMf.UpdatedAt
+					}
+					break
+				}
+			}
+			nextDir := filepath.ToSlash(filepath.Dir(dir))
+			if nextDir == dir {
+				break
+			}
+			dir = nextDir
+		}
+	}
+	return mf, exists
 }
 
 // fileAuthLimiter throttles repeated failed attempts against one file path.
@@ -308,8 +340,23 @@ func GetManagedFileContent(c *gin.Context) {
 		return
 	}
 
-	var mf model.ManagedFile
-	if model.DB.Where("path = ?", cleanPath).First(&mf).RowsAffected > 0 {
+	mf, exists := findManagedFileWithProtection(cleanPath)
+	if mf.Password != "" || mf.EnableCaptcha {
+		authCookieKey := fileAuthCookieKey(cleanPath)
+		cookieVal, _ := c.Cookie(authCookieKey)
+		if !fileAuthVerify(cleanPath, mf.Password, mf.UpdatedAt, cookieVal) {
+			c.JSON(http.StatusOK, gin.H{
+				"success":        false,
+				"auth_required":  true,
+				"has_password":   mf.Password != "",
+				"enable_captcha": mf.EnableCaptcha,
+				"message":        "Protection challenge required to view or edit this file",
+			})
+			return
+		}
+	}
+
+	if exists && len(mf.Content) > 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data":    string(mf.Content),
@@ -537,9 +584,8 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		var mf model.ManagedFile
-		res := model.DB.Where("path = ?", cleanPath).First(&mf)
-		if res.RowsAffected == 0 {
+		mf, exists := findManagedFileWithProtection(cleanPath)
+		if !exists {
 			// Fallback check physical file on disk
 			fullPath := filepath.Join(managedFilesDir, cleanPath)
 			info, err := os.Stat(fullPath)
@@ -555,22 +601,6 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 		} else if mf.IsDir {
 			c.Next()
 			return
-		}
-
-		// Also check parent directories for protection
-		if mf.Password == "" && !mf.EnableCaptcha {
-			dir := filepath.Dir(cleanPath)
-			for dir != "." && dir != "/" {
-				var parentMf model.ManagedFile
-				if model.DB.Where("path = ?", dir).First(&parentMf).RowsAffected > 0 {
-					if parentMf.Password != "" || parentMf.EnableCaptcha {
-						mf.Password = parentMf.Password
-						mf.EnableCaptcha = parentMf.EnableCaptcha
-						break
-					}
-				}
-				dir = filepath.Dir(dir)
-			}
 		}
 
 		needsAuth := mf.Password != "" || mf.EnableCaptcha
@@ -609,11 +639,11 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 				// Auth passed! Set a signed cookie (24h expiry) and redirect
 				expiry := time.Now().Add(24 * time.Hour).Unix()
 				c.SetSameSite(http.SameSiteLaxMode)
-				c.SetCookie(authCookieKey, fileAuthSign(cleanPath, expiry), 3600*24, "/", "", c.Request.TLS != nil, true)
+				c.SetCookie(authCookieKey, fileAuthSign(cleanPath, mf.Password, mf.UpdatedAt, expiry), 3600*24, "/", "", c.Request.TLS != nil, true)
 				c.Redirect(http.StatusSeeOther, c.Request.RequestURI)
 				c.Abort()
 				return
-			} else if !fileAuthVerify(cleanPath, cookieVal) {
+			} else if !fileAuthVerify(cleanPath, mf.Password, mf.UpdatedAt, cookieVal) {
 				renderAuthPage(c, cleanPath, mf, "")
 				c.Abort()
 				return
@@ -674,34 +704,14 @@ func clientWithTimeout() *http.Client {
 	return &http.Client{Timeout: 10 * time.Second}
 }
 
-func verifyManagedFileCaptcha(c *gin.Context) bool {
+func verifyManagedFileCaptchaToken(clientIP, provider, token, captchaId, captchaAns string) bool {
 	captchaType := common.GetEffectiveCaptchaType()
-	// A file that asks for a captcha must be protected even when the
-	// site-wide captcha is off; the protection is the point.
-	token := c.PostForm("captcha_token")
-	if token == "" {
-		token = c.PostForm("cf-turnstile-response")
-	}
-	if token == "" {
-		token = c.PostForm("g-recaptcha-response")
-	}
-	if token == "" {
-		token = c.PostForm("h-captcha-response")
-	}
-	if token == "" {
-		token = c.PostForm("mtcaptcha-response")
-	}
-
-	provider := c.PostForm("captcha_provider")
 	if provider == "" {
 		provider = captchaType
 	}
 
-	// The fallback chain: any configured provider is accepted at the
-	// endpoint, so a fallback challenge verifies against its own keys.
 	if captchaType != common.CaptchaTypeOff && provider != captchaType {
-		if !common.CaptchaFallbackEnabled() &&
-			provider != common.CaptchaTypeImage {
+		if !common.CaptchaFallbackEnabled() && provider != common.CaptchaTypeImage {
 			return false
 		}
 		if !common.IsCaptchaProviderConfigured(provider) {
@@ -710,8 +720,6 @@ func verifyManagedFileCaptcha(c *gin.Context) bool {
 	}
 
 	if token == "" {
-		captchaId := c.PostForm("captcha_id")
-		captchaAns := c.PostForm("captcha_ans")
 		if captchaId != "" && captchaAns != "" {
 			return captcha.Verify(captchaId, captchaAns)
 		}
@@ -722,7 +730,7 @@ func verifyManagedFileCaptcha(c *gin.Context) bool {
 		return captcha.VerifyAltcha(token, common.AltchaSigningKey())
 	}
 	if provider == common.CaptchaTypeMTCaptcha {
-		return verifyMTCaptchaForFiles(common.MTCaptchaPrivateKey, token, c.ClientIP())
+		return verifyMTCaptchaForFiles(common.MTCaptchaPrivateKey, token, clientIP)
 	}
 
 	if provider == common.CaptchaTypeImage {
@@ -730,8 +738,6 @@ func verifyManagedFileCaptcha(c *gin.Context) bool {
 		if len(parts) == 2 {
 			return captcha.Verify(parts[0], parts[1])
 		}
-		captchaId := c.PostForm("captcha_id")
-		captchaAns := c.PostForm("captcha_ans")
 		if captchaId != "" && captchaAns != "" {
 			return captcha.Verify(captchaId, captchaAns)
 		}
@@ -760,7 +766,7 @@ func verifyManagedFileCaptcha(c *gin.Context) bool {
 	resp, err := http.PostForm(verifyURL, url.Values{
 		"secret":   {secret},
 		"response": {token},
-		"remoteip": {c.ClientIP()},
+		"remoteip": {clientIP},
 	})
 	if err != nil {
 		return false
@@ -774,6 +780,84 @@ func verifyManagedFileCaptcha(c *gin.Context) bool {
 		return false
 	}
 	return result.Success
+}
+
+func verifyManagedFileCaptcha(c *gin.Context) bool {
+	token := c.PostForm("captcha_token")
+	if token == "" {
+		token = c.PostForm("cf-turnstile-response")
+	}
+	if token == "" {
+		token = c.PostForm("g-recaptcha-response")
+	}
+	if token == "" {
+		token = c.PostForm("h-captcha-response")
+	}
+	if token == "" {
+		token = c.PostForm("mtcaptcha-response")
+	}
+
+	provider := c.PostForm("captcha_provider")
+	captchaId := c.PostForm("captcha_id")
+	captchaAns := c.PostForm("captcha_ans")
+
+	return verifyManagedFileCaptchaToken(c.ClientIP(), provider, token, captchaId, captchaAns)
+}
+
+type VerifyFileAuthRequest struct {
+	Path       string `json:"path"`
+	Password   string `json:"password"`
+	CaptchaId  string `json:"captcha_id"`
+	CaptchaAns string `json:"captcha_ans"`
+	Token      string `json:"captcha_token"`
+	Provider   string `json:"captcha_provider"`
+}
+
+func VerifyManagedFileAuth(c *gin.Context) {
+	var req VerifyFileAuthRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid request body"})
+		return
+	}
+
+	cleanPath, err := sanitizeRelPath(req.Path)
+	if err != nil || cleanPath == "" {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid path"})
+		return
+	}
+
+	mf, _ := findManagedFileWithProtection(cleanPath)
+	if mf.Password == "" && !mf.EnableCaptcha {
+		c.JSON(http.StatusOK, gin.H{"success": true})
+		return
+	}
+
+	limiterKey := cleanPath + "|" + c.ClientIP()
+	if fileAuthBlocked(limiterKey) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Too many failed attempts. Please try again later."})
+		return
+	}
+
+	if mf.EnableCaptcha {
+		if !verifyManagedFileCaptchaToken(c.ClientIP(), req.Provider, req.Token, req.CaptchaId, req.CaptchaAns) {
+			fileAuthFailedAttempt(limiterKey)
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Captcha verification failed"})
+			return
+		}
+	}
+
+	if mf.Password != "" && !verifyFilePassword(req.Password, mf.Password) {
+		fileAuthFailedAttempt(limiterKey)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Incorrect password"})
+		return
+	}
+
+	expiry := time.Now().Add(24 * time.Hour).Unix()
+	authCookieKey := fileAuthCookieKey(cleanPath)
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(authCookieKey, fileAuthSign(cleanPath, mf.Password, mf.UpdatedAt, expiry), 3600*24, "/", "", c.Request.TLS != nil, true)
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 

@@ -272,16 +272,6 @@ func matchModelName(filterModel, targetModel string) bool {
 	if strings.EqualFold(f, t) {
 		return true
 	}
-	normF := normalizeModelForMatch(f)
-	normT := normalizeModelForMatch(t)
-	if normF == normT {
-		return true
-	}
-	stripF := stripModelPrefix(normF)
-	stripT := stripModelPrefix(normT)
-	if stripF == stripT {
-		return true
-	}
 	if strings.HasSuffix(f, "*") && strings.HasPrefix(strings.ToLower(t), strings.ToLower(strings.TrimSuffix(f, "*"))) {
 		return true
 	}
@@ -289,27 +279,6 @@ func matchModelName(filterModel, targetModel string) bool {
 		return true
 	}
 	return false
-}
-
-func normalizeModelForMatch(name string) string {
-	lower := strings.ToLower(strings.TrimSpace(name))
-	r := strings.NewReplacer(" ", "-", "_", "-", ".", "-")
-	clean := r.Replace(lower)
-	for strings.Contains(clean, "--") {
-		clean = strings.ReplaceAll(clean, "--", "-")
-	}
-	return clean
-}
-
-func stripModelPrefix(name string) string {
-	prefixes := []string{"claude-", "anthropic/", "openai/", "google/", "meta-llama/", "deepseek/"}
-	lower := strings.ToLower(name)
-	for _, p := range prefixes {
-		if strings.HasPrefix(lower, p) {
-			return strings.TrimPrefix(lower, p)
-		}
-	}
-	return lower
 }
 
 func DeductUserBalancePackage(userId int, modelName string, poolType int, amount int64, extraModelNames ...string) (deducted int64, err error) {

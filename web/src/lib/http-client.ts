@@ -133,11 +133,14 @@ api.interceptors.response.use(
           toast.error(t('Session expired!'))
         }
       }
-    } else if (
-      status === 503 &&
-      (error?.response?.data?.error?.code === 'maintenance_mode' ||
-        error?.response?.data?.type === 'maintenance')
-    ) {
+    } else if (status === 503) {
+      const isMaintenance =
+        error?.response?.data?.error?.code === 'maintenance_mode' ||
+        error?.response?.data?.type === 'maintenance' ||
+        (typeof error?.response?.data === 'string' &&
+          (error.response.data.includes('Bakım') ||
+            error.response.data.includes('maintenance')))
+
       const pathname =
         typeof window !== 'undefined' ? window.location.pathname : ''
       const isAuthPage =
@@ -146,9 +149,10 @@ api.interceptors.response.use(
         pathname === '/login' ||
         pathname === '/register'
 
-      if (!isAuthPage && typeof window !== 'undefined') {
-        window.location.href = '/'
+      if (isMaintenance && !isAuthPage && typeof window !== 'undefined') {
+        window.location.replace('/')
       }
+      // Never trigger generic toast notifications for 503 maintenance mode
     } else if (!skipErrorHandler) {
       const messageKey = getServerErrorMessageKey(error)
       const message = messageKey

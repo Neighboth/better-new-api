@@ -108,6 +108,9 @@ import {
   type SiteStatsGranularity,
   type SiteStatsRangePreset,
 } from './api'
+import { ClarityStatsCard } from './components/clarity-stats-card'
+import { GoogleAnalyticsConsoleCard } from './components/google-analytics-console-card'
+import { ProxyPoolStatsCard } from './components/proxy-pool-stats-card'
 
 const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899']
 
@@ -1450,6 +1453,15 @@ export function SiteStatistics() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Proxy Pool Usage Section */}
+            <ProxyPoolStatsCard />
+
+            {/* Microsoft Clarity Experience & Friction Section */}
+            <ClarityStatsCard />
+
+            {/* Google Analytics & Search Console Section */}
+            <GoogleAnalyticsConsoleCard />
           </div>
         </div>
       </SectionPageLayout.Content>

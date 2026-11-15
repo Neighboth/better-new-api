@@ -263,6 +263,7 @@ export const channelFormSchema = z
     // Channel extra settings (stored in setting JSON, not sent directly)
     force_format: z.boolean().optional(),
     thinking_to_content: z.boolean().optional(),
+    request_interval_seconds: z.number().int().min(0).optional(),
     proxy: z
       .string()
       .optional()
@@ -440,6 +441,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   force_format: false,
   thinking_to_content: false,
   proxy: '',
+  request_interval_seconds: 0,
   http_protocol: HTTP_PROTOCOL_AUTO,
   http2_connection_shards: 1,
   pass_through_body_enabled: false,
@@ -480,6 +482,7 @@ export function transformChannelToFormDefaults(
     force_format: false,
     thinking_to_content: false,
     proxy: '',
+    request_interval_seconds: 0,
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
     http2_connection_shards: 1,
     pass_through_body_enabled: false,
@@ -498,6 +501,10 @@ export function transformChannelToFormDefaults(
         force_format: parsed.force_format || false,
         thinking_to_content: parsed.thinking_to_content || false,
         proxy: parsed.proxy || '',
+        request_interval_seconds:
+          typeof parsed.request_interval_seconds === 'number'
+            ? parsed.request_interval_seconds
+            : 0,
         http_protocol: protocol,
         http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
@@ -621,6 +628,13 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     pass_through_body_enabled: formData.pass_through_body_enabled || false,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
+  }
+
+  if (
+    typeof formData.request_interval_seconds === 'number' &&
+    formData.request_interval_seconds > 0
+  ) {
+    settingObj.request_interval_seconds = formData.request_interval_seconds
   }
 
   const protocol = normalizeHttpProtocol(formData.http_protocol)

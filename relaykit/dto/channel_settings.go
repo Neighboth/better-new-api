@@ -23,6 +23,8 @@ type ChannelSettings struct {
 	// HTTP2ConnectionShards spreads HTTP/2 traffic across N independent transports
 	// (1-8). Zero/unset means 1. Ignored when HTTPProtocol is "http1".
 	HTTP2ConnectionShards int `json:"http2_connection_shards,omitempty"`
+	// RequestIntervalSeconds enforces a minimum cooldown in seconds between requests across all keys of the channel.
+	RequestIntervalSeconds int `json:"request_interval_seconds,omitempty"`
 }
 
 const (

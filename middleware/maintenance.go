@@ -167,9 +167,9 @@ func wantsJSON(c *gin.Context) bool {
 	return strings.Contains(accept, "application/json") && !strings.Contains(accept, "text/html")
 }
 
-// renderMaintenancePage emits a self-contained, dependency-free maintenance
-// screen: inline CSS + inline JS, no external requests (the installation is
-// fully down, hitting a CDN would leak the outage to the visitor).
+// renderMaintenancePage emits a clean, self-contained maintenance screen
+// styled identically to the application's clean dashboard theme (zero AI slop,
+// exact button radius, borders, font weights and colors).
 func renderMaintenancePage(message string, eta int64) string {
 	etaBlock := ""
 	etaSeconds := int64(0)
@@ -177,7 +177,7 @@ func renderMaintenancePage(message string, eta int64) string {
 		etaSeconds = eta
 		etaBlock = `<div class="eta" id="eta-box">
         <div class="eta-value" id="eta-value">--:--:--</div>
-        <div class="eta-label">Tahmini Bitiş: <span id="eta-date"></span></div>
+        <div class="eta-label">Tahmini Tamamlanma: <span id="eta-date"></span></div>
       </div>`
 	}
 
@@ -194,13 +194,19 @@ func renderMaintenancePage(message string, eta int64) string {
 		logoTag = `<img class="logo" src="` + htmlEscape(logo) + `" alt="` + htmlEscape(siteName) + `" onerror="this.style.display='none'">`
 	}
 
+	hideSiteName := common.HideHeaderSiteName || common.OptionMap["HideHeaderSiteName"] == "true"
+	siteNameTag := ""
+	if !hideSiteName {
+		siteNameTag = `<div class="brand-name">` + htmlEscape(siteName) + `</div>`
+	}
+
 	page := `<!DOCTYPE html>
 <html lang="tr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
-<title>` + htmlEscape(siteName) + ` — Bakım</title>
+<meta name="robots" content="noindex, nofollow">
+<title>` + htmlEscape(siteName) + ` — Bakım Modu</title>
 <style>
 :root {
   --bg: #09090b;
@@ -211,25 +217,25 @@ func renderMaintenancePage(message string, eta int64) string {
   --btn-bg: #2563eb;
   --btn-hover: #1d4ed8;
   --btn-text: #ffffff;
-  --badge-bg: #27272a;
-  --badge-border: #3f3f46;
-  --badge-text: #e4e4e7;
-  --eta-bg: #121214;
+  --badge-bg: rgba(37, 99, 235, 0.1);
+  --badge-border: rgba(37, 99, 235, 0.2);
+  --badge-text: #60a5fa;
+  --eta-bg: #09090b;
 }
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #f8fafc;
+    --bg: #f4f4f5;
     --card: #ffffff;
-    --card-border: #e2e8f0;
-    --text: #0f172a;
-    --text-muted: #64748b;
+    --card-border: #e4e4e7;
+    --text: #09090b;
+    --text-muted: #71717a;
     --btn-bg: #2563eb;
     --btn-hover: #1d4ed8;
     --btn-text: #ffffff;
-    --badge-bg: #f1f5f9;
-    --badge-border: #e2e8f0;
-    --badge-text: #475569;
-    --eta-bg: #f8fafc;
+    --badge-bg: rgba(37, 99, 235, 0.08);
+    --badge-border: rgba(37, 99, 235, 0.2);
+    --badge-text: #2563eb;
+    --eta-bg: #f4f4f5;
   }
 }
 * { box-sizing: border-box; }
@@ -247,13 +253,13 @@ html, body {
 }
 .card {
   width: 100%;
-  max-width: 440px;
+  max-width: 420px;
   background-color: var(--card);
   border: 1px solid var(--card-border);
   border-radius: 12px;
   padding: 32px 28px;
   text-align: center;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
 }
 .brand {
   display: flex;
@@ -264,19 +270,20 @@ html, body {
 .logo {
   height: 38px;
   width: auto;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   display: block;
 }
 .brand-name {
   font-size: 1.125rem;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
+  color: var(--text);
 }
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  padding: 4px 12px;
   font-size: 0.75rem;
   font-weight: 500;
   border-radius: 9999px;
@@ -290,12 +297,14 @@ html, body {
   height: 6px;
   border-radius: 50%;
   background-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 h1 {
   font-size: 1.25rem;
   font-weight: 600;
   margin: 0 0 8px;
   letter-spacing: -0.02em;
+  color: var(--text);
 }
 .msg {
   color: var(--text-muted);
@@ -337,7 +346,7 @@ h1 {
   justify-content: center;
   gap: 8px;
   width: 100%;
-  padding: 10px 16px;
+  padding: 9px 16px;
   border-radius: 8px;
   background-color: var(--btn-bg);
   color: var(--btn-text);
@@ -350,8 +359,8 @@ h1 {
   background-color: var(--btn-hover);
 }
 .admin-link svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 .foot {
   margin-top: 16px;
@@ -370,7 +379,7 @@ h1 {
 <main class="card" role="main">
   <div class="brand">
     ` + logoTag + `
-    <div class="brand-name">` + htmlEscape(siteName) + `</div>
+    ` + siteNameTag + `
   </div>
   <div class="badge"><span class="dot"></span>Bakım Çalışması</div>
   <h1>Kısa süreliğine bakımdayız</h1>

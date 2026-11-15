@@ -135,12 +135,15 @@ func TestProxyPoolProxy(c *gin.Context) {
 	}
 	egressIP, latency, testErr := service.TestProxyEgress(proxy.URL)
 	proxy.LastTestedAt = time.Now().Unix()
+	proxy.LatencyMs = latency
 	if testErr != nil {
 		proxy.LastTestStatus = "fail"
 		proxy.LastTestError = truncateError(testErr.Error())
+		proxy.EgressIP = ""
 	} else {
 		proxy.LastTestStatus = "ok"
 		proxy.LastTestError = ""
+		proxy.EgressIP = egressIP
 	}
 	_ = model.UpdateProxyPoolProxy(proxy)
 	service.InvalidateProxyPoolCache()
@@ -274,12 +277,7 @@ func AutoAssignProxyPool(c *gin.Context) {
 	}
 	mapping := make(map[int]int, len(keyLines))
 	for index := 0; index < len(keyLines); index++ {
-		stickyProxy := service.PickStickyProxy(keyLines[index], enabled)
-		if stickyProxy != nil {
-			mapping[index] = stickyProxy.Id
-		} else {
-			mapping[index] = enabled[index%len(enabled)].Id
-		}
+		mapping[index] = enabled[index%len(enabled)].Id
 	}
 	if err := model.ReplaceProxyPoolAssignments(req.ChannelId, mapping); err != nil {
 		common.ApiError(c, err)
@@ -287,11 +285,146 @@ func AutoAssignProxyPool(c *gin.Context) {
 	}
 	service.InvalidateProxyPoolCache()
 	common.ApiSuccess(c, gin.H{
-		"channel_id":   req.ChannelId,
-		"key_count":    len(keyLines),
-		"proxy_count":  len(enabled),
-		"assigned":     len(mapping),
-		"per_proxy":    ceilDiv(len(keyLines), len(enabled)),
+		"channel_id":  req.ChannelId,
+		"key_count":   len(keyLines),
+		"proxy_count": len(enabled),
+		"assigned":    len(mapping),
+		"per_proxy":   ceilDiv(len(keyLines), len(enabled)),
+	})
+}
+
+type ProxyAssignmentDetail struct {
+	ChannelId   int    `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	ChannelType int    `json:"channel_type"`
+	KeyIndex    int    `json:"key_index"`
+}
+
+func GetProxyPoolProxyDetail(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "invalid proxy id")
+		return
+	}
+	proxy, err := model.GetProxyPoolProxy(id)
+	if err != nil {
+		common.ApiErrorMsg(c, "proxy not found")
+		return
+	}
+
+	var assignments []model.ProxyPoolAssignment
+	_ = model.DB.Where("proxy_id = ?", id).Order("channel_id ASC, key_index ASC").Find(&assignments).Error
+
+	details := make([]ProxyAssignmentDetail, 0, len(assignments))
+	if len(assignments) > 0 {
+		channelIds := make([]int, 0, len(assignments))
+		for _, a := range assignments {
+			channelIds = append(channelIds, a.ChannelId)
+		}
+		var channels []model.Channel
+		_ = model.DB.Where("id IN ?", channelIds).Find(&channels).Error
+		chMap := make(map[int]model.Channel, len(channels))
+		for _, ch := range channels {
+			chMap[ch.Id] = ch
+		}
+		for _, a := range assignments {
+			ch := chMap[a.ChannelId]
+			details = append(details, ProxyAssignmentDetail{
+				ChannelId:   a.ChannelId,
+				ChannelName: ch.Name,
+				ChannelType: ch.Type,
+				KeyIndex:    a.KeyIndex,
+			})
+		}
+	}
+
+	usageHistory := model.GetProxyPoolDailyUsageHistory(id, 30)
+
+	common.ApiSuccess(c, gin.H{
+		"proxy":         proxy,
+		"assigned_keys": len(assignments),
+		"assignments":   details,
+		"usage_history": usageHistory,
+	})
+}
+
+func UnassignProxyPoolProxy(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "invalid proxy id")
+		return
+	}
+	if err := model.UnassignProxyPoolProxy(id); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	service.InvalidateProxyPoolCache()
+	common.ApiSuccess(c, gin.H{
+		"proxy_id": id,
+	})
+}
+
+func RebalanceAllProxyPoolChannels(c *gin.Context) {
+	channels, err := model.ListMultiKeyChannels()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	proxies, err := model.ListProxyPoolProxies()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	enabled := make([]model.ProxyPoolProxy, 0, len(proxies))
+	for _, proxy := range proxies {
+		if proxy.Enabled {
+			enabled = append(enabled, proxy)
+		}
+	}
+	if len(enabled) == 0 {
+		common.ApiErrorMsg(c, "no enabled proxy in the pool")
+		return
+	}
+
+	rebalancedChannels := 0
+	totalKeysAssigned := 0
+
+	for _, summary := range channels {
+		ch, err := model.GetChannelById(summary.Id, true)
+		if err != nil {
+			continue
+		}
+		keyLines := splitKeyLines(ch.Key)
+		if len(keyLines) == 0 {
+			continue
+		}
+		mapping := make(map[int]int, len(keyLines))
+		for idx := 0; idx < len(keyLines); idx++ {
+			mapping[idx] = enabled[idx%len(enabled)].Id
+		}
+		if err := model.ReplaceProxyPoolAssignments(summary.Id, mapping); err == nil {
+			rebalancedChannels++
+			totalKeysAssigned += len(mapping)
+		}
+	}
+
+	service.InvalidateProxyPoolCache()
+	common.ApiSuccess(c, gin.H{
+		"rebalanced_channels": rebalancedChannels,
+		"total_keys_assigned": totalKeysAssigned,
+		"proxy_count":         len(enabled),
+	})
+}
+
+func GetProxyPoolUsageStats(c *gin.Context) {
+	overallHistory := model.GetProxyPoolDailyUsageHistory(0, 30)
+	proxies, _ := model.ListProxyPoolProxies()
+	if proxies == nil {
+		proxies = []model.ProxyPoolProxy{}
+	}
+	common.ApiSuccess(c, gin.H{
+		"daily_history": overallHistory,
+		"proxies":       proxies,
 	})
 }
 

@@ -263,8 +263,7 @@ export function UserDetail() {
           {/* Account */}
           <Card>
             <CardHeader className='pb-3'>
-              <CardTitle className='flex items-center gap-2 text-sm'>
-                <BadgeCheck className='text-primary size-4' />
+              <CardTitle className='text-sm'>
                 {t('Account')}
               </CardTitle>
             </CardHeader>
@@ -311,8 +310,7 @@ export function UserDetail() {
           {/* Quota & balance */}
           <Card>
             <CardHeader className='pb-3'>
-              <CardTitle className='flex items-center gap-2 text-sm'>
-                <Coins className='text-primary size-4' />
+              <CardTitle className='text-sm'>
                 {t('Quota & balance')}
               </CardTitle>
             </CardHeader>
@@ -383,8 +381,7 @@ export function UserDetail() {
           {/* Security */}
           <Card>
             <CardHeader className='pb-3'>
-              <CardTitle className='flex items-center gap-2 text-sm'>
-                <ShieldCheck className='text-primary size-4' />
+              <CardTitle className='text-sm'>
                 {t('Security')}
               </CardTitle>
             </CardHeader>
@@ -461,8 +458,7 @@ export function UserDetail() {
           {/* Subscriptions */}
           <Card>
             <CardHeader className='pb-3'>
-              <CardTitle className='flex items-center gap-2 text-sm'>
-                <Ticket className='text-primary size-4' />
+              <CardTitle className='text-sm'>
                 {t('Subscriptions')}
               </CardTitle>
             </CardHeader>
@@ -520,8 +516,7 @@ export function UserDetail() {
         {user.admin_permissions && Object.keys(user.admin_permissions).length > 0 && (
           <Card>
             <CardHeader className='pb-3'>
-              <CardTitle className='flex items-center gap-2 text-sm'>
-                <Sparkles className='text-primary size-4' />
+              <CardTitle className='text-sm'>
                 {t('Admin permissions')}
               </CardTitle>
             </CardHeader>
@@ -544,8 +539,7 @@ export function UserDetail() {
         {/* Recent usage logs */}
         <Card>
           <CardHeader className='flex-row items-center justify-between gap-2 pb-3'>
-            <CardTitle className='flex items-center gap-2 text-sm'>
-              <Coins className='text-primary size-4' />
+            <CardTitle className='text-sm'>
               {t('Recent usage')}
             </CardTitle>
             <span className='text-muted-foreground text-xs tabular-nums'>

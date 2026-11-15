@@ -19,10 +19,16 @@ import (
 const (
 	ChannelOAuthCodex       = "codex"
 	ChannelOAuthAntigravity = "antigravity"
+	ChannelOAuthClaudeSub   = "claudesub"
 
-	codexOAuthClientID    = "app_EMoamEEZ73f0CkXaXp7hrann"
-	codexOAuthRedirectURI = "http://localhost:1455/auth/callback"
+	codexOAuthClientID     = "app_EMoamEEZ73f0CkXaXp7hrann"
+	codexOAuthRedirectURI  = "http://localhost:1455/auth/callback"
 	antigravityRedirectURI = "http://localhost:8085/callback"
+
+	claudeOAuthClientID     = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+	claudeOAuthAuthorizeURL = "https://claude.ai/oauth/authorize"
+	claudeOAuthTokenURL     = "https://platform.claude.com/v1/oauth/token"
+	claudeOAuthRedirectURI  = "https://console.anthropic.com/oauth/code/callback"
 )
 
 var (
@@ -124,6 +130,9 @@ func (s *ChannelOAuthService) Generate(provider string) (*ChannelOAuthFlow, erro
 	case ChannelOAuthCodex:
 		authEndpoint, clientID = codexOAuthAuthorizeURL, codexOAuthClientID
 		redirectURI, scopes = codexOAuthRedirectURI, "openid profile email offline_access"
+	case ChannelOAuthClaudeSub:
+		authEndpoint, clientID = claudeOAuthAuthorizeURL, claudeOAuthClientID
+		redirectURI, scopes = claudeOAuthRedirectURI, "claude_code user:read"
 	case ChannelOAuthAntigravity:
 		authEndpoint, clientID = antigravityOAuthAuthorizeURL, GetAntigravityOAuthClientID()
 		if clientID == "" {
@@ -160,6 +169,8 @@ func (s *ChannelOAuthService) Generate(provider string) (*ChannelOAuthFlow, erro
 	if provider == ChannelOAuthCodex {
 		params.Set("id_token_add_organizations", "true")
 		params.Set("codex_cli_simplified_flow", "true")
+	} else if provider == ChannelOAuthClaudeSub {
+		params.Set("prompt", "consent")
 	} else {
 		params.Set("access_type", "offline")
 		params.Set("prompt", "consent")
@@ -251,7 +262,7 @@ func (s *ChannelOAuthService) Exchange(ctx context.Context, provider, sessionID,
 		if secret := GetAntigravityOAuthClientSecret(); secret != "" {
 			form.Set("client_secret", secret)
 		}
-	} else if provider != ChannelOAuthCodex {
+	} else if provider != ChannelOAuthCodex && provider != ChannelOAuthClaudeSub {
 		return "", fmt.Errorf("unsupported channel OAuth provider")
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, oauthTokenURL(provider), strings.NewReader(form.Encode()))
@@ -402,12 +413,18 @@ func oauthClientID(provider string) string {
 	if provider == ChannelOAuthAntigravity {
 		return GetAntigravityOAuthClientID()
 	}
+	if provider == ChannelOAuthClaudeSub {
+		return claudeOAuthClientID
+	}
 	return codexOAuthClientID
 }
 
 func oauthTokenURL(provider string) string {
 	if provider == ChannelOAuthAntigravity {
 		return antigravityOAuthTokenURL
+	}
+	if provider == ChannelOAuthClaudeSub {
+		return claudeOAuthTokenURL
 	}
 	return codexOAuthTokenURL
 }

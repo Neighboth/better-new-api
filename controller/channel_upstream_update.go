@@ -398,6 +398,44 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		return service.FetchCodexChannelModels(channel)
 	}
 
+	if channel.Type == constant.ChannelTypeOpenCode {
+		opencodeBase := channel.GetBaseURL()
+		if opencodeBase == "" {
+			opencodeBase = "http://localhost:4096"
+		}
+		key := strings.TrimSpace(channel.Key)
+		reqHeaders := make(http.Header)
+		reqHeaders.Set("Accept", "application/json")
+		if key != "" {
+			reqHeaders.Set("Authorization", "Bearer "+key)
+		}
+		body, err := getFetchModelsResponseBody(http.MethodGet, opencodeBase+"/v1/models", channel, reqHeaders)
+		if err == nil {
+			var result OpenAIModelsResponse
+			if err := common.Unmarshal(body, &result); err == nil {
+				items := result.Data
+				if len(items) == 0 && len(result.Models) > 0 {
+					items = result.Models
+				}
+				if len(items) > 0 {
+					return normalizeModelNames(lo.Map(items, func(item OpenAIModel, _ int) string {
+						return item.ID
+					})), nil
+				}
+			}
+		}
+		return []string{
+			"opencode/grok-code",
+			"opencode/big-pickle",
+			"opencode/deepseek-v4.1",
+			"opencode/claude-3-7-sonnet",
+			"opencode/claude-3-5-sonnet",
+			"opencode/gpt-4o",
+			"opencode/codestral",
+			"opencode/qwen-2.5-coder-32b",
+		}, nil
+	}
+
 	var url string
 	switch channel.Type {
 	case constant.ChannelTypeAli:

@@ -134,6 +134,14 @@ export function SystemFilesSection() {
   const [renameOldPath, setRenameOldPath] = useState('')
   const [renameNewName, setRenameNewName] = useState('')
 
+  const [unlockOpen, setUnlockOpen] = useState(false)
+  const [unlockPath, setUnlockPath] = useState('')
+  const [unlockPassword, setUnlockPassword] = useState('')
+  const [unlockHasPassword, setUnlockHasPassword] = useState(false)
+  const [unlockEnableCaptcha, setUnlockEnableCaptcha] = useState(false)
+  const [unlockLoading, setUnlockLoading] = useState(false)
+  const [unlockCallback, setUnlockCallback] = useState<(() => void) | null>(null)
+
   const filesQuery = useQuery({
     queryKey: ['admin-managed-files'],
     queryFn: async () => {
@@ -199,7 +207,40 @@ export function SystemFilesSection() {
     }
   }
 
-  const handleOpenEdit = async (path: string, item?: ManagedFileItem) => {
+  const promptUnlock = (path: string, hasPassword: boolean, enableCaptcha: boolean, onUnlocked: () => void) => {
+    setUnlockPath(path)
+    setUnlockPassword('')
+    setUnlockHasPassword(hasPassword)
+    setUnlockEnableCaptcha(enableCaptcha)
+    setUnlockCallback(() => onUnlocked)
+    setUnlockOpen(true)
+  }
+
+  const handleUnlockSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    setUnlockLoading(true)
+    try {
+      const res = await api.post('/api/files/verify', {
+        path: unlockPath,
+        password: unlockPassword,
+      })
+      if (res.data?.success) {
+        toast.success(t('Unlocked successfully'))
+        setUnlockOpen(false)
+        if (unlockCallback) {
+          unlockCallback()
+        }
+      } else {
+        toast.error(res.data?.message || t('Authentication failed'))
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || t('Authentication failed'))
+    } finally {
+      setUnlockLoading(false)
+    }
+  }
+
+  const proceedOpenEdit = async (path: string, item?: ManagedFileItem) => {
     const kind = previewKindOf(path)
     setEditorPath(path)
     setEditorKind(kind)
@@ -214,14 +255,46 @@ export function SystemFilesSection() {
       const res = await api.get(`/api/files/content?path=${encodeURIComponent(path)}`)
       if (res.data?.success) {
         setEditorContent(res.data.data)
+      } else if (res.data?.auth_required) {
+        setEditorOpen(false)
+        promptUnlock(path, Boolean(res.data.has_password), Boolean(res.data.enable_captcha), () => {
+          proceedOpenEdit(path, item)
+        })
       } else {
         toast.error(res.data?.message || t('Failed to load file content'))
       }
-    } catch {
-      toast.error(t('Failed to load file content'))
+    } catch (err: any) {
+      if (err?.response?.data?.auth_required) {
+        setEditorOpen(false)
+        promptUnlock(path, Boolean(err.response.data.has_password), Boolean(err.response.data.enable_captcha), () => {
+          proceedOpenEdit(path, item)
+        })
+      } else {
+        toast.error(t('Failed to load file content'))
+      }
     } finally {
       setLoadingContent(false)
     }
+  }
+
+  const handleOpenEdit = async (path: string, item?: ManagedFileItem) => {
+    if (item?.has_password || item?.enable_captcha) {
+      promptUnlock(path, Boolean(item.has_password), Boolean(item.enable_captcha), () => {
+        proceedOpenEdit(path, item)
+      })
+      return
+    }
+    proceedOpenEdit(path, item)
+  }
+
+  const handleFolderClick = (item: ManagedFileItem) => {
+    if (item.has_password || item.enable_captcha) {
+      promptUnlock(item.path, Boolean(item.has_password), Boolean(item.enable_captcha), () => {
+        setCurrentFolder(item.path)
+      })
+      return
+    }
+    setCurrentFolder(item.path)
   }
 
   const handleSaveContent = async () => {
@@ -420,7 +493,7 @@ export function SystemFilesSection() {
                           <button
                             type='button'
                             className='hover:underline font-semibold text-left'
-                            onClick={() => setCurrentFolder(item.path)}
+                            onClick={() => handleFolderClick(item)}
                           >
                             {item.name}
                           </button>
@@ -728,6 +801,44 @@ export function SystemFilesSection() {
               {t('Rename')}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Protection Unlock Dialog */}
+      <Dialog open={unlockOpen} onOpenChange={setUnlockOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('Protected Item')} - /{unlockPath}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleUnlockSubmit} className='space-y-4 py-2'>
+            <p className='text-sm text-muted-foreground'>
+              {t('This item is password or captcha protected. Please provide credentials to proceed.')}
+            </p>
+            {unlockHasPassword && (
+              <div className='space-y-2'>
+                <Label>{t('Password')}</Label>
+                <Input
+                  type='password'
+                  autoFocus
+                  value={unlockPassword}
+                  placeholder={t('Enter password')}
+                  onChange={(e) => setUnlockPassword(e.target.value)}
+                />
+              </div>
+            )}
+            {unlockEnableCaptcha && (
+              <div className='rounded border border-indigo-500/20 bg-indigo-500/5 p-3 text-xs text-indigo-400'>
+                {t('Captcha verification is required.')}
+              </div>
+            )}
+            <DialogFooter>
+              <Button type='button' variant='outline' onClick={() => setUnlockOpen(false)}>
+                {t('Cancel')}
+              </Button>
+              <Button type='submit' disabled={unlockLoading}>
+                {unlockLoading ? t('Verifying...') : t('Unlock & Open')}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </SettingsSection>

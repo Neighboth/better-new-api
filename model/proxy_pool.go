@@ -1,6 +1,8 @@
 package model
 
 import (
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 
 	"gorm.io/gorm"
@@ -17,8 +19,27 @@ type ProxyPoolProxy struct {
 	LastTestStatus string `json:"last_test_status" gorm:"type:varchar(32);default:''"`
 	LastTestError  string `json:"last_test_error" gorm:"type:text;default:''"`
 	LastTestedAt   int64  `json:"last_tested_at" gorm:"not null;default:0"`
+	LatencyMs      int64  `json:"latency_ms" gorm:"default:0"`
+	EgressIP       string `json:"egress_ip" gorm:"type:varchar(64);default:''"`
+	AssignedKeys   int    `json:"assigned_keys" gorm:"-"`
 	CreatedAt      int64  `json:"created_at"`
 	UpdatedAt      int64  `json:"updated_at"`
+}
+
+// ProxyPoolDailyUsage tracks daily traffic and request counts through a proxy.
+type ProxyPoolDailyUsage struct {
+	Id        int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	ProxyId   int    `json:"proxy_id" gorm:"not null;index;uniqueIndex:idx_proxy_date"`
+	Date      string `json:"date" gorm:"type:varchar(10);not null;uniqueIndex:idx_proxy_date"` // YYYY-MM-DD
+	Bytes     int64  `json:"bytes" gorm:"not null;default:0"`
+	Requests  int64  `json:"requests" gorm:"not null;default:0"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+type ProxyDailyMBPoint struct {
+	Date     string  `json:"date"`
+	MB       float64 `json:"mb"`
+	Requests int64   `json:"requests"`
 }
 
 // ProxyPoolAssignment binds one key (by index) of one multi-key channel to a
@@ -33,9 +54,95 @@ type ProxyPoolAssignment struct {
 }
 
 func ListProxyPoolProxies() ([]ProxyPoolProxy, error) {
+	if DB == nil {
+		return []ProxyPoolProxy{}, nil
+	}
 	var proxies []ProxyPoolProxy
 	err := DB.Order("id ASC").Find(&proxies).Error
-	return proxies, err
+	if err != nil {
+		return nil, err
+	}
+	var counts []struct {
+		ProxyId int
+		Count   int
+	}
+	_ = DB.Model(&ProxyPoolAssignment{}).
+		Select("proxy_id, count(*) as count").
+		Group("proxy_id").
+		Scan(&counts).Error
+	countMap := make(map[int]int, len(counts))
+	for _, c := range counts {
+		countMap[c.ProxyId] = c.Count
+	}
+	for i := range proxies {
+		proxies[i].AssignedKeys = countMap[proxies[i].Id]
+	}
+	return proxies, nil
+}
+
+func UnassignProxyPoolProxy(id int) error {
+	return DB.Where("proxy_id = ?", id).Delete(&ProxyPoolAssignment{}).Error
+}
+
+func RecordProxyPoolUsage(proxyId int, bytes int64) {
+	if DB == nil || proxyId <= 0 || bytes <= 0 {
+		return
+	}
+	date := time.Now().Format("2006-01-02")
+	now := time.Now().Unix()
+	var usage ProxyPoolDailyUsage
+	err := DB.Where("proxy_id = ? AND date = ?", proxyId, date).First(&usage).Error
+	if err == nil {
+		_ = DB.Model(&usage).Updates(map[string]interface{}{
+			"bytes":      gorm.Expr("bytes + ?", bytes),
+			"requests":   gorm.Expr("requests + 1"),
+			"updated_at": now,
+		}).Error
+	} else {
+		usage = ProxyPoolDailyUsage{
+			ProxyId:   proxyId,
+			Date:      date,
+			Bytes:     bytes,
+			Requests:  1,
+			UpdatedAt: now,
+		}
+		_ = DB.Create(&usage).Error
+	}
+}
+
+func GetProxyPoolDailyUsageHistory(proxyId int, days int) []ProxyDailyMBPoint {
+	if days <= 0 {
+		days = 30
+	}
+	now := time.Now()
+	points := make([]ProxyDailyMBPoint, days)
+	dateMap := make(map[string]int, days)
+	for i := days - 1; i >= 0; i-- {
+		d := now.AddDate(0, 0, -i).Format("2006-01-02")
+		idx := days - 1 - i
+		points[idx] = ProxyDailyMBPoint{Date: d, MB: 0, Requests: 0}
+		dateMap[d] = idx
+	}
+
+	if DB == nil {
+		return points
+	}
+
+	var rows []ProxyPoolDailyUsage
+	query := DB.Model(&ProxyPoolDailyUsage{})
+	if proxyId > 0 {
+		query = query.Where("proxy_id = ?", proxyId)
+	}
+	startDate := now.AddDate(0, 0, -(days - 1)).Format("2006-01-02")
+	_ = query.Where("date >= ?", startDate).Find(&rows).Error
+
+	for _, r := range rows {
+		if idx, ok := dateMap[r.Date]; ok {
+			points[idx].MB += float64(r.Bytes) / (1024 * 1024)
+			points[idx].Requests += r.Requests
+		}
+	}
+	return points
 }
 
 func GetProxyPoolProxy(id int) (*ProxyPoolProxy, error) {
@@ -108,6 +215,9 @@ func DeleteProxyPoolAssignments(channelId int) error {
 // mapping for every assignment whose proxy is enabled. Disabled proxies are
 // skipped, leaving their keys on the channel's own default path (or direct).
 func ProxyPoolAssignmentURLMap() (map[int]map[int]string, error) {
+	if DB == nil {
+		return make(map[int]map[int]string), nil
+	}
 	var rows []struct {
 		ChannelId int
 		KeyIndex  int

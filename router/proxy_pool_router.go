@@ -23,10 +23,14 @@ var proxyPoolRoutes = []proxyPoolRoute{
 	{http.MethodPut, "/:id", authz.ProxyPoolWrite, controller.UpdateProxyPoolProxy},
 	{http.MethodDelete, "/:id", authz.ProxyPoolWrite, controller.DeleteProxyPoolProxy},
 	{http.MethodPost, "/:id/test", authz.ProxyPoolWrite, controller.TestProxyPoolProxy},
+	{http.MethodGet, "/:id/detail", authz.ProxyPoolRead, controller.GetProxyPoolProxyDetail},
+	{http.MethodPost, "/:id/unassign", authz.ProxyPoolWrite, controller.UnassignProxyPoolProxy},
 	{http.MethodGet, "/channels", authz.ProxyPoolRead, controller.ListProxyPoolChannels},
 	{http.MethodGet, "/assignments", authz.ProxyPoolRead, controller.ListProxyPoolAssignments},
 	{http.MethodPost, "/assign", authz.ProxyPoolWrite, controller.AutoAssignProxyPool},
+	{http.MethodPost, "/rebalance", authz.ProxyPoolWrite, controller.RebalanceAllProxyPoolChannels},
 	{http.MethodDelete, "/assignments", authz.ProxyPoolWrite, controller.ClearProxyPoolAssignments},
+	{http.MethodGet, "/usage-stats", authz.ProxyPoolRead, controller.GetProxyPoolUsageStats},
 }
 
 // registerProxyPoolRoutes wires the admin-only Proxy Pool API. Every route

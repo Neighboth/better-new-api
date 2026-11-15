@@ -497,7 +497,38 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 	return http.ErrUseLastResponse
 }
 
+var channelRequestCooldowner = struct {
+	sync.Mutex
+	lastTimes map[int]time.Time
+}{lastTimes: make(map[int]time.Time)}
+
+func enforceChannelRequestInterval(channelId int, intervalSec int) {
+	if channelId <= 0 || intervalSec <= 0 {
+		return
+	}
+	channelRequestCooldowner.Lock()
+	lastTime, exists := channelRequestCooldowner.lastTimes[channelId]
+	minNext := lastTime.Add(time.Duration(intervalSec) * time.Second)
+	now := time.Now()
+	var waitDuration time.Duration
+	if exists && minNext.After(now) {
+		waitDuration = minNext.Sub(now)
+		channelRequestCooldowner.lastTimes[channelId] = minNext
+	} else {
+		channelRequestCooldowner.lastTimes[channelId] = now
+	}
+	channelRequestCooldowner.Unlock()
+
+	if waitDuration > 0 {
+		time.Sleep(waitDuration)
+	}
+}
+
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+	if info != nil && info.ChannelSetting.RequestIntervalSeconds > 0 {
+		enforceChannelRequestInterval(info.ChannelId, info.ChannelSetting.RequestIntervalSeconds)
+	}
+
 	// A proxy-pool assignment for this exact (channel, key index) wins over
 	// the channel's own proxy setting so each key of a multi-key channel can
 	// exit through a different managed proxy.

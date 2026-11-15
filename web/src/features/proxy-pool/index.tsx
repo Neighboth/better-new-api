@@ -20,16 +20,28 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CheckCircle2,
   CircleX,
+  Eye,
+  Gauge,
   Loader2,
   Network,
+  Pencil,
   Plus,
-  TestTube2,
+  RefreshCw,
   Trash2,
   Waypoints,
   Zap,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip as ChartTooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -70,9 +82,12 @@ import {
   clearAssignments,
   createProxy,
   deleteProxy,
+  getProxyDetail,
   listChannels,
   listProxies,
+  rebalanceAllChannels,
   testProxy,
+  unassignProxy,
   updateProxy,
   type ProxyPoolChannel,
   type ProxyPoolProxy,
@@ -96,6 +111,20 @@ export function ProxyPool() {
   const [deleteTarget, setDeleteTarget] = useState<ProxyPoolProxy | null>(null)
   const [clearTarget, setClearTarget] = useState<ProxyPoolChannel | null>(null)
   const [testingId, setTestingId] = useState<number | null>(null)
+  const [detailTarget, setDetailTarget] = useState<ProxyPoolProxy | null>(null)
+
+  const detailQuery = useQuery({
+    queryKey: ['proxy-pool-detail', detailTarget?.id],
+    queryFn: async () => {
+      if (!detailTarget) return null
+      const res = await getProxyDetail(detailTarget.id)
+      if (!res.success) {
+        throw new Error(res.message || 'failed to load detail')
+      }
+      return res.data
+    },
+    enabled: !!detailTarget,
+  })
 
   const proxiesQuery = useQuery({
     queryKey: ['proxy-pool-proxies'],
@@ -202,6 +231,44 @@ export function ProxyPool() {
     },
     onError: (error: Error) => {
       toast.error(error.message || t('Assignments could not be cleared'))
+    },
+  })
+
+  const unassignMutation = useMutation({
+    mutationFn: (id: number) => unassignProxy(id),
+    onSuccess: (res) => {
+      if (!res.success) {
+        toast.error(res.message || t('Proxy eşlemesi kaldırılamadı'))
+        return
+      }
+      toast.success(t('Proxy eşlemesi kaldırıldı'))
+      queryClient.invalidateQueries({ queryKey: ['proxy-pool-detail'] })
+      invalidateAll()
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || t('Proxy eşlemesi kaldırılamadı'))
+    },
+  })
+
+  const rebalanceMutation = useMutation({
+    mutationFn: () => rebalanceAllChannels(),
+    onSuccess: (res) => {
+      if (!res.success) {
+        toast.error(res.message || t('Yeniden dengeleme başarısız'))
+        return
+      }
+      const data = res.data
+      toast.success(
+        t('{{channels}} kanal, {{keys}} anahtar {{proxies}} proxy arasında eşit olarak dengelendi', {
+          channels: data.rebalanced_channels,
+          keys: data.total_keys_assigned,
+          proxies: data.proxy_count,
+        })
+      )
+      invalidateAll()
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || t('Yeniden dengeleme başarısız'))
     },
   })
 
@@ -314,7 +381,17 @@ export function ProxyPool() {
                     {(proxiesQuery.data ?? []).map((proxy) => (
                       <TableRow key={proxy.id}>
                         <TableCell className='font-medium'>
-                          {proxy.name || t('Unnamed')}
+                          <div className='flex items-center gap-2'>
+                            <span>{proxy.name || t('Unnamed')}</span>
+                            {proxy.assigned_keys !== undefined && proxy.assigned_keys > 0 && (
+                              <Badge
+                                variant='outline'
+                                className='border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300 font-medium text-[11px]'
+                              >
+                                {proxy.assigned_keys} / Eşli
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell
                           className='max-w-[280px] truncate font-mono text-xs'
@@ -366,34 +443,64 @@ export function ProxyPool() {
                                       variant='ghost'
                                       disabled={testingId === proxy.id}
                                       onClick={() => void handleTest(proxy.id)}
-                                      aria-label={t('Test proxy')}
+                                      aria-label={t('Test proxy speed')}
                                     >
                                       {testingId === proxy.id ? (
                                         <Loader2 className='h-4 w-4 animate-spin' />
                                       ) : (
-                                        <TestTube2 className='h-4 w-4' />
+                                        <Gauge className='h-4 w-4' />
                                       )}
                                     </Button>
                                   }
                                 />
-                                <TooltipContent>{t('Test egress')}</TooltipContent>
+                                <TooltipContent>{t('Test speed / egress')}</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <Button
+                                      size='icon'
+                                      variant='ghost'
+                                      onClick={() => setDetailTarget(proxy)}
+                                      aria-label={t('Proxy details')}
+                                    >
+                                      <Eye className='h-4 w-4' />
+                                    </Button>
+                                  }
+                                />
+                                <TooltipContent>{t('Proxy details & usage')}</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <Button
+                                      size='icon'
+                                      variant='ghost'
+                                      onClick={() => openEditDialog(proxy)}
+                                      aria-label={t('Edit proxy')}
+                                    >
+                                      <Pencil className='h-4 w-4' />
+                                    </Button>
+                                  }
+                                />
+                                <TooltipContent>{t('Edit')}</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <Button
+                                      size='icon'
+                                      variant='ghost'
+                                      onClick={() => setDeleteTarget(proxy)}
+                                      aria-label={t('Delete proxy')}
+                                    >
+                                      <Trash2 className='h-4 w-4' />
+                                    </Button>
+                                  }
+                                />
+                                <TooltipContent>{t('Delete')}</TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
-                            <Button
-                              size='sm'
-                              variant='ghost'
-                              onClick={() => openEditDialog(proxy)}
-                            >
-                              {t('Edit')}
-                            </Button>
-                            <Button
-                              size='icon'
-                              variant='ghost'
-                              onClick={() => setDeleteTarget(proxy)}
-                              aria-label={t('Delete proxy')}
-                            >
-                              <Trash2 className='h-4 w-4' />
-                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -405,15 +512,34 @@ export function ProxyPool() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>
-                {t('Multi-key channel assignments')}
-              </CardTitle>
-              <CardDescription className='mt-1.5'>
-                {t(
-                  'Keys are handed out round-robin across enabled proxies. If a channel has more keys than you have proxies, each proxy serves multiple keys.'
+            <CardHeader className='flex flex-row flex-wrap items-center justify-between gap-3'>
+              <div>
+                <CardTitle>
+                  {t('Multi-key channel assignments')}
+                </CardTitle>
+                <CardDescription className='mt-1.5'>
+                  {t(
+                    'Keys are handed out round-robin across enabled proxies. If a channel has more keys than you have proxies, each proxy serves multiple keys.'
+                  )}
+                </CardDescription>
+              </div>
+              <Button
+                variant='outline'
+                size='sm'
+                disabled={
+                  rebalanceMutation.isPending ||
+                  (proxiesQuery.data ?? []).filter((p) => p.enabled).length === 0
+                }
+                onClick={() => rebalanceMutation.mutate()}
+                className='shrink-0'
+              >
+                {rebalanceMutation.isPending ? (
+                  <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+                ) : (
+                  <RefreshCw className='mr-1.5 h-3.5 w-3.5' />
                 )}
-              </CardDescription>
+                {t('Yeniden Dengele')}
+              </Button>
             </CardHeader>
             <CardContent>
               {channelsQuery.isLoading ? (
@@ -600,6 +726,191 @@ export function ProxyPool() {
         }}
         confirmText={t('Clear')}
       />
+
+      <Dialog
+        open={detailTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailTarget(null)
+        }}
+      >
+        <DialogContent className='max-w-2xl max-h-[85vh] overflow-y-auto'>
+          <DialogHeader>
+            <DialogTitle className='flex items-center gap-2'>
+              <span>{detailTarget?.name || t('Proxy Details')}</span>
+              {detailQuery.data?.assigned_keys !== undefined &&
+                detailQuery.data.assigned_keys > 0 && (
+                  <Badge
+                    variant='outline'
+                    className='border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300 font-medium text-xs'
+                  >
+                    {detailQuery.data.assigned_keys} / Eşli
+                  </Badge>
+                )}
+            </DialogTitle>
+            <DialogDescription
+              className='font-mono text-xs truncate'
+              title={detailTarget?.url}
+            >
+              {detailTarget?.url}
+            </DialogDescription>
+          </DialogHeader>
+
+          {detailQuery.isLoading ? (
+            <div className='flex h-32 items-center justify-center text-muted-foreground text-sm'>
+              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+              {t('Loading details...')}
+            </div>
+          ) : detailQuery.data ? (
+            <div className='flex flex-col gap-4 py-2'>
+              {/* Stat Cards */}
+              <div className='grid grid-cols-2 sm:grid-cols-4 gap-3'>
+                <div className='rounded-lg border bg-muted/20 p-3'>
+                  <div className='text-muted-foreground text-xs font-medium'>
+                    {t('Ping / Hız')}
+                  </div>
+                  <div className='mt-1 text-base font-bold font-mono'>
+                    {detailQuery.data.proxy.latency_ms
+                      ? `${detailQuery.data.proxy.latency_ms} ms`
+                      : '-'}
+                  </div>
+                </div>
+                <div className='rounded-lg border bg-muted/20 p-3'>
+                  <div className='text-muted-foreground text-xs font-medium'>
+                    {t('Çıkış IP (Egress)')}
+                  </div>
+                  <div
+                    className='mt-1 text-sm font-semibold font-mono truncate'
+                    title={detailQuery.data.proxy.egress_ip}
+                  >
+                    {detailQuery.data.proxy.egress_ip || '-'}
+                  </div>
+                </div>
+                <div className='rounded-lg border bg-muted/20 p-3'>
+                  <div className='text-muted-foreground text-xs font-medium'>
+                    {t('Eşli Anahtarlar')}
+                  </div>
+                  <div className='mt-1 text-base font-bold font-mono text-amber-600 dark:text-amber-400'>
+                    {detailQuery.data.assigned_keys}
+                  </div>
+                </div>
+                <div className='rounded-lg border bg-muted/20 p-3'>
+                  <div className='text-muted-foreground text-xs font-medium'>
+                    {t('Durum')}
+                  </div>
+                  <div className='mt-1 text-sm font-semibold'>
+                    {detailQuery.data.proxy.enabled ? (
+                      <span className='text-emerald-600 dark:text-emerald-400'>
+                        {t('Aktif')}
+                      </span>
+                    ) : (
+                      <span className='text-muted-foreground'>{t('Pasif')}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 30 Day Usage Chart */}
+              <div className='rounded-lg border p-4'>
+                <div className='text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3'>
+                  {t('Son 30 Günlük Veri Kullanımı (MB)')}
+                </div>
+                <div className='h-44 w-full'>
+                  <ResponsiveContainer width='100%' height='100%'>
+                    <AreaChart
+                      data={detailQuery.data.usage_history}
+                      margin={{ top: 5, right: 10, left: -20, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray='3 3' className='stroke-muted' />
+                      <XAxis dataKey='date' tick={{ fontSize: 10 }} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10 }} unit='M' tickLine={false} />
+                      <ChartTooltip
+                        formatter={(val: any) => [
+                          `${Number(val).toFixed(2)} MB`,
+                          t('Kullanım'),
+                        ]}
+                      />
+                      <Area
+                        type='monotone'
+                        dataKey='mb'
+                        stroke='#3b82f6'
+                        fill='#3b82f6'
+                        fillOpacity={0.2}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Assigned Keys Table */}
+              <div className='rounded-lg border p-4'>
+                <div className='flex items-center justify-between mb-2'>
+                  <div className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
+                    {t('Atanmış Kanallar ve Anahtarlar')}
+                  </div>
+                  {detailQuery.data.assigned_keys > 0 && (
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      className='text-destructive border-destructive/30 hover:bg-destructive/10 h-7 text-xs'
+                      disabled={unassignMutation.isPending}
+                      onClick={() => unassignMutation.mutate(detailTarget!.id)}
+                    >
+                      {unassignMutation.isPending ? (
+                        <Loader2 className='mr-1.5 h-3 w-3 animate-spin' />
+                      ) : (
+                        <Trash2 className='mr-1.5 h-3 w-3' />
+                      )}
+                      {t('Eşlemeyi Kaldır')}
+                    </Button>
+                  )}
+                </div>
+                {detailQuery.data.assignments.length === 0 ? (
+                  <p className='text-muted-foreground text-xs py-3 text-center'>
+                    {t('Bu proxy şu anda herhangi bir kanal anahtarına atanmamış.')}
+                  </p>
+                ) : (
+                  <div className='max-h-48 overflow-y-auto'>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className='text-xs'>{t('Kanal Adı')}</TableHead>
+                          <TableHead className='text-xs'>{t('Kanal ID')}</TableHead>
+                          <TableHead className='text-xs'>
+                            {t('Anahtar Sırası')}
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {detailQuery.data.assignments.map((item, idx) => (
+                          <TableRow
+                            key={`${item.channel_id}-${item.key_index}-${idx}`}
+                          >
+                            <TableCell className='text-xs font-medium'>
+                              {item.channel_name || `#${item.channel_id}`}
+                            </TableCell>
+                            <TableCell className='text-xs font-mono text-muted-foreground'>
+                              #{item.channel_id}
+                            </TableCell>
+                            <TableCell className='text-xs font-mono'>
+                              {t('Anahtar')} #{item.key_index + 1}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button variant='outline' onClick={() => setDetailTarget(null)}>
+              {t('Kapat')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

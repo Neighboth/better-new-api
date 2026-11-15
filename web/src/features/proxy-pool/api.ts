@@ -26,6 +26,9 @@ export interface ProxyPoolProxy {
   last_test_status: string
   last_test_error: string
   last_tested_at: number
+  latency_ms?: number
+  egress_ip?: string
+  assigned_keys?: number
   created_at: number
   updated_at: number
 }
@@ -147,5 +150,76 @@ export async function clearAssignments(
   const res = await api.delete<ApiEnvelope<object>>(
     `/api/proxy-pool/assignments?channel_id=${channelId}`
   )
+  return res.data
+}
+
+export interface ProxyAssignmentDetail {
+  channel_id: number
+  channel_name: string
+  channel_type: number
+  key_index: number
+}
+
+export interface ProxyDailyMBPoint {
+  date: string
+  mb: number
+  requests: number
+}
+
+export interface ProxyDetailData {
+  proxy: ProxyPoolProxy
+  assigned_keys: number
+  assignments: ProxyAssignmentDetail[]
+  usage_history: ProxyDailyMBPoint[]
+}
+
+export async function getProxyDetail(
+  id: number
+): Promise<ApiEnvelope<ProxyDetailData>> {
+  const res = await api.get<ApiEnvelope<ProxyDetailData>>(
+    `/api/proxy-pool/${id}/detail`
+  )
+  return res.data
+}
+
+export async function unassignProxy(
+  id: number
+): Promise<ApiEnvelope<{ proxy_id: number }>> {
+  const res = await api.post<ApiEnvelope<{ proxy_id: number }>>(
+    `/api/proxy-pool/${id}/unassign`,
+    {}
+  )
+  return res.data
+}
+
+export async function rebalanceAllChannels(): Promise<
+  ApiEnvelope<{
+    rebalanced_channels: number
+    total_keys_assigned: number
+    proxy_count: number
+  }>
+> {
+  const res = await api.post<
+    ApiEnvelope<{
+      rebalanced_channels: number
+      total_keys_assigned: number
+      proxy_count: number
+    }>
+  >('/api/proxy-pool/rebalance', {})
+  return res.data
+}
+
+export async function getProxyPoolUsageStats(): Promise<
+  ApiEnvelope<{
+    daily_history: ProxyDailyMBPoint[]
+    proxies: ProxyPoolProxy[]
+  }>
+> {
+  const res = await api.get<
+    ApiEnvelope<{
+      daily_history: ProxyDailyMBPoint[]
+      proxies: ProxyPoolProxy[]
+    }>
+  >('/api/proxy-pool/usage-stats')
   return res.data
 }

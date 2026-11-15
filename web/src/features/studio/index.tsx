@@ -251,7 +251,7 @@ function OptionSelect(props: {
 export function Studio() {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
-  const [mode, setMode] = useState<StudioMode>('image')
+  const [mode, setMode] = useState<StudioMode>('video')
   const [prompt, setPrompt] = useState('')
 
   const [imageModel, setImageModel] = useState('')
@@ -431,316 +431,383 @@ export function Studio() {
   const modeDisabled =
     mode === 'image' ? !runtime.image.enabled : !runtime.video.enabled
 
+  const latestItem = modeItems[0]
+
   return (
-    // The authenticated layout gives every page a fixed height and hides the
-    // overflow, so a page that grows must scroll itself. Without this wrapper
-    // the studio was clipped: the settings card was taller than the viewport
-    // and nothing on the page could be scrolled.
-    <div className='flex h-full min-h-0 w-full flex-col overflow-y-auto overscroll-contain'>
-      <div className='mx-auto flex w-full max-w-[1500px] flex-col gap-6 p-4 md:p-6'>
-        <header className='bg-card flex flex-wrap items-start justify-between gap-4 rounded-xl border p-4 md:p-5'>
-          <div className='space-y-1'>
-            <h1 className='flex items-center gap-2 text-xl font-semibold'>
-              <span className='bg-muted text-foreground flex size-9 items-center justify-center rounded-lg'>
-                <SparklesIcon className='size-5' />
-              </span>
-              {t('Studio')}
-            </h1>
-            <p className='text-muted-foreground max-w-2xl text-sm'>
-              {t(
-                'Create images and videos with the models configured by the administrator. Everything you generate stays in this page.'
-              )}
-            </p>
+    <div className='flex h-full min-h-0 w-full flex-col overflow-y-auto overscroll-contain bg-background'>
+      <div className='mx-auto flex w-full max-w-[1400px] flex-col gap-6 p-4 md:p-6'>
+        {/* Google Flow Top Docked Control Toolbar */}
+        <div className='flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-card/60 p-2.5 backdrop-blur-md shadow-sm'>
+          {/* Mode Selector Pill */}
+          <div
+            aria-label={t('Output type')}
+            className='inline-flex items-center rounded-xl bg-muted/60 p-1 border'
+            role='tablist'
+          >
+            {(
+              [
+                { value: 'video', label: t('Video'), icon: VideoIcon },
+                { value: 'image', label: t('Image'), icon: ImageIcon },
+              ] as const
+            ).map((entry) => (
+              <button
+                aria-selected={mode === entry.value}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all',
+                  mode === entry.value
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+                key={entry.value}
+                onClick={() => setMode(entry.value as StudioMode)}
+                role='tab'
+                type='button'
+              >
+                <entry.icon className='size-3.5' />
+                {entry.label}
+              </button>
+            ))}
           </div>
 
+          {/* Model and Generation Parameter Pills */}
           <div className='flex flex-wrap items-center gap-2'>
-            <div
-              aria-label={t('Output type')}
-              className='bg-muted/50 inline-flex rounded-lg border p-1'
-              role='tablist'
-            >
-              {(
-                [
-                  { value: 'image', label: t('Image'), icon: ImageIcon },
-                  { value: 'video', label: t('Video'), icon: VideoIcon },
-                ] as const
-              ).map((entry) => (
-                <button
-                  aria-selected={mode === entry.value}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition',
-                    mode === entry.value
-                      ? 'bg-background text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
-                  )}
-                  key={entry.value}
-                  onClick={() => setMode(entry.value as StudioMode)}
-                  role='tab'
-                  type='button'
+            {/* Model Pill */}
+            <div className='min-w-[160px]'>
+              {mode === 'image' ? (
+                <Select
+                  onValueChange={(value) => {
+                    setImageModel(String(value))
+                    setImageSize('')
+                    setImageQuality('')
+                  }}
+                  value={selectedImageModel?.model ?? ''}
                 >
-                  <entry.icon className='size-4' />
-                  {entry.label}
-                </button>
-              ))}
+                  <SelectTrigger className='h-8 text-xs rounded-lg'>
+                    <SelectValue placeholder={t('Model')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {imageModels.map((entry) => (
+                      <SelectItem key={entry.model} value={entry.model} className='text-xs'>
+                        {entry.model}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Select
+                  onValueChange={(value) => {
+                    setVideoModel(String(value))
+                    setVideoDuration('')
+                    setVideoRatio('')
+                    setVideoQuality('')
+                  }}
+                  value={selectedVideoModel?.model ?? ''}
+                >
+                  <SelectTrigger className='h-8 text-xs rounded-lg'>
+                    <SelectValue placeholder={t('Model')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {videoModels.map((entry) => (
+                      <SelectItem key={entry.model} value={entry.model} className='text-xs'>
+                        {entry.model}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
+
+            {/* Mode-specific Option Pills */}
+            {mode === 'video' ? (
+              <>
+                {videoRatios.length > 0 && (
+                  <Select onValueChange={setVideoRatio} value={ratio}>
+                    <SelectTrigger className='h-8 text-xs rounded-lg w-[100px]'>
+                      <SelectValue placeholder={t('Ratio')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {videoRatios.map((r) => (
+                        <SelectItem key={r} value={r} className='text-xs'>
+                          {r}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {videoDurations.length > 0 && (
+                  <Select onValueChange={setVideoDuration} value={String(duration)}>
+                    <SelectTrigger className='h-8 text-xs rounded-lg w-[90px]'>
+                      <SelectValue placeholder={t('Duration')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {videoDurations.map((d) => (
+                        <SelectItem key={d} value={String(d)} className='text-xs'>
+                          {d}s
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {videoQualities.length > 0 && (
+                  <Select onValueChange={setVideoQuality} value={videoQualityValue}>
+                    <SelectTrigger className='h-8 text-xs rounded-lg w-[95px]'>
+                      <SelectValue placeholder={t('Quality')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {videoQualities.map((q) => (
+                        <SelectItem key={q} value={q} className='text-xs'>
+                          {q}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </>
+            ) : (
+              <>
+                {imageSizes.length > 0 && (
+                  <Select onValueChange={setImageSize} value={size}>
+                    <SelectTrigger className='h-8 text-xs rounded-lg w-[110px]'>
+                      <SelectValue placeholder={t('Size')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {imageSizes.map((s) => (
+                        <SelectItem key={s} value={s} className='text-xs'>
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {imageQualities.length > 0 && (
+                  <Select onValueChange={setImageQuality} value={quality}>
+                    <SelectTrigger className='h-8 text-xs rounded-lg w-[95px]'>
+                      <SelectValue placeholder={t('Quality')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {imageQualities.map((q) => (
+                        <SelectItem key={q} value={q} className='text-xs'>
+                          {q}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </>
+            )}
+
             <Button
               disabled={modeItems.length === 0}
               onClick={() => clearItems(mode)}
               size='sm'
-              variant='outline'
+              variant='ghost'
+              className='h-8 px-2.5 text-xs text-muted-foreground hover:text-destructive'
             >
-              <Trash2Icon className='size-4' />
+              <Trash2Icon className='size-3.5 mr-1' />
               {t('Clear')}
             </Button>
           </div>
-        </header>
+        </div>
 
-        <div className='grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]'>
-          <section className='bg-card min-w-0 space-y-4 rounded-xl border p-4'>
-          <div className='-mx-4 -mt-4 flex items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2.5'>
-            <div className='flex items-center gap-2 text-xs font-semibold tracking-wide uppercase'>
-              <SparklesIcon className='size-3.5' />
-              {t('Composer')}
-            </div>
-            <span className='text-muted-foreground bg-background/80 rounded-full border px-2 py-0.5 font-mono text-[11px] tabular-nums'>
-              {prompt.length} {t('characters')}
-            </span>
-          </div>
-          <div className='space-y-2'>
-            <Label htmlFor='studio-prompt' className='text-xs font-medium'>
-              {t('Prompt')}
-            </Label>
-            <Textarea
-              className='min-h-36 resize-y leading-relaxed'
-              id='studio-prompt'
-              onChange={(event) => setPrompt(event.target.value)}
-              placeholder={
-                mode === 'video'
-                  ? t('Describe the scene, the motion and the camera movement…')
-                  : t('Describe the image you want to create…')
-              }
-              value={prompt}
-            />
-          </div>
-
-          <div className='space-y-1'>
-            <Label className='text-xs font-medium'>{t('Model')}</Label>
-            {mode === 'image' ? (
-              <Select
-                onValueChange={(value) => {
-                  setImageModel(String(value))
-                  setImageSize('')
-                  setImageQuality('')
-                }}
-                value={selectedImageModel?.model ?? ''}
-              >
-                <SelectTrigger className='w-full'>
-                  <SelectValue placeholder={t('Not configured')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {imageModels.map((entry) => (
-                    <SelectItem key={entry.model} value={entry.model}>
-                      {entry.model}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Select
-                onValueChange={(value) => {
-                  setVideoModel(String(value))
-                  setVideoDuration('')
-                  setVideoRatio('')
-                  setVideoQuality('')
-                }}
-                value={selectedVideoModel?.model ?? ''}
-              >
-                <SelectTrigger className='w-full'>
-                  <SelectValue placeholder={t('Not configured')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {videoModels.map((entry) => (
-                    <SelectItem key={entry.model} value={entry.model}>
-                      {entry.model}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-
-          {mode === 'image' ? (
-            <div className='grid gap-3 sm:grid-cols-2'>
-              <OptionSelect
-                label={t('Size')}
-                onChange={setImageSize}
-                options={imageSizes}
-                value={size}
-              />
-              <OptionSelect
-                label={t('Quality')}
-                onChange={setImageQuality}
-                options={imageQualities}
-                value={quality}
-              />
-              <div className='space-y-1 sm:col-span-2'>
-                <Label className='text-xs'>{t('Images')}</Label>
-                <Input
-                  max={4}
-                  min={1}
-                  onChange={(event) =>
-                    setImageCount(
-                      Math.min(4, Math.max(1, Number(event.target.value) || 1))
-                    )
-                  }
-                  type='number'
-                  value={imageCount}
-                />
-              </div>
-            </div>
-          ) : (
-            <div className='grid gap-3 sm:grid-cols-2'>
-              <OptionSelect
-                format={(value) => `${value}s`}
-                label={t('Duration')}
-                onChange={setVideoDuration}
-                options={videoDurations.map(String)}
-                value={String(duration)}
-              />
-              <OptionSelect
-                label={t('Aspect ratio')}
-                onChange={setVideoRatio}
-                options={videoRatios}
-                value={ratio}
-              />
-              <OptionSelect
-                label={t('Quality')}
-                onChange={setVideoQuality}
-                options={videoQualities}
-                value={videoQualityValue}
-              />
-              {supportsReference && (
-                <div className='space-y-1 sm:col-span-2'>
-                  <Label htmlFor='studio-reference-image'>
-                    {t('Reference image (optional)')}
-                  </Label>
-                  <Input
-                    accept='image/*'
-                    id='studio-reference-image'
-                    onChange={(event) =>
-                      handleReferenceFile(event.target.files?.[0])
-                    }
-                    type='file'
-                  />
-                  {referenceImage && (
-                    <div className='flex items-center gap-2 pt-1'>
-                      <img
-                        alt={t('Reference image')}
-                        className='size-14 rounded-md border object-cover'
-                        src={referenceImage}
-                      />
-                      <Button
-                        onClick={() => setReferenceImage('')}
-                        size='sm'
-                        variant='ghost'
-                      >
-                        {t('Remove')}
-                      </Button>
+        {/* Central Creative Stage / Showcase Hero */}
+        {latestItem ? (
+          <div className='relative overflow-hidden rounded-2xl border bg-card/40 shadow-sm'>
+            <div className='bg-muted/30 relative flex min-h-[380px] max-h-[560px] items-center justify-center overflow-hidden'>
+              {latestItem.status === 'pending' && (
+                <div className='flex flex-col items-center justify-center gap-4 p-8 text-center'>
+                  <div className='relative flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-sm'>
+                    <Loader2Icon className='size-7 animate-spin' />
+                  </div>
+                  <div className='space-y-1.5'>
+                    <p className='text-sm font-medium'>
+                      {latestItem.mode === 'video'
+                        ? t('Generating cinematic video with AI...')
+                        : t('Rendering image...')}
+                    </p>
+                    <p className='text-xs text-muted-foreground max-w-md line-clamp-2'>
+                      &ldquo;{latestItem.prompt}&rdquo;
+                    </p>
+                  </div>
+                  {latestItem.mode === 'video' && latestItem.progress && (
+                    <div className='w-full max-w-xs space-y-1'>
+                      <Progress value={progressPercentOf(latestItem.progress) ?? 20} className='h-2' />
+                      <p className='text-[11px] font-mono text-muted-foreground'>
+                        {latestItem.progress}
+                      </p>
                     </div>
                   )}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className='flex gap-2'>
-            <Button
-              className='h-10 flex-1'
-              disabled={!canGenerate}
-              onClick={handleGenerate}
-            >
-              {isGenerating ? (
-                <Loader2Icon className='size-4 animate-spin' />
-              ) : (
-                <SparklesIcon className='size-4' />
-              )}
-              {isGenerating ? t('Generating…') : t('Generate')}
-            </Button>
-            {isGenerating && (
-              <Button onClick={stop} variant='outline'>
-                {t('Stop')}
-              </Button>
-            )}
-          </div>
-
-          {modeDisabled && (
-            <p className='bg-muted/50 text-muted-foreground rounded-lg px-3 py-2 text-xs'>
-              {mode === 'video'
-                ? t('Video generation is disabled by the administrator.')
-                : t('Image generation is disabled by the administrator.')}
-            </p>
-          )}
-        </section>
-
-        <section className='space-y-4'>
-          <div className='flex items-center justify-between border-b pb-2'>
-            <h2 className='text-muted-foreground flex items-center gap-2 text-[11px] font-semibold tracking-widest uppercase'>
-              {mode === 'video' ? (
-                <VideoIcon className='size-3.5 text-primary' />
-              ) : (
-                <ImageIcon className='size-3.5 text-primary' />
-              )}
-              {mode === 'video' ? t('Videos') : t('Images')}
-            </h2>
-            {modeItems.length > 0 && (
-              <span className='text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono text-[11px] tabular-nums'>
-                {t('{{count}} result(s)', { count: modeItems.length })}
-              </span>
-            )}
-          </div>
-
-          {modeItems.length === 0 ? (
-            <div className='bg-card flex flex-col items-center justify-center rounded-xl border border-dashed p-10 text-center md:p-14'>
-              <div className='flex flex-col items-center gap-4'>
-                <div className='bg-muted text-muted-foreground flex size-14 items-center justify-center rounded-full'>
-                  {mode === 'video' ? (
-                    <VideoIcon className='size-6' />
-                  ) : (
-                    <ImageIcon className='size-6' />
+                  {isGenerating && (
+                    <Button onClick={stop} size='sm' variant='outline' className='mt-2'>
+                      {t('Cancel')}
+                    </Button>
                   )}
                 </div>
-                <div className='space-y-1'>
-                  <p className='text-base font-medium'>
-                    {mode === 'video'
-                      ? t('Your generated videos will appear here.')
-                      : t('Your generated images will appear here.')}
-                  </p>
-                  <p className='text-muted-foreground mx-auto max-w-sm text-xs'>
-                    {t(
-                      'Try one of these prompts to get started, then tune the model and options in the composer.'
-                    )}
+              )}
+
+              {latestItem.status === 'error' && (
+                <div className='flex flex-col items-center gap-3 p-8 text-center'>
+                  <div className='flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive text-xl font-bold'>
+                    !
+                  </div>
+                  <p className='text-sm font-medium text-destructive'>
+                    {latestItem.error || t('The generation failed')}
                   </p>
                 </div>
-                <div className='flex flex-wrap items-center justify-center gap-2'>
-                  {(mode === 'video'
-                    ? SUGGESTED_VIDEO_PROMPTS
-                    : SUGGESTED_IMAGE_PROMPTS
-                  ).map((suggestion) => (
-                    <button
-                      className='text-muted-foreground hover:bg-muted hover:text-foreground bg-background rounded-full border px-3 py-1.5 text-xs transition'
-                      key={suggestion}
-                      onClick={() => setPrompt(suggestion)}
-                      type='button'
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              )}
+
+              {latestItem.status === 'ready' &&
+                latestItem.urls.map((url) =>
+                  latestItem.mode === 'video' ? (
+                    <video
+                      autoPlay
+                      className='max-h-[560px] w-full rounded-xl object-contain bg-black/90'
+                      controls
+                      key={url}
+                      loop
+                      playsInline
+                      src={url}
+                    />
+                  ) : (
+                    <img
+                      alt={latestItem.prompt}
+                      className='max-h-[560px] w-full rounded-xl object-contain'
+                      key={url}
+                      src={url}
+                    />
+                  )
+                )}
             </div>
-          ) : (
-            <div className='grid gap-4 sm:grid-cols-2 2xl:grid-cols-3'>
-              {modeItems.map((item) => (
+
+            {/* Hero metadata & download bar */}
+            <div className='flex flex-wrap items-center justify-between gap-3 border-t bg-card/80 p-4'>
+              <div className='space-y-1 min-w-0 flex-1'>
+                <p className='text-sm font-medium leading-relaxed truncate'>{latestItem.prompt}</p>
+                <SettingsChips settings={latestItem.settings} />
+              </div>
+              {latestItem.status === 'ready' && latestItem.urls[0] && (
+                <Button asChild size='sm' variant='outline'>
+                  <a download href={latestItem.urls[0]} rel='noreferrer' target='_blank'>
+                    <DownloadIcon className='size-3.5 mr-1.5' />
+                    {t('Download')}
+                  </a>
+                </Button>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* Empty State Inspired by Google Flow */
+          <div className='relative flex min-h-[320px] flex-col items-center justify-center rounded-2xl border border-dashed bg-card/30 p-8 text-center'>
+            <div className='flex size-16 items-center justify-center rounded-2xl bg-gradient-to-tr from-blue-500/10 to-indigo-500/20 text-blue-500 shadow-sm mb-4'>
+              {mode === 'video' ? <VideoIcon className='size-8' /> : <ImageIcon className='size-8' />}
+            </div>
+            <h2 className='text-lg font-semibold tracking-tight'>
+              {mode === 'video' ? t('Google Flow Video Studio') : t('Generative Image Studio')}
+            </h2>
+            <p className='text-xs text-muted-foreground max-w-md mt-1 mb-6'>
+              {mode === 'video'
+                ? t('Describe your vision, camera motion, and cinematic scene to bring it to life with generative video models.')
+                : t('Describe what you want to create and let advanced image diffusion models produce high quality renders.')}
+            </p>
+            <div className='flex flex-wrap justify-center gap-2 max-w-2xl'>
+              {(mode === 'video' ? SUGGESTED_VIDEO_PROMPTS : SUGGESTED_IMAGE_PROMPTS).map(
+                (suggestion) => (
+                  <button
+                    key={suggestion}
+                    type='button'
+                    onClick={() => setPrompt(suggestion)}
+                    className='rounded-full border border-zinc-700/50 bg-card/60 px-3.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition shadow-sm'
+                  >
+                    ✨ {suggestion}
+                  </button>
+                )
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Google Flow Floating Bottom Prompt Composer Bar */}
+        <div className='relative rounded-2xl border bg-card/90 p-4 shadow-xl backdrop-blur-xl'>
+          {supportsReference && mode === 'video' && (
+            <div className='mb-3 flex items-center gap-2'>
+              <label
+                htmlFor='studio-ref-upload'
+                className='inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-700/50 bg-zinc-800/40 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800'
+              >
+                <span>📷</span>
+                <span>{referenceImage ? t('Change Reference Image') : t('Add Reference Image (Image-to-Video)')}</span>
+                <input
+                  id='studio-ref-upload'
+                  type='file'
+                  accept='image/*'
+                  className='hidden'
+                  onChange={(e) => handleReferenceFile(e.target.files?.[0])}
+                />
+              </label>
+              {referenceImage && (
+                <div className='flex items-center gap-2'>
+                  <img
+                    src={referenceImage}
+                    alt='Reference'
+                    className='size-7 rounded border object-cover'
+                  />
+                  <Button
+                    size='sm'
+                    variant='ghost'
+                    className='h-6 px-1.5 text-xs text-muted-foreground hover:text-destructive'
+                    onClick={() => setReferenceImage('')}
+                  >
+                    {t('Remove')}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className='flex items-end gap-3'>
+            <div className='flex-1'>
+              <Textarea
+                id='studio-prompt'
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder={
+                  mode === 'video'
+                    ? t('Describe camera movement, lighting, subjects, and cinematic scene actions...')
+                    : t('Describe the image details, artistic style, camera lens, and composition...')
+                }
+                className='min-h-[72px] resize-none border-0 bg-transparent p-0 text-sm focus-visible:ring-0 leading-relaxed placeholder:text-muted-foreground/60'
+              />
+            </div>
+
+            <div className='flex items-center gap-2 shrink-0'>
+              {isGenerating ? (
+                <Button onClick={stop} variant='outline' size='sm' className='h-10 px-4'>
+                  {t('Stop')}
+                </Button>
+              ) : (
+                <Button
+                  disabled={!canGenerate}
+                  onClick={handleGenerate}
+                  className='h-10 rounded-xl px-5 gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-sm transition'
+                >
+                  <SparklesIcon className='size-4' />
+                  {t('Generate')}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Gallery / Previous Creations Grid */}
+        {modeItems.length > 1 && (
+          <div className='space-y-4 pt-2'>
+            <div className='flex items-center justify-between border-b pb-2'>
+              <h3 className='text-xs font-semibold tracking-wider uppercase text-muted-foreground flex items-center gap-2'>
+                {mode === 'video' ? <VideoIcon className='size-3.5' /> : <ImageIcon className='size-3.5' />}
+                {t('Creation History')} ({modeItems.length})
+              </h3>
+            </div>
+            <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
+              {modeItems.slice(1).map((item) => (
                 <ResultCard
                   item={item}
                   key={item.id}
@@ -748,9 +815,8 @@ export function Studio() {
                 />
               ))}
             </div>
-          )}
-        </section>
-        </div>
+          </div>
+        )}
       </div>
     </div>
   )

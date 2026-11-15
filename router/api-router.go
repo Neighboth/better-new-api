@@ -308,7 +308,8 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.GET("/auto_model_stats", middleware.AdminAuth(), controller.GetAutoModelStats)
 		}
 
-		// Managed Files (admin only)
+		// Managed Files (admin only, verify is also public)
+		apiRouter.POST("/files/verify", controller.VerifyManagedFileAuth)
 		managedFilesRoute := apiRouter.Group("/files")
 		managedFilesRoute.Use(middleware.AdminAuth())
 		{
@@ -319,6 +320,7 @@ func SetApiRouter(router *gin.Engine) {
 			managedFilesRoute.POST("/settings", controller.UpdateManagedFileSettings)
 			managedFilesRoute.DELETE("/", controller.DeleteManagedFile)
 			managedFilesRoute.POST("/rename", controller.RenameManagedFile)
+			managedFilesRoute.POST("/verify", controller.VerifyManagedFileAuth)
 		}
 
 		// Custom OAuth provider management (root only)
@@ -433,6 +435,10 @@ func SetApiRouter(router *gin.Engine) {
 			statisticsRoute.GET("/site/users", controller.SearchSiteStatsUsers)
 			statisticsRoute.GET("/site/channels", controller.SearchSiteStatsChannels)
 			statisticsRoute.GET("/site/groups", controller.GetGroups)
+			statisticsRoute.GET("/clarity", controller.GetClarityInsights)
+			statisticsRoute.GET("/google-analytics", controller.GetGoogleAnalyticsReport)
+			statisticsRoute.GET("/google-search-console", controller.GetGoogleSearchConsoleReport)
+			statisticsRoute.GET("/proxy-pool", controller.GetProxyPoolStatistics)
 		}
 
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
