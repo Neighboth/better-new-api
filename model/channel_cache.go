@@ -156,6 +156,16 @@ func GetRandomSatisfiedChannel(group string, model string, ignoredChannelIds []i
 		channels = filterChannelsByRequestPathAndModel(group2model2channels[group][normalizedModel], requestPath, model)
 	}
 
+	// Fallback to direct DB query if memory cache missed (e.g. channel added/updated without cache sync)
+	if len(channels) == 0 {
+		channelSyncLock.RUnlock()
+		dbChan, dbErr := GetChannel(group, model, ignoredChannelIds, requestPath)
+		channelSyncLock.RLock()
+		if dbErr == nil && dbChan != nil {
+			return dbChan, nil
+		}
+	}
+
 	if len(channels) == 0 {
 		return nil, nil
 	}

@@ -680,7 +680,7 @@ export function ChannelMutateDrawer({
             form.setValue('models', 'gemini-3.8-flash,claude-opus-5.5,claude-sonnet-5.5')
           }
           if (!form.getValues('base_url')) {
-            form.setValue('base_url', 'https://daily-cloudcode-pa.googleapis.com')
+            form.setValue('base_url', 'https://cloudcode-pa.googleapis.com')
           }
         } else if (oauthProvider === 'codex') {
           const currentModels = form.getValues('models')

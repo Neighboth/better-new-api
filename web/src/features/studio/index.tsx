@@ -35,6 +35,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { api } from '@/lib/api'
 
 import {
   AlertDialog,
@@ -164,8 +165,13 @@ function SettingsChips(props: {
   )
 }
 
-function progressPercentOf(raw: string): number | null {
-  const match = raw.match(/(\d+(?:[.,]\d+)?)/)
+function progressPercentOf(raw: any): number | null {
+  if (typeof raw === 'number') {
+    return Math.min(100, Math.max(0, Math.round(raw)))
+  }
+  if (!raw) return null
+  const str = String(raw)
+  const match = str.match(/(\d+(?:[.,]\d+)?)/)
   if (!match) return null
   const value = Number(match[1].replace(',', '.'))
   if (!Number.isFinite(value)) return null

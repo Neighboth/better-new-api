@@ -310,10 +310,14 @@ func wrapV1InternalRequest(info *relaycommon.RelayInfo, geminiReq *dto.GeminiCha
 		modelName = "claude-sonnet-4-5"
 	case "claude-3-5-haiku", "claude-3-5-haiku-latest":
 		modelName = "claude-sonnet-4-5"
-	case "claude-opus-4-5":
+	case "claude-opus-4-5", "claude-opus-5.5":
 		modelName = "claude-opus-4-5-thinking"
+	case "claude-sonnet-5.5":
+		modelName = "claude-sonnet-4-5"
 	case "gemini-3-pro", "gemini-3-pro-preview":
 		modelName = "gemini-3-pro-high"
+	case "gemini-3.8-flash", "gemini-2.5-flash-preview":
+		modelName = "gemini-2.5-flash"
 	}
 
 	// Determine desired thinking level:

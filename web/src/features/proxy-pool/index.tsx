@@ -85,6 +85,16 @@ import {
 import { formatTimestampRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
+function getProxyProtocol(proxy: { url?: string; is_cf_worker?: boolean }): string {
+  if (proxy.is_cf_worker) return 'Worker'
+  const u = (proxy.url || '').toLowerCase()
+  if (u.startsWith('socks5h://') || u.startsWith('socks5://')) return 'Socks5'
+  if (u.startsWith('socks4://')) return 'Socks4'
+  if (u.startsWith('https://')) return 'HTTPS'
+  if (u.startsWith('http://')) return 'HTTP'
+  return 'HTTP'
+}
+
 import {
   assignProxiesEvenly,
   batchCreateProxies,
