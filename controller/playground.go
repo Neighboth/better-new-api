@@ -63,7 +63,7 @@ func PlaygroundVideo(c *gin.Context) {
 		UserId:          userId,
 		Name:            fmt.Sprintf("playground-%s", targetGroup),
 		Group:           targetGroup,
-		CrossGroupRetry: true,
+		CrossGroupRetry: false,
 	}
 	_ = middleware.SetupContextForToken(c, tempToken)
 
@@ -115,7 +115,7 @@ func playgroundRelay(c *gin.Context, relayFormat types.RelayFormat) {
 		UserId:          userId,
 		Name:            fmt.Sprintf("playground-%s", targetGroup),
 		Group:           targetGroup,
-		CrossGroupRetry: true,
+		CrossGroupRetry: false,
 	}
 	_ = middleware.SetupContextForToken(c, tempToken)
 

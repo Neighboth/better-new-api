@@ -362,27 +362,40 @@ func (s *ChannelOAuthService) fetchAntigravityUserInfo(ctx context.Context, acce
 }
 
 func (s *ChannelOAuthService) fetchAntigravityProject(ctx context.Context, accessToken string) (string, error) {
-	body := []byte(`{"metadata":{"ideType":"ANTIGRAVITY","ideVersion":"2.9.1","ideName":"antigravity"}}`)
+	body := []byte(`{"metadata":{"ideType":"ANTIGRAVITY","ideVersion":"2.23.0","ideName":"antigravity"}}`)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, antigravityLoadProjectURL, strings.NewReader(string(body)))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "antigravity/2.9.1 windows/amd64")
+	req.Header.Set("User-Agent", "antigravity/hub/2.23.0 windows/amd64")
 	resp, err := s.httpClient().Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-	var project struct { Project string `json:"cloudaicompanionProject"` }
+	var project struct {
+		CloudaicompanionProject string `json:"cloudaicompanionProject"`
+		Project                 string `json:"project"`
+		Data                    struct {
+			Project string `json:"project"`
+		} `json:"data"`
+	}
 	if err := common.DecodeJson(resp.Body, &project); err != nil {
 		return "", err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("Antigravity project lookup returned HTTP %d", resp.StatusCode)
 	}
-	return strings.TrimSpace(project.Project), nil
+	p := strings.TrimSpace(project.CloudaicompanionProject)
+	if p == "" {
+		p = strings.TrimSpace(project.Project)
+	}
+	if p == "" {
+		p = strings.TrimSpace(project.Data.Project)
+	}
+	return p, nil
 }
 
 func (s *ChannelOAuthService) pruneLocked(now time.Time) {

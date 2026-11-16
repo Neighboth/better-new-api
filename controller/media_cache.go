@@ -59,6 +59,7 @@ func GetCachedMedia(c *gin.Context) {
 	// Check if already cached on disk
 	if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
 		c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		c.Header("Accept-Ranges", "bytes")
 		c.File(filePath)
 		return
 	}
@@ -109,6 +110,7 @@ func GetCachedMedia(c *gin.Context) {
 	_ = os.Rename(tempPath, filePath)
 
 	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	c.Header("Accept-Ranges", "bytes")
 	c.File(filePath)
 }
 
@@ -177,3 +179,33 @@ func PreCacheMedia(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "cached_url": cachedURL, "cached": false})
 }
+
+// DeleteCachedMedia handles DELETE /api/media/cache?url=...
+func DeleteCachedMedia(c *gin.Context) {
+	rawURL := strings.TrimSpace(c.Query("url"))
+	if rawURL == "" {
+		var body struct {
+			URL string `json:"url"`
+		}
+		if err := common.DecodeJson(c.Request.Body, &body); err == nil && body.URL != "" {
+			rawURL = strings.TrimSpace(body.URL)
+		}
+	}
+	if rawURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "url is required"})
+		return
+	}
+
+	hash, ext := getMediaCacheKey(rawURL)
+	fileName := hash + ext
+	filePath := filepath.Join(mediaCacheDir, fileName)
+
+	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	_ = os.Remove(filePath + ".tmp")
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "media cache deleted"})
+}
+

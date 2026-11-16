@@ -167,13 +167,6 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}
-		if channel == nil && param.TokenGroup != "default" && common.GetContextKeyBool(param.Ctx, constant.ContextKeyTokenCrossGroupRetry) {
-			fallbackChannel, fallbackErr := model.GetRandomSatisfiedChannel("default", param.ModelName, param.ignoredChannelIds(), param.RequestPath)
-			if fallbackErr == nil && fallbackChannel != nil {
-				channel = fallbackChannel
-				selectGroup = "default"
-			}
-		}
 	}
 	return channel, selectGroup, nil
 }

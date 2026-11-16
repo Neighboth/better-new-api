@@ -294,9 +294,6 @@ func wrapV1InternalRequest(info *relaycommon.RelayInfo, geminiReq *dto.GeminiCha
 	if project == "" && token != "" {
 		project = fetchAntigravityProject(token, info.ChannelBaseUrl)
 	}
-	if project == "" {
-		project = "aicode-consumers"
-	}
 	modelName := info.UpstreamModelName
 	if modelName == "" {
 		modelName = info.OriginModelName

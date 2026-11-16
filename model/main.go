@@ -356,7 +356,14 @@ func migrateNewColumns() {
 	if DB == nil {
 		return
 	}
-	_ = DB.AutoMigrate(&Ticket{}, &TicketMessage{})
+	_ = DB.AutoMigrate(&Ticket{}, &TicketMessage{}, &ProxyPoolProxy{}, &ProxyPoolAssignment{}, &ProxyPoolDailyUsage{})
+	if DB.Migrator().HasTable(&ProxyPoolProxy{}) {
+		for _, col := range []string{"country_code", "country_name", "city", "isp"} {
+			if !DB.Migrator().HasColumn(&ProxyPoolProxy{}, col) {
+				_ = DB.Migrator().AddColumn(&ProxyPoolProxy{}, col)
+			}
+		}
+	}
 	if DB.Migrator().HasTable(&User{}) {
 		if !DB.Migrator().HasColumn(&User{}, "shift_ends_at") {
 			_ = DB.Migrator().AddColumn(&User{}, "shift_ends_at")

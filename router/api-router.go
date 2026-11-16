@@ -108,6 +108,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/test-media/:id", controller.GetChannelTestMedia)
 		apiRouter.GET("/media/cache", controller.GetCachedMedia)
 		apiRouter.POST("/media/cache", controller.PreCacheMedia)
+		apiRouter.DELETE("/media/cache", controller.DeleteCachedMedia)
 
 		userRoute := apiRouter.Group("/user")
 		{

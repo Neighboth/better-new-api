@@ -330,6 +330,66 @@ export function useStudioGeneration() {
     [patchItem, startItem]
   )
 
+async function captureLastFrameFromVideoUrl(videoUrl: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video')
+    video.crossOrigin = 'anonymous'
+    video.preload = 'auto'
+    video.muted = true
+    video.playsInline = true
+
+    // Use our local media cache proxy to avoid any cross-origin tainting
+    const cacheUrl = videoUrl.startsWith('data:') || videoUrl.startsWith('blob:') || videoUrl.startsWith('/api/')
+      ? videoUrl
+      : `/api/media/cache?url=${encodeURIComponent(videoUrl)}`
+
+    video.src = cacheUrl
+
+    const timer = setTimeout(() => {
+      cleanup()
+      reject(new Error('Timeout extracting last video frame'))
+    }, 15000)
+
+    function cleanup() {
+      clearTimeout(timer)
+      video.removeAttribute('src')
+      video.load()
+    }
+
+    video.onloadedmetadata = () => {
+      // Seek slightly before the very end to avoid EOF black frame
+      const targetTime = Math.max(0, video.duration - 0.15)
+      video.currentTime = targetTime
+    }
+
+    video.onseeked = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = video.videoWidth || 1280
+        canvas.height = video.videoHeight || 720
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          cleanup()
+          reject(new Error('Canvas 2D context not available'))
+          return
+        }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
+        cleanup()
+        resolve(dataUrl)
+      } catch (err) {
+        cleanup()
+        reject(err)
+      }
+    }
+
+    video.onerror = (e) => {
+      cleanup()
+      reject(new Error('Video loading error during frame extraction'))
+    }
+  })
+}
+
   const generateVideo = useCallback(
     async (params: VideoParams, onStarted?: (id: string) => void) => {
       const id = startItem({
@@ -354,72 +414,186 @@ export function useStudioGeneration() {
           finalPrompt = await optimizeStudioPrompt(params.prompt, 'video', controller.signal)
         }
 
-        const submitted = await submitVideoGeneration(
-          {
-            model: params.model,
-            group: params.group,
-            prompt: finalPrompt,
-            duration: params.duration,
-            ratio: params.ratio,
-            quality: params.quality,
-            image_url: params.imageUrl,
-            start_frame: params.startFrame,
-            end_frame: params.endFrame,
-            reference_images: params.referenceImages,
-            negative_prompt: params.negativePrompt,
-            metadata: {
-              start_frame: params.startFrame,
-              end_frame: params.endFrame,
-              reference_images: params.referenceImages,
-              negative_prompt: params.negativePrompt,
-              video_extension: params.videoExtension,
-            },
-          },
-          controller.signal
-        )
-        const submittedAt = Date.now()
-        // Reads the id from the response (body or `X-New-Api-Task-Id`) and,
-        // when neither carries it, from the task list of the user: the task is
-        // created and billed either way, so a stripped header must not lose it.
-        const taskId = await resolveSubmittedTaskIdWithLookup(submitted, {
-          model: params.model,
-          submittedAt,
-          signal: controller.signal,
-        })
-        if (!taskId) {
-          patchItem(id, {
-            status: 'error',
-            error: 'The video task has no id',
-          })
-          return
-        }
-        patchItem(id, { taskId })
+        // Determine if chained multi-chunk extension is requested
+        const targetTotalSeconds = params.videoExtension && params.videoExtension !== 'off'
+          ? parseInt(params.videoExtension, 10) || 0
+          : 0
 
-        const finished = await pollVideoTask(
-          taskId,
-          controller.signal,
-          (minCreatedAt) =>
-            resolveSubmittedTaskIdWithLookup(submitted, {
-              model: params.model,
-              submittedAt,
-              signal: controller.signal,
-              minCreatedAt,
-            }),
-          (progress) => patchItem(id, { progress }),
-          0
-        )
-        if (!finished.result_url) {
-          const isStillRunning = ['in_progress', 'running', 'pending', 'queued'].includes((finished.status || '').toLowerCase())
-          patchItem(id, {
-            status: 'error',
-            error: finished.fail_reason || (isStillRunning ? 'Video is still processing upstream. You can check it under Previous Generations.' : 'The video could not be generated'),
-          })
-          return
+        // Helper to run a single generation attempt with fallback support
+        const executeChunkWithFallback = async (
+          chunkPrompt: string,
+          chunkStartFrame: string | undefined,
+          chunkEndFrame: string | undefined,
+          preferredDuration: string | number | undefined,
+          preferredQuality: string | undefined,
+          chunkIndex: number,
+          totalChunks: number
+        ): Promise<{ url: string; duration: string | number; quality: string }> => {
+          // Fallback plan: 30s -> 20s -> 10s; 1080p -> 720p
+          const durationAttempts: (string | number)[] = []
+          if (preferredDuration) durationAttempts.push(preferredDuration)
+          if (!durationAttempts.includes('30') && !durationAttempts.includes(30)) durationAttempts.push('30')
+          if (!durationAttempts.includes('20') && !durationAttempts.includes(20)) durationAttempts.push('20')
+          if (!durationAttempts.includes('10') && !durationAttempts.includes(10)) durationAttempts.push('10')
+
+          const qualityAttempts: string[] = []
+          if (preferredQuality) qualityAttempts.push(preferredQuality)
+          if (!qualityAttempts.includes('1080p')) qualityAttempts.push('1080p')
+          if (!qualityAttempts.includes('720p')) qualityAttempts.push('720p')
+
+          let lastErr: any = null
+
+          for (const curQuality of qualityAttempts) {
+            for (const curDuration of durationAttempts) {
+              if (controller.signal.aborted) {
+                throw new Error('Cancelled')
+              }
+
+              try {
+                const submitted = await submitVideoGeneration(
+                  {
+                    model: params.model,
+                    group: params.group,
+                    prompt: chunkPrompt,
+                    duration: curDuration,
+                    ratio: params.ratio,
+                    quality: curQuality,
+                    image_url: chunkIndex === 0 ? params.imageUrl : undefined,
+                    start_frame: chunkStartFrame,
+                    end_frame: chunkEndFrame,
+                    reference_images: chunkIndex === 0 ? params.referenceImages : undefined,
+                    negative_prompt: params.negativePrompt,
+                    metadata: {
+                      start_frame: chunkStartFrame,
+                      end_frame: chunkEndFrame,
+                      reference_images: params.referenceImages,
+                      negative_prompt: params.negativePrompt,
+                      video_extension: params.videoExtension,
+                      chunk_index: chunkIndex,
+                      total_chunks: totalChunks,
+                    },
+                  },
+                  controller.signal
+                )
+
+                const submittedAt = Date.now()
+                const taskId = await resolveSubmittedTaskIdWithLookup(submitted, {
+                  model: params.model,
+                  submittedAt,
+                  signal: controller.signal,
+                })
+
+                if (!taskId) {
+                  throw new Error('The video task has no id')
+                }
+
+                patchItem(id, { taskId })
+
+                const finished = await pollVideoTask(
+                  taskId,
+                  controller.signal,
+                  (minCreatedAt) =>
+                    resolveSubmittedTaskIdWithLookup(submitted, {
+                      model: params.model,
+                      submittedAt,
+                      signal: controller.signal,
+                      minCreatedAt,
+                    }),
+                  (progress) => {
+                    // Normalize progress across total chunks
+                    const chunkWeight = 100 / totalChunks
+                    const overallProgress = Math.round((chunkIndex * chunkWeight) + ((progress / 100) * chunkWeight))
+                    patchItem(id, { progress: Math.min(overallProgress, 99) })
+                  },
+                  0
+                )
+
+                if (finished.result_url) {
+                  return { url: finished.result_url, duration: curDuration, quality: curQuality }
+                }
+
+                throw new Error(finished.fail_reason || 'Video chunk failed')
+              } catch (attemptErr) {
+                if (controller.signal.aborted) throw attemptErr
+                lastErr = attemptErr
+                // Continue to next fallback attempt
+              }
+            }
+          }
+
+          throw lastErr || new Error('All duration and quality attempts failed for chunk')
         }
-        patchItem(id, { status: 'ready', urls: [finished.result_url] })
-        if (finished.result_url && finished.result_url.startsWith('http')) {
-          void api.post('/api/media/cache', { url: finished.result_url }).catch(() => {})
+
+        // If no multi-chunk extension is requested, run as single generation
+        if (targetTotalSeconds <= 30) {
+          const singleChunkDuration = params.duration || (targetTotalSeconds > 0 ? targetTotalSeconds : undefined)
+          const result = await executeChunkWithFallback(
+            finalPrompt,
+            params.startFrame,
+            params.endFrame,
+            singleChunkDuration,
+            params.quality,
+            0,
+            1
+          )
+
+          patchItem(id, { status: 'ready', urls: [result.url], progress: 100 })
+          if (result.url && result.url.startsWith('http')) {
+            void api.post('/api/media/cache', { url: result.url }).catch(() => {})
+          }
+          return id
         }
+
+        // Multi-chunk chained generation (e.g., 60s -> 2 chunks, 120s -> 4 chunks of 30s)
+        const chunkDurationSec = 30
+        const totalChunks = Math.max(1, Math.ceil(targetTotalSeconds / chunkDurationSec))
+        const accumulatedUrls: string[] = []
+        let currentStartFrame = params.startFrame
+
+        for (let i = 0; i < totalChunks; i++) {
+          if (controller.signal.aborted) {
+            patchItem(id, { status: 'error', error: 'Cancelled' })
+            return id
+          }
+
+          // In multi-chunk:
+          // Chunk 0 gets user's initial startFrame (if any).
+          // Intermediate chunks get the last frame of the previous chunk as startFrame.
+          // ONLY the final chunk (i === totalChunks - 1) gets user's endFrame!
+          const isFinalChunk = (i === totalChunks - 1)
+          const chunkEndFrame = isFinalChunk ? params.endFrame : undefined
+
+          const chunkRes = await executeChunkWithFallback(
+            finalPrompt,
+            currentStartFrame,
+            chunkEndFrame,
+            chunkDurationSec,
+            params.quality,
+            i,
+            totalChunks
+          )
+
+          accumulatedUrls.push(chunkRes.url)
+          if (chunkRes.url.startsWith('http')) {
+            void api.post('/api/media/cache', { url: chunkRes.url }).catch(() => {})
+          }
+
+          if (!isFinalChunk) {
+            // Extract the last frame of this chunk to pass as start_frame for the next chunk
+            try {
+              currentStartFrame = await captureLastFrameFromVideoUrl(chunkRes.url)
+            } catch (frameErr) {
+              // If frame capture fails, fallback to passing the video url itself
+              currentStartFrame = chunkRes.url
+            }
+          }
+        }
+
+        patchItem(id, {
+          status: 'ready',
+          urls: accumulatedUrls,
+          progress: 100,
+        })
         return id
       } catch (error) {
         if (controller.signal.aborted) {
@@ -457,7 +631,17 @@ export function useStudioGeneration() {
     controllersRef.current.delete(id)
     activePollingTasks.current.delete(id)
     setIsGenerating(false)
-    setItems((prev) => prev.filter((item) => item.id !== id))
+    setItems((prev) => {
+      const itemToDelete = prev.find((item) => item.id === id)
+      if (itemToDelete?.urls?.length) {
+        itemToDelete.urls.forEach((u) => {
+          if (u) {
+            void api.delete('/api/media/cache', { params: { url: u } }).catch(() => {})
+          }
+        })
+      }
+      return prev.filter((item) => item.id !== id)
+    })
   }, [])
 
   const clearItems = useCallback((mode?: StudioItem['mode']) => {

@@ -952,30 +952,6 @@ export function Studio() {
                       </div>
                     </div>
 
-                    {/* Uzatma (Extend Video) */}
-                    <div className='space-y-1.5 pt-2 border-t border-border/40'>
-                      <div className='flex items-center justify-between'>
-                        <Label className='text-xs font-medium text-foreground/80'>{t('Video Extension')}</Label>
-                        {videoExtension !== 'off' && (
-                          <span className='text-[10px] text-primary font-semibold uppercase'>
-                            {videoExtension === '60' ? '1 dk' : videoExtension === '120' ? '2 dk' : videoExtension === '300' ? '5 dk' : '10 dk'}
-                          </span>
-                        )}
-                      </div>
-                      <Select value={videoExtension} onValueChange={(val) => setVideoExtension(val as any)}>
-                        <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value='off' className='text-xs'>{t('Off')}</SelectItem>
-                          <SelectItem value='60' className='text-xs'>1 {t('min')} (60s - {t('Chained')})</SelectItem>
-                          <SelectItem value='120' className='text-xs'>2 {t('min')} (120s - {t('Chained')})</SelectItem>
-                          <SelectItem value='300' className='text-xs'>5 {t('min')} (300s - {t('Chained')})</SelectItem>
-                          <SelectItem value='600' className='text-xs'>10 {t('min')} (600s - {t('Chained')})</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
                     {/* Advanced Controls Collapsible */}
                     <div className='space-y-1.5 pt-2 border-t border-border/40'>
                       <button
@@ -998,23 +974,98 @@ export function Studio() {
                             />
                           </div>
                           <div className='grid grid-cols-2 gap-2'>
+                            {/* Start Frame File Upload with Thumbnail */}
                             <div className='space-y-1'>
                               <Label className='text-[11px] text-muted-foreground'>{t('Start Frame')}</Label>
-                              <Input
-                                value={startFrame}
-                                onChange={(e) => setStartFrame(e.target.value)}
-                                placeholder='URL / Image ID'
-                                className='h-7 text-xs font-mono'
-                              />
+                              {startFrame ? (
+                                <div className='relative flex items-center gap-1.5 rounded-lg border border-border/70 p-1 bg-muted/30'>
+                                  <img
+                                    src={startFrame}
+                                    alt='Start frame'
+                                    className='size-7 rounded object-cover border border-border/40'
+                                  />
+                                  <span className='text-[10px] text-muted-foreground truncate flex-1 font-mono'>
+                                    {t('Start Frame')}
+                                  </span>
+                                  <button
+                                    type='button'
+                                    onClick={() => setStartFrame('')}
+                                    className='text-muted-foreground hover:text-destructive p-0.5'
+                                    title={t('Clear')}
+                                  >
+                                    <XIcon className='size-3.5' />
+                                  </button>
+                                </div>
+                              ) : (
+                                <label className='flex h-7 items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/80 hover:border-border hover:bg-muted/40 cursor-pointer text-[10px] text-muted-foreground transition px-2'>
+                                  <PlusIcon className='size-3' />
+                                  <span>{t('Upload Image')}</span>
+                                  <input
+                                    type='file'
+                                    accept='image/*'
+                                    className='hidden'
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0]
+                                      if (file) {
+                                        const reader = new FileReader()
+                                        reader.onload = () => {
+                                          if (typeof reader.result === 'string') {
+                                            setStartFrame(reader.result)
+                                          }
+                                        }
+                                        reader.readAsDataURL(file)
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              )}
                             </div>
+
+                            {/* End Frame File Upload with Thumbnail */}
                             <div className='space-y-1'>
                               <Label className='text-[11px] text-muted-foreground'>{t('End Frame')}</Label>
-                              <Input
-                                value={endFrame}
-                                onChange={(e) => setEndFrame(e.target.value)}
-                                placeholder='URL / Image ID'
-                                className='h-7 text-xs font-mono'
-                              />
+                              {endFrame ? (
+                                <div className='relative flex items-center gap-1.5 rounded-lg border border-border/70 p-1 bg-muted/30'>
+                                  <img
+                                    src={endFrame}
+                                    alt='End frame'
+                                    className='size-7 rounded object-cover border border-border/40'
+                                  />
+                                  <span className='text-[10px] text-muted-foreground truncate flex-1 font-mono'>
+                                    {t('End Frame')}
+                                  </span>
+                                  <button
+                                    type='button'
+                                    onClick={() => setEndFrame('')}
+                                    className='text-muted-foreground hover:text-destructive p-0.5'
+                                    title={t('Clear')}
+                                  >
+                                    <XIcon className='size-3.5' />
+                                  </button>
+                                </div>
+                              ) : (
+                                <label className='flex h-7 items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/80 hover:border-border hover:bg-muted/40 cursor-pointer text-[10px] text-muted-foreground transition px-2'>
+                                  <PlusIcon className='size-3' />
+                                  <span>{t('Upload Image')}</span>
+                                  <input
+                                    type='file'
+                                    accept='image/*'
+                                    className='hidden'
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0]
+                                      if (file) {
+                                        const reader = new FileReader()
+                                        reader.onload = () => {
+                                          if (typeof reader.result === 'string') {
+                                            setEndFrame(reader.result)
+                                          }
+                                        }
+                                        reader.readAsDataURL(file)
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1057,6 +1108,41 @@ export function Studio() {
                           </SelectContent>
                         </Select>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Video Uzatma Toggle switch placed directly above Prompt Optimization */}
+                  {mode === 'video' && (
+                    <div className='space-y-2 pt-2 border-t border-border/50'>
+                      <div className='flex items-center justify-between gap-2'>
+                        <div className='space-y-0.5'>
+                          <Label className='text-xs font-medium'>{t('Video Extension')}</Label>
+                          <p className='text-[10px] text-muted-foreground'>
+                            {t('Extend video duration seamlessly through chained generations')}
+                          </p>
+                        </div>
+                        <Switch
+                          checked={videoExtension !== 'off'}
+                          onCheckedChange={(checked) => {
+                            setVideoExtension(checked ? '60' : 'off')
+                          }}
+                        />
+                      </div>
+                      {videoExtension !== 'off' && (
+                        <div className='pt-1'>
+                          <Select value={videoExtension} onValueChange={(val) => setVideoExtension(val as any)}>
+                            <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value='60' className='text-xs'>1 {t('min')} (60s - {t('Chained')})</SelectItem>
+                              <SelectItem value='120' className='text-xs'>2 {t('min')} (120s - {t('Chained')})</SelectItem>
+                              <SelectItem value='300' className='text-xs'>5 {t('min')} (300s - {t('Chained')})</SelectItem>
+                              <SelectItem value='600' className='text-xs'>10 {t('min')} (600s - {t('Chained')})</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1265,6 +1351,14 @@ export function Studio() {
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
               onClick={() => {
                 if (deleteConfirmItemId) {
+                  const targetItem = items.find((i) => i.id === deleteConfirmItemId)
+                  if (targetItem?.urls?.length) {
+                    targetItem.urls.forEach((u) => {
+                      if (u) {
+                        void api.delete('/api/media/cache', { params: { url: u } }).catch(() => {})
+                      }
+                    })
+                  }
                   removeItem(deleteConfirmItemId)
                   if (activeSessionItemId === deleteConfirmItemId) {
                     setActiveSessionItemId(null)
