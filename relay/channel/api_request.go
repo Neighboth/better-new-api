@@ -551,7 +551,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		keyIndex = info.ChannelMultiKeyIndex
 	}
 	rawProxyURL = service.EffectiveRelayProxyURL(info.ChannelId, keyIndex, info.ApiKey, rawProxyURL)
-	isAnonChannel := info != nil && (info.ChannelType == rootconstant.ChannelTypeOpenCode || info.ChannelType == rootconstant.ChannelTypeKiloCodeAnon)
+	isAnonChannel := info != nil && (info.ChannelType == rootconstant.ChannelTypeOpenCode || info.ChannelType == rootconstant.ChannelTypeKiloCodeAnon || info.ChannelType == rootconstant.ChannelTypeLLM7Anon)
 	isLocalhost := info != nil && (strings.Contains(info.ChannelBaseUrl, "localhost") || strings.Contains(info.ChannelBaseUrl, "127.0.0.1"))
 	if isAnonChannel && !isLocalhost && common2.OptionMap["ProxyPoolEnabled"] == "true" {
 		rawProxyURL = service.GetNextProxyForAnonChannel(info.ChannelId, rawProxyURL)

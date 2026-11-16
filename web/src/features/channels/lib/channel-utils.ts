@@ -108,10 +108,11 @@ export function getChannelTypeIcon(type: number): string {
     54: 'Doubao', // DoubaoVideo
     56: 'Replicate', // Replicate
     64: 'Aepi', // Aepi Media
-  65: 'OpenCode', // OpenCode Zen
+  65: 'OpenCode (Anon)', // OpenCode (Anon)
   66: 'Groq', // Groq
   67: 'Claude', // Claude Subscription
   68: 'Kilo', // Kilo Code (Anon)
+  69: 'LLM7', // LLM7 (Anon)
 
     // Tools & Platforms
     37: 'Dify', // Dify

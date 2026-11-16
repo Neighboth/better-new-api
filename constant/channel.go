@@ -66,6 +66,7 @@ const (
 	ChannelTypeGroq           = 66
 	ChannelTypeClaudeSub      = 67
 	ChannelTypeKiloCodeAnon   = 68
+	ChannelTypeLLM7Anon       = 69
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 )
 
@@ -139,6 +140,7 @@ var ChannelBaseURLs = []string{
 	"https://api.groq.com/openai",               //66
 	"https://api.anthropic.com",                 //67 Claude subscription
 	"https://ai-gateway.kilo.ai/api",            //68 Kilo Code Anon
+	"https://api.llm7.io/v1",                    //69 LLM7 Anon
 }
 
 var ChannelTypeNames = map[int]string{
@@ -203,10 +205,11 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeAgnes:          "Agnes AI",
 	ChannelTypeDeepSeekWeb:    "DeepSeek Web",
 	ChannelTypeAepi:           "Aepi Media",
-	ChannelTypeOpenCode:       "OpenCode",
+	ChannelTypeOpenCode:       "OpenCode (Anon)",
 	ChannelTypeGroq:           "Groq",
 	ChannelTypeClaudeSub:      "Claude Subscription (Claude Code)",
 	ChannelTypeKiloCodeAnon:   "Kilo Code (Anon)",
+	ChannelTypeLLM7Anon:       "LLM7 (Anon)",
 }
 
 func GetChannelTypeName(channelType int) string {

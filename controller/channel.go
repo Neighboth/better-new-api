@@ -508,7 +508,7 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 	// 如果是添加操作，检查 channel 和 key 是否为空
 	if isAdd {
 		if channel.Key == "" {
-			if channel.Type == constant.ChannelTypeOpenCode || channel.Type == constant.ChannelTypeKiloCodeAnon {
+			if channel.Type == constant.ChannelTypeOpenCode || channel.Type == constant.ChannelTypeKiloCodeAnon || channel.Type == constant.ChannelTypeLLM7Anon {
 				channel.Key = "default"
 			} else {
 				return fmt.Errorf("channel key cannot be empty")

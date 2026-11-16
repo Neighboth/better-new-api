@@ -247,7 +247,7 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 		}
 	} else {
 		if !hasAuthOverride {
-			isAnon := info.ChannelType == constant.ChannelTypeOpenCode || info.ChannelType == constant.ChannelTypeKiloCodeAnon
+			isAnon := info.ChannelType == constant.ChannelTypeOpenCode || info.ChannelType == constant.ChannelTypeKiloCodeAnon || info.ChannelType == constant.ChannelTypeLLM7Anon
 			if isAnon {
 				key := strings.TrimSpace(info.ApiKey)
 				if key != "" && key != "default" && key != "local" {
@@ -269,6 +269,9 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 	if info.ChannelType == constant.ChannelTypeOpenCode {
 		if header.Get("User-Agent") == "" || strings.HasPrefix(header.Get("User-Agent"), "Go-http-client") {
 			header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) opencode/1.0.0")
+		}
+		if header.Get("x-opencode-client") == "" {
+			header.Set("x-opencode-client", "cli")
 		}
 	}
 	return nil

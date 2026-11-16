@@ -633,7 +633,7 @@ export function Studio() {
                       {activeItem.mode === 'video' && (
                         <div className='w-full max-w-xs flex items-center gap-3'>
                           <Progress
-                            value={progressPercentOf(activeItem.progress ?? '') ?? 15}
+                            value={progressPercentOf(activeItem.progress ?? '') ?? 0}
                             className='h-1.5 flex-1'
                           />
                           <span className='font-mono text-xs text-muted-foreground shrink-0 min-w-[36px] text-right'>

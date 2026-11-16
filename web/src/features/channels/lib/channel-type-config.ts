@@ -252,6 +252,17 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'kilo-auto/free,nvidia/nemotron-3.5-super-vl:free,baidu/ernie-5.5-flash-preview:free',
     },
   },
+  69: {
+    id: 69,
+    name: CHANNEL_TYPES[69],
+    icon: 'Bot',
+    defaultBaseUrl: 'https://api.llm7.io/v1',
+    hints: {
+      baseUrl: 'Default: https://api.llm7.io/v1',
+      key: 'Keyless (Anonymous)',
+      models: 'DeepSeek-V4-Flash-0731,codestral-latest,glm-5.3-flash,gpt-oss:20b,minimax-m2.7,mistral-Nemo-Instruct-2407',
+    },
+  },
 }
 
 /**
