@@ -212,11 +212,11 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     id: 65,
     name: CHANNEL_TYPES[65],
     icon: 'OpenCode',
-    defaultBaseUrl: 'https://opencode.ai/zen',
+    defaultBaseUrl: 'https://opencode.ai/inference/openai',
     hints: {
-      baseUrl: 'Default: https://opencode.ai/zen',
-      key: 'OpenCode Zen API Key (sk-...)',
-      models: 'opencode/grok-code,big-pickle,deepseek-v4.1-flash-free',
+      baseUrl: 'Default: https://opencode.ai/inference/openai (or http://localhost:4096 for local server)',
+      key: 'Not required for free models or local server',
+      models: 'mimo-v2.6-flash-free,deepseek-v4.1-flash-free,glm-5.3-flash-free',
     },
   },
   66: {

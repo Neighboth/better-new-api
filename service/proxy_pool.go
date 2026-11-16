@@ -129,13 +129,18 @@ var (
 	anonChannelCounter sync.Map // int -> uint64
 )
 
-// RecordProxyRateLimited places a proxy on a short 60s cooldown following a 429 response.
-func RecordProxyRateLimited(proxyURL string) {
+// RecordProxyRateLimited places a proxy on cooldown following a 429 response.
+// Accepts an optional duration (e.g. 30 minutes for OpenCode / Kilo Code); defaults to 60s.
+func RecordProxyRateLimited(proxyURL string, duration ...time.Duration) {
 	trimmed := strings.TrimSpace(proxyURL)
 	if trimmed == "" {
 		return
 	}
-	proxy429Cooldown.Store(trimmed, time.Now().Add(60*time.Second))
+	cd := 60 * time.Second
+	if len(duration) > 0 && duration[0] > 0 {
+		cd = duration[0]
+	}
+	proxy429Cooldown.Store(trimmed, time.Now().Add(cd))
 }
 
 // IsProxyRateLimited checks whether a proxy is currently within its 429 cooldown period.

@@ -103,6 +103,10 @@ export function useStudioGeneration() {
       (item) => item.status === 'pending' && item.mode === 'video'
     )
 
+    if (pendingVideos.length > 0) {
+      setIsGenerating(true)
+    }
+
     pendingVideos.forEach((item) => {
       if (activePollingTasks.current.has(item.id)) return
       activePollingTasks.current.add(item.id)
@@ -114,14 +118,19 @@ export function useStudioGeneration() {
         try {
           let currentTaskId = item.taskId
           if (!currentTaskId) {
-            const foundTask = await findLatestVideoTask({
-              model: item.settings?.model as string,
-              sinceMs: item.createdAt,
-              signal: controller.signal,
-            })
-            if (foundTask?.task_id) {
-              currentTaskId = foundTask.task_id
-              patchItem(item.id, { taskId: currentTaskId })
+            for (let attempt = 0; attempt < 6 && !currentTaskId; attempt++) {
+              if (controller.signal.aborted) return
+              const foundTask = await findLatestVideoTask({
+                model: item.settings?.model as string,
+                sinceMs: item.createdAt,
+                signal: controller.signal,
+              })
+              if (foundTask?.task_id) {
+                currentTaskId = foundTask.task_id
+                patchItem(item.id, { taskId: currentTaskId })
+                break
+              }
+              await new Promise((resolve) => setTimeout(resolve, 2000))
             }
           }
 
@@ -286,7 +295,7 @@ export function useStudioGeneration() {
               'You are a professional video generation prompt optimizer and safety enhancer. Rewrite the given prompt into safe, detailed, cinematic English that generative video AI models accept without content violations. Describe camera movement, lighting, visual details, and style cleanly and vividly. CRITICAL REQUIREMENT: If the prompt contains any dialogue, spoken quotes, or speech lines, DO NOT translate the spoken dialogue — keep all spoken words/quotes in Turkish exactly as written. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes around the prompt.'
 
             const chatRes = await api.post(
-              '/v1/chat/completions',
+              '/pg/chat/completions',
               {
                 model: runtimeConfig.studio.prompt_optimizer_model,
                 messages: [
@@ -295,7 +304,11 @@ export function useStudioGeneration() {
                 ],
                 temperature: 0.7,
               },
-              { signal: controller.signal }
+              {
+                signal: controller.signal,
+                skipErrorHandler: true,
+                skipAuthRefresh: true,
+              } as Record<string, unknown>
             )
             const optimized = chatRes.data?.choices?.[0]?.message?.content?.trim()
             if (optimized) {

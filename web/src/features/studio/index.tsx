@@ -630,14 +630,14 @@ export function Studio() {
                           &ldquo;{activeItem.prompt}&rdquo;
                         </p>
                       </div>
-                      {activeItem.mode === 'video' && activeItem.progress && (
+                      {activeItem.mode === 'video' && (
                         <div className='w-full max-w-xs flex items-center gap-3'>
                           <Progress
-                            value={progressPercentOf(activeItem.progress) ?? 25}
+                            value={progressPercentOf(activeItem.progress ?? '') ?? 15}
                             className='h-1.5 flex-1'
                           />
                           <span className='font-mono text-xs text-muted-foreground shrink-0 min-w-[36px] text-right'>
-                            {activeItem.progress}
+                            {activeItem.progress || '0%'}
                           </span>
                         </div>
                       )}

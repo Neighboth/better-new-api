@@ -34,7 +34,6 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 
 import { deleteMultiKeys, testAllKeysOfChannel } from '../../api'
@@ -166,7 +165,6 @@ export function MultiKeyTestDialog({
         onOpenChange={onOpenChange}
         title={
           <div className='flex items-center gap-2'>
-            <KeyRound className='size-5 text-primary' />
             <span>{t('Test Channel Keys')}</span>
             {currentRow && (
               <span className='font-normal text-muted-foreground text-sm truncate max-w-[280px]'>
@@ -274,7 +272,7 @@ export function MultiKeyTestDialog({
           </div>
 
           {/* Results List */}
-          <div className='flex-1 min-h-[280px] max-h-[420px] rounded-xl border border-border/70 overflow-hidden bg-background/50 flex flex-col'>
+          <div className='flex-1 min-h-[300px] max-h-[460px] rounded-xl border border-border/70 overflow-hidden bg-background/50 flex flex-col'>
             {isLoading ? (
               <div className='flex-1 flex flex-col items-center justify-center p-8 gap-3 text-muted-foreground'>
                 <Loader2 className='size-8 animate-spin text-primary' />
@@ -288,68 +286,66 @@ export function MultiKeyTestDialog({
                 <p className='text-xs'>{t('No keys found in this channel.')}</p>
               </div>
             ) : (
-              <ScrollArea className='flex-1'>
-                <div className='divide-y divide-border/50'>
-                  {results.map((item) => {
-                    const isSuccess = item.status === 'success'
-                    const isChecked = selectedIndices.has(item.index)
-                    return (
-                      <div
-                        key={item.index}
-                        onClick={() => toggleSelectKey(item.index)}
-                        className={cn(
-                          'p-3 flex items-start gap-3 hover:bg-muted/40 transition-colors cursor-pointer text-xs',
-                          isChecked && 'bg-primary/5',
-                          !isSuccess && 'bg-destructive/[0.02]'
-                        )}
-                      >
-                        <Checkbox
-                          checked={isChecked}
-                          onCheckedChange={() => toggleSelectKey(item.index)}
-                          onClick={(e) => e.stopPropagation()}
-                          className='mt-0.5'
-                        />
+              <div className='flex-1 overflow-y-auto divide-y divide-border/50'>
+                {results.map((item) => {
+                  const isSuccess = item.status === 'success'
+                  const isChecked = selectedIndices.has(item.index)
+                  return (
+                    <div
+                      key={item.index}
+                      onClick={() => toggleSelectKey(item.index)}
+                      className={cn(
+                        'p-3 flex items-start gap-3 hover:bg-muted/40 transition-colors cursor-pointer text-xs',
+                        isChecked && 'bg-primary/5',
+                        !isSuccess && 'bg-destructive/[0.02]'
+                      )}
+                    >
+                      <Checkbox
+                        checked={isChecked}
+                        onCheckedChange={() => toggleSelectKey(item.index)}
+                        onClick={(e) => e.stopPropagation()}
+                        className='mt-0.5'
+                      />
 
-                        <span className='font-mono text-muted-foreground font-semibold min-w-[28px] text-[11px]'>
-                          #{item.index + 1}
-                        </span>
+                      <span className='font-mono text-muted-foreground font-semibold min-w-[28px] text-[11px]'>
+                        #{item.index + 1}
+                      </span>
 
-                        <div className='flex-1 min-w-0 space-y-1'>
-                          <div className='flex items-center gap-2 flex-wrap'>
-                            <span className='font-mono font-medium truncate max-w-[360px] text-[12px]'>
-                              {item.key}
+                      <div className='flex-1 min-w-0 space-y-1'>
+                        <div className='flex items-center gap-2 flex-wrap'>
+                          <span className='font-mono font-medium truncate max-w-[360px] text-[12px]'>
+                            {item.key}
+                          </span>
+
+                          {isSuccess ? (
+                            <span className='inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'>
+                              <CheckCircle2 className='size-3' />
+                              {t('Working')}
                             </span>
+                          ) : (
+                            <span className='inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-destructive/10 text-destructive'>
+                              <XCircle className='size-3' />
+                              {t('Failed')}
+                            </span>
+                          )}
 
-                            {isSuccess ? (
-                              <span className='inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'>
-                                <CheckCircle2 className='size-3' />
-                                {t('Working')}
-                              </span>
-                            ) : (
-                              <span className='inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-destructive/10 text-destructive'>
-                                <XCircle className='size-3' />
-                                {t('Failed')}
-                              </span>
-                            )}
-
-                            {item.latency_ms > 0 && (
-                              <span className='text-[10px] font-mono text-muted-foreground px-1.5 py-0.2 rounded bg-muted/60'>
-                                {item.latency_ms} ms
-                              </span>
-                            )}
-                          </div>
-
-                          {!isSuccess && item.error && (
-                            <p className='text-[11px] text-destructive/90 break-words font-mono bg-destructive/5 p-1.5 rounded-md border border-destructive/20'>
-                              {item.error}
-                            </p>
+                          {item.latency_ms > 0 && (
+                            <span className='text-[10px] font-mono text-muted-foreground px-1.5 py-0.2 rounded bg-muted/60'>
+                              {item.latency_ms} ms
+                            </span>
                           )}
                         </div>
+
+                        {!isSuccess && item.error && (
+                          <p className='text-[11px] text-destructive/90 break-words font-mono bg-destructive/5 p-1.5 rounded-md border border-destructive/20'>
+                            {item.error}
+                          </p>
+                        )}
                       </div>
-                    )
-                  })}
-                </div>
-              </ScrollArea>
+                    </div>
+                  )
+                })}
+              </div>
             )}
           </div>
         </div>

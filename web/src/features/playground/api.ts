@@ -227,7 +227,7 @@ export async function findLatestVideoTask(
   const candidates = items.filter((item) => {
     if (!item?.task_id) return false
     const createdAt = Number(item.created_at ?? 0)
-    if (since > 0 && createdAt > 0 && createdAt < since - 5) return false
+    if (since > 0 && createdAt > 0 && createdAt < since - 120) return false
     if (options.minCreatedAt && options.minCreatedAt > 0) {
       // A task row created before the anchor we already polled belongs to an
       // older submission; never rescue onto it.

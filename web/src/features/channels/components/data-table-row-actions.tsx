@@ -224,7 +224,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
                   handleTestAllKeys()
                 }}
                 aria-label={t('Test All Keys')}
-                className='text-primary hover:text-primary'
+                className='text-foreground hover:text-foreground'
               />
             }
           >

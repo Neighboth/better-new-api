@@ -1559,8 +1559,8 @@ export function ChannelMutateDrawer({
       return
     }
 
-    // Advanced Custom and OpenCode can fetch models without an API key.
-    if (!isEditing && type !== CHANNEL_TYPE_ADVANCED_CUSTOM && type !== 65) {
+    // Advanced Custom, OpenCode and Kilo Code can fetch models without an API key.
+    if (!isEditing && type !== CHANNEL_TYPE_ADVANCED_CUSTOM && type !== 65 && type !== 68) {
       const key = form.getValues('key')
       if (!key?.trim()) {
         toast.error(t('Please enter API key first'))
@@ -1583,7 +1583,7 @@ export function ChannelMutateDrawer({
     }
     const response = await fetchModels({
       type,
-      key: isEditing ? undefined : form.getValues('key'),
+      key: isEditing ? undefined : (type === 65 || type === 68 ? (form.getValues('key') || 'default') : form.getValues('key')),
       channel_id: editingAdvancedCustom ? channelId || undefined : undefined,
       base_url: form.getValues('base_url') || '',
       advanced_custom: form.getValues('advanced_custom'),
@@ -3148,10 +3148,14 @@ export function ChannelMutateDrawer({
                                     </div>
                                   )}
                                 </div>
-                              ) : currentType === 65 ? (
+                              ) : currentType === 65 || currentType === 68 ? (
                                 <div className='rounded-lg border border-border/60 bg-muted/20 p-3.5 text-xs text-muted-foreground flex items-center gap-2'>
                                   <Info className='size-4 text-primary shrink-0' />
-                                  <span>{t('OpenCode channel does not require an API key as it uses a local (http://localhost:4096) or remote server connection.')}</span>
+                                  <span>
+                                    {currentType === 68
+                                      ? t('Kilo Code (Anon) channel does not require an API key.')
+                                      : t('OpenCode channel does not require an API key as it uses a local (http://localhost:4096) or remote server connection.')}
+                                  </span>
                                 </div>
                               ) : (
                                 <FormField

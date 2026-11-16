@@ -8213,6 +8213,23 @@
     "2. Redirected Localhost URL": "2. Redirected Localhost URL",
     "After logging in, copy the redirected localhost URL from your browser address bar and paste it here.": "After logging in, copy the redirected localhost URL from your browser address bar and paste it here.",
     "Auto Speed Test Interval (Minutes)": "Auto Speed Test Interval (Minutes)",
-    "Disable Failed Proxies Automatically": "Disable Failed Proxies Automatically"
+    "Disable Failed Proxies Automatically": "Disable Failed Proxies Automatically",
+    "Test All Keys": "Test All Keys",
+    "Test Channel Keys": "Test Channel Keys",
+    "Runs a parallel connectivity test for every key in this multi-key channel to detect dead or expired keys.": "Runs a parallel connectivity test for every key in this multi-key channel to detect dead or expired keys.",
+    "Total Keys": "Total Keys",
+    "Working": "Working",
+    "Select All": "Select All",
+    "Retest All": "Retest All",
+    "Delete All Failed ({{count}})": "Delete All Failed ({{count}})",
+    "Delete Selected ({{count}})": "Delete Selected ({{count}})",
+    "Testing keys in parallel...": "Testing keys in parallel...",
+    "No keys found in this channel.": "No keys found in this channel.",
+    "Confirm Key Deletion": "Confirm Key Deletion",
+    "Are you sure you want to permanently delete all {{count}} failing key(s) from this channel? This action cannot be undone.": "Are you sure you want to permanently delete all {{count}} failing key(s) from this channel? This action cannot be undone.",
+    "Are you sure you want to permanently delete {{count}} selected key(s) from this channel? This action cannot be undone.": "Are you sure you want to permanently delete {{count}} selected key(s) from this channel? This action cannot be undone.",
+    "Keys deleted successfully": "Keys deleted successfully",
+    "Failed to delete keys": "Failed to delete keys",
+    "Failed to test keys": "Failed to test keys"
   }
 }

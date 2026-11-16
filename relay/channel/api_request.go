@@ -552,7 +552,8 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 	rawProxyURL = service.EffectiveRelayProxyURL(info.ChannelId, keyIndex, info.ApiKey, rawProxyURL)
 	isAnonChannel := info != nil && (info.ChannelType == rootconstant.ChannelTypeOpenCode || info.ChannelType == rootconstant.ChannelTypeKiloCodeAnon)
-	if isAnonChannel && common2.OptionMap["ProxyPoolEnabled"] == "true" {
+	isLocalhost := info != nil && (strings.Contains(info.ChannelBaseUrl, "localhost") || strings.Contains(info.ChannelBaseUrl, "127.0.0.1"))
+	if isAnonChannel && !isLocalhost && common2.OptionMap["ProxyPoolEnabled"] == "true" {
 		rawProxyURL = service.GetNextProxyForAnonChannel(info.ChannelId, rawProxyURL)
 	}
 	if service.IsCloudflareWorkerProxy(rawProxyURL) {
@@ -620,10 +621,10 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		return nil, errors.New("resp is nil")
 	}
 
-	// Smart retry on 429 for anonymous channels (OpenCode / Kilo Code) across proxy pool
-	if isAnonChannel && resp.StatusCode == http.StatusTooManyRequests && common2.OptionMap["ProxyPoolEnabled"] == "true" && req.GetBody != nil {
-		for retry := 0; retry < 2; retry++ {
-			service.RecordProxyRateLimited(rawProxyURL)
+	// Smart retry on 429 for anonymous channels (OpenCode / Kilo Code) across proxy pool (30m cooldown, max 6 retries)
+	if isAnonChannel && !isLocalhost && resp.StatusCode == http.StatusTooManyRequests && common2.OptionMap["ProxyPoolEnabled"] == "true" && req.GetBody != nil {
+		for retry := 0; retry < 6; retry++ {
+			service.RecordProxyRateLimited(rawProxyURL, 30*time.Minute)
 			nextProxy := service.GetNextProxyForAnonChannel(info.ChannelId, rawProxyURL)
 			if nextProxy == "" || nextProxy == rawProxyURL {
 				break

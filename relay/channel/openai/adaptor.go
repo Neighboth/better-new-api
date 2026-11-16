@@ -266,6 +266,11 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 			header.Set("X-OpenRouter-Title", "New API")
 		}
 	}
+	if info.ChannelType == constant.ChannelTypeOpenCode {
+		if header.Get("User-Agent") == "" || strings.HasPrefix(header.Get("User-Agent"), "Go-http-client") {
+			header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) opencode/1.0.0")
+		}
+	}
 	return nil
 }
 
