@@ -56,6 +56,113 @@ type ProxyPoolAssignment struct {
 	UpdatedAt int64 `json:"updated_at"`
 }
 
+type ProxyPoolListResult struct {
+	Items        []ProxyPoolProxy `json:"items"`
+	Total        int64            `json:"total"`
+	Page         int              `json:"page"`
+	PageSize     int              `json:"page_size"`
+	TotalPages   int              `json:"total_pages"`
+	EnabledCount int64            `json:"enabled_count"`
+}
+
+func ListProxyPoolProxiesPaged(page, pageSize int, keyword string, status string) (*ProxyPoolListResult, error) {
+	if DB == nil {
+		return &ProxyPoolListResult{Items: []ProxyPoolProxy{}, Total: 0, Page: page, PageSize: pageSize}, nil
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	query := DB.Model(&ProxyPoolProxy{})
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where("name LIKE ? OR url LIKE ? OR egress_ip LIKE ?", like, like, like)
+	}
+	if status == "enabled" {
+		query = query.Where("enabled = ?", true)
+	} else if status == "disabled" {
+		query = query.Where("enabled = ?", false)
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, err
+	}
+
+	var enabledCount int64
+	_ = DB.Model(&ProxyPoolProxy{}).Where("enabled = ?", true).Count(&enabledCount).Error
+
+	offset := (page - 1) * pageSize
+	var proxies []ProxyPoolProxy
+	err := query.Order("id ASC").Limit(pageSize).Offset(offset).Find(&proxies).Error
+	if err != nil {
+		return nil, err
+	}
+
+	if len(proxies) > 0 {
+		ids := make([]int, len(proxies))
+		for i, p := range proxies {
+			ids[i] = p.Id
+		}
+		var counts []struct {
+			ProxyId int
+			Count   int
+		}
+		_ = DB.Model(&ProxyPoolAssignment{}).
+			Select("proxy_id, count(*) as count").
+			Where("proxy_id IN ?", ids).
+			Group("proxy_id").
+			Scan(&counts).Error
+
+		countMap := make(map[int]int, len(counts))
+		for _, c := range counts {
+			countMap[c.ProxyId] = c.Count
+		}
+		for i := range proxies {
+			proxies[i].AssignedKeys = countMap[proxies[i].Id]
+			if proxies[i].Enabled && proxies[i].AssignedKeys == 0 {
+				proxies[i].IsBackup = true
+			}
+		}
+	}
+
+	totalPages := int(total) / pageSize
+	if int(total)%pageSize != 0 {
+		totalPages++
+	}
+
+	return &ProxyPoolListResult{
+		Items:        proxies,
+		Total:        total,
+		Page:         page,
+		PageSize:     pageSize,
+		TotalPages:   totalPages,
+		EnabledCount: enabledCount,
+	}, nil
+}
+
+func BatchCreateProxyPoolProxies(proxies []ProxyPoolProxy) (int, error) {
+	if DB == nil || len(proxies) == 0 {
+		return 0, nil
+	}
+	now := common.GetTimestamp()
+	for i := range proxies {
+		proxies[i].CreatedAt = now
+		proxies[i].UpdatedAt = now
+	}
+	err := DB.CreateInBatches(proxies, 500).Error
+	if err != nil {
+		return 0, err
+	}
+	return len(proxies), nil
+}
+
 func ListProxyPoolProxies() ([]ProxyPoolProxy, error) {
 	if DB == nil {
 		return []ProxyPoolProxy{}, nil

@@ -249,14 +249,14 @@ func IsCloudflareWorkerProxy(proxyURL string) bool {
 // internet, returning the egress IP as seen by a remote service and the
 // round-trip duration in milliseconds. The call uses a short context timeout
 // so a dead proxy never blocks the admin UI.
-func TestProxyEgress(rawProxyURL string) (string, int64, error) {
+func TestProxyEgress(rawProxyURL string, proxyType ...string) (string, int64, error) {
 	trimmed := strings.TrimSpace(rawProxyURL)
 	if trimmed == "" {
 		return "", 0, fmt.Errorf("empty proxy URL")
 	}
 
 	// 1. Dedicated handling for Cloudflare Worker proxies
-	if IsCloudflareWorkerProxy(trimmed) {
+	if (len(proxyType) > 0 && proxyType[0] == "cloudflare_worker") || IsCloudflareWorkerProxy(trimmed) {
 		workerURL := trimmed
 		if !strings.HasPrefix(workerURL, "http://") && !strings.HasPrefix(workerURL, "https://") {
 			workerURL = "https://" + workerURL

@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  AlertTriangle,
   CheckCircle2,
   CircleX,
   Cloud,
@@ -27,8 +28,11 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Power,
+  PowerOff,
   RefreshCw,
   Trash2,
+  Upload,
   Waypoints,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -63,6 +67,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Table,
   TableBody,
@@ -82,6 +87,7 @@ import { cn } from '@/lib/utils'
 
 import {
   assignProxiesEvenly,
+  batchCreateProxies,
   clearAssignments,
   createProxy,
   deleteProxy,
@@ -116,11 +122,19 @@ export function ProxyPool() {
   const [testingId, setTestingId] = useState<number | null>(null)
   const [detailTarget, setDetailTarget] = useState<ProxyPoolProxy | null>(null)
 
-  const [proxyTab, setProxyTab] = useState<'line' | 'cloudflare'>('line')
+  const [proxyTab, setProxyTab] = useState<'line' | 'cloudflare' | 'bulk'>('line')
   const [cfAccountId, setCfAccountId] = useState('')
   const [cfApiToken, setCfApiToken] = useState('')
   const [cfWorkerName, setCfWorkerName] = useState('better-api-proxy')
   const [cfDeploying, setCfDeploying] = useState(false)
+
+  const [bulkBaseName, setBulkBaseName] = useState('Proxy')
+  const [bulkText, setBulkText] = useState('')
+  const [bulkEnabled, setBulkEnabled] = useState(true)
+  const [isBulkSaving, setIsBulkSaving] = useState(false)
+  const [togglingProxyId, setTogglingProxyId] = useState<number | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 20
 
   const [selectedProxyIds, setSelectedProxyIds] = useState<number[]>([])
   const [batchNameDialogOpen, setBatchNameDialogOpen] = useState(false)
@@ -228,6 +242,8 @@ export function ProxyPool() {
         account_id: cfAccountId.trim(),
         api_token: cfApiToken.trim(),
         worker_name: cfWorkerName.trim() || 'better-api-proxy',
+        name: form.name.trim() || 'Cloudflare Worker Proxy',
+        enabled: form.enabled,
       })
       if (res.data?.success) {
         toast.success(t('Cloudflare Worker deployed and added as proxy successfully'))
@@ -240,6 +256,61 @@ export function ProxyPool() {
       toast.error(err?.response?.data?.message || t('Deployment failed'))
     } finally {
       setCfDeploying(false)
+    }
+  }
+
+  const handleBulkSave = async () => {
+    const lines = bulkText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !l.startsWith('#'))
+    if (lines.length === 0) {
+      toast.error(t('Please enter at least one proxy'))
+      return
+    }
+    setIsBulkSaving(true)
+    try {
+      const proxies = lines.map((url, idx) => ({
+        url,
+        name: lines.length === 1 ? (bulkBaseName.trim() || 'Proxy') : `${bulkBaseName.trim() || 'Proxy'}-${idx + 1}`,
+        enabled: bulkEnabled,
+      }))
+      const res = await batchCreateProxies({
+        base_name: bulkBaseName.trim() || 'Proxy',
+        enabled: bulkEnabled,
+        proxies,
+      })
+      if (!res.success) {
+        toast.error(res.message || t('Failed to import proxies'))
+        return
+      }
+      toast.success(t('Successfully imported {{count}} proxies', { count: res.data?.count ?? proxies.length }))
+      setDialogOpen(false)
+      setBulkText('')
+      invalidateAll()
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || t('Failed to import proxies'))
+    } finally {
+      setIsBulkSaving(false)
+    }
+  }
+
+  const handleToggleProxyEnabled = async (proxy: ProxyPoolProxy) => {
+    setTogglingProxyId(proxy.id)
+    try {
+      const res = await updateProxy(proxy.id, { enabled: !proxy.enabled })
+      if (!res.success) {
+        toast.error(res.message || t('Proxy could not be updated'))
+        return
+      }
+      toast.success(
+        !proxy.enabled ? t('Proxy enabled') : t('Proxy disabled')
+      )
+      invalidateAll()
+    } catch (err: any) {
+      toast.error(err?.message || t('Proxy could not be updated'))
+    } finally {
+      setTogglingProxyId(null)
     }
   }
 
@@ -257,15 +328,33 @@ export function ProxyPool() {
   })
 
   const proxiesQuery = useQuery({
-    queryKey: ['proxy-pool-proxies'],
+    queryKey: ['proxy-pool-proxies', currentPage],
     queryFn: async () => {
-      const res = await listProxies()
+      const res = await listProxies({
+        page: currentPage,
+        page_size: pageSize,
+      })
       if (!res.success) {
         throw new Error(res.message || 'failed to load proxies')
       }
-      return Array.isArray(res.data) ? res.data : []
+      if (Array.isArray(res.data)) {
+        return {
+          items: res.data,
+          total: res.data.length,
+          page: 1,
+          page_size: res.data.length,
+          total_pages: 1,
+          enabled_count: res.data.filter((p) => p.enabled).length,
+        }
+      }
+      return res.data
     },
   })
+
+  const proxyList = proxiesQuery.data?.items ?? []
+  const totalProxies = proxiesQuery.data?.total ?? 0
+  const totalPages = proxiesQuery.data?.total_pages ?? 1
+  const enabledCount = proxiesQuery.data?.enabled_count ?? proxyList.filter((p) => p.enabled).length
 
   const channelsQuery = useQuery({
     queryKey: ['proxy-pool-channels'],
@@ -486,7 +575,7 @@ export function ProxyPool() {
                 <div className='rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm'>
                   {t('Proxies could not be loaded')}
                 </div>
-              ) : (proxiesQuery.data ?? []).length === 0 ? (
+              ) : totalProxies === 0 ? (
                 <div className='flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-8 text-center'>
                   <Waypoints className='h-8 w-8 text-muted-foreground' />
                   <p className='text-sm font-medium'>{t('No proxies in the pool yet')}</p>
@@ -495,18 +584,19 @@ export function ProxyPool() {
                   </p>
                 </div>
               ) : (
+                <>
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className='w-[40px]'>
                         <Checkbox
                           checked={
-                            (proxiesQuery.data ?? []).length > 0 &&
-                            selectedProxyIds.length === (proxiesQuery.data ?? []).length
+                            proxyList.length > 0 &&
+                            selectedProxyIds.length === proxyList.length
                           }
                           onCheckedChange={(checked) => {
                             if (checked) {
-                              setSelectedProxyIds((proxiesQuery.data ?? []).map((p) => p.id))
+                              setSelectedProxyIds(proxyList.map((p) => p.id))
                             } else {
                               setSelectedProxyIds([])
                             }
@@ -524,10 +614,13 @@ export function ProxyPool() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(proxiesQuery.data ?? []).map((proxy) => (
+                    {proxyList.map((proxy) => (
                       <TableRow
                         key={proxy.id}
-                        className={selectedProxyIds.includes(proxy.id) ? 'bg-muted/40' : undefined}
+                        className={cn(
+                          selectedProxyIds.includes(proxy.id) && 'bg-muted/40',
+                          !proxy.enabled && 'opacity-60 bg-muted/20 hover:opacity-100 transition-opacity'
+                        )}
                       >
                         <TableCell>
                           <Checkbox
@@ -643,6 +736,30 @@ export function ProxyPool() {
                                     <Button
                                       size='icon'
                                       variant='ghost'
+                                      disabled={togglingProxyId === proxy.id}
+                                      onClick={() => void handleToggleProxyEnabled(proxy)}
+                                      aria-label={proxy.enabled ? t('Disable proxy') : t('Enable proxy')}
+                                    >
+                                      {togglingProxyId === proxy.id ? (
+                                        <Loader2 className='h-4 w-4 animate-spin' />
+                                      ) : proxy.enabled ? (
+                                        <Power className='h-4 w-4 text-emerald-600' />
+                                      ) : (
+                                        <PowerOff className='h-4 w-4 text-muted-foreground' />
+                                      )}
+                                    </Button>
+                                  }
+                                />
+                                <TooltipContent>
+                                  {proxy.enabled ? t('Disable proxy') : t('Enable proxy')}
+                                </TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <Button
+                                      size='icon'
+                                      variant='ghost'
                                       onClick={() => openEditDialog(proxy)}
                                       aria-label={t('Edit proxy')}
                                     >
@@ -674,6 +791,41 @@ export function ProxyPool() {
                     ))}
                   </TableBody>
                 </Table>
+                {totalPages > 1 && (
+                  <div className='flex flex-wrap items-center justify-between gap-3 px-2 pt-4 border-t'>
+                    <div className='text-xs text-muted-foreground'>
+                      {t('Showing page {{page}} of {{totalPages}} ({{total}} total proxies)', {
+                        page: currentPage,
+                        totalPages,
+                        total: totalProxies,
+                      })}
+                    </div>
+                    <div className='flex items-center gap-2'>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        disabled={currentPage <= 1 || proxiesQuery.isLoading}
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        className='h-8 text-xs'
+                      >
+                        {t('Previous')}
+                      </Button>
+                      <span className='text-xs font-medium px-2'>
+                        {currentPage} / {totalPages}
+                      </span>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        disabled={currentPage >= totalPages || proxiesQuery.isLoading}
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        className='h-8 text-xs'
+                      >
+                        {t('Next')}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                </>
               )}
             </CardContent>
           </Card>
@@ -695,7 +847,7 @@ export function ProxyPool() {
                 size='sm'
                 disabled={
                   rebalanceMutation.isPending ||
-                  (proxiesQuery.data ?? []).filter((p) => p.enabled).length === 0
+                  enabledCount === 0
                 }
                 onClick={() => rebalanceMutation.mutate()}
                 className='shrink-0'
@@ -766,7 +918,7 @@ export function ProxyPool() {
                               variant='outline'
                               disabled={
                                 assignMutation.isPending ||
-                                (proxiesQuery.data ?? []).filter((p) => p.enabled).length === 0
+                                enabledCount === 0
                               }
                               onClick={() => assignMutation.mutate(channel.id)}
                             >
@@ -798,8 +950,8 @@ export function ProxyPool() {
     </SectionPageLayout>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className='max-w-lg'>
-          <DialogHeader>
+        <DialogContent className='max-w-lg w-[95vw] sm:w-full max-h-[90vh] sm:max-h-[85vh] flex flex-col p-0 overflow-hidden'>
+          <DialogHeader className='p-5 sm:p-6 pb-3 border-b shrink-0'>
             <DialogTitle>
               {form.id !== undefined ? t('Edit proxy') : t('Add proxy')}
             </DialogTitle>
@@ -808,177 +960,293 @@ export function ProxyPool() {
             </DialogDescription>
           </DialogHeader>
 
-          {form.id === undefined && (
-            <Tabs value={proxyTab} onValueChange={(v) => setProxyTab(v as any)} className='w-full'>
-              <TabsList className='grid grid-cols-2 w-full'>
-                <TabsTrigger value='line'>{t('Proxy URL')}</TabsTrigger>
-                <TabsTrigger value='cloudflare'>{t('Cloudflare Worker')}</TabsTrigger>
-              </TabsList>
+          <div className='flex-1 overflow-y-auto px-5 sm:px-6 py-4 space-y-4'>
+            {form.id === undefined && (
+              <Tabs value={proxyTab} onValueChange={(v) => setProxyTab(v as any)} className='w-full'>
+                <TabsList className='grid grid-cols-3 w-full'>
+                  <TabsTrigger value='line' className='text-xs'>{t('Proxy URL')}</TabsTrigger>
+                  <TabsTrigger value='cloudflare' className='text-xs'>{t('Cloudflare Worker')}</TabsTrigger>
+                  <TabsTrigger value='bulk' className='text-xs'>{t('Bulk Import')}</TabsTrigger>
+                </TabsList>
 
-              <TabsContent value='line' className='mt-3'>
-                <div className='flex flex-col gap-4 py-1'>
-                  <div className='flex flex-col gap-2'>
-                    <Label htmlFor='proxy-name'>{t('Name')}</Label>
-                    <Input
-                      id='proxy-name'
-                      value={form.name}
-                      onChange={(event) => setForm({ ...form, name: event.target.value })}
-                      placeholder={t('Residential DE 01')}
-                      autoComplete='off'
-                    />
+                <TabsContent value='line' className='mt-3'>
+                  <div className='flex flex-col gap-4 py-1'>
+                    <div className='flex flex-col gap-2'>
+                      <Label htmlFor='proxy-name'>{t('Name')}</Label>
+                      <Input
+                        id='proxy-name'
+                        value={form.name}
+                        onChange={(event) => setForm({ ...form, name: event.target.value })}
+                        placeholder={t('Residential DE 01')}
+                        autoComplete='off'
+                      />
+                    </div>
+                    <div className='flex flex-col gap-2'>
+                      <Label htmlFor='proxy-url'>{t('URL')}</Label>
+                      <Input
+                        id='proxy-url'
+                        value={form.url}
+                        onChange={(event) => setForm({ ...form, url: event.target.value })}
+                        placeholder='http://user:password@host:port, [ipv6]:port or socks5://...'
+                        autoComplete='off'
+                        spellCheck={false}
+                      />
+                    </div>
+                    <div className='flex items-center justify-between rounded-lg border p-3'>
+                      <div>
+                        <Label htmlFor='proxy-enabled' className='cursor-pointer text-xs font-medium'>
+                          {t('Enabled')}
+                        </Label>
+                        <p className='text-muted-foreground text-[11px]'>
+                          {t('Disabled proxies keep their URLs but receive no keys.')}
+                        </p>
+                      </div>
+                      <Switch
+                        id='proxy-enabled'
+                        checked={form.enabled}
+                        onCheckedChange={(checked) => setForm({ ...form, enabled: checked })}
+                      />
+                    </div>
                   </div>
-                  <div className='flex flex-col gap-2'>
-                    <Label htmlFor='proxy-url'>{t('URL')}</Label>
+                </TabsContent>
+
+                <TabsContent value='cloudflare' className='mt-3 space-y-4'>
+                  <div className='flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-amber-700 dark:text-amber-400 text-xs'>
+                    <AlertTriangle className='size-4 shrink-0 mt-0.5' />
+                    <p className='leading-relaxed'>
+                      {t('Cloudflare worker proxies may have high latency and IP instability, not recommended for high performance requirements.')}
+                    </p>
+                  </div>
+
+                  <div className='rounded-xl border p-3 bg-muted/20 space-y-2'>
+                    <div className='flex items-center justify-between'>
+                      <div className='text-xs font-semibold'>{t('1. Worker Script')}</div>
+                      <Button size='sm' variant='outline' type='button' onClick={() => void copyWorkerScript()}>
+                        <Copy className='me-1.5 h-3.5 w-3.5' />
+                        {t('Copy Script')}
+                      </Button>
+                    </div>
+                    <p className='text-xs text-muted-foreground'>
+                      {t('You can create a new Worker in the Cloudflare dashboard and paste this script to deploy it.')}
+                    </p>
+                  </div>
+
+                  <div className='rounded-xl border p-3 space-y-3'>
+                    <div className='text-xs font-semibold'>{t('2. One-Click Auto Deploy')}</div>
+                    <div className='space-y-2'>
+                      <Label className='text-xs'>{t('Cloudflare Account ID')}</Label>
+                      <Input
+                        className='text-xs font-mono'
+                        value={cfAccountId}
+                        onChange={(e) => setCfAccountId(e.target.value)}
+                        placeholder='e.g. 1a2b3c4d5e...'
+                      />
+                    </div>
+                    <div className='space-y-2'>
+                      <Label className='text-xs'>{t('Cloudflare API Token')}</Label>
+                      <Input
+                        className='text-xs font-mono'
+                        type='password'
+                        value={cfApiToken}
+                        onChange={(e) => setCfApiToken(e.target.value)}
+                        placeholder='Workers Edit token'
+                      />
+                    </div>
+                    <div className='space-y-2'>
+                      <Label className='text-xs'>{t('Worker Name')}</Label>
+                      <Input
+                        className='text-xs'
+                        value={cfWorkerName}
+                        onChange={(e) => setCfWorkerName(e.target.value)}
+                        placeholder='better-api-proxy'
+                      />
+                    </div>
+                    <Button
+                      type='button'
+                      className='w-full'
+                      disabled={cfDeploying}
+                      onClick={() => void handleDeployWorker()}
+                    >
+                      {cfDeploying ? (
+                        <>
+                          <Loader2 className='me-2 h-4 w-4 animate-spin' />
+                          {t('Deploying...')}
+                        </>
+                      ) : (
+                        <>
+                          <Cloud className='me-2 h-4 w-4' />
+                          {t('Deploy to Cloudflare Workers & Add')}
+                        </>
+                      )}
+                    </Button>
+                  </div>
+
+                  <div className='space-y-2'>
+                    <Label className='text-xs'>{t('Or Enter Existing Worker URL')}</Label>
                     <Input
-                      id='proxy-url'
+                      className='text-xs font-mono'
                       value={form.url}
-                      onChange={(event) => setForm({ ...form, url: event.target.value })}
-                      placeholder='http://user:password@host:port, [ipv6]:port or socks5://...'
-                      autoComplete='off'
-                      spellCheck={false}
+                      onChange={(e) => setForm({ ...form, url: e.target.value, name: form.name || 'Cloudflare Worker' })}
+                      placeholder='https://my-proxy.workers.dev'
                     />
                   </div>
+
                   <div className='flex items-center justify-between rounded-lg border p-3'>
                     <div>
-                      <Label htmlFor='proxy-enabled' className='cursor-pointer'>
+                      <Label htmlFor='cf-proxy-enabled' className='cursor-pointer text-xs font-medium'>
                         {t('Enabled')}
                       </Label>
-                      <p className='text-muted-foreground text-xs'>
+                      <p className='text-muted-foreground text-[11px]'>
                         {t('Disabled proxies keep their URLs but receive no keys.')}
                       </p>
                     </div>
                     <Switch
-                      id='proxy-enabled'
+                      id='cf-proxy-enabled'
                       checked={form.enabled}
                       onCheckedChange={(checked) => setForm({ ...form, enabled: checked })}
                     />
                   </div>
-                </div>
-              </TabsContent>
+                </TabsContent>
 
-              <TabsContent value='cloudflare' className='mt-3 space-y-4'>
-                <div className='rounded-xl border p-3 bg-muted/20 space-y-2'>
-                  <div className='flex items-center justify-between'>
-                    <div className='text-xs font-semibold'>{t('1. Worker Script')}</div>
-                    <Button size='sm' variant='outline' type='button' onClick={() => void copyWorkerScript()}>
-                      <Copy className='me-1.5 h-3.5 w-3.5' />
-                      {t('Copy Script')}
-                    </Button>
+                <TabsContent value='bulk' className='mt-3 space-y-4'>
+                  <div className='space-y-2'>
+                    <Label htmlFor='bulk-base-name' className='text-xs font-medium'>
+                      {t('Base Name')}
+                    </Label>
+                    <Input
+                      id='bulk-base-name'
+                      value={bulkBaseName}
+                      onChange={(e) => setBulkBaseName(e.target.value)}
+                      placeholder='Proxy (Proxy-1, Proxy-2...)'
+                      autoComplete='off'
+                    />
                   </div>
-                  <p className='text-xs text-muted-foreground'>
-                    {t('You can create a new Worker in the Cloudflare dashboard and paste this script to deploy it.')}
-                  </p>
-                </div>
 
-                <div className='rounded-xl border p-3 space-y-3'>
-                  <div className='text-xs font-semibold'>{t('2. One-Click Auto Deploy')}</div>
                   <div className='space-y-2'>
-                    <Label className='text-xs'>{t('Cloudflare Account ID')}</Label>
-                    <Input
-                      className='text-xs font-mono'
-                      value={cfAccountId}
-                      onChange={(e) => setCfAccountId(e.target.value)}
-                      placeholder='e.g. 1a2b3c4d5e...'
+                    <div className='flex items-center justify-between'>
+                      <Label htmlFor='bulk-text' className='text-xs font-medium'>
+                        {t('Proxies (One per line)')}
+                      </Label>
+                      <label className='cursor-pointer text-xs text-primary hover:underline flex items-center gap-1'>
+                        <Upload className='size-3.5' />
+                        <span>{t('Upload .txt file')}</span>
+                        <input
+                          type='file'
+                          accept='.txt,text/plain'
+                          className='hidden'
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (file) {
+                              const reader = new FileReader()
+                              reader.onload = () => {
+                                if (typeof reader.result === 'string') {
+                                  setBulkText(reader.result)
+                                }
+                              }
+                              reader.readAsText(file)
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                    <Textarea
+                      id='bulk-text'
+                      value={bulkText}
+                      onChange={(e) => setBulkText(e.target.value)}
+                      placeholder={`socks5://1.2.3.4:1080\nsocks4://user:pass@1.2.3.4:1080\n1.2.3.4:8080:user:pass\nhttp://1.2.3.4:8080`}
+                      rows={5}
+                      className='font-mono text-xs'
+                    />
+                    <p className='text-[11px] text-muted-foreground'>
+                      {t('Supports socks5, socks4, http, https, host:port:user:pass or host:port formats.')}
+                    </p>
+                  </div>
+
+                  <div className='flex items-center justify-between rounded-lg border p-3'>
+                    <div>
+                      <Label htmlFor='bulk-enabled' className='cursor-pointer text-xs font-medium'>
+                        {t('Enabled')}
+                      </Label>
+                      <p className='text-muted-foreground text-[11px]'>
+                        {t('Disabled proxies keep their URLs but receive no keys.')}
+                      </p>
+                    </div>
+                    <Switch
+                      id='bulk-enabled'
+                      checked={bulkEnabled}
+                      onCheckedChange={setBulkEnabled}
                     />
                   </div>
-                  <div className='space-y-2'>
-                    <Label className='text-xs'>{t('Cloudflare API Token')}</Label>
-                    <Input
-                      className='text-xs font-mono'
-                      type='password'
-                      value={cfApiToken}
-                      onChange={(e) => setCfApiToken(e.target.value)}
-                      placeholder='Workers Edit token'
-                    />
-                  </div>
-                  <div className='space-y-2'>
-                    <Label className='text-xs'>{t('Worker Name')}</Label>
-                    <Input
-                      className='text-xs'
-                      value={cfWorkerName}
-                      onChange={(e) => setCfWorkerName(e.target.value)}
-                      placeholder='better-api-proxy'
-                    />
-                  </div>
+
                   <Button
                     type='button'
                     className='w-full'
-                    disabled={cfDeploying}
-                    onClick={() => void handleDeployWorker()}
+                    disabled={isBulkSaving || !bulkText.trim()}
+                    onClick={() => void handleBulkSave()}
                   >
-                    {cfDeploying ? (
+                    {isBulkSaving ? (
                       <>
                         <Loader2 className='me-2 h-4 w-4 animate-spin' />
-                        {t('Deploying...')}
+                        {t('Importing...')}
                       </>
                     ) : (
                       <>
-                        <Cloud className='me-2 h-4 w-4' />
-                        {t('Deploy to Cloudflare Workers & Add')}
+                        <Plus className='me-2 h-4 w-4' />
+                        {t('Import Proxies')}
                       </>
                     )}
                   </Button>
-                </div>
+                </TabsContent>
+              </Tabs>
+            )}
 
-                <div className='space-y-2'>
-                  <Label className='text-xs'>{t('Or Enter Existing Worker URL')}</Label>
+            {form.id !== undefined && (
+              <div className='flex flex-col gap-4 py-2'>
+                <div className='flex flex-col gap-2'>
+                  <Label htmlFor='proxy-name'>{t('Name')}</Label>
                   <Input
-                    className='text-xs font-mono'
-                    value={form.url}
-                    onChange={(e) => setForm({ ...form, url: e.target.value, name: form.name || 'Cloudflare Worker' })}
-                    placeholder='https://my-proxy.workers.dev'
+                    id='proxy-name'
+                    value={form.name}
+                    onChange={(event) => setForm({ ...form, name: event.target.value })}
+                    placeholder={t('Residential DE 01')}
+                    autoComplete='off'
                   />
                 </div>
-              </TabsContent>
-            </Tabs>
-          )}
-
-          {form.id !== undefined && (
-            <div className='flex flex-col gap-4 py-2'>
-              <div className='flex flex-col gap-2'>
-                <Label htmlFor='proxy-name'>{t('Name')}</Label>
-                <Input
-                  id='proxy-name'
-                  value={form.name}
-                  onChange={(event) => setForm({ ...form, name: event.target.value })}
-                  placeholder={t('Residential DE 01')}
-                  autoComplete='off'
-                />
-              </div>
-              <div className='flex flex-col gap-2'>
-                <Label htmlFor='proxy-url'>{t('URL')}</Label>
-                <Input
-                  id='proxy-url'
-                  value={form.url}
-                  onChange={(event) => setForm({ ...form, url: event.target.value })}
-                  placeholder='http://user:password@host:port, [ipv6]:port or socks5://...'
-                  autoComplete='off'
-                  spellCheck={false}
-                />
-              </div>
-              <div className='flex items-center justify-between rounded-lg border p-3'>
-                <div>
-                  <Label htmlFor='proxy-enabled' className='cursor-pointer'>
-                    {t('Enabled')}
-                  </Label>
-                  <p className='text-muted-foreground text-xs'>
-                    {t('Disabled proxies keep their URLs but receive no keys.')}
-                  </p>
+                <div className='flex flex-col gap-2'>
+                  <Label htmlFor='proxy-url'>{t('URL')}</Label>
+                  <Input
+                    id='proxy-url'
+                    value={form.url}
+                    onChange={(event) => setForm({ ...form, url: event.target.value })}
+                    placeholder='http://user:password@host:port, [ipv6]:port or socks5://...'
+                    autoComplete='off'
+                    spellCheck={false}
+                  />
                 </div>
-                <Switch
-                  id='proxy-enabled'
-                  checked={form.enabled}
-                  onCheckedChange={(checked) => setForm({ ...form, enabled: checked })}
-                />
+                <div className='flex items-center justify-between rounded-lg border p-3'>
+                  <div>
+                    <Label htmlFor='proxy-enabled' className='cursor-pointer text-xs font-medium'>
+                      {t('Enabled')}
+                    </Label>
+                    <p className='text-muted-foreground text-[11px]'>
+                      {t('Disabled proxies keep their URLs but receive no keys.')}
+                    </p>
+                  </div>
+                  <Switch
+                    id='proxy-enabled'
+                    checked={form.enabled}
+                    onCheckedChange={(checked) => setForm({ ...form, enabled: checked })}
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          <DialogFooter>
+          <DialogFooter className='p-4 border-t bg-muted/20 flex flex-row items-center justify-end gap-2 shrink-0'>
             <Button variant='ghost' onClick={() => setDialogOpen(false)}>
               {t('Cancel')}
             </Button>
-            {proxyTab === 'line' || form.id !== undefined || form.url.trim() ? (
+            {proxyTab === 'line' || form.id !== undefined || (proxyTab === 'cloudflare' && form.url.trim()) ? (
               <Button disabled={saveMutation.isPending} onClick={submitForm}>
                 {saveMutation.isPending && (
                   <Loader2 className='mr-2 h-4 w-4 animate-spin' />

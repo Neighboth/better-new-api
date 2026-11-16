@@ -51,14 +51,6 @@ type PlaygroundSetting struct {
 	VideoEnabled bool         `json:"video_enabled"`
 	VideoModels  []MediaModel `json:"video_models"`
 
-	// Music models of the playground tool and of the studio.
-	MusicEnabled bool         `json:"music_enabled"`
-	MusicModels  []MediaModel `json:"music_models"`
-
-	// Upscale models of the playground tool and of the studio.
-	UpscaleEnabled bool         `json:"upscale_enabled"`
-	UpscaleModels  []MediaModel `json:"upscale_models"`
-
 	// Studio page availability and defaults.
 	StudioEnabled      bool   `json:"studio_enabled"`
 	StudioDefaultModel string `json:"studio_default_model"`
@@ -114,11 +106,6 @@ var playgroundSetting = PlaygroundSetting{
 	VideoQualities:       "standard,high",
 	VideoDefaultQuality:  "standard",
 	VideoReferenceImage:  true,
-
-	MusicEnabled:   true,
-	MusicModels:    []MediaModel{{Model: "music"}},
-	UpscaleEnabled: true,
-	UpscaleModels:  []MediaModel{{Model: "upscale"}, {Model: "image-upscale"}},
 
 	StudioEnabled:      true,
 	StudioDefaultModel: "",
@@ -197,22 +184,6 @@ func (s *PlaygroundSetting) VideoModelOptions() []MediaModel {
 		DefaultRatio:   s.VideoDefaultRatio,
 		DefaultQuality: s.VideoDefaultQuality,
 	}}
-}
-
-// MusicModelOptions returns the music models for the studio.
-func (s *PlaygroundSetting) MusicModelOptions() []MediaModel {
-	if len(s.MusicModels) > 0 {
-		return s.MusicModels
-	}
-	return []MediaModel{{Model: "music"}}
-}
-
-// UpscaleModelOptions returns the upscale models for the studio.
-func (s *PlaygroundSetting) UpscaleModelOptions() []MediaModel {
-	if len(s.UpscaleModels) > 0 {
-		return s.UpscaleModels
-	}
-	return []MediaModel{{Model: "upscale"}, {Model: "image-upscale"}}
 }
 
 // VideoDurationRange returns the shortest and the longest duration of all

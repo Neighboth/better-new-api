@@ -114,7 +114,7 @@ func NormalizeProxyLine(raw string) (string, error) {
 	}
 
 	if port == "" {
-		if scheme == "socks5" || scheme == "socks5h" {
+		if scheme == "socks5" || scheme == "socks5h" || scheme == "socks4" || scheme == "socks4a" {
 			port = "1080"
 		} else if scheme == "https" {
 			port = "443"
@@ -173,9 +173,9 @@ func parseProxyURL(rawProxyURL string, allowLegacySuffix bool) (*url.URL, bool, 
 	}
 	parsedURL.Scheme = strings.ToLower(parsedURL.Scheme)
 	switch parsedURL.Scheme {
-	case "http", "https", "socks5", "socks5h":
+	case "http", "https", "socks5", "socks5h", "socks4", "socks4a":
 	default:
-		return nil, false, fmt.Errorf("proxy URL must use http, https, socks5, or socks5h")
+		return nil, false, fmt.Errorf("proxy URL must use http, https, socks5, socks5h, socks4, or socks4a")
 	}
 	if parsedURL.Hostname() == "" {
 		return nil, false, fmt.Errorf("proxy URL must include a host")
@@ -210,7 +210,7 @@ func parseProxyURL(rawProxyURL string, allowLegacySuffix bool) (*url.URL, bool, 
 	parsedURL.Fragment = ""
 	parsedURL.RawFragment = ""
 
-	if (parsedURL.Scheme == "socks5" || parsedURL.Scheme == "socks5h") && parsedURL.Port() == "" {
+	if (parsedURL.Scheme == "socks5" || parsedURL.Scheme == "socks5h" || parsedURL.Scheme == "socks4" || parsedURL.Scheme == "socks4a") && parsedURL.Port() == "" {
 		parsedURL.Host = net.JoinHostPort(parsedURL.Hostname(), "1080")
 	}
 

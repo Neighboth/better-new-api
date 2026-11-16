@@ -108,62 +108,77 @@ func fetchAntigravityInfo(token string, baseURL string) (project string, detecte
 	if token == "" {
 		return "", ""
 	}
-	if baseURL == "" {
-		baseUrl := "https://daily-cloudcode-pa.googleapis.com"
-		baseURL = baseUrl
+	endpoints := []string{
+		"https://cloudcode-pa.googleapis.com",
+		"https://daily-cloudcode-pa.googleapis.com",
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1internal:loadCodeAssist", strings.NewReader(`{"metadata":{"ideType":"ANTIGRAVITY"}}`))
-	if err != nil {
-		return "", ""
+	if baseURL != "" {
+		endpoints = []string{baseURL, "https://cloudcode-pa.googleapis.com", "https://daily-cloudcode-pa.googleapis.com"}
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "antigravity/1.10.4 windows/amd64")
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", ""
-	}
-	defer resp.Body.Close()
-	var res struct {
-		CloudaicompanionProject string `json:"cloudaicompanionProject"`
-		Project                 string `json:"project"`
-		PaidTier                struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"paidTier"`
-		CurrentTier struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"currentTier"`
-		Data struct {
-			Project string `json:"project"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err == nil {
-		p := res.CloudaicompanionProject
-		if p == "" {
-			p = res.Project
+
+	for _, ep := range endpoints {
+		ep = strings.TrimRight(ep, "/")
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, ep+"/v1internal:loadCodeAssist", strings.NewReader(`{"metadata":{"ideType":"ANTIGRAVITY","ideVersion":"2.23.0","ideName":"antigravity"}}`))
+		if err != nil {
+			cancel()
+			continue
 		}
-		if p == "" {
-			p = res.Data.Project
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "antigravity/hub/2.23.0 windows/amd64")
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			cancel()
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			cancel()
+			continue
 		}
 
-		plan := "pro"
-		tierStr := strings.ToLower(res.PaidTier.Name + " " + res.PaidTier.ID + " " + res.CurrentTier.Name + " " + res.CurrentTier.ID)
-		if strings.Contains(tierStr, "ultra") {
-			plan = "ultra"
-		} else if strings.Contains(tierStr, "plus") {
-			plan = "plus"
-		} else if strings.Contains(tierStr, "pro") {
-			plan = "pro"
-		} else if strings.Contains(tierStr, "free") {
-			plan = "free"
+		var res struct {
+			CloudaicompanionProject string `json:"cloudaicompanionProject"`
+			Project                 string `json:"project"`
+			PaidTier                struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"paidTier"`
+			CurrentTier struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"currentTier"`
+			Data struct {
+				Project string `json:"project"`
+			} `json:"data"`
 		}
+		if err := json.NewDecoder(resp.Body).Decode(&res); err == nil {
+			cancel()
+			p := res.CloudaicompanionProject
+			if p == "" {
+				p = res.Project
+			}
+			if p == "" {
+				p = res.Data.Project
+			}
 
-		return p, plan
+			plan := "pro"
+			tierStr := strings.ToLower(res.PaidTier.Name + " " + res.PaidTier.ID + " " + res.CurrentTier.Name + " " + res.CurrentTier.ID)
+			if strings.Contains(tierStr, "ultra") {
+				plan = "ultra"
+			} else if strings.Contains(tierStr, "plus") {
+				plan = "plus"
+			} else if strings.Contains(tierStr, "pro") {
+				plan = "pro"
+			} else if strings.Contains(tierStr, "free") {
+				plan = "free"
+			}
+
+			return p, plan
+		}
+		cancel()
 	}
 	return "", ""
 }
@@ -246,8 +261,8 @@ func (a *Adaptor) GetModelList() []string {
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	baseUrl := info.ChannelBaseUrl
-	if baseUrl == "" {
-		baseUrl = "https://daily-cloudcode-pa.googleapis.com"
+	if baseUrl == "" || strings.Contains(baseUrl, "daily-cloudcode-pa.googleapis.com") {
+		baseUrl = "https://cloudcode-pa.googleapis.com"
 	}
 	action := "generateContent"
 	if info.IsStream {
@@ -265,7 +280,7 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	}
 	req.Set("Authorization", "Bearer "+token)
 	req.Set("Content-Type", "application/json")
-	req.Set("User-Agent", "antigravity/1.10.4 windows/amd64")
+	req.Set("User-Agent", "antigravity/hub/2.23.0 windows/amd64")
 	if info.IsStream {
 		req.Set("Accept", "text/event-stream")
 	} else {
@@ -287,6 +302,18 @@ func wrapV1InternalRequest(info *relaycommon.RelayInfo, geminiReq *dto.GeminiCha
 	if strings.Contains(modelName, "/") {
 		parts := strings.Split(modelName, "/")
 		modelName = parts[len(parts)-1]
+	}
+
+	// Model compatibility mapping
+	switch strings.ToLower(modelName) {
+	case "claude-3-7-sonnet", "claude-3-7-sonnet-latest", "claude-3-5-sonnet", "claude-3-5-sonnet-latest":
+		modelName = "claude-sonnet-4-5"
+	case "claude-3-5-haiku", "claude-3-5-haiku-latest":
+		modelName = "claude-sonnet-4-5"
+	case "claude-opus-4-5":
+		modelName = "claude-opus-4-5-thinking"
+	case "gemini-3-pro", "gemini-3-pro-preview":
+		modelName = "gemini-3-pro-high"
 	}
 
 	// Determine desired thinking level:

@@ -22,11 +22,9 @@ import {
   DownloadIcon,
   EyeIcon,
   EyeOffIcon,
-  FileAudioIcon,
   HistoryIcon,
   ImageIcon,
   Loader2Icon,
-  MusicIcon,
   PlusIcon,
   SparklesIcon,
   Square as SquareIcon,
@@ -224,9 +222,6 @@ export function Studio() {
   const [videoRatio, setVideoRatio] = useState('')
   const [videoQuality, setVideoQuality] = useState('')
 
-  const [musicModel, setMusicModel] = useState('')
-  const [upscaleModel, setUpscaleModel] = useState('')
-
   const { data: runtimeData } = useQuery({
     queryKey: ['playground-runtime-config'],
     queryFn: ({ signal }) => getPlaygroundRuntimeConfig(signal),
@@ -239,13 +234,7 @@ export function Studio() {
     if (!runtime.image.enabled && mode === 'image') {
       setMode('video')
     }
-    if (!runtime.music?.enabled && mode === 'music') {
-      setMode('video')
-    }
-    if (!runtime.upscale?.enabled && mode === 'upscale') {
-      setMode('video')
-    }
-  }, [runtime.image.enabled, runtime.music?.enabled, runtime.upscale?.enabled, mode])
+  }, [runtime.image.enabled, mode])
 
   const imageModels = useMemo<MediaModelRuntime[]>(
     () =>
@@ -265,14 +254,6 @@ export function Studio() {
           : [],
     [runtime.video]
   )
-  const musicModels = useMemo<MediaModelRuntime[]>(
-    () => runtime.music?.models || [{ model: 'music', display_name: 'music' }],
-    [runtime.music]
-  )
-  const upscaleModels = useMemo<MediaModelRuntime[]>(
-    () => runtime.upscale?.models || [{ model: 'upscale', display_name: 'upscale' }, { model: 'image-upscale', display_name: 'image-upscale' }],
-    [runtime.upscale]
-  )
 
   const selectedImageModel = useMemo(() => {
     const match = imageModels.find((entry) => entry.model === imageModel)
@@ -284,30 +265,16 @@ export function Studio() {
     return match ?? videoModels[0]
   }, [videoModels, videoModel])
 
-  const selectedMusicModel = useMemo(() => {
-    const match = musicModels.find((entry) => entry.model === musicModel)
-    return match ?? musicModels[0]
-  }, [musicModels, musicModel])
-
-  const selectedUpscaleModel = useMemo(() => {
-    const match = upscaleModels.find((entry) => entry.model === upscaleModel)
-    return match ?? upscaleModels[0]
-  }, [upscaleModels, upscaleModel])
-
   const currentModelRuntime = useMemo(() => {
     switch (mode) {
       case 'video':
         return selectedVideoModel
       case 'image':
         return selectedImageModel
-      case 'music':
-        return selectedMusicModel
-      case 'upscale':
-        return selectedUpscaleModel
       default:
         return undefined
     }
-  }, [mode, selectedVideoModel, selectedImageModel, selectedMusicModel, selectedUpscaleModel])
+  }, [mode, selectedVideoModel, selectedImageModel])
 
   const currentModelName = currentModelRuntime?.model || ''
   const currentModelDisplayName = currentModelRuntime?.display_name || currentModelName || t('Select Model')
@@ -337,18 +304,6 @@ export function Studio() {
     }
   }, [selectedVideoModel, videoModel, videoDuration])
 
-  useEffect(() => {
-    if (selectedMusicModel && selectedMusicModel.model !== musicModel) {
-      setMusicModel(selectedMusicModel.model)
-    }
-  }, [selectedMusicModel, musicModel])
-
-  useEffect(() => {
-    if (selectedUpscaleModel && selectedUpscaleModel.model !== upscaleModel) {
-      setUpscaleModel(selectedUpscaleModel.model)
-    }
-  }, [selectedUpscaleModel, upscaleModel])
-
   // Apply default model from runtime config on initial load
   const defaultModelAppliedRef = useRef(false)
   useEffect(() => {
@@ -364,27 +319,8 @@ export function Studio() {
       setMode('image')
       setImageModel(def)
       defaultModelAppliedRef.current = true
-    } else if (musicModels.some((m) => m.model === def)) {
-      setMode('music')
-      setMusicModel(def)
-      defaultModelAppliedRef.current = true
-    } else if (upscaleModels.some((m) => m.model === def)) {
-      setMode('upscale')
-      setUpscaleModel(def)
-      defaultModelAppliedRef.current = true
     }
-  }, [runtime.studio?.default_model, videoModels, imageModels, musicModels, upscaleModels])
-
-  // Clear incompatible attachments when switching between media modes
-  useEffect(() => {
-    if (attachedMedia) {
-      if (mode === 'music' && attachedMedia.type !== 'audio') {
-        setAttachedMedia(null)
-      } else if (mode !== 'music' && attachedMedia.type === 'audio') {
-        setAttachedMedia(null)
-      }
-    }
-  }, [mode, attachedMedia])
+  }, [runtime.studio?.default_model, videoModels, imageModels])
 
   const imageSizes = selectedImageModel?.sizes?.length
     ? selectedImageModel.sizes
@@ -429,7 +365,6 @@ export function Studio() {
     generateVideo,
     stop,
     removeItem,
-    clearItems,
   } = useStudioGeneration()
 
   const [isMobileScreen, setIsMobileScreen] = useState(false)
@@ -502,24 +437,21 @@ export function Studio() {
   // Only the active stage item being pending or an active generation blocks the send button
   const hasActivePending = isGenerating || activeItem?.status === 'pending'
 
-  const canGenerate =
-    mode === 'upscale'
-      ? Boolean(attachedMedia?.url) && !hasActivePending && Boolean(currentModelName)
-      : prompt.trim().length > 0 && !hasActivePending && Boolean(currentModelName)
+  const canGenerate = prompt.trim().length > 0 && !hasActivePending && Boolean(currentModelName)
 
   const handleGenerate = async () => {
     if (!canGenerate || hasActivePending) return
-    const text = prompt.trim() || (mode === 'upscale' ? 'Sharpen and upscale to high resolution' : '')
+    const text = prompt.trim()
 
-    if (mode === 'image' || mode === 'upscale') {
+    if (mode === 'image') {
       await generateImage(
         {
           prompt: text,
           model: currentModelName,
           mode,
           group: user?.group,
-          size: mode === 'image' ? size : undefined,
-          quality: mode === 'image' ? quality : undefined,
+          size,
+          quality,
           count: imageCount,
           optimize: optimizePrompt,
         },
@@ -534,9 +466,9 @@ export function Studio() {
         model: currentModelName,
         mode,
         group: user?.group,
-        duration: mode === 'video' ? duration : undefined,
-        ratio: mode === 'video' ? ratio : undefined,
-        quality: mode === 'video' ? videoQualityValue : undefined,
+        duration: duration || undefined,
+        ratio: ratio || undefined,
+        quality: videoQualityValue || undefined,
         imageUrl: attachedMedia?.url || undefined,
         optimize: optimizePrompt,
       },
@@ -558,11 +490,7 @@ export function Studio() {
       setAttachedMedia(null)
       return
     }
-    if (mode === 'music' && !file.type.startsWith('audio/')) {
-      toast.error(t('Only audio files can be attached for music'))
-      return
-    }
-    if (mode !== 'music' && file.type.startsWith('audio/')) {
+    if (file.type.startsWith('audio/')) {
       toast.error(t('Please select an image or video'))
       return
     }
@@ -571,7 +499,6 @@ export function Studio() {
       if (typeof reader.result === 'string') {
         let fileType: AttachedMedia['type'] = 'image'
         if (file.type.startsWith('video/')) fileType = 'video'
-        else if (file.type.startsWith('audio/')) fileType = 'audio'
         setAttachedMedia({
           url: reader.result,
           name: file.name,
@@ -595,8 +522,8 @@ export function Studio() {
     setIsDragging(false)
     const file = e.dataTransfer.files?.[0]
     if (file) {
-      if (mode === 'music' && !file.type.startsWith('audio/')) {
-        toast.error(t('Only audio files can be attached for music'))
+      if (file.type.startsWith('audio/')) {
+        toast.error(t('Please select an image or video'))
         return
       }
       handleFileAttach(file)
@@ -694,9 +621,7 @@ export function Studio() {
                         <p className='text-sm font-medium'>
                           {activeItem.mode === 'video'
                             ? t('Generating video...')
-                            : activeItem.mode === 'music'
-                              ? t('Generating music...')
-                              : t('Generating image...')}
+                            : t('Generating image...')}
                         </p>
                         <p className='line-clamp-2 max-w-sm text-xs text-muted-foreground'>
                           &ldquo;{activeItem.prompt}&rdquo;
@@ -729,18 +654,7 @@ export function Studio() {
 
                   {activeItem.status === 'ready' && (
                     <div className='w-full p-2 flex items-center justify-center'>
-                      {activeItem.mode === 'music' ? (
-                        <div className='w-full max-w-md p-6 flex flex-col items-center gap-4'>
-                          <div className='size-14 rounded-full bg-muted flex items-center justify-center'>
-                            <MusicIcon className='size-7 text-foreground' />
-                          </div>
-                          <audio
-                            controls
-                            className='w-full'
-                            src={getPlayableMediaUrl(activeItem.urls[0])}
-                          />
-                        </div>
-                      ) : activeItem.mode === 'video' ? (
+                      {activeItem.mode === 'video' ? (
                         <video
                           autoPlay
                           className='max-h-[380px] w-full object-contain bg-black rounded-lg'
@@ -851,14 +765,14 @@ export function Studio() {
             <label
               htmlFor='studio-file-upload'
               className='flex size-8 sm:size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition shadow-xs'
-              title={mode === 'music' ? t('Add audio file') : t('Add media file')}
+              title={t('Add media file')}
             >
               <PlusIcon className='size-4' />
               <input
                 id='studio-file-upload'
                 ref={fileInputRef}
                 type='file'
-                accept={mode === 'music' ? 'audio/*' : 'image/*,video/*'}
+                accept='image/*,video/*'
                 className='hidden'
                 onChange={(e) => handleFileAttach(e.target.files?.[0])}
               />
@@ -870,13 +784,7 @@ export function Studio() {
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={
-                  mode === 'upscale'
-                    ? (attachedMedia ? t('Optional upscale prompt...') : t('Attach an image or video to upscale...'))
-                    : mode === 'music'
-                    ? (isMobileScreen ? t('Describe melody...') : t('Describe lyrics, style or melody...'))
-                    : (isMobileScreen ? t('Describe your idea...') : t('What do you want to create?'))
-                }
+                placeholder={isMobileScreen ? t('Describe your idea...') : t('What do you want to create?')}
                 className='w-full resize-none border-0 bg-transparent py-2 px-1.5 sm:px-2 text-xs sm:text-sm focus:outline-none focus:ring-0 leading-5 placeholder:text-muted-foreground/60 overflow-hidden align-middle my-auto placeholder:truncate whitespace-nowrap'
                 rows={1}
                 style={{ height: '36px', maxHeight: '100px' }}
@@ -942,34 +850,6 @@ export function Studio() {
                           <span>{t('Image')}</span>
                         </button>
                       )}
-                      {runtime.music?.enabled && (
-                        <button
-                          type='button'
-                          onClick={() => setMode('music')}
-                          className={cn(
-                            'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5',
-                            mode === 'music'
-                              ? 'bg-background text-foreground shadow-xs font-semibold'
-                              : 'text-muted-foreground hover:text-foreground'
-                          )}
-                        >
-                          <span>{t('Music')}</span>
-                        </button>
-                      )}
-                      {runtime.upscale?.enabled && (
-                        <button
-                          type='button'
-                          onClick={() => setMode('upscale')}
-                          className={cn(
-                            'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5',
-                            mode === 'upscale'
-                              ? 'bg-background text-foreground shadow-xs font-semibold'
-                              : 'text-muted-foreground hover:text-foreground'
-                          )}
-                        >
-                          <span>{t('Upscale')}</span>
-                        </button>
-                      )}
                     </div>
                   </div>
 
@@ -986,8 +866,6 @@ export function Studio() {
                             setVideoDuration(String(target.default_duration))
                           }
                         } else if (mode === 'image') setImageModel(v)
-                        else if (mode === 'music') setMusicModel(v)
-                        else if (mode === 'upscale') setUpscaleModel(v)
                       }}
                       value={currentModelName}
                     >
@@ -995,14 +873,7 @@ export function Studio() {
                         <SelectValue placeholder={t('Select Model')} />
                       </SelectTrigger>
                       <SelectContent>
-                        {(mode === 'video'
-                          ? videoModels
-                          : mode === 'image'
-                            ? imageModels
-                            : mode === 'music'
-                              ? musicModels
-                              : upscaleModels
-                        ).map((m) => (
+                        {(mode === 'video' ? videoModels : imageModels).map((m) => (
                           <SelectItem key={m.model} value={m.model} className='text-xs'>
                             <div className='flex items-center justify-between w-full gap-2'>
                               <span>{m.display_name || m.model}</span>
@@ -1130,9 +1001,7 @@ export function Studio() {
                 title={
                   hasActivePending
                     ? t('An active generation is in progress. Please wait for it to complete or clear it from the stage.')
-                    : mode === 'upscale' && !attachedMedia?.url
-                    ? t('Attach an image or video to upscale')
-                    : !prompt.trim() && mode !== 'upscale'
+                    : !prompt.trim()
                     ? t('Please enter a prompt')
                     : !currentModelName
                     ? t('Please select a model')
@@ -1161,23 +1030,9 @@ export function Studio() {
                 {t('Previous Generations')}
               </DialogTitle>
               <DialogDescription className='text-xs text-muted-foreground'>
-                {t('Your previous video, image, and music creations.')}
+                {t('Your previous video and image creations.')}
               </DialogDescription>
             </div>
-            {items.length > 0 && (
-              <Button
-                variant='ghost'
-                size='sm'
-                onClick={() => {
-                  clearItems()
-                  setActiveSessionItemId(null)
-                }}
-                className='h-8 text-xs text-muted-foreground hover:text-destructive gap-1.5'
-              >
-                <Trash2Icon className='size-3.5' />
-                <span>{t('Clear All')}</span>
-              </Button>
-            )}
           </DialogHeader>
 
           {/* Filter tabs */}
@@ -1192,12 +1047,6 @@ export function Studio() {
                 </TabsTrigger>
                 <TabsTrigger value='image' className='text-xs px-2.5 sm:px-3 shrink-0'>
                   {t('Image')} ({items.filter((i) => i.mode === 'image').length})
-                </TabsTrigger>
-                <TabsTrigger value='music' className='text-xs px-2.5 sm:px-3 shrink-0'>
-                  {t('Music')} ({items.filter((i) => i.mode === 'music').length})
-                </TabsTrigger>
-                <TabsTrigger value='upscale' className='text-xs px-2.5 sm:px-3 shrink-0'>
-                  {t('Upscale')} ({items.filter((i) => i.mode === 'upscale').length})
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -1223,18 +1072,10 @@ export function Studio() {
                       >
                         {item.mode === 'video' ? (
                           <VideoIcon className='size-2.5' />
-                        ) : item.mode === 'music' ? (
-                          <MusicIcon className='size-2.5' />
                         ) : (
                           <ImageIcon className='size-2.5' />
                         )}
-                        {item.mode === 'video'
-                          ? t('Video')
-                          : item.mode === 'image'
-                            ? t('Image')
-                            : item.mode === 'music'
-                              ? t('Music')
-                              : t('Upscale')}
+                        {item.mode === 'video' ? t('Video') : t('Image')}
                       </Badge>
                       <span className='text-[10px] text-muted-foreground font-mono'>
                         {new Date(item.createdAt).toLocaleDateString()}
@@ -1254,12 +1095,7 @@ export function Studio() {
                         </div>
                       )}
                       {item.status === 'ready' && item.urls[0] && (
-                        item.mode === 'music' ? (
-                          <div className='w-full p-2 flex flex-col items-center justify-center gap-2'>
-                            <MusicIcon className='size-6 text-foreground' />
-                            <audio controls className='w-full' src={getPlayableMediaUrl(item.urls[0])} />
-                          </div>
-                        ) : item.mode === 'video' ? (
+                        item.mode === 'video' ? (
                           <video
                             controls
                             playsInline

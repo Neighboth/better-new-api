@@ -64,6 +64,7 @@ import {
   type BlogPostForm,
 } from '../lib/blog-post-form'
 import {
+  applyUserCasingGuarantees,
   buildBlogAiSystemPrompt,
   parseBlogAiResponse,
 } from '../lib/blog-ai'
@@ -695,10 +696,12 @@ export function BlogManager() {
                   return
                 }
 
+                const guaranteedText = applyUserCasingGuarantees(text, currentPrompt, 'en')
+
                 currentDraft = {
                   ...currentDraft,
-                  contents: { ...currentDraft.contents, en: text },
-                  content: text,
+                  contents: { ...currentDraft.contents, en: guaranteedText },
+                  content: guaranteedText,
                 }
                 postFormRef.current = currentDraft
                 setPostForm({ ...currentDraft })
@@ -726,7 +729,7 @@ export function BlogManager() {
             const langCode = targetLangs[i]
             setAiGenerationStep(6 + i)
             const sys = buildBlogAiSystemPrompt('content_translate')
-            const req = `Target Language Code: ${langCode}\n\nEnglish Content:\n${enContent}`
+            const req = `Target Language Code: ${langCode}\nUser Formatting / Casing Instructions: ${currentPrompt}\n\nEnglish Content:\n${enContent}`
 
             try {
               await withRetry(async (_attempt, silent) => {
@@ -738,7 +741,7 @@ export function BlogManager() {
                     { role: 'user', content: req },
                   ],
                   stream: true,
-                  temperature: 0.7,
+                  temperature: 0.3,
                 }
                 runAiStreamWithController(
                   payload,
@@ -755,9 +758,11 @@ export function BlogManager() {
                       return
                     }
 
+                    const guaranteedText = applyUserCasingGuarantees(text, currentPrompt, langCode)
+
                     currentDraft = {
                       ...currentDraft,
-                      contents: { ...currentDraft.contents, [langCode]: text },
+                      contents: { ...currentDraft.contents, [langCode]: guaranteedText },
                     }
                     postFormRef.current = currentDraft
                     setPostForm({ ...currentDraft })
@@ -874,22 +879,26 @@ Return ONLY a valid JSON object matching this structure:
         }
 
         if (parsed.title) {
-          updatedPost.title = parsed.title
-          updatedPost.titles.en = parsed.title
+          const t = applyUserCasingGuarantees(parsed.title, promptInstruction, 'en')
+          updatedPost.title = t
+          updatedPost.titles.en = t
         }
         if (refinedEnContent) {
-          updatedPost.content = refinedEnContent
-          updatedPost.contents.en = refinedEnContent
+          const c = applyUserCasingGuarantees(refinedEnContent, promptInstruction, 'en')
+          updatedPost.content = c
+          updatedPost.contents.en = c
         }
         if (parsed.description) {
-          updatedPost.summary = parsed.description
-          updatedPost.summaries.en = parsed.description
-          updatedPost.seo_description = parsed.description
-          updatedPost.seo_descriptions.en = parsed.description
+          const d = applyUserCasingGuarantees(parsed.description, promptInstruction, 'en')
+          updatedPost.summary = d
+          updatedPost.summaries.en = d
+          updatedPost.seo_description = d
+          updatedPost.seo_descriptions.en = d
         }
         if (parsed.tags) {
-          updatedPost.tags = parsed.tags
-          updatedPost.tags_list.en = parsed.tags
+          const tg = applyUserCasingGuarantees(parsed.tags, promptInstruction, 'en')
+          updatedPost.tags = tg
+          updatedPost.tags_list.en = tg
         }
 
         if (parsed.translations && typeof parsed.translations === 'object') {
@@ -897,12 +906,13 @@ Return ONLY a valid JSON object matching this structure:
             if (code === 'en') continue
             const tData = parsed.translations[code]
             if (tData) {
-              if (tData.title) updatedPost.titles[code] = tData.title
+              if (tData.title) updatedPost.titles[code] = applyUserCasingGuarantees(tData.title, promptInstruction, code)
               if (tData.description) {
-                updatedPost.summaries[code] = tData.description
-                updatedPost.seo_descriptions[code] = tData.description
+                const desc = applyUserCasingGuarantees(tData.description, promptInstruction, code)
+                updatedPost.summaries[code] = desc
+                updatedPost.seo_descriptions[code] = desc
               }
-              if (tData.tags) updatedPost.tags_list[code] = tData.tags
+              if (tData.tags) updatedPost.tags_list[code] = applyUserCasingGuarantees(tData.tags, promptInstruction, code)
             }
           }
         }
@@ -914,7 +924,7 @@ Return ONLY a valid JSON object matching this structure:
             const transRes = await sendChatCompletion({
               model,
               stream: false,
-              temperature: 0.7,
+              temperature: 0.3,
               messages: [
                 {
                   role: 'system',
@@ -927,7 +937,7 @@ CRITICAL RULES:
                 },
                 {
                   role: 'user',
-                  content: `Target Language Code: ${code}\n\nEnglish Content:\n${refinedEnContent}`,
+                  content: `Target Language Code: ${code}\nRefinement Rule: ${promptInstruction}\n\nEnglish Content:\n${refinedEnContent}`,
                 },
               ],
             })
@@ -936,7 +946,7 @@ CRITICAL RULES:
             const fenceMatch = translated.match(/^```(?:markdown)?\s*([\s\S]*?)```$/)
             if (fenceMatch) translated = fenceMatch[1].trim()
             if (translated) {
-              updatedPost.contents[code] = translated
+              updatedPost.contents[code] = applyUserCasingGuarantees(translated, promptInstruction, code)
             }
           } catch (err) {
             console.error(`Failed to refine/translate content for ${code}:`, err)

@@ -68,14 +68,43 @@ export interface ProxyPoolTestResult {
   error?: string
 }
 
+export interface ProxyPoolListResult {
+  items: ProxyPoolProxy[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+  enabled_count: number
+}
+
 interface ApiEnvelope<T> {
   success: boolean
   message?: string
   data: T
 }
 
-export async function listProxies(): Promise<ApiEnvelope<ProxyPoolProxy[]>> {
-  const res = await api.get<ApiEnvelope<ProxyPoolProxy[]>>('/api/proxy-pool/')
+export async function listProxies(params?: {
+  page?: number
+  page_size?: number
+  keyword?: string
+  status?: string
+}): Promise<ApiEnvelope<ProxyPoolListResult | ProxyPoolProxy[]>> {
+  const res = await api.get<ApiEnvelope<ProxyPoolListResult | ProxyPoolProxy[]>>(
+    '/api/proxy-pool/',
+    { params }
+  )
+  return res.data
+}
+
+export async function batchCreateProxies(payload: {
+  base_name?: string
+  enabled?: boolean
+  proxies: Array<{ name?: string; url: string; enabled?: boolean }>
+}): Promise<ApiEnvelope<{ count: number }>> {
+  const res = await api.post<ApiEnvelope<{ count: number }>>(
+    '/api/proxy-pool/batch',
+    payload
+  )
   return res.data
 }
 

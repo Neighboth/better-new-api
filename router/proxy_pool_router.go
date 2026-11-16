@@ -20,6 +20,7 @@ type proxyPoolRoute struct {
 var proxyPoolRoutes = []proxyPoolRoute{
 	{http.MethodGet, "/", authz.ProxyPoolRead, controller.ListProxyPoolProxies},
 	{http.MethodPost, "/", authz.ProxyPoolWrite, controller.CreateProxyPoolProxy},
+	{http.MethodPost, "/batch", authz.ProxyPoolWrite, controller.BatchCreateProxyPoolProxies},
 	{http.MethodPut, "/:id", authz.ProxyPoolWrite, controller.UpdateProxyPoolProxy},
 	{http.MethodDelete, "/:id", authz.ProxyPoolWrite, controller.DeleteProxyPoolProxy},
 	{http.MethodPost, "/:id/test", authz.ProxyPoolWrite, controller.TestProxyPoolProxy},

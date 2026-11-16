@@ -18,6 +18,30 @@ import (
 )
 
 func ListProxyPoolProxies(c *gin.Context) {
+	pageStr := c.Query("page")
+	if pageStr == "" {
+		pageStr = c.Query("p")
+	}
+	if pageStr != "" || c.Query("page_size") != "" {
+		page, _ := strconv.Atoi(pageStr)
+		if page < 1 {
+			page = 1
+		}
+		pageSize, _ := strconv.Atoi(c.Query("page_size"))
+		if pageSize <= 0 {
+			pageSize = 20
+		}
+		keyword := strings.TrimSpace(c.Query("keyword"))
+		status := strings.TrimSpace(c.Query("status"))
+		result, err := model.ListProxyPoolProxiesPaged(page, pageSize, keyword, status)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		common.ApiSuccess(c, result)
+		return
+	}
+
 	proxies, err := model.ListProxyPoolProxies()
 	if err != nil {
 		common.ApiError(c, err)
@@ -27,6 +51,82 @@ func ListProxyPoolProxies(c *gin.Context) {
 		proxies = []model.ProxyPoolProxy{}
 	}
 	common.ApiSuccess(c, proxies)
+}
+
+type batchCreateProxyRequest struct {
+	BaseName string                  `json:"base_name"`
+	Enabled  *bool                   `json:"enabled"`
+	Proxies  []proxyPoolProxyRequest `json:"proxies"`
+}
+
+func BatchCreateProxyPoolProxies(c *gin.Context) {
+	var req batchCreateProxyRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		common.ApiErrorMsg(c, "invalid request body")
+		return
+	}
+	if len(req.Proxies) == 0 {
+		common.ApiErrorMsg(c, "no proxies provided")
+		return
+	}
+
+	baseEnabled := true
+	if req.Enabled != nil {
+		baseEnabled = *req.Enabled
+	}
+	baseName := strings.TrimSpace(req.BaseName)
+	if baseName == "" {
+		baseName = "Proxy"
+	}
+
+	toCreate := make([]model.ProxyPoolProxy, 0, len(req.Proxies))
+	for idx, item := range req.Proxies {
+		rawURL := strings.TrimSpace(item.URL)
+		if rawURL == "" {
+			continue
+		}
+		normalized, err := common.NormalizeProxyLine(rawURL)
+		if err != nil {
+			if _, parseErr := common.ParseProxyURLStrict(rawURL); parseErr != nil {
+				continue
+			}
+			normalized = rawURL
+		}
+		enabled := baseEnabled
+		if item.Enabled != nil {
+			enabled = *item.Enabled
+		}
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			if len(req.Proxies) == 1 {
+				name = baseName
+			} else {
+				name = fmt.Sprintf("%s-%d", baseName, idx+1)
+			}
+		}
+		toCreate = append(toCreate, model.ProxyPoolProxy{
+			Name:      name,
+			URL:       normalized,
+			ProxyType: "standard",
+			Enabled:   enabled,
+		})
+	}
+
+	if len(toCreate) == 0 {
+		common.ApiErrorMsg(c, "no valid proxies to add")
+		return
+	}
+
+	count, err := model.BatchCreateProxyPoolProxies(toCreate)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	service.InvalidateProxyPoolCache()
+	common.ApiSuccess(c, gin.H{
+		"count": count,
+	})
 }
 
 type proxyPoolProxyRequest struct {
@@ -136,7 +236,7 @@ func TestProxyPoolProxy(c *gin.Context) {
 		common.ApiErrorMsg(c, "proxy not found")
 		return
 	}
-	egressIP, latency, testErr := service.TestProxyEgress(proxy.URL)
+	egressIP, latency, testErr := service.TestProxyEgress(proxy.URL, proxy.ProxyType)
 	proxy.LastTestedAt = time.Now().Unix()
 	proxy.LatencyMs = latency
 	if testErr != nil {
@@ -507,6 +607,7 @@ type cloudflareWorkerDeployRequest struct {
 	WorkerName string `json:"worker_name"`
 	WorkerURL  string `json:"worker_url"`
 	Name       string `json:"name"`
+	Enabled    *bool  `json:"enabled"`
 }
 
 const CloudflareWorkerProxyScript = `addEventListener('fetch', event => {
@@ -648,12 +749,17 @@ func DeployCloudflareWorkerProxy(c *gin.Context) {
 	}
 	workerURL = strings.TrimRight(workerURL, "/")
 
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
 	// Create the proxy record
 	proxy := &model.ProxyPoolProxy{
 		Name:      name,
 		URL:       workerURL,
 		ProxyType: "cloudflare_worker",
-		Enabled:   true,
+		Enabled:   enabled,
 	}
 	if err := model.CreateProxyPoolProxy(proxy); err != nil {
 		common.ApiError(c, err)

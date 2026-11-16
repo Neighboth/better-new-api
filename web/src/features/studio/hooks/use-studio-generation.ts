@@ -74,10 +74,7 @@ async function optimizeStudioPrompt(
 
     let defaultSys = runtimeConfig.studio.prompt_optimizer_system_prompt
     if (!defaultSys) {
-      if (mode === 'music') {
-        defaultSys =
-          'You are a professional music prompt engineer. Rewrite the prompt into a rich, structured description specifying genre, instruments, tempo (BPM), mood, and audio atmosphere. CRITICAL REQUIREMENT: If the prompt contains any lyrics, vocal words, or dialogue, DO NOT translate them — keep all Turkish lyrics/words in Turkish exactly as written. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes.'
-      } else if (mode === 'image') {
+      if (mode === 'image') {
         defaultSys =
           'You are a professional image prompt optimizer. Rewrite the prompt into a descriptive, high-quality English prompt with lighting, composition, visual details, and style that generative AI models accept without safety violations. CRITICAL REQUIREMENT: If the prompt contains any Turkish text or quotes intended for rendering, DO NOT translate them — keep all Turkish quotes intact. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes.'
       } else {
@@ -275,7 +272,7 @@ export function useStudioGeneration() {
 
       try {
         let finalPrompt = params.prompt
-        if (params.optimize !== false && params.mode !== 'upscale') {
+        if (params.optimize !== false) {
           finalPrompt = await optimizeStudioPrompt(
             params.prompt,
             params.mode || 'image',

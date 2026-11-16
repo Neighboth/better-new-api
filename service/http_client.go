@@ -266,7 +266,7 @@ func configureProxyTransport(transport *http.Transport, proxyURL *url.URL) error
 	case "http", "https":
 		transport.Proxy = http.ProxyURL(proxyURL)
 		return nil
-	case "socks5", "socks5h":
+	case "socks5", "socks5h", "socks4", "socks4a":
 		transport.Proxy = nil
 		forwardDialer := &net.Dialer{
 			Timeout:   30 * time.Second,

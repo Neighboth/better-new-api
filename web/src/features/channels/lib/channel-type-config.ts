@@ -144,6 +144,18 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'Models exposed by this channel',
     },
   },
+  57: {
+    id: 57,
+    name: CHANNEL_TYPES[57],
+    icon: 'openai',
+    defaultBaseUrl: 'https://chatgpt.com',
+    hints: {
+      baseUrl: 'Default: https://chatgpt.com',
+      key: 'Codex OAuth JSON ({"access_token":"...","account_id":"..."})',
+      models:
+        'gpt-5.4,gpt-5.4-pro,gpt-5.4-mini,gpt-5.3-codex,gpt-5.2-codex,gpt-5.1-codex,gpt-5.1-codex-max,gpt-5.1-codex-mini,gpt-5-codex,codex-mini,o3-mini,gpt-4o,chatgpt-4o-latest',
+    },
+  },
   59: {
     id: 59,
     name: CHANNEL_TYPES[59],
@@ -168,11 +180,12 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     id: 61,
     name: CHANNEL_TYPES[61],
     icon: 'google',
-    defaultBaseUrl: 'https://daily-cloudcode-pa.googleapis.com',
+    defaultBaseUrl: 'https://cloudcode-pa.googleapis.com',
     hints: {
-      baseUrl: 'Default: https://daily-cloudcode-pa.googleapis.com',
+      baseUrl: 'Default: https://cloudcode-pa.googleapis.com (Prod) or https://daily-cloudcode-pa.googleapis.com (Sandbox)',
       key: 'Provide a Google Antigravity JSON key or sign in with OAuth',
-      models: 'gemini-3.8-flash,claude-opus-5.5,claude-sonnet-5.5',
+      models:
+        'claude-opus-4-6-thinking,claude-opus-4-6,claude-opus-4-5-thinking,claude-sonnet-4-6,claude-sonnet-4-5-thinking,claude-sonnet-4-5,claude-3-7-sonnet,claude-3-5-sonnet,gemini-2.5-pro,gemini-2.5-flash,gemini-2.5-flash-thinking,gemini-2.5-flash-lite,gemini-3-flash,gemini-3-pro-high,gemini-3-pro-low,gemini-3-pro-image,gpt-oss-120b-medium',
     },
   },
   62: {
@@ -205,7 +218,8 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     hints: {
       baseUrl: 'Default: https://videoapi.aerobox.eu.cc',
       key: 'Aepi API Key (sk_live_...) veya Session Cookie',
-      models: 'seedance-2.5,seedance-2.0-fast,nano-banana-2.1,music,upscale,image-upscale',
+      models:
+        'seedance-2.5,seedance-2.0-fast,seedance-2.0,seedance-2.0-mini,seedance-2.5-flash,minimax-h3,minimax-h3-max,minimax-h3-max-turbo,minimax-hailuo-2.3,wan-3.0,wan-3.0-prime,wan-2.7,wan-2.6,flux-3,flux-3-max,veo-3.1-fast,veo-3.1,kling-v3-turbo,kling-4.0,kling-4.0-flash,kling-3.0,kling-o3-omni,kling-2.6,grok-video-1.5,grok-video-1.5-lite,grok,ltx-2.5-pro,ltx-2.5-fast,runway-gen-4.5,gemini-omni-flash,gemini-omni-flash-1.1,gemini-omni-flash-1.2,adobe-firefly,pixverse-v6,pika-2.2,nano-banana-2.1,nano-banana-pro,nano-banana-2,nano-banana,gpt-image-2.6-sunburst,gpt-image-2.6-flare,gpt-image-2.5-sunburst,gpt-image-2.5-flare,gpt-image-2,seedream-5.5,seedream-5.0-pro,seedream-5.0-flash,flux-3-image,flux-3-klein,flux-2,ideogram-4.5,ideogram-4.0,recraft-v4.1,recraft-v4.1-pro,midjourney-v7,dalle,meta-muse-image,minimax-h3-image',
     },
   },
   65: {

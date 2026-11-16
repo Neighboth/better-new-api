@@ -549,7 +549,11 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		return item.ID
 	})
 	if channel.Type == constant.ChannelTypeAepi {
-		ids = append(ids, "music", "rescale", "upscale", "image-upscale", "image_upscale", "dub")
+		// Filter out discontinued music and upscale capabilities
+		ids = lo.Filter(ids, func(id string, _ int) bool {
+			lower := strings.ToLower(id)
+			return !strings.Contains(lower, "music") && !strings.Contains(lower, "upscale")
+		})
 	}
 	return normalizeModelNames(ids), nil
 }

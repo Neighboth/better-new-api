@@ -39,8 +39,6 @@ func GetPlaygroundConfig(c *gin.Context) {
 
 	imageModels = enrichMediaModels(imageModels)
 	videoModels = enrichMediaModels(videoModels)
-	musicModels := enrichMediaModels(setting.MusicModelOptions())
-	upscaleModels := enrichMediaModels(setting.UpscaleModelOptions())
 
 	// The tools and older dashboards read the first model of the list; the
 	// studio reads the whole list with the options of every model.
@@ -158,14 +156,6 @@ func GetPlaygroundConfig(c *gin.Context) {
 			"qualities":        videoQualities,
 			"default_quality":  videoDefaultQuality,
 			"reference_image":  setting.VideoReferenceImage,
-		},
-		"music": gin.H{
-			"enabled": setting.MusicEnabled,
-			"models":  musicModels,
-		},
-		"upscale": gin.H{
-			"enabled": setting.UpscaleEnabled,
-			"models":  upscaleModels,
 		},
 		"studio": gin.H{
 			"enabled":                        setting.StudioEnabled,

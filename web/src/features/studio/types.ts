@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export type StudioMode = 'video' | 'image' | 'music' | 'upscale'
+export type StudioMode = 'video' | 'image'
 
 export type StudioItemStatus = 'pending' | 'ready' | 'error'
 
