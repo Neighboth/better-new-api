@@ -1,10 +1,13 @@
 package controller
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"strconv"
 	"strings"
 	"time"
@@ -236,38 +239,52 @@ func TestProxyPoolProxy(c *gin.Context) {
 		common.ApiErrorMsg(c, "proxy not found")
 		return
 	}
-	egressIP, latency, testErr := service.TestProxyEgress(proxy.URL, proxy.ProxyType)
+	res, testErr := service.TestProxyEgressInfo(proxy.URL, proxy.ProxyType)
 	proxy.LastTestedAt = time.Now().Unix()
-	proxy.LatencyMs = latency
 	if testErr != nil {
 		proxy.LastTestStatus = "fail"
 		proxy.LastTestError = truncateError(testErr.Error())
 		proxy.EgressIP = ""
+		proxy.LatencyMs = 0
 	} else {
 		proxy.LastTestStatus = "ok"
 		proxy.LastTestError = ""
-		proxy.EgressIP = egressIP
+		proxy.EgressIP = res.EgressIP
+		proxy.LatencyMs = res.LatencyMs
+		if res.CountryCode != "" {
+			proxy.CountryCode = res.CountryCode
+			proxy.CountryName = res.CountryName
+			proxy.City = res.City
+			proxy.ISP = res.ISP
+		}
+		if res.ProxyType != "" && proxy.ProxyType != res.ProxyType {
+			proxy.ProxyType = res.ProxyType
+		}
 	}
 	_ = model.UpdateProxyPoolProxy(proxy)
 	service.InvalidateProxyPoolCache()
 	if testErr != nil {
 		c.JSON(http.StatusOK, gin.H{
-			"success":   true,
-			"message":   "",
+			"success": true,
+			"message": "",
 			"data": gin.H{
 				"id":         id,
 				"ok":         false,
-				"latency_ms": latency,
+				"latency_ms": proxy.LatencyMs,
 				"error":      proxy.LastTestError,
 			},
 		})
 		return
 	}
 	common.ApiSuccess(c, gin.H{
-		"id":         id,
-		"ok":         true,
-		"egress_ip":  egressIP,
-		"latency_ms": latency,
+		"id":           id,
+		"ok":           true,
+		"egress_ip":    proxy.EgressIP,
+		"latency_ms":   proxy.LatencyMs,
+		"country_code": proxy.CountryCode,
+		"country_name": proxy.CountryName,
+		"city":         proxy.City,
+		"isp":          proxy.ISP,
 	})
 }
 
@@ -610,49 +627,47 @@ type cloudflareWorkerDeployRequest struct {
 	Enabled    *bool  `json:"enabled"`
 }
 
-const CloudflareWorkerProxyScript = `addEventListener('fetch', event => {
-  event.respondWith(handleRequest(event.request));
-});
+const CloudflareWorkerProxyScript = `export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    let target = request.headers.get("X-Target-URL") || url.searchParams.get("url");
+    if (!target && url.pathname.length > 1) {
+      const raw = url.pathname.slice(1) + url.search;
+      if (raw.startsWith("http://") || raw.startsWith("https://")) {
+        target = raw;
+      }
+    }
 
-async function handleRequest(request) {
-  const url = new URL(request.url);
-  let target = request.headers.get("X-Target-URL") || url.searchParams.get("url");
-  if (!target && url.pathname.length > 1) {
-    const raw = url.pathname.slice(1) + url.search;
-    if (raw.startsWith("http://") || raw.startsWith("https://")) {
-      target = raw;
+    if (!target) {
+      return new Response(JSON.stringify({
+        status: "ok",
+        service: "Cloudflare Worker Proxy for Better-New-API",
+        ip: request.headers.get("cf-connecting-ip")
+      }), {
+        headers: { "content-type": "application/json" }
+      });
+    }
+
+    const modifiedHeaders = new Headers(request.headers);
+    modifiedHeaders.delete("x-target-url");
+    modifiedHeaders.delete("host");
+
+    try {
+      const response = await fetch(target, {
+        method: request.method,
+        headers: modifiedHeaders,
+        body: request.method !== "GET" && request.method !== "HEAD" ? request.body : undefined,
+        redirect: "follow",
+      });
+      return response;
+    } catch (err) {
+      return new Response(JSON.stringify({ error: err.message }), {
+        status: 502,
+        headers: { "content-type": "application/json" }
+      });
     }
   }
-
-  if (!target) {
-    return new Response(JSON.stringify({
-      status: "ok",
-      service: "Cloudflare Worker Proxy for Better-New-API",
-      ip: request.headers.get("cf-connecting-ip")
-    }), {
-      headers: { "content-type": "application/json" }
-    });
-  }
-
-  const modifiedHeaders = new Headers(request.headers);
-  modifiedHeaders.delete("x-target-url");
-  modifiedHeaders.delete("host");
-
-  try {
-    const response = await fetch(target, {
-      method: request.method,
-      headers: modifiedHeaders,
-      body: request.method !== "GET" && request.method !== "HEAD" ? request.body : undefined,
-      redirect: "follow",
-    });
-    return response;
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 502,
-      headers: { "content-type": "application/json" }
-    });
-  }
-}`
+};`
 
 func GetCloudflareWorkerScript(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{
@@ -681,14 +696,41 @@ func DeployCloudflareWorkerProxy(c *gin.Context) {
 
 	// If user provided CF API token & Account ID, deploy worker via Cloudflare API
 	if apiToken != "" && accountId != "" {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+
+		// 1. metadata part
+		metaHeader := make(textproto.MIMEHeader)
+		metaHeader.Set("Content-Disposition", `form-data; name="metadata"`)
+		metaHeader.Set("Content-Type", "application/json")
+		metaPart, err := writer.CreatePart(metaHeader)
+		if err != nil {
+			common.ApiErrorMsg(c, "failed to create metadata part: "+err.Error())
+			return
+		}
+		_, _ = metaPart.Write([]byte(`{"main_module":"worker.js","compatibility_date":"2024-01-01"}`))
+
+		// 2. script part
+		scriptHeader := make(textproto.MIMEHeader)
+		scriptHeader.Set("Content-Disposition", `form-data; name="worker.js"; filename="worker.js"`)
+		scriptHeader.Set("Content-Type", "application/javascript+module")
+		scriptPart, err := writer.CreatePart(scriptHeader)
+		if err != nil {
+			common.ApiErrorMsg(c, "failed to create script part: "+err.Error())
+			return
+		}
+		_, _ = scriptPart.Write([]byte(CloudflareWorkerProxyScript))
+
+		_ = writer.Close()
+
 		deployURL := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%s/workers/scripts/%s", accountId, workerName)
-		httpReq, err := http.NewRequest(http.MethodPut, deployURL, strings.NewReader(CloudflareWorkerProxyScript))
+		httpReq, err := http.NewRequest(http.MethodPut, deployURL, &body)
 		if err != nil {
 			common.ApiErrorMsg(c, "failed to create deployment request: "+err.Error())
 			return
 		}
 		httpReq.Header.Set("Authorization", "Bearer "+apiToken)
-		httpReq.Header.Set("Content-Type", "application/javascript")
+		httpReq.Header.Set("Content-Type", writer.FormDataContentType())
 
 		client := &http.Client{Timeout: 30 * time.Second}
 		resp, err := client.Do(httpReq)

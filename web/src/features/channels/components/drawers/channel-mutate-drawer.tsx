@@ -3381,7 +3381,7 @@ export function ChannelMutateDrawer({
                                     <div className='flex flex-col gap-2 pt-2 border-t'>
                                       <div className='text-xs font-medium text-primary'>
                                         <a href={oauthAuthUrl} target='_blank' rel='noopener noreferrer' className='hover:underline'>
-                                          🔗 {t('If the window did not open, click here to log in (New Tab)')}
+                                          {t('If the window did not open, click here to log in (New Tab)')}
                                         </a>
                                       </div>
                                       <div className='flex items-center gap-2'>
@@ -3438,7 +3438,7 @@ export function ChannelMutateDrawer({
                                     <div className='flex flex-col gap-2 pt-2 border-t'>
                                       <div className='text-xs font-medium text-primary'>
                                         <a href={oauthAuthUrl} target='_blank' rel='noopener noreferrer' className='hover:underline'>
-                                          🔗 {t('If the window did not open, click here to log in (New Tab)')}
+                                          {t('If the window did not open, click here to log in (New Tab)')}
                                         </a>
                                       </div>
                                       <div className='flex items-center gap-2'>
@@ -3482,11 +3482,14 @@ export function ChannelMutateDrawer({
 
                                         const setPlan = (planVal: string) => {
                                           try {
+                                            let parsed: any = {}
                                             if (rawKey.trim().startsWith('{')) {
-                                              const parsed = JSON.parse(rawKey)
-                                              parsed.plan = planVal
-                                              form.setValue('key', JSON.stringify(parsed), { shouldValidate: true })
+                                              parsed = JSON.parse(rawKey)
+                                            } else if (rawKey.trim()) {
+                                              parsed = { access_token: rawKey.trim() }
                                             }
+                                            parsed.plan = planVal
+                                            form.setValue('key', JSON.stringify(parsed, null, 2), { shouldValidate: true })
                                           } catch {}
                                         }
 
@@ -3494,39 +3497,39 @@ export function ChannelMutateDrawer({
                                           <div className='flex items-center gap-1 bg-background/80 p-1 rounded-md border text-xs'>
                                             <Button
                                               type='button'
-                                              variant={currentPlan === 'pro' ? 'secondary' : 'ghost'}
+                                              variant={currentPlan === 'pro' ? 'default' : 'ghost'}
                                               size='sm'
                                               className='h-7 px-2.5 text-xs'
                                               onClick={() => setPlan('pro')}
                                             >
-                                              ⭐ AI Pro
+                                              AI Pro
                                             </Button>
                                             <Button
                                               type='button'
-                                              variant={currentPlan === 'plus' ? 'secondary' : 'ghost'}
+                                              variant={currentPlan === 'plus' ? 'default' : 'ghost'}
                                               size='sm'
                                               className='h-7 px-2.5 text-xs'
                                               onClick={() => setPlan('plus')}
                                             >
-                                              🚀 AI Plus
+                                              AI Plus
                                             </Button>
                                             <Button
                                               type='button'
-                                              variant={currentPlan === 'ultra' ? 'secondary' : 'ghost'}
+                                              variant={currentPlan === 'ultra' ? 'default' : 'ghost'}
                                               size='sm'
                                               className='h-7 px-2.5 text-xs'
                                               onClick={() => setPlan('ultra')}
                                             >
-                                              ⚡ AI Ultra
+                                              AI Ultra
                                             </Button>
                                             <Button
                                               type='button'
-                                              variant={currentPlan === 'free' ? 'secondary' : 'ghost'}
+                                              variant={currentPlan === 'free' ? 'default' : 'ghost'}
                                               size='sm'
                                               className='h-7 px-2.5 text-xs'
                                               onClick={() => setPlan('free')}
                                             >
-                                              🌱 Free
+                                              Free
                                             </Button>
                                           </div>
                                         )
@@ -3634,7 +3637,7 @@ export function ChannelMutateDrawer({
                                     <div className='flex flex-col gap-2 pt-2 border-t'>
                                       <div className='text-xs font-medium text-primary'>
                                         <a href={oauthAuthUrl} target='_blank' rel='noopener noreferrer' className='hover:underline'>
-                                          🔗 {t('If the window did not open, click here to log in (New Tab)')}
+                                          {t('If the window did not open, click here to log in (New Tab)')}
                                         </a>
                                       </div>
                                       <div className='flex items-center gap-2'>
@@ -5508,7 +5511,7 @@ export function ChannelMutateDrawer({
                   rel="noopener noreferrer"
                   className="text-primary hover:underline font-mono break-all inline-block"
                 >
-                  🔗 {t('Open Login Page (New Tab)')}
+                  {t('Open Login Page (New Tab)')}
                 </a>
               </div>
             )}

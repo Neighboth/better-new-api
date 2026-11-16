@@ -51,10 +51,19 @@ func PlaygroundVideo(c *gin.Context) {
 	}
 	userCache.WriteContext(c)
 
+	targetGroup := relayInfo.UsingGroup
+	if targetGroup == "" {
+		targetGroup = userCache.Group
+	}
+	if targetGroup == "" {
+		targetGroup = "default"
+	}
+
 	tempToken := &model.Token{
-		UserId: userId,
-		Name:   fmt.Sprintf("playground-%s", relayInfo.UsingGroup),
-		Group:  relayInfo.UsingGroup,
+		UserId:          userId,
+		Name:            fmt.Sprintf("playground-%s", targetGroup),
+		Group:           targetGroup,
+		CrossGroupRetry: true,
 	}
 	_ = middleware.SetupContextForToken(c, tempToken)
 
@@ -94,10 +103,19 @@ func playgroundRelay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 	userCache.WriteContext(c)
 
+	targetGroup := relayInfo.UsingGroup
+	if targetGroup == "" {
+		targetGroup = userCache.Group
+	}
+	if targetGroup == "" {
+		targetGroup = "default"
+	}
+
 	tempToken := &model.Token{
-		UserId: userId,
-		Name:   fmt.Sprintf("playground-%s", relayInfo.UsingGroup),
-		Group:  relayInfo.UsingGroup,
+		UserId:          userId,
+		Name:            fmt.Sprintf("playground-%s", targetGroup),
+		Group:           targetGroup,
+		CrossGroupRetry: true,
 	}
 	_ = middleware.SetupContextForToken(c, tempToken)
 

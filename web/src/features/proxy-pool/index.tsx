@@ -606,9 +606,10 @@ export function ProxyPool() {
                       </TableHead>
                       <TableHead>{t('Name')}</TableHead>
                       <TableHead>{t('URL')}</TableHead>
+                      <TableHead>{t('Type')}</TableHead>
                       <TableHead>{t('Status')}</TableHead>
                       <TableHead>{t('Last test')}</TableHead>
-                      <TableHead className='w-[150px] text-right'>
+                      <TableHead className='w-[160px] text-right'>
                         {t('Actions')}
                       </TableHead>
                     </TableRow>
@@ -660,12 +661,36 @@ export function ProxyPool() {
                           {proxy.url}
                         </TableCell>
                         <TableCell>
-                          {proxy.enabled ? (
-                            <Badge variant='outline'>
-                              {t('Enabled')}
+                          <div className='flex items-center gap-1.5'>
+                            <Badge variant='outline' className='text-[10px] font-mono px-1.5 py-0 uppercase'>
+                              {getProxyProtocol(proxy)}
                             </Badge>
+                            {proxy.country_code ? (
+                              <img
+                                src={`https://flagcdn.com/20x15/${proxy.country_code.toLowerCase()}.png`}
+                                alt={proxy.country_code}
+                                title={`${proxy.country_name || proxy.country_code}${proxy.city ? ` - ${proxy.city}` : ''}${proxy.isp ? ` (${proxy.isp})` : ''}`}
+                                className='inline-block h-3.5 w-auto rounded-xs shadow-xs shrink-0'
+                                onError={(e) => {
+                                  ;(e.target as HTMLElement).style.display = 'none'
+                                }}
+                              />
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {proxy.enabled ? (
+                            <span className='text-xs font-semibold text-emerald-600 dark:text-emerald-400'>
+                              {t('Enabled')}
+                            </span>
+                          ) : proxy.last_test_status === 'fail' ? (
+                            <span className='text-xs font-semibold text-amber-500' title={proxy.last_test_error}>
+                              {t('Auto-disabled')}
+                            </span>
                           ) : (
-                            <Badge variant='secondary'>{t('Disabled')}</Badge>
+                            <span className='text-xs font-semibold text-destructive'>
+                              {t('Disabled')}
+                            </span>
                           )}
                         </TableCell>
                         <TableCell>
@@ -701,6 +726,50 @@ export function ProxyPool() {
                                     <Button
                                       size='icon'
                                       variant='ghost'
+                                      disabled={togglingProxyId === proxy.id}
+                                      onClick={() => void handleToggleProxyEnabled(proxy)}
+                                      aria-label={proxy.enabled ? t('Disable') : t('Enable')}
+                                      className={
+                                        proxy.enabled
+                                          ? 'text-destructive hover:text-destructive'
+                                          : 'text-emerald-600 hover:text-emerald-600'
+                                      }
+                                    >
+                                      {togglingProxyId === proxy.id ? (
+                                        <Loader2 className='h-4 w-4 animate-spin' />
+                                      ) : proxy.enabled ? (
+                                        <PowerOff className='h-4 w-4' />
+                                      ) : (
+                                        <Power className='h-4 w-4' />
+                                      )}
+                                    </Button>
+                                  }
+                                />
+                                <TooltipContent>
+                                  {proxy.enabled ? t('Disable') : t('Enable')}
+                                </TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <Button
+                                      size='icon'
+                                      variant='ghost'
+                                      onClick={() => openEditDialog(proxy)}
+                                      aria-label={t('Edit proxy')}
+                                    >
+                                      <Pencil className='h-4 w-4' />
+                                    </Button>
+                                  }
+                                />
+                                <TooltipContent>{t('Edit')}</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <Button
+                                      size='icon'
+                                      variant='ghost'
                                       disabled={testingId === proxy.id}
                                       onClick={() => void handleTest(proxy.id)}
                                       aria-label={t('Test proxy speed')}
@@ -729,45 +798,6 @@ export function ProxyPool() {
                                   }
                                 />
                                 <TooltipContent>{t('Proxy details & usage')}</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger
-                                  render={
-                                    <Button
-                                      size='icon'
-                                      variant='ghost'
-                                      disabled={togglingProxyId === proxy.id}
-                                      onClick={() => void handleToggleProxyEnabled(proxy)}
-                                      aria-label={proxy.enabled ? t('Disable proxy') : t('Enable proxy')}
-                                    >
-                                      {togglingProxyId === proxy.id ? (
-                                        <Loader2 className='h-4 w-4 animate-spin' />
-                                      ) : proxy.enabled ? (
-                                        <Power className='h-4 w-4 text-emerald-600' />
-                                      ) : (
-                                        <PowerOff className='h-4 w-4 text-muted-foreground' />
-                                      )}
-                                    </Button>
-                                  }
-                                />
-                                <TooltipContent>
-                                  {proxy.enabled ? t('Disable proxy') : t('Enable proxy')}
-                                </TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger
-                                  render={
-                                    <Button
-                                      size='icon'
-                                      variant='ghost'
-                                      onClick={() => openEditDialog(proxy)}
-                                      aria-label={t('Edit proxy')}
-                                    >
-                                      <Pencil className='h-4 w-4' />
-                                    </Button>
-                                  }
-                                />
-                                <TooltipContent>{t('Edit')}</TooltipContent>
                               </Tooltip>
                               <Tooltip>
                                 <TooltipTrigger
@@ -1242,18 +1272,33 @@ export function ProxyPool() {
             )}
           </div>
 
-          <DialogFooter className='p-4 border-t bg-muted/20 flex flex-row items-center justify-end gap-2 shrink-0'>
+          <DialogFooter className='px-6 py-4 border-t bg-muted/20 flex flex-row items-center justify-end gap-3 shrink-0'>
             <Button variant='ghost' onClick={() => setDialogOpen(false)}>
               {t('Cancel')}
             </Button>
-            {proxyTab === 'line' || form.id !== undefined || (proxyTab === 'cloudflare' && form.url.trim()) ? (
-              <Button disabled={saveMutation.isPending} onClick={submitForm}>
-                {saveMutation.isPending && (
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                )}
-                {t('Save')}
-              </Button>
-            ) : null}
+            <Button
+              disabled={saveMutation.isPending || cfDeploying || isBulkSaving}
+              onClick={() => {
+                if (proxyTab === 'line' || form.id !== undefined) {
+                  submitForm()
+                } else if (proxyTab === 'cloudflare') {
+                  if (form.url.trim()) {
+                    submitForm()
+                  } else if (cfAccountId.trim() && cfApiToken.trim()) {
+                    void handleDeployWorker()
+                  } else {
+                    toast.error(t('Please enter a Worker URL or provide Cloudflare credentials to deploy'))
+                  }
+                } else if (proxyTab === 'bulk') {
+                  void handleBulkSave()
+                }
+              }}
+            >
+              {(saveMutation.isPending || cfDeploying || isBulkSaving) && (
+                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+              )}
+              {t('Save')}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1338,42 +1383,57 @@ export function ProxyPool() {
                   <div className='text-muted-foreground text-xs font-medium'>
                     {t('Latency / Speed')}
                   </div>
-                  <div className='mt-1 text-base font-bold font-mono'>
-                    {detailQuery.data.proxy.latency_ms
-                      ? `${detailQuery.data.proxy.latency_ms} ms`
-                      : '-'}
+                  <div className='mt-1 text-base font-bold font-mono flex items-center gap-1.5'>
+                    <span>{detailQuery.data.proxy.latency_ms ? `${detailQuery.data.proxy.latency_ms} ms` : '-'}</span>
+                    {detailQuery.data.proxy.latency_ms ? (
+                      <Badge variant='outline' className={cn('text-[10px] px-1 py-0', detailQuery.data.proxy.latency_ms < 400 ? 'text-emerald-600 border-emerald-500/40' : detailQuery.data.proxy.latency_ms < 900 ? 'text-amber-600 border-amber-500/40' : 'text-rose-600 border-rose-500/40')}>
+                        {detailQuery.data.proxy.latency_ms < 400 ? t('Fast') : detailQuery.data.proxy.latency_ms < 900 ? t('Medium') : t('Slow')}
+                      </Badge>
+                    ) : null}
                   </div>
                 </div>
                 <div className='rounded-lg border bg-muted/20 p-3'>
                   <div className='text-muted-foreground text-xs font-medium'>
-                    {t('Egress IP')}
+                    {t('Egress IP & Location')}
                   </div>
-                  <div
-                    className='mt-1 text-sm font-semibold font-mono truncate'
-                    title={detailQuery.data.proxy.egress_ip}
-                  >
-                    {detailQuery.data.proxy.egress_ip || '-'}
+                  <div className='mt-1 text-sm font-semibold font-mono truncate flex items-center gap-1.5'>
+                    {detailQuery.data.proxy.country_code ? (
+                      <img
+                        src={`https://flagcdn.com/20x15/${detailQuery.data.proxy.country_code.toLowerCase()}.png`}
+                        alt={detailQuery.data.proxy.country_code}
+                        className='inline-block h-3.5 w-auto rounded-xs shadow-xs shrink-0'
+                      />
+                    ) : null}
+                    <span title={detailQuery.data.proxy.egress_ip}>{detailQuery.data.proxy.egress_ip || '-'}</span>
                   </div>
+                  {(detailQuery.data.proxy.country_name || detailQuery.data.proxy.city || detailQuery.data.proxy.isp) && (
+                    <div className='text-[11px] text-muted-foreground truncate mt-0.5' title={`${detailQuery.data.proxy.city ? `${detailQuery.data.proxy.city}, ` : ''}${detailQuery.data.proxy.country_name || ''} ${detailQuery.data.proxy.isp ? `(${detailQuery.data.proxy.isp})` : ''}`}>
+                      {[detailQuery.data.proxy.city, detailQuery.data.proxy.country_name, detailQuery.data.proxy.isp].filter(Boolean).join(' · ')}
+                    </div>
+                  )}
                 </div>
                 <div className='rounded-lg border bg-muted/20 p-3'>
                   <div className='text-muted-foreground text-xs font-medium'>
-                    {t('Assigned Keys')}
-                  </div>
-                  <div className='mt-1 text-base font-bold font-mono'>
-                    {detailQuery.data.assigned_keys}
-                  </div>
-                </div>
-                <div className='rounded-lg border bg-muted/20 p-3'>
-                  <div className='text-muted-foreground text-xs font-medium'>
-                    {t('Status')}
+                    {t('Protocol / Type')}
                   </div>
                   <div className='mt-1 text-sm font-semibold'>
+                    <Badge variant='outline' className='text-xs uppercase font-mono'>
+                      {getProxyProtocol(detailQuery.data.proxy)}
+                    </Badge>
+                  </div>
+                </div>
+                <div className='rounded-lg border bg-muted/20 p-3'>
+                  <div className='text-muted-foreground text-xs font-medium'>
+                    {t('Status & Keys')}
+                  </div>
+                  <div className='mt-1 flex items-center justify-between'>
+                    <div className='text-base font-bold font-mono'>
+                      {detailQuery.data.assigned_keys} {t('Keys')}
+                    </div>
                     {detailQuery.data.proxy.enabled ? (
-                      <span>
-                        {t('Active')}
-                      </span>
+                      <span className='text-xs font-semibold text-emerald-600 dark:text-emerald-400'>{t('Enabled')}</span>
                     ) : (
-                      <span className='text-muted-foreground'>{t('Inactive')}</span>
+                      <span className='text-xs font-semibold text-destructive'>{t('Disabled')}</span>
                     )}
                   </div>
                 </div>

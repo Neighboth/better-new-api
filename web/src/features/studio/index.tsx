@@ -55,6 +55,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Popover,
@@ -221,6 +222,11 @@ export function Studio() {
   const [videoDuration, setVideoDuration] = useState('')
   const [videoRatio, setVideoRatio] = useState('')
   const [videoQuality, setVideoQuality] = useState('')
+  const [videoExtension, setVideoExtension] = useState<'off' | '60' | '120' | '300' | '600'>('off')
+  const [negativePrompt, setNegativePrompt] = useState('')
+  const [startFrame, setStartFrame] = useState('')
+  const [endFrame, setEndFrame] = useState('')
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
 
   const { data: runtimeData } = useQuery({
     queryKey: ['playground-runtime-config'],
@@ -471,6 +477,10 @@ export function Studio() {
         quality: videoQualityValue || undefined,
         imageUrl: attachedMedia?.url || undefined,
         optimize: optimizePrompt,
+        startFrame: startFrame.trim() || undefined,
+        endFrame: endFrame.trim() || undefined,
+        negativePrompt: negativePrompt.trim() || undefined,
+        videoExtension: videoExtension !== 'off' ? videoExtension : undefined,
       },
       (id) => setActiveSessionItemId(id)
     )
@@ -891,6 +901,7 @@ export function Studio() {
 
                   {/* Video parameters (Oran, Süre, Kalite) */}
                   {mode === 'video' && (
+                    <>
                     <div className='grid grid-cols-3 gap-2 pt-0.5'>
                       <div className='space-y-1'>
                         <Label className='text-xs font-medium text-muted-foreground'>{t('Oran')}</Label>
@@ -940,6 +951,76 @@ export function Studio() {
                         </Select>
                       </div>
                     </div>
+
+                    {/* Uzatma (Extend Video) */}
+                    <div className='space-y-1.5 pt-2 border-t border-border/40'>
+                      <div className='flex items-center justify-between'>
+                        <Label className='text-xs font-medium text-foreground/80'>{t('Video Extension')}</Label>
+                        {videoExtension !== 'off' && (
+                          <span className='text-[10px] text-primary font-semibold uppercase'>
+                            {videoExtension === '60' ? '1 dk' : videoExtension === '120' ? '2 dk' : videoExtension === '300' ? '5 dk' : '10 dk'}
+                          </span>
+                        )}
+                      </div>
+                      <Select value={videoExtension} onValueChange={(val) => setVideoExtension(val as any)}>
+                        <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='off' className='text-xs'>{t('Off')}</SelectItem>
+                          <SelectItem value='60' className='text-xs'>1 {t('min')} (60s - {t('Chained')})</SelectItem>
+                          <SelectItem value='120' className='text-xs'>2 {t('min')} (120s - {t('Chained')})</SelectItem>
+                          <SelectItem value='300' className='text-xs'>5 {t('min')} (300s - {t('Chained')})</SelectItem>
+                          <SelectItem value='600' className='text-xs'>10 {t('min')} (600s - {t('Chained')})</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Advanced Controls Collapsible */}
+                    <div className='space-y-1.5 pt-2 border-t border-border/40'>
+                      <button
+                        type='button'
+                        onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+                        className='flex items-center justify-between w-full text-xs font-medium text-muted-foreground hover:text-foreground transition'
+                      >
+                        <span>{t('Advanced Frame & Negative Options')}</span>
+                        <span className='text-[10px] font-mono'>{showAdvancedOptions ? '▲' : '▼'}</span>
+                      </button>
+                      {showAdvancedOptions && (
+                        <div className='space-y-2 pt-1'>
+                          <div className='space-y-1'>
+                            <Label className='text-[11px] text-muted-foreground'>{t('Negative Prompt')}</Label>
+                            <Input
+                              value={negativePrompt}
+                              onChange={(e) => setNegativePrompt(e.target.value)}
+                              placeholder={t('Avoid blur, bad anatomy, text...')}
+                              className='h-7 text-xs'
+                            />
+                          </div>
+                          <div className='grid grid-cols-2 gap-2'>
+                            <div className='space-y-1'>
+                              <Label className='text-[11px] text-muted-foreground'>{t('Start Frame')}</Label>
+                              <Input
+                                value={startFrame}
+                                onChange={(e) => setStartFrame(e.target.value)}
+                                placeholder='URL / Image ID'
+                                className='h-7 text-xs font-mono'
+                              />
+                            </div>
+                            <div className='space-y-1'>
+                              <Label className='text-[11px] text-muted-foreground'>{t('End Frame')}</Label>
+                              <Input
+                                value={endFrame}
+                                onChange={(e) => setEndFrame(e.target.value)}
+                                placeholder='URL / Image ID'
+                                className='h-7 text-xs font-mono'
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    </>
                   )}
 
                   {/* Image parameters */}

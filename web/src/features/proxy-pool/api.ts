@@ -22,12 +22,17 @@ export interface ProxyPoolProxy {
   id: number
   name: string
   url: string
+  proxy_type?: string
   enabled: boolean
   last_test_status: string
   last_test_error: string
   last_tested_at: number
   latency_ms?: number
   egress_ip?: string
+  country_code?: string
+  country_name?: string
+  city?: string
+  isp?: string
   assigned_keys?: number
   created_at: number
   updated_at: number

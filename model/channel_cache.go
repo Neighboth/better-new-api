@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -56,12 +57,38 @@ func InitChannelCache() {
 		}
 		groups := strings.Split(channel.Group, ",")
 		for _, group := range groups {
+			group = strings.TrimSpace(group)
+			if group == "" {
+				continue
+			}
+			if newGroup2model2channels[group] == nil {
+				newGroup2model2channels[group] = make(map[string][]int)
+			}
 			models := strings.Split(channel.Models, ",")
 			for _, model := range models {
+				model = strings.TrimSpace(model)
+				if model == "" {
+					continue
+				}
 				if _, ok := newGroup2model2channels[group][model]; !ok {
 					newGroup2model2channels[group][model] = make([]int, 0)
 				}
 				newGroup2model2channels[group][model] = append(newGroup2model2channels[group][model], channel.Id)
+			}
+			if channel.ModelMapping != nil && *channel.ModelMapping != "" {
+				var mapping map[string]string
+				if err := json.Unmarshal([]byte(*channel.ModelMapping), &mapping); err == nil {
+					for originModel := range mapping {
+						originModel = strings.TrimSpace(originModel)
+						if originModel == "" {
+							continue
+						}
+						if _, ok := newGroup2model2channels[group][originModel]; !ok {
+							newGroup2model2channels[group][originModel] = make([]int, 0)
+						}
+						newGroup2model2channels[group][originModel] = append(newGroup2model2channels[group][originModel], channel.Id)
+					}
+				}
 			}
 		}
 	}

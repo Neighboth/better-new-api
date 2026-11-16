@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -238,11 +239,30 @@ func (channel *Channel) UpdateAbilities(tx *gorm.DB) error {
 
 	// Then add new abilities
 	models_ := strings.Split(channel.Models, ",")
+	if channel.ModelMapping != nil && *channel.ModelMapping != "" {
+		var mapping map[string]string
+		if err := json.Unmarshal([]byte(*channel.ModelMapping), &mapping); err == nil {
+			for originModel := range mapping {
+				originModel = strings.TrimSpace(originModel)
+				if originModel != "" {
+					models_ = append(models_, originModel)
+				}
+			}
+		}
+	}
 	groups_ := strings.Split(channel.Group, ",")
 	abilitySet := make(map[string]struct{})
 	abilities := make([]Ability, 0, len(models_))
 	for _, model := range models_ {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
 		for _, group := range groups_ {
+			group = strings.TrimSpace(group)
+			if group == "" {
+				continue
+			}
 			key := group + "|" + model
 			if _, exists := abilitySet[key]; exists {
 				continue

@@ -54,6 +54,11 @@ type VideoParams = {
   quality?: string
   imageUrl?: string
   optimize?: boolean
+  startFrame?: string
+  endFrame?: string
+  referenceImages?: string[]
+  negativePrompt?: string
+  videoExtension?: string
 }
 
 async function optimizeStudioPrompt(
@@ -358,6 +363,17 @@ export function useStudioGeneration() {
             ratio: params.ratio,
             quality: params.quality,
             image_url: params.imageUrl,
+            start_frame: params.startFrame,
+            end_frame: params.endFrame,
+            reference_images: params.referenceImages,
+            negative_prompt: params.negativePrompt,
+            metadata: {
+              start_frame: params.startFrame,
+              end_frame: params.endFrame,
+              reference_images: params.referenceImages,
+              negative_prompt: params.negativePrompt,
+              video_extension: params.videoExtension,
+            },
           },
           controller.signal
         )

@@ -89,8 +89,9 @@ export function buildBlogAiSystemPrompt(
       'Start immediately with the article content.',
       'CRITICAL LANGUAGE RULE: You MUST write this entire article in ENGLISH! Regardless of what language the user prompt or title is provided in (even if Turkish, German, Chinese, etc.), this article MUST be written in ENGLISH. It acts as the universal master source for translations.',
       'Requirements: full comprehensive markdown article (headings, lists, bold, links as appropriate): Aim for 600-1200 words.',
-      'HUMANIZER GUIDELINES (MANDATORY - AVOID AI TELLS):',
+      'HUMANIZER GUIDELINES (MANDATORY - AVOID AI TELLS - COMPLETE HUMANIZER PRINCIPLES):',
       '- Write in a direct, natural human voice like a seasoned practitioner, NOT like a generic chatbot.',
+      '- BANNED AI VOCABULARY: Never use "delve", "tapestry", "beacon", "testament", "crucial", "paramount", "elevate", "unlock", "harness", "moreover", "furthermore", "in conclusion", "testament to".',
       '- NO "Not X, but Y" or "It\'s not just about X, it\'s about Y" formulas. State facts and observations directly.',
       '- NO dramatic one-line closers (e.g. "That is the real win", "Let that sink in", "The future is now").',
       '- NO staged clichés or empty openers (e.g. "In today\'s fast-paced digital world", "In the rapidly evolving landscape of AI", "Let\'s dive in", "Here\'s the thing").',
@@ -98,6 +99,7 @@ export function buildBlogAiSystemPrompt(
       '- NO dash spam (excessive em-dashes —).',
       '- Do NOT bold every item or label mechanically.',
       '- Vary sentence lengths naturally. Use concrete technical specifics instead of vague marketing hype.',
+      '- Skip throat-clearing preambles: start immediately with technical substance.',
       'CRITICAL CASING & STYLE RULE: If the user prompt specifies casing rules (such as ALL UPPERCASE/tamamen büyük harf, all lowercase) or punctuation rules (no punctuation), you MUST strictly follow them for every character in the generated article from start to finish. Never truncate and never use ellipses (...) to skip content.',
       'Citation policy (this is mandatory): if web research notes are present in the user message, you may cite, and may only cite, the URLs that appear in those notes. If no web research notes are present, do NOT invent, guess or output any source, reference, link, URL, domain, or citation of any kind - the article must read as if it cites nothing.',
     ].join('\n')

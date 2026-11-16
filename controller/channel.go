@@ -496,6 +496,30 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		return fmt.Errorf("channel cannot be empty")
 	}
 
+	// Clean and normalize Models and Group to prevent whitespace matching bugs
+	if channel.Models != "" {
+		parts := strings.Split(channel.Models, ",")
+		var cleaned []string
+		for _, p := range parts {
+			t := strings.TrimSpace(p)
+			if t != "" {
+				cleaned = append(cleaned, t)
+			}
+		}
+		channel.Models = strings.Join(cleaned, ",")
+	}
+	if channel.Group != "" {
+		parts := strings.Split(channel.Group, ",")
+		var cleaned []string
+		for _, p := range parts {
+			t := strings.TrimSpace(p)
+			if t != "" {
+				cleaned = append(cleaned, t)
+			}
+		}
+		channel.Group = strings.Join(cleaned, ",")
+	}
+
 	// 校验 channel settings
 	if err := channel.ValidateSettings(); err != nil {
 		return fmt.Errorf("渠道额外设置[channel setting] 格式错误：%s", err.Error())

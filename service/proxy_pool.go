@@ -245,56 +245,103 @@ func IsCloudflareWorkerProxy(proxyURL string) bool {
 	return false
 }
 
-// TestProxyEgress checks that a proxy resolves and can reach the public
-// internet, returning the egress IP as seen by a remote service and the
-// round-trip duration in milliseconds. The call uses a short context timeout
-// so a dead proxy never blocks the admin UI.
-func TestProxyEgress(rawProxyURL string, proxyType ...string) (string, int64, error) {
+type ProxyTestResult struct {
+	EgressIP    string
+	LatencyMs   int64
+	ProxyType   string
+	CountryCode string
+	CountryName string
+	City        string
+	ISP         string
+}
+
+func lookupGeoIP(ip string) (countryCode, countryName, city, isp string) {
+	if ip == "" || ip == "cloudflare-worker" || strings.Contains(ip, "127.0.0.1") || strings.Contains(ip, "localhost") {
+		return "", "", "", ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://ip-api.com/json/"+ip+"?fields=status,country,countryCode,city,isp", nil)
+	if err != nil {
+		return "", "", "", ""
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", "", ""
+	}
+	defer resp.Body.Close()
+	var res struct {
+		Status      string `json:"status"`
+		Country     string `json:"country"`
+		CountryCode string `json:"countryCode"`
+		City        string `json:"city"`
+		ISP         string `json:"isp"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err == nil && res.Status == "success" {
+		return res.CountryCode, res.Country, res.City, res.ISP
+	}
+	return "", "", "", ""
+}
+
+func testCloudflareWorkerEgress(workerURL string) (*ProxyTestResult, error) {
+	if !strings.HasPrefix(workerURL, "http://") && !strings.HasPrefix(workerURL, "https://") {
+		workerURL = "https://" + workerURL
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, workerURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Target-URL", "https://api.ipify.org?format=json")
+	req.Header.Set("User-Agent", "curl/8.4.0")
+	started := time.Now()
+	client := &http.Client{Timeout: 12 * time.Second}
+	resp, err := client.Do(req)
+	latency := time.Since(started).Milliseconds()
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return nil, err
+	}
+	bodyStr := string(body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("worker status %d: %s", resp.StatusCode, bodyStr)
+	}
+	var parsed struct {
+		IP string `json:"ip"`
+	}
+	ip := "cloudflare-worker"
+	if err := json.Unmarshal(body, &parsed); err == nil && parsed.IP != "" {
+		ip = parsed.IP
+	}
+	cc, cn, city, isp := lookupGeoIP(ip)
+	return &ProxyTestResult{
+		EgressIP:    ip,
+		LatencyMs:   latency,
+		ProxyType:   "cloudflare_worker",
+		CountryCode: cc,
+		CountryName: cn,
+		City:        city,
+		ISP:         isp,
+	}, nil
+}
+
+// TestProxyEgressInfo checks that a proxy resolves and can reach the public
+// internet, returning the egress IP, latency, Geo-IP data and resolved proxy type.
+func TestProxyEgressInfo(rawProxyURL string, proxyType ...string) (*ProxyTestResult, error) {
 	trimmed := strings.TrimSpace(rawProxyURL)
 	if trimmed == "" {
-		return "", 0, fmt.Errorf("empty proxy URL")
+		return nil, fmt.Errorf("empty proxy URL")
 	}
 
 	// 1. Dedicated handling for Cloudflare Worker proxies
 	if (len(proxyType) > 0 && proxyType[0] == "cloudflare_worker") || IsCloudflareWorkerProxy(trimmed) {
-		workerURL := trimmed
-		if !strings.HasPrefix(workerURL, "http://") && !strings.HasPrefix(workerURL, "https://") {
-			workerURL = "https://" + workerURL
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-		defer cancel()
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, workerURL, nil)
-		if err != nil {
-			return "", 0, err
-		}
-		req.Header.Set("X-Target-URL", "https://api.ipify.org?format=json")
-		req.Header.Set("User-Agent", "curl/8.4.0")
-		started := time.Now()
-		client := GetHttpClient()
-		if client == nil {
-			client = http.DefaultClient
-		}
-		resp, err := client.Do(req)
-		latency := time.Since(started).Milliseconds()
-		if err != nil {
-			return "", latency, err
-		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if err != nil {
-			return "", latency, err
-		}
-		bodyStr := string(body)
-		if resp.StatusCode != http.StatusOK {
-			return "", latency, fmt.Errorf("worker status %d: %s", resp.StatusCode, bodyStr)
-		}
-		var parsed struct {
-			IP string `json:"ip"`
-		}
-		if err := json.Unmarshal(body, &parsed); err == nil && parsed.IP != "" {
-			return parsed.IP, latency, nil
-		}
-		return "cloudflare-worker", latency, nil
+		return testCloudflareWorkerEgress(trimmed)
 	}
 
 	// 2. Standard HTTP/HTTPS/SOCKS5 Proxies
@@ -302,43 +349,71 @@ func TestProxyEgress(rawProxyURL string, proxyType ...string) (string, int64, er
 		rawProxyURL = normURL
 	}
 	if _, err := common.ParseProxyURLStrict(rawProxyURL); err != nil {
-		return "", 0, err
+		return nil, err
 	}
 	client, err := GetHttpClientWithProxy(rawProxyURL)
 	if err != nil {
-		return "", 0, err
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.ipify.org?format=json", nil)
 	if err != nil {
-		return "", 0, err
+		return nil, err
 	}
 	req.Header.Set("User-Agent", "curl/8.4.0")
 	started := time.Now()
 	resp, err := client.Do(req)
 	latency := time.Since(started).Milliseconds()
 	if err != nil {
-		return "", latency, err
+		if strings.Contains(err.Error(), "first record does not look like a TLS handshake") || strings.Contains(err.Error(), "proxyconnect") {
+			if strings.HasPrefix(trimmed, "https://") || strings.Contains(trimmed, "worker") {
+				return testCloudflareWorkerEgress(trimmed)
+			}
+		}
+		return nil, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if err != nil {
-		return "", latency, err
+		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", latency, fmt.Errorf("unexpected status %d from egress endpoint", resp.StatusCode)
+		return nil, fmt.Errorf("unexpected status %d from egress endpoint", resp.StatusCode)
 	}
 	var parsed struct {
 		IP string `json:"ip"`
 	}
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "", latency, fmt.Errorf("unexpected egress response")
+	if err := json.Unmarshal(body, &parsed); err != nil || parsed.IP == "" {
+		return nil, fmt.Errorf("unexpected egress response")
 	}
-	if parsed.IP == "" {
-		return "", latency, fmt.Errorf("unexpected egress response")
+
+	cc, cn, city, isp := lookupGeoIP(parsed.IP)
+	pt := "standard"
+	if len(proxyType) > 0 && proxyType[0] != "" {
+		pt = proxyType[0]
 	}
-	return parsed.IP, latency, nil
+	return &ProxyTestResult{
+		EgressIP:    parsed.IP,
+		LatencyMs:   latency,
+		ProxyType:   pt,
+		CountryCode: cc,
+		CountryName: cn,
+		City:        city,
+		ISP:         isp,
+	}, nil
+}
+
+// TestProxyEgress checks that a proxy resolves and can reach the public
+// internet, returning the egress IP as seen by a remote service and the
+// round-trip duration in milliseconds. The call uses a short context timeout
+// so a dead proxy never blocks the admin UI.
+func TestProxyEgress(rawProxyURL string, proxyType ...string) (string, int64, error) {
+	res, err := TestProxyEgressInfo(rawProxyURL, proxyType...)
+	if err != nil {
+		return "", 0, err
+	}
+	return res.EgressIP, res.LatencyMs, nil
 }
 
 // StartProxyPoolAutoTester periodically runs health/latency checks on registered

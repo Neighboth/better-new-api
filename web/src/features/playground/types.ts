@@ -237,6 +237,11 @@ export interface VideoGenerationRequest {
   ratio?: string
   quality?: string
   image_url?: string
+  metadata?: Record<string, unknown>
+  start_frame?: string
+  end_frame?: string
+  reference_images?: string[]
+  negative_prompt?: string
 }
 
 /** Submit response of the video endpoints (task based, polled afterwards). */

@@ -290,7 +290,10 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 }
 
 func wrapV1InternalRequest(info *relaycommon.RelayInfo, geminiReq *dto.GeminiChatRequest) *V1InternalRequest {
-	_, project, _, channelThinkingLevel := parseAntigravityKey(info.ApiKey)
+	token, project, _, channelThinkingLevel := parseAntigravityKey(info.ApiKey)
+	if project == "" && token != "" {
+		project = fetchAntigravityProject(token, info.ChannelBaseUrl)
+	}
 	if project == "" {
 		project = "aicode-consumers"
 	}

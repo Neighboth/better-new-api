@@ -29,17 +29,21 @@ import (
 
 // AepiJobRequest represents the payload for POST /v1/jobs
 type AepiJobRequest struct {
-	Operation  string `json:"operation"`
-	Model      string `json:"model,omitempty"`
-	Prompt     string `json:"prompt"`
-	Source     string `json:"source,omitempty"`
-	Duration   int    `json:"duration,omitempty"`
-	Aspect     string `json:"aspect,omitempty"`
-	Resolution string `json:"resolution,omitempty"`
-	Style      string `json:"style,omitempty"`
-	Fit        string `json:"fit,omitempty"`
-	Engine     string `json:"engine,omitempty"`
-	Audio      *bool  `json:"audio,omitempty"`
+	Operation       string   `json:"operation"`
+	Model           string   `json:"model,omitempty"`
+	Prompt          string   `json:"prompt"`
+	Source          string   `json:"source,omitempty"`
+	Duration        int      `json:"duration,omitempty"`
+	Aspect          string   `json:"aspect,omitempty"`
+	Resolution      string   `json:"resolution,omitempty"`
+	Style           string   `json:"style,omitempty"`
+	Fit             string   `json:"fit,omitempty"`
+	Engine          string   `json:"engine,omitempty"`
+	Audio           *bool    `json:"audio,omitempty"`
+	StartFrame      string   `json:"startFrame,omitempty"`
+	EndFrame        string   `json:"endFrame,omitempty"`
+	ReferenceImages []string `json:"referenceImages,omitempty"`
+	NegativePrompt  string   `json:"negative_prompt,omitempty"`
 }
 
 // AepiJobOutput represents output file info
@@ -534,6 +538,58 @@ func (a *TaskAdaptor) convertToAepiJobRequest(c *gin.Context, req *relaycommon.T
 	}
 	if resolution != "" {
 		job.Resolution = resolution
+	}
+
+	if req.Metadata != nil {
+		if sf, ok := req.Metadata["start_frame"].(string); ok && sf != "" {
+			if resolved, err := a.resolveSource(c, sf); err == nil && resolved != "" {
+				job.StartFrame = resolved
+			} else {
+				job.StartFrame = sf
+			}
+		} else if sf, ok := req.Metadata["startFrame"].(string); ok && sf != "" {
+			if resolved, err := a.resolveSource(c, sf); err == nil && resolved != "" {
+				job.StartFrame = resolved
+			} else {
+				job.StartFrame = sf
+			}
+		}
+
+		if ef, ok := req.Metadata["end_frame"].(string); ok && ef != "" {
+			if resolved, err := a.resolveSource(c, ef); err == nil && resolved != "" {
+				job.EndFrame = resolved
+			} else {
+				job.EndFrame = ef
+			}
+		} else if ef, ok := req.Metadata["endFrame"].(string); ok && ef != "" {
+			if resolved, err := a.resolveSource(c, ef); err == nil && resolved != "" {
+				job.EndFrame = resolved
+			} else {
+				job.EndFrame = ef
+			}
+		}
+
+		if refs, ok := req.Metadata["reference_images"].([]any); ok && len(refs) > 0 {
+			var refIDs []string
+			for _, r := range refs {
+				if rStr, ok := r.(string); ok && rStr != "" {
+					if resolved, err := a.resolveSource(c, rStr); err == nil && resolved != "" {
+						refIDs = append(refIDs, resolved)
+					} else {
+						refIDs = append(refIDs, rStr)
+					}
+				}
+			}
+			if len(refIDs) > 0 {
+				job.ReferenceImages = refIDs
+			}
+		}
+
+		if neg, ok := req.Metadata["negative_prompt"].(string); ok && neg != "" {
+			job.NegativePrompt = neg
+		} else if neg, ok := req.Metadata["negativePrompt"].(string); ok && neg != "" {
+			job.NegativePrompt = neg
+		}
 	}
 
 	return job, nil

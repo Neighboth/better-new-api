@@ -185,7 +185,7 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       baseUrl: 'Default: https://cloudcode-pa.googleapis.com (Prod) or https://daily-cloudcode-pa.googleapis.com (Sandbox)',
       key: 'Provide a Google Antigravity JSON key or sign in with OAuth',
       models:
-        'claude-opus-4-6-thinking,claude-opus-4-6,claude-opus-4-5-thinking,claude-sonnet-4-6,claude-sonnet-4-5-thinking,claude-sonnet-4-5,claude-3-7-sonnet,claude-3-5-sonnet,gemini-2.5-pro,gemini-2.5-flash,gemini-2.5-flash-thinking,gemini-2.5-flash-lite,gemini-3-flash,gemini-3-pro-high,gemini-3-pro-low,gemini-3-pro-image,gpt-oss-120b-medium',
+        'gemini-2.5-flash,gemini-2.5-flash-thinking,claude-sonnet-4-5,gemini-2.5-pro,claude-opus-4-6-thinking,claude-opus-4-6,claude-opus-4-5-thinking,claude-sonnet-4-6,claude-sonnet-4-5-thinking,claude-3-7-sonnet,claude-3-5-sonnet,gemini-2.5-flash-lite,gemini-3-flash,gemini-3-pro-high,gemini-3-pro-low,gemini-3-pro-image,gpt-oss-120b-medium',
     },
   },
   62: {

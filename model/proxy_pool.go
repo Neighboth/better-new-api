@@ -23,6 +23,10 @@ type ProxyPoolProxy struct {
 	LastTestedAt   int64  `json:"last_tested_at" gorm:"not null;default:0"`
 	LatencyMs      int64  `json:"latency_ms" gorm:"default:0"`
 	EgressIP       string `json:"egress_ip" gorm:"type:varchar(64);default:''"`
+	CountryCode    string `json:"country_code" gorm:"type:varchar(8);default:''"`
+	CountryName    string `json:"country_name" gorm:"type:varchar(64);default:''"`
+	City           string `json:"city" gorm:"type:varchar(64);default:''"`
+	ISP            string `json:"isp" gorm:"type:varchar(128);default:''"`
 	AssignedKeys   int    `json:"assigned_keys" gorm:"-"`
 	IsBackup       bool   `json:"is_backup" gorm:"-"`
 	CreatedAt      int64  `json:"created_at"`
