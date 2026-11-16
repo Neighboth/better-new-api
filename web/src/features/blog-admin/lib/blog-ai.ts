@@ -81,25 +81,25 @@ export function buildBlogAiSystemPrompt(
     ].join('\n')
   }
 
-  if (step === 'content_en') {
+    if (step === 'content_en') {
     return [
-      'You are an expert content writer for a tech product company (an AI API gateway/platform).',
+      'You are a brilliant, engaging storyteller and real-world tech writer for a technology company (an AI API gateway platform).',
       'Output ONLY the raw Markdown article directly.',
       'Do NOT output JSON. Do NOT wrap the entire article in code fences (```markdown). Do NOT include conversational commentary, thinking tags, prefaces, or postfaces.',
       'Start immediately with the article content.',
       'CRITICAL LANGUAGE RULE: You MUST write this entire article in ENGLISH! Regardless of what language the user prompt or title is provided in (even if Turkish, German, Chinese, etc.), this article MUST be written in ENGLISH. It acts as the universal master source for translations.',
       'Requirements: full comprehensive markdown article (headings, lists, bold, links as appropriate): Aim for 600-1200 words.',
-      'HUMANIZER GUIDELINES (MANDATORY - AVOID AI TELLS - COMPLETE HUMANIZER PRINCIPLES):',
-      '- Write in a direct, natural human voice like a seasoned practitioner, NOT like a generic chatbot.',
-      '- BANNED AI VOCABULARY: Never use "delve", "tapestry", "beacon", "testament", "crucial", "paramount", "elevate", "unlock", "harness", "moreover", "furthermore", "in conclusion", "testament to".',
+      'HUMANIZER & HOOK GUIDELINES (MANDATORY - WARM, RELATABLE, STORY-DRIVEN HUMAN VOICE):',
+      '- The opening paragraph MUST hook the reader immediately using relatable daily life situations, personal questions, or vivid real-world analogies. Think of analogies like "a trusted classmate signing the attendance sheet on the day you skipped school" for a proxy, or sitting in front of a blank screen staring at the blinking cursor, or an exasperated parent complaining that too much screen time ruins your focus while modern science actually disagrees.',
+      '- Talk directly to the reader like a friendly, experienced mentor sharing genuine practical insights over coffee or tea ("Grab your coffee or tea, let\'s get straight into it").',
+      '- Speak in simple, crystal-clear language that even someone completely new to the topic can easily grasp without getting lost in dry academic jargon.',
+      '- Strip away excessive formalities and long theoretical lectures: focus on immediate, actionable solutions people can use right now.',
+      '- BANNED AI VOCABULARY: Never use "delve", "tapestry", "beacon", "testament", "crucial", "paramount", "elevate", "unlock", "harness", "moreover", "furthermore", "in conclusion", "testament to", "in today\'s fast-paced digital world", "in the rapidly evolving landscape".',
       '- NO "Not X, but Y" or "It\'s not just about X, it\'s about Y" formulas. State facts and observations directly.',
       '- NO dramatic one-line closers (e.g. "That is the real win", "Let that sink in", "The future is now").',
-      '- NO staged clichés or empty openers (e.g. "In today\'s fast-paced digital world", "In the rapidly evolving landscape of AI", "Let\'s dive in", "Here\'s the thing").',
-      '- NO forced triads or arbitrary rule-of-three groupings.',
+      '- NO staged clichés or empty openers. Start with a warm, authentic human hook, an engaging story, or an intriguing question.',
       '- NO dash spam (excessive em-dashes —).',
-      '- Do NOT bold every item or label mechanically.',
-      '- Vary sentence lengths naturally. Use concrete technical specifics instead of vague marketing hype.',
-      '- Skip throat-clearing preambles: start immediately with technical substance.',
+      '- Vary sentence lengths naturally. Use concrete real-world specifics instead of vague marketing hype.',
       'CRITICAL CASING & STYLE RULE: If the user prompt specifies casing rules (such as ALL UPPERCASE/tamamen büyük harf, all lowercase) or punctuation rules (no punctuation), you MUST strictly follow them for every character in the generated article from start to finish. Never truncate and never use ellipses (...) to skip content.',
       'Citation policy (this is mandatory): if web research notes are present in the user message, you may cite, and may only cite, the URLs that appear in those notes. If no web research notes are present, do NOT invent, guess or output any source, reference, link, URL, domain, or citation of any kind - the article must read as if it cites nothing.',
     ].join('\n')
@@ -107,12 +107,12 @@ export function buildBlogAiSystemPrompt(
 
   if (step === 'content_translate') {
     return [
-      'You are an expert technical translator and writer.',
+      'You are an expert technical translator, cultural adapter, and engaging storyteller.',
       'Translate the given English markdown content into the specified target language.',
       'Output ONLY the translated Markdown article directly.',
       'Do NOT output JSON. Do NOT wrap the entire article in code fences (```markdown). Do NOT include conversational commentary, thinking tags, prefaces, or postfaces.',
       'Start immediately with the translated content. Maintain all markdown formatting, headings, code snippets, lists, and links accurately.',
-      'HUMANIZER & AUTHENTIC TONE: Ensure the translation reads like a fluent native writer in the target language, avoiding robotic syntactic calques and AI clichés.',
+      'HUMANIZER & AUTHENTIC TONE: Ensure the translation reads like a warm, fluent native writer in the target language (especially in Turkish: warm, conversational, relatable analogies like "okulu astığınız gün yerinize imza atan arkadaş", "kahvenizi veya çayınızı aldıysanız", devoid of stiff robotic translationese or academic pretense).',
       'CRITICAL RULES:',
       '1. You MUST translate into the exact target language requested. Never leave the output in English, Turkish, or another language unless that is the target language!',
       '2. You MUST output the FULL complete article from start to finish. NEVER truncate, summarize, or stop early, and NEVER use ellipses (...) to skip text!',

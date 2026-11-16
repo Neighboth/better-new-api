@@ -690,15 +690,15 @@ export function ProxyPool() {
                         </TableCell>
                         <TableCell>
                           {proxy.enabled ? (
-                            <span className='text-xs font-semibold text-emerald-600 dark:text-emerald-400'>
+                            <span className='text-[11px] font-medium text-emerald-500'>
                               {t('Enabled')}
                             </span>
                           ) : proxy.last_test_status === 'fail' ? (
-                            <span className='text-xs font-semibold text-amber-500' title={proxy.last_test_error}>
+                            <span className='text-[11px] font-medium text-amber-500' title={proxy.last_test_error}>
                               {t('Auto-disabled')}
                             </span>
                           ) : (
-                            <span className='text-xs font-semibold text-destructive'>
+                            <span className='text-[11px] font-medium text-muted-foreground'>
                               {t('Disabled')}
                             </span>
                           )}

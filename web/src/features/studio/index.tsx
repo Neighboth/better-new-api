@@ -379,7 +379,12 @@ export function Studio() {
     removeItem,
   } = useStudioGeneration()
 
-  const [isMobileScreen, setIsMobileScreen] = useState(false)
+  const [selectedChunkIndex, setSelectedChunkIndex] = useState(0)
+
+  // Reset selected chunk when activeItem changes
+  useEffect(() => {
+    setSelectedChunkIndex(0)
+  }, [activeItem?.id])
 
   useEffect(() => {
     const checkMobile = () => {
@@ -669,16 +674,38 @@ export function Studio() {
                   )}
 
                   {activeItem.status === 'ready' && (
-                    <div className='w-full p-2 flex items-center justify-center'>
+                    <div className='w-full p-2 flex flex-col items-center justify-center gap-2'>
                       {activeItem.mode === 'video' ? (
-                        <video
-                          autoPlay
-                          className='max-h-[380px] w-full object-contain bg-black rounded-lg'
-                          controls
-                          loop
-                          playsInline
-                          src={getPlayableMediaUrl(activeItem.urls[0])}
-                        />
+                        <>
+                          <video
+                            key={activeItem.urls[selectedChunkIndex] || activeItem.urls[0]}
+                            autoPlay
+                            className='max-h-[380px] w-full object-contain bg-black rounded-lg'
+                            controls
+                            loop
+                            playsInline
+                            src={getPlayableMediaUrl(activeItem.urls[selectedChunkIndex] || activeItem.urls[0])}
+                          />
+                          {activeItem.urls.length > 1 && (
+                            <div className='flex flex-wrap items-center justify-center gap-1.5 pt-1'>
+                              {activeItem.urls.map((_, idx) => (
+                                <button
+                                  key={idx}
+                                  type='button'
+                                  onClick={() => setSelectedChunkIndex(idx)}
+                                  className={cn(
+                                    'px-2.5 py-1 rounded-md text-xs font-medium transition shadow-2xs',
+                                    selectedChunkIndex === idx
+                                      ? 'bg-primary text-primary-foreground'
+                                      : 'bg-muted hover:bg-muted/80 text-muted-foreground'
+                                  )}
+                                >
+                                  {t('Part')} {idx + 1} ({idx * 30}-{(idx + 1) * 30}s)
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <img
                           alt={activeItem.prompt}
@@ -698,17 +725,22 @@ export function Studio() {
                     </p>
                     <SettingsChips settings={activeItem.settings} />
                   </div>
-                  {activeItem.status === 'ready' && activeItem.urls[0] && (
-                    <a
-                      download
-                      href={getPlayableMediaUrl(activeItem.urls[0])}
-                      rel='noreferrer'
-                      target='_blank'
-                      className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs'
-                    >
-                      <DownloadIcon className='size-3.5' />
-                      {t('Download')}
-                    </a>
+                  {activeItem.status === 'ready' && (
+                    <div className='flex items-center gap-1.5'>
+                      {activeItem.urls.map((url, idx) => (
+                        <a
+                          key={idx}
+                          download
+                          href={getPlayableMediaUrl(url)}
+                          rel='noreferrer'
+                          target='_blank'
+                          className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs'
+                        >
+                          <DownloadIcon className='size-3.5' />
+                          {activeItem.urls.length > 1 ? `${t('Download')} ${idx + 1}` : t('Download')}
+                        </a>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>

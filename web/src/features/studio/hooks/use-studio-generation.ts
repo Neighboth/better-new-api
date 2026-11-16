@@ -392,12 +392,21 @@ async function captureLastFrameFromVideoUrl(videoUrl: string): Promise<string> {
 
   const generateVideo = useCallback(
     async (params: VideoParams, onStarted?: (id: string) => void) => {
+      // Determine if chained multi-chunk extension is requested
+      const targetTotalSeconds = params.videoExtension && params.videoExtension !== 'off'
+        ? parseInt(params.videoExtension, 10) || 0
+        : 0
+      const chunkDurationSec = 30
+      const totalChunks = targetTotalSeconds > chunkDurationSec
+        ? Math.max(1, Math.ceil(targetTotalSeconds / chunkDurationSec))
+        : 1
+
       const id = startItem({
         mode: params.mode || 'video',
         prompt: params.prompt,
         settings: {
           model: params.model,
-          duration: params.duration,
+          duration: targetTotalSeconds > 0 ? `${targetTotalSeconds}s (${totalChunks}x${chunkDurationSec}s)` : params.duration,
           ratio: params.ratio,
           quality: params.quality,
         },
@@ -563,8 +572,13 @@ async function captureLastFrameFromVideoUrl(videoUrl: string): Promise<string> {
           const isFinalChunk = (i === totalChunks - 1)
           const chunkEndFrame = isFinalChunk ? params.endFrame : undefined
 
+          // For chained chunks (i > 0), instruct the prompt to maintain narrative continuity
+          const chunkPrompt = i === 0
+            ? finalPrompt
+            : `${finalPrompt} (Part ${i + 1} of continuous scene, seamless natural continuation of motion and narrative from previous scene without resetting, maintaining identical subjects and environment)`
+
           const chunkRes = await executeChunkWithFallback(
-            finalPrompt,
+            chunkPrompt,
             currentStartFrame,
             chunkEndFrame,
             chunkDurationSec,
