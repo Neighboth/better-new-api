@@ -492,46 +492,6 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		}, nil
 	}
 
-	if channel.Type == constant.ChannelTypeLLM7Anon {
-		reqHeaders := make(http.Header)
-		reqHeaders.Set("Accept", "application/json")
-		fetchURL := channel.GetBaseURL()
-		if fetchURL == "" {
-			fetchURL = "https://api.llm7.io/v1"
-		}
-		if !strings.HasSuffix(fetchURL, "/models") {
-			fetchURL = strings.TrimSuffix(fetchURL, "/") + "/models"
-		}
-		body, err := getFetchModelsResponseBody(http.MethodGet, fetchURL, channel, reqHeaders)
-		if err == nil {
-			var result struct {
-				Data []struct {
-					ID   string `json:"id"`
-					Tier string `json:"tier"`
-				} `json:"data"`
-			}
-			if err := common.Unmarshal(body, &result); err == nil {
-				var turboModels []string
-				for _, item := range result.Data {
-					if strings.EqualFold(strings.TrimSpace(item.Tier), "turbo") {
-						turboModels = append(turboModels, item.ID)
-					}
-				}
-				if len(turboModels) > 0 {
-					return normalizeModelNames(turboModels), nil
-				}
-			}
-		}
-		return []string{
-			"DeepSeek-V4-Flash-0731",
-			"codestral-latest",
-			"glm-5.3-flash",
-			"gpt-oss:20b",
-			"minimax-m2.7",
-			"mistral-Nemo-Instruct-2407",
-		}, nil
-	}
-
 	var url string
 	switch channel.Type {
 	case constant.ChannelTypeAli:

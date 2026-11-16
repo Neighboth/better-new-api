@@ -42,6 +42,7 @@ import { useUpdateOptionsBulk } from '../hooks/use-update-option'
  */
 export type MediaModelConfig = {
   model: string
+  tag?: string
   sizes?: string[]
   qualities?: string[]
   ratios?: string[]
@@ -63,6 +64,7 @@ export type PlaygroundSettingsDefaults = {
   upscaleEnabled?: boolean
   upscaleModels?: MediaModelConfig[]
   studioEnabled?: boolean
+  studioDefaultModel?: string
   promptOptimizerEnabled?: boolean
   promptOptimizerModel?: string
   promptOptimizerSystemPrompt?: string
@@ -220,6 +222,15 @@ function ModelCard(props: ModelCardProps) {
               <option key={model} value={model} />
             ))}
           </datalist>
+        </div>
+        <div className='w-28 sm:w-36 space-y-1'>
+          <Label className='text-xs'>{t('Tag (optional)')}</Label>
+          <Input
+            className='text-xs'
+            placeholder='Fast, Pro, HQ...'
+            value={value.tag ?? ''}
+            onChange={(event) => update({ tag: event.target.value })}
+          />
         </div>
         <Button
           aria-label={t('Remove model')}
@@ -405,6 +416,9 @@ export function PlaygroundSettingsSection({
   const [studioEnabled, setStudioEnabled] = useState<boolean>(
     defaultValues.studioEnabled ?? true
   )
+  const [studioDefaultModel, setStudioDefaultModel] = useState<string>(
+    defaultValues.studioDefaultModel ?? ''
+  )
   const [musicEnabled, setMusicEnabled] = useState<boolean>(
     defaultValues.musicEnabled ?? true
   )
@@ -453,6 +467,7 @@ export function PlaygroundSettingsSection({
     upscale_enabled: upscaleEnabled,
     upscale_models: upscaleModels.filter((model) => model.model.trim() !== ''),
     studio_enabled: studioEnabled,
+    studio_default_model: studioDefaultModel,
     prompt_optimizer_enabled: promptOptimizerEnabled,
     prompt_optimizer_model: promptOptimizerModel,
     prompt_optimizer_system_prompt: promptOptimizerSystemPrompt,
@@ -537,6 +552,7 @@ export function PlaygroundSettingsSection({
           upscaleModels.filter((model) => model.model.trim() !== '')
         ),
         'playground_setting.studio_enabled': String(studioEnabled),
+        'playground_setting.studio_default_model': studioDefaultModel,
         'playground_setting.prompt_optimizer_enabled': String(promptOptimizerEnabled),
         'playground_setting.prompt_optimizer_model': promptOptimizerModel,
         'playground_setting.prompt_optimizer_system_prompt': promptOptimizerSystemPrompt,
@@ -750,9 +766,9 @@ export function PlaygroundSettingsSection({
           <div className='border border-border rounded-xl p-4 bg-card/50 space-y-4 shadow-xs'>
             <SettingsSwitchRow>
               <SettingsSwitchContent>
-                <Label className='text-sm font-medium'>{t('Video Prompt Optimizer')}</Label>
+                <Label className='text-sm font-medium'>{t('Studio Prompt Optimizer (Video, Music, Image)')}</Label>
                 <SettingsDescription>
-                  {t('Automatically refines prompts into cinematic, safe English to prevent moderation/safety blocks, while preserving Turkish spoken dialogue.')}
+                  {t('Automatically refines prompts into cinematic, safe English to prevent moderation/safety blocks, while preserving Turkish spoken dialogue. Supports video, music, and image generations.')}
                 </SettingsDescription>
               </SettingsSwitchContent>
               <Switch checked={promptOptimizerEnabled} onCheckedChange={setPromptOptimizerEnabled} />
@@ -775,7 +791,7 @@ export function PlaygroundSettingsSection({
                     ))}
                   </datalist>
                   <p className='text-muted-foreground text-[11px]'>
-                    {t('Fast and capable chat model to rewrite video prompts before sending to video generators.')}
+                    {t('Fast and capable chat model to rewrite prompts before sending to generators.')}
                   </p>
                 </div>
 
@@ -821,15 +837,26 @@ export function PlaygroundSettingsSection({
                       <XIcon className='size-4' />
                     </Button>
                   </div>
-                  <Input
-                    className='font-mono text-xs'
-                    value={model.model}
-                    placeholder='music'
-                    onChange={(e) => {
-                      const val = e.target.value
-                      setMusicModels((prev) => prev.map((item, i) => i === index ? { ...item, model: val } : item))
-                    }}
-                  />
+                  <div className='flex items-center gap-2'>
+                    <Input
+                      className='font-mono text-xs flex-1'
+                      value={model.model}
+                      placeholder='music'
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setMusicModels((prev) => prev.map((item, i) => i === index ? { ...item, model: val } : item))
+                      }}
+                    />
+                    <Input
+                      className='text-xs w-28 sm:w-36'
+                      placeholder={t('Tag (optional)')}
+                      value={model.tag ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setMusicModels((prev) => prev.map((item, i) => i === index ? { ...item, tag: val } : item))
+                      }}
+                    />
+                  </div>
                 </div>
               ))}
               <Button
@@ -869,15 +896,26 @@ export function PlaygroundSettingsSection({
                       <XIcon className='size-4' />
                     </Button>
                   </div>
-                  <Input
-                    className='font-mono text-xs'
-                    value={model.model}
-                    placeholder='upscale or image-upscale'
-                    onChange={(e) => {
-                      const val = e.target.value
-                      setUpscaleModels((prev) => prev.map((item, i) => i === index ? { ...item, model: val } : item))
-                    }}
-                  />
+                  <div className='flex items-center gap-2'>
+                    <Input
+                      className='font-mono text-xs flex-1'
+                      value={model.model}
+                      placeholder='upscale or image-upscale'
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setUpscaleModels((prev) => prev.map((item, i) => i === index ? { ...item, model: val } : item))
+                      }}
+                    />
+                    <Input
+                      className='text-xs w-28 sm:w-36'
+                      placeholder={t('Tag (optional)')}
+                      value={model.tag ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setUpscaleModels((prev) => prev.map((item, i) => i === index ? { ...item, tag: val } : item))
+                      }}
+                    />
+                  </div>
                 </div>
               ))}
               <Button
@@ -901,6 +939,34 @@ export function PlaygroundSettingsSection({
             </SettingsSwitchContent>
             <Switch checked={studioEnabled} onCheckedChange={setStudioEnabled} />
           </SettingsSwitchItem>
+
+          {studioEnabled && (
+            <div className='border border-border rounded-xl p-4 bg-card/50 space-y-2 shadow-xs'>
+              <Label className='text-xs font-medium'>{t('Studio Default Model')}</Label>
+              <Input
+                className='font-mono text-xs'
+                list='playground-all-studio-models'
+                placeholder='seedance-2.5, dall-e-3, music...'
+                value={studioDefaultModel}
+                onChange={(e) => setStudioDefaultModel(e.target.value)}
+              />
+              <datalist id='playground-all-studio-models'>
+                {[
+                  ...videoModels.map((m) => m.model),
+                  ...imageModels.map((m) => m.model),
+                  ...musicModels.map((m) => m.model),
+                  ...upscaleModels.map((m) => m.model),
+                ]
+                  .filter(Boolean)
+                  .map((m) => (
+                    <option key={m} value={m} />
+                  ))}
+              </datalist>
+              <p className='text-muted-foreground text-[11px]'>
+                {t('When configured, opening Studio automatically preselects this model and its corresponding mode (video, music, image, or upscale).')}
+              </p>
+            </div>
+          )}
 
         </div>
         )}

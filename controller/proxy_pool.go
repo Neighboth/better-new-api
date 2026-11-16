@@ -291,7 +291,7 @@ func AutoAssignProxyPool(c *gin.Context) {
 		return
 	}
 	keyLines := splitKeyLines(ch.Key)
-	isAnon := ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon || ch.Type == constant.ChannelTypeLLM7Anon
+	isAnon := ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon
 	if (!ch.ChannelInfo.IsMultiKey && !isAnon) || (len(keyLines) == 0 && !isAnon) {
 		common.ApiErrorMsg(c, "channel is not a multi-key or pool channel")
 		return
@@ -440,7 +440,7 @@ func RebalanceAllProxyPoolChannels(c *gin.Context) {
 		if err != nil {
 			continue
 		}
-		isAnon := ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon || ch.Type == constant.ChannelTypeLLM7Anon
+		isAnon := ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon
 		if isAnon {
 			mapping := make(map[int]int, len(enabled))
 			for i, p := range enabled {

@@ -3132,7 +3132,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "İlgili projeler",
     "footer.defaultCopyright": "Tüm hakları saklıdır.",
-    "footer.newapi.projectAttributionSuffix": "Tüm hakları saklıdır. Proje katkıda bulunanları tarafından tasarlanmış ve geliştirilmiştir.",
+    "footer.new\u0061pi.projectAttributionSuffix": "Tüm hakları saklıdır. Proje katkıda bulunanları tarafından tasarlanmış ve geliştirilmiştir.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "10 Mayıs 2025'ten sonra eklenen kanallar için, dağıtım sırasında model adlarındaki \".\" işaretlerini kaldırmaya gerek yoktur",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Özel dağıtımlar için format: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "Güvenlik nedeniyle, mevcut erişim belirteçleri tekrar görüntülenemez. Yalnızca yeni bir belirtece ihtiyacınız olduğunda yeniden oluşturun.",
@@ -8237,6 +8237,19 @@
     "Refiner / Optimizer Model": "İyileştirici / Optimizer Model",
     "Fast and capable chat model to rewrite video prompts before sending to video generators.": "Video üreticilerine gönderilmeden önce video promptlarını yeniden yazacak hızlı ve yetenekli sohbet modeli.",
     "Optimizer System Prompt": "Optimizer Sistem Promptu",
-    "Instructs the model how to refine prompts. Quotes/dialogue in Turkish are kept intact.": "Modele promptları nasıl optimize edeceğini talimatlandırır. Tırnak içindeki Türkçe konuşmalar/replikler aynen korunur."
+    "Instructs the model how to refine prompts. Quotes/dialogue in Turkish are kept intact.": "Modele promptları nasıl optimize edeceğini talimatlandırır. Tırnak içindeki Türkçe konuşmalar/replikler aynen korunur.",
+    "Studio Default Model": "Stüdyo Varsayılan Model",
+    "When configured, opening Studio automatically preselects this model and its corresponding mode (video, music, image, or upscale).": "Yapılandırıldığında, Stüdyo açıldığında bu model ve ilgili mod (video, müzik, görsel veya büyütme) otomatik olarak seçili gelir.",
+    "Tag (optional)": "Etiket (opsiyonel)",
+    "Studio Prompt Optimizer (Video, Music, Image)": "Stüdyo Prompt İyileştirici (Video, Müzik, Görsel)",
+    "Automatically refines prompts into cinematic, safe English to prevent moderation/safety blocks, while preserving Turkish spoken dialogue. Supports video, music, and image generations.": "Promptları modellerin kabul edeceği güvenli, yüksek kaliteli İngilizceye otomatik dönüştürür; prompt içindeki Türkçe konuşma/diyalogları aynen korur. Video, müzik ve görsel üretimlerini destekler.",
+    "Fast and capable chat model to rewrite prompts before sending to generators.": "Üreticilere gönderilmeden önce promptları yeniden yazacak hızlı ve yetenekli sohbet modeli.",
+    "Prompt Optimization": "Prompt İyileştirme",
+    "Refine prompt into safe English before generation": "Üretimden önce istemi güvenli ve sinematik İngilizceye çevir",
+    "Optional upscale prompt...": "İsteğe bağlı yükseltme istemi...",
+    "Attach an image or video to upscale...": "Yükseltmek için bir görsel veya video ekleyin...",
+    "Attach an image or video to upscale": "Yükseltmek için bir görsel veya video ekleyin",
+    "Delete Generation": "Üretimi Sil",
+    "Are you sure you want to permanently delete this generation? This action cannot be undone.": "Bu üretimi kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz."
   }
 }

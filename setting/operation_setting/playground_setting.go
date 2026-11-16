@@ -18,6 +18,7 @@ import (
 type MediaModel struct {
 	Model          string   `json:"model"`
 	DisplayName    string   `json:"display_name,omitempty"`
+	Tag            string   `json:"tag,omitempty"`
 	Sizes          []string `json:"sizes,omitempty"`
 	Qualities      []string `json:"qualities,omitempty"`
 	Ratios         []string `json:"ratios,omitempty"`
@@ -58,8 +59,9 @@ type PlaygroundSetting struct {
 	UpscaleEnabled bool         `json:"upscale_enabled"`
 	UpscaleModels  []MediaModel `json:"upscale_models"`
 
-	// Studio page availability.
-	StudioEnabled bool `json:"studio_enabled"`
+	// Studio page availability and defaults.
+	StudioEnabled      bool   `json:"studio_enabled"`
+	StudioDefaultModel string `json:"studio_default_model"`
 
 	// Prompt Optimizer settings for Studio / Video generations
 	PromptOptimizerEnabled      bool   `json:"prompt_optimizer_enabled"`
@@ -118,7 +120,8 @@ var playgroundSetting = PlaygroundSetting{
 	UpscaleEnabled: true,
 	UpscaleModels:  []MediaModel{{Model: "upscale"}, {Model: "image-upscale"}},
 
-	StudioEnabled: true,
+	StudioEnabled:      true,
+	StudioDefaultModel: "",
 
 	PromptOptimizerEnabled:      false,
 	PromptOptimizerModel:        "",

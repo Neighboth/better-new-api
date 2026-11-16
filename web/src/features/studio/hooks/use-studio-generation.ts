@@ -41,6 +41,7 @@ type ImageParams = {
   size?: string
   quality?: string
   count?: number
+  optimize?: boolean
 }
 
 type VideoParams = {
@@ -52,6 +53,61 @@ type VideoParams = {
   ratio?: string
   quality?: string
   imageUrl?: string
+  optimize?: boolean
+}
+
+async function optimizeStudioPrompt(
+  prompt: string,
+  mode: StudioItem['mode'],
+  signal: AbortSignal
+): Promise<string> {
+  const trimmed = prompt.trim()
+  if (!trimmed) return prompt
+  try {
+    const runtimeConfig = await getPlaygroundRuntimeConfig(signal)
+    if (
+      !runtimeConfig?.studio?.prompt_optimizer_enabled ||
+      !runtimeConfig?.studio?.prompt_optimizer_model
+    ) {
+      return prompt
+    }
+
+    let defaultSys = runtimeConfig.studio.prompt_optimizer_system_prompt
+    if (!defaultSys) {
+      if (mode === 'music') {
+        defaultSys =
+          'You are a professional music prompt engineer. Rewrite the prompt into a rich, structured description specifying genre, instruments, tempo (BPM), mood, and audio atmosphere. CRITICAL REQUIREMENT: If the prompt contains any lyrics, vocal words, or dialogue, DO NOT translate them — keep all Turkish lyrics/words in Turkish exactly as written. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes.'
+      } else if (mode === 'image') {
+        defaultSys =
+          'You are a professional image prompt optimizer. Rewrite the prompt into a descriptive, high-quality English prompt with lighting, composition, visual details, and style that generative AI models accept without safety violations. CRITICAL REQUIREMENT: If the prompt contains any Turkish text or quotes intended for rendering, DO NOT translate them — keep all Turkish quotes intact. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes.'
+      } else {
+        defaultSys =
+          'You are a professional video generation prompt optimizer and safety enhancer. Rewrite the given prompt into safe, detailed, cinematic English that generative video AI models accept without content violations. Describe camera movement, lighting, visual details, and style cleanly and vividly. CRITICAL REQUIREMENT: If the prompt contains any dialogue, spoken quotes, or speech lines, DO NOT translate the spoken dialogue — keep all spoken words/quotes in Turkish exactly as written. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes around the prompt.'
+      }
+    }
+
+    const chatRes = await api.post(
+      '/pg/chat/completions',
+      {
+        model: runtimeConfig.studio.prompt_optimizer_model,
+        messages: [
+          { role: 'system', content: defaultSys },
+          { role: 'user', content: trimmed },
+        ],
+        temperature: 0.7,
+      },
+      {
+        signal,
+        skipErrorHandler: true,
+        skipAuthRefresh: true,
+      } as Record<string, unknown>
+    )
+    const optimized = chatRes.data?.choices?.[0]?.message?.content?.trim()
+    return optimized || prompt
+  } catch (err) {
+    console.warn('Studio prompt optimizer skipped or failed:', err)
+    return prompt
+  }
 }
 
 function errorMessageOf(error: unknown): string {
@@ -218,11 +274,19 @@ export function useStudioGeneration() {
       setIsGenerating(true)
 
       try {
+        let finalPrompt = params.prompt
+        if (params.optimize !== false && params.mode !== 'upscale') {
+          finalPrompt = await optimizeStudioPrompt(
+            params.prompt,
+            params.mode || 'image',
+            controller.signal
+          )
+        }
         const response = await submitImageGeneration(
           {
             model: params.model,
             group: params.group,
-            prompt: params.prompt,
+            prompt: finalPrompt,
             n: params.count && params.count > 0 ? params.count : 1,
             size: params.size,
             quality: params.quality,
@@ -284,40 +348,8 @@ export function useStudioGeneration() {
 
       try {
         let finalPrompt = params.prompt
-        try {
-          const runtimeConfig = await getPlaygroundRuntimeConfig(controller.signal)
-          if (
-            runtimeConfig?.studio?.prompt_optimizer_enabled &&
-            runtimeConfig?.studio?.prompt_optimizer_model
-          ) {
-            const sysPrompt =
-              runtimeConfig.studio.prompt_optimizer_system_prompt ||
-              'You are a professional video generation prompt optimizer and safety enhancer. Rewrite the given prompt into safe, detailed, cinematic English that generative video AI models accept without content violations. Describe camera movement, lighting, visual details, and style cleanly and vividly. CRITICAL REQUIREMENT: If the prompt contains any dialogue, spoken quotes, or speech lines, DO NOT translate the spoken dialogue — keep all spoken words/quotes in Turkish exactly as written. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes around the prompt.'
-
-            const chatRes = await api.post(
-              '/pg/chat/completions',
-              {
-                model: runtimeConfig.studio.prompt_optimizer_model,
-                messages: [
-                  { role: 'system', content: sysPrompt },
-                  { role: 'user', content: params.prompt },
-                ],
-                temperature: 0.7,
-              },
-              {
-                signal: controller.signal,
-                skipErrorHandler: true,
-                skipAuthRefresh: true,
-              } as Record<string, unknown>
-            )
-            const optimized = chatRes.data?.choices?.[0]?.message?.content?.trim()
-            if (optimized) {
-              finalPrompt = optimized
-              patchItem(id, { prompt: finalPrompt })
-            }
-          }
-        } catch (optErr) {
-          console.warn('Video prompt optimizer skipped or failed:', optErr)
+        if (params.optimize !== false) {
+          finalPrompt = await optimizeStudioPrompt(params.prompt, 'video', controller.signal)
         }
 
         const submitted = await submitVideoGeneration(

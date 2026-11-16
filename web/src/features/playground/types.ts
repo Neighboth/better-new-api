@@ -284,6 +284,7 @@ export interface WebSearchResponse {
 export interface MediaModelRuntime {
   model: string
   display_name?: string
+  tag?: string
   sizes?: string[]
   qualities?: string[]
   ratios?: string[]
@@ -338,6 +339,7 @@ export interface PlaygroundRuntimeConfig {
   }
   studio: {
     enabled: boolean
+    default_model?: string
     prompt_optimizer_enabled?: boolean
     prompt_optimizer_model?: string
     prompt_optimizer_system_prompt?: string

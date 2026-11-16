@@ -21,6 +21,7 @@ import {
   ArrowRightIcon,
   DownloadIcon,
   EyeIcon,
+  EyeOffIcon,
   FileAudioIcon,
   HistoryIcon,
   ImageIcon,
@@ -37,6 +38,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -60,6 +71,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getPlaygroundRuntimeConfig } from '@/features/playground/api'
 import {
@@ -175,6 +187,8 @@ export function Studio() {
   const [isDragging, setIsDragging] = useState(false)
   const [attachedMedia, setAttachedMedia] = useState<AttachedMedia | null>(null)
   const [popoverOpen, setPopoverOpen] = useState(false)
+  const [optimizePrompt, setOptimizePrompt] = useState(true)
+  const [deleteConfirmItemId, setDeleteConfirmItemId] = useState<string | null>(null)
 
   // Track active stage item during this session (stored in localStorage so returning to tab keeps finished item on stage)
   const [activeSessionItemId, setActiveSessionItemIdState] = useState<string | null>(() => {
@@ -335,6 +349,32 @@ export function Studio() {
     }
   }, [selectedUpscaleModel, upscaleModel])
 
+  // Apply default model from runtime config on initial load
+  const defaultModelAppliedRef = useRef(false)
+  useEffect(() => {
+    if (defaultModelAppliedRef.current) return
+    const def = runtime.studio?.default_model?.trim()
+    if (!def) return
+
+    if (videoModels.some((m) => m.model === def)) {
+      setMode('video')
+      setVideoModel(def)
+      defaultModelAppliedRef.current = true
+    } else if (imageModels.some((m) => m.model === def)) {
+      setMode('image')
+      setImageModel(def)
+      defaultModelAppliedRef.current = true
+    } else if (musicModels.some((m) => m.model === def)) {
+      setMode('music')
+      setMusicModel(def)
+      defaultModelAppliedRef.current = true
+    } else if (upscaleModels.some((m) => m.model === def)) {
+      setMode('upscale')
+      setUpscaleModel(def)
+      defaultModelAppliedRef.current = true
+    }
+  }, [runtime.studio?.default_model, videoModels, imageModels, musicModels, upscaleModels])
+
   // Clear incompatible attachments when switching between media modes
   useEffect(() => {
     if (attachedMedia) {
@@ -403,16 +443,12 @@ export function Studio() {
     return () => window.removeEventListener('resize', checkMobile)
   }, [])
 
-  const activeItem = useMemo(() => {
-    if (activeSessionItemId) {
-      const match = items.find((item) => item.id === activeSessionItemId)
-      if (match) return match
-    }
-    // If an item is active/pending, always display it on the stage even after page refresh
-    const pendingItem = items.find((item) => item.status === 'pending')
-    if (pendingItem) return pendingItem
+  // Lifecycle for page reloads: if an active item has already finished and been viewed, archive it to history popup on reload
+  const reloadCheckedRef = useRef(false)
+  useEffect(() => {
+    if (reloadCheckedRef.current || items.length === 0) return
+    reloadCheckedRef.current = true
 
-    // If an item was active before navigating away/reloading and completed, show it
     const storedId = (() => {
       try {
         return localStorage.getItem('studio_active_item_id')
@@ -420,25 +456,60 @@ export function Studio() {
         return null
       }
     })()
-    if (storedId) {
-      const match = items.find((item) => item.id === storedId)
+    if (!storedId) return
+
+    const item = items.find((i) => i.id === storedId)
+    if (!item) return
+
+    // If item is still pending, keep it visible!
+    if (item.status === 'pending') return
+
+    // If item is completed, check if it was seen before this reload
+    try {
+      const seen = sessionStorage.getItem('studio_seen_completed_' + item.id) === '1'
+      if (seen) {
+        // Page was reloaded after item was already viewed: archive to popup!
+        setActiveSessionItemId(null)
+      } else {
+        // First view after completion (e.g. user started generation, closed tab, returned)
+        sessionStorage.setItem('studio_seen_completed_' + item.id, '1')
+      }
+    } catch {}
+  }, [items, setActiveSessionItemId])
+
+  const activeItem = useMemo(() => {
+    // If an item is active/pending, always display it on the stage even after page refresh
+    const pendingItem = items.find((item) => item.status === 'pending')
+    if (pendingItem) return pendingItem
+
+    if (activeSessionItemId) {
+      const match = items.find((item) => item.id === activeSessionItemId)
       if (match) return match
     }
 
     return null
   }, [items, activeSessionItemId])
 
+  // Track viewing completed item so subsequent reloads archive it
+  useEffect(() => {
+    if (activeItem && (activeItem.status === 'ready' || activeItem.status === 'error')) {
+      try {
+        sessionStorage.setItem('studio_seen_completed_' + activeItem.id, '1')
+      } catch {}
+    }
+  }, [activeItem])
+
   // Only the active stage item being pending or an active generation blocks the send button
   const hasActivePending = isGenerating || activeItem?.status === 'pending'
 
   const canGenerate =
-    prompt.trim().length > 0 &&
-    !hasActivePending &&
-    Boolean(currentModelName)
+    mode === 'upscale'
+      ? Boolean(attachedMedia?.url) && !hasActivePending && Boolean(currentModelName)
+      : prompt.trim().length > 0 && !hasActivePending && Boolean(currentModelName)
 
   const handleGenerate = async () => {
     if (!canGenerate || hasActivePending) return
-    const text = prompt.trim()
+    const text = prompt.trim() || (mode === 'upscale' ? 'Sharpen and upscale to high resolution' : '')
 
     if (mode === 'image' || mode === 'upscale') {
       await generateImage(
@@ -450,6 +521,7 @@ export function Studio() {
           size: mode === 'image' ? size : undefined,
           quality: mode === 'image' ? quality : undefined,
           count: imageCount,
+          optimize: optimizePrompt,
         },
         (id) => setActiveSessionItemId(id)
       )
@@ -466,6 +538,7 @@ export function Studio() {
         ratio: mode === 'video' ? ratio : undefined,
         quality: mode === 'video' ? videoQualityValue : undefined,
         imageUrl: attachedMedia?.url || undefined,
+        optimize: optimizePrompt,
       },
       (id) => setActiveSessionItemId(id)
     )
@@ -577,18 +650,17 @@ export function Studio() {
                     variant='ghost'
                     onClick={() => setHistoryOpen(true)}
                     className='h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground bg-background/80 backdrop-blur-sm border border-border/50 hover:bg-background rounded-lg gap-1.5 shadow-xs'
-                    title={t('Previous Generations')}
+                    title={t('History')}
                   >
                     <HistoryIcon className='size-3.5' />
-                    <span>{t('Previous Generations')}</span>
+                    <span>{t('History')}</span>
                   </Button>
                   <Button
                     size='sm'
                     variant='ghost'
                     onClick={() => {
-                      if (activeItem) {
+                      if (activeItem && activeItem.status === 'pending') {
                         stop(activeItem.id)
-                        removeItem(activeItem.id)
                       }
                       setActiveSessionItemId(null)
                     }}
@@ -598,7 +670,7 @@ export function Studio() {
                         ? 'text-destructive hover:text-destructive bg-destructive/10 hover:bg-destructive/20 border-destructive/30 font-medium'
                         : 'text-muted-foreground hover:text-foreground bg-background/80 hover:bg-background'
                     )}
-                    title={activeItem.status === 'pending' ? t('Stop') : t('Delete All')}
+                    title={activeItem.status === 'pending' ? t('Stop') : t('Hide')}
                   >
                     {activeItem.status === 'pending' ? (
                       <>
@@ -607,8 +679,8 @@ export function Studio() {
                       </>
                     ) : (
                       <>
-                        <Trash2Icon className='size-3.5' />
-                        <span>{t('Delete All')}</span>
+                        <EyeOffIcon className='size-3.5' />
+                        <span>{t('Hide')}</span>
                       </>
                     )}
                   </Button>
@@ -799,7 +871,9 @@ export function Studio() {
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={
-                  mode === 'music'
+                  mode === 'upscale'
+                    ? (attachedMedia ? t('Optional upscale prompt...') : t('Attach an image or video to upscale...'))
+                    : mode === 'music'
                     ? (isMobileScreen ? t('Describe melody...') : t('Describe lyrics, style or melody...'))
                     : (isMobileScreen ? t('Describe your idea...') : t('What do you want to create?'))
                 }
@@ -824,6 +898,11 @@ export function Studio() {
                   <span className='max-w-[85px] sm:max-w-[140px] truncate text-[11px] sm:text-xs'>
                     {currentModelDisplayName}
                   </span>
+                  {currentModelRuntime?.tag && (
+                    <span className='rounded bg-primary/10 px-1.5 py-0.2 text-[9px] font-semibold text-primary uppercase border border-primary/20 shrink-0'>
+                      {currentModelRuntime.tag}
+                    </span>
+                  )}
                 </PopoverTrigger>
 
                 <PopoverContent
@@ -925,7 +1004,14 @@ export function Studio() {
                               : upscaleModels
                         ).map((m) => (
                           <SelectItem key={m.model} value={m.model} className='text-xs'>
-                            {m.display_name || m.model}
+                            <div className='flex items-center justify-between w-full gap-2'>
+                              <span>{m.display_name || m.model}</span>
+                              {m.tag && (
+                                <span className='rounded bg-primary/10 px-1.5 py-0.2 text-[9px] font-semibold text-primary uppercase border border-primary/20 shrink-0'>
+                                  {m.tag}
+                                </span>
+                              )}
+                            </div>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1021,6 +1107,19 @@ export function Studio() {
                       </div>
                     </div>
                   )}
+
+                  {/* Prompt Optimizer toggle (default ON, resets on reload) */}
+                  {runtime.studio?.prompt_optimizer_enabled && (
+                    <div className='flex items-center justify-between gap-2 pt-2 border-t border-border/50'>
+                      <div className='space-y-0.5'>
+                        <Label className='text-xs font-medium'>{t('Prompt Optimization')}</Label>
+                        <p className='text-[10px] text-muted-foreground'>
+                          {t('Refine prompt into safe English before generation')}
+                        </p>
+                      </div>
+                      <Switch checked={optimizePrompt} onCheckedChange={setOptimizePrompt} />
+                    </div>
+                  )}
                 </PopoverContent>
               </Popover>
 
@@ -1031,7 +1130,9 @@ export function Studio() {
                 title={
                   hasActivePending
                     ? t('An active generation is in progress. Please wait for it to complete or clear it from the stage.')
-                    : !prompt.trim()
+                    : mode === 'upscale' && !attachedMedia?.url
+                    ? t('Attach an image or video to upscale')
+                    : !prompt.trim() && mode !== 'upscale'
                     ? t('Please enter a prompt')
                     : !currentModelName
                     ? t('Please select a model')
@@ -1212,12 +1313,7 @@ export function Studio() {
                           <Button
                             size='icon'
                             variant='ghost'
-                            onClick={() => {
-                              removeItem(item.id)
-                              if (activeSessionItemId === item.id) {
-                                setActiveSessionItemId(null)
-                              }
-                            }}
+                            onClick={() => setDeleteConfirmItemId(item.id)}
                             className='size-7 text-muted-foreground hover:text-destructive'
                             title={t('Delete')}
                           >
@@ -1233,6 +1329,38 @@ export function Studio() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Alert Dialog */}
+      <AlertDialog
+        open={Boolean(deleteConfirmItemId)}
+        onOpenChange={(open) => !open && setDeleteConfirmItemId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Delete Generation')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('Are you sure you want to permanently delete this generation? This action cannot be undone.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              onClick={() => {
+                if (deleteConfirmItemId) {
+                  removeItem(deleteConfirmItemId)
+                  if (activeSessionItemId === deleteConfirmItemId) {
+                    setActiveSessionItemId(null)
+                  }
+                  setDeleteConfirmItemId(null)
+                }
+              }}
+            >
+              {t('Delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

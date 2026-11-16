@@ -247,7 +247,7 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 		}
 	} else {
 		if !hasAuthOverride {
-			isAnon := info.ChannelType == constant.ChannelTypeOpenCode || info.ChannelType == constant.ChannelTypeKiloCodeAnon || info.ChannelType == constant.ChannelTypeLLM7Anon
+			isAnon := info.ChannelType == constant.ChannelTypeOpenCode || info.ChannelType == constant.ChannelTypeKiloCodeAnon
 			if isAnon {
 				key := strings.TrimSpace(info.ApiKey)
 				if key != "" && key != "default" && key != "local" {

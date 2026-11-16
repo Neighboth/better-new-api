@@ -269,7 +269,7 @@ func ListMultiKeyChannels() ([]MultiKeyChannelSummary, error) {
 	}
 	summaries := make([]MultiKeyChannelSummary, 0, len(channels))
 	for _, ch := range channels {
-		isPoolEligible := ch.ChannelInfo.IsMultiKey || ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon || ch.Type == constant.ChannelTypeLLM7Anon
+		isPoolEligible := ch.ChannelInfo.IsMultiKey || ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon
 		if !isPoolEligible {
 			continue
 		}

@@ -736,7 +736,7 @@ export function ProxyPool() {
                   </TableHeader>
                   <TableBody>
                     {(channelsQuery.data ?? []).map((channel) => {
-                      const isAnon = channel.type === 65 || channel.type === 68 || channel.type === 69
+                      const isAnon = channel.type === 65 || channel.type === 68
                       const isComplete = isAnon ? channel.assigned_keys > 0 : channel.assigned_keys === channel.multi_key_size
                       return (
                       <TableRow key={channel.id}>
@@ -1325,7 +1325,7 @@ export function ProxyPool() {
 }
 
 function assignedIconFor(channel: ProxyPoolChannel) {
-  const isAnon = channel.type === 65 || channel.type === 68 || channel.type === 69
+  const isAnon = channel.type === 65 || channel.type === 68
   const isComplete = isAnon ? channel.assigned_keys > 0 : channel.assigned_keys === channel.multi_key_size
   return isComplete ? (
     <CheckCircle2 className='mr-1 h-3.5 w-3.5 text-emerald-600' />

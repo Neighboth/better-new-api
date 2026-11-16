@@ -406,6 +406,8 @@ function playgroundDefaults(settings: OperationsSettings) {
     videoReferenceImage:
       settings['playground_setting.video_reference_image'] ?? true,
     studioEnabled: settings['playground_setting.studio_enabled'] ?? true,
+    studioDefaultModel:
+      settings['playground_setting.studio_default_model'] ?? '',
     promptOptimizerEnabled:
       settings['playground_setting.prompt_optimizer_enabled'] ?? false,
     promptOptimizerModel:
