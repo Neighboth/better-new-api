@@ -24,6 +24,9 @@ import { parseRequestErrorDetails } from '@/features/playground/lib/streaming/re
 import { api } from '@/lib/api'
 import { findLatestVideoTask } from '@/features/playground/api'
 
+import { toast } from 'sonner'
+import { t } from 'i18next'
+
 import {
   generateImages as submitImageGeneration,
   generateVideo as submitVideoGeneration,
@@ -37,6 +40,7 @@ import {
   refinePlanForStep,
   type VideoPlan,
 } from '../lib/video-plan'
+import { mergeVideoParts, uploadMergedMedia, deleteMergedMedia } from '../lib/media-merge'
 import { captureVideoFrames } from '../lib/video-frames'
 import type { StudioItem } from '../types'
 
@@ -396,7 +400,9 @@ export function useStudioGeneration() {
     }
   })
   const [isGenerating, setIsGenerating] = useState(false)
+  const [mergeJobs, setMergeJobs] = useState<Record<string, number>>({})
   const abortRef = useRef<AbortController | null>(null)
+  const mergingRef = useRef<Set<string>>(new Set())
   const controllersRef = useRef<Map<string, AbortController>>(new Map())
   const activePollingTasks = useRef<Set<string>>(new Set())
   const hasMountedResumeRef = useRef(false)
@@ -418,6 +424,48 @@ export function useStudioGeneration() {
       prev.map((item) => (item.id === id ? { ...item, ...patch } : item))
     )
   }, [])
+
+  // Stitch every part of a finished multi-part chain into one file in the
+  // background so the user gets a single video instead of N separate parts.
+  const autoMergeItem = useCallback(
+    (id: string, urls: string[], opts?: { autoDownload?: boolean }) => {
+      const parts = urls.filter((url) => typeof url === 'string' && url)
+      if (parts.length < 2) return
+      if (mergingRef.current.has(id)) return
+      mergingRef.current.add(id)
+      setMergeJobs((prev) => ({ ...prev, [id]: 0 }))
+      void (async () => {
+        try {
+          const blob = await mergeVideoParts(parts, {
+            onProgress: (progress) => {
+              setMergeJobs((prev) => ({ ...prev, [id]: progress }))
+            },
+          })
+          const url = await uploadMergedMedia(blob)
+          patchItem(id, { urls: [url, ...parts], merged: true })
+          if (opts?.autoDownload) {
+            const anchor = document.createElement('a')
+            anchor.href = url
+            anchor.download = 'studio-video.webm'
+            anchor.rel = 'noreferrer'
+            document.body.appendChild(anchor)
+            anchor.click()
+            anchor.remove()
+          }
+        } catch {
+          toast.error(t('Video parts could not be merged into one file'))
+        } finally {
+          mergingRef.current.delete(id)
+          setMergeJobs((prev) => {
+            const next = { ...prev }
+            delete next[id]
+            return next
+          })
+        }
+      })()
+    },
+    [patchItem]
+  )
 
   // Auto-resume background polling for any pending video items on mount once
   useEffect(() => {
@@ -496,7 +544,7 @@ export function useStudioGeneration() {
               }
             }
 
-            await runVideoChain(
+            const resumedUrls = await runVideoChain(
               {
                 id: item.id,
                 baseSettings,
@@ -519,6 +567,7 @@ export function useStudioGeneration() {
               },
               patchItem
             )
+            autoMergeItem(item.id, resumedUrls)
           } catch (error) {
             if (controller.signal.aborted) {
               patchItem(item.id, { status: 'error', error: 'Cancelled' })
@@ -623,7 +672,7 @@ export function useStudioGeneration() {
 
       void resumePolling()
     })
-  }, [items, patchItem])
+  }, [items, patchItem, autoMergeItem])
 
   const startItem = useCallback(
     (item: Omit<StudioItem, 'id' | 'createdAt' | 'status' | 'urls'>) => {
@@ -795,7 +844,7 @@ export function useStudioGeneration() {
           ...(params.imageUrl ? [params.imageUrl] : []),
         ].filter(Boolean)
 
-        await runVideoChain(
+        const chainUrls = await runVideoChain(
           {
             id,
             baseSettings,
@@ -817,6 +866,7 @@ export function useStudioGeneration() {
           },
           patchItem
         )
+        autoMergeItem(id, chainUrls)
         return id
       } catch (error) {
         if (controller.signal.aborted) {
@@ -840,7 +890,7 @@ export function useStudioGeneration() {
         controllersRef.current.delete(id)
       }
     },
-    [patchItem, startItem]
+    [patchItem, startItem, autoMergeItem]
   )
 
   const stop = useCallback((id?: string) => {
@@ -867,9 +917,12 @@ export function useStudioGeneration() {
       const itemToDelete = prev.find((item) => item.id === id)
       if (itemToDelete?.urls?.length) {
         itemToDelete.urls.forEach((u) => {
-          if (u) {
-            void api.delete('/api/media/cache', { params: { url: u } }).catch(() => {})
+          if (!u) return
+          if (u.startsWith('/uploads/merged/')) {
+            void deleteMergedMedia(u.slice('/uploads/merged/'.length))
+            return
           }
+          void api.delete('/api/media/cache', { params: { url: u } }).catch(() => {})
         })
       }
       return prev.filter((item) => item.id !== id)
@@ -896,10 +949,12 @@ export function useStudioGeneration() {
   return {
     items,
     isGenerating,
+    mergeJobs,
     generateImage,
     generateVideo,
     stop,
     removeItem,
     clearItems,
+    mergeItemParts: autoMergeItem,
   }
 }

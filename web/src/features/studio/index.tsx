@@ -366,14 +366,17 @@ export function Studio() {
   const {
     items,
     isGenerating,
+    mergeJobs,
     generateImage,
     generateVideo,
     stop,
     removeItem,
+    mergeItemParts,
   } = useStudioGeneration()
 
   const [isMobileScreen, setIsMobileScreen] = useState(false)
   const [selectedChunkIndex, setSelectedChunkIndex] = useState(0)
+  const [showParts, setShowParts] = useState(false)
 
   useEffect(() => {
     const checkMobile = () => {
@@ -434,6 +437,7 @@ export function Studio() {
   // Track viewing completed item so subsequent reloads archive it
   useEffect(() => {
     setSelectedChunkIndex(0)
+    setShowParts(false)
     if (activeItem && (activeItem.status === 'ready' || activeItem.status === 'error')) {
       try {
         sessionStorage.setItem('studio_seen_completed_' + activeItem.id, '1')
@@ -443,6 +447,17 @@ export function Studio() {
 
   // Only the active stage item being pending or an active generation blocks the send button
   const hasActivePending = isGenerating || activeItem?.status === 'pending'
+
+  // Multi-part (chained) generations: after the background merge the first
+  // URL is the single combined video; the individual parts follow it.
+  const mergedView = Boolean(activeItem?.merged) && !showParts
+  const partSelectorUrls = useMemo(() => {
+    if (!activeItem) return [] as string[]
+    if (activeItem.merged) return activeItem.urls.slice(1)
+    return activeItem.urls
+  }, [activeItem])
+  const partSelectorOffset = activeItem?.merged ? 1 : 0
+  const activeItemMergeProgress = activeItem ? mergeJobs[activeItem.id] : undefined
 
   const canGenerate = prompt.trim().length > 0 && !hasActivePending && Boolean(currentModelName)
 
@@ -668,22 +683,26 @@ export function Studio() {
                   {activeItem.status === 'error' && activeItem.urls.length > 0 && (
                     <div className='flex w-full flex-col items-center justify-center gap-2 p-2'>
                       <video
-                        key={activeItem.urls[selectedChunkIndex] || activeItem.urls[0]}
+                        key={mergedView ? activeItem.urls[0] : activeItem.urls[selectedChunkIndex] || activeItem.urls[0]}
                         className='max-h-[320px] w-full object-contain bg-black rounded-lg'
                         controls
                         playsInline
-                        src={getPlayableMediaUrl(activeItem.urls[selectedChunkIndex] || activeItem.urls[0])}
+                        src={getPlayableMediaUrl(
+                          mergedView
+                            ? activeItem.urls[0]
+                            : activeItem.urls[selectedChunkIndex] || activeItem.urls[0]
+                        )}
                       />
-                      {activeItem.urls.length > 1 && (
+                      {(!activeItem.merged || showParts) && partSelectorUrls.length > 1 && (
                         <div className='flex flex-wrap items-center justify-center gap-1.5 pt-1'>
-                          {activeItem.urls.map((url, idx) => (
+                          {partSelectorUrls.map((url, idx) => (
                             <button
                               key={url}
                               type='button'
-                              onClick={() => setSelectedChunkIndex(idx)}
+                              onClick={() => setSelectedChunkIndex(partSelectorOffset + idx)}
                               className={cn(
                                 'px-2.5 py-1 rounded-md text-xs font-medium transition shadow-2xs',
-                                selectedChunkIndex === idx
+                                selectedChunkIndex === partSelectorOffset + idx
                                   ? 'bg-primary text-primary-foreground'
                                   : 'bg-muted hover:bg-muted/80 text-muted-foreground'
                               )}
@@ -691,6 +710,23 @@ export function Studio() {
                               {t('Part')} {idx + 1}
                             </button>
                           ))}
+                        </div>
+                      )}
+                      {activeItem.merged && partSelectorUrls.length > 0 && (
+                        <button
+                          type='button'
+                          onClick={() => setShowParts((v) => !v)}
+                          className='text-[10px] font-medium text-muted-foreground hover:text-foreground transition'
+                        >
+                          {showParts
+                            ? t('Single video')
+                            : t('Show parts')}
+                        </button>
+                      )}
+                      {activeItemMergeProgress !== undefined && (
+                        <div className='inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur'>
+                          <Loader2Icon className='size-3 animate-spin' />
+                          {t('Stitching video parts')} · {activeItemMergeProgress}%
                         </div>
                       )}
                       <p className='text-[11px] font-medium text-destructive max-w-md text-center'>
@@ -711,28 +747,38 @@ export function Studio() {
                   )}
 
                   {activeItem.status === 'ready' && (
-                    <div className='w-full p-2 flex flex-col items-center justify-center gap-2'>
+                    <div className='relative w-full p-2 flex flex-col items-center justify-center gap-2'>
                       {activeItem.mode === 'video' ? (
                         <>
+                          {activeItemMergeProgress !== undefined && (
+                            <div className='absolute top-4 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur'>
+                              <Loader2Icon className='size-3 animate-spin' />
+                              {t('Stitching video parts')} · {activeItemMergeProgress}%
+                            </div>
+                          )}
                           <video
-                            key={activeItem.urls[selectedChunkIndex] || activeItem.urls[0]}
+                            key={mergedView ? activeItem.urls[0] : activeItem.urls[selectedChunkIndex] || activeItem.urls[0]}
                             autoPlay
                             className='max-h-[380px] w-full object-contain bg-black rounded-lg'
                             controls
                             loop
                             playsInline
-                            src={getPlayableMediaUrl(activeItem.urls[selectedChunkIndex] || activeItem.urls[0])}
+                            src={getPlayableMediaUrl(
+                              mergedView
+                                ? activeItem.urls[0]
+                                : activeItem.urls[selectedChunkIndex] || activeItem.urls[0]
+                            )}
                           />
-                          {activeItem.urls.length > 1 && (
+                          {(!activeItem.merged || showParts) && partSelectorUrls.length > 1 && (
                             <div className='flex flex-wrap items-center justify-center gap-1.5 pt-1'>
-                              {activeItem.urls.map((url, idx) => (
+                              {partSelectorUrls.map((url, idx) => (
                                 <button
                                   key={url}
                                   type='button'
-                                  onClick={() => setSelectedChunkIndex(idx)}
+                                  onClick={() => setSelectedChunkIndex(partSelectorOffset + idx)}
                                   className={cn(
                                     'px-2.5 py-1 rounded-md text-xs font-medium transition shadow-2xs',
-                                    selectedChunkIndex === idx
+                                    selectedChunkIndex === partSelectorOffset + idx
                                       ? 'bg-primary text-primary-foreground'
                                       : 'bg-muted hover:bg-muted/80 text-muted-foreground'
                                   )}
@@ -741,6 +787,15 @@ export function Studio() {
                                 </button>
                               ))}
                             </div>
+                          )}
+                          {activeItem.merged && partSelectorUrls.length > 0 && (
+                            <button
+                              type='button'
+                              onClick={() => setShowParts((v) => !v)}
+                              className='text-[10px] font-medium text-muted-foreground hover:text-foreground transition'
+                            >
+                              {showParts ? t('Single video') : t('Show parts')}
+                            </button>
                           )}
                         </>
                       ) : (
@@ -764,19 +819,46 @@ export function Studio() {
                   </div>
                   {(activeItem.status === 'ready' || (activeItem.status === 'error' && activeItem.urls.length > 0)) && (
                     <div className='flex items-center gap-1.5'>
-                      {activeItem.urls.map((url, idx) => (
-                        <a
-                          key={url}
-                          download
-                          href={getPlayableMediaUrl(url)}
-                          rel='noreferrer'
-                          target='_blank'
-                          className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs'
-                        >
-                          <DownloadIcon className='size-3.5' />
-                          {activeItem.urls.length > 1 ? `${t('Download')} ${idx + 1}` : t('Download')}
-                        </a>
-                      ))}
+                      {(() => {
+                        if (activeItem.urls.length <= 1 || activeItem.merged) {
+                          return (
+                            <a
+                              href={getPlayableMediaUrl(activeItem.urls[0])}
+                              download
+                              rel='noreferrer'
+                              target='_blank'
+                              className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs'
+                            >
+                              <DownloadIcon className='size-3.5' />
+                              {t('Download')}
+                            </a>
+                          )
+                        }
+                        if (activeItemMergeProgress !== undefined) {
+                          return (
+                            <button
+                              type='button'
+                              disabled
+                              className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-muted/60 text-xs font-medium text-muted-foreground cursor-wait'
+                            >
+                              <Loader2Icon className='size-3.5 animate-spin' />
+                              {t('Stitching video parts')} · {activeItemMergeProgress}%
+                            </button>
+                          )
+                        }
+                        return (
+                          <button
+                            type='button'
+                            onClick={() =>
+                              mergeItemParts(activeItem.id, activeItem.urls, { autoDownload: true })
+                            }
+                            className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs'
+                          >
+                            <DownloadIcon className='size-3.5' />
+                            {t('Download merged video')}
+                          </button>
+                        )
+                      })()}
                     </div>
                   )}
                 </div>

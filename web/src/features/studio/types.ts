@@ -46,4 +46,6 @@ export type StudioItem = {
   settings: Record<string, string | number | undefined>
   /** Multi-part plan info for chained (extension) video generations. */
   step?: StudioItemStep
+  /** True once the parts were stitched into a single file (single player, single download). */
+  merged?: boolean
 }
