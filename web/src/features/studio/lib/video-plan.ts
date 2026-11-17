@@ -32,8 +32,15 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 import { getPlaygroundRuntimeConfig } from '@/features/playground/api'
 
+// Appended to every optimizer call, after the configured system prompt, so the
+// rewrite can never silently drop the speech the user asked for.
+const NON_NEGOTIABLE_RULES = `
+NON-NEGOTIABLE RULES (these take precedence over anything above):
+- If the input text contains spoken dialogue, quotations or speech lines, you MUST keep them verbatim: never translate, paraphrase, summarize, shorten or omit them. Preserve the exact original wording, language and punctuation of every quoted line.
+- Output ONLY the rewritten text, with no commentary, labels, quotation marks around the result or markdown formatting.`
+
 const DEFAULT_VIDEO_OPTIMIZER_SYSTEM_PROMPT =
-  'You are a professional video generation prompt optimizer and safety enhancer. Rewrite the given prompt into safe, detailed, cinematic English that generative video AI models accept without content violations. Describe camera movement, lighting, visual details, and style cleanly and vividly. CRITICAL REQUIREMENT: If the prompt contains any dialogue, spoken quotes, or speech lines, DO NOT translate the spoken dialogue — keep all spoken words/quotes exactly as written.'
+  'You are a professional video generation prompt optimizer and safety enhancer. Rewrite the given prompt into safe, detailed, cinematic English that generative video AI models accept without content violations. Describe camera movement, lighting, visual details, and style cleanly and vividly. CRITICAL REQUIREMENT: If the prompt contains any dialogue, spoken quotes, or speech lines, DO NOT translate the spoken dialogue — keep all spoken words/quotes exactly as written, in their original language. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes around the prompt.'
 
 export type VideoPlanCharacter = {
   name?: string
@@ -250,7 +257,7 @@ async function callOptimizerOnce(
     {
       model,
       temperature: 0.4,
-      messages: [{ role: 'system', content: systemPrompt }, ...messages],
+      messages: [{ role: 'system', content: `${systemPrompt}\n\n${NON_NEGOTIABLE_RULES}` }, ...messages],
     },
     { signal, skipErrorHandler: true, skipAuthRefresh: true } as Record<string, unknown>
   )
@@ -499,7 +506,7 @@ export async function optimizeImagePrompt(prompt: string, signal?: AbortSignal):
   }
   const systemPrompt =
     runtimeConfig?.studio?.prompt_optimizer_system_prompt?.trim() ||
-    'You are a professional image prompt optimizer. Rewrite the prompt into a descriptive, high-quality English prompt with lighting, composition, visual details, and style that generative AI models accept without safety violations. CRITICAL REQUIREMENT: If the prompt contains any Turkish text or quotes intended for rendering, DO NOT translate them — keep all Turkish quotes intact. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes.'
+    'You are a professional image prompt optimizer. Rewrite the prompt into a descriptive, high-quality English prompt with lighting, composition, visual details, and style that generative AI models accept without safety violations. CRITICAL REQUIREMENT: If the prompt contains any text or quotes intended for rendering, DO NOT translate them — keep all quotes exactly as written, in their original language. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes.'
   const raw = await callOptimizer(
     model,
     systemPrompt,

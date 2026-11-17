@@ -586,8 +586,16 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			// data: URI (e.g. Vertex base64 encoded video) — keep in Data, not in ResultURL
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
 		} else if taskResult.Url != "" {
-			// Direct upstream URL (e.g. Kling, Ali, Doubao, etc.)
-			task.PrivateData.ResultURL = taskResult.Url
+			// Store the file server-side so the upstream expiry never reaches the client.
+			storeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			storedURL, storeErr := StoreVideoFromURL(storeCtx, task.UserId, task.GetUpstreamTaskID(), taskResult.Url, "video")
+			cancel()
+			if storeErr != nil {
+				common.SysError(fmt.Sprintf("task %s: failed to store video from %s: %s", task.TaskID, taskResult.Url, storeErr.Error()))
+				task.PrivateData.ResultURL = taskResult.Url
+			} else {
+				task.PrivateData.ResultURL = storedURL
+			}
 		} else {
 			// No URL from adaptor — construct proxy URL using public task ID
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)

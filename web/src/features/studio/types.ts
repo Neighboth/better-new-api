@@ -40,6 +40,8 @@ export type StudioItem = {
   error?: string
   /** Video task ID for asynchronous polling across sessions and page reloads. */
   taskId?: string
+  /** While the task is queued at the upstream, its 1-based FIFO position. */
+  queuePosition?: number
   /** Raw progress string of a video task ("0%", "42%", "100%"). */
   progress?: string
   /** Settings used for the generation, shown under the result. */

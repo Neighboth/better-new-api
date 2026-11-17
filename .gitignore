@@ -69,3 +69,7 @@ worker/mobile/apk_signing_key.pem
 
 test_run.log
 new-api.exe~
+
+# Local configuration of the opencode2api sidecar (contains a private server key).
+deploy/opencode2api/config.local.json
+

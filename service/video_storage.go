@@ -1,0 +1,290 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	operation_setting "github.com/QuantumNous/new-api/setting/operation_setting"
+
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
+
+	"github.com/QuantumNous/new-api/setting/system_setting"
+)
+
+const (
+	videoUploadsDir   = "uploads/videos"
+	videoAssetDirPerm = 0o755
+)
+
+// VideoMaxQuotaBytes exposes the per-user cap for callers that render quota UI.
+func VideoMaxQuotaBytes() int64 { return operation_setting.VideoStorageQuotaBytes() }
+
+// VideoStorageStats reports the user's usage for the quota bar.
+func VideoStorageStats(userID int) (used int64, limit int64, count int64, err error) {
+	if userID <= 0 {
+		return 0, 0, 0, errors.New("invalid user")
+	}
+	limit = operation_setting.VideoStorageQuotaBytes()
+	used, err = model.ActiveVideoStorageBytes(userID)
+	if err != nil {
+		return 0, limit, 0, err
+	}
+	cnt, err := model.ActiveVideoStorageCount(userID)
+	if err != nil {
+		return used, limit, 0, err
+	}
+	return used, limit, cnt, nil
+}
+
+// CheckVideoStorageQuota blocks new video generations when the user is over quota.
+// Admins are exempt.
+func CheckVideoStorageQuota(userID int) *types.NewAPIError {
+	if model.IsAdmin(userID) {
+		return nil
+	}
+	limit := operation_setting.VideoStorageQuotaBytes()
+	used, err := model.ActiveVideoStorageBytes(userID)
+	if err != nil {
+		common.SysError("video storage usage query failed: " + err.Error())
+		return nil // do not break generation on a metering failure
+	}
+	if used < limit {
+		return nil
+	}
+	return types.NewErrorWithStatusCode(
+		fmt.Errorf("Video storage quota exhausted (%.1f GB of %.1f GB used). Delete your oldest videos to free up space before generating more.", float64(used)/float64(1<<30), float64(limit)/float64(1<<30)),
+		types.ErrorCodeInsufficientUserQuota,
+		http.StatusForbidden,
+	)
+}
+
+// StoreVideoFromURL downloads an upstream media URL to local disk and records it
+// against the user's quota. Returns the local public URL.
+func StoreVideoFromURL(ctx context.Context, userID int, taskID string, upstreamURL string, kind string) (string, error) {
+	if userID <= 0 || upstreamURL == "" {
+		return "", errors.New("invalid storage request")
+	}
+	ext := videoAssetExtFromURL(upstreamURL)
+
+	if !IsHTTPOrHTTPS(upstreamURL) {
+		return "", fmt.Errorf("unsupported video URL scheme")
+	}
+	if err := ValidateSSRFProtectedFetchURL(upstreamURL); err != nil {
+		return "", err
+	}
+	head, err := headContentLength(ctx, upstreamURL)
+	maxBytes := operation_setting.VideoAssetMaxBytes()
+	if err == nil && head > maxBytes {
+		return "", fmt.Errorf("video exceeds the maximum asset size of %d bytes", maxBytes)
+	}
+	client := GetSSRFProtectedHTTPClient()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "curl/8.4.0")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("upstream returned HTTP %d", resp.StatusCode)
+	}
+
+	if kind == "" {
+		kind = "video"
+	}
+	fileName := fmt.Sprintf("%d_%d_%s.%s", userID, time.Now().UnixNano(), common.GetRandomString(8), ext)
+	dir := filepath.Join("uploads", "videos", fmt.Sprint(userID))
+	if err := os.MkdirAll(dir, videoAssetDirPerm); err != nil {
+		return "", err
+	}
+	dstPath := filepath.Join(dir, fileName)
+	out, err := os.Create(dstPath)
+	if err != nil {
+		return "", err
+	}
+	limited := io.LimitReader(resp.Body, maxBytes+1)
+	written, copyErr := io.Copy(out, limited)
+	closeErr := out.Close()
+	if copyErr != nil || closeErr != nil || written == 0 || written > maxBytes {
+		_ = os.Remove(dstPath)
+		if copyErr != nil {
+			return "", copyErr
+		}
+		if written > maxBytes {
+			return "", fmt.Errorf("video exceeds the maximum asset size of %d bytes", maxBytes)
+		}
+		return "", fmt.Errorf("empty video download")
+	}
+	now := time.Now().Unix()
+	ret := operation_setting.VideoRetentionDays()
+	expiresAt := now + int64(ret) * 86400
+
+	asset := &model.VideoAsset{
+		UserId:    userID,
+		TaskId:    taskID,
+		FileName:  fileName,
+		Size:      written,
+		Kind:      kind,
+		CreatedAt: now,
+		ExpiresAt: expiresAt,
+	}
+	if err := model.DB.Create(asset).Error; err != nil {
+		_ = os.Remove(dstPath)
+		return "", err
+	}
+	return "/" + filepath.ToSlash(dstPath), nil
+}
+
+// DeleteOldestVideoAssets deletes the user's oldest stored videos until at least
+// minBytes are freed (or none remain). Returns freed bytes and delete count.
+func DeleteOldestVideoAssets(userID int, minBytes int64) (freed int64, deleted int, err error) {
+	for {
+		var asset model.VideoAsset
+		err = model.DB.Where("user_id = ? AND deleted = ?", userID, false).
+			Order("expires_at ASC, id ASC").
+			First(&asset).Error
+		if err != nil {
+			return freed, deleted, nil
+		}
+		var path string
+		switch asset.Kind {
+		case "merged":
+			path = filepath.Join("uploads", "merged", asset.FileName)
+		default:
+			path = filepath.Join(videoUploadsDir, fmt.Sprint(userID), asset.FileName)
+		}
+		_ = os.Remove(path)
+		freed += asset.Size
+		deleted++
+		_ = model.DB.Model(&asset).Updates(map[string]interface{}{
+			"deleted":        true,
+			"deleted_reason": "user_delete",
+		}).Error
+		if freed >= minBytes {
+			return freed, deleted, nil
+		}
+	}
+}
+
+func headContentLength(ctx context.Context, url string) (int64, error) {
+	client := GetSSRFProtectedHTTPClient()
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("User-Agent", "curl/8.4.0")
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("upstream returned HTTP %d", resp.StatusCode)
+	}
+	ct := resp.Header.Get("Content-Length")
+	if ct == "" {
+		return 0, nil
+	}
+	var n int64
+	_, err = fmt.Sscan(ct, &n)
+	return n, err
+}
+
+func videoAssetExtFromURL(url string) string {
+	lower := strings.ToLower(url)
+	switch {
+	case strings.Contains(lower, ".webm"):
+		return "webm"
+	case strings.Contains(lower, ".mov"):
+		return "mov"
+	case strings.Contains(lower, ".mkv"):
+		return "mkv"
+	default:
+		return "mp4"
+	}
+}
+
+// IsHTTPOrHTTPS reports whether the URL uses http or https.
+func IsHTTPOrHTTPS(url string) bool {
+	return strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://")
+}
+
+func StartVideoExpirySweeper() {
+	go func() {
+		for {
+			sweepVideoAssets()
+			time.Sleep(1 * time.Hour)
+		}
+	}()
+}
+
+func sweepVideoAssets() {
+	now := time.Now().Unix()
+	theWarnBefore := operation_setting.VideoExpiryWarnDaysBefore()
+	warnHorizon := now + int64(theWarnBefore)*86400
+
+	var expiring []model.VideoAsset
+	model.DB.Where("warn_sent = ? AND deleted = ? AND expires_at <= ? AND expires_at > ?", false, false, warnHorizon, now).
+		Find(&expiring)
+	for _, asset := range expiring {
+		sendVideoExpiryWarning(&asset)
+		model.DB.Model(&asset).Update("warn_sent", true)
+	}
+
+	var expired []model.VideoAsset
+	model.DB.Where("deleted = ? AND expires_at <= ?", false, now).
+		Find(&expired)
+	for _, asset := range expired {
+		var path string
+		switch asset.Kind {
+		case "merged":
+			path = filepath.Join("uploads", "merged", asset.FileName)
+		default:
+			path = filepath.Join(videoUploadsDir, fmt.Sprint(asset.UserId), asset.FileName)
+		}
+		_ = os.Remove(path)
+		model.DB.Model(&asset).Updates(map[string]interface{}{
+			"deleted":        true,
+			"deleted_reason": "expired",
+		})
+	}
+}
+
+func sendVideoExpiryWarning(asset *model.VideoAsset) {
+	cache, err := model.GetUserCache(asset.UserId)
+	if err != nil || cache.Email == "" {
+		common.SysLog(fmt.Sprintf("video expiry warning for asset %d: user %d has no email or cannot be read", asset.ID, asset.UserId))
+		return
+	}
+	var userSetting dto.UserSetting
+	lang := "en"
+	if raw := strings.TrimSpace(cache.Setting); raw != "" {
+		if err := common.Unmarshal([]byte(raw), &userSetting); err == nil && strings.TrimSpace(userSetting.Language) != "" {
+			lang = NormalizeEmailLang(userSetting.Language)
+		}
+	}
+	expiresAt := time.Unix(asset.ExpiresAt, 0).UTC().Format("2006-01-02")
+	base := strings.TrimRight(system_setting.ServerAddress, "/")
+	videoURL := base + "/uploads/videos/" + fmt.Sprint(asset.UserId) + "/" + asset.FileName
+	subject, content := RenderEmail("video_expiry", lang, map[string]string{
+		"username":   cache.Username,
+		"video_url":  videoURL,
+		"expires_at": expiresAt,
+	})
+	if err := common.SendEmail(subject, cache.Email, content); err != nil {
+		common.SysError(fmt.Sprintf("video expiry warning mail failed for user %d: %s", asset.UserId, err.Error()))
+	}
+}

@@ -793,6 +793,18 @@ func RelayTask(c *gin.Context) {
 		return
 	}
 
+	// Aepi's ten-concurrent-job ceiling: park the submission as a QUEUED task
+	// and return the same public id the client will poll; a dispatcher admits
+	// it FIFO when a slot frees.
+	if enqueued, taskErr := relay.EnqueueAepiRelay(c, relayInfo); enqueued != nil {
+		logger.LogInfo(c, fmt.Sprintf("aepi queue: parked task %s for model %s (slots exhausted)", enqueued.TaskID, relayInfo.OriginModelName))
+		c.JSON(http.StatusAccepted, enqueued)
+		return
+	} else if taskErr != nil {
+		respondTaskError(c, taskErr)
+		return
+	}
+
 	var result *relay.TaskSubmitResult
 	var taskErr *taskdto.TaskError
 	// The last non-local (upstream or infrastructure) error seen by RelayTaskSubmit.

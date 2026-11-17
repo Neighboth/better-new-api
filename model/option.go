@@ -115,6 +115,8 @@ func InitOptionMap() {
 		common.OptionMap["EmailBody_ticket_replied_"+l] = ""
 		common.OptionMap["EmailSubject_channel_disabled_"+l] = ""
 		common.OptionMap["EmailBody_channel_disabled_"+l] = ""
+		common.OptionMap["EmailSubject_video_expiry_"+l] = ""
+		common.OptionMap["EmailBody_video_expiry_"+l] = ""
 		common.OptionMap["DocsLink_"+l] = ""
 	}
 	common.OptionMap["ServerAddress"] = ""

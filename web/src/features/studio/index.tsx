@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowRightIcon,
   DownloadIcon,
@@ -184,6 +184,89 @@ type AttachedMedia = {
   url: string
   name: string
   type: 'image' | 'video' | 'audio'
+}
+
+function formatBytes(value?: number): string {
+  if (!Number.isFinite(value ?? NaN) || !value) return '0 MB'
+  if (value >= 1024 * 1024 * 1024) return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** Shows the per-user video storage quota and offers to free space by deleting the oldest videos. */
+function VideoStorageQuota() {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [deleting, setDeleting] = useState(false)
+  const { data } = useQuery({
+    queryKey: ['media-storage'],
+    queryFn: async () => {
+      const res = await api.get('/api/media/storage', { skipErrorHandler: true } as Record<string, unknown>)
+      return (res?.data?.data ?? null) as { used_bytes?: number; limit_bytes?: number; count?: number } | null
+    },
+    staleTime: 30_000,
+  })
+  const used = Number(data?.used_bytes ?? 0)
+  const limit = Number(data?.limit_bytes ?? 1 << 30)
+  const ratio = limit > 0 ? Math.min(1, used / limit) : 0
+  const over = limit > 0 && used >= limit
+  const percent = Math.round(ratio * 100)
+
+  const deleteOldest = async () => {
+    if (!window.confirm(t('Delete the oldest videos to free up space? This cannot be undone.'))) {
+      return
+    }
+    setDeleting(true)
+    try {
+      const res = await api.delete('/api/media/storage', { skipErrorHandler: true } as Record<string, unknown>)
+      const freed = Number(res?.data?.data?.freed_bytes ?? 0)
+      await queryClient.invalidateQueries({ queryKey: ['media-storage'] })
+      toast.success(t('Freed {{freed}} of storage by deleting oldest videos.', { freed: formatBytes(freed) }))
+    } catch {
+      toast.error(t('Failed to delete old videos.'))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className='border-b border-border/60 bg-background/60 px-3 sm:px-4 py-2.5 flex flex-col sm:flex-row sm:items-center gap-2'>
+      <div className='min-w-0 flex-1 space-y-1.5'>
+        <div className='flex items-center justify-between gap-2 text-[11px] font-medium'>
+          <span className='text-muted-foreground'>{t('Video storage')}</span>
+          <span className={over ? 'text-destructive' : 'text-muted-foreground'}>
+            {t('{{used}} / {{limit}} used', {
+              used: formatBytes(used),
+              limit: formatBytes(limit),
+            })} ·{' '}
+            {t('{{remaining}} remaining', {
+              remaining: formatBytes(Math.max(0, limit - used)),
+            })}
+          </span>
+        </div>
+        <div className='h-1.5 w-full overflow-hidden rounded-full bg-muted'>
+          <div
+            className={cn('h-full rounded-full transition-all', over ? 'bg-destructive' : 'bg-primary')}
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+        {over && (
+          <p className='text-[10px] text-destructive font-medium'>
+            {t('Your video storage is full. Delete the oldest videos to free space before generating more.')}
+          </p>
+        )}
+      </div>
+      <Button
+        variant='outline'
+        size='sm'
+        className='h-8 shrink-0 text-xs'
+        disabled={deleting || used <= 0}
+        onClick={deleteOldest}
+      >
+        {deleting ? <Loader2Icon className='size-3.5 animate-spin' /> : <Trash2Icon className='size-3.5' />}
+        {t('Delete oldest')}
+      </Button>
+    </div>
+  )
 }
 
 export function Studio() {
@@ -377,8 +460,6 @@ export function Studio() {
   } = useStudioGeneration()
 
   const [isMobileScreen, setIsMobileScreen] = useState(false)
-  const [selectedChunkIndex, setSelectedChunkIndex] = useState(0)
-  const [showParts, setShowParts] = useState(false)
 
   useEffect(() => {
     const checkMobile = () => {
@@ -438,8 +519,6 @@ export function Studio() {
 
   // Track viewing completed item so subsequent reloads archive it
   useEffect(() => {
-    setSelectedChunkIndex(0)
-    setShowParts(false)
     if (activeItem && (activeItem.status === 'ready' || activeItem.status === 'error')) {
       try {
         sessionStorage.setItem('studio_seen_completed_' + activeItem.id, '1')
@@ -450,16 +529,16 @@ export function Studio() {
   // Only the active stage item being pending or an active generation blocks the send button
   const hasActivePending = isGenerating || activeItem?.status === 'pending'
 
-  // Multi-part (chained) generations: after the background merge the first
-  // URL is the single combined video; the individual parts follow it.
-  const mergedView = Boolean(activeItem?.merged) && !showParts
-  const partSelectorUrls = useMemo(() => {
-    if (!activeItem) return [] as string[]
-    if (activeItem.merged) return activeItem.urls.slice(1)
-    return activeItem.urls
-  }, [activeItem])
-  const partSelectorOffset = activeItem?.merged ? 1 : 0
+  // A chained video is either a single stitched file or it is not playable at
+  // all — no "part" buttons are ever shown on the stage.
   const activeItemMergeProgress = activeItem ? mergeJobs[activeItem.id] : undefined
+  const singleVideoUrl = (() => {
+    const urls = activeItem?.urls ?? []
+    if (urls.length === 0) return undefined
+    if (activeItem?.merged) return urls[0]
+    if (urls.length === 1) return urls[0]
+    return undefined
+  })()
 
   const canGenerate = prompt.trim().length > 0 && !hasActivePending && Boolean(currentModelName)
 
@@ -668,6 +747,21 @@ export function Studio() {
                           </p>
                         )}
                       </div>
+                      {activeItem.mode === 'video' && activeItem.queuePosition !== undefined && (
+                        <div className='inline-flex flex-col items-center gap-1 rounded-full border border-border/60 bg-background/85 px-4 py-1.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur'>
+                          <span className='inline-flex items-center gap-2'>
+                            <Loader2Icon className='size-3 animate-spin' />
+                            {t('In queue — you are in line')}
+                          </span>
+                          <span className='text-[10px] text-muted-foreground/80'>
+                            {activeItem.queuePosition <= 1
+                              ? t('In queue — you are next')
+                              : t('In queue — you are #{{position}} in line', {
+                                  position: activeItem.queuePosition,
+                                })}
+                          </span>
+                        </div>
+                      )}
                       {activeItem.mode === 'video' && (
                         <div className='w-full max-w-xs flex items-center gap-3'>
                           <Progress
@@ -682,69 +776,24 @@ export function Studio() {
                     </div>
                   )}
 
-                  {activeItem.status === 'error' && activeItem.urls.length > 0 && (
-                    <div className='flex w-full flex-col items-center justify-center gap-2 p-2'>
-                      <video
-                        key={mergedView ? activeItem.urls[0] : activeItem.urls[selectedChunkIndex] || activeItem.urls[0]}
-                        className='max-h-[320px] w-full object-contain bg-black rounded-lg'
-                        controls
-                        playsInline
-                        src={getPlayableMediaUrl(
-                          mergedView
-                            ? activeItem.urls[0]
-                            : activeItem.urls[selectedChunkIndex] || activeItem.urls[0]
-                        )}
-                      />
-                      {(!activeItem.merged || showParts) && partSelectorUrls.length > 1 && (
-                        <div className='flex flex-wrap items-center justify-center gap-1.5 pt-1'>
-                          {partSelectorUrls.map((url, idx) => (
-                            <button
-                              key={url}
-                              type='button'
-                              onClick={() => setSelectedChunkIndex(partSelectorOffset + idx)}
-                              className={cn(
-                                'px-2.5 py-1 rounded-md text-xs font-medium transition shadow-2xs',
-                                selectedChunkIndex === partSelectorOffset + idx
-                                  ? 'bg-primary text-primary-foreground'
-                                  : 'bg-muted hover:bg-muted/80 text-muted-foreground'
-                              )}
-                            >
-                              {t('Part')} {idx + 1}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {activeItem.merged && partSelectorUrls.length > 0 && (
-                        <button
-                          type='button'
-                          onClick={() => setShowParts((v) => !v)}
-                          className='text-[10px] font-medium text-muted-foreground hover:text-foreground transition'
-                        >
-                          {showParts
-                            ? t('Single video')
-                            : t('Show parts')}
-                        </button>
-                      )}
-                      {activeItemMergeProgress !== undefined && (
-                        <div className='inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur'>
-                          <Loader2Icon className='size-3 animate-spin' />
-                          {t('Stitching video parts')} · {activeItemMergeProgress}%
-                        </div>
-                      )}
-                      <p className='text-[11px] font-medium text-destructive max-w-md text-center'>
-                        {activeItem.error}
-                      </p>
-                    </div>
-                  )}
-
-                  {activeItem.status === 'error' && activeItem.urls.length === 0 && (
-                    <div className='flex flex-col items-center gap-2 p-8 text-center text-destructive'>
+                  {activeItem.status === 'error' && (
+                    <div className='flex w-full flex-col items-center justify-center gap-3 p-6'>
                       <span className='flex size-8 items-center justify-center rounded-full bg-destructive/10 text-xs font-bold text-destructive'>
                         !
                       </span>
-                      <p className='text-xs font-medium max-w-md'>
+                      <p className='text-xs font-medium text-destructive max-w-md text-center'>
                         {activeItem.error || t('Generation failed')}
                       </p>
+                      {(activeItem.urls?.length ?? 0) > 1 && (
+                        <button
+                          type='button'
+                          onClick={() => mergeItemParts(activeItem.id, activeItem.urls)}
+                          className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs'
+                        >
+                          <DownloadIcon className='size-3.5' />
+                          {t('Retry merge')}
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -776,50 +825,30 @@ export function Studio() {
                               </div>
                             )
                           }
-                          return (
-                            <>
-                          <video
-                            key={mergedView ? activeItem.urls[0] : activeItem.urls[selectedChunkIndex] || activeItem.urls[0]}
-                            autoPlay
-                            className='max-h-[380px] w-full object-contain bg-black rounded-lg'
-                            controls
-                            loop
-                            playsInline
-                            src={getPlayableMediaUrl(
-                              mergedView
-                                ? activeItem.urls[0]
-                                : activeItem.urls[selectedChunkIndex] || activeItem.urls[0]
-                            )}
-                          />
-                          {(!activeItem.merged || showParts) && partSelectorUrls.length > 1 && (
-                            <div className='flex flex-wrap items-center justify-center gap-1.5 pt-1'>
-                              {partSelectorUrls.map((url, idx) => (
-                                <button
-                                  key={url}
-                                  type='button'
-                                  onClick={() => setSelectedChunkIndex(partSelectorOffset + idx)}
-                                  className={cn(
-                                    'px-2.5 py-1 rounded-md text-xs font-medium transition shadow-2xs',
-                                    selectedChunkIndex === partSelectorOffset + idx
-                                      ? 'bg-primary text-primary-foreground'
-                                      : 'bg-muted hover:bg-muted/80 text-muted-foreground'
-                                  )}
-                                >
-                                  {t('Part')} {idx + 1}
-                                </button>
-                              ))}
+                          return singleVideoUrl ? (
+                            <video
+                              key={singleVideoUrl}
+                              autoPlay
+                              className='max-h-[380px] w-full object-contain bg-black rounded-lg'
+                              controls
+                              loop
+                              playsInline
+                              src={getPlayableMediaUrl(singleVideoUrl)}
+                            />
+                          ) : (
+                            <div className='flex flex-col items-center gap-3 py-8'>
+                              <p className='text-sm font-medium text-muted-foreground'>
+                                {t('Generation finished, but the video could not be stitched into one file.')}
+                              </p>
+                              <button
+                                type='button'
+                                onClick={() => mergeItemParts(activeItem.id, activeItem.urls)}
+                                className='inline-flex items-center gap-1.5 h-8 px-4 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs'
+                              >
+                                <DownloadIcon className='size-3.5' />
+                                {t('Retry merge')}
+                              </button>
                             </div>
-                          )}
-                          {activeItem.merged && partSelectorUrls.length > 0 && (
-                            <button
-                              type='button'
-                              onClick={() => setShowParts((v) => !v)}
-                              className='text-[10px] font-medium text-muted-foreground hover:text-foreground transition'
-                            >
-                              {showParts ? t('Single video') : t('Show parts')}
-                            </button>
-                          )}
-                            </>
                           )
                         })()
                         ) : (
@@ -1403,6 +1432,8 @@ export function Studio() {
               </TabsList>
             </Tabs>
           </div>
+
+          <VideoStorageQuota />
 
           {/* Items Grid */}
           <div className='flex-1 overflow-y-auto p-4'>

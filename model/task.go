@@ -112,6 +112,10 @@ type TaskPrivateData struct {
 	WalletHoldNeedsReview bool   `json:"wallet_hold_needs_review,omitempty"`
 	UpstreamTaskID        string `json:"upstream_task_id,omitempty"` // 上游真实 task ID
 	ResultURL             string `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	// Queued submissions: the submitted HTTP request body is parked here while the
+	// task waits for a free Aepi slot; the admitter replays it to the adapter.
+	EnqueuedRequest     json.RawMessage `json:"enqueued_request,omitempty"`
+	EnqueuedContentType string          `json:"enqueued_content_type,omitempty"`
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
@@ -163,7 +167,10 @@ func (p *TaskPrivateData) Scan(val interface{}) error {
 }
 
 func (p TaskPrivateData) Value() (driver.Value, error) {
-	if (p == TaskPrivateData{}) {
+	if p.Key == "" && p.WalletHoldID == "" && !p.WalletHoldNeedsReview &&
+		p.UpstreamTaskID == "" && p.ResultURL == "" && p.BillingSource == "" &&
+		p.SubscriptionId == 0 && p.TokenId == 0 && p.NodeName == "" && p.BillingContext == nil &&
+		len(p.EnqueuedRequest) == 0 && p.EnqueuedContentType == "" {
 		return nil, nil
 	}
 	return common.Marshal(p)

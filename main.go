@@ -134,6 +134,13 @@ func main() {
 	// Proxy pool periodic egress test & auto-disable/enable task
 	service.StartProxyPoolAutoTester()
 
+	// Aepi capacity queue: admit queued submissions FIFO when a slot frees
+	controller.StartAepiTaskQueueDispatcher()
+
+	// Video storage: warn users 3 days before their stored videos expire and
+	// delete the ones past retention (default 30 days)
+	service.StartVideoExpirySweeper()
+
 	// Report this process as a system instance so the System Info page can show
 	// all currently alive nodes in multi-instance deployments.
 	service.StartSystemInstanceReporter()

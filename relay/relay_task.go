@@ -176,6 +176,11 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if info.PublicTaskID == "" {
 		info.PublicTaskID = model.GenerateTaskID()
 	}
+	// Admissions replay: keep the placeholder's public task id so the caller,
+	// already polling it, transparently continues on the same row.
+	if forced := c.GetString("aepi_queued_task_force_public"); forced != "" {
+		info.PublicTaskID = forced
+	}
 
 	// 4. 价格计算：基础模型价格
 	info.OriginModelName = modelName

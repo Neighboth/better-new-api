@@ -83,6 +83,10 @@ func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 			}
 		}
 		result[i] = relay.TaskModel2Dto(task)
+		if task.Status == model.TaskStatusQueued {
+			// FIFO position in the Aepi capacity queue (1-based).
+			result[i].QueuePosition = int(relay.AepiQueuePosition(task))
+		}
 	}
 	return result
 }

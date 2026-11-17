@@ -41,7 +41,7 @@ import {
   refinePlanForStep,
   type VideoPlan,
 } from '../lib/video-plan'
-import { mergeVideoParts, measureVideoDuration, uploadMergedMedia, deleteMergedMedia } from '../lib/media-merge'
+import { mergeVideoParts, measureVideoDuration, deleteMergedMedia } from '../lib/media-merge'
 import { captureVideoFrames } from '../lib/video-frames'
 import type { StudioItem } from '../types'
 
@@ -189,7 +189,10 @@ async function runVideoChunk(
             const overallProgress = Math.round((chunkIndex * chunkWeight) + ((clamped / 100) * chunkWeight))
             patchItem(itemId, { progress: `${Math.min(Math.max(overallProgress, 0), 99)}%` })
           },
-          0
+          0,
+          (status, queuePosition) => {
+            patchItem(itemId, { queuePosition: status === 'queued' ? queuePosition : undefined })
+          }
         )
 
         if (finished.result_url) {
@@ -519,7 +522,7 @@ export function useStudioGeneration() {
       const progressBase = opts?.progressBase
       void (async () => {
         try {
-          const blob = await mergeVideoParts(parts, {
+          const url = await mergeVideoParts(parts, {
             onProgress: (progress) => {
               setMergeJobs((prev) => ({ ...prev, [id]: progress }))
               if (typeof progressBase === 'number') {
@@ -532,8 +535,7 @@ export function useStudioGeneration() {
               }
             },
           })
-          const url = await uploadMergedMedia(blob)
-          patchItem(id, { urls: [url, ...parts], merged: true, progress: '100%' })
+          patchItem(id, { urls: [url], merged: true, progress: '100%' })
           if (opts?.autoDownload) {
             const anchor = document.createElement('a')
             anchor.href = url
@@ -648,7 +650,10 @@ export function useStudioGeneration() {
                     const overall = Math.round(accumulatedUrls.length * chunkWeight + (clamped / 100) * chunkWeight)
                     patchItem(item.id, { progress: `${Math.min(Math.max(overall, 0), 99)}%` })
                   },
-                  Number.isFinite(inFlightProgress) ? inFlightProgress : 0
+                  Number.isFinite(inFlightProgress) ? inFlightProgress : 0,
+                  (status, queuePosition) => {
+                    patchItem(item.id, { queuePosition: status === 'queued' ? queuePosition : undefined })
+                  }
                 )
                 if (finished.result_url && !accumulatedUrls.includes(finished.result_url)) {
                   accumulatedUrls.push(finished.result_url)
@@ -760,7 +765,10 @@ export function useStudioGeneration() {
             controller.signal,
             undefined,
             (progress) => patchItem(item.id, { progress }),
-            initialProg
+            initialProg,
+            (status, queuePosition) => {
+              patchItem(item.id, { queuePosition: status === 'queued' ? queuePosition : undefined })
+            }
           )
 
           if (finished.result_url) {

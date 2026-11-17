@@ -67,6 +67,7 @@ const emailTemplateTypes = [
   'ticket_created',
   'ticket_replied',
   'channel_disabled',
+  'video_expiry',
 ] as const
 
 const emailLocaleKeys = [
@@ -177,13 +178,13 @@ export function EmailSettingsSection({
         ''
     }
     return body
-      .replace(/{{system_name}}/g, 'New API')
-      .replace(/{{code}}/g, '849201')
-      .replace(/{{email}}/g, 'user@example.com')
-      .replace(/{{year}}/g, new Date().getFullYear().toString())
-      .replace(/{{valid_minutes}}/g, '10')
-      .replace(/{{reset_url}}/g, 'https://example.com/reset-password')
-      .replace(/{{link}}/g, 'https://example.com/reset-password')
+      .replaceAll('{{system_name}}', 'New API')
+      .replaceAll('{{code}}', '849201')
+      .replaceAll('{{email}}', 'user@example.com')
+      .replaceAll('{{year}}', new Date().getFullYear().toString())
+      .replaceAll('{{valid_minutes}}', '10')
+      .replaceAll('{{reset_url}}', 'https://example.com/reset-password')
+      .replaceAll('{{link}}', 'https://example.com/reset-password')
   }
 
   const renderPreviewSubject = (
@@ -197,15 +198,15 @@ export function EmailSettingsSection({
       defaultTemplatesData?.['en']?.[type]?.Subject ||
       ''
     return subject
-      .replace(/{{system_name}}/g, 'New API')
-      .replace(/{{code}}/g, '849201')
-      .replace(/{{email}}/g, 'user@example.com')
-      .replace(/{{year}}/g, new Date().getFullYear().toString())
-      .replace(/{{valid_minutes}}/g, '10')
-      .replace(/{{ticket_id}}/g, '42')
-      .replace(/{{ticket_title}}/g, 'Example support request')
-      .replace(/{{channel_id}}/g, '7')
-      .replace(/{{channel_name}}/g, 'Example channel')
+      .replaceAll('{{system_name}}', 'New API')
+      .replaceAll('{{code}}', '849201')
+      .replaceAll('{{email}}', 'user@example.com')
+      .replaceAll('{{year}}', new Date().getFullYear().toString())
+      .replaceAll('{{valid_minutes}}', '10')
+      .replaceAll('{{ticket_id}}', '42')
+      .replaceAll('{{ticket_title}}', 'Example support request')
+      .replaceAll('{{channel_id}}', '7')
+      .replaceAll('{{channel_name}}', 'Example channel')
   }
 
   const form = useForm<EmailFormValues>({
@@ -327,6 +328,7 @@ export function EmailSettingsSection({
       'ticket_created',
       'ticket_replied',
       'channel_disabled',
+      'video_expiry',
     ] as const
     for (const lang of emailLangs) {
       for (const tType of templateTypes) {
@@ -629,6 +631,7 @@ export function EmailSettingsSection({
                         ticket_created: 'New Ticket Notification',
                         ticket_replied: 'Ticket Reply Notification',
                         channel_disabled: 'Channel Disabled Alert',
+                        video_expiry: 'Video Expiry Reminder',
                       }[type]
                     )}
                   </TabsTrigger>
@@ -720,6 +723,13 @@ export function EmailSettingsSection({
                           'reason',
                           'time',
                         ],
+                        video_expiry: [
+                          'system_name',
+                          'year',
+                          'username',
+                          'video_url',
+                          'expires_at',
+                        ],
                       }
                       const variables = templateVariables[type] || [
                         'system_name',
@@ -767,14 +777,16 @@ export function EmailSettingsSection({
                                 size='sm'
                                 className='h-7 gap-1 text-xs'
                                 onClick={() => {
-                                  if (defaultSubj)
+                                  if (defaultSubj) {
                                     form.setValue(subjKey, defaultSubj, {
                                       shouldDirty: true,
                                     })
-                                  if (defaultBody)
+                                  }
+                                  if (defaultBody) {
                                     form.setValue(bodyKey, defaultBody, {
                                       shouldDirty: true,
                                     })
+                                  }
                                   toast.success(
                                     t('Loaded default template into editor')
                                   )
@@ -808,7 +820,7 @@ export function EmailSettingsSection({
                                 className='h-7 gap-1 text-xs'
                                 onClick={() => {
                                   setPreviewModal({
-                                    title: `${t('Preview')}: ${lang.label} - ${t({ verification: 'Verification Code Email', password_reset: 'Password Reset Email', system_error: 'System Error Alert', quota_warning: 'Quota Warning', ticket_created: 'New Ticket Notification', ticket_replied: 'Ticket Reply Notification', channel_disabled: 'Channel Disabled Alert' }[type])}`,
+                                    title: `${t('Preview')}: ${lang.label} - ${t({ verification: 'Verification Code Email', password_reset: 'Password Reset Email', system_error: 'System Error Alert', quota_warning: 'Quota Warning', ticket_created: 'New Ticket Notification', ticket_replied: 'Ticket Reply Notification', channel_disabled: 'Channel Disabled Alert', video_expiry: 'Video Expiry Reminder' }[type])}`,
                                     subject: renderPreviewSubject(
                                       currentSubject,
                                       lang.key,
@@ -903,6 +915,7 @@ export function EmailSettingsSection({
                 title='Email Preview'
                 className='h-[550px] w-full border-0'
                 srcDoc={previewModal.html}
+                sandbox=''
               />
             </div>
           </DialogContent>

@@ -783,11 +783,11 @@ export function PlaygroundSettingsSection({
             <SettingsSwitchRow>
               <SettingsSwitchContent>
                 <Label className='text-sm font-medium'>
-                  {t('Studio Prompt Optimizer (Video, Music, Image)')}
+                  {t('Generation Assistant Model')}
                   <span className='text-destructive' aria-hidden='true'> *</span>
                 </Label>
                 <SettingsDescription>
-                  {t('Required — always on. Every Studio prompt is refined by this model before generation. For multi-part (chained) video it plans the whole sequence as JSON and directs each part using frames captured from the actual previous clip, keeping subjects, liveries, wardrobe, weather and lighting identical across the entire video. The model must support image (vision) input; Turkish dialogue and quotes are preserved verbatim.')}
+                  {t('Required — always on. Assists every generation in the Studio — it rewrites prompts, plans multi-part (chained) videos as one continuous take, and refines each part against frames captured from the actual previous clip. Dialogue and quotes are preserved verbatim, in their original language. The model must support image (vision) input.')}
                 </SettingsDescription>
               </SettingsSwitchContent>
               <span className='shrink-0 rounded-md border border-border bg-muted/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground'>
@@ -798,7 +798,7 @@ export function PlaygroundSettingsSection({
             <div className='space-y-3 pt-2 border-t border-border/40'>
               <div className='space-y-1.5'>
                 <Label className='text-xs font-medium'>
-                  {t('Refiner / Optimizer Model')}
+                  {t('Assistant Model')}
                   <span className='text-destructive' aria-hidden='true'> *</span>
                 </Label>
                 <Input
@@ -815,12 +815,12 @@ export function PlaygroundSettingsSection({
                   ))}
                 </datalist>
                 <p className='text-muted-foreground text-[11px]'>
-                  {t('Required. A fast, vision-capable chat model used to rewrite prompts and to direct every step of multi-part video generations.')}
+                  {t('Required. A fast, vision-capable chat model that plans and refines every generation in the Studio, for images and multi-part videos.')}
                 </p>
               </div>
 
               <div className='space-y-1.5'>
-                <Label className='text-xs font-medium'>{t('Optimizer System Prompt')}</Label>
+                <Label className='text-xs font-medium'>{t('Assistant System Prompt')}</Label>
                 <Textarea
                   rows={4}
                   className='text-xs font-mono'
@@ -829,7 +829,7 @@ export function PlaygroundSettingsSection({
                   placeholder={t('System instructions for prompt rewriting...')}
                 />
                 <p className='text-muted-foreground text-[11px]'>
-                  {t('Instructs the model how to refine prompts. Quotes/dialogue in Turkish are kept intact.')}
+                  {t('Instructs the assistant. Dialogue and quotes are preserved verbatim, in their original language.')}
                 </p>
               </div>
             </div>

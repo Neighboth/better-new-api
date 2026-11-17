@@ -358,6 +358,28 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
 </body>
 </html>`,
 		},
+		"video_expiry": {
+			Subject: "{{system_name}} - Videonuz {{expires_at}} tarihinde silinecek",
+			Body: `<html lang="tr">
+<head><meta charset="utf-8"><title>{{system_name}} Video Hatırlatması</title></head>
+<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;">
+<tr><td align="center">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
+<tr><td style="padding:36px 40px;">
+<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Videolarınız silinmek üzere</h2>
+<p style="margin:0 0 20px 0;font-size:15px;line-height:24px;color:#475569;">Merhaba <strong>{{username}}</strong>,<br>Sunucumuzdaki videonuz <strong>{{expires_at}}</strong> tarihinde kalıcı olarak silinecektir.</p>
+<p style="margin:0 0 12px 0;font-size:14px;line-height:22px;color:#64748b;">Kaydetmek isterseniz <a href="{{video_url}}" style="color:#2563eb;">{{video_url}}</a> bağlantısını açarak indirin.</p>
+<p style="margin:0;font-size:13px;color:#94a3b8;">Bu e-posta, kayıtlı e-posta adresinize otomatik gönderilmiştir.</p>
+</td></tr>
+<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. Tüm hakları saklıdır.</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`,
+		},
 	},
 	"en": {
 		"verification": {
@@ -928,6 +950,28 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
 </body>
 </html>`,
 		},
+		"video_expiry": {
+			Subject: "{{system_name}} - Your video will be deleted on {{expires_at}}",
+			Body: `<html lang="en">
+<head><meta charset="utf-8"><title>{{system_name}} video reminder</title></head>
+<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;">
+<tr><td align="center">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
+<tr><td style="padding:36px 40px;">
+<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Your video is about to expire</h2>
+<p style="margin:0 0 20px 0;font-size:15px;line-height:24px;color:#475569;">Hi <strong>{{username}}</strong>,<br>The video at <a href="{{video_url}}" style="color:#2563eb;">{{video_url}}</a> will be permanently deleted on <strong>{{expires_at}}</strong>.</p>
+<p style="margin:0 0 12px 0;font-size:14px;line-height:22px;color:#64748b;">Download it before then to keep a copy of it.</p>
+<p style="margin:0;font-size:13px;color:#94a3b8;">This is an automated reminder sent to your account email.</p>
+</td></tr>
+<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. All rights reserved.</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`,
+		},
 	},
 	"fr": {
 		"verification": {
@@ -1039,6 +1083,28 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
       </td>
     </tr>
   </table>
+</body>
+</html>`,
+		},
+		"video_expiry": {
+			Subject: "{{system_name}} - Votre vidéo sera supprimée le {{expires_at}}",
+			Body: `<html lang="fr">
+<head><meta charset="utf-8"><title>{{system_name}} rappel vidéo</title></head>
+<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;">
+<tr><td align="center">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
+<tr><td style="padding:36px 40px;">
+<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Votre vidéo va expirer</h2>
+<p style="margin:0 0 20px 0;font-size:15px;line-height:24px;color:#475569;">Bonjour <strong>{{username}}</strong>,<br>La vidéo à l'adresse <a href="{{video_url}}" style="color:#2563eb;">{{video_url}}</a> sera supprimée définitivement le <strong>{{expires_at}}</strong>.</p>
+<p style="margin:0 0 12px 0;font-size:14px;line-height:22px;color:#64748b;">Téléchargez-la avant cette date pour en garder une copie.</p>
+<p style="margin:0;font-size:13px;color:#94a3b8;">Ceci est un rappel automatique envoyé à l'adresse de votre compte.</p>
+</td></tr>
+<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. Tous droits réservés.</td></tr>
+</table>
+</td></tr>
+</table>
 </body>
 </html>`,
 		},
@@ -1156,6 +1222,28 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
 </body>
 </html>`,
 		},
+		"video_expiry": {
+			Subject: "{{system_name}} — Ваше видео будет удалено {{expires_at}}",
+			Body: `<html lang="ru">
+<head><meta charset="utf-8"><title>{{system_name}} — напоминание о видео</title></head>
+<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;">
+<tr><td align="center">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
+<tr><td style="padding:36px 40px;">
+<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Срок хранения видео истекает</h2>
+<p style="margin:0 0 20px 0;font-size:15px;line-height:24px;color:#475569;">Здравствуйте, <strong>{{username}}</strong>!<br>Видео по адресу <a href="{{video_url}}" style="color:#2563eb;">{{video_url}}</a> будет безвозвратно удалено <strong>{{expires_at}}</strong>.</p>
+<p style="margin:0 0 12px 0;font-size:14px;line-height:22px;color:#64748b;">Скачайте его до этой даты, чтобы сохранить копию.</p>
+<p style="margin:0;font-size:13px;color:#94a3b8;">Это автоматическое напоминание на адрес вашей учётной записи.</p>
+</td></tr>
+<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. Все права защищены.</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`,
+		},
 	},
 	"ja": {
 		"verification": {
@@ -1270,6 +1358,28 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
 </body>
 </html>`,
 		},
+		"video_expiry": {
+			Subject: "{{system_name}} - ご動画が {{expires_at}} に削除されます",
+			Body: `<html lang="ja">
+<head><meta charset="utf-8"><title>{{system_name}} 動画のお知らせ</title></head>
+<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;">
+<tr><td align="center">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
+<tr><td style="padding:36px 40px;">
+<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">動画の保存期限のお知らせ</h2>
+<p style="margin:0 0 20px 0;font-size:15px;line-height:24px;color:#475569;"><strong>{{username}}</strong>様<br><a href="{{video_url}}" style="color:#2563eb;">{{video_url}}</a> の動画は <strong>{{expires_at}}</strong> に完全に削除されます。</p>
+<p style="margin:0 0 12px 0;font-size:14px;line-height:22px;color:#64748b;">保存するにはそれまでにダウンロードしてください。</p>
+<p style="margin:0;font-size:13px;color:#94a3b8;">このメールはアカウントの登録アドレスに自動送信されています。</p>
+</td></tr>
+<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. All rights reserved.</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`,
+		},
 	},
 	"vi": {
 		"verification": {
@@ -1381,6 +1491,28 @@ var defaultEmailTemplates = map[string]map[string]EmailTemplate{
       </td>
     </tr>
   </table>
+</body>
+</html>`,
+		},
+		"video_expiry": {
+			Subject: "{{system_name}} - Video của bạn sẽ bị xóa vào {{expires_at}}",
+			Body: `<html lang="vi">
+<head><meta charset="utf-8"><title>{{system_name}} - nhắc nhở video</title></head>
+<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;">
+<tr><td align="center">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
+<tr><td style="padding:36px 40px;">
+<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Video của bạn sắp hết hạn</h2>
+<p style="margin:0 0 20px 0;font-size:15px;line-height:24px;color:#475569;">Chào <strong>{{username}}</strong>,<br>Video tại <a href="{{video_url}}" style="color:#2563eb;">{{video_url}}</a> sẽ bị xóa vĩnh viễn vào <strong>{{expires_at}}</strong>.</p>
+<p style="margin:0 0 12px 0;font-size:14px;line-height:22px;color:#64748b;">Hãy tải xuống trước ngày đó để giữ một bản sao.</p>
+<p style="margin:0;font-size:13px;color:#94a3b8;">Đây là email nhắc nhở được gửi tự động đến địa chỉ tài khoản của bạn.</p>
+</td></tr>
+<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. Bảo lưu mọi quyền.</td></tr>
+</table>
+</td></tr>
+</table>
 </body>
 </html>`,
 		},

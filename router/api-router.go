@@ -109,8 +109,10 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/media/cache", controller.GetCachedMedia)
 		apiRouter.POST("/media/cache", controller.PreCacheMedia)
 		apiRouter.DELETE("/media/cache", controller.DeleteCachedMedia)
-		apiRouter.POST("/media/merged", middleware.UserAuth(), controller.UploadMergedMedia)
+		apiRouter.POST("/media/merged", middleware.UserAuth(), controller.MergeMedia)
 		apiRouter.DELETE("/media/merged", middleware.UserAuth(), controller.DeleteMergedMedia)
+		apiRouter.GET("/media/storage", middleware.UserAuth(), controller.GetVideoStorageStats)
+		apiRouter.DELETE("/media/storage", middleware.UserAuth(), controller.DeleteOldestVideoAssets)
 
 		userRoute := apiRouter.Group("/user")
 		{

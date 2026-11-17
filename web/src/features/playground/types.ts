@@ -262,6 +262,8 @@ export interface VideoTaskState {
   /** Unix seconds, present on the rows of `/api/task/self`. */
   created_at?: number
   action?: string
+  /** 1-based position in the Aepi capacity queue while status is `queued`. */
+  queue_position?: number
   properties?: {
     input?: string
     origin_model_name?: string

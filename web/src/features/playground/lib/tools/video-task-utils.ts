@@ -148,7 +148,8 @@ export async function pollVideoTask(
   signal?: AbortSignal,
   rescue?: (minCreatedAt: number) => Promise<string>,
   onProgress?: (progress: string) => void,
-  initialProgress?: number
+  initialProgress?: number,
+  onTaskStatus?: (status: string, queuePosition?: number) => void
 ): Promise<VideoTaskState> {
   const startedAt = Date.now()
   let last: VideoTaskState | null = null
@@ -208,7 +209,8 @@ export async function pollVideoTask(
           anchorCreatedAt = createdAt
         }
       }
-      if (onProgress) {
+      onTaskStatus?.(last.status || '', Number(last.queue_position) || undefined)
+      if (onProgress && (last.status || '').toLowerCase() !== 'queued') {
         const percent = Number.parseFloat(String(last.progress ?? ''))
         if (Number.isFinite(percent)) {
           // Never report a progress lower than what was already shown for

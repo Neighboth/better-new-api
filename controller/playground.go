@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/gin-gonic/gin"
@@ -42,6 +43,17 @@ func PlaygroundVideo(c *gin.Context) {
 	}
 
 	userId := c.GetInt("id")
+	if quotaErr := service.CheckVideoStorageQuota(userId); quotaErr != nil {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": gin.H{
+				"message": quotaErr.Err.Error(),
+				"type":    "insufficient_quota",
+				"code":    quotaErr.GetErrorCode(),
+			},
+		})
+		return
+	}
+
 	userCache, err := model.GetUserCache(userId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{

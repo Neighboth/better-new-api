@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 package controller
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,6 +32,8 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -71,6 +74,44 @@ func validMergedMediaName(name string) bool {
 	}
 	stem := strings.TrimSuffix(randomWithExt, ext)
 	return mergedMediaRandomSegment.MatchString(stem)
+}
+
+// MergeMedia handles POST /api/media/merged with a JSON body {"urls": [...]}:
+// it stitches the given parts server-side into a single fast-start MP4 with
+// ffmpeg and returns its public URL. The legacy multipart browser-blob upload
+// is also accepted for backward compatibility.
+func MergeMedia(c *gin.Context) {
+	if strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/form-data") {
+		UploadMergedMedia(c)
+		return
+	}
+	userId := c.GetInt("id")
+	if userId <= 0 {
+		common.ApiError(c, fmt.Errorf("authentication required"))
+		return
+	}
+	var body struct {
+		URLs []string `json:"urls"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &body); err != nil {
+		common.ApiErrorMsg(c, "invalid request body")
+		return
+	}
+	if len(body.URLs) == 0 {
+		common.ApiErrorMsg(c, "no parts to merge")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	url, err := service.MergeVideos(ctx, userId, body.URLs)
+	if err != nil {
+		common.SysError("media merge failed for user " + fmt.Sprint(userId) + ": " + err.Error())
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"url": url,
+	})
 }
 
 // UploadMergedMedia stores a merged video produced in the browser (the
@@ -178,6 +219,11 @@ func DeleteMergedMedia(c *gin.Context) {
 	if err := os.Remove(filepath.Join(mergedMediaDir, name)); err != nil && !os.IsNotExist(err) {
 		common.ApiError(c, err)
 		return
+	}
+	if err := model.DB.Model(&model.VideoAsset{}).
+		Where("user_id = ? AND kind = 'merged' AND file_name = ? AND deleted = ?", userId, name, false).
+		Updates(map[string]interface{}{"deleted": true, "deleted_reason": "user_delete"}).Error; err != nil {
+		common.SysError("video asset delete failed for user " + fmt.Sprint(userId) + ": " + err.Error())
 	}
 	common.ApiSuccess(c, gin.H{})
 }

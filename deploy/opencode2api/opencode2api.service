@@ -1,0 +1,19 @@
+[Unit]
+Description=opencode2api sidecar for the OpenCode Anon channel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=newapi
+Group=newapi
+WorkingDirectory=/opt/opencode2api
+ExecStart=/opt/opencode2api/opencode2api -config /opt/opencode2api/config.local.json
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

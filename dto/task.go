@@ -50,6 +50,8 @@ type TaskDto struct {
 	Properties any             `json:"properties"`
 	Username   string          `json:"username,omitempty"`
 	Data       json.RawMessage `json:"data"`
+	// QUEUED submissions report their 1-based FIFO position; absent for every other status.
+	QueuePosition int `json:"queue_position,omitempty"`
 }
 
 type FetchReq struct {

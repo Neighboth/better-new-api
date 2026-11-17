@@ -282,6 +282,7 @@ func migrateDB() error {
 		&Vendor{},
 		&PrefillGroup{},
 		&Setup{},
+		&VideoAsset{},
 		&TwoFA{},
 		&TwoFABackupCode{},
 		&Checkin{},
