@@ -8299,6 +8299,8 @@
     "Importing...": "Import en cours…",
     "Import Proxies": "Importer les proxys",
     "Stitching video parts": "Assemblage des parties vidéo",
+    "Merging the parts into one video. It will play as soon as it is ready.": "Fusion des parties en une seule vidéo. Elle sera lisible dès qu'elle sera prête.",
+
     "Single video": "Vidéo unique",
     "Show parts": "Afficher les parties",
     "Download merged video": "Télécharger la vidéo fusionnée",

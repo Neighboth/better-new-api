@@ -8302,6 +8302,8 @@
     "When configured, opening Studio automatically preselects this model and its corresponding mode (video or image).": "Yapılandırıldığında Studio açıldığında bu model ve ilgili modu (video veya görsel) otomatik olarak seçilir.",
     "Proxy could not be updated": "Proxy güncellenemedi",
     "Stitching video parts": "Video parçaları birleştiriliyor",
+    "Merging the parts into one video. It will play as soon as it is ready.": "Parçalar tek videoda birleştiriliyor. Hazır olduğunda oynatabileceksiniz.",
+
     "Single video": "Tek video",
     "Show parts": "Parçaları göster",
     "Download merged video": "Birleştirilmiş videoyu indir",

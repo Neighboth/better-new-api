@@ -795,6 +795,11 @@ func RelayTask(c *gin.Context) {
 
 	var result *relay.TaskSubmitResult
 	var taskErr *taskdto.TaskError
+	// The last non-local (upstream or infrastructure) error seen by RelayTaskSubmit.
+	// Kept so the final getChannel failure — which just means "the retry loop
+	// consumed every candidate" — reports the real reason instead of the generic
+	// "model has no available channel (retry)" wrapper.
+	var previousTaskErr *taskdto.TaskError
 	defer func() {
 		if taskErr != nil && relayInfo.Billing != nil {
 			relayInfo.Billing.Refund(c)
@@ -825,6 +830,14 @@ func RelayTask(c *gin.Context) {
 			channel, channelErr = getChannel(c, relayInfo, retryParam)
 			if channelErr != nil {
 				logger.LogError(c, channelErr.Error())
+				if previousTaskErr != nil {
+					// Every channel with an upstream answer was skipped while
+					// retrying, so the pool looks "empty" now. The informative
+					// error is the previous task error, not this wrapper.
+					logger.LogError(c, fmt.Sprintf("task submit failed after exhausting channels (retries=%d): %s", retryParam.GetRetry(), previousTaskErr.Error))
+					taskErr = previousTaskErr
+					break
+				}
 				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
 				break
 			}
@@ -848,6 +861,13 @@ func RelayTask(c *gin.Context) {
 		}
 
 		if !taskErr.LocalError {
+			previousTaskErr = taskErr
+			if constant.ErrorLogEnabled {
+				// Upstream task failures were previously invisible: the final
+				// getChannel exhaustion masked the real reason, so nothing
+				// reached the error log. Record them like chat relay errors.
+				recordRelayErrorLog(c, relayInfo, types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
+			}
 			chTaskErr := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
 				common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan())
 			if chTaskErr.IsMultiKey {

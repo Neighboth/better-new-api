@@ -494,10 +494,14 @@ func (a *TaskAdaptor) convertToAepiJobRequest(c *gin.Context, req *relaycommon.T
 		}
 	}
 	if duration > 0 {
-		if duration < 2 {
-			duration = 2
-		} else if duration > 30 {
-			duration = 30
+		minDur, maxDur := 2, 30
+		if entry, known := videoModelConstraints[modelName]; known && entry.MinDur > 0 && entry.MaxDur > 0 {
+			minDur, maxDur = entry.MinDur, entry.MaxDur
+		}
+		if duration < minDur {
+			duration = minDur
+		} else if duration > maxDur {
+			duration = maxDur
 		}
 		job.Duration = duration
 	}

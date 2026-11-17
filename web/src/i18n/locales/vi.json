@@ -8299,6 +8299,8 @@
     "Importing...": "Đang nhập...",
     "Import Proxies": "Nhập proxy",
     "Stitching video parts": "Đang ghép các phần video",
+    "Merging the parts into one video. It will play as soon as it is ready.": "Đang ghép các phần thành một video. Sẽ phát được ngay khi hoàn tất.",
+
     "Single video": "Video đơn",
     "Show parts": "Hiển thị các phần",
     "Download merged video": "Tải video đã gộp",

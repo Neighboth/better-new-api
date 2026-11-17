@@ -8299,6 +8299,8 @@
     "Importing...": "Импорт...",
     "Import Proxies": "Импортировать прокси",
     "Stitching video parts": "Сшивка частей видео",
+    "Merging the parts into one video. It will play as soon as it is ready.": "Части объединяются в одно видео. Оно будет доступно для просмотра сразу после готовности.",
+
     "Single video": "Одно видео",
     "Show parts": "Показать части",
     "Download merged video": "Скачать объединённое видео",

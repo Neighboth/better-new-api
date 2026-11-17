@@ -40,7 +40,7 @@ import {
   refinePlanForStep,
   type VideoPlan,
 } from '../lib/video-plan'
-import { mergeVideoParts, uploadMergedMedia, deleteMergedMedia } from '../lib/media-merge'
+import { mergeVideoParts, measureVideoDuration, uploadMergedMedia, deleteMergedMedia } from '../lib/media-merge'
 import { captureVideoFrames } from '../lib/video-frames'
 import type { StudioItem } from '../types'
 
@@ -180,7 +180,7 @@ async function runVideoChunk(
           (progress) => {
             // The upstream reports a raw percent string ("12%"); parse it
             // before doing any arithmetic (raw strings produce NaN).
-            const chunkWeight = 100 / totalChunks
+            const chunkWeight = 100 / (totalChunks + 1)
             const parsed = Number.parseFloat(String(progress))
             const clamped = Number.isFinite(parsed)
               ? Math.min(Math.max(parsed, 0), 100)
@@ -234,11 +234,15 @@ type VideoChainConfig = {
 async function runVideoChain(
   config: VideoChainConfig,
   patchItem: (id: string, patch: Partial<StudioItem>) => void
-): Promise<string[]> {
+): Promise<{ urls: string[]; units: number }> {
   const { controller } = config
   const totalScenes = Math.max(1, config.totalScenes)
   const chunkDurationSec = Math.max(2, Math.min(30, Math.floor(config.chunkSeconds) || 30))
   const totalSeconds = totalScenes * chunkDurationSec
+  // Generation segments (chunks). The merge stage counts as one extra unit of
+  // progress weight: (units + 1) always divides the bar, so the merge can
+  // start where the generation leaves it. Make-up steps grow this counter.
+  let units = totalScenes
   const accumulatedUrls = config.accumulatedUrls
   const startAt = Math.max(0, Math.min(accumulatedUrls.length, totalScenes))
 
@@ -262,12 +266,12 @@ async function runVideoChain(
   const writeStep = (step: number, progress?: string, title = workingPlan.title) =>
     patchItem(config.id, {
       ...(progress ? { progress } : {}),
-      step: { current: step, total: totalScenes, title, plan: workingPlan },
+      step: { current: step, total: units, title, plan: workingPlan },
     })
 
   patchItem(config.id, {
     settings: { ...config.baseSettings },
-    step: { current: Math.min(startAt + 1, totalScenes), total: totalScenes, title: workingPlan.title, plan: workingPlan },
+    step: { current: Math.min(startAt + 1, totalScenes), total: units, title: workingPlan.title, plan: workingPlan },
   })
 
   // Re-hydrate reference material from the clips persisted so far. Frames are
@@ -288,11 +292,11 @@ async function runVideoChain(
   for (let i = startAt; i < totalScenes; i++) {
     if (controller.signal.aborted) {
       patchItem(config.id, { status: 'error', error: 'Cancelled', urls: accumulatedUrls })
-      return accumulatedUrls
+      return { urls: accumulatedUrls, units }
     }
     const stepNumber = i + 1
     const isFinalChunk = i === totalScenes - 1
-    writeStep(stepNumber, `${Math.round((i / totalScenes) * 100)}%`)
+    writeStep(stepNumber, `${Math.min(99, Math.max(0, Math.round((i / (units + 1)) * 100)))}%`)
 
     let stepFrames: string[] = []
     const previousClipUrl = accumulatedUrls.at(-1)
@@ -346,7 +350,7 @@ async function runVideoChain(
       chunkDurationSec,
       config.quality,
       i,
-      totalScenes,
+      units,
       refined.negativePrompt || config.negativePrompt,
       stepReferences.length ? stepReferences : undefined
     )
@@ -357,17 +361,86 @@ async function runVideoChain(
     }
     patchItem(config.id, {
       urls: [...accumulatedUrls],
-      step: { current: stepNumber, total: totalScenes, title: workingPlan.title, plan: workingPlan },
+      step: { current: stepNumber, total: units, title: workingPlan.title, plan: workingPlan },
     })
+  }
+
+  // Shortfall make-up: the duration fallback can silently shrink a chunk
+  // (e.g. asking 30s and getting a 20s clip), which would end the generation
+  // below the total the user asked for. Close the gap with one or more
+  // extension steps that continue from the final frame — the same treatment
+  // the rest of the chain gets, capped to avoid runaway spend.
+  const requestedSeconds = totalScenes * chunkDurationSec
+  if (requestedSeconds > 1 && !controller.signal.aborted) {
+    let measuredSeconds = 0
+    for (const url of accumulatedUrls) {
+      const measured = await measureVideoDuration(url)
+      measuredSeconds += measured ?? chunkDurationSec
+    }
+    let makeupSteps = 0
+    while (requestedSeconds - measuredSeconds > 1 && makeupSteps < 3 && !controller.signal.aborted) {
+      const gap = Math.min(30, Math.max(2, Math.ceil(requestedSeconds - measuredSeconds)))
+      const previousClipUrl = accumulatedUrls.at(-1)
+      let stepFrames: string[] = []
+      let makeupStartFrame: string | undefined
+      if (previousClipUrl) {
+        try {
+          const captured = await captureVideoFrames(previousClipUrl, [0.2, 0.5, 0.8], 0.85)
+          stepFrames = captured.frames
+          makeupStartFrame = captured.lastFrame
+        } catch {
+          makeupStartFrame = previousClipUrl
+        }
+      }
+      accumulatedFrames.push(...stepFrames)
+      const stepReferences = accumulatedFrames.slice(-8)
+      units += 1
+      makeupSteps += 1
+      const makeupIndex = units - 1
+      const makeupPrompt = `Continue seamlessly from the last frame for the remaining ${gap} seconds. Keep the same characters, setting, wardrobe, lighting, camera motion, and style. End the shot naturally and resolve the scene.`
+      const chunkRes = await runVideoChunk(
+        {
+          controller,
+          itemId: config.id,
+          patchItem,
+          model: config.model,
+          group: config.group,
+          ratio: config.ratio,
+          imageUrl: undefined,
+          referenceImages: [],
+          negativePrompt: config.negativePrompt,
+          videoExtension: config.videoExtension,
+        },
+        makeupPrompt,
+        makeupStartFrame,
+        undefined,
+        gap,
+        config.quality,
+        makeupIndex,
+        units,
+        config.negativePrompt,
+        stepReferences.length ? stepReferences : undefined
+      )
+      accumulatedUrls.push(chunkRes.url)
+      if (chunkRes.url.startsWith('http')) {
+        void api.post('/api/media/cache', { url: chunkRes.url }).catch(() => {})
+      }
+      const measured = await measureVideoDuration(chunkRes.url)
+      measuredSeconds += measured ?? gap
+      patchItem(config.id, {
+        urls: [...accumulatedUrls],
+        step: { current: units, total: units, title: workingPlan.title, plan: workingPlan },
+      })
+    }
   }
 
   patchItem(config.id, {
     status: 'ready',
     urls: accumulatedUrls,
-    progress: '100%',
-    step: { current: totalScenes, total: totalScenes, title: workingPlan.title, plan: workingPlan },
+    progress: `${Math.min(99, Math.max(0, Math.round((units / (units + 1)) * 100)))}%`,
+    step: { current: units, total: units, title: workingPlan.title, plan: workingPlan },
   })
-  return accumulatedUrls
+  return { urls: accumulatedUrls, units }
 }
 
 async function optimizeStudioPrompt(
@@ -428,21 +501,30 @@ export function useStudioGeneration() {
   // Stitch every part of a finished multi-part chain into one file in the
   // background so the user gets a single video instead of N separate parts.
   const autoMergeItem = useCallback(
-    (id: string, urls: string[], opts?: { autoDownload?: boolean }) => {
+    (id: string, urls: string[], opts?: { autoDownload?: boolean; progressBase?: number }) => {
       const parts = urls.filter((url) => typeof url === 'string' && url)
       if (parts.length < 2) return
       if (mergingRef.current.has(id)) return
       mergingRef.current.add(id)
       setMergeJobs((prev) => ({ ...prev, [id]: 0 }))
+      const progressBase = opts?.progressBase
       void (async () => {
         try {
           const blob = await mergeVideoParts(parts, {
             onProgress: (progress) => {
               setMergeJobs((prev) => ({ ...prev, [id]: progress }))
+              if (typeof progressBase === 'number') {
+                // Fold the merge stage into the creation progress bar so the
+                // user watches one continuous percentage from first frame to
+                // single downloadable video.
+                const base = Math.min(99, Math.max(0, progressBase))
+                const combined = base + (progress / 100) * (100 - base)
+                patchItem(id, { progress: `${Math.min(99, Math.max(0, Math.round(combined)))}%` })
+              }
             },
           })
           const url = await uploadMergedMedia(blob)
-          patchItem(id, { urls: [url, ...parts], merged: true })
+          patchItem(id, { urls: [url, ...parts], merged: true, progress: '100%' })
           if (opts?.autoDownload) {
             const anchor = document.createElement('a')
             anchor.href = url
@@ -454,6 +536,7 @@ export function useStudioGeneration() {
           }
         } catch {
           toast.error(t('Video parts could not be merged into one file'))
+          patchItem(id, { progress: '100%' })
         } finally {
           mergingRef.current.delete(id)
           setMergeJobs((prev) => {
@@ -512,17 +595,43 @@ export function useStudioGeneration() {
             const negativePrompt = plan?.negative_prompt?.trim() || undefined
             const accumulatedUrls = [...persistedUrls]
 
+            // If the page was reloaded while the task was being created, its id
+            // never reached the persisted item. Re-submitting now would bill the
+            // same step twice, so give the task row time to appear and join it.
+            let inFlightTaskId = item.taskId
+            if (!inFlightTaskId && accumulatedUrls.length < totalScenes) {
+              const lookupDeadline = Date.now() + 2 * 60 * 1000
+              while (!controller.signal.aborted && !inFlightTaskId && Date.now() < lookupDeadline) {
+                try {
+                  const foundTask = await findLatestVideoTask({
+                    model: typeof settings.model === 'string' ? settings.model : undefined,
+                    sinceMs: item.createdAt,
+                    signal: controller.signal,
+                    minCreatedAt: Math.floor((item.createdAt ?? Date.now()) / 1000),
+                  })
+                  if (foundTask?.task_id) {
+                    inFlightTaskId = foundTask.task_id
+                    patchItem(item.id, { taskId: inFlightTaskId })
+                    break
+                  }
+                } catch {
+                  // network not ready yet; keep waiting
+                }
+                await new Promise((resolve) => setTimeout(resolve, 5000))
+              }
+            }
+
             // If a task was in flight when the page reloaded, join it first so
             // its part is not submitted twice; otherwise continue from the plan.
-            if (item.taskId && accumulatedUrls.length < totalScenes) {
+            if (inFlightTaskId && accumulatedUrls.length < totalScenes) {
               try {
                 const inFlightProgress = item.progress ? Number.parseFloat(String(item.progress)) : 0
                 const finished = await pollVideoTask(
-                  item.taskId,
+                  inFlightTaskId,
                   controller.signal,
                   undefined,
                   (progress) => {
-                    const chunkWeight = 100 / totalScenes
+                    const chunkWeight = 100 / (totalScenes + 1)
                     const parsed = Number.parseFloat(String(progress))
                     const clamped = Number.isFinite(parsed)
                       ? Math.min(Math.max(parsed, 0), 100)
@@ -544,7 +653,7 @@ export function useStudioGeneration() {
               }
             }
 
-            const resumedUrls = await runVideoChain(
+            const resumed = await runVideoChain(
               {
                 id: item.id,
                 baseSettings,
@@ -567,7 +676,9 @@ export function useStudioGeneration() {
               },
               patchItem
             )
-            autoMergeItem(item.id, resumedUrls)
+            autoMergeItem(item.id, resumed.urls, {
+              progressBase: Math.round((resumed.units / (resumed.units + 1)) * 100),
+            })
           } catch (error) {
             if (controller.signal.aborted) {
               patchItem(item.id, { status: 'error', error: 'Cancelled' })
@@ -599,29 +710,38 @@ export function useStudioGeneration() {
         try {
           let currentTaskId = item.taskId
           if (!currentTaskId) {
-            for (let attempt = 0; attempt < 6 && !currentTaskId; attempt++) {
-              if (controller.signal.aborted) return
-              const foundTask = await findLatestVideoTask({
-                model: item.settings?.model as string,
-                sinceMs: item.createdAt,
-                signal: controller.signal,
-              })
-              if (foundTask?.task_id) {
-                currentTaskId = foundTask.task_id
-                patchItem(item.id, { taskId: currentTaskId })
-                break
+            // The task may take a long time to become visible — the network can
+            // be down for hours (airplane mode) and the submit may have
+            // finished upstream while the id never reached this item. Keep the
+            // card pending and watch for the task row instead of failing fast:
+            // after ~45 minutes of uninterrupted misses it still reports the
+            // honest "could not be found" outcome.
+            const lookupDeadline = Date.now() + 45 * 60 * 1000
+            while (!controller.signal.aborted && !currentTaskId && Date.now() < lookupDeadline) {
+              try {
+                const foundTask = await findLatestVideoTask({
+                  model: item.settings?.model as string,
+                  sinceMs: item.createdAt,
+                  signal: controller.signal,
+                  minCreatedAt: Math.floor((item.createdAt ?? Date.now()) / 1000),
+                })
+                if (foundTask?.task_id) {
+                  currentTaskId = foundTask.task_id
+                  patchItem(item.id, { taskId: currentTaskId })
+                  break
+                }
+              } catch {
+                // network not ready; keep waiting
               }
-              await new Promise((resolve) => setTimeout(resolve, 2000))
+              await new Promise((resolve) => setTimeout(resolve, 5000))
             }
           }
 
           if (!currentTaskId) {
-            if (Date.now() - item.createdAt > 3 * 60 * 1000) {
-              patchItem(item.id, {
-                status: 'error',
-                error: 'The video task could not be found',
-              })
-            }
+            patchItem(item.id, {
+              status: 'error',
+              error: 'The video task could not be found',
+            })
             return
           }
 
@@ -844,7 +964,7 @@ export function useStudioGeneration() {
           ...(params.imageUrl ? [params.imageUrl] : []),
         ].filter(Boolean)
 
-        const chainUrls = await runVideoChain(
+        const chain = await runVideoChain(
           {
             id,
             baseSettings,
@@ -866,7 +986,9 @@ export function useStudioGeneration() {
           },
           patchItem
         )
-        autoMergeItem(id, chainUrls)
+        autoMergeItem(id, chain.urls, {
+          progressBase: Math.round((chain.units / (chain.units + 1)) * 100),
+        })
         return id
       } catch (error) {
         if (controller.signal.aborted) {

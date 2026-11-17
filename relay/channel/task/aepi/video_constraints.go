@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 package aepi
 
 import (
+	"strconv"
 	"strings"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -56,18 +57,29 @@ func normalizeAndValidateVideoRequest(req *relaycommon.TaskSubmitReq) *taskdto.T
 			// Fall back safely to first supported resolution instead of rejecting
 			quality = entry.RenderRes[0]
 		}
+		if entry.MinDur > 0 && entry.MaxDur > 0 {
+			// The catalog carries a duration range per model; clamp into it instead of
+			// letting the provider reject the request with an opaque 422. The metadata
+			// duration override is clamped the same way in convertToAepiJobRequest.
+			dur := req.Duration
+			if dur <= 0 && req.Seconds != "" {
+				if s, err := strconv.Atoi(strings.TrimSpace(req.Seconds)); err == nil {
+					dur = s
+				}
+			}
+			if dur > entry.MaxDur {
+				dur = entry.MaxDur
+			} else if dur > 0 && dur < entry.MinDur {
+				dur = entry.MinDur
+			}
+			if dur > 0 {
+				req.Duration = dur
+				req.Seconds = strconv.Itoa(dur)
+			}
+		}
 	}
 
 	req.Ratio = ratio
 	req.Quality = quality
 	return nil
-}
-
-func constraintContains(list []string, value string) bool {
-	for _, item := range list {
-		if item == value {
-			return true
-		}
-	}
-	return false
 }

@@ -8302,6 +8302,8 @@
     "When configured, opening Studio automatically preselects this model and its corresponding mode (video or image).": "When configured, opening Studio automatically preselects this model and its corresponding mode (video or image).",
     "Proxy could not be updated": "Proxy could not be updated",
     "Stitching video parts": "Stitching video parts",
+    "Merging the parts into one video. It will play as soon as it is ready.": "Merging the parts into one video. It will play as soon as it is ready.",
+
     "Single video": "Single video",
     "Show parts": "Show parts",
     "Download merged video": "Download merged video",

@@ -8299,6 +8299,8 @@
     "Importing...": "インポート中...",
     "Import Proxies": "プロキシをインポート",
     "Stitching video parts": "動画パートを結合中",
+    "Merging the parts into one video. It will play as soon as it is ready.": "パーツを1本の動画に結合しています。完了すると再生できます。",
+
     "Single video": "単一動画",
     "Show parts": "パートを表示",
     "Download merged video": "結合済み動画をダウンロード",

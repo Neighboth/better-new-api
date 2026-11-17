@@ -8299,6 +8299,8 @@
     "Importing...": "匯入中……",
     "Import Proxies": "匯入代理",
     "Stitching video parts": "正在合成影片片段",
+    "Merging the parts into one video. It will play as soon as it is ready.": "正在將片段合併成一支影片，完成後即可播放。",
+
     "Single video": "單一影片",
     "Show parts": "顯示分段",
     "Download merged video": "下載合併後的影片",

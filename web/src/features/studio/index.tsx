@@ -749,13 +749,33 @@ export function Studio() {
                   {activeItem.status === 'ready' && (
                     <div className='relative w-full p-2 flex flex-col items-center justify-center gap-2'>
                       {activeItem.mode === 'video' ? (
-                        <>
-                          {activeItemMergeProgress !== undefined && (
-                            <div className='absolute top-4 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur'>
-                              <Loader2Icon className='size-3 animate-spin' />
-                              {t('Stitching video parts')} · {activeItemMergeProgress}%
-                            </div>
-                          )}
+                        (() => {
+                          if (activeItemMergeProgress !== undefined) {
+                            // Nothing watchable while the merge runs — only the
+                            // finished single video plays once the stitch ends.
+                            return (
+                              <div className='flex flex-col items-center justify-center gap-4 p-10 text-center'>
+                                <Loader2Icon className='size-9 animate-spin text-muted-foreground' />
+                                <div className='space-y-1'>
+                                  <p className='text-sm font-medium'>{t('Stitching video parts')}</p>
+                                  <p className='max-w-sm text-[11px] text-muted-foreground'>
+                                    {t('Merging the parts into one video. It will play as soon as it is ready.')}
+                                  </p>
+                                </div>
+                                <div className='flex w-full max-w-sm items-center gap-3'>
+                                  <Progress
+                                    value={progressPercentOf(activeItem.progress ?? '') ?? 0}
+                                    className='h-1.5 flex-1'
+                                  />
+                                  <span className='font-mono text-xs text-muted-foreground shrink-0 min-w-[36px] text-right'>
+                                    {activeItem.progress || '0%'}
+                                  </span>
+                                </div>
+                              </div>
+                            )
+                          }
+                          return (
+                            <>
                           <video
                             key={mergedView ? activeItem.urls[0] : activeItem.urls[selectedChunkIndex] || activeItem.urls[0]}
                             autoPlay
@@ -797,8 +817,10 @@ export function Studio() {
                               {showParts ? t('Single video') : t('Show parts')}
                             </button>
                           )}
-                        </>
-                      ) : (
+                            </>
+                          )
+                        })()
+                        ) : (
                         <img
                           alt={activeItem.prompt}
                           className='max-h-[380px] w-full object-contain rounded-lg'

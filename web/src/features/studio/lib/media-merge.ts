@@ -47,17 +47,68 @@ function playableMediaUrl(url: string): string {
   return url
 }
 
-function loadVideoElement(src: string): Promise<HTMLVideoElement> {
+function loadVideoElement(src: string, waitForCanPlayThrough = true): Promise<HTMLVideoElement> {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video')
     video.muted = true
     video.playsInline = true
     video.preload = 'auto'
     video.crossOrigin = 'anonymous'
+    video.disableRemotePlayback = true
     const timer = window.setTimeout(() => {
       cleanup()
       reject(new Error('Timeout loading part for merge'))
-    }, 60000)
+    }, 90000)
+    // 'canplaythrough' guarantees the whole clip is buffered so no stall
+    // happens mid-record (stalls were recorded as frozen frames and made the
+    // merged file several seconds longer than the sum of its parts). When the
+    // browser never fires it (heuristics), fall back to metadata + a short
+    // settle window instead of aborting the merge.
+    let settleTimer: number | undefined
+    const cleanup = () => {
+      window.clearTimeout(timer)
+      if (settleTimer !== undefined) window.clearTimeout(settleTimer)
+      video.removeAttribute('src')
+      video.load()
+    }
+    const ready = () => {
+      window.clearTimeout(timer)
+      if (settleTimer !== undefined) window.clearTimeout(settleTimer)
+      resolve(video)
+    }
+    video.onerror = () => {
+      cleanup()
+      reject(new Error('Video loading error during merge'))
+    }
+    if (waitForCanPlayThrough) {
+      video.addEventListener('canplaythrough', ready, { once: true })
+      video.addEventListener('loadedmetadata', () => {
+        settleTimer = window.setTimeout(ready, 2500)
+      }, { once: true })
+    } else {
+      video.onloadedmetadata = ready
+    }
+    video.src = playableMediaUrl(src)
+  })
+}
+
+/**
+ * Best-effort read of a clip's exact length before recording, so progress
+ * and the final length check can be accurate. Uses preload='metadata' so the
+ * audio/video bytes are never downloaded. Resolves with null when the
+ * metadata cannot be read.
+ */
+export function measureVideoDuration(url: string): Promise<number | null> {
+  return new Promise((resolve) => {
+    const video = document.createElement('video')
+    video.preload = 'metadata'
+    video.muted = true
+    video.playsInline = true
+    video.crossOrigin = 'anonymous'
+    const timer = window.setTimeout(() => {
+      cleanup()
+      resolve(null)
+    }, 20000)
     const cleanup = () => {
       window.clearTimeout(timer)
       video.removeAttribute('src')
@@ -65,13 +116,14 @@ function loadVideoElement(src: string): Promise<HTMLVideoElement> {
     }
     video.onerror = () => {
       cleanup()
-      reject(new Error('Video loading error during merge'))
+      resolve(null)
     }
     video.onloadedmetadata = () => {
-      window.clearTimeout(timer)
-      resolve(video)
+      const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null
+      cleanup()
+      resolve(duration)
     }
-    video.src = playableMediaUrl(src)
+    video.src = playableMediaUrl(url)
   })
 }
 
@@ -95,6 +147,11 @@ function pickRecorderMimeType(): string {
  * Merges every part into one blob. Plays each part sequentially into a
  * canvas at 1x realtime while the recorder captures; resolves with the
  * merged blob. Pass `signal` to cancel.
+ *
+ * Every part is fully preloaded (canplaythrough) before the recorder starts
+ * and the canvas emits frames only when the source produces one
+ * (captureStream(0) + requestFrame), so the output length is the exact sum
+ * of the parts — no frozen frames from mid-merge stalls.
  */
 export async function mergeVideoParts(
   urls: string[],
@@ -105,14 +162,24 @@ export async function mergeVideoParts(
     throw new Error('No parts to merge')
   }
   const { onProgress, signal } = options
-  const first = await loadVideoElement(parts[0])
+
+  const measurable: HTMLVideoElement[] = []
+  for (const url of parts) {
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError')
+    }
+    measurable.push(await loadVideoElement(url))
+  }
+  const first = measurable[0]
   const canvas = document.createElement('canvas')
   canvas.width = first.videoWidth || 1280
   canvas.height = first.videoHeight || 720
   const ctx = canvas.getContext('2d')
   if (!ctx) {
-    first.removeAttribute('src')
-    first.load()
+    for (const video of measurable) {
+      video.removeAttribute('src')
+      video.load()
+    }
     throw new Error('Canvas 2D context not available')
   }
 
@@ -132,7 +199,10 @@ export async function mergeVideoParts(
     audioContext = null
   }
 
-  const stream = canvas.captureStream(30)
+  const stream = canvas.captureStream(0)
+  const videoTrack = stream.getVideoTracks()[0] as
+    | (MediaStreamTrack & { requestFrame?: () => void })
+    | undefined
   if (audioDestination) {
     for (const track of audioDestination.stream.getAudioTracks()) {
       stream.addTrack(track)
@@ -149,8 +219,12 @@ export async function mergeVideoParts(
   }
   recorder.start(250)
 
-  let partDurations: number[] = []
-  let durationSum = 0
+  // Durations were read from the fully preloaded elements: they are exact,
+  // unless the container reports none (then progress is an estimate).
+  const partDurations = measurable.map((video) =>
+    Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 10
+  )
+  const durationSum = partDurations.reduce((sum, d) => sum + d, 0)
 
   const reportProgressFor = (video: HTMLVideoElement, index: number) => {
     if (!onProgress) return
@@ -167,17 +241,16 @@ export async function mergeVideoParts(
   const drawFrame = (video: HTMLVideoElement, index: number) => {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
     reportProgressFor(video, index)
+    if (videoTrack && typeof videoTrack.requestFrame === 'function') {
+      try {
+        videoTrack.requestFrame()
+      } catch {
+        // no frame to emit yet
+      }
+    }
   }
 
   try {
-    // Measure durations up front for accurate progress reporting.
-    const measurable: HTMLVideoElement[] = [first]
-    for (let i = 1; i < parts.length; i++) {
-      measurable.push(await loadVideoElement(parts[i]))
-    }
-    partDurations = measurable.map((video) => (Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 10))
-    durationSum = partDurations.reduce((sum, d) => sum + d, 0)
-
     for (let index = 0; index < measurable.length; index++) {
       if (signal?.aborted) {
         throw new DOMException('Aborted', 'AbortError')
