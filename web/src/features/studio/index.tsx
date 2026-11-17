@@ -379,12 +379,8 @@ export function Studio() {
     removeItem,
   } = useStudioGeneration()
 
+  const [isMobileScreen, setIsMobileScreen] = useState(false)
   const [selectedChunkIndex, setSelectedChunkIndex] = useState(0)
-
-  // Reset selected chunk when activeItem changes
-  useEffect(() => {
-    setSelectedChunkIndex(0)
-  }, [activeItem?.id])
 
   useEffect(() => {
     const checkMobile = () => {
@@ -444,6 +440,7 @@ export function Studio() {
 
   // Track viewing completed item so subsequent reloads archive it
   useEffect(() => {
+    setSelectedChunkIndex(0)
     if (activeItem && (activeItem.status === 'ready' || activeItem.status === 'error')) {
       try {
         sessionStorage.setItem('studio_seen_completed_' + activeItem.id, '1')

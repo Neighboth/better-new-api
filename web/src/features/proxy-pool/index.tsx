@@ -51,6 +51,7 @@ import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { SectionPageLayout } from '@/components/layout'
+import { StatusBadge } from '@/components/status-badge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -630,7 +631,7 @@ export function ProxyPool() {
                         key={proxy.id}
                         className={cn(
                           selectedProxyIds.includes(proxy.id) && 'bg-muted/40',
-                          !proxy.enabled && 'opacity-60 bg-muted/20 hover:opacity-100 transition-opacity'
+                          !proxy.enabled && 'opacity-60 bg-muted/40 dark:bg-muted/30 text-muted-foreground'
                         )}
                       >
                         <TableCell>
@@ -690,17 +691,26 @@ export function ProxyPool() {
                         </TableCell>
                         <TableCell>
                           {proxy.enabled ? (
-                            <span className='text-[11px] font-medium text-emerald-500'>
-                              {t('Enabled')}
-                            </span>
+                            <StatusBadge
+                              label={t('Enabled')}
+                              variant='success'
+                              size='sm'
+                              copyable={false}
+                            />
                           ) : proxy.last_test_status === 'fail' ? (
-                            <span className='text-[11px] font-medium text-amber-500' title={proxy.last_test_error}>
-                              {t('Auto-disabled')}
-                            </span>
+                            <StatusBadge
+                              label={t('Auto-disabled')}
+                              variant='warning'
+                              size='sm'
+                              copyable={false}
+                            />
                           ) : (
-                            <span className='text-[11px] font-medium text-muted-foreground'>
-                              {t('Disabled')}
-                            </span>
+                            <StatusBadge
+                              label={t('Disabled')}
+                              variant='danger'
+                              size='sm'
+                              copyable={false}
+                            />
                           )}
                         </TableCell>
                         <TableCell>
