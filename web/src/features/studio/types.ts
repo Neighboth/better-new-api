@@ -29,13 +29,33 @@ export type StudioItemStep = {
   plan?: import('./lib/video-plan').VideoPlan
 }
 
+/** Generation details shown in the Previous Generations details view. */
+export type StudioItemDetails = {
+  /** Optimized prompt negative prompt handed to the engine, if any. */
+  negativePrompt?: string
+  /** Start frame used for the first (or only) segment, as URL or data URI. */
+  startFrame?: string
+  /** End frame for the last segment, when set. */
+  endFrame?: string
+  /** Character/style reference images passed to the engine. */
+  referenceImages?: string[]
+  /** Engine/model variant selected for the chain, if set. */
+  engine?: string
+  /** Sampling seed, when the provider exposes one. */
+  seed?: number
+  /** Seconds per segment for chained generations. */
+  chunkSeconds?: number
+}
+
 export type StudioItem = {
   id: string
   mode: StudioMode
   prompt: string
   createdAt: number
   status: StudioItemStatus
-  /** Image or video source. */
+  /** Image or video source. Local #/uploads paths play as-is; remote URLs are
+   * proxied through /api/media/cache for playback. Empty when the video lives
+   * in this browser's IndexedDB (localOnly). */
   urls: string[]
   error?: string
   /** Video task ID for asynchronous polling across sessions and page reloads. */
@@ -46,8 +66,13 @@ export type StudioItem = {
   progress?: string
   /** Settings used for the generation, shown under the result. */
   settings: Record<string, string | number | undefined>
-  /** Multi-part plan info for chained (extension) video generations. */
-  step?: StudioItemStep
+  /** Generation details for the details view (start/end frames, references,
+   * negative prompt, engine, seed). */
+  details?: StudioItemDetails
   /** True once the parts were stitched into a single file (single player, single download). */
   merged?: boolean
+  /** True when the bytes live in this browser's IndexedDB (server storage full). */
+  localOnly?: boolean
+  /** Multi-part plan info for chained (extension) video generations. */
+  step?: StudioItemStep
 }

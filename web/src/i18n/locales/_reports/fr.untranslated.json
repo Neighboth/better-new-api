@@ -81,5 +81,7 @@
   "Deleting a proxy also removes its key assignments. Keys bound to it will use the channel’s default path again.": "Deleting a proxy also removes its key assignments. Keys bound to it will use the channel’s default path again.",
   "Try one of these prompts to get started, then tune the model and options in the composer.": "Try one of these prompts to get started, then tune the model and options in the composer.",
   "Back to users": "Back to users",
-  "Referral (available to spend)": "Referral (available to spend)"
+  "Referral (available to spend)": "Referral (available to spend)",
+  "Supports socks5, socks4, http, https, host:port:user:pass or host:port formats.": "Supports socks5, socks4, http, https, host:port:user:pass or host:port formats.",
+  "Please enter a Worker URL or provide Cloudflare credentials to deploy": "Please enter a Worker URL or provide Cloudflare credentials to deploy"
 }

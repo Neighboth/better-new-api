@@ -43,7 +43,62 @@ import {
 } from '../lib/video-plan'
 import { mergeVideoParts, measureVideoDuration, deleteMergedMedia } from '../lib/media-merge'
 import { captureVideoFrames } from '../lib/video-frames'
+import { mergeStudioItems, isStudioItem, stripVolatileMediaFields } from '../lib/studio-sync'
+import { putStudioVideo, deleteStudioVideo } from '../lib/studio-indexeddb'
 import type { StudioItem } from '../types'
+
+/** Streams a remote or same-origin media URL into this browser's IndexedDB. */
+async function importVideoToIndexedDB(itemId: string, url: string): Promise<boolean> {
+  try {
+    if (!url) return false
+    let target = url
+    if (!url.startsWith('/') && url.startsWith('http')) {
+      target = `/api/media/cache?nostore=1&url=${encodeURIComponent(url)}`
+    }
+    const response = await fetch(target)
+    if (!response.ok) return false
+    const blob = await response.blob()
+    if (blob.size === 0) return false
+    await putStudioVideo(itemId, blob)
+    // Free the server-side copy so the user's quota is not consumed.
+    if (url.startsWith('/uploads/')) {
+      try {
+        await api.delete('/api/media/file', { params: { url } })
+      } catch {
+        // best effort — the file remains on the server but playback still works from IndexedDB
+      }
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Downloads a video into IndexedDB when the user's server-side storage is
+ * full (or the server copy is gone), so new generations survive even though
+ * they will not be stored on the server. */
+async function storageStatsFull(): Promise<boolean> {
+  try {
+    const res = await api.get('/api/media/storage', { skipErrorHandler: true } as Record<string, unknown>)
+    const used = Number(res?.data?.data?.used_bytes ?? 0)
+    const limit = Number(res?.data?.data?.limit_bytes ?? 0)
+    return limit > 0 && used >= limit
+  } catch {
+    return false
+  }
+}
+
+/** When the user is over the storage cap, import the finished video into this
+ * browser's IndexedDB and drop the server-side reference. Returns true when
+ * the item now lives in IndexedDB. */
+async function maybePersistLocalOnly(itemId: string, urls: string[]): Promise<string[] | null> {
+  if (urls.length === 0) return null
+  if (!(await storageStatsFull())) return null
+  const target = urls[0]
+  if (typeof target !== 'string' || !target) return null
+  const ok = await importVideoToIndexedDB(itemId, target)
+  return ok ? [] : null
+}
 
 type ImageParams = {
   prompt: string
@@ -368,9 +423,6 @@ async function runVideoChain(
     )
 
     accumulatedUrls.push(chunkRes.url)
-    if (chunkRes.url.startsWith('http')) {
-      void api.post('/api/media/cache', { url: chunkRes.url }).catch(() => {})
-    }
     patchItem(config.id, {
       urls: [...accumulatedUrls],
       step: { current: stepNumber, total: units, title: workingPlan.title, plan: workingPlan },
@@ -434,9 +486,6 @@ async function runVideoChain(
         stepReferences.length ? stepReferences : undefined
       )
       accumulatedUrls.push(chunkRes.url)
-      if (chunkRes.url.startsWith('http')) {
-        void api.post('/api/media/cache', { url: chunkRes.url }).catch(() => {})
-      }
       const measured = await measureVideoDuration(chunkRes.url)
       measuredSeconds += measured ?? gap
       patchItem(config.id, {
@@ -474,6 +523,26 @@ function errorMessageOf(error: unknown): string {
 }
 
 const STORAGE_KEY = 'better_studio_generations'
+const SYNCED_IDS_KEY = 'better_studio_synced_ids'
+
+function loadSyncedIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(SYNCED_IDS_KEY)
+    if (!raw) return new Set()
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? new Set(parsed.filter((id): id is string => typeof id === 'string')) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
+function persistSyncedIds(ids: Set<string>) {
+  try {
+    localStorage.setItem(SYNCED_IDS_KEY, JSON.stringify([...ids]))
+  } catch {
+    // ignore storage error
+  }
+}
 
 export function useStudioGeneration() {
   const [items, setItems] = useState<StudioItem[]>(() => {
@@ -491,8 +560,17 @@ export function useStudioGeneration() {
   const controllersRef = useRef<Map<string, AbortController>>(new Map())
   const activePollingTasks = useRef<Set<string>>(new Set())
   const hasMountedResumeRef = useRef(false)
+  const syncedIdsRef = useRef<Set<string>>(new Set())
 
-  // Debounced persistence to avoid lag on frequent progress updates
+  // Seed the tombstone watermark from the previous session.
+  useEffect(() => {
+    syncedIdsRef.current = loadSyncedIds()
+  }, [])
+
+  // Debounced persistence to avoid lag on frequent progress updates. The
+  // local copy keeps working offline; the server copy is the account-wide
+  // truth so the history follows the user across browsers and devices.
+  const lastSyncedRef = useRef<Map<string, string>>(new Map())
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
@@ -500,9 +578,74 @@ export function useStudioGeneration() {
       } catch {
         // ignore storage error
       }
-    }, 500)
+      const changed: StudioItem[] = []
+      for (const item of items) {
+        if (!item?.id) continue
+        const payload = stripVolatileMediaFields(item)
+        const serialized = JSON.stringify(payload)
+        if (lastSyncedRef.current.get(item.id) !== serialized) {
+          changed.push(payload)
+        }
+      }
+      if (changed.length > 0) {
+        const remaining = [...changed]
+        while (remaining.length > 0) {
+          const batch = remaining.splice(0, 50)
+          for (const item of batch) {
+            lastSyncedRef.current.set(item.id, JSON.stringify(item))
+            syncedIdsRef.current.add(item.id)
+          }
+          persistSyncedIds(syncedIdsRef.current)
+          void api
+            .put('/api/studio/items', { items: batch })
+            .catch(() => {
+              // Sync is best-effort; the next edit re-sends the payload.
+            })
+        }
+      }
+    }, 600)
     return () => clearTimeout(timer)
   }, [items])
+
+  // On mount: pull the account-wide history and merge it with the local
+  // working set. Union by id; the server copy wins when both exist.
+  const hasFetchedRemoteRef = useRef(false)
+  useEffect(() => {
+    if (hasFetchedRemoteRef.current) return
+    hasFetchedRemoteRef.current = true
+    void (async () => {
+      try {
+        const res = await api.get('/api/studio/items', { skipErrorHandler: true } as Record<string, unknown>)
+        const rows = (res?.data?.data?.items ?? res?.data?.items) as Array<{ item_id?: string; payload?: unknown }> | undefined
+        const remote = Array.isArray(rows)
+          ? rows
+              .filter((row) => isStudioItem(row.payload))
+              .map((row) => ({
+                item_id: row.item_id ?? String((row.payload as StudioItem).id),
+                payload: row.payload as StudioItem,
+              }))
+          : []
+        const remoteIds = new Set(remote.map((row) => row.item_id))
+        setItems((prev) => {
+          // Local items that were synced before but are absent from the server
+          // were deleted on another device — drop them here as well. Items
+          // never synced stay local.
+          const doomed = prev.filter((item) => syncedIdsRef.current.has(item.id) && !remoteIds.has(item.id))
+          for (const item of doomed) {
+            syncedIdsRef.current.delete(item.id)
+          }
+          for (const id of remoteIds) {
+            syncedIdsRef.current.add(id)
+          }
+          persistSyncedIds(syncedIdsRef.current)
+          const next = prev.filter((item) => !doomed.some((d) => d.id === item.id))
+          return mergeStudioItems(next, remote)
+        })
+      } catch {
+        // offline or endpoint unavailable — local history still works
+      }
+    })()
+  }, [])
 
   const patchItem = useCallback((id: string, patch: Partial<StudioItem>) => {
     setItems((prev) =>
@@ -535,7 +678,13 @@ export function useStudioGeneration() {
               }
             },
           })
-          patchItem(id, { urls: [url], merged: true, progress: '100%' })
+          const localOnlyUrls = await maybePersistLocalOnly(id, [url])
+          patchItem(id, {
+            urls: localOnlyUrls ?? [url],
+            merged: true,
+            localOnly: localOnlyUrls !== null,
+            progress: '100%',
+          })
           if (opts?.autoDownload) {
             const anchor = document.createElement('a')
             anchor.href = url
@@ -658,9 +807,6 @@ export function useStudioGeneration() {
                 if (finished.result_url && !accumulatedUrls.includes(finished.result_url)) {
                   accumulatedUrls.push(finished.result_url)
                   patchItem(item.id, { urls: [...accumulatedUrls] })
-                  if (finished.result_url.startsWith('http')) {
-                    void api.post('/api/media/cache', { url: finished.result_url }).catch(() => {})
-                  }
                 }
               } catch {
                 // The in-flight task was lost upstream; the plan continues from the completed clips.
@@ -779,9 +925,6 @@ export function useStudioGeneration() {
               ? previousUrls
               : [...previousUrls, finished.result_url]
             patchItem(item.id, { status: 'ready', urls: mergedUrls })
-            if (finished.result_url.startsWith('http')) {
-              void api.post('/api/media/cache', { url: finished.result_url }).catch(() => {})
-            }
           } else {
             const isStillRunning = ['in_progress', 'running', 'pending', 'queued'].includes(
               (finished.status || '').toLowerCase()
@@ -871,11 +1014,6 @@ export function useStudioGeneration() {
           status: 'ready',
           urls,
         })
-        urls.forEach((u) => {
-          if (u.startsWith('http')) {
-            void api.post('/api/media/cache', { url: u }).catch(() => {})
-          }
-        })
         return id
       } catch (error) {
         if (controller.signal.aborted) {
@@ -915,6 +1053,13 @@ export function useStudioGeneration() {
           duration: targetTotalSeconds > 0 ? `${targetTotalSeconds}s (${totalChunks}x${chunkDurationSec}s)` : params.duration,
           ratio: params.ratio,
           quality: params.quality,
+        },
+        details: {
+          negativePrompt: params.negativePrompt?.trim() || undefined,
+          startFrame: params.startFrame,
+          endFrame: params.endFrame,
+          referenceImages: params.referenceImages?.length ? params.referenceImages : undefined,
+          chunkSeconds: chunkDurationSec,
         },
       })
       onStarted?.(id)
@@ -975,10 +1120,13 @@ export function useStudioGeneration() {
             params.referenceImages
           )
 
-          patchItem(id, { status: 'ready', urls: [result.url], progress: '100%' })
-          if (result.url && result.url.startsWith('http')) {
-            void api.post('/api/media/cache', { url: result.url }).catch(() => {})
-          }
+          const localOnlyUrls = await maybePersistLocalOnly(id, [result.url])
+          patchItem(id, {
+            status: 'ready',
+            urls: localOnlyUrls ?? [result.url],
+            localOnly: localOnlyUrls !== null,
+            progress: '100%',
+          })
           return id
         }
 
@@ -1063,6 +1211,9 @@ export function useStudioGeneration() {
     controllersRef.current.delete(id)
     activePollingTasks.current.delete(id)
     setIsGenerating(false)
+    lastSyncedRef.current.delete(id)
+    syncedIdsRef.current.delete(id)
+    persistSyncedIds(syncedIdsRef.current)
     setItems((prev) => {
       const itemToDelete = prev.find((item) => item.id === id)
       if (itemToDelete?.urls?.length) {
@@ -1072,9 +1223,20 @@ export function useStudioGeneration() {
             void deleteMergedMedia(u.slice('/uploads/merged/'.length))
             return
           }
+          if (u.startsWith('/uploads/videos/')) {
+            void api.delete('/api/media/file', { params: { url: u } }).catch(() => {})
+            return
+          }
+          if (itemToDelete.localOnly) {
+            return // the IndexedDB blob is removed below
+          }
           void api.delete('/api/media/cache', { params: { url: u } }).catch(() => {})
         })
       }
+      if (itemToDelete?.localOnly) {
+        void deleteStudioVideo(id).catch(() => {})
+      }
+      void api.delete(`/api/studio/items/${encodeURIComponent(id)}`).catch(() => {})
       return prev.filter((item) => item.id !== id)
     })
   }, [])
@@ -1086,12 +1248,24 @@ export function useStudioGeneration() {
         controllersRef.current.get(i.id)?.abort()
         controllersRef.current.delete(i.id)
         activePollingTasks.current.delete(i.id)
+        lastSyncedRef.current.delete(i.id)
+        syncedIdsRef.current.delete(i.id)
+        persistSyncedIds(syncedIdsRef.current)
+        if (i.localOnly) void deleteStudioVideo(i.id).catch(() => {})
+        void api.delete(`/api/studio/items/${encodeURIComponent(i.id)}`).catch(() => {})
       })
       setItems((prev) => prev.filter((item) => item.mode !== mode))
     } else {
       controllersRef.current.forEach((ctrl) => ctrl.abort())
       controllersRef.current.clear()
       activePollingTasks.current.clear()
+      lastSyncedRef.current.clear()
+      items.forEach((i) => {
+        syncedIdsRef.current.delete(i.id)
+        if (i.localOnly) void deleteStudioVideo(i.id).catch(() => {})
+        void api.delete(`/api/studio/items/${encodeURIComponent(i.id)}`).catch(() => {})
+      })
+      persistSyncedIds(syncedIdsRef.current)
       setItems([])
     }
   }, [items])

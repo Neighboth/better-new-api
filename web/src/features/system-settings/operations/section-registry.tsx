@@ -22,6 +22,7 @@ import { TicketSettingsSection } from './ticket-settings-section'
 import { ByogSettingsSection } from './byog-settings-section'
 import { OnlineSearchSettingsSection } from './online-search-settings-section'
 import { PlaygroundSettingsSection } from './playground-settings-section'
+import { VideoStorageSettingsSection } from './video-storage-settings-section'
 import { DiscordBotSettingsSection } from './discord-bot-settings-section'
 import { EmailSettingsSection } from '../integrations/email-settings-section'
 import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section'
@@ -187,6 +188,28 @@ const OPERATIONS_SECTIONS = [
       <PlaygroundSettingsSection
         defaultValues={{
           ...playgroundDefaults(settings),
+        }}
+      />
+    ),
+  },
+  {
+    id: 'video-storage',
+    titleKey: 'Video Storage',
+    build: (settings: OperationsSettings) => (
+      <VideoStorageSettingsSection
+        defaultValues={{
+          maxVideoQuotaBytes: Number(
+            settings['video_storage_setting.max_video_quota_bytes'] ?? 1073741824
+          ),
+          retentionDays: Number(
+            settings['video_storage_setting.retention_days'] ?? 30
+          ),
+          expiryWarnDaysBefore: Number(
+            settings['video_storage_setting.expiry_warn_days_before'] ?? 3
+          ),
+          maxVideoAssetBytes: Number(
+            settings['video_storage_setting.max_video_asset_bytes'] ?? 536870912
+          ),
         }}
       />
     ),

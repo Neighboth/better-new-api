@@ -8,7 +8,6 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/gin-gonic/gin"
@@ -42,17 +41,11 @@ func PlaygroundVideo(c *gin.Context) {
 		return
 	}
 
+	// Storage is never a gate for generation. When the user's server-side
+	// video storage is full the store path skips saving to the server and the
+	// studio keeps the new video in the browser's IndexedDB instead; the
+	// quota bar in the Studio shows the warning.
 	userId := c.GetInt("id")
-	if quotaErr := service.CheckVideoStorageQuota(userId); quotaErr != nil {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": gin.H{
-				"message": quotaErr.Err.Error(),
-				"type":    "insufficient_quota",
-				"code":    quotaErr.GetErrorCode(),
-			},
-		})
-		return
-	}
 
 	userCache, err := model.GetUserCache(userId)
 	if err != nil {

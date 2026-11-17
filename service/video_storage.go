@@ -26,6 +26,12 @@ const (
 	videoAssetDirPerm = 0o755
 )
 
+// ErrVideoStorageQuotaExceeded is returned by StoreVideoFromURL when the user
+// is over their per-user video storage cap. The caller records the upstream
+// URL instead — the frontend imports the video into the browser's IndexedDB,
+// and generation is never blocked by a full storage bucket.
+var ErrVideoStorageQuotaExceeded = errors.New("video storage quota exceeded")
+
 // VideoMaxQuotaBytes exposes the per-user cap for callers that render quota UI.
 func VideoMaxQuotaBytes() int64 { return operation_setting.VideoStorageQuotaBytes() }
 
@@ -46,8 +52,10 @@ func VideoStorageStats(userID int) (used int64, limit int64, count int64, err er
 	return used, limit, cnt, nil
 }
 
-// CheckVideoStorageQuota blocks new video generations when the user is over quota.
-// Admins are exempt.
+// CheckVideoStorageQuota reports whether the user already sits on their storage
+// limit. Admins are exempt. Kept for callers that want the current state;
+// generation is never blocked by this now — the store path simply skips
+// server-side storage and the frontend falls back to IndexedDB.
 func CheckVideoStorageQuota(userID int) *types.NewAPIError {
 	if model.IsAdmin(userID) {
 		return nil
@@ -62,17 +70,38 @@ func CheckVideoStorageQuota(userID int) *types.NewAPIError {
 		return nil
 	}
 	return types.NewErrorWithStatusCode(
-		fmt.Errorf("Video storage quota exhausted (%.1f GB of %.1f GB used). Delete your oldest videos to free up space before generating more.", float64(used)/float64(1<<30), float64(limit)/float64(1<<30)),
+		fmt.Errorf("Video storage quota exhausted (%.1f GB of %.1f GB used). New videos will be kept in this browser instead of the server.", float64(used)/float64(1<<30), float64(limit)/float64(1<<30)),
 		types.ErrorCodeInsufficientUserQuota,
 		http.StatusForbidden,
 	)
 }
 
+// IsVideoStorageQuotaExhausted reports whether the user's server-side video
+// storage is at or over the cap (admins are exempt). Called by the store path.
+func IsVideoStorageQuotaExhausted(userID int) bool {
+	if model.IsAdmin(userID) {
+		return false
+	}
+	limit := operation_setting.VideoStorageQuotaBytes()
+	used, err := model.ActiveVideoStorageBytes(userID)
+	if err != nil {
+		common.SysError("video storage usage query failed: " + err.Error())
+		return false // do not break generation on a metering failure
+	}
+	return used >= limit
+}
+
 // StoreVideoFromURL downloads an upstream media URL to local disk and records it
-// against the user's quota. Returns the local public URL.
+// against the user's quota. Returns the local public URL. When the user is on or
+// over their quota the store is skipped and ErrVideoStorageQuotaExceeded is
+// returned so the caller keeps the upstream URL instead — generation itself is
+// never blocked.
 func StoreVideoFromURL(ctx context.Context, userID int, taskID string, upstreamURL string, kind string) (string, error) {
 	if userID <= 0 || upstreamURL == "" {
 		return "", errors.New("invalid storage request")
+	}
+	if IsVideoStorageQuotaExhausted(userID) {
+		return "", ErrVideoStorageQuotaExceeded
 	}
 	ext := videoAssetExtFromURL(upstreamURL)
 
@@ -130,7 +159,7 @@ func StoreVideoFromURL(ctx context.Context, userID int, taskID string, upstreamU
 	}
 	now := time.Now().Unix()
 	ret := operation_setting.VideoRetentionDays()
-	expiresAt := now + int64(ret) * 86400
+	expiresAt := now + int64(ret)*86400
 
 	asset := &model.VideoAsset{
 		UserId:    userID,

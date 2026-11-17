@@ -9,7 +9,7 @@
 // The same queue absorbs a transient upstream storm: when Aepi answers a
 // submit with 429 (or 5xx / no response at all) after every inline retry is
 // exhausted, the submission is parked as QUEUED and retried by the dispatcher
-// for up to five minutes. If the storm outlasts the window the task is marked
+// for up to fifteen minutes. If the storm outlasts the window the task is marked
 // FAILURE with a clear reason instead of an opaque upstream error — the user
 // is never surprised by a task that disappears, and billing is never leaked
 // (the pre-consumption is refunded, and the admission replay bills fresh).
@@ -47,7 +47,7 @@ const AepiConcurrentSlots = 10
 
 // AepiUpstreamRetryWindowSeconds bounds how long a submission may bounce
 // between the queue and the upstream before it is abandoned.
-const AepiUpstreamRetryWindowSeconds = int64(300) // 5 minutes
+const AepiUpstreamRetryWindowSeconds = int64(900) // 15 minutes
 
 // aepiStaleClaimSeconds is how long an Aepi row may stay IN_PROGRESS before
 // the sweeper reaps it as an orphaned admission claim.
@@ -241,7 +241,7 @@ func TryParkAepiUpstreamFailure(c *gin.Context, relayInfo *relaycommon.RelayInfo
 		}
 		attempts := row.PrivateData.AttemptCount + 1
 		if now >= enqueuedAt+AepiUpstreamRetryWindowSeconds {
-			reason := "Aepi kept returning 429 (upstream capacity) for 5 minutes; the task was cancelled"
+			reason := "Aepi kept returning 429 (upstream capacity) for 15 minutes; the task was cancelled"
 			_ = model.DB.Model(&model.Task{}).
 				Where("id = ?", row.ID).
 				Updates(map[string]interface{}{
@@ -320,7 +320,7 @@ func failExpiredQueuedAepiTasks(now int64) int {
 		if enqueuedAt == 0 || now < enqueuedAt+AepiUpstreamRetryWindowSeconds {
 			continue
 		}
-		reason := "Aepi kept returning 429 (upstream capacity) for 5 minutes; the task was cancelled"
+		reason := "Aepi kept returning 429 (upstream capacity) for 15 minutes; the task was cancelled"
 		res := model.DB.Model(&model.Task{}).
 			Where("id = ? AND status = ?", row.ID, model.TaskStatusQueued).
 			Updates(map[string]interface{}{
@@ -330,7 +330,7 @@ func failExpiredQueuedAepiTasks(now int64) int {
 				"finish_time": now,
 			})
 		if res.RowsAffected == 1 {
-			common.SysError(fmt.Sprintf("aepi queue: task %s abandoned after 5 minute retry window (upstream 429)", row.TaskID))
+			common.SysError(fmt.Sprintf("aepi queue: task %s abandoned after 15 minute retry window (upstream 429)", row.TaskID))
 			failed++
 		}
 	}

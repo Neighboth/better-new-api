@@ -123,6 +123,11 @@ const defaultOperationsSettings: OperationsSettings = {
   'playground_setting.video_default_quality': '',
   'playground_setting.video_reference_image': true,
   'playground_setting.studio_enabled': true,
+  // Server-side video storage quota, retention and expiry warning.
+  'video_storage_setting.max_video_quota_bytes': 1073741824,
+  'video_storage_setting.retention_days': 30,
+  'video_storage_setting.expiry_warn_days_before': 3,
+  'video_storage_setting.max_video_asset_bytes': 536870912,
   // Discord Bot. The bot reads only the discord_bot.* namespace: discord.*
   // belongs to the Discord OAuth login, and sharing keys between the two made
   // the bot switch follow the login switch.

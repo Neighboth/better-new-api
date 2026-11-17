@@ -24,6 +24,7 @@ import {
   EyeOffIcon,
   HistoryIcon,
   ImageIcon,
+  InfoIcon,
   Loader2Icon,
   PlusIcon,
   SparklesIcon,
@@ -33,6 +34,7 @@ import {
   TriangleAlertIcon,
   VideoIcon,
   XIcon,
+  FolderIcon,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -84,7 +86,9 @@ import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { useStudioGeneration } from './hooks/use-studio-generation'
-import type { StudioMode } from './types'
+import { getStudioVideo } from './lib/studio-indexeddb'
+import { StudioItemDetailsDialog } from './components/studio-item-details-dialog'
+import type { StudioItem, StudioMode } from './types'
 
 /** Serves media through local cache proxy to avoid 12-hour upstream expiration. */
 function getPlayableMediaUrl(url?: string): string {
@@ -93,6 +97,74 @@ function getPlayableMediaUrl(url?: string): string {
     return `/api/media/cache?url=${encodeURIComponent(url)}`
   }
   return url
+}
+
+/**
+ * Resolves the playback URL for an item: IndexedDB-local when the server
+ * storage is full, otherwise through the media proxy (or the raw same-origin
+ * path). Callers must hydrate `localOnly` URLs separately with useLocalOnlyUrls.
+ */
+function getPlayableItemUrl(item: StudioItem, localUrls: Record<string, string>): string {
+  if (item.localOnly) {
+    return localUrls[item.id] ?? ''
+  }
+  return getPlayableMediaUrl(item.urls[0])
+}
+
+/** Hydrates object URLs for items whose bytes live in this browser's IndexedDB. */
+function useLocalOnlyUrls(items: StudioItem[]): Record<string, string> {
+  const [localUrls, setLocalUrls] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    let cancelled = false
+    const pending = items.filter((item) => item.localOnly && !(item.urls?.length) && !localUrls[item.id])
+    if (pending.length === 0) return
+    void (async () => {
+      for (const item of pending) {
+        try {
+          const blob = await getStudioVideo(item.id)
+          if (!blob) continue
+          const objectUrl = URL.createObjectURL(blob)
+          if (cancelled) {
+            URL.revokeObjectURL(objectUrl)
+            continue
+          }
+          setLocalUrls((prev) => ({ ...prev, [item.id]: objectUrl }))
+        } catch {
+          // blob missing — item stays unplayable in this browser
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [items, localUrls])
+
+  // Drop and revoke URLs for items that disappeared from the history.
+  useEffect(() => {
+    setLocalUrls((prev) => {
+      const ids = new Set(items.map((item) => item.id))
+      const next = { ...prev }
+      for (const id of Object.keys(next)) {
+        if (!ids.has(id)) {
+          URL.revokeObjectURL(next[id])
+          delete next[id]
+        }
+      }
+      return next
+    })
+  }, [items])
+
+  // Revoke everything when the component unmounts.
+  useEffect(
+    () => () => {
+      Object.values(localUrls).forEach((url) => URL.revokeObjectURL(url))
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
+
+  return localUrls
 }
 
 /** Pixel Flower emblem in classic 8-bit Google Flow style. */
@@ -192,7 +264,7 @@ function formatBytes(value?: number): string {
   return `${(value / (1024 * 1024)).toFixed(1)} MB`
 }
 
-/** Shows the per-user video storage quota and offers to free space by deleting the oldest videos. */
+/** Shows the per-user video storage quota and offers to free space by deleting the oldest videos. Compact single-row design. */
 function VideoStorageQuota() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -229,42 +301,40 @@ function VideoStorageQuota() {
   }
 
   return (
-    <div className='border-b border-border/60 bg-background/60 px-3 sm:px-4 py-2.5 flex flex-col sm:flex-row sm:items-center gap-2'>
-      <div className='min-w-0 flex-1 space-y-1.5'>
-        <div className='flex items-center justify-between gap-2 text-[11px] font-medium'>
-          <span className='text-muted-foreground'>{t('Video storage')}</span>
-          <span className={over ? 'text-destructive' : 'text-muted-foreground'}>
-            {t('{{used}} / {{limit}} used', {
-              used: formatBytes(used),
-              limit: formatBytes(limit),
-            })} ·{' '}
-            {t('{{remaining}} remaining', {
-              remaining: formatBytes(Math.max(0, limit - used)),
-            })}
+    <div className='border-b border-border/60 bg-muted/30 px-3 sm:px-4 py-1.5 flex items-center gap-2'>
+      <FolderIcon className='size-3 shrink-0 text-muted-foreground' />
+      <div className='min-w-0 flex-1'>
+        <div className='flex items-center justify-between gap-2 text-[10px] leading-tight'>
+          <span className='text-muted-foreground truncate'>
+            {t('Video storage')}{' '}
+            <span className={over ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-foreground/80 font-medium'}>
+              {formatBytes(used)} / {formatBytes(limit)}
+            </span>
           </span>
+          <span className='text-[9px] text-muted-foreground tabular-nums shrink-0'>{percent}%</span>
         </div>
-        <div className='h-1.5 w-full overflow-hidden rounded-full bg-muted'>
+        <div className='mt-0.5 h-1 w-full overflow-hidden rounded-full bg-muted'>
           <div
-            className={cn('h-full rounded-full transition-all', over ? 'bg-destructive' : 'bg-primary')}
+            className={cn('h-full rounded-full transition-all', over ? 'bg-amber-500' : 'bg-primary')}
             style={{ width: `${percent}%` }}
           />
         </div>
         {over && (
-          <p className='text-[10px] text-destructive font-medium'>
-            {t('Your video storage is full. Delete the oldest videos to free space before generating more.')}
+          <p className='mt-0.5 text-[9px] leading-tight text-amber-600 dark:text-amber-400'>
+            {t('Server storage is full — new videos will be kept only in this browser (IndexedDB). Existing videos are not affected.')}
           </p>
         )}
       </div>
-      <Button
-        variant='outline'
-        size='sm'
-        className='h-8 shrink-0 text-xs'
+      <button
+        type='button'
+        className='shrink-0 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[9px] font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40 disabled:pointer-events-none'
         disabled={deleting || used <= 0}
         onClick={deleteOldest}
+        title={t('Delete the oldest videos to free up space')}
       >
-        {deleting ? <Loader2Icon className='size-3.5 animate-spin' /> : <Trash2Icon className='size-3.5' />}
-        {t('Delete oldest')}
-      </Button>
+        {deleting ? <Loader2Icon className='size-3 animate-spin' /> : <Trash2Icon className='size-3' />}
+        <span className='hidden xs:inline sm:inline'>{t('Delete oldest')}</span>
+      </button>
     </div>
   )
 }
@@ -278,6 +348,7 @@ export function Studio() {
   const [attachedMedia, setAttachedMedia] = useState<AttachedMedia | null>(null)
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [deleteConfirmItemId, setDeleteConfirmItemId] = useState<string | null>(null)
+  const [detailsItemId, setDetailsItemId] = useState<string | null>(null)
 
   // Track active stage item during this session (stored in localStorage so returning to tab keeps finished item on stage)
   const [activeSessionItemId, setActiveSessionItemIdState] = useState<string | null>(() => {
@@ -459,6 +530,9 @@ export function Studio() {
     mergeItemParts,
   } = useStudioGeneration()
 
+  // IndexedDB-backed object URLs for items kept in this browser (over-quota storage).
+  const localOnlyUrls = useLocalOnlyUrls(items)
+
   const [isMobileScreen, setIsMobileScreen] = useState(false)
 
   useEffect(() => {
@@ -533,6 +607,9 @@ export function Studio() {
   // all — no "part" buttons are ever shown on the stage.
   const activeItemMergeProgress = activeItem ? mergeJobs[activeItem.id] : undefined
   const singleVideoUrl = (() => {
+    if (activeItem?.localOnly) {
+      return localOnlyUrls[activeItem.id] || undefined
+    }
     const urls = activeItem?.urls ?? []
     if (urls.length === 0) return undefined
     if (activeItem?.merged) return urls[0]
@@ -825,6 +902,16 @@ export function Studio() {
                               </div>
                             )
                           }
+                          if (activeItem.localOnly && !singleVideoUrl) {
+                            // The video is opening from this browser's IndexedDB — a
+                            // brief local read, not a merge failure.
+                            return (
+                              <div className='flex flex-col items-center justify-center gap-3 p-10 text-center'>
+                                <Loader2Icon className='size-9 animate-spin text-muted-foreground' />
+                                <p className='text-sm font-medium'>{t('Loading local video…')}</p>
+                              </div>
+                            )
+                          }
                           return singleVideoUrl ? (
                             <video
                               key={singleVideoUrl}
@@ -833,7 +920,7 @@ export function Studio() {
                               controls
                               loop
                               playsInline
-                              src={getPlayableMediaUrl(singleVideoUrl)}
+                              src={getPlayableItemUrl(activeItem, localOnlyUrls) || singleVideoUrl}
                             />
                           ) : (
                             <div className='flex flex-col items-center gap-3 py-8'>
@@ -855,7 +942,7 @@ export function Studio() {
                         <img
                           alt={activeItem.prompt}
                           className='max-h-[380px] w-full object-contain rounded-lg'
-                          src={getPlayableMediaUrl(activeItem.urls[0])}
+                          src={getPlayableItemUrl(activeItem, localOnlyUrls)}
                         />
                       )}
                     </div>
@@ -873,14 +960,16 @@ export function Studio() {
                   {(activeItem.status === 'ready' || (activeItem.status === 'error' && activeItem.urls.length > 0)) && (
                     <div className='flex items-center gap-1.5'>
                       {(() => {
-                        if (activeItem.urls.length <= 1 || activeItem.merged) {
+                        const stagePlayable = getPlayableItemUrl(activeItem, localOnlyUrls)
+                        if (activeItem.urls.length <= 1 || activeItem.merged || activeItem.localOnly) {
                           return (
                             <a
-                              href={getPlayableMediaUrl(activeItem.urls[0])}
+                              href={stagePlayable || undefined}
                               download
                               rel='noreferrer'
                               target='_blank'
-                              className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs'
+                              className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs aria-disabled:pointer-events-none aria-disabled:opacity-50'
+                              aria-disabled={!stagePlayable}
                             >
                               <DownloadIcon className='size-3.5' />
                               {t('Download')}
@@ -1449,60 +1538,90 @@ export function Studio() {
                     className='group relative flex flex-col justify-between overflow-hidden rounded-xl border border-border/70 bg-card shadow-xs transition hover:border-border'
                   >
                     <div className='p-2 pb-0 flex items-center justify-between gap-2'>
-                      <Badge
-                        className='gap-1 border-border/50 bg-background/80 text-[10px]'
-                        variant='outline'
-                      >
-                        {item.mode === 'video' ? (
-                          <VideoIcon className='size-2.5' />
-                        ) : (
-                          <ImageIcon className='size-2.5' />
+                      <div className='flex items-center gap-1.5'>
+                        <Badge
+                          className='gap-1 border-border/50 bg-background/80 text-[10px]'
+                          variant='outline'
+                        >
+                          {item.mode === 'video' ? (
+                            <VideoIcon className='size-2.5' />
+                          ) : (
+                            <ImageIcon className='size-2.5' />
+                          )}
+                          {item.mode === 'video' ? t('Video') : t('Image')}
+                        </Badge>
+                        {item.localOnly && (
+                          <Badge
+                            variant='outline'
+                            className='gap-1 border-amber-500/40 bg-amber-500/10 text-[9px] text-amber-600 dark:text-amber-400'
+                          >
+                            {t('Stored in this browser')}
+                          </Badge>
                         )}
-                        {item.mode === 'video' ? t('Video') : t('Image')}
-                      </Badge>
+                      </div>
                       <span className='text-[10px] text-muted-foreground font-mono'>
                         {new Date(item.createdAt).toLocaleDateString()}
                       </span>
                     </div>
 
                     <div className='relative my-2 flex min-h-36 max-h-48 items-center justify-center overflow-hidden bg-muted/20 rounded-md mx-2'>
-                      {item.status === 'pending' && (
-                        <div className='flex flex-col items-center justify-center gap-1.5 p-4 text-center'>
-                          <Loader2Icon className='size-5 animate-spin text-muted-foreground' />
-                          <span className='text-xs text-muted-foreground'>{t('Generating...')}</span>
-                        </div>
-                      )}
-                      {item.status === 'error' && item.urls[0] && (
-                        <video
-                          controls
-                          playsInline
-                          preload='metadata'
-                          src={getPlayableMediaUrl(item.urls[0])}
-                          className='max-h-48 w-full object-contain bg-black rounded'
-                        />
-                      )}
-                      {item.status === 'error' && !item.urls[0] && (
-                        <div className='p-3 text-center text-destructive text-xs'>
-                          {item.error || t('Generation failed')}
-                        </div>
-                      )}
-                      {item.status === 'ready' && item.urls[0] && (
-                        item.mode === 'video' ? (
-                          <video
-                            controls
-                            playsInline
-                            preload='metadata'
-                            src={getPlayableMediaUrl(item.urls[0])}
-                            className='max-h-48 w-full object-contain bg-black rounded'
-                          />
-                        ) : (
-                          <img
-                            alt={item.prompt}
-                            src={getPlayableMediaUrl(item.urls[0])}
-                            className='max-h-48 w-full object-contain rounded'
-                          />
-                        )
-                      )}
+                      {(() => {
+                        const playable = item.localOnly
+                          ? (localOnlyUrls[item.id] ?? '')
+                          : getPlayableMediaUrl(item.urls[0])
+                        if (item.status === 'pending') {
+                          return (
+                            <div className='flex flex-col items-center justify-center gap-1.5 p-4 text-center'>
+                              <Loader2Icon className='size-5 animate-spin text-muted-foreground' />
+                              <span className='text-xs text-muted-foreground'>{t('Generating...')}</span>
+                            </div>
+                          )
+                        }
+                        if (item.localOnly && !playable) {
+                          return (
+                            <div className='flex flex-col items-center justify-center gap-1.5 p-4 text-center'>
+                              <Loader2Icon className='size-5 animate-spin text-muted-foreground' />
+                              <span className='text-[10px] text-muted-foreground'>{t('Loading local video…')}</span>
+                            </div>
+                          )
+                        }
+                        if (item.status === 'error' && playable) {
+                          return (
+                            <video
+                              controls
+                              playsInline
+                              preload='metadata'
+                              src={playable}
+                              className='max-h-48 w-full object-contain bg-black rounded'
+                            />
+                          )
+                        }
+                        if (item.status === 'error') {
+                          return (
+                            <div className='p-3 text-center text-destructive text-xs'>
+                              {item.error || t('Generation failed')}
+                            </div>
+                          )
+                        }
+                        if (item.status === 'ready' && playable) {
+                          return item.mode === 'video' ? (
+                            <video
+                              controls
+                              playsInline
+                              preload='metadata'
+                              src={playable}
+                              className='max-h-48 w-full object-contain bg-black rounded'
+                            />
+                          ) : (
+                            <img
+                              alt={item.prompt}
+                              src={playable}
+                              className='max-h-48 w-full object-contain rounded'
+                            />
+                          )
+                        }
+                        return null
+                      })()}
                     </div>
 
                     <div className='space-y-2 p-2.5 pt-0'>
@@ -1526,18 +1645,29 @@ export function Studio() {
                         </Button>
 
                         <div className='flex items-center gap-1'>
-                          {item.status === 'ready' && item.urls[0] && (
+                          {item.status === 'ready' && (item.urls[0] || item.localOnly) && (
                             <a
                               download
-                              href={getPlayableMediaUrl(item.urls[0])}
+                              href={(item.localOnly ? localOnlyUrls[item.id] : getPlayableMediaUrl(item.urls[0])) || undefined}
                               rel='noreferrer'
                               target='_blank'
-                              className='inline-flex items-center justify-center size-7 rounded-md border bg-background hover:bg-muted text-foreground transition'
+                              className='inline-flex items-center justify-center size-7 rounded-md border bg-background hover:bg-muted text-foreground transition aria-disabled:pointer-events-none aria-disabled:opacity-50'
+                              aria-disabled={!(item.localOnly ? localOnlyUrls[item.id] : item.urls[0])}
                               title={t('Download')}
                             >
                               <DownloadIcon className='size-3.5' />
                             </a>
                           )}
+                          <Button
+                            size='icon'
+                            variant='ghost'
+                            onClick={() => setDetailsItemId(item.id)}
+                            className='size-7 text-muted-foreground hover:text-foreground'
+                            title={t('Details')}
+                            aria-label={t('Details')}
+                          >
+                            <InfoIcon className='size-3.5' />
+                          </Button>
                           <Button
                             size='icon'
                             variant='ghost'
@@ -1576,14 +1706,6 @@ export function Studio() {
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
               onClick={() => {
                 if (deleteConfirmItemId) {
-                  const targetItem = items.find((i) => i.id === deleteConfirmItemId)
-                  if (targetItem?.urls?.length) {
-                    targetItem.urls.forEach((u) => {
-                      if (u) {
-                        void api.delete('/api/media/cache', { params: { url: u } }).catch(() => {})
-                      }
-                    })
-                  }
                   removeItem(deleteConfirmItemId)
                   if (activeSessionItemId === deleteConfirmItemId) {
                     setActiveSessionItemId(null)
@@ -1597,6 +1719,13 @@ export function Studio() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Item details dialog */}
+      <StudioItemDetailsDialog
+        item={detailsItemId ? (items.find((i) => i.id === detailsItemId) ?? null) : null}
+        open={Boolean(detailsItemId)}
+        onOpenChange={(open) => !open && setDetailsItemId(null)}
+      />
     </div>
   )
 }

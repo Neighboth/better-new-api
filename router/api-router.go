@@ -113,6 +113,10 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.DELETE("/media/merged", middleware.UserAuth(), controller.DeleteMergedMedia)
 		apiRouter.GET("/media/storage", middleware.UserAuth(), controller.GetVideoStorageStats)
 		apiRouter.DELETE("/media/storage", middleware.UserAuth(), controller.DeleteOldestVideoAssets)
+		apiRouter.DELETE("/media/file", middleware.UserAuth(), controller.DeleteMediaFile)
+		apiRouter.GET("/studio/items", middleware.UserAuth(), controller.GetStudioItems)
+		apiRouter.PUT("/studio/items", middleware.UserAuth(), controller.PutStudioItems)
+		apiRouter.DELETE("/studio/items/:id", middleware.UserAuth(), controller.DeleteStudioItem)
 
 		userRoute := apiRouter.Group("/user")
 		{

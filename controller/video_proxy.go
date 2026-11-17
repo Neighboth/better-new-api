@@ -88,6 +88,11 @@ func VideoProxy(c *gin.Context) {
 		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy request")
 		return
 	}
+	// Forward the caller's Range request so the upstream can answer 206 and
+	// the browser can seek instead of re-buffering the whole file.
+	if clientRange := c.GetHeader("Range"); clientRange != "" {
+		req.Header.Set("Range", clientRange)
+	}
 
 	switch channel.Type {
 	case constant.ChannelTypeGemini:
@@ -162,16 +167,25 @@ func VideoProxy(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for %s", resp.StatusCode, videoURL))
 		videoProxyError(c, http.StatusBadGateway, "server_error",
 			fmt.Sprintf("Upstream service returned status %d", resp.StatusCode))
 		return
 	}
 
-	for key, values := range resp.Header {
-		for _, value := range values {
-			c.Writer.Header().Add(key, value)
+	// Whitelist instead of copying everything upstream sends, so a gateway
+	// that injects hop-by-hop or framing headers cannot corrupt the stream.
+	for _, header := range []string{
+		"Content-Type",
+		"Content-Length",
+		"Content-Range",
+		"Accept-Ranges",
+		"ETag",
+		"Last-Modified",
+	} {
+		if value := resp.Header.Get(header); value != "" {
+			c.Writer.Header().Set(header, value)
 		}
 	}
 

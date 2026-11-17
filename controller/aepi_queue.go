@@ -99,7 +99,7 @@ func AdmitQueuedAepiTaskOnce() bool {
 
 	// The replay may have finished a few ways. Re-read the placeholder:
 	//   QUEUED  — the park logic put it back to wait for the next attempt
-	//   FAILURE — the park logic saw the 5-minute window close and failed it
+	//   FAILURE — the park logic saw the 15-minute window close and failed it
 	// Either way the row is in its final state and there is nothing more to do.
 	var placeholder model.Task
 	if err := model.DB.Select("id, status").Where("id = ?", task.ID).First(&placeholder).Error; err == nil {

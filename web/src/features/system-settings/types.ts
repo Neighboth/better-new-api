@@ -809,6 +809,11 @@ export type OperationsSettings = {
   'playground_setting.prompt_optimizer_enabled'?: boolean
   'playground_setting.prompt_optimizer_model'?: string
   'playground_setting.prompt_optimizer_system_prompt'?: string
+  // Server-side video storage quota, retention and expiry warning.
+  'video_storage_setting.max_video_quota_bytes'?: number
+  'video_storage_setting.retention_days'?: number
+  'video_storage_setting.expiry_warn_days_before'?: number
+  'video_storage_setting.max_video_asset_bytes'?: number
 }
 
 export type SecuritySettings = {

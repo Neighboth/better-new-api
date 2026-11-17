@@ -587,10 +587,16 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
 		} else if taskResult.Url != "" {
 			// Store the file server-side so the upstream expiry never reaches the client.
+			// When the user's server-side storage is full the store is skipped
+			// on purpose: the client imports the video into the browser's
+			// IndexedDB instead, so generation is never blocked by the quota.
 			storeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 			storedURL, storeErr := StoreVideoFromURL(storeCtx, task.UserId, task.GetUpstreamTaskID(), taskResult.Url, "video")
 			cancel()
-			if storeErr != nil {
+			if errors.Is(storeErr, ErrVideoStorageQuotaExceeded) {
+				logger.LogInfo(ctx, fmt.Sprintf("task %s: user over video storage quota, keeping upstream URL for IndexedDB import", task.TaskID))
+				task.PrivateData.ResultURL = taskResult.Url
+			} else if storeErr != nil {
 				common.SysError(fmt.Sprintf("task %s: failed to store video from %s: %s", task.TaskID, taskResult.Url, storeErr.Error()))
 				task.PrivateData.ResultURL = taskResult.Url
 			} else {

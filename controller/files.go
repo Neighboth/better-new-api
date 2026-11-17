@@ -600,6 +600,17 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		// Generated media buckets we manage ourselves: skip the managed_files
+		// lookup (up to four queries per request, once per <video> chunk on
+		// every seek). These paths fall through to the static file server,
+		// which serves them with full Range support.
+		if strings.HasPrefix(cleanPath, "uploads/videos/") ||
+			strings.HasPrefix(cleanPath, "uploads/merged/") ||
+			strings.HasPrefix(cleanPath, "uploads/media_cache/") {
+			c.Next()
+			return
+		}
+
 		mf, exists := findManagedFileWithProtection(cleanPath)
 		if !exists {
 			// Fallback check physical file on disk
@@ -1056,7 +1067,6 @@ func DownloadFileFromURL(c *gin.Context) {
 	})
 }
 
-
 func authCaptchaProviderOrder() []string {
 	order := []string{}
 	for _, provider := range strings.Split(common.OptionMap["CaptchaProviderOrder"], ",") {
@@ -1114,8 +1124,8 @@ func authCaptchaSnippetFor(provider string) (authCaptchaSnippet, bool) {
 		return authCaptchaSnippet{
 			script: fmt.Sprintf(`<script src="https://service.mtcaptcha.com/mtcv1/client/mtcaptcha.min.js" async defer></script>
 <script>window.mtcaptchaConfig = { sitekey: "%s", "verify-callback": function(state) { var el = document.getElementById("mtcaptcha-response"); if (el) { el.value = state.verifiedToken || ""; } var el2 = document.getElementById("mtcaptcha-token"); if (el2) { el2.value = state.verifiedToken || ""; } }, render: "auto" };</script>`, common.MTCaptchaSiteKey),
-			html:   `<div class="mtcaptcha"></div><input type="hidden" name="mtcaptcha-response" id="mtcaptcha-response" value="" /><input type="hidden" name="captcha_token" id="mtcaptcha-token" value="" /><input type="hidden" name="captcha_provider" value="mtcaptcha" id="captcha_provider" />`,
-			key:    common.MTCaptchaSiteKey,
+			html: `<div class="mtcaptcha"></div><input type="hidden" name="mtcaptcha-response" id="mtcaptcha-response" value="" /><input type="hidden" name="captcha_token" id="mtcaptcha-token" value="" /><input type="hidden" name="captcha_provider" value="mtcaptcha" id="captcha_provider" />`,
+			key:  common.MTCaptchaSiteKey,
 		}, true
 	case common.CaptchaTypeAltcha:
 		// ALTCHA is self-hosted: the challenge is signed by this installation
@@ -1149,8 +1159,8 @@ func authCaptchaSnippetFor(provider string) (authCaptchaSnippet, bool) {
 				}
 			});
 			</script>`,
-			html:   `<div class="altcha-container my-3 flex justify-center"><altcha-widget id="altcha-widget-el" challengeurl="/api/captcha/altcha" auto="onload" name="captcha_token"></altcha-widget><input type="hidden" name="captcha_token" id="altcha-token-field" value="" /><input type="hidden" name="altcha" id="altcha-raw-field" value="" /><input type="hidden" name="captcha_provider" value="altcha" /></div>`,
-			key:    "altcha",
+			html: `<div class="altcha-container my-3 flex justify-center"><altcha-widget id="altcha-widget-el" challengeurl="/api/captcha/altcha" auto="onload" name="captcha_token"></altcha-widget><input type="hidden" name="captcha_token" id="altcha-token-field" value="" /><input type="hidden" name="altcha" id="altcha-raw-field" value="" /><input type="hidden" name="captcha_provider" value="altcha" /></div>`,
+			key:  "altcha",
 		}, true
 	case common.CaptchaTypeImage:
 		// Self-hosted image captcha: no keys required, always available.
@@ -1166,14 +1176,13 @@ func authCaptchaSnippetFor(provider string) (authCaptchaSnippet, bool) {
 			}
 			window.addEventListener('DOMContentLoaded', refreshCaptcha);
 			</script>`,
-			html:   `<input type="hidden" id="captcha-id" name="captcha_id" /><div class="flex items-center justify-center gap-2 mb-2"><img id="captcha-img" class="h-10 rounded border border-zinc-700 cursor-pointer" onclick="refreshCaptcha()" title="Click to refresh" src="" /></div><input type="text" name="captcha_ans" placeholder="Enter captcha code" class="w-full px-3 py-2 border rounded-lg bg-zinc-950/50 border-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary" required /><input type="hidden" name="captcha_provider" value="image" />`,
-			key:    "image",
+			html: `<input type="hidden" id="captcha-id" name="captcha_id" /><div class="flex items-center justify-center gap-2 mb-2"><img id="captcha-img" class="h-10 rounded border border-zinc-700 cursor-pointer" onclick="refreshCaptcha()" title="Click to refresh" src="" /></div><input type="text" name="captcha_ans" placeholder="Enter captcha code" class="w-full px-3 py-2 border rounded-lg bg-zinc-950/50 border-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary" required /><input type="hidden" name="captcha_provider" value="image" />`,
+			key:  "image",
 		}, true
 	default:
 		return authCaptchaSnippet{}, false
 	}
 }
-
 
 // pickRenderableAuthCaptchaSnippet selects the captcha to show on the file
 // protection page based strictly on the administrator's configured fallback order.

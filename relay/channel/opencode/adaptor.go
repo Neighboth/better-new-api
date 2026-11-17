@@ -5,9 +5,12 @@ package opencode
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -25,8 +28,9 @@ const opencodeAnonymousBaseURL = "https://opencode.ai/inference/openai/v1/chat/c
 // accepts requests that look like the official OpenCode CLI, so every request
 // is re-shaped: the official system prompt is injected, client tool names are
 // renamed to opaque digests, and the official agent tool set is appended. The
-// API key of the channel is optional — when absent the anonymous `public`
-// credential is used; when set, requests authenticate as a Zen/Go key.
+// channel works with no key at all — the anonymous `public` credential is
+// used; with an OpenCode Zen/Go API key set on the channel, requests are
+// authenticated against the same endpoint instead.
 type Adaptor struct {
 	openai.Adaptor
 }
@@ -38,9 +42,17 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	// The free lane lives on a fixed upstream; honor it instead of a
-	// configured base_url so the channel never needs one.
-	return opencodeAnonymousBaseURL, nil
+	// An explicit base_url (for example the OpenCode Go lane,
+	// https://opencode.ai/inference/go/openai/v1) is honored when the operator
+	// sets one on the channel; the embedded anonymous lane is the default.
+	base := strings.TrimRight(strings.TrimSpace(info.ChannelBaseUrl), "/")
+	if base == "" {
+		return opencodeAnonymousBaseURL, nil
+	}
+	if !strings.HasSuffix(base, "/chat/completions") {
+		base += "/chat/completions"
+	}
+	return base, nil
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *relaycommon.RelayInfo) error {
@@ -53,6 +65,14 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 	header.Set("Authorization", "Bearer "+key)
 	header.Set("User-Agent", "opencode/1.0.0 (Linux; x86_64)")
 	header.Set("x-opencode-client", "cli")
+	// The official CLI binds every upstream call to a session id; mirror that
+	// shape with a fresh id per request.
+	sessionID := make([]byte, 16)
+	if _, err := rand.Read(sessionID); err == nil {
+		session := hex.EncodeToString(sessionID)
+		header.Set("x-opencode-session-id", session)
+		header.Set("x-opencode-session", session)
+	}
 	return nil
 }
 
