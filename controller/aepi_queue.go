@@ -38,8 +38,9 @@ var aepiAdmitLock = make(chan struct{}, 1)
 
 // AdmitQueuedAepiTaskOnce claims the oldest queued Aepi task and submits it.
 // The placeholder row is removed in favour of a freshly inserted row carrying
-// the same public task id the user is already polling, or — when admission
-// fails — marked as FAILURE so the user sees an end state instead of an error.
+// the same public task id the user is already polling, re-queued when the
+// upstream keeps refusing with a retryable storm, or — when admission fails
+// for good — marked as FAILURE so the user sees an end state instead of an error.
 func AdmitQueuedAepiTaskOnce() bool {
 	select {
 	case aepiAdmitLock <- struct{}{}:
@@ -50,7 +51,7 @@ func AdmitQueuedAepiTaskOnce() bool {
 	if relay.AepiInflightCount() >= relay.AepiConcurrentSlots {
 		return false
 	}
-	task := findOldestQueuedAepiTask()
+	task := relay.FindClaimableQueuedAepiTask()
 	if task == nil {
 		return false
 	}
@@ -96,6 +97,17 @@ func AdmitQueuedAepiTaskOnce() bool {
 
 	RelayTask(testCtx)
 
+	// The replay may have finished a few ways. Re-read the placeholder:
+	//   QUEUED  — the park logic put it back to wait for the next attempt
+	//   FAILURE — the park logic saw the 5-minute window close and failed it
+	// Either way the row is in its final state and there is nothing more to do.
+	var placeholder model.Task
+	if err := model.DB.Select("id, status").Where("id = ?", task.ID).First(&placeholder).Error; err == nil {
+		if placeholder.Status == model.TaskStatusQueued || placeholder.Status == model.TaskStatusFailure {
+			return true
+		}
+	}
+
 	// RelayTask inserted a fresh row carrying the forced public id. If any row
 	// with the public id exists (inserted or duplicated failure), drop the
 	// placeholder — the insertion replaced it. Only when nothing was inserted at
@@ -111,19 +123,6 @@ func AdmitQueuedAepiTaskOnce() bool {
 	}
 	failQueuedAepiTask(task.ID, "admission failed: see the relay logs for detail")
 	return true
-}
-
-func findOldestQueuedAepiTask() *model.Task {
-	var task model.Task
-	err := model.DB.Model(&model.Task{}).
-		Where("status = ?", model.TaskStatusQueued).
-		Where("platform = ?", strconv.Itoa(constant.ChannelTypeAepi)).
-		Order("id ASC").
-		First(&task).Error
-	if err != nil {
-		return nil
-	}
-	return &task
 }
 
 func claimQueuedAepiTask(id int64) bool {

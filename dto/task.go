@@ -11,6 +11,11 @@ type TaskError struct {
 	StatusCode int    `json:"-"`
 	LocalError bool   `json:"-"`
 	Error      error  `json:"-"`
+	// UpstreamStatusCode carries the HTTP status X returned by the provider, when
+	// the failure came from an upstream call; 0 means the request never got an
+	// answer (network/transport error). This lets the Aepi queue keep retrying a
+	// transient upstream storm instead of surfacing a hard error to the user.
+	UpstreamStatusCode int `json:"-"`
 }
 
 type TaskData interface {

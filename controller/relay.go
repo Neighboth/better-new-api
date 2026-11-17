@@ -948,6 +948,13 @@ func RelayTask(c *gin.Context) {
 	}
 
 	if taskErr != nil {
+		// Aepi storm: upstream keeps answering 429/5xx after every inline
+		// retry is exhausted. Park the submission in the queue and keep
+		// trying for five minutes instead of failing the user.
+		if parked := relay.TryParkAepiUpstreamFailure(c, relayInfo, taskErr); parked != nil {
+			c.JSON(http.StatusAccepted, parked)
+			return
+		}
 		respondTaskError(c, taskErr)
 	}
 }

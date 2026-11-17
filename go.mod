@@ -78,7 +78,6 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
-	github.com/yuin/goldmark v1.8.7 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.opentelemetry.io/otel v1.34.0 // indirect
 	go.opentelemetry.io/otel/trace v1.34.0 // indirect
@@ -92,7 +91,7 @@ require (
 require (
 	github.com/DmitriyVTitov/size v1.5.0 // indirect
 	github.com/anknown/darts v0.0.0-20151216065714-83ff685239e6 // indirect
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.8 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.8
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.21 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.21 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -167,6 +166,7 @@ require (
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.32.0
 	github.com/QuantumNous/new-api/relaykit v0.0.0
+	github.com/yuin/goldmark v1.8.7
 )
 
 replace github.com/QuantumNous/new-api/relaykit => ./relaykit

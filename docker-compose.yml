@@ -65,19 +65,6 @@ services:
       timeout: 10s
       retries: 3
 
-  opencode2api:
-    image: ghcr.io/jasonxu114514/opencode2api:latest
-    container_name: opencode2api
-    restart: always
-    profiles: ["opencode"]
-    command: ["-config", "/var/lib/opencode2api/config.local.json", "-listen", "0.0.0.0:8080"]
-    volumes:
-      - ./deploy/opencode2api:/var/lib/opencode2api
-    ports:
-      - "127.0.0.1:8091:8080"
-    networks:
-      - new-api-network
-
   redis:
     image: redis:latest
     container_name: redis

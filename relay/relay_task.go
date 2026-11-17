@@ -233,7 +233,12 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	// that the upstream had already accepted and billed.
 	if resp != nil && (resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices) {
 		responseBody, _ := io.ReadAll(resp.Body)
-		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", http.StatusBadGateway)
+		status := resp.StatusCode
+		taskErr := service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", http.StatusBadGateway)
+		// Keep the provider's status so the Aepi queue can distinguish a
+		// retryable upstream storm (429/5xx) from a real client error.
+		taskErr.UpstreamStatusCode = status
+		return nil, taskErr
 	}
 
 	// 9.5. Publish the public task id. The upstream body carries the id of the

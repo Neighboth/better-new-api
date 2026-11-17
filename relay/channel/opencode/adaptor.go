@@ -1,0 +1,148 @@
+// Portions adapted from github.com/jasonxu114514/opencode2api (GPL-3.0) by
+// jasonxu114514. See THIRD-PARTY-LICENSES.md.
+package opencode
+
+import (
+	"bufio"
+	"bytes"
+	"fmt"
+	"io"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/openai"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
+)
+
+const opencodeAnonymousBaseURL = "https://opencode.ai/inference/openai/v1/chat/completions"
+
+// Adaptor serves the OpenCode (Anon) channel. The upstream free tier only
+// accepts requests that look like the official OpenCode CLI, so every request
+// is re-shaped: the official system prompt is injected, client tool names are
+// renamed to opaque digests, and the official agent tool set is appended. The
+// API key of the channel is optional — when absent the anonymous `public`
+// credential is used; when set, requests authenticate as a Zen/Go key.
+type Adaptor struct {
+	openai.Adaptor
+}
+
+const renamesContextKey = "opencode_tool_renames"
+
+func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
+	a.Adaptor.Init(info)
+}
+
+func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	// The free lane lives on a fixed upstream; honor it instead of a
+	// configured base_url so the channel never needs one.
+	return opencodeAnonymousBaseURL, nil
+}
+
+func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *relaycommon.RelayInfo) error {
+	header.Set("Content-Type", "application/json")
+	header.Set("Accept", "application/json")
+	key := info.ApiKey
+	if key == "" || key == "default" {
+		key = "public"
+	}
+	header.Set("Authorization", "Bearer "+key)
+	header.Set("User-Agent", "opencode/1.0.0 (Linux; x86_64)")
+	header.Set("x-opencode-client", "cli")
+	return nil
+}
+
+func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) (any, error) {
+	converted, err := a.Adaptor.ConvertOpenAIRequest(c, info, request)
+	if err != nil {
+		return nil, err
+	}
+	// The shared helper makes sure request rewriting happens exactly once
+	// and the upstream body stays self-consistent.
+	raw, err := common.Marshal(converted)
+	if err != nil {
+		return nil, err
+	}
+	var payload map[string]any
+	if err := common.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	renames := ShapeChatRequest(payload)
+	if renames != nil && !renames.empty() {
+		c.Set(renamesContextKey, renames)
+	}
+	return payload, nil
+}
+
+func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	return channel.DoApiRequest(a, c, info, requestBody)
+}
+
+// DoResponse wraps the OpenAI response handlers, restoring wire tool names.
+func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	renames := renamesFromContext(c)
+	if info.IsStream {
+		resp = wrapStreamWithRestore(resp, renames)
+	} else {
+		data, errRead := io.ReadAll(resp.Body)
+		if errRead == nil {
+			_ = resp.Body.Close()
+			restored := RestoreChatResponse(data, renames)
+			resp.Body = io.NopCloser(bytes.NewReader(restored))
+			resp.ContentLength = int64(len(restored))
+			resp.Header.Set("Content-Length", fmt.Sprint(len(restored)))
+		}
+	}
+	return a.Adaptor.DoResponse(c, resp, info)
+}
+
+func renamesFromContext(c *gin.Context) *toolRenames {
+	if c == nil {
+		return nil
+	}
+	value, exists := c.Get(renamesContextKey)
+	if !exists {
+		return nil
+	}
+	renames, ok := value.(*toolRenames)
+	if !ok {
+		return nil
+	}
+	return renames
+}
+
+// wrapStreamWithRestore splices a restore-only goroutine into the SSE pipe so
+// the client sees its own tool names while everything else passes through.
+func wrapStreamWithRestore(resp *http.Response, renames *toolRenames) *http.Response {
+	if resp == nil || resp.Body == nil || renames == nil || renames.empty() {
+		return resp
+	}
+	reader, writer := io.Pipe()
+	go func() {
+		defer resp.Body.Close()
+		defer writer.Close()
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			out := RestoreChatStreamLine(line, renames)
+			if _, err := writer.Write(out); err != nil {
+				return
+			}
+			if len(out) == 0 || out[len(out)-1] != '\n' {
+				if _, err := writer.Write([]byte("\n")); err != nil {
+					return
+				}
+			}
+		}
+	}()
+	wrapped := *resp
+	wrapped.Body = reader
+	wrapped.ContentLength = -1
+	wrapped.Header.Del("Content-Length")
+	return &wrapped
+}

@@ -1,10 +1,16 @@
-// Server-side video merge with ffmpeg.
+// Server-side video merge without external tools.
 //
 // The studio records short parts and, before handing them to the user, asks
 // this service to stitch them into a single file. Doing it server-side keeps
-// Aepi media URLs on the server (parts may expire upstream), produces one
-// fast-start H.264 file that plays progressively everywhere, and lets us
-// register the result against the user's storage quota like any other video.
+// Aepi media URLs on the server (parts may expire upstream) and produces one
+// fast-start H.264 file that plays everywhere; the result is registered
+// against the user's storage quota like any other video.
+//
+// The parts are always produced by the same model on the same engine, so the
+// merged file is built by a pure-Go remuxer (sample tables are rebuilt, no
+// re-encode) — it needs no ffmpeg on the host. When the parts' codec
+// configurations diverge the endpoint fails fast and the client falls back to
+// in-browser merging.
 package service
 
 import (
@@ -17,7 +23,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -38,7 +43,6 @@ var videoMergeTempDir = "/tmp/better-new-api-merge"
 type mergePart struct {
 	localPath string
 	temp      bool
-	hasAudio  bool
 }
 
 // taskIDStub returns a random hex string for asset file names.
@@ -51,7 +55,7 @@ func randHex(n int) (string, error) {
 }
 
 // MergeVideosLocalOrRemote merges remote/same-origin/local videos into a single
-// H.264+AAC MP4 stored under uploads/merged/. Returns the public URL.
+// MP4 stored under uploads/merged/. Returns the public URL.
 func MergeVideos(ctx context.Context, userID int, urls []string) (string, error) {
 	if userID <= 0 {
 		return "", errors.New("authentication required")
@@ -61,12 +65,6 @@ func MergeVideos(ctx context.Context, userID int, urls []string) (string, error)
 	}
 	if len(urls) > mergedMediaMaxParts {
 		return "", fmt.Errorf("too many parts (max %d)", mergedMediaMaxParts)
-	}
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return "", errors.New("ffmpeg is not available on this server; install ffmpeg to enable merged videos")
-	}
-	if _, err := exec.LookPath("ffprobe"); err != nil {
-		return "", errors.New("ffprobe is not available on this server; install ffmpeg to enable merged videos")
 	}
 
 	if err := os.MkdirAll(videoMergeTempDir, 0o755); err != nil {
@@ -83,16 +81,14 @@ func MergeVideos(ctx context.Context, userID int, urls []string) (string, error)
 	}
 	defer cleanup()
 
+	localPaths := make([]string, 0, len(urls))
 	for index, raw := range urls {
 		path, isTemp, err := resolveMergePart(ctx, raw, userID, index)
 		if err != nil {
 			return "", err
 		}
-		hasAudio, err := ffprobeHasAudio(ctx, path)
-		if err != nil {
-			return "", fmt.Errorf("failed to inspect part %d: %w", index, err)
-		}
-		parts = append(parts, mergePart{localPath: path, temp: isTemp, hasAudio: hasAudio})
+		parts = append(parts, mergePart{localPath: path, temp: isTemp})
+		localPaths = append(localPaths, path)
 	}
 
 	if err := os.MkdirAll("uploads/merged", 0o755); err != nil {
@@ -105,45 +101,10 @@ func MergeVideos(ctx context.Context, userID int, urls []string) (string, error)
 	outName := fmt.Sprintf("%d_%d_%s.mp4", userID, time.Now().UnixNano(), nameSuffix)
 	outPath := filepath.Join("uploads/merged", outName)
 
-	// Pass 1: normalize every part to h264/yuv420p/aac/44.1kHz with a silent
-	// audio track when the part has none, and force square pixels.
-	normalized := make([]string, 0, len(parts))
-	for i, part := range parts {
-		normPath := filepath.Join(videoMergeTempDir, fmt.Sprintf("%s_norm_%d.mp4", nameSuffix, i))
-		args := []string{}
-		if part.hasAudio {
-			args = append(args, "-i", part.localPath)
-		} else {
-			args = append(args, "-i", part.localPath, "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100")
-		}
-		vmap := []string{"-map", "0:v"}
-		if !part.hasAudio {
-			vmap = append(vmap, "-map", "1:a")
-		} else {
-			vmap = append(vmap, "-map", "0:a")
-		}
-		args = append(args, vmap...)
-		args = append(args, "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-vf", "setsar=1")
-		args = append(args, "-c:a", "aac", "-af", "aresample=44100", "-shortest", "-y", normPath)
-		if err := runFFmpegCtx(ctx, args...); err != nil {
-			return "", fmt.Errorf("failed to normalize part %d: %w", i, err)
-		}
-		normalized = append(normalized, normPath)
-	}
-
-	// Pass 2: lossless concat of identical-parameter parts.
-	concatPath := filepath.Join(videoMergeTempDir, nameSuffix+"_concat.txt")
-	concatBody := strings.Builder{}
-	for _, p := range normalized {
-		concatBody.WriteString("file '")
-		concatBody.WriteString(strings.ReplaceAll(absPath(p), "'", "'\\''"))
-		concatBody.WriteString("'\n")
-	}
-	if err := os.WriteFile(concatPath, []byte(concatBody.String()), 0o600); err != nil {
-		return "", err
-	}
-	concatArgs := []string{"-f", "concat", "-safe", "0", "-i", concatPath, "-c", "copy", "-movflags", "+faststart", "-y", outPath}
-	if err := runFFmpegCtx(ctx, concatArgs...); err != nil {
+	if err := ConcatMP4Files(localPaths, outPath); err != nil {
+		_ = os.Remove(outPath)
+		// Incompatible or corrupt parts — the client falls back to
+		// in-browser merging on this error.
 		return "", fmt.Errorf("failed to stitch parts: %w", err)
 	}
 
@@ -171,14 +132,6 @@ func MergeVideos(ctx context.Context, userID int, urls []string) (string, error)
 	return "/uploads/merged/" + outName, nil
 }
 
-func absPath(p string) string {
-	abs, err := filepath.Abs(p)
-	if err != nil {
-		return p
-	}
-	return abs
-}
-
 func resolveMergePart(ctx context.Context, raw string, userID int, index int) (string, bool, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -195,7 +148,7 @@ func resolveMergePart(ctx context.Context, raw string, userID int, index int) (s
 	if strings.HasPrefix(raw, "/uploads/videos/") {
 		parts := strings.Split(strings.TrimPrefix(raw, "/uploads/videos/"), "/")
 		if len(parts) == 2 {
-			cfgOwner := int(0)
+			cfgOwner := 0
 			_, _ = fmt.Sscan(parts[0], &cfgOwner)
 			if cfgOwner != userID {
 				return "", false, errors.New("part does not belong to you")
@@ -270,28 +223,4 @@ func validMergedPath(raw string, userID int) bool {
 		return false
 	}
 	return owner == userID
-}
-
-func ffprobeHasAudio(ctx context.Context, path string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_type", "-of", "csv=p=0", path)
-	out, err := cmd.Output()
-	if err != nil {
-		// No audio stream is the common case for silent generations.
-		return false, nil
-	}
-	return strings.Contains(strings.TrimSpace(string(out)), "audio"), nil
-}
-
-func runFFmpegCtx(ctx context.Context, args ...string) error {
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		s := stderr.String()
-		if len(s) > 800 {
-			s = s[len(s)-800:]
-		}
-		return fmt.Errorf("ffmpeg: %s", s)
-	}
-	return nil
 }

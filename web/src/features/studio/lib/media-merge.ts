@@ -20,11 +20,11 @@ For commercial licensing, please contact support@quantumnous.com
 /**
  * Client-side helpers for the studio's media lifecycle.
  *
- * The merge itself runs on the server (ffmpeg; see controller/media_merge.go):
- * the parts are stitched into a single H.264 + AAC MP4 served with
- * `-movflags +faststart`, which plays progressively as soon as the download
- * begins. The upload endpoint accepts a JSON { urls: [...] } body — local
- * same-origin /uploads/... paths and SSRF-protected remote URLs are supported.
+ * The merge itself runs on the server (see controller/media_merge.go):
+ * the parts are stitched into a single fast-start MP4 with a pure-Go remuxer,
+ * no external tools required. The upload endpoint accepts a JSON { urls: [...] }
+ * body — local same-origin /uploads/... paths and SSRF-protected remote URLs
+ * are supported.
  */
 
 import { api } from '@/lib/api'

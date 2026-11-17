@@ -78,8 +78,9 @@ func validMergedMediaName(name string) bool {
 
 // MergeMedia handles POST /api/media/merged with a JSON body {"urls": [...]}:
 // it stitches the given parts server-side into a single fast-start MP4 with
-// ffmpeg and returns its public URL. The legacy multipart browser-blob upload
-// is also accepted for backward compatibility.
+// a pure-Go remuxer (no external tools) and returns its public URL. The
+// legacy multipart browser-blob upload is also accepted for backward
+// compatibility.
 func MergeMedia(c *gin.Context) {
 	if strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/form-data") {
 		UploadMergedMedia(c)
@@ -227,5 +228,3 @@ func DeleteMergedMedia(c *gin.Context) {
 	}
 	common.ApiSuccess(c, gin.H{})
 }
-
-

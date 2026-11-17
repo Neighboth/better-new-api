@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/aepi"
 	"github.com/QuantumNous/new-api/relay/channel/ali"
 	"github.com/QuantumNous/new-api/relay/channel/antigravity"
+	"github.com/QuantumNous/new-api/relay/channel/opencode"
 	"github.com/QuantumNous/new-api/relay/channel/aws"
 	"github.com/QuantumNous/new-api/relay/channel/baidu"
 	"github.com/QuantumNous/new-api/relay/channel/baidu_v2"
@@ -142,9 +143,10 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &deepseekweb.Adaptor{}
 	case constant.APITypeAepi:
 		return &aepi.Adaptor{}
-	case constant.APITypeOpenCode, constant.APITypeGroq, constant.APITypeKiloCodeAnon:
-		// OpenAI-compatible gateways: OpenCode, Groq, Kilo Code (Anon)
-		// expose the /v1/chat/completions surface.
+	case constant.APITypeOpenCode:
+		return &opencode.Adaptor{}
+	case constant.APITypeGroq, constant.APITypeKiloCodeAnon:
+		// OpenAI-compatible gateways: Groq, Kilo Code (Anon)
 		return &openai.Adaptor{}
 	case constant.APITypeClaudeSub:
 		return &claudesub.Adaptor{}
