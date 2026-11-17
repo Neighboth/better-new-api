@@ -349,6 +349,16 @@ export interface PlaygroundRuntimeConfig {
     prompt_optimizer_model?: string
     prompt_optimizer_system_prompt?: string
   }
+  music: {
+    enabled: boolean
+    /** Models that may compose music in the playground. */
+    models: MediaModelRuntime[]
+  }
+  upscale: {
+    enabled: boolean
+    /** Models that may upscale media in the playground. */
+    models: MediaModelRuntime[]
+  }
 }
 
 export const EMPTY_PLAYGROUND_RUNTIME_CONFIG: PlaygroundRuntimeConfig = {
@@ -387,6 +397,14 @@ export const EMPTY_PLAYGROUND_RUNTIME_CONFIG: PlaygroundRuntimeConfig = {
   },
   studio: {
     enabled: true,
+  },
+  music: {
+    enabled: true,
+    models: [],
+  },
+  upscale: {
+    enabled: true,
+    models: [],
   },
 }
 

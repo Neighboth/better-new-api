@@ -20,6 +20,15 @@ export type StudioMode = 'video' | 'image'
 
 export type StudioItemStatus = 'pending' | 'ready' | 'error'
 
+/** Multi-part plan info for chained (extension) video generations. */
+export type StudioItemStep = {
+  current: number
+  total: number
+  title?: string
+  /** The live optimizer plan; persisted so a page reload resumes the chain. */
+  plan?: import('./lib/video-plan').VideoPlan
+}
+
 export type StudioItem = {
   id: string
   mode: StudioMode
@@ -35,4 +44,6 @@ export type StudioItem = {
   progress?: string
   /** Settings used for the generation, shown under the result. */
   settings: Record<string, string | number | undefined>
+  /** Multi-part plan info for chained (extension) video generations. */
+  step?: StudioItemStep
 }

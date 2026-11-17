@@ -161,10 +161,15 @@ func IsProxyRateLimited(proxyURL string) bool {
 	return true
 }
 
-// GetProxiesForChannel returns all configured proxy URLs for a channel from the proxy pool.
-// If no explicit assignments exist, it falls back to all enabled proxies in the pool.
+// GetProxiesForChannel returns the proxies explicitly assigned to a channel.
+//
+// Anonymous channels (OpenCode, Kilo Code) must not be sprayed across every
+// enabled proxy in the pool: the assignment list is the only opt-in signal the
+// administrator gives, and the free tiers of those providers quota per exit IP,
+// so a blanket fallback burns the server's own allowance through shared
+// proxies. When nothing is assigned the channel goes out directly.
 func GetProxiesForChannel(channelId int) []string {
-	urlMap, enabled := loadProxyPoolData()
+	urlMap, _ := loadProxyPoolData()
 	var assignedURLs []string
 	if channelKeys, ok := urlMap[channelId]; ok && len(channelKeys) > 0 {
 		seen := make(map[string]bool, len(channelKeys))
@@ -176,17 +181,7 @@ func GetProxiesForChannel(channelId int) []string {
 			}
 		}
 	}
-	if len(assignedURLs) > 0 {
-		return assignedURLs
-	}
-	// Fallback to all enabled proxies
-	fallback := make([]string, 0, len(enabled))
-	for _, p := range enabled {
-		if strings.TrimSpace(p.URL) != "" {
-			fallback = append(fallback, strings.TrimSpace(p.URL))
-		}
-	}
-	return fallback
+	return assignedURLs
 }
 
 // GetNextProxyForAnonChannel selects the next healthy proxy for an anonymous channel

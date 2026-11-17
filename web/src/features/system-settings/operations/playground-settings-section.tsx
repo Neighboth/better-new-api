@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Braces, LayoutList, PlusIcon, XIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { nanoid } from 'nanoid'
 import { toast } from 'sonner'
 
 import { JsonCodeEditor } from '@/components/json-code-editor'
@@ -41,6 +42,8 @@ import { useUpdateOptionsBulk } from '../hooks/use-update-option'
  * model.
  */
 export type MediaModelConfig = {
+  /** Client-side React row identity only; it is stripped before persisting. */
+  _rowId?: string
   model: string
   tag?: string
   sizes?: string[]
@@ -88,6 +91,18 @@ function splitLegacyList(raw?: string): string[] {
     .filter(Boolean)
 }
 
+/** Assigns a stable row identity for React keys when the entry lacks one. */
+function ensureRowIds(models: MediaModelConfig[]): MediaModelConfig[] {
+  return models.map((model) =>
+    model._rowId ? model : { ...model, _rowId: nanoid() }
+  )
+}
+
+/** Strips the client-only row identity right before persisting. */
+function stripRowIds(models: MediaModelConfig[]): MediaModelConfig[] {
+  return models.map(({ _rowId, ...rest }) => rest)
+}
+
 /**
  * Builds the model list of the runtime configuration.
  *
@@ -95,7 +110,7 @@ function splitLegacyList(raw?: string): string[] {
  * existed only have the single-model fields; their values become the first
  * entry of the list so nothing is lost when the page is opened.
  */
-export function normalizeImageModels(
+function normalizeImageModels(
   defaults: PlaygroundSettingsDefaults
 ): MediaModelConfig[] {
   if (defaults.imageModels && defaults.imageModels.length > 0) {
@@ -113,7 +128,7 @@ export function normalizeImageModels(
   ]
 }
 
-export function normalizeVideoModels(
+function normalizeVideoModels(
   defaults: PlaygroundSettingsDefaults
 ): MediaModelConfig[] {
   if (defaults.videoModels && defaults.videoModels.length > 0) {
@@ -355,13 +370,11 @@ function ModelCard(props: ModelCardProps) {
                   onValueChange={(next) =>
                     update({ default_duration: Number(next) || undefined })
                   }
-                  value={
-                    value.default_duration
-                      ? String(value.default_duration)
-                      : durationOptions[0]
-                        ? String(durationOptions[0])
-                        : ''
-                  }
+                  value={(() => {
+                    if (value.default_duration) return String(value.default_duration)
+                    if (durationOptions[0] != null) return String(durationOptions[0])
+                    return ''
+                  })()}
                 >
                   <SelectTrigger className='h-9'>
                     <SelectValue placeholder={t('First duration')} />
@@ -415,14 +428,11 @@ export function PlaygroundSettingsSection({
   const [studioDefaultModel, setStudioDefaultModel] = useState<string>(
     defaultValues.studioDefaultModel ?? ''
   )
-  const [imageModels, setImageModels] = useState<MediaModelConfig[]>(
-    normalizeImageModels(defaultValues)
+  const [imageModels, setImageModels] = useState<MediaModelConfig[]>(() =>
+    ensureRowIds(normalizeImageModels(defaultValues))
   )
-  const [videoModels, setVideoModels] = useState<MediaModelConfig[]>(
-    normalizeVideoModels(defaultValues)
-  )
-  const [promptOptimizerEnabled, setPromptOptimizerEnabled] = useState<boolean>(
-    defaultValues.promptOptimizerEnabled ?? false
+  const [videoModels, setVideoModels] = useState<MediaModelConfig[]>(() =>
+    ensureRowIds(normalizeVideoModels(defaultValues))
   )
   const [promptOptimizerModel, setPromptOptimizerModel] = useState<string>(
     defaultValues.promptOptimizerModel ?? ''
@@ -439,12 +449,16 @@ export function PlaygroundSettingsSection({
 
   const currentSettingsObject = () => ({
     image_enabled: imageEnabled,
-    image_models: imageModels.filter((model) => model.model.trim() !== ''),
+    image_models: stripRowIds(
+      imageModels.filter((model) => model.model.trim() !== '')
+    ),
     video_enabled: videoEnabled,
-    video_models: videoModels.filter((model) => model.model.trim() !== ''),
+    video_models: stripRowIds(
+      videoModels.filter((model) => model.model.trim() !== '')
+    ),
     studio_enabled: studioEnabled,
     studio_default_model: studioDefaultModel,
-    prompt_optimizer_enabled: promptOptimizerEnabled,
+    prompt_optimizer_enabled: true,
     prompt_optimizer_model: promptOptimizerModel,
     prompt_optimizer_system_prompt: promptOptimizerSystemPrompt,
     image_model: imageModels[0]?.model ?? '',
@@ -473,6 +487,12 @@ export function PlaygroundSettingsSection({
       return
     }
 
+    const optimizerModel = String(parsed.prompt_optimizer_model ?? '').trim()
+    if (!optimizerModel) {
+      setJsonError(t('A prompt optimizer model is required for Studio generations'))
+      return
+    }
+
     const payload: Record<string, string> = {}
     for (const [key, value] of Object.entries(parsed)) {
       if (!(key in currentSettingsObject())) continue
@@ -481,6 +501,7 @@ export function PlaygroundSettingsSection({
           ? JSON.stringify(value)
           : String(value)
     }
+    payload['playground_setting.prompt_optimizer_enabled'] = 'true'
     if (Object.keys(payload).length === 0) {
       setJsonError(t('No playground setting found in the document'))
       return
@@ -509,20 +530,24 @@ export function PlaygroundSettingsSection({
   }, [modelsData])
 
   const save = async () => {
+    if (!promptOptimizerModel.trim()) {
+      toast.error(t('A prompt optimizer model is required for Studio generations'))
+      return
+    }
     try {
       await updateOptions.mutateAsync({
         'playground_setting.image_enabled': String(imageEnabled),
         'playground_setting.image_models': JSON.stringify(
-          imageModels.filter((model) => model.model.trim() !== '')
+          stripRowIds(imageModels.filter((model) => model.model.trim() !== ''))
         ),
         'playground_setting.video_enabled': String(videoEnabled),
         'playground_setting.video_models': JSON.stringify(
-          videoModels.filter((model) => model.model.trim() !== '')
+          stripRowIds(videoModels.filter((model) => model.model.trim() !== ''))
         ),
         'playground_setting.studio_enabled': String(studioEnabled),
         'playground_setting.studio_default_model': studioDefaultModel,
-        'playground_setting.prompt_optimizer_enabled': String(promptOptimizerEnabled),
-        'playground_setting.prompt_optimizer_model': promptOptimizerModel,
+        'playground_setting.prompt_optimizer_enabled': 'true',
+        'playground_setting.prompt_optimizer_model': promptOptimizerModel.trim(),
         'playground_setting.prompt_optimizer_system_prompt': promptOptimizerSystemPrompt,
         // The per-model list replaces the single-model fields; keep them in
         // sync so older clients and the playground tool still work.
@@ -536,9 +561,11 @@ export function PlaygroundSettingsSection({
   }
 
   const addModel = (mode: 'image' | 'video') => {
+    const rowId = nanoid()
     const entry: MediaModelConfig =
       mode === 'image'
         ? {
+            _rowId: rowId,
             model: '',
             sizes: ['1024x1024', '1024x1792', '1792x1024'],
             qualities: ['standard', 'hd'],
@@ -546,6 +573,7 @@ export function PlaygroundSettingsSection({
             default_quality: 'standard',
           }
         : {
+            _rowId: rowId,
             model: '',
             durations: [5, 10],
             ratios: ['16:9', '9:16', '1:1'],
@@ -657,7 +685,7 @@ export function PlaygroundSettingsSection({
               {imageModels.map((model, index) => (
                 <ModelCard
                   index={index}
-                  key={`image-${index}`}
+                  key={model._rowId}
                   mode='image'
                   modelOptions={modelOptions}
                   onChange={(next) =>
@@ -705,7 +733,7 @@ export function PlaygroundSettingsSection({
               {videoModels.map((model, index) => (
                 <ModelCard
                   index={index}
-                  key={`video-${index}`}
+                  key={model._rowId}
                   mode='video'
                   modelOptions={modelOptions}
                   onChange={(next) =>
@@ -734,50 +762,57 @@ export function PlaygroundSettingsSection({
           <div className='border border-border rounded-xl p-4 bg-card/50 space-y-4 shadow-xs'>
             <SettingsSwitchRow>
               <SettingsSwitchContent>
-                <Label className='text-sm font-medium'>{t('Studio Prompt Optimizer (Video, Music, Image)')}</Label>
+                <Label className='text-sm font-medium'>
+                  {t('Studio Prompt Optimizer (Video, Music, Image)')}
+                  <span className='text-destructive' aria-hidden='true'> *</span>
+                </Label>
                 <SettingsDescription>
-                  {t('Automatically refines prompts into cinematic, safe English to prevent moderation/safety blocks, while preserving Turkish spoken dialogue. Supports video, music, and image generations.')}
+                  {t('Required — always on. Every Studio prompt is refined by this model before generation. For multi-part (chained) video it plans the whole sequence as JSON and directs each part using frames captured from the actual previous clip, keeping subjects, liveries, wardrobe, weather and lighting identical across the entire video. The model must support image (vision) input; Turkish dialogue and quotes are preserved verbatim.')}
                 </SettingsDescription>
               </SettingsSwitchContent>
-              <Switch checked={promptOptimizerEnabled} onCheckedChange={setPromptOptimizerEnabled} />
+              <span className='shrink-0 rounded-md border border-border bg-muted/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground'>
+                {t('Always on')}
+              </span>
             </SettingsSwitchRow>
 
-            {promptOptimizerEnabled && (
-              <div className='space-y-3 pt-2 border-t border-border/40'>
-                <div className='space-y-1.5'>
-                  <Label className='text-xs font-medium'>{t('Refiner / Optimizer Model')}</Label>
-                  <Input
-                    className='font-mono text-xs'
-                    list='playground-optimizer-models'
-                    placeholder='gpt-4o-mini, gemini-2.5-flash...'
-                    value={promptOptimizerModel}
-                    onChange={(e) => setPromptOptimizerModel(e.target.value)}
-                  />
-                  <datalist id='playground-optimizer-models'>
-                    {modelOptions.map((model) => (
-                      <option key={model} value={model} />
-                    ))}
-                  </datalist>
-                  <p className='text-muted-foreground text-[11px]'>
-                    {t('Fast and capable chat model to rewrite prompts before sending to generators.')}
-                  </p>
-                </div>
-
-                <div className='space-y-1.5'>
-                  <Label className='text-xs font-medium'>{t('Optimizer System Prompt')}</Label>
-                  <Textarea
-                    rows={4}
-                    className='text-xs font-mono'
-                    value={promptOptimizerSystemPrompt}
-                    onChange={(e) => setPromptOptimizerSystemPrompt(e.target.value)}
-                    placeholder={t('System instructions for prompt rewriting...')}
-                  />
-                  <p className='text-muted-foreground text-[11px]'>
-                    {t('Instructs the model how to refine prompts. Quotes/dialogue in Turkish are kept intact.')}
-                  </p>
-                </div>
+            <div className='space-y-3 pt-2 border-t border-border/40'>
+              <div className='space-y-1.5'>
+                <Label className='text-xs font-medium'>
+                  {t('Refiner / Optimizer Model')}
+                  <span className='text-destructive' aria-hidden='true'> *</span>
+                </Label>
+                <Input
+                  className='font-mono text-xs'
+                  list='playground-optimizer-models'
+                  placeholder='gpt-4o-mini, gemini-2.5-flash...'
+                  value={promptOptimizerModel}
+                  onChange={(e) => setPromptOptimizerModel(e.target.value)}
+                  aria-required='true'
+                />
+                <datalist id='playground-optimizer-models'>
+                  {modelOptions.map((model) => (
+                    <option key={model} value={model} />
+                  ))}
+                </datalist>
+                <p className='text-muted-foreground text-[11px]'>
+                  {t('Required. A fast, vision-capable chat model used to rewrite prompts and to direct every step of multi-part video generations.')}
+                </p>
               </div>
-            )}
+
+              <div className='space-y-1.5'>
+                <Label className='text-xs font-medium'>{t('Optimizer System Prompt')}</Label>
+                <Textarea
+                  rows={4}
+                  className='text-xs font-mono'
+                  value={promptOptimizerSystemPrompt}
+                  onChange={(e) => setPromptOptimizerSystemPrompt(e.target.value)}
+                  placeholder={t('System instructions for prompt rewriting...')}
+                />
+                <p className='text-muted-foreground text-[11px]'>
+                  {t('Instructs the model how to refine prompts. Quotes/dialogue in Turkish are kept intact.')}
+                </p>
+              </div>
+            </div>
           </div>
 
           <SettingsSwitchItem>

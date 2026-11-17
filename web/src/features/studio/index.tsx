@@ -27,8 +27,10 @@ import {
   Loader2Icon,
   PlusIcon,
   SparklesIcon,
+  FileAudioIcon,
   Square as SquareIcon,
   Trash2Icon,
+  TriangleAlertIcon,
   VideoIcon,
   XIcon,
 } from 'lucide-react'
@@ -192,7 +194,6 @@ export function Studio() {
   const [isDragging, setIsDragging] = useState(false)
   const [attachedMedia, setAttachedMedia] = useState<AttachedMedia | null>(null)
   const [popoverOpen, setPopoverOpen] = useState(false)
-  const [optimizePrompt, setOptimizePrompt] = useState(true)
   const [deleteConfirmItemId, setDeleteConfirmItemId] = useState<string | null>(null)
 
   // Track active stage item during this session (stored in localStorage so returning to tab keeps finished item on stage)
@@ -248,24 +249,16 @@ export function Studio() {
     }
   }, [runtime.image.enabled, mode])
 
-  const imageModels = useMemo<MediaModelRuntime[]>(
-    () =>
-      runtime.image.models?.length
-        ? runtime.image.models
-        : runtime.image.model
-          ? [{ model: runtime.image.model }]
-          : [],
-    [runtime.image]
-  )
-  const videoModels = useMemo<MediaModelRuntime[]>(
-    () =>
-      runtime.video.models?.length
-        ? runtime.video.models
-        : runtime.video.model
-          ? [{ model: runtime.video.model }]
-          : [],
-    [runtime.video]
-  )
+  const imageModels = useMemo<MediaModelRuntime[]>(() => {
+    if (runtime.image.models?.length) return runtime.image.models
+    if (runtime.image.model) return [{ model: runtime.image.model }]
+    return []
+  }, [runtime.image])
+  const videoModels = useMemo<MediaModelRuntime[]>(() => {
+    if (runtime.video.models?.length) return runtime.video.models
+    if (runtime.video.model) return [{ model: runtime.video.model }]
+    return []
+  }, [runtime.video])
 
   const selectedImageModel = useMemo(() => {
     const match = imageModels.find((entry) => entry.model === imageModel)
@@ -467,12 +460,15 @@ export function Studio() {
           size,
           quality,
           count: imageCount,
-          optimize: optimizePrompt,
         },
         (id) => setActiveSessionItemId(id)
       )
       return
     }
+
+    const chunkSecondsForModel = videoDurations.length
+      ? Math.min(30, Math.max(...videoDurations.map((value) => Number(value) || 0)) || 30)
+      : 30
 
     await generateVideo(
       {
@@ -484,11 +480,11 @@ export function Studio() {
         ratio: ratio || undefined,
         quality: videoQualityValue || undefined,
         imageUrl: attachedMedia?.url || undefined,
-        optimize: optimizePrompt,
         startFrame: startFrame.trim() || undefined,
         endFrame: endFrame.trim() || undefined,
         negativePrompt: negativePrompt.trim() || undefined,
         videoExtension: videoExtension !== 'off' ? videoExtension : undefined,
+        chunkSeconds: chunkSecondsForModel,
       },
       (id) => setActiveSessionItemId(id)
     )
@@ -644,6 +640,16 @@ export function Studio() {
                         <p className='line-clamp-2 max-w-sm text-xs text-muted-foreground'>
                           &ldquo;{activeItem.prompt}&rdquo;
                         </p>
+                        {activeItem.mode === 'video' && activeItem.step && activeItem.step.total > 1 && (
+                          <p className='text-[11px] font-medium text-muted-foreground'>
+                            {t('Step')} {activeItem.step.current}/{activeItem.step.total}
+                            {activeItem.step.title && (
+                              <span className='block text-[10px] font-normal text-muted-foreground/80'>
+                                {activeItem.step.title}
+                              </span>
+                            )}
+                          </p>
+                        )}
                       </div>
                       {activeItem.mode === 'video' && (
                         <div className='w-full max-w-xs flex items-center gap-3'>
@@ -659,7 +665,41 @@ export function Studio() {
                     </div>
                   )}
 
-                  {activeItem.status === 'error' && (
+                  {activeItem.status === 'error' && activeItem.urls.length > 0 && (
+                    <div className='flex w-full flex-col items-center justify-center gap-2 p-2'>
+                      <video
+                        key={activeItem.urls[selectedChunkIndex] || activeItem.urls[0]}
+                        className='max-h-[320px] w-full object-contain bg-black rounded-lg'
+                        controls
+                        playsInline
+                        src={getPlayableMediaUrl(activeItem.urls[selectedChunkIndex] || activeItem.urls[0])}
+                      />
+                      {activeItem.urls.length > 1 && (
+                        <div className='flex flex-wrap items-center justify-center gap-1.5 pt-1'>
+                          {activeItem.urls.map((url, idx) => (
+                            <button
+                              key={url}
+                              type='button'
+                              onClick={() => setSelectedChunkIndex(idx)}
+                              className={cn(
+                                'px-2.5 py-1 rounded-md text-xs font-medium transition shadow-2xs',
+                                selectedChunkIndex === idx
+                                  ? 'bg-primary text-primary-foreground'
+                                  : 'bg-muted hover:bg-muted/80 text-muted-foreground'
+                              )}
+                            >
+                              {t('Part')} {idx + 1}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <p className='text-[11px] font-medium text-destructive max-w-md text-center'>
+                        {activeItem.error}
+                      </p>
+                    </div>
+                  )}
+
+                  {activeItem.status === 'error' && activeItem.urls.length === 0 && (
                     <div className='flex flex-col items-center gap-2 p-8 text-center text-destructive'>
                       <span className='flex size-8 items-center justify-center rounded-full bg-destructive/10 text-xs font-bold text-destructive'>
                         !
@@ -685,9 +725,9 @@ export function Studio() {
                           />
                           {activeItem.urls.length > 1 && (
                             <div className='flex flex-wrap items-center justify-center gap-1.5 pt-1'>
-                              {activeItem.urls.map((_, idx) => (
+                              {activeItem.urls.map((url, idx) => (
                                 <button
-                                  key={idx}
+                                  key={url}
                                   type='button'
                                   onClick={() => setSelectedChunkIndex(idx)}
                                   className={cn(
@@ -697,7 +737,7 @@ export function Studio() {
                                       : 'bg-muted hover:bg-muted/80 text-muted-foreground'
                                   )}
                                 >
-                                  {t('Part')} {idx + 1} ({idx * 30}-{(idx + 1) * 30}s)
+                                  {t('Part')} {idx + 1}
                                 </button>
                               ))}
                             </div>
@@ -722,11 +762,11 @@ export function Studio() {
                     </p>
                     <SettingsChips settings={activeItem.settings} />
                   </div>
-                  {activeItem.status === 'ready' && (
+                  {(activeItem.status === 'ready' || (activeItem.status === 'error' && activeItem.urls.length > 0)) && (
                     <div className='flex items-center gap-1.5'>
                       {activeItem.urls.map((url, idx) => (
                         <a
-                          key={idx}
+                          key={url}
                           download
                           href={getPlayableMediaUrl(url)}
                           rel='noreferrer'
@@ -772,28 +812,36 @@ export function Studio() {
           {/* Attached Reference Chip (if any) positioned cleanly above the capsule */}
           {attachedMedia && (
             <div className='mb-2 flex items-center gap-2 rounded-xl bg-card/90 border border-border/60 p-1.5 pr-2.5 w-fit shadow-md backdrop-blur-md'>
-              {attachedMedia.type === 'image' ? (
-                <img
-                  src={attachedMedia.url}
-                  alt='Reference'
-                  className='size-7 rounded-lg object-cover'
-                />
-              ) : attachedMedia.type === 'audio' ? (
-                <div className='size-7 rounded-lg bg-background flex items-center justify-center'>
-                  <FileAudioIcon className='size-4 text-foreground' />
-                </div>
-              ) : (
-                <div className='size-7 rounded-lg bg-background flex items-center justify-center'>
-                  <VideoIcon className='size-4 text-foreground' />
-                </div>
-              )}
+              {(() => {
+                if (attachedMedia.type === 'image') {
+                  return (
+                    <img
+                      src={attachedMedia.url}
+                      alt='Reference'
+                      className='size-7 rounded-lg object-cover'
+                    />
+                  )
+                }
+                if (attachedMedia.type === 'audio') {
+                  return (
+                    <div className='size-7 rounded-lg bg-background flex items-center justify-center'>
+                      <FileAudioIcon className='size-4 text-foreground' />
+                    </div>
+                  )
+                }
+                return (
+                  <div className='size-7 rounded-lg bg-background flex items-center justify-center'>
+                    <VideoIcon className='size-4 text-foreground' />
+                  </div>
+                )
+              })()}
               <span className='max-w-[200px] truncate text-xs text-muted-foreground font-medium'>
-                {attachedMedia.name ||
-                  (attachedMedia.type === 'audio'
-                    ? t('Reference Audio')
-                    : attachedMedia.type === 'video'
-                      ? t('Reference Video')
-                      : t('Reference Image'))}
+                {(() => {
+                  if (attachedMedia.name) return attachedMedia.name
+                  if (attachedMedia.type === 'audio') return t('Reference Audio')
+                  if (attachedMedia.type === 'video') return t('Reference Video')
+                  return t('Reference Image')
+                })()}
               </span>
               <button
                 type='button'
@@ -1146,14 +1194,14 @@ export function Studio() {
                     </div>
                   )}
 
-                  {/* Video Uzatma Toggle switch placed directly above Prompt Optimization */}
+                  {/* Video extension (multi-part; steps planned by the mandatory prompt optimizer) */}
                   {mode === 'video' && (
                     <div className='space-y-2 pt-2 border-t border-border/50'>
                       <div className='flex items-center justify-between gap-2'>
                         <div className='space-y-0.5'>
                           <Label className='text-xs font-medium'>{t('Video Extension')}</Label>
                           <p className='text-[10px] text-muted-foreground'>
-                            {t('Extend video duration seamlessly through chained generations')}
+                            {t('Extend video duration through chained generations — the mandatory prompt optimizer plans and directs every part')}
                           </p>
                         </div>
                         <Switch
@@ -1181,16 +1229,13 @@ export function Studio() {
                     </div>
                   )}
 
-                  {/* Prompt Optimizer toggle (default ON, resets on reload) */}
-                  {runtime.studio?.prompt_optimizer_enabled && (
-                    <div className='flex items-center justify-between gap-2 pt-2 border-t border-border/50'>
-                      <div className='space-y-0.5'>
-                        <Label className='text-xs font-medium'>{t('Prompt Optimization')}</Label>
-                        <p className='text-[10px] text-muted-foreground'>
-                          {t('Refine prompt into safe English before generation')}
-                        </p>
-                      </div>
-                      <Switch checked={optimizePrompt} onCheckedChange={setOptimizePrompt} />
+                  {/* Mandatory prompt optimizer notice when it is not configured */}
+                  {!runtime.studio?.prompt_optimizer_model?.trim() && (
+                    <div className='mt-2 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] leading-snug text-amber-700 dark:text-amber-400'>
+                      <TriangleAlertIcon className='mt-0.5 size-3.5 shrink-0' />
+                      <span>
+                        {t('A prompt optimizer model is required for every Studio generation. Set it under System Settings → Playground & Studio.')}
+                      </span>
                     </div>
                   )}
                 </PopoverContent>
@@ -1200,15 +1245,14 @@ export function Studio() {
               <button
                 type='button'
                 disabled={!canGenerate || hasActivePending}
-                title={
-                  hasActivePending
-                    ? t('An active generation is in progress. Please wait for it to complete or clear it from the stage.')
-                    : !prompt.trim()
-                    ? t('Please enter a prompt')
-                    : !currentModelName
-                    ? t('Please select a model')
-                    : t('Generate')
-                }
+                title={(() => {
+                  if (hasActivePending) {
+                    return t('An active generation is in progress. Please wait for it to complete or clear it from the stage.')
+                  }
+                  if (!prompt.trim()) return t('Please enter a prompt')
+                  if (!currentModelName) return t('Please select a model')
+                  return t('Generate')
+                })()}
                 onClick={() => void handleGenerate()}
                 className='flex size-9 shrink-0 items-center justify-center rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-30 disabled:cursor-not-allowed transition shadow-sm'
               >
@@ -1291,7 +1335,16 @@ export function Studio() {
                           <span className='text-xs text-muted-foreground'>{t('Generating...')}</span>
                         </div>
                       )}
-                      {item.status === 'error' && (
+                      {item.status === 'error' && item.urls[0] && (
+                        <video
+                          controls
+                          playsInline
+                          preload='metadata'
+                          src={getPlayableMediaUrl(item.urls[0])}
+                          className='max-h-48 w-full object-contain bg-black rounded'
+                        />
+                      )}
+                      {item.status === 'error' && !item.urls[0] && (
                         <div className='p-3 text-center text-destructive text-xs'>
                           {item.error || t('Generation failed')}
                         </div>

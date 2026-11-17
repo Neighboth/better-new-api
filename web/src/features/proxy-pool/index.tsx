@@ -50,6 +50,7 @@ import {
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { DISABLED_ROW_DESKTOP } from '@/components/data-table'
 import { SectionPageLayout } from '@/components/layout'
 import { StatusBadge } from '@/components/status-badge'
 import { Badge } from '@/components/ui/badge'
@@ -86,16 +87,6 @@ import {
 import { formatTimestampRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-function getProxyProtocol(proxy: { url?: string; is_cf_worker?: boolean }): string {
-  if (proxy.is_cf_worker) return 'Worker'
-  const u = (proxy.url || '').toLowerCase()
-  if (u.startsWith('socks5h://') || u.startsWith('socks5://')) return 'Socks5'
-  if (u.startsWith('socks4://')) return 'Socks4'
-  if (u.startsWith('https://')) return 'HTTPS'
-  if (u.startsWith('http://')) return 'HTTP'
-  return 'HTTP'
-}
-
 import {
   assignProxiesEvenly,
   batchCreateProxies,
@@ -112,6 +103,17 @@ import {
   type ProxyPoolChannel,
   type ProxyPoolProxy,
 } from './api'
+
+function getProxyProtocol(proxy: { url?: string; is_cf_worker?: boolean }): string {
+  if (proxy.is_cf_worker) return 'Worker'
+  const u = (proxy.url || '').toLowerCase()
+  if (u.startsWith('socks5h://')) return 'Socks5H'
+  if (u.startsWith('socks5://')) return 'Socks5'
+  if (u.startsWith('socks4://')) return 'Socks4'
+  if (u.startsWith('https://')) return 'HTTPS'
+  if (u.startsWith('http://')) return 'HTTP'
+  return 'HTTP'
+}
 
 type ProxyFormState = {
   id?: number
@@ -577,24 +579,34 @@ export function ProxyPool() {
                 </Button>
               </CardHeader>
             <CardContent>
-              {proxiesQuery.isLoading ? (
-                <div className='flex h-24 items-center justify-center text-muted-foreground text-sm'>
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                  {t('Loading')}
-                </div>
-              ) : proxiesQuery.isError ? (
-                <div className='rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm'>
-                  {t('Proxies could not be loaded')}
-                </div>
-              ) : totalProxies === 0 ? (
-                <div className='flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-8 text-center'>
-                  <Waypoints className='h-8 w-8 text-muted-foreground' />
-                  <p className='text-sm font-medium'>{t('No proxies in the pool yet')}</p>
-                  <p className='text-muted-foreground text-xs'>
-                    {t('Add your first proxy to start routing keys through it.')}
-                  </p>
-                </div>
-              ) : (
+              {(() => {
+                if (proxiesQuery.isLoading) {
+                  return (
+                    <div className='flex h-24 items-center justify-center text-muted-foreground text-sm'>
+                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                      {t('Loading')}
+                    </div>
+                  )
+                }
+                if (proxiesQuery.isError) {
+                  return (
+                    <div className='rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm'>
+                      {t('Proxies could not be loaded')}
+                    </div>
+                  )
+                }
+                if (totalProxies === 0) {
+                  return (
+                    <div className='flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-8 text-center'>
+                      <Waypoints className='h-8 w-8 text-muted-foreground' />
+                      <p className='text-sm font-medium'>{t('No proxies in the pool yet')}</p>
+                      <p className='text-muted-foreground text-xs'>
+                        {t('Add your first proxy to start routing keys through it.')}
+                      </p>
+                    </div>
+                  )
+                }
+                return (
                 <>
                 <Table>
                   <TableHeader>
@@ -630,8 +642,8 @@ export function ProxyPool() {
                       <TableRow
                         key={proxy.id}
                         className={cn(
-                          selectedProxyIds.includes(proxy.id) && 'bg-muted/40',
-                          !proxy.enabled && 'opacity-60 bg-muted/40 dark:bg-muted/30 text-muted-foreground'
+                          !proxy.enabled && DISABLED_ROW_DESKTOP,
+                          proxy.enabled && selectedProxyIds.includes(proxy.id) && 'bg-muted/40'
                         )}
                       >
                         <TableCell>
@@ -680,7 +692,12 @@ export function ProxyPool() {
                               <img
                                 src={`https://flagcdn.com/20x15/${proxy.country_code.toLowerCase()}.png`}
                                 alt={proxy.country_code}
-                                title={`${proxy.country_name || proxy.country_code}${proxy.city ? ` - ${proxy.city}` : ''}${proxy.isp ? ` (${proxy.isp})` : ''}`}
+                                title={(() => {
+                                  let t1 = proxy.country_name || proxy.country_code
+                                  if (proxy.city) t1 += ` - ${proxy.city}`
+                                  if (proxy.isp) t1 += ` (${proxy.isp})`
+                                  return t1
+                                })()}
                                 className='inline-block h-3.5 w-auto rounded-xs shadow-xs shrink-0'
                                 onError={(e) => {
                                   ;(e.target as HTMLElement).style.display = 'none'
@@ -690,52 +707,68 @@ export function ProxyPool() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {proxy.enabled ? (
-                            <StatusBadge
-                              label={t('Enabled')}
-                              variant='success'
-                              size='sm'
-                              copyable={false}
-                            />
-                          ) : proxy.last_test_status === 'fail' ? (
-                            <StatusBadge
-                              label={t('Auto-disabled')}
-                              variant='warning'
-                              size='sm'
-                              copyable={false}
-                            />
-                          ) : (
-                            <StatusBadge
-                              label={t('Disabled')}
-                              variant='danger'
-                              size='sm'
-                              copyable={false}
-                            />
-                          )}
+                          {(() => {
+                            if (proxy.enabled) {
+                              return (
+                                <StatusBadge
+                                  label={t('Enabled')}
+                                  variant='success'
+                                  size='sm'
+                                  copyable={false}
+                                />
+                              )
+                            }
+                            if (proxy.last_test_status === 'fail') {
+                              return (
+                                <StatusBadge
+                                  label={t('Auto-disabled')}
+                                  variant='warning'
+                                  size='sm'
+                                  copyable={false}
+                                />
+                              )
+                            }
+                            return (
+                              <StatusBadge
+                                label={t('Disabled')}
+                                variant='danger'
+                                size='sm'
+                                copyable={false}
+                              />
+                            )
+                          })()}
                         </TableCell>
                         <TableCell>
-                          {proxy.last_tested_at === 0 ? (
-                            <span className='text-muted-foreground text-xs'>
-                              {t('Never')}
-                            </span>
-                          ) : proxy.last_test_status === 'ok' ? (
-                            <span
-                              className='text-xs text-emerald-600'
-                              title={
-                                proxy.last_test_error ||
-                                formatTimestampRelative(proxy.last_tested_at)
-                              }
-                            >
-                              {t('OK')} · {formatTimestampRelative(proxy.last_tested_at)}
-                            </span>
-                          ) : (
-                            <span
-                              className='text-xs text-destructive'
-                              title={proxy.last_test_error}
-                            >
-                              {t('Fail')} · {formatTimestampRelative(proxy.last_tested_at)}
-                            </span>
-                          )}
+                          {(() => {
+                            if (proxy.last_tested_at === 0) {
+                              return (
+                                <span className='text-muted-foreground text-xs'>
+                                  {t('Never')}
+                                </span>
+                              )
+                            }
+                            if (proxy.last_test_status === 'ok') {
+                              return (
+                                <span
+                                  className='text-xs text-emerald-600'
+                                  title={
+                                    proxy.last_test_error ||
+                                    formatTimestampRelative(proxy.last_tested_at)
+                                  }
+                                >
+                                  {t('OK')} · {formatTimestampRelative(proxy.last_tested_at)}
+                                </span>
+                              )
+                            }
+                            return (
+                              <span
+                                className='text-xs text-destructive'
+                                title={proxy.last_test_error}
+                              >
+                                {t('Fail')} · {formatTimestampRelative(proxy.last_tested_at)}
+                              </span>
+                            )
+                          })()}
                         </TableCell>
                         <TableCell>
                           <div className='flex justify-end gap-1'>
@@ -755,13 +788,15 @@ export function ProxyPool() {
                                           : 'text-emerald-600 hover:text-emerald-600'
                                       }
                                     >
-                                      {togglingProxyId === proxy.id ? (
-                                        <Loader2 className='h-4 w-4 animate-spin' />
-                                      ) : proxy.enabled ? (
-                                        <PowerOff className='h-4 w-4' />
-                                      ) : (
-                                        <Power className='h-4 w-4' />
-                                      )}
+                                      {(() => {
+                                        if (togglingProxyId === proxy.id) {
+                                          return <Loader2 className='h-4 w-4 animate-spin' />
+                                        }
+                                        if (proxy.enabled) {
+                                          return <PowerOff className='h-4 w-4' />
+                                        }
+                                        return <Power className='h-4 w-4' />
+                                      })()}
                                     </Button>
                                   }
                                 />
@@ -876,7 +911,8 @@ export function ProxyPool() {
                   </div>
                 )}
                 </>
-              )}
+                )
+              })()}
             </CardContent>
           </Card>
 
@@ -911,20 +947,30 @@ export function ProxyPool() {
               </Button>
             </CardHeader>
             <CardContent>
-              {channelsQuery.isLoading ? (
-                <div className='flex h-24 items-center justify-center text-muted-foreground text-sm'>
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                  {t('Loading')}
-                </div>
-              ) : channelsQuery.isError ? (
-                <div className='rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm'>
-                  {t('Channels could not be loaded')}
-                </div>
-              ) : (channelsQuery.data ?? []).length === 0 ? (
-                <p className='text-muted-foreground text-sm'>
-                  {t('No multi-key channels found. Create one from the Channels page first.')}
-                </p>
-              ) : (
+              {(() => {
+                if (channelsQuery.isLoading) {
+                  return (
+                    <div className='flex h-24 items-center justify-center text-muted-foreground text-sm'>
+                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                      {t('Loading')}
+                    </div>
+                  )
+                }
+                if (channelsQuery.isError) {
+                  return (
+                    <div className='rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm'>
+                      {t('Channels could not be loaded')}
+                    </div>
+                  )
+                }
+                if ((channelsQuery.data ?? []).length === 0) {
+                  return (
+                    <p className='text-muted-foreground text-sm'>
+                      {t('No multi-key channels found. Create one from the Channels page first.')}
+                    </p>
+                  )
+                }
+                return (
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -992,7 +1038,8 @@ export function ProxyPool() {
                     )})}
                   </TableBody>
                 </Table>
-              )}
+                )
+              })()}
             </CardContent>
           </Card>
         </div>
@@ -1006,7 +1053,7 @@ export function ProxyPool() {
               {form.id !== undefined ? t('Edit proxy') : t('Add proxy')}
             </DialogTitle>
             <DialogDescription>
-              {t('Add an HTTP/HTTPS/SOCKS5 proxy or a Cloudflare Worker proxy.')}
+              {t('Add an HTTP/HTTPS/SOCKS5/SOCKS5H proxy or a Cloudflare Worker proxy.')}
             </DialogDescription>
           </DialogHeader>
 
@@ -1037,7 +1084,7 @@ export function ProxyPool() {
                         id='proxy-url'
                         value={form.url}
                         onChange={(event) => setForm({ ...form, url: event.target.value })}
-                        placeholder='http://user:password@host:port, [ipv6]:port or socks5://...'
+                        placeholder='http://user:password@host:port, [ipv6]:port, socks5:// or socks5h://...'
                         autoComplete='off'
                         spellCheck={false}
                       />
@@ -1203,12 +1250,12 @@ export function ProxyPool() {
                       id='bulk-text'
                       value={bulkText}
                       onChange={(e) => setBulkText(e.target.value)}
-                      placeholder={`socks5://1.2.3.4:1080\nsocks4://user:pass@1.2.3.4:1080\n1.2.3.4:8080:user:pass\nhttp://1.2.3.4:8080`}
+                      placeholder="socks5://1.2.3.4:1080, socks5h://user:pass@1.2.3.4:1080, socks4://user:pass@1.2.3.4:1080, 1.2.3.4:8080:user:pass, http://1.2.3.4:8080 (one per line)"
                       rows={5}
                       className='font-mono text-xs'
                     />
                     <p className='text-[11px] text-muted-foreground'>
-                      {t('Supports socks5, socks4, http, https, host:port:user:pass or host:port formats.')}
+                      {t('Supports socks5, socks5h, socks4, http, https, host:port:user:pass or host:port formats.')}
                     </p>
                   </div>
 
@@ -1268,7 +1315,7 @@ export function ProxyPool() {
                     id='proxy-url'
                     value={form.url}
                     onChange={(event) => setForm({ ...form, url: event.target.value })}
-                    placeholder='http://user:password@host:port, [ipv6]:port or socks5://...'
+                    placeholder='http://user:password@host:port, [ipv6]:port, socks5:// or socks5h://...'
                     autoComplete='off'
                     spellCheck={false}
                   />
@@ -1390,12 +1437,27 @@ export function ProxyPool() {
             </DialogDescription>
           </DialogHeader>
 
-          {detailQuery.isLoading ? (
-            <div className='flex h-32 items-center justify-center text-muted-foreground text-sm'>
-              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-              {t('Loading details...')}
-            </div>
-          ) : detailQuery.data ? (
+          {(() => {
+            if (detailQuery.isLoading) {
+              return (
+                <div className='flex h-32 items-center justify-center text-muted-foreground text-sm'>
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  {t('Loading details...')}
+                </div>
+              )
+            }
+            if (detailQuery.data) {
+              const latency = detailQuery.data.proxy.latency_ms ?? 0
+              let latencyBadgeClass = 'text-rose-600 border-rose-500/40'
+              let latencyLabel = t('Slow')
+              if (latency < 400) {
+                latencyBadgeClass = 'text-emerald-600 border-emerald-500/40'
+                latencyLabel = t('Fast')
+              } else if (latency < 900) {
+                latencyBadgeClass = 'text-amber-600 border-amber-500/40'
+                latencyLabel = t('Medium')
+              }
+              return (
             <div className='flex flex-col gap-4 py-2'>
               {/* Stat Cards */}
               <div className='grid grid-cols-2 sm:grid-cols-4 gap-3'>
@@ -1405,9 +1467,9 @@ export function ProxyPool() {
                   </div>
                   <div className='mt-1 text-base font-bold font-mono flex items-center gap-1.5'>
                     <span>{detailQuery.data.proxy.latency_ms ? `${detailQuery.data.proxy.latency_ms} ms` : '-'}</span>
-                    {detailQuery.data.proxy.latency_ms ? (
-                      <Badge variant='outline' className={cn('text-[10px] px-1 py-0', detailQuery.data.proxy.latency_ms < 400 ? 'text-emerald-600 border-emerald-500/40' : detailQuery.data.proxy.latency_ms < 900 ? 'text-amber-600 border-amber-500/40' : 'text-rose-600 border-rose-500/40')}>
-                        {detailQuery.data.proxy.latency_ms < 400 ? t('Fast') : detailQuery.data.proxy.latency_ms < 900 ? t('Medium') : t('Slow')}
+                    {latency > 0 ? (
+                      <Badge variant='outline' className={cn('text-[10px] px-1 py-0', latencyBadgeClass)}>
+                        {latencyLabel}
                       </Badge>
                     ) : null}
                   </div>
@@ -1427,7 +1489,16 @@ export function ProxyPool() {
                     <span title={detailQuery.data.proxy.egress_ip}>{detailQuery.data.proxy.egress_ip || '-'}</span>
                   </div>
                   {(detailQuery.data.proxy.country_name || detailQuery.data.proxy.city || detailQuery.data.proxy.isp) && (
-                    <div className='text-[11px] text-muted-foreground truncate mt-0.5' title={`${detailQuery.data.proxy.city ? `${detailQuery.data.proxy.city}, ` : ''}${detailQuery.data.proxy.country_name || ''} ${detailQuery.data.proxy.isp ? `(${detailQuery.data.proxy.isp})` : ''}`}>
+                    <div
+                      className='text-[11px] text-muted-foreground truncate mt-0.5'
+                      title={(() => {
+                        let location = ''
+                        if (detailQuery.data.proxy.city) location += `${detailQuery.data.proxy.city}, `
+                        location += detailQuery.data.proxy.country_name || ''
+                        if (detailQuery.data.proxy.isp) location += ` (${detailQuery.data.proxy.isp})`
+                        return location.trim()
+                      })()}
+                    >
                       {[detailQuery.data.proxy.city, detailQuery.data.proxy.country_name, detailQuery.data.proxy.isp].filter(Boolean).join(' · ')}
                     </div>
                   )}
@@ -1503,7 +1574,11 @@ export function ProxyPool() {
                       variant='outline'
                       className='text-destructive border-destructive/30 hover:bg-destructive/10 h-7 text-xs'
                       disabled={unassignMutation.isPending}
-                      onClick={() => unassignMutation.mutate(detailTarget!.id)}
+                      onClick={() => {
+                        if (detailTarget) {
+                          unassignMutation.mutate(detailTarget.id)
+                        }
+                      }}
                     >
                       {unassignMutation.isPending ? (
                         <Loader2 className='mr-1.5 h-3 w-3 animate-spin' />
@@ -1531,9 +1606,9 @@ export function ProxyPool() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {detailQuery.data.assignments.map((item, idx) => (
+                        {detailQuery.data.assignments.map((item) => (
                           <TableRow
-                            key={`${item.channel_id}-${item.key_index}-${idx}`}
+                            key={`${item.channel_id}-${item.key_index}`}
                           >
                             <TableCell className='text-xs font-medium'>
                               {item.channel_name || `#${item.channel_id}`}
@@ -1552,7 +1627,10 @@ export function ProxyPool() {
                 )}
               </div>
             </div>
-          ) : null}
+              )
+            }
+            return null
+          })()}
 
           <DialogFooter>
             <Button variant='outline' onClick={() => setDetailTarget(null)}>

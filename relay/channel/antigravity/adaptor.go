@@ -260,8 +260,8 @@ func (a *Adaptor) GetModelList() []string {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	baseUrl := info.ChannelBaseUrl
-	if baseUrl == "" || strings.Contains(baseUrl, "daily-cloudcode-pa.googleapis.com") {
+	baseUrl := strings.TrimSpace(info.ChannelBaseUrl)
+	if baseUrl == "" {
 		baseUrl = "https://cloudcode-pa.googleapis.com"
 	}
 	action := "generateContent"
@@ -304,14 +304,20 @@ func wrapV1InternalRequest(info *relaycommon.RelayInfo, geminiReq *dto.GeminiCha
 		modelName = parts[len(parts)-1]
 	}
 
-	// Model compatibility mapping
+	// Model compatibility mapping.
+	// The Antigravity backend only serves these exact upstream ids; the
+	// Friendly aliases used by this installation map onto them.
 	switch strings.ToLower(modelName) {
 	case "claude-3-7-sonnet", "claude-3-7-sonnet-latest", "claude-3-5-sonnet", "claude-3-5-sonnet-latest":
 		modelName = "claude-sonnet-4-5"
 	case "claude-3-5-haiku", "claude-3-5-haiku-latest":
 		modelName = "claude-sonnet-4-5"
-	case "claude-opus-4-5", "claude-opus-5.5":
+	case "claude-opus-4-5", "claude-opus-5.5", "claude-opus-4.5":
 		modelName = "claude-opus-4-5-thinking"
+	case "claude-opus-4.6", "claude-opus-4-6", "claude-opus-4-6-latest":
+		modelName = "claude-opus-4-6-thinking"
+	case "claude-sonnet-4.6", "claude-sonnet-4-6", "claude-sonnet-4.6-thinking":
+		modelName = "claude-sonnet-4-6"
 	case "claude-sonnet-5.5":
 		modelName = "claude-sonnet-4-5"
 	case "gemini-3-pro", "gemini-3-pro-preview":
@@ -443,23 +449,30 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 				return channel.DoApiRequest(a, c, info, retryBody)
 			}
 		}
-		// If 429 RESOURCE_EXHAUSTED or 401 and base URL was daily, try switching to prod or vice-versa
+		// If 429 RESOURCE_EXHAUSTED and the request was headed to one of the
+		// Cloud Code endpoints, retry once against the other environment.
+		// Accounts are frequently provisioned on exactly one of them, so the
+		// configured (or default) endpoint wins and the other is the fallback.
 		if resp.StatusCode == http.StatusTooManyRequests {
-			currentBase := info.ChannelBaseUrl
-			if currentBase == "" || strings.Contains(currentBase, "daily") {
+			currentBase := strings.TrimSpace(info.ChannelBaseUrl)
+			if currentBase == "" {
+				currentBase = "https://cloudcode-pa.googleapis.com"
+			}
+			var fallbackBase string
+			switch {
+			case strings.Contains(currentBase, "daily-cloudcode-pa.googleapis.com"):
+				fallbackBase = "https://cloudcode-pa.googleapis.com"
+			case strings.Contains(currentBase, "cloudcode-pa.googleapis.com"):
+				fallbackBase = "https://daily-cloudcode-pa.googleapis.com"
+			}
+			if fallbackBase != "" {
 				_ = resp.Body.Close()
-				info.ChannelBaseUrl = "https://cloudcode-pa.googleapis.com"
+				info.ChannelBaseUrl = fallbackBase
 				var retryBody io.Reader
 				if bodyBytes != nil {
 					retryBody = bytes.NewReader(bodyBytes)
 				}
-				secondResp, secondErr := channel.DoApiRequest(a, c, info, retryBody)
-				if secondResp != nil && secondResp.StatusCode == http.StatusOK {
-					return secondResp, secondErr
-				}
-				if secondResp != nil {
-					return secondResp, secondErr
-				}
+				return channel.DoApiRequest(a, c, info, retryBody)
 			}
 		}
 	}
