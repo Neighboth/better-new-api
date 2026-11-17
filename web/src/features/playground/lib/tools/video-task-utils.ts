@@ -160,6 +160,11 @@ export async function pollVideoTask(
   // shows its progress ("88%" -> "14%").
   let anchorCreatedAt = 0
   let maxProgress = Math.max(0, initialProgress ?? 0)
+  // Aepi reports progress extremely sparsely (a flat 9% can sit for minutes
+  // before the job flips to done). A time-based creep keeps the studio bar
+  // alive during long silent stretches without ever lying ahead of the
+  // upstream value; upstream jumps still take over immediately.
+  let lastUpstreamMoveAt = Date.now()
 
   while (Date.now() - startedAt < MAX_WAIT_MS) {
     if (signal?.aborted) {
@@ -203,17 +208,22 @@ export async function pollVideoTask(
           anchorCreatedAt = createdAt
         }
       }
-      if (onProgress && last.progress) {
-        const percent = Number.parseFloat(String(last.progress))
+      if (onProgress) {
+        const percent = Number.parseFloat(String(last.progress ?? ''))
         if (Number.isFinite(percent)) {
           // Never report a progress lower than what was already shown for
           // this poll session. Providers occasionally report a stale row.
-          if (percent >= maxProgress) {
+          if (percent > maxProgress) {
             maxProgress = percent
-            onProgress(last.progress)
+            lastUpstreamMoveAt = Date.now()
+            onProgress(String(last.progress ?? `${Math.round(percent)}%`))
+          } else if (Date.now() - lastUpstreamMoveAt > 6000 && maxProgress < 85) {
+            maxProgress = Math.min(85, maxProgress + 2)
+            onProgress(`${Math.round(maxProgress)}%`)
           }
-        } else {
-          onProgress(last.progress)
+        } else if (Date.now() - lastUpstreamMoveAt > 6000 && maxProgress < 85) {
+          maxProgress = Math.min(85, maxProgress + 2)
+          onProgress(`${Math.round(maxProgress)}%`)
         }
       }
       const status = (last.status || '').toLowerCase()

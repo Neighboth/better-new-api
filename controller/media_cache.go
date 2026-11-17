@@ -60,6 +60,9 @@ func GetCachedMedia(c *gin.Context) {
 	if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
 		c.Header("Cache-Control", "public, max-age=31536000, immutable")
 		c.Header("Accept-Ranges", "bytes")
+		// Served to the same-origin dashboard and consumed from canvas; an
+		// explicit ACAO header lets the browser treat it as CORS-clean.
+		c.Header("Access-Control-Allow-Origin", "*")
 		c.File(filePath)
 		return
 	}
@@ -111,6 +114,7 @@ func GetCachedMedia(c *gin.Context) {
 
 	c.Header("Cache-Control", "public, max-age=31536000, immutable")
 	c.Header("Accept-Ranges", "bytes")
+	c.Header("Access-Control-Allow-Origin", "*")
 	c.File(filePath)
 }
 

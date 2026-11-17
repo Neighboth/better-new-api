@@ -345,7 +345,7 @@ function ModelCard(props: ModelCardProps) {
               placeholder='standard, high'
               values={value.qualities ?? []}
             />
-            <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+            <div className='grid grid-cols-1 sm:grid-cols-3 gap-3'>
               <div className='space-y-1'>
                 <Label className='text-xs'>{t('Default ratio')}</Label>
                 <Select
@@ -383,6 +383,26 @@ function ModelCard(props: ModelCardProps) {
                     {durationOptions.map((duration) => (
                       <SelectItem key={duration} value={String(duration)}>
                         {duration}s
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className='space-y-1'>
+                <Label className='text-xs'>{t('Default quality')}</Label>
+                <Select
+                  onValueChange={(next) =>
+                    update({ default_quality: String(next) })
+                  }
+                  value={value.default_quality || qualityOptions[0] || ''}
+                >
+                  <SelectTrigger className='h-9'>
+                    <SelectValue placeholder={t('First quality')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {qualityOptions.map((quality) => (
+                      <SelectItem key={quality} value={quality}>
+                        {quality}
                       </SelectItem>
                     ))}
                   </SelectContent>

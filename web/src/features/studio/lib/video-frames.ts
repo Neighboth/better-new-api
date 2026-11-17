@@ -46,7 +46,12 @@ export function frameCacheUrl(url: string): string {
 function loadVideo(cacheUrl: string): Promise<HTMLVideoElement> {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video')
-    video.crossOrigin = 'anonymous'
+    // Only cross-origin sources need (and tolerate) an explicit CORS mode;
+    // same-origin /api/ URLs are CORS-clean for canvas as-is and would fail
+    // to load entirely when asked for CORS headers the proxy never sent.
+    if (!cacheUrl.startsWith('/')) {
+      video.crossOrigin = 'anonymous'
+    }
     video.preload = 'auto'
     video.muted = true
     video.playsInline = true

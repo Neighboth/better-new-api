@@ -292,22 +292,24 @@ export function Studio() {
     }
   }, [selectedImageModel, imageModel])
 
+  const appliedVideoModelRef = useRef('')
   useEffect(() => {
-    if (selectedVideoModel) {
-      if (selectedVideoModel.model !== videoModel) {
-        setVideoModel(selectedVideoModel.model)
-        setVideoDuration(
-          selectedVideoModel.default_duration
-            ? String(selectedVideoModel.default_duration)
-            : ''
-        )
-        setVideoRatio('')
-        setVideoQuality('')
-      } else if (!videoDuration && selectedVideoModel.default_duration) {
+    if (!selectedVideoModel) return
+    const model = selectedVideoModel.model
+    if (appliedVideoModelRef.current === model) {
+      if (!videoDuration && selectedVideoModel.default_duration) {
         setVideoDuration(String(selectedVideoModel.default_duration))
       }
+      return
     }
-  }, [selectedVideoModel, videoModel, videoDuration])
+    appliedVideoModelRef.current = model
+    setVideoModel(model)
+    setVideoDuration(
+      selectedVideoModel.default_duration ? String(selectedVideoModel.default_duration) : ''
+    )
+    setVideoRatio('')
+    setVideoQuality('')
+  }, [selectedVideoModel, videoDuration])
 
   // Apply default model from runtime config on initial load
   const defaultModelAppliedRef = useRef(false)

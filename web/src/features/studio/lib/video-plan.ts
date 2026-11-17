@@ -70,6 +70,9 @@ export type VideoPlanSource = {
   quality?: string
   negativePrompt?: string
   userReferenceImages?: string[]
+  /** Explicit chain anchors supplied by the caller (optional). */
+  startFrame?: string
+  endFrame?: string
 }
 
 export type RefinedStep = {
@@ -276,12 +279,53 @@ async function callOptimizer(
   throw lastError instanceof Error ? lastError : new Error('The optimizer request failed')
 }
 
-function imageParts(images: string[] | undefined): Array<Record<string, unknown>> {
-  if (!images?.length) return []
-  return images.slice(0, 4).map((url) => ({
-    type: 'image_url',
-    image_url: { url, detail: 'high' },
-  }))
+export type LabeledImage = { url: string; label: string }
+
+/**
+ * Interleaves text labels before every image part so the optimizer knows
+ * exactly which attachment plays which role (reference subject, footage
+ * from the previous clip, first frame, finish frame). A vision model maps
+ * images to labels in order; raw unlabeled image_url parts force the model
+ * to guess — which is exactly what produced off-topic optimized prompts.
+ */
+function labeledImageParts(items: LabeledImage[]): Array<Record<string, unknown>> {
+  const parts: Array<Record<string, unknown>> = []
+  for (const item of items) {
+    parts.push({ type: 'text', text: item.label })
+    parts.push({ type: 'image_url', image_url: { url: item.url, detail: 'high' } })
+  }
+  return parts
+}
+
+export function gatherVisionImages(source: VideoPlanSource, frames?: string[]): LabeledImage[] {
+  const out: LabeledImage[] = []
+  const refs = source.userReferenceImages?.filter((url) => typeof url === 'string' && url.trim()) ?? []
+  refs.slice(0, 4).forEach((url, index) => {
+    out.push({
+      url,
+      label: `USER REFERENCE IMAGE ${index + 1}/${refs.length} — attached by the user; match this subject's appearance, colors, wardrobe, brand/livery and overall look exactly.`,
+    })
+  })
+  const captured = frames?.filter((url) => typeof url === 'string' && url.trim()) ?? []
+  captured.slice(0, 4).forEach((url, index) => {
+    out.push({
+      url,
+      label: `RENDER FRAME ${index + 1}/${captured.length} — captured from the ACTUAL previous clip; ground truth for subject appearance, wardrobe, colors, lighting, weather and environment. Match these exactly.`,
+    })
+  })
+  if (source.startFrame?.trim()) {
+    out.push({
+      url: source.startFrame,
+      label: 'FIRST FRAME — the video must open exactly from this image: composition, subject pose, environment, lighting and framing must continue from it.',
+    })
+  }
+  if (source.endFrame?.trim()) {
+    out.push({
+      url: source.endFrame,
+      label: 'FINISH FRAME — the video must end exactly on this image: composition, subject pose, environment, lighting and framing must converge onto it.',
+    })
+  }
+  return out
 }
 
 function buildPlanningText(source: VideoPlanSource, totalSteps: number): string {
@@ -319,13 +363,13 @@ async function callOptimizerSmart(
   model: string,
   systemPrompt: string,
   text: string,
-  images: string[] | undefined,
+  images: LabeledImage[] | undefined,
   signal?: AbortSignal
 ): Promise<string> {
   const withImages = (images?.length ?? 0) > 0
   const buildMessages = (includeImages: boolean): OptimizerChatMessage[] => {
     if (includeImages && withImages) {
-      return [{ role: 'user', content: [{ type: 'text', text }, ...imageParts(images)] }]
+      return [{ role: 'user', content: [{ type: 'text', text }, ...labeledImageParts(images ?? [])] }]
     }
     return [{ role: 'user', content: text }]
   }
@@ -362,7 +406,7 @@ export async function planVideoSequence(
     model,
     `${systemPrompt}\n\n${planningSpec}`,
     buildPlanningText(source, totalSteps),
-    source.userReferenceImages,
+    gatherVisionImages(source, undefined),
     signal
   )
   return parseVideoPlan(raw, totalSteps)
@@ -378,16 +422,16 @@ export async function refinePlanForStep(
   const planningSpec =
     'You are the continuity supervisor of a multi-part AI video pipeline. You receive (1) the original brief, (2) the current plan, (3) frames captured from the ACTUAL previous render. Steps 1..{previous} are FINAL and must not be re-planned. Output ONE JSON object only — no markdown fences, no commentary.'
   const negative = source.negativePrompt?.trim()
-  const frameParts = imageParts(source.frames)
+  const visionImages = gatherVisionImages(source, source.frames)
   const planJson = JSON.stringify(source.plan)
   const text = [
     `Original brief (verbatim; keep dialogue/quotes exactly as written):`,
     source.prompt.trim(),
     `The plan so far (steps 1..${Math.max(0, source.stepIndex)} are rendered and final):`,
     planJson,
-    frameParts.length
-      ? `Below are ${frameParts.length} frame(s) from the actual previous render — use them as GROUND TRUTH for subject appearance, colors, livery, wardrobe, weather, lighting and environment. Match them exactly.`
-      : 'No frames from the previous render were available; stay as close to the plan as possible.',
+    visionImages.length
+      ? `Below are ${visionImages.length} labeled image(s): USER REFERENCE IMAGE(s) attached by the user, RENDER FRAME(s) captured from the ACTUAL previous clip (ground truth for subject appearance, colors, livery, wardrobe, weather, lighting and environment), and — when present — FIRST FRAME / FINISH FRAME the scene must open from / end on. Match them exactly.`
+      : 'No images were attached; stay as close to the plan as possible.',
     `Produce the FINAL generation prompt for STEP ${stepNumber} of ${totalSteps}.`,
     `Requirements for step_prompt: 4-8 vivid sentences; opens exactly from the previous part's ending; subject/wardrobe/livery/environment/weather/lighting identical to the plan and to the frames; describe the action, camera movement, lighting, and framing; keep dialogue/quotes in the original language; never reset the scene; camera must not contradict the previous part's grammar; do NOT mention "step", "part", JSON, or instructions.`,
     `Also re-check the remaining steps (${stepNumber + 1}..${totalSteps}) against the actual footage — return them as remaining_steps with the same object shape as the plan's steps (renumber from ${stepNumber + 1}); if the original plan still fits, repeat it with adjustments only where the footage diverges.`,
@@ -402,7 +446,7 @@ export async function refinePlanForStep(
     model,
     `${systemPrompt}\n\n${planningSpec.replace('{previous}', String(Math.max(0, source.stepIndex)))}`,
     text,
-    source.frames,
+    visionImages,
     signal
   )
   const parsed = extractJsonObject(raw) as Record<string, unknown>
@@ -423,14 +467,19 @@ export async function refinePlanForStep(
   return { stepPrompt, negativePrompt: negativeOut || source.plan.negative_prompt, plan }
 }
 
-export async function optimizeVideoPrompt(prompt: string, signal?: AbortSignal): Promise<string> {
+export async function optimizeVideoPrompt(
+  prompt: string,
+  signal?: AbortSignal,
+  images?: LabeledImage[]
+): Promise<string> {
   const trimmed = prompt.trim()
   if (!trimmed) return prompt
   const { model, systemPrompt } = await resolveOptimizerConfig(signal)
-  const raw = await callOptimizer(
+  const raw = await callOptimizerSmart(
     model,
     systemPrompt,
-    [{ role: 'user', content: trimmed }],
+    trimmed,
+    images,
     signal
   )
   const cleaned = raw.replaceAll(/^["'`]+|["'`]+$/g, '').trim()

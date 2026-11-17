@@ -53,8 +53,13 @@ function loadVideoElement(src: string, waitForCanPlayThrough = true): Promise<HT
     video.muted = true
     video.playsInline = true
     video.preload = 'auto'
-    video.crossOrigin = 'anonymous'
     video.disableRemotePlayback = true
+    const resolvedSrc = playableMediaUrl(src)
+    // Same-origin /api/ URLs are CORS-clean for canvas without credentials;
+    // demanding CORS headers there would break playback entirely.
+    if (!resolvedSrc.startsWith('/')) {
+      video.crossOrigin = 'anonymous'
+    }
     const timer = window.setTimeout(() => {
       cleanup()
       reject(new Error('Timeout loading part for merge'))
@@ -88,7 +93,7 @@ function loadVideoElement(src: string, waitForCanPlayThrough = true): Promise<HT
     } else {
       video.onloadedmetadata = ready
     }
-    video.src = playableMediaUrl(src)
+    video.src = resolvedSrc
   })
 }
 
@@ -104,7 +109,10 @@ export function measureVideoDuration(url: string): Promise<number | null> {
     video.preload = 'metadata'
     video.muted = true
     video.playsInline = true
-    video.crossOrigin = 'anonymous'
+    const resolvedSrc = playableMediaUrl(url)
+    if (!resolvedSrc.startsWith('/')) {
+      video.crossOrigin = 'anonymous'
+    }
     const timer = window.setTimeout(() => {
       cleanup()
       resolve(null)
@@ -123,7 +131,7 @@ export function measureVideoDuration(url: string): Promise<number | null> {
       cleanup()
       resolve(duration)
     }
-    video.src = playableMediaUrl(url)
+    video.src = resolvedSrc
   })
 }
 

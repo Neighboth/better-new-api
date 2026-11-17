@@ -36,6 +36,7 @@ import {
 import {
   optimizeImagePrompt,
   optimizeVideoPrompt,
+  gatherVisionImages,
   planVideoSequence,
   refinePlanForStep,
   type VideoPlan,
@@ -257,6 +258,8 @@ async function runVideoChain(
         quality: config.quality,
         negativePrompt: config.negativePrompt,
         userReferenceImages: config.userReferenceImages.length ? config.userReferenceImages : undefined,
+        startFrame: config.startFrame,
+        endFrame: config.endFrame,
       },
       totalScenes,
       controller.signal
@@ -285,7 +288,7 @@ async function runVideoChain(
       accumulatedFrames.push(...captured.frames)
       currentStartFrame = captured.lastFrame
     } catch {
-      currentStartFrame = resumeFrom
+      currentStartFrame = undefined
     }
   }
 
@@ -307,7 +310,11 @@ async function runVideoChain(
         accumulatedFrames.push(...captured.frames)
         currentStartFrame = captured.lastFrame
       } catch {
-        currentStartFrame = previousClipUrl
+        // Never pass a video URL as the start frame — the provider rejects it
+        // as "Start frame must be an image". Without a captured frame the clip
+        // is generated from the prompt alone (reference images still carry the
+        // look) instead of failing the whole step.
+        currentStartFrame = undefined
       }
     }
 
@@ -320,6 +327,8 @@ async function runVideoChain(
         quality: config.quality,
         negativePrompt: config.negativePrompt,
         userReferenceImages: config.userReferenceImages.length ? config.userReferenceImages : undefined,
+        startFrame: config.startFrame,
+        endFrame: config.endFrame,
         plan: workingPlan,
         stepIndex: i,
         frames: stepFrames,
@@ -389,7 +398,7 @@ async function runVideoChain(
           stepFrames = captured.frames
           makeupStartFrame = captured.lastFrame
         } catch {
-          makeupStartFrame = previousClipUrl
+          makeupStartFrame = undefined
         }
       }
       accumulatedFrames.push(...stepFrames)
@@ -921,7 +930,18 @@ export function useStudioGeneration() {
 
         // If no multi-chunk extension is requested, run as a single planned generation
         if (targetTotalSeconds <= chunkDurationSec) {
-          const finalPrompt = await optimizeVideoPrompt(params.prompt, controller.signal)
+          const imagesForOptimizer = gatherVisionImages({
+            prompt: params.prompt,
+            totalSeconds: Number(params.duration) || chunkDurationSec,
+            chunkSeconds: chunkDurationSec,
+            userReferenceImages: [
+              ...(params.referenceImages ?? []),
+              ...(params.imageUrl ? [params.imageUrl] : []),
+            ],
+            startFrame: params.startFrame,
+            endFrame: params.endFrame,
+          })
+          const finalPrompt = await optimizeVideoPrompt(params.prompt, controller.signal, imagesForOptimizer)
           const singleChunkDuration = params.duration || (targetTotalSeconds > 0 ? targetTotalSeconds : undefined)
           const result = await runVideoChunk(
             {
