@@ -120,6 +120,12 @@ function PlanBlock({ plan }: { plan: NonNullable<StudioItem['step']>['plan'] }) 
             ))}
           </ol>
         )}
+        {Array.isArray(plan.references) && plan.references.length > 0 && (
+          <div>
+            <p className='text-muted-foreground'>{t('Search references')}:</p>
+            <ReferenceStrip urls={plan.references} />
+          </div>
+        )}
         {plan.negative_prompt && (
           <p>
             <span className='text-muted-foreground'>{t('Negative prompt')}:</span> {plan.negative_prompt}

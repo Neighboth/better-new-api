@@ -37,13 +37,14 @@ import {
   optimizeImagePrompt,
   optimizeVideoPrompt,
   gatherVisionImages,
+  buildReferenceImageList,
   planVideoSequence,
   refinePlanForStep,
   type VideoPlan,
 } from '../lib/video-plan'
 import { mergeVideoParts, measureVideoDuration, deleteMergedMedia } from '../lib/media-merge'
 import { captureVideoFrames } from '../lib/video-frames'
-import { mergeStudioItems, isStudioItem, stripVolatileMediaFields } from '../lib/studio-sync'
+import { mergeStudioItems, isStudioItem, stripVolatileMediaFields, STUDIO_ITEMS_PURGED_EVENT } from '../lib/studio-sync'
 import { putStudioVideo, deleteStudioVideo } from '../lib/studio-indexeddb'
 import type { StudioItem } from '../types'
 
@@ -397,7 +398,10 @@ async function runVideoChain(
     writeStep(stepNumber, undefined, workingPlan.title)
 
     const chunkEndFrame = isFinalChunk ? config.endFrame : undefined
-    const stepReferences = accumulatedFrames.slice(-8)
+    // References come straight from the refine call (user refs + selected
+    // critical frames, vision-picked) so the video model gets exactly the
+    // same images in the same order the optimizer used.
+    const stepReferences = refined.references
     const chunkRes = await runVideoChunk(
       {
         controller,
@@ -457,7 +461,21 @@ async function runVideoChain(
         }
       }
       accumulatedFrames.push(...stepFrames)
-      const stepReferences = accumulatedFrames.slice(-8)
+    // Keep the same deterministic reference picker as the rest of the chain,
+    // so the optimizer and the video model see matching images in matching order.
+    const shortfallReferenceSource = {
+      prompt: config.prompt,
+      totalSeconds,
+      chunkSeconds: chunkDurationSec,
+      ratio: config.ratio,
+      quality: config.quality,
+      negativePrompt: config.negativePrompt,
+      userReferenceImages: [
+        ...(config.userReferenceImages ?? []),
+        ...(workingPlan.references ?? []),
+      ],
+    }
+    const stepReferences = buildReferenceImageList(shortfallReferenceSource, accumulatedFrames)
       units += 1
       makeupSteps += 1
       const makeupIndex = units - 1
@@ -514,7 +532,8 @@ async function optimizeStudioPrompt(
   if (mode === 'image') {
     return optimizeImagePrompt(trimmed, signal)
   }
-  return optimizeVideoPrompt(trimmed, signal)
+  const { text } = await optimizeVideoPrompt(trimmed, signal)
+  return text
 }
 
 function errorMessageOf(error: unknown): string {
@@ -645,6 +664,33 @@ export function useStudioGeneration() {
         // offline or endpoint unavailable — local history still works
       }
     })()
+  }, [])
+
+  // Server-side quota sweeps dispatch this event with the removed URLs —
+  // drop the matching local cards so the popup is consistent immediately.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ urls?: string[] }>).detail
+      const urls = Array.isArray(detail?.urls) ? detail.urls : []
+      if (urls.length === 0) return
+      const urlSet = new Set(urls)
+      setItems((prev) => {
+        const removed = prev.filter((item) => item.urls.some((u) => u && urlSet.has(u)))
+        for (const item of removed) {
+          syncedIdsRef.current.delete(item.id)
+          lastSyncedRef.current.delete(item.id)
+          if (item.localOnly) {
+            void deleteStudioVideo(item.id).catch(() => {})
+          }
+        }
+        if (removed.length > 0) {
+          persistSyncedIds(syncedIdsRef.current)
+        }
+        return prev.filter((item) => !item.urls.some((u) => u && urlSet.has(u)))
+      })
+    }
+    window.addEventListener(STUDIO_ITEMS_PURGED_EVENT, handler)
+    return () => window.removeEventListener(STUDIO_ITEMS_PURGED_EVENT, handler)
   }, [])
 
   const patchItem = useCallback((id: string, patch: Partial<StudioItem>) => {
@@ -1058,6 +1104,9 @@ export function useStudioGeneration() {
           negativePrompt: params.negativePrompt?.trim() || undefined,
           startFrame: params.startFrame,
           endFrame: params.endFrame,
+          // Search-discovered references are merged in after the optimizer
+          // runs; the details dialog is patched at that point (below) so this
+          // stays the user-provided view of the request.
           referenceImages: params.referenceImages?.length ? params.referenceImages : undefined,
           chunkSeconds: chunkDurationSec,
         },
@@ -1083,18 +1132,39 @@ export function useStudioGeneration() {
 
         // If no multi-chunk extension is requested, run as a single planned generation
         if (targetTotalSeconds <= chunkDurationSec) {
+          const mergedBeforeOptimize = [
+            ...(params.referenceImages ?? []),
+            ...(params.imageUrl ? [params.imageUrl] : []),
+          ]
           const imagesForOptimizer = gatherVisionImages({
             prompt: params.prompt,
             totalSeconds: Number(params.duration) || chunkDurationSec,
             chunkSeconds: chunkDurationSec,
-            userReferenceImages: [
-              ...(params.referenceImages ?? []),
-              ...(params.imageUrl ? [params.imageUrl] : []),
-            ],
+            userReferenceImages: mergedBeforeOptimize,
             startFrame: params.startFrame,
             endFrame: params.endFrame,
           })
-          const finalPrompt = await optimizeVideoPrompt(params.prompt, controller.signal, imagesForOptimizer)
+          const { text: finalPrompt, references: searchReferences } = await optimizeVideoPrompt(
+            params.prompt,
+            controller.signal,
+            imagesForOptimizer
+          )
+          const mergedReferences = [
+            ...(params.referenceImages ?? []),
+            ...(params.imageUrl ? [params.imageUrl] : []),
+            ...searchReferences.filter((url) => !(params.referenceImages ?? []).includes(url) && url !== params.imageUrl),
+          ].slice(0, 5)
+          if (mergedReferences.length > (params.referenceImages?.length ?? 0)) {
+            patchItem(id, {
+              details: {
+                negativePrompt: params.negativePrompt?.trim() || undefined,
+                startFrame: params.startFrame,
+                endFrame: params.endFrame,
+                referenceImages: mergedReferences,
+                chunkSeconds: chunkDurationSec,
+              },
+            })
+          }
           const singleChunkDuration = params.duration || (targetTotalSeconds > 0 ? targetTotalSeconds : undefined)
           const result = await runVideoChunk(
             {
@@ -1105,7 +1175,7 @@ export function useStudioGeneration() {
               group: params.group,
               ratio: params.ratio,
               imageUrl: params.imageUrl,
-              referenceImages: params.referenceImages,
+              referenceImages: mergedReferences,
               negativePrompt: params.negativePrompt,
               videoExtension: params.videoExtension,
             },
@@ -1117,7 +1187,7 @@ export function useStudioGeneration() {
             0,
             1,
             params.negativePrompt,
-            params.referenceImages
+            mergedReferences
           )
 
           const localOnlyUrls = await maybePersistLocalOnly(id, [result.url])

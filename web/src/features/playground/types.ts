@@ -314,6 +314,8 @@ export interface PlaygroundRuntimeConfig {
     live: boolean
     /** The blog AI generator may use web research when the administrator turns this on. */
     blog?: boolean
+    /** The Studio prompt optimizer may search the web and the image index. */
+    studio?: boolean
     configured: boolean
     price_per_search: number
     max_results: number
@@ -369,6 +371,7 @@ export const EMPTY_PLAYGROUND_RUNTIME_CONFIG: PlaygroundRuntimeConfig = {
     discord: false,
     live: false,
     blog: false,
+    studio: false,
     configured: false,
     price_per_search: 0,
     max_results: 5,

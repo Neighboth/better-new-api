@@ -19,6 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 
 import type { StudioItem } from '../types'
 
+/** Window event used to tell the studio history hook which local item URLs
+ * were removed on the server (oldest-busting quota sweep); the hook drops the
+ * matching cards from its local state. */
+export const STUDIO_ITEMS_PURGED_EVENT = 'studio-items-purged'
+
 /**
  * Pure helpers for the server-side studio item sync. Kept free of React and
  * network code so they can be unit tested directly.

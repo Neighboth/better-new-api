@@ -129,6 +129,7 @@ func GetPlaygroundConfig(c *gin.Context) {
 			"discord":          setting.WebSearchDiscordEnabled,
 			"live":             setting.WebSearchLiveEnabled,
 			"blog":             setting.WebSearchBlogEnabled,
+			"studio":           setting.StudioPromptSearchEnabled,
 			"configured":       strings.TrimSpace(search.SearXNGURL) != "",
 			"price_per_search": search.PricePerSearch,
 			"max_results":      search.MaxSearches,
@@ -183,12 +184,32 @@ func uniqueStrings(values []string) []string {
 }
 
 // PlaygroundWebSearch runs one SearXNG query for the web search tool of the
-// playground and bills it like a search that a relayed request would use.
+// playground (or the image search tool of the studio, when `category` is
+// "images") and bills it like a search that a relayed request would use.
 func PlaygroundWebSearch(c *gin.Context) {
 	setting := operation_setting.GetPlaygroundSetting()
 	search := operation_setting.GetOnlineSearchSetting()
 
-	if !setting.WebSearchPlaygroundEnabled {
+	var request struct {
+		Query      string `json:"query"`
+		MaxResults int    `json:"max_results"`
+		Category   string `json:"category"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		common.ApiErrorMsg(c, "Invalid request body")
+		return
+	}
+	imageSearch := strings.EqualFold(strings.TrimSpace(request.Category), "images")
+	if imageSearch {
+		if !setting.StudioPromptSearchEnabled {
+			c.JSON(200, gin.H{
+				"success": false,
+				"message": "Studio image search is disabled",
+				"code":    "image_search_disabled",
+			})
+			return
+		}
+	} else if !setting.WebSearchPlaygroundEnabled {
 		c.JSON(200, gin.H{
 			"success": false,
 			"message": "Web search is disabled in the playground",
@@ -202,15 +223,6 @@ func PlaygroundWebSearch(c *gin.Context) {
 			"message": "SearXNG is not configured",
 			"code":    "web_search_not_configured",
 		})
-		return
-	}
-
-	var request struct {
-		Query      string `json:"query"`
-		MaxResults int    `json:"max_results"`
-	}
-	if err := c.ShouldBindJSON(&request); err != nil {
-		common.ApiErrorMsg(c, "Invalid request body")
 		return
 	}
 	query := strings.TrimSpace(request.Query)
@@ -233,7 +245,13 @@ func PlaygroundWebSearch(c *gin.Context) {
 		maxResults = 10
 	}
 
-	hits, err := service.SearchOnline(query, maxResults)
+	var hits []service.SearchResult
+	var err error
+	if imageSearch {
+		hits, err = service.SearchImages(query, maxResults)
+	} else {
+		hits, err = service.SearchOnline(query, maxResults)
+	}
 	if err != nil {
 		c.JSON(200, gin.H{
 			"success": false,

@@ -3152,7 +3152,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "İlgili projeler",
     "footer.defaultCopyright": "Tüm hakları saklıdır.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Tüm hakları saklıdır. Proje katkıda bulunanları tarafından tasarlanmış ve geliştirilmiştir.",
+    "footer.newapi.projectAttributionSuffix": "Tüm hakları saklıdır. Proje katkıda bulunanları tarafından tasarlanmış ve geliştirilmiştir.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "10 Mayıs 2025'ten sonra eklenen kanallar için, dağıtım sırasında model adlarındaki \".\" işaretlerini kaldırmaya gerek yoktur",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Özel dağıtımlar için format: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "Güvenlik nedeniyle, mevcut erişim belirteçleri tekrar görüntülenemez. Yalnızca yeni bir belirtece ihtiyacınız olduğunda yeniden oluşturun.",
@@ -8352,6 +8352,9 @@
     "Maximum single video size (bytes)": "Maksimum tek video boyutu (bayt)",
     "Video storage settings saved successfully": "Video depolama ayarları kaydedildi",
     "New videos beyond this limit are kept in the browser instead of the server.": "Bu limitin ötesindeki yeni videolar sunucuda değil tarayıcıda tutulur.",
-    "Delete the oldest videos to free up space": "Boşaltmak için en eski videoları sil"
+    "Delete the oldest videos to free up space": "Boşaltmak için en eski videoları sil",
+    "Importing {{done}}/{{total}}": "İçe aktarılıyor {{done}}/{{total}}",
+    "Lets the Studio prompt optimizer search the web and the image index before writing the scene. The assistant can look up unknown brands, characters and objects, and attach found images as reference images automatically — great for subjects the model does not know yet.": "Studio prompt iyileştiricisi sahneyi yazmadan önce web'de ve görsel dizininde arama yapmasını sağlar. Asistan bilinmeyen markaları, karakterleri ve nesneleri araştırıp bulunan görselleri otomatik olarak referans görsel olarak ekleyebilir — modelin henüz tanımadığı konular için idealdir.",
+    "Search references": "Arama referansları"
   }
 }

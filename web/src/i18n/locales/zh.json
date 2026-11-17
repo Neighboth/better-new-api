@@ -3152,7 +3152,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "相关项目",
     "footer.defaultCopyright": "版权所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
+    "footer.newapi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "对于 2025 年 5 月 10 日之后添加的渠道，在部署时无需从模型名称中移除 \".\"",
     "For private deployments, format: https://fastgpt.run/api/openapi": "对于私有部署，格式为：https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "出于安全考虑，现有访问令牌无法再次显示。仅在需要新令牌时重新生成。",
@@ -8352,6 +8352,9 @@
     "Maximum single video size (bytes)": "单个视频最大大小（字节）",
     "Video storage settings saved successfully": "视频存储设置已保存",
     "New videos beyond this limit are kept in the browser instead of the server.": "超出此限制的新视频将仅保存在此浏览器，而不在服务器上。",
-    "Delete the oldest videos to free up space": "删除最旧的视频以释放空间"
+    "Delete the oldest videos to free up space": "删除最旧的视频以释放空间",
+    "Importing {{done}}/{{total}}": "导入中 {{done}}/{{total}}",
+    "Lets the Studio prompt optimizer search the web and the image index before writing the scene. The assistant can look up unknown brands, characters and objects, and attach found images as reference images automatically — great for subjects the model does not know yet.": "启用后，Studio 提示优化器会在编写画面前搜索网页和图片库。助手可以查找模型不熟悉的品牌、角色和物品，并自动把找到的图片作为参考图附加 — 非常适合模型尚不了解的主题。",
+    "Search references": "搜索参考图"
   }
 }

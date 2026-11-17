@@ -197,6 +197,21 @@ func ListProxyPoolProxies() ([]ProxyPoolProxy, error) {
 	return proxies, nil
 }
 
+// ListProxyPoolProxiesForAutoTest returns the N proxies with the stalest test
+// results, so each sweep covers a rotating slice of the pool instead of
+// hammering every entry on every run (important with tens of thousands).
+func ListProxyPoolProxiesForAutoTest(limit int) ([]ProxyPoolProxy, error) {
+	if DB == nil {
+		return []ProxyPoolProxy{}, nil
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	var proxies []ProxyPoolProxy
+	err := DB.Order("last_tested_at ASC, id ASC").Limit(limit).Find(&proxies).Error
+	return proxies, err
+}
+
 func UnassignProxyPoolProxy(id int) error {
 	return DB.Where("proxy_id = ?", id).Delete(&ProxyPoolAssignment{}).Error
 }
@@ -308,19 +323,22 @@ func ReplaceProxyPoolAssignments(channelId int, mapping map[int]int) error {
 		if err := tx.Where("channel_id = ?", channelId).Delete(&ProxyPoolAssignment{}).Error; err != nil {
 			return err
 		}
+		if len(mapping) == 0 {
+			return nil
+		}
+		assignments := make([]ProxyPoolAssignment, 0, len(mapping))
 		for keyIndex, proxyId := range mapping {
-			assignment := &ProxyPoolAssignment{
+			assignments = append(assignments, ProxyPoolAssignment{
 				ChannelId: channelId,
 				KeyIndex:  keyIndex,
 				ProxyId:   proxyId,
 				CreatedAt: now,
 				UpdatedAt: now,
-			}
-			if err := tx.Create(assignment).Error; err != nil {
-				return err
-			}
+			})
 		}
-		return nil
+		// Bulk insert in batches: with 65k proxies a per-row insert exceeded
+		// the server-side prepared-statement budget (ER_MAX_PREPARED_STMT_COUNT_REACHED).
+		return tx.CreateInBatches(assignments, 500).Error
 	})
 }
 

@@ -24,10 +24,10 @@ import (
 const proxyPoolCacheTTL = 30 * time.Second
 
 var (
-	proxyPoolMu         sync.RWMutex
-	proxyPoolMap        map[int]map[int]string // channel_id -> key_index -> proxy url
-	proxyPoolEnabled    []model.ProxyPoolProxy // sorted by ID for stable hashing
-	proxyPoolExpiresAt  time.Time
+	proxyPoolMu        sync.RWMutex
+	proxyPoolMap       map[int]map[int]string // channel_id -> key_index -> proxy url
+	proxyPoolEnabled   []model.ProxyPoolProxy // sorted by ID for stable hashing
+	proxyPoolExpiresAt time.Time
 )
 
 // InvalidateProxyPoolCache drops the cached mapping. Call it after every
@@ -412,7 +412,10 @@ func TestProxyEgress(rawProxyURL string, proxyType ...string) (string, int64, er
 }
 
 // StartProxyPoolAutoTester periodically runs health/latency checks on registered
-// proxies in the pool when enabled via System Settings.
+// proxies in the pool when enabled via System Settings. A bounded worker pool
+// keeps the sweep fast without overwhelming the server; each sweep covers only
+// the stalest slice of the pool so a 65k-entry pool never hammers the network
+// or the database in one pass.
 func StartProxyPoolAutoTester() {
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
@@ -436,19 +439,47 @@ func StartProxyPoolAutoTester() {
 			}
 			lastTestTime = time.Now()
 
-			proxies, err := model.ListProxyPoolProxies()
+			proxies, err := model.ListProxyPoolProxiesForAutoTest(1000)
 			if err != nil || len(proxies) == 0 {
 				continue
 			}
 
 			autoDisable := common.OptionMap["ProxyAutoDisableUnhealthy"] == "true"
-			for _, p := range proxies {
-				egressIP, latency, testErr := TestProxyEgress(p.URL)
+			type result struct {
+				proxy    *model.ProxyPoolProxy
+				egressIP string
+				latency  int64
+				testErr  error
+			}
+
+			jobs := make(chan model.ProxyPoolProxy)
+			results := make(chan result, len(proxies))
+			var workers sync.WaitGroup
+			const workerCount = 8
+			for i := 0; i < workerCount; i++ {
+				workers.Add(1)
+				go func() {
+					defer workers.Done()
+					for p := range jobs {
+						egressIP, latency, testErr := TestProxyEgress(p.URL)
+						results <- result{proxy: &p, egressIP: egressIP, latency: latency, testErr: testErr}
+					}
+				}()
+			}
+			for i := range proxies {
+				jobs <- proxies[i]
+			}
+			close(jobs)
+			workers.Wait()
+			close(results)
+
+			for r := range results {
+				p := *r.proxy
 				p.LastTestedAt = time.Now().Unix()
-				p.LatencyMs = latency
-				if testErr != nil {
+				p.LatencyMs = r.latency
+				if r.testErr != nil {
 					p.LastTestStatus = "fail"
-					p.LastTestError = testErr.Error()
+					p.LastTestError = r.testErr.Error()
 					p.EgressIP = ""
 					if autoDisable {
 						p.Enabled = false
@@ -456,7 +487,7 @@ func StartProxyPoolAutoTester() {
 				} else {
 					p.LastTestStatus = "ok"
 					p.LastTestError = ""
-					p.EgressIP = egressIP
+					p.EgressIP = r.egressIP
 					if autoDisable && !p.Enabled {
 						p.Enabled = true
 					}

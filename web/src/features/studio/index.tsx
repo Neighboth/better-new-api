@@ -88,6 +88,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useStudioGeneration } from './hooks/use-studio-generation'
 import { getStudioVideo } from './lib/studio-indexeddb'
 import { StudioItemDetailsDialog } from './components/studio-item-details-dialog'
+import { STUDIO_ITEMS_PURGED_EVENT } from './lib/studio-sync'
 import type { StudioItem, StudioMode } from './types'
 
 /** Serves media through local cache proxy to avoid 12-hour upstream expiration. */
@@ -291,7 +292,15 @@ function VideoStorageQuota() {
     try {
       const res = await api.delete('/api/media/storage', { skipErrorHandler: true } as Record<string, unknown>)
       const freed = Number(res?.data?.data?.freed_bytes ?? 0)
+      const deletedUrls = (res?.data?.data?.deleted_urls ?? []) as string[]
       await queryClient.invalidateQueries({ queryKey: ['media-storage'] })
+      if (deletedUrls.length > 0) {
+        // Drop the matching cards from the local history so the popup is
+        // consistent with the server immediately, even before a reload.
+        window.dispatchEvent(
+          new CustomEvent(STUDIO_ITEMS_PURGED_EVENT, { detail: { urls: deletedUrls } })
+        )
+      }
       toast.success(t('Freed {{freed}} of storage by deleting oldest videos.', { freed: formatBytes(freed) }))
     } catch {
       toast.error(t('Failed to delete old videos.'))

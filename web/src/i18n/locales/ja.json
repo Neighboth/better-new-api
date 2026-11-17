@@ -3152,7 +3152,7 @@
     "footer.columns.related.links.oneApi": "1つのAPI",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
     "For private deployments, format: https://fastgpt.run/api/openapi": "プライベートデプロイメントの場合、形式: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "セキュリティ上、既存のアクセストークンは再表示できません。新しいトークンが必要な場合のみ再生成してください。",
@@ -8352,6 +8352,9 @@
     "Maximum single video size (bytes)": "1動画の最大サイズ (バイト)",
     "Video storage settings saved successfully": "動画ストレージ設定を保存しました",
     "New videos beyond this limit are kept in the browser instead of the server.": "この上限を超える新しい動画はサーバーではなくブラウザに保存されます。",
-    "Delete the oldest videos to free up space": "空き容量を確保するため最も古い動画を削除"
+    "Delete the oldest videos to free up space": "空き容量を確保するため最も古い動画を削除",
+    "Importing {{done}}/{{total}}": "インポート中 {{done}}/{{total}}",
+    "Lets the Studio prompt optimizer search the web and the image index before writing the scene. The assistant can look up unknown brands, characters and objects, and attach found images as reference images automatically — great for subjects the model does not know yet.": "Studio のプロンプトオプティマイザーが、シーンを書く前にウェブと画像インデックスを検索できるようにします。アシスタントは未知のブランド・キャラクター・オブジェクトを調べ、見つけた画像を自動的に参照画像として添付できます — モデルがまだ知らない題材に最適です。",
+    "Search references": "検索参照画像"
   }
 }

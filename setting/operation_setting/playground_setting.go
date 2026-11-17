@@ -40,6 +40,11 @@ type PlaygroundSetting struct {
 	WebSearchDiscordEnabled    bool `json:"web_search_discord_enabled"`
 	WebSearchLiveEnabled       bool `json:"web_search_live_enabled"`
 	WebSearchBlogEnabled       bool `json:"web_search_blog_enabled"`
+	// StudioPromptSearchEnabled lets the Studio's prompt optimizer search the
+	// web and the image index on every user prompt (it is a vision-capable
+	// assistant: it can look up unknown brands, characters, objects and add
+	// found images as reference images automatically).
+	StudioPromptSearchEnabled bool `json:"web_search_studio_enabled"`
 
 	// Image models of the playground tools and of the studio. Each entry has
 	// its own sizes, qualities and defaults.
@@ -86,6 +91,7 @@ var playgroundSetting = PlaygroundSetting{
 	WebSearchDiscordEnabled:    false,
 	WebSearchLiveEnabled:       false,
 	WebSearchBlogEnabled:       false,
+	StudioPromptSearchEnabled:  false,
 
 	ImageEnabled:        true,
 	ImageModels:         []MediaModel{},

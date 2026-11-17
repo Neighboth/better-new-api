@@ -43,12 +43,48 @@ func SearchOnline(query string, maxResults int) ([]SearchResult, error) {
 	params.Set("format", "json")
 	params.Set("language", "en")
 	reqURL := endpoint + "?" + params.Encode()
-	client := &http.Client{Timeout: 15 * time.Second}
 	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
+	return doSearXNGRequest(req, maxResults)
+}
+
+// SearchImages queries the SearXNG instance with the image category and
+// returns the structured hits for a vision assistant picking reference images.
+func SearchImages(query string, maxResults int) ([]SearchResult, error) {
+	setting := operation_setting.GetOnlineSearchSetting()
+	base := strings.TrimSpace(setting.SearXNGURL)
+	if base == "" {
+		return nil, fmt.Errorf("searxng url is not configured")
+	}
+	if maxResults <= 0 {
+		maxResults = 5
+	}
+	if maxResults > 10 {
+		maxResults = 10
+	}
+	if max := setting.MaxSearches; max > 0 && maxResults > max {
+		maxResults = max
+	}
+	endpoint := strings.TrimRight(base, "/") + "/search"
+	params := url.Values{}
+	params.Set("q", query)
+	params.Set("format", "json")
+	params.Set("language", "en")
+	params.Set("categories", "images")
+	reqURL := endpoint + "?" + params.Encode()
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	return doSearXNGRequest(req, maxResults)
+}
+
+func doSearXNGRequest(req *http.Request, maxResults int) ([]SearchResult, error) {
+	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

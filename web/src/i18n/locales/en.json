@@ -3152,7 +3152,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Related Projects",
     "footer.defaultCopyright": "All rights reserved.",
-    "footer.new\u0061pi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
+    "footer.newapi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment",
     "For private deployments, format: https://fastgpt.run/api/openapi": "For private deployments, format: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.",
@@ -8352,6 +8352,9 @@
     "Maximum single video size (bytes)": "Maximum single video size (bytes)",
     "Video storage settings saved successfully": "Video storage settings saved successfully",
     "New videos beyond this limit are kept in the browser instead of the server.": "New videos beyond this limit are kept in the browser instead of the server.",
-    "Delete the oldest videos to free up space": "Delete the oldest videos to free up space"
+    "Delete the oldest videos to free up space": "Delete the oldest videos to free up space",
+    "Importing {{done}}/{{total}}": "Importing {{done}}/{{total}}",
+    "Lets the Studio prompt optimizer search the web and the image index before writing the scene. The assistant can look up unknown brands, characters and objects, and attach found images as reference images automatically — great for subjects the model does not know yet.": "Lets the Studio prompt optimizer search the web and the image index before writing the scene. The assistant can look up unknown brands, characters and objects, and attach found images as reference images automatically — great for subjects the model does not know yet.",
+    "Search references": "Search references"
   }
 }

@@ -5,7 +5,7 @@ package opencode
 import (
 	"bufio"
 	"bytes"
-	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -63,17 +63,24 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 		key = "public"
 	}
 	header.Set("Authorization", "Bearer "+key)
-	header.Set("User-Agent", "opencode/1.0.0 (Linux; x86_64)")
+	// Mirror the official CLI as closely as possible: its exact user agent,
+	// and a session id that persists per channel instead of changing on
+	// every request (the anonymous lane fingerprints per-session traffic).
+	header.Set("User-Agent", "opencode/1.19.6")
 	header.Set("x-opencode-client", "cli")
-	// The official CLI binds every upstream call to a session id; mirror that
-	// shape with a fresh id per request.
-	sessionID := make([]byte, 16)
-	if _, err := rand.Read(sessionID); err == nil {
-		session := hex.EncodeToString(sessionID)
-		header.Set("x-opencode-session-id", session)
-		header.Set("x-opencode-session", session)
-	}
+	stable := opencodeSessionID(info.ChannelId)
+	header.Set("x-opencode-session-id", stable)
+	header.Set("x-opencode-session", stable)
+	header.Set("x-opencode-request", stable)
+	header.Set("x-session-affinity", stable)
 	return nil
+}
+
+// opencodeSessionID derives a deterministic ses_<64hex> id from the channel id,
+// matching the format the official CLI mints for its sessions.
+func opencodeSessionID(channelID int) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("opencode-anon-session:%d", channelID)))
+	return "ses_" + hex.EncodeToString(sum[:])
 }
 
 func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) (any, error) {

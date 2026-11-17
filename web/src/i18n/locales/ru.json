@@ -3152,7 +3152,7 @@
     "footer.columns.related.links.oneApi": "Один API",
     "footer.columns.related.title": "Связанные проекты",
     "footer.defaultCopyright": "Все права защищены.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
+    "footer.newapi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Для каналов, добавленных после 10 мая 2025 г., не нужно удалять \".\" из имён моделей при развёртывании",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Для частных развертываний, формат: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "В целях безопасности существующие токены доступа нельзя просмотреть повторно. Создавайте новый токен только при необходимости.",
@@ -8352,6 +8352,9 @@
     "Maximum single video size (bytes)": "Максимальный размер одного видео (байт)",
     "Video storage settings saved successfully": "Настройки хранилища видео сохранены",
     "New videos beyond this limit are kept in the browser instead of the server.": "Новые видео сверх лимита будут храниться в браузере, а не на сервере.",
-    "Delete the oldest videos to free up space": "Удалить самые старые видео, чтобы освободить место"
+    "Delete the oldest videos to free up space": "Удалить самые старые видео, чтобы освободить место",
+    "Importing {{done}}/{{total}}": "Импорт {{done}}/{{total}}",
+    "Lets the Studio prompt optimizer search the web and the image index before writing the scene. The assistant can look up unknown brands, characters and objects, and attach found images as reference images automatically — great for subjects the model does not know yet.": "Позволяет оптимизатору промптов Studio искать в интернете и по изображениям перед описанием сцены. Ассистент может найти неизвестные бренды, персонажей и объекты и автоматически прикрепить найденные изображения как референсы — отлично подходит для тем, которые модель ещё не знает.",
+    "Search references": "Референсы из поиска"
   }
 }

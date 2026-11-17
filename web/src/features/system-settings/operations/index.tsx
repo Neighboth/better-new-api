@@ -104,6 +104,7 @@ const defaultOperationsSettings: OperationsSettings = {
   'playground_setting.web_search_playground_enabled': false,
   'playground_setting.web_search_discord_enabled': false,
   'playground_setting.web_search_live_enabled': false,
+  'playground_setting.web_search_studio_enabled': false,
   'playground_setting.image_enabled': true,
   'playground_setting.image_models': '',
   'playground_setting.image_model': '',

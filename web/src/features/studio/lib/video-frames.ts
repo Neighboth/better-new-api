@@ -37,7 +37,13 @@ export type CapturedFrames = {
 }
 
 export function frameCacheUrl(url: string): string {
-  if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('/api/')) {
+  if (
+    url.startsWith('data:') ||
+    url.startsWith('blob:') ||
+    url.startsWith('/')
+  ) {
+    // Same-origin paths are CORS-clean for canvas as-is; proxying them to
+    // the cache endpoint only ever produced "url must be http(s)" errors.
     return url
   }
   return `/api/media/cache?url=${encodeURIComponent(url)}`

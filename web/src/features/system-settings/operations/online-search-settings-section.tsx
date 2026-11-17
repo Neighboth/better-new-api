@@ -36,6 +36,7 @@ const schema = z.object({
   discordEnabled: z.boolean().optional(),
   liveEnabled: z.boolean().optional(),
   blogEnabled: z.boolean().optional(),
+  studioEnabled: z.boolean().optional(),
 })
 
 type Values = z.infer<typeof schema>
@@ -51,6 +52,7 @@ export function OnlineSearchSettingsSection({
     discordEnabled?: boolean
     liveEnabled?: boolean
     blogEnabled?: boolean
+    studioEnabled?: boolean
   }
 }) {
   const { t } = useTranslation()
@@ -66,6 +68,7 @@ export function OnlineSearchSettingsSection({
       discordEnabled: defaultValues.discordEnabled ?? false,
       liveEnabled: defaultValues.liveEnabled ?? false,
       blogEnabled: defaultValues.blogEnabled ?? false,
+      studioEnabled: defaultValues.studioEnabled ?? false,
     },
   })
 
@@ -92,6 +95,9 @@ export function OnlineSearchSettingsSection({
         'playground_setting.web_search_blog_enabled': String(
           Boolean(values.blogEnabled)
         ),
+        'playground_setting.web_search_studio_enabled': String(
+          Boolean(values.studioEnabled)
+        ),
       })
 
       form.reset(values)
@@ -105,6 +111,7 @@ export function OnlineSearchSettingsSection({
   const discordEnabled = form.watch('discordEnabled')
   const liveEnabled = form.watch('liveEnabled')
   const blogEnabled = form.watch('blogEnabled')
+  const studioEnabled = form.watch('studioEnabled')
 
   return (
     <SettingsSection title={t('Web Search')}>
@@ -264,6 +271,25 @@ export function OnlineSearchSettingsSection({
                 )}
               </p>
             )}
+          </div>
+
+          <div className='flex min-w-0 flex-col gap-1.5'>
+            <SettingsSwitchRow>
+              <SettingsSwitchContent>
+                <Label>{t('Studio')}</Label>
+                <SettingsDescription>
+                  {t(
+                    'Lets the Studio prompt optimizer search the web and the image index before writing the scene. The assistant can look up unknown brands, characters and objects, and attach found images as reference images automatically — great for subjects the model does not know yet.'
+                  )}
+                </SettingsDescription>
+              </SettingsSwitchContent>
+              <Switch
+                checked={Boolean(studioEnabled)}
+                onCheckedChange={(checked) =>
+                  form.setValue('studioEnabled', checked, { shouldDirty: true })
+                }
+              />
+            </SettingsSwitchRow>
           </div>
 
           <div className='flex min-w-0 flex-col gap-1.5'>

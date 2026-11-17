@@ -178,34 +178,66 @@ func StoreVideoFromURL(ctx context.Context, userID int, taskID string, upstreamU
 }
 
 // DeleteOldestVideoAssets deletes the user's oldest stored videos until at least
-// minBytes are freed (or none remain). Returns freed bytes and delete count.
-func DeleteOldestVideoAssets(userID int, minBytes int64) (freed int64, deleted int, err error) {
+// minBytes are freed (or none remain). It returns freed bytes, delete count and
+// the public URLs of every removed file so callers can purge matching studio
+// items from their lists. The stored video_assets rows and the studio_items rows
+// referencing the same file are removed together — storage, history and the
+// popup can never disagree again.
+func DeleteOldestVideoAssets(userID int, minBytes int64) (freed int64, deleted int, deletedURLs []string, err error) {
 	for {
 		var asset model.VideoAsset
 		err = model.DB.Where("user_id = ? AND deleted = ?", userID, false).
 			Order("expires_at ASC, id ASC").
 			First(&asset).Error
 		if err != nil {
-			return freed, deleted, nil
+			// Nothing left to delete — report what was already removed.
+			return freed, deleted, deletedURLs, nil
 		}
-		var path string
-		switch asset.Kind {
-		case "merged":
-			path = filepath.Join("uploads", "merged", asset.FileName)
-		default:
-			path = filepath.Join(videoUploadsDir, fmt.Sprint(userID), asset.FileName)
+		// storedAssetLocation resolves a stored asset to disk path and public URL.
+		path, url := storedAssetLocation(userID, asset)
+		fileName := asset.FileName
+		removeErr := os.Remove(path)
+		if removeErr != nil && !os.IsNotExist(removeErr) {
+			// Do not mark the row deleted or bill the user for space that is
+			// still occupied — surface the failure instead.
+			return freed, deleted, deletedURLs, fmt.Errorf("failed to delete the stored video %s: %w", path, removeErr)
 		}
-		_ = os.Remove(path)
-		freed += asset.Size
-		deleted++
-		_ = model.DB.Model(&asset).Updates(map[string]interface{}{
+		if selectorErr := removeStudioItemsForFile(userID, fileName); selectorErr != nil {
+			common.SysError(fmt.Sprintf("video storage: studio items for %s were not purged: %s", fileName, selectorErr.Error()))
+		}
+		if markerErr := model.DB.Model(&asset).Updates(map[string]interface{}{
 			"deleted":        true,
 			"deleted_reason": "user_delete",
-		}).Error
+		}).Error; markerErr != nil {
+			return freed, deleted, deletedURLs, fmt.Errorf("failed to mark the stored video as deleted: %w", markerErr)
+		}
+		freed += asset.Size
+		deleted++
+		deletedURLs = append(deletedURLs, url)
 		if freed >= minBytes {
-			return freed, deleted, nil
+			return freed, deleted, deletedURLs, nil
 		}
 	}
+}
+
+// storedAssetLocation resolves a stored asset to (diskPath, publicURL).
+func storedAssetLocation(userID int, asset model.VideoAsset) (diskPath string, publicURL string) {
+	switch asset.Kind {
+	case "merged":
+		return filepath.Join("uploads", "merged", asset.FileName), "/uploads/merged/" + asset.FileName
+	default:
+		directory := fmt.Sprint(userID)
+		return filepath.Join(videoUploadsDir, directory, asset.FileName), "/uploads/videos/" + directory + "/" + asset.FileName
+	}
+}
+
+// removeStudioItemsForFile removes studio_items rows of the user whose payload
+// references the given stored file name. Payloads embed /uploads/... URLs, so a
+// LIKE on the file name (unique fingerprint suffix) finds them reliably.
+func removeStudioItemsForFile(userID int, fileName string) error {
+	needle := "%" + fileName + "%"
+	return model.DB.Where("user_id = ? AND payload LIKE ?", userID, needle).
+		Delete(&model.StudioItem{}).Error
 }
 
 func headContentLength(ctx context.Context, url string) (int64, error) {

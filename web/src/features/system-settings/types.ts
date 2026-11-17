@@ -782,6 +782,7 @@ export type OperationsSettings = {
   'playground_setting.web_search_discord_enabled'?: boolean
   'playground_setting.web_search_live_enabled'?: boolean
   'playground_setting.web_search_blog_enabled'?: boolean
+  'playground_setting.web_search_studio_enabled'?: boolean
   'playground_setting.image_enabled'?: boolean
   /** JSON list of image models with the options of every model. */
   'playground_setting.image_models'?: string

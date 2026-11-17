@@ -48,13 +48,15 @@ func DeleteOldestVideoAssets(c *gin.Context) {
 		// sensible default: free 256 MB so one more short generation fits
 		limit = 256 << 20
 	}
-	freed, deleted, err := service.DeleteOldestVideoAssets(userId, limit)
+	freed, deleted, deletedURLs, err := service.DeleteOldestVideoAssets(userId, limit)
 	if err != nil {
+		common.SysError(fmt.Sprintf("video storage delete-oldest for user %d failed: %s", userId, err.Error()))
 		common.ApiError(c, err)
 		return
 	}
 	common.ApiSuccess(c, gin.H{
-		"freed_bytes": freed,
-		"deleted":     deleted,
+		"freed_bytes":  freed,
+		"deleted":      deleted,
+		"deleted_urls": deletedURLs,
 	})
 }

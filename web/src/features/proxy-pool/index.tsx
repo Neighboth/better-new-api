@@ -145,6 +145,7 @@ export function ProxyPool() {
   const [bulkText, setBulkText] = useState('')
   const [bulkEnabled, setBulkEnabled] = useState(true)
   const [isBulkSaving, setIsBulkSaving] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null)
   const [togglingProxyId, setTogglingProxyId] = useState<number | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const pageSize = 20
@@ -282,22 +283,33 @@ export function ProxyPool() {
       return
     }
     setIsBulkSaving(true)
+    setBulkProgress({ done: 0, total: lines.length })
+    // Chunked import: the browser never holds one giant request and the
+    // server commits small, fast transactions instead of one all-or-nothing
+    // import that can run for minutes without feedback.
+    const CHUNK = 1000
+    let imported = 0
     try {
-      const proxies = lines.map((url, idx) => ({
-        url,
-        name: lines.length === 1 ? (bulkBaseName.trim() || 'Proxy') : `${bulkBaseName.trim() || 'Proxy'}-${idx + 1}`,
-        enabled: bulkEnabled,
-      }))
-      const res = await batchCreateProxies({
-        base_name: bulkBaseName.trim() || 'Proxy',
-        enabled: bulkEnabled,
-        proxies,
-      })
-      if (!res.success) {
-        toast.error(res.message || t('Failed to import proxies'))
-        return
+      for (let start = 0; start < lines.length; start += CHUNK) {
+        const slice = lines.slice(start, start + CHUNK)
+        const proxies = slice.map((url, idx) => ({
+          url,
+          name: lines.length === 1 ? (bulkBaseName.trim() || 'Proxy') : `${bulkBaseName.trim() || 'Proxy'}-${start + idx + 1}`,
+          enabled: bulkEnabled,
+        }))
+        const res = await batchCreateProxies({
+          base_name: bulkBaseName.trim() || 'Proxy',
+          enabled: bulkEnabled,
+          proxies,
+        })
+        if (!res.success) {
+          toast.error(res.message || t('Failed to import proxies'))
+          return
+        }
+        imported += proxies.length
+        setBulkProgress({ done: imported, total: lines.length })
       }
-      toast.success(t('Successfully imported {{count}} proxies', { count: res.data?.count ?? proxies.length }))
+      toast.success(t('Successfully imported {{count}} proxies', { count: imported }))
       setDialogOpen(false)
       setBulkText('')
       invalidateAll()
@@ -305,6 +317,7 @@ export function ProxyPool() {
       toast.error(err?.response?.data?.message || err?.message || t('Failed to import proxies'))
     } finally {
       setIsBulkSaving(false)
+      setBulkProgress(null)
     }
   }
 
@@ -1284,7 +1297,12 @@ export function ProxyPool() {
                     {isBulkSaving ? (
                       <>
                         <Loader2 className='me-2 h-4 w-4 animate-spin' />
-                        {t('Importing...')}
+                        {bulkProgress
+                          ? t('Importing {{done}}/{{total}}', {
+                              done: bulkProgress.done,
+                              total: bulkProgress.total,
+                            })
+                          : t('Importing...')}
                       </>
                     ) : (
                       <>
