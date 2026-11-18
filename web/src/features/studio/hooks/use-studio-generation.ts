@@ -290,6 +290,12 @@ export function useStudioGeneration() {
       return []
     }
   })
+  // Mirrors the items state so the stop() callback can read the freshest
+  // taskId without being recreated on every progress tick.
+  const itemsRef = useRef(items)
+  useEffect(() => {
+    itemsRef.current = items
+  }, [items])
   const [isGenerating, setIsGenerating] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const controllersRef = useRef<Map<string, AbortController>>(new Map())
@@ -305,7 +311,11 @@ export function useStudioGeneration() {
   // Debounced persistence to avoid lag on frequent progress updates. The
   // local copy keeps working offline; the server copy is the account-wide
   // truth so the history follows the user across browsers and devices.
+  // Progress itself is pushed sparsely (at most once per 10 s per item) so
+  // a second browser sees near-live progress instead of starting at 0 while
+  // a fresh PUT per poll tick would hammer the endpoint.
   const lastSyncedRef = useRef<Map<string, string>>(new Map())
+  const lastProgressPushRef = useRef<Map<string, number>>(new Map())
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
@@ -318,8 +328,23 @@ export function useStudioGeneration() {
         if (!item?.id) continue
         const payload = stripVolatileMediaFields(item)
         const serialized = JSON.stringify(payload)
-        if (lastSyncedRef.current.get(item.id) !== serialized) {
-          changed.push(payload)
+        const baseChanged = lastSyncedRef.current.get(item.id) !== serialized
+        const hasLiveProgress = item.status === 'pending' && typeof item.progress === 'string' && item.progress !== ''
+        const progressDue =
+          hasLiveProgress && Date.now() - (lastProgressPushRef.current.get(item.id) ?? 0) > 10_000
+        if (!baseChanged && !progressDue) {
+          continue
+        }
+        if (hasLiveProgress) {
+          payload.progress = item.progress
+          if (item.queuePosition !== undefined) {
+            payload.queuePosition = item.queuePosition
+          }
+        }
+        changed.push(payload)
+        lastSyncedRef.current.set(item.id, serialized)
+        if (hasLiveProgress) {
+          lastProgressPushRef.current.set(item.id, Date.now())
         }
       }
       if (changed.length > 0) {
@@ -327,7 +352,6 @@ export function useStudioGeneration() {
         while (remaining.length > 0) {
           const batch = remaining.splice(0, 50)
           for (const item of batch) {
-            lastSyncedRef.current.set(item.id, JSON.stringify(item))
             syncedIdsRef.current.add(item.id)
           }
           persistSyncedIds(syncedIdsRef.current)
@@ -710,12 +734,25 @@ export function useStudioGeneration() {
   )
 
   const stop = useCallback((id?: string) => {
+    // Best-effort: ask the server to cancel the task if it never started.
+    // The endpoint only allows QUEUED (never admitted) tasks — jobs already
+    // running upstream return 409 and their result will still be stored,
+    // which the caller sees as the final history item.
+    const cancelTaskOnServer = (taskId?: string) => {
+      if (!taskId) return
+      void api.post(`/api/task/self/${encodeURIComponent(taskId)}/cancel`).catch(() => {})
+    }
     if (id) {
+      const item = itemsRef.current.find((entry) => entry.id === id)
+      cancelTaskOnServer(item?.taskId)
       controllersRef.current.get(id)?.abort()
       controllersRef.current.delete(id)
       activePollingTasks.current.delete(id)
       patchItem(id, { status: 'error', error: 'Cancelled' })
     } else {
+      for (const item of itemsRef.current) {
+        cancelTaskOnServer(item.taskId)
+      }
       abortRef.current?.abort()
       controllersRef.current.forEach((ctrl) => ctrl.abort())
       controllersRef.current.clear()

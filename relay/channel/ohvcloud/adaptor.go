@@ -38,11 +38,23 @@ type Adaptor struct {
 	openai.Adaptor
 }
 
+// stripV1Suffixes removes any trailing /v1 segments (case-insensitive) from
+// the base URL. The shared relay path always appends /v1/<endpoint>, so a
+// base that still carries one or more /v1 suffixes would produce
+// /v1/v1/<endpoint> and upstreams answer with 404.
+func stripV1Suffixes(base string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(base), "/")
+	lower := strings.ToLower(trimmed)
+	for strings.HasSuffix(lower, "/v1") {
+		trimmed = strings.TrimRight(trimmed[:len(trimmed)-3], "/")
+		lower = strings.ToLower(trimmed)
+	}
+	return trimmed
+}
+
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	if info != nil {
-		base := strings.TrimSpace(info.ChannelBaseUrl)
-		trimmed := strings.TrimSuffix(strings.TrimRight(base, "/"), "/v1")
-		if trimmed != base {
+		if trimmed := stripV1Suffixes(info.ChannelBaseUrl); trimmed != info.ChannelBaseUrl {
 			info.ChannelBaseUrl = trimmed
 		}
 	}

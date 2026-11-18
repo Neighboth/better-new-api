@@ -194,16 +194,23 @@ export interface ProxyChannelDetailData {
     multi_key_size: number
   }
   assignments: ProxyChannelAssignmentDetail[]
+  /** Total number of assigned proxies across all pages (server-side). */
+  assignments_total: number
+  /** 1-based page the `assignments` list was sliced from. */
+  assignments_page: number
+  assignments_page_size: number
   cooldowns: Record<string, number>
   events: ProxyPoolEvent[]
   global_events: ProxyPoolEvent[]
 }
 
 export async function getChannelDetail(
-  channelId: number
+  channelId: number,
+  assignmentsPage = 1,
+  assignmentsPageSize = 20
 ): Promise<ApiEnvelope<ProxyChannelDetailData>> {
   const res = await api.get<ApiEnvelope<ProxyChannelDetailData>>(
-    `/api/proxy-pool/channels/${channelId}/detail`
+    `/api/proxy-pool/channels/${channelId}/detail?assignments_page=${assignmentsPage}&assignments_page_size=${assignmentsPageSize}`
   )
   return res.data
 }

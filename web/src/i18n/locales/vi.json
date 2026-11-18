@@ -8429,6 +8429,10 @@
     "Test ok": "Kiểm tra đạt",
     "Auto-enabled": "Tự bật",
     "Paste Claude Code OAuth access_token (sk-ant-oat01-...) or JSON credential {\"access_token\":\"...\",\"refresh_token\":\"...\"}": "Dán access_token OAuth Claude Code (sk-ant-oat01-...) hoặc thông tin đăng nhập JSON {\"access_token\":\"...\",\"refresh_token\":\"...\"}",
-    "The upstream link may have expired, or the file could not be stored on the server. Regenerate to create a fresh copy.": "Liên kết nguồn có thể đã hết hạn hoặc tệp không được lưu trên máy chủ. Tạo lại để tạo bản sao mới."
+    "The upstream link may have expired, or the file could not be stored on the server. Regenerate to create a fresh copy.": "Liên kết nguồn có thể đã hết hạn hoặc tệp không được lưu trên máy chủ. Tạo lại để tạo bản sao mới.",
+    "OHVCloud (Anon) channel does not require an API key.": "Kênh OHVCloud (Anon) không yêu cầu khóa API.",
+    "Page {{page}} / {{total}} · {{count}} proxies": "Trang {{page}} / {{total}} · {{count}} proxy",
+    "Reference image {{index}}": "Ảnh tham chiếu {{index}}",
+    "Remove reference": "Xóa tham chiếu"
   }
 }

@@ -8429,6 +8429,10 @@
     "Test ok": "Test ok",
     "Auto-enabled": "Auto-enabled",
     "Paste Claude Code OAuth access_token (sk-ant-oat01-...) or JSON credential {\"access_token\":\"...\",\"refresh_token\":\"...\"}": "Paste Claude Code OAuth access_token (sk-ant-oat01-...) or JSON credential {\"access_token\":\"...\",\"refresh_token\":\"...\"}",
-    "The upstream link may have expired, or the file could not be stored on the server. Regenerate to create a fresh copy.": "The upstream link may have expired, or the file could not be stored on the server. Regenerate to create a fresh copy."
+    "The upstream link may have expired, or the file could not be stored on the server. Regenerate to create a fresh copy.": "The upstream link may have expired, or the file could not be stored on the server. Regenerate to create a fresh copy.",
+    "OHVCloud (Anon) channel does not require an API key.": "OHVCloud (Anon) channel does not require an API key.",
+    "Page {{page}} / {{total}} · {{count}} proxies": "Page {{page}} / {{total}} · {{count}} proxies",
+    "Reference image {{index}}": "Reference image {{index}}",
+    "Remove reference": "Remove reference"
   }
 }

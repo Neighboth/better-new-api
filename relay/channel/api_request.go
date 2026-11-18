@@ -629,6 +629,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 			service.RecordProxyRateLimitedWithChannel(rawProxyURL, info.ChannelId, 30*time.Minute)
 			nextProxy := service.GetNextProxyForAnonChannel(info.ChannelId, rawProxyURL)
 			if nextProxy == "" || nextProxy == rawProxyURL {
+				service.RecordPoolExhausted(info.ChannelId)
 				break
 			}
 			previousProxy := rawProxyURL

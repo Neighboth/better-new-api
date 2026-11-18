@@ -43,11 +43,19 @@ func ListStudioItems(userId int, limit int) ([]StudioItem, error) {
 }
 
 // UpsertStudioItem stores or refreshes one item payload for the user.
+// The client's payload is the source of truth for what it knows; the
+// server-side optimizer facts (optimizedPrompt, merged references and
+// negativePrompt in `details`, plus the taskId) are preserved when the client
+// did not carry them — the client never sees the optimizer's merged output.
 func UpsertStudioItem(userId int, itemId, payload string, now int64) error {
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var item StudioItem
 		err := tx.Where("user_id = ? AND item_id = ?", userId, itemId).First(&item).Error
 		if err == nil {
+			merged, mergeErr := mergeStudioPayloadPreservingServerFacts(item.Payload, payload)
+			if mergeErr == nil {
+				payload = merged
+			}
 			item.Payload = payload
 			item.UpdatedAt = now
 			return tx.Save(&item).Error
@@ -61,6 +69,65 @@ func UpsertStudioItem(userId int, itemId, payload string, now int64) error {
 		}
 		return tx.Create(&created).Error
 	})
+}
+
+// mergeStudioPayloadPreservingServerFacts merges the incoming client payload
+// with the stored one, keeping server-side facts the client does not have:
+// taskId, details.optimizedPrompt, details.negativePrompt and
+// details.referenceImages fall back to the stored values when the incoming
+// payload omits them.
+func mergeStudioPayloadPreservingServerFacts(stored, incoming string) (string, error) {
+	storedMap := map[string]interface{}{}
+	if trimmed := strings.TrimSpace(stored); trimmed != "" {
+		_ = common.UnmarshalJsonStr(trimmed, &storedMap)
+	}
+	incomingMap := map[string]interface{}{}
+	if trimmed := strings.TrimSpace(incoming); trimmed != "" {
+		if err := common.UnmarshalJsonStr(trimmed, &incomingMap); err != nil {
+			return "", err
+		}
+	}
+	if len(incomingMap) == 0 {
+		return stored, nil
+	}
+	// taskId — the client learns it from submit/resume callbacks, but the
+	// server writes it down at submission time; prefer whichever is present,
+	// falling back to the stored one.
+	if _, ok := incomingMap["taskId"]; !ok {
+		if taskId, ok := storedMap["taskId"]; ok {
+			incomingMap["taskId"] = taskId
+		}
+	}
+	// details — the client never carries the optimizer's output (it only
+	// knows the user's raw brief and locally uploaded references): keep the
+	// server-known optimizer facts, never resurrect referenceImages the user
+	// may have pruned deliberately.
+	storedDetails, storedOk := storedMap["details"].(map[string]interface{})
+	incomingDetails, _ := incomingMap["details"].(map[string]interface{})
+	mergedDetails := map[string]interface{}{}
+	for key, value := range incomingDetails {
+		mergedDetails[key] = value
+	}
+	if storedOk {
+		for _, key := range []string{"optimizedPrompt", "negativePrompt"} {
+			if value, ok := mergedDetails[key]; ok && value != nil {
+				continue
+			}
+			if value, ok := storedDetails[key]; ok && value != nil {
+				mergedDetails[key] = value
+			}
+		}
+	}
+	if len(mergedDetails) > 0 {
+		incomingMap["details"] = mergedDetails
+	} else {
+		delete(incomingMap, "details")
+	}
+	serialized, err := common.Marshal(incomingMap)
+	if err != nil {
+		return "", err
+	}
+	return string(serialized), nil
 }
 
 // OverlayStudioItem merges the server-side facts of a generation into the

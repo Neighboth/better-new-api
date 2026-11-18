@@ -1,13 +1,18 @@
 package controller
 
 import (
+	"context"
+	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -34,6 +39,59 @@ func GetAllTask(c *gin.Context) {
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(tasksToDto(items, true))
 	common.ApiSuccess(c, pageInfo)
+}
+
+// CancelTask cancels a queued (never admitted upstream) task owned by the
+// user. Only QUEUED tasks can be cancelled: a job already admitted upstream
+// cannot be stopped there and its result will still be stored. Cancelled
+// placeholders are marked FAILURE so they never reach the dispatcher nor the
+// async poller, and any quota that was held is refunded.
+func CancelTask(c *gin.Context) {
+	userId := c.GetInt("id")
+	taskId := strings.TrimSpace(c.Param("task_id"))
+	if taskId == "" {
+		common.ApiErrorMsg(c, "missing task id")
+		return
+	}
+	task, exist, err := model.GetByTaskId(userId, taskId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !exist {
+		common.ApiErrorMsg(c, "task not found")
+		return
+	}
+	if task.Status != model.TaskStatusQueued {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"message": "This generation already started upstream and cannot be cancelled. The result will appear in your history.",
+			"code":    "task_already_started",
+		})
+		return
+	}
+	now := time.Now().Unix()
+	oldStatus := task.Status
+	task.Status = model.TaskStatusFailure
+	task.Progress = "100%"
+	task.FinishTime = now
+	task.FailReason = "Cancelled by the user before the job reached the provider"
+	won, err := task.UpdateWithStatus(oldStatus)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !won {
+		common.ApiErrorMsg(c, "the task already transitioned; refresh the page")
+		return
+	}
+	if task.Quota != 0 {
+		_ = service.RefundTaskQuota(context.Background(), task, "cancelled by the user")
+	}
+	common.ApiSuccess(c, gin.H{
+		"task_id": taskId,
+		"status":  model.TaskStatusFailure,
+	})
 }
 
 func GetUserTask(c *gin.Context) {

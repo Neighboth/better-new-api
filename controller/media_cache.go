@@ -50,9 +50,13 @@ func getMediaCacheKey(rawURL string) (string, string) {
 }
 
 func setMediaCacheHeaders(c *gin.Context) {
-	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	// no-transform: never let an intermediary re-encode video.
+	// X-Accel-Buffering: no: stream through nginx instead of buffering the
+	// whole body before flushing to the browser (choppy seeking symptom).
+	c.Header("Cache-Control", "public, max-age=31536000, immutable, no-transform")
 	c.Header("Accept-Ranges", "bytes")
 	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("X-Accel-Buffering", "no")
 }
 
 // GetCachedMedia handles GET /api/media/cache?url=...

@@ -396,6 +396,7 @@ export function ProxyPool() {
   const enabledCount = proxiesQuery.data?.enabled_count ?? proxyList.filter((p) => p.enabled).length
 
   const [detailChannelId, setDetailChannelId] = useState<number | null>(null)
+  const [assignmentsPage, setAssignmentsPage] = useState(1)
 
   const channelsQuery = useQuery({
     queryKey: ['proxy-pool-channels'],
@@ -409,10 +410,10 @@ export function ProxyPool() {
   })
 
   const channelDetailQuery = useQuery({
-    queryKey: ['proxy-pool-channel-detail', detailChannelId],
+    queryKey: ['proxy-pool-channel-detail', detailChannelId, assignmentsPage],
     queryFn: async () => {
       if (detailChannelId === null) return null
-      const res = await getChannelDetail(detailChannelId)
+      const res = await getChannelDetail(detailChannelId, assignmentsPage, 20)
       if (!res.success) {
         throw new Error(res.message || 'failed to load channel detail')
       }
@@ -420,8 +421,15 @@ export function ProxyPool() {
     },
     enabled: detailChannelId !== null,
     staleTime: 10_000,
+    placeholderData: (previous) => previous,
   })
   const channelDetailData = channelDetailQuery.data
+  const assignmentsPageCount = channelDetailData
+    ? Math.max(
+        1,
+        Math.ceil((channelDetailData.assignments_total || 0) / Math.max(1, channelDetailData.assignments_page_size || 20))
+      )
+    : 1
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['proxy-pool-proxies'] })
@@ -1055,7 +1063,10 @@ export function ProxyPool() {
                             <Button
                               size='sm'
                               variant='outline'
-                              onClick={() => setDetailChannelId(channel.id)}
+                              onClick={() => {
+                                 setAssignmentsPage(1)
+                                 setDetailChannelId(channel.id)
+                               }}
                               aria-label={t('Channel detail')}
                               title={t('Channel detail')}
                             >
@@ -1804,7 +1815,10 @@ export function ProxyPool() {
       <Dialog
         open={detailChannelId !== null}
         onOpenChange={(open) => {
-          if (!open) setDetailChannelId(null)
+          if (!open) {
+            setDetailChannelId(null)
+            setAssignmentsPage(1)
+          }
         }}
       >
         <DialogContent className='max-w-3xl w-[96vw] sm:w-full max-h-[88vh] sm:max-h-[85vh] flex flex-col p-0 overflow-hidden'>
@@ -1932,6 +1946,37 @@ export function ProxyPool() {
                           })}
                         </TableBody>
                       </Table>
+                    </div>
+                  )}
+                  {assignmentsPageCount > 1 && (
+                    <div className='flex items-center justify-between gap-2 px-1 pt-1'>
+                      <p className='text-[10px] tabular-nums text-muted-foreground'>
+                        {t('Page {{page}} / {{total}} · {{count}} proxies', {
+                          page: channelDetailData.assignments_page,
+                          total: assignmentsPageCount,
+                          count: channelDetailData.assignments_total,
+                        })}
+                      </p>
+                      <div className='flex items-center gap-1'>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          disabled={assignmentsPage <= 1}
+                          onClick={() => setAssignmentsPage((p) => Math.max(1, p - 1))}
+                          className='h-7 text-[10px]'
+                        >
+                          {t('Previous')}
+                        </Button>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          disabled={assignmentsPage >= assignmentsPageCount}
+                          onClick={() => setAssignmentsPage((p) => Math.min(assignmentsPageCount, p + 1))}
+                          className='h-7 text-[10px]'
+                        >
+                          {t('Next')}
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </section>

@@ -463,15 +463,28 @@ func GetProxyChannelDetail(c *gin.Context) {
 		common.ApiErrorMsg(c, "invalid channel id")
 		return
 	}
+	page, _ := strconv.Atoi(c.DefaultQuery("assignments_page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("assignments_page_size", "20"))
+	if pageSize <= 0 || pageSize > 100 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
 	ch, err := model.GetChannelById(id, true)
 	if err != nil {
 		common.ApiErrorMsg(c, "channel not found")
 		return
 	}
-	assignments, err := model.ListProxyPoolChannelAssignmentsDetail(id)
+	assignments, err := model.ListProxyPoolChannelAssignmentsDetail(id, pageSize, offset)
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	totalAssignments, err := model.CountProxyPoolChannelAssignments(id)
+	if err != nil {
+		totalAssignments = int64(len(assignments))
 	}
 	urls := make([]string, 0, len(assignments))
 	for _, assignment := range assignments {
@@ -495,10 +508,13 @@ func GetProxyChannelDetail(c *gin.Context) {
 			"group":          ch.Group,
 			"multi_key_size": ch.ChannelInfo.MultiKeySize,
 		},
-		"assignments":   assignments,
-		"cooldowns":     cooldowns,
-		"events":        events,
-		"global_events": globalEvents,
+		"assignments":       assignments,
+		"assignments_total": totalAssignments,
+		"assignments_page":  page,
+		"assignments_page_size": pageSize,
+		"cooldowns":         cooldowns,
+		"events":            events,
+		"global_events":     globalEvents,
 	})
 }
 

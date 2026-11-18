@@ -498,7 +498,11 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		// OHVCloud's anonymous gateway lists models with a per-model pricing
 		// map. A model is free only when EVERY pricing field is "0".
 		base := strings.TrimRight(strings.TrimSpace(channel.GetBaseURL()), "/")
-		base = strings.TrimSuffix(base, "/v1")
+		lowerBase := strings.ToLower(base)
+		for strings.HasSuffix(lowerBase, "/v1") {
+			base = strings.TrimRight(base[:len(base)-3], "/")
+			lowerBase = strings.ToLower(base)
+		}
 		fetchURL := base + "/v1/models"
 		reqHeaders := make(http.Header)
 		reqHeaders.Set("Accept", "application/json")

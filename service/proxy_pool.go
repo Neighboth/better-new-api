@@ -127,7 +127,26 @@ func EffectiveRelayProxyURL(channelId, keyIndex int, keyString string, channelPr
 var (
 	proxy429Cooldown   sync.Map // string -> time.Time
 	anonChannelCounter sync.Map // int -> uint64
+	poolExhaustedMarks sync.Map // int -> time.Time
 )
+
+// RecordPoolExhausted logs (at most once per minute per channel) that every
+// assigned proxy for an anonymous channel is on 429 cooldown, or none are
+// assigned — i.e. there is no exit left to ride. This is the signal an
+// administrator needs to see when an anonymous channel degrades to dead.
+func RecordPoolExhausted(channelID int) {
+	if channelID <= 0 {
+		return
+	}
+	now := time.Now()
+	if last, ok := poolExhaustedMarks.Load(channelID); ok {
+		if t, ok := last.(time.Time); ok && now.Sub(t) < time.Minute {
+			return
+		}
+	}
+	poolExhaustedMarks.Store(channelID, now)
+	model.RecordProxyPoolEvent(channelID, -1, 0, "", "pool_exhausted", "No proxy left to serve this anonymous channel — every assigned proxy is on 429 cooldown (or nothing is assigned)")
+}
 
 // RecordProxyRateLimited places a proxy on cooldown following a 429 response.
 // Accepts an optional duration (e.g. 30 minutes for OpenCode / Kilo Code); defaults to 60s.

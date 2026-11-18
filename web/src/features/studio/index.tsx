@@ -96,6 +96,7 @@ import {
 } from './lib/model-constraints'
 import { getStudioVideo } from './lib/studio-indexeddb'
 import { StudioItemDetailsDialog } from './components/studio-item-details-dialog'
+import { VideoJsPlayer } from './components/video-js-player'
 import { STUDIO_ITEMS_PURGED_EVENT } from './lib/studio-sync'
 
 /** Serves media through local cache proxy to avoid 12-hour upstream expiration. */
@@ -382,6 +383,7 @@ function VideoStorageQuota() {
                 setConfirmOldestOpen(false)
                 void runDelete(false)
               }}
+              className='bg-destructive text-white hover:bg-destructive/90'
             >
               {t('Delete oldest')}
             </AlertDialogAction>
@@ -407,6 +409,7 @@ function VideoStorageQuota() {
                 setConfirmAllOpen(false)
                 void runDelete(true)
               }}
+              className='bg-destructive text-white hover:bg-destructive/90'
             >
               {t('Delete all')}
             </AlertDialogAction>
@@ -418,78 +421,14 @@ function VideoStorageQuota() {
 }
 
 /** Reference-image chip strip: cap + source from the model's option rules. */
-function ReferenceImageChipsBlock(props: {
-  cap: number
-  allowed: boolean
-  values: string[]
-  onChange: (next: string[]) => void
-  inputRef: React.RefObject<HTMLInputElement | null>
-  onPick: (files: FileList | null) => void
-}) {
-  const { t } = useTranslation()
-  const { cap, allowed, values, onChange, inputRef, onPick } = props
-  return (
-    <div className='space-y-1.5'>
-      <div className='flex items-center justify-between gap-2'>
-        <Label className='text-[11px] text-muted-foreground'>
-          {t('Reference Images')}
-          <span className='text-muted-foreground/70'>
-            {' '}
-            · {values.length}/{cap}
-          </span>
-        </Label>
-        <button
-          type='button'
-          disabled={!allowed || values.length >= cap}
-          className='inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed'
-          onClick={() => inputRef.current?.click()}
-        >
-          <PlusIcon className='size-3' />
-          {t('Add')}
-        </button>
-        <input
-          ref={inputRef}
-          type='file'
-          accept='image/*'
-          multiple
-          className='hidden'
-          onChange={(e) => {
-            onPick(e.target.files)
-            e.target.value = ''
-          }}
-        />
-      </div>
-      {!allowed && (
-        <p className='text-[10px] leading-snug text-amber-600 dark:text-amber-400'>
-          {t('Reference images are not available at these settings for this model.')}
-        </p>
-      )}
-      {values.length > 0 && (
-        <div className='flex flex-wrap gap-1.5'>
-          {values.map((url, index) => (
-            <div
-              key={url}
-              className='relative size-12 overflow-hidden rounded-lg border border-border/70'
-            >
-              <img
-                src={url}
-                alt={t('Reference {{index}}', { index: index + 1 })}
-                className='size-full object-cover'
-              />
-              <button
-                type='button'
-                className='absolute end-0.5 top-0.5 rounded bg-black/70 p-0.5 text-white hover:bg-black'
-                onClick={() => onChange(values.filter((_, i) => i !== index))}
-                aria-label={t('Remove reference image {{index}}', { index: index + 1 })}
-              >
-                <XIcon className='size-3' />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
+// Deterministic 48-bit-ish hash of a URL/data-URL string — used for React
+// keys on unique reference entries.
+function referenceKey(url: string): string {
+  let hash = 0
+  for (let i = 0; i < url.length; i += 113) {
+    hash = (hash * 31 + url.charCodeAt(i)) >>> 0
+  }
+  return hash.toString(36) + ':' + url.length.toString(36)
 }
 
 export function Studio() {
@@ -550,9 +489,6 @@ export function Studio() {
   const [referenceImages, setReferenceImages] = useState<string[]>([])
   const [audioReferences, setAudioReferences] = useState<string[]>([])
   const [videoReferences, setVideoReferences] = useState<string[]>([])
-  const referenceImageInputRef = useRef<HTMLInputElement>(null)
-  const audioReferenceInputRef = useRef<HTMLInputElement>(null)
-  const videoReferenceInputRef = useRef<HTMLInputElement>(null)
   const [negativePrompt, setNegativePrompt] = useState('')
   const [startFrame, setStartFrame] = useState('')
   const [endFrame, setEndFrame] = useState('')
@@ -937,9 +873,7 @@ export function Studio() {
           count: imageCount,
           referenceImages: imageRefs,
           referenceCap,
-          metadata: {
-            ...(optimizerModel ? { optimizer_model: optimizerModel } : {}),
-          },
+          metadata: optimizerModel ? { optimizer_model: optimizerModel } : undefined,
         },
         (id) => setActiveSessionItemId(id)
       )
@@ -996,7 +930,7 @@ export function Studio() {
   // Adds reference files (image/audio/video) to the matching chip list,
   // honoring the model's per-modality cap and the current option rules.
   const handleReferenceFiles = async (
-    files: FileList | null,
+    files: FileList | File[] | null,
     kind: 'image' | 'audio' | 'video'
   ) => {
     if (!files || files.length === 0) return
@@ -1061,28 +995,52 @@ export function Studio() {
     }
   }
 
-  const handleFileAttach = (file: File | undefined) => {
-    if (!file) {
-      setAttachedMedia(null)
-      return
-    }
-    if (file.type.startsWith('audio/')) {
-      toast.error(t('Please select an image or video'))
-      return
-    }
-    const reader = new FileReader()
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        let fileType: AttachedMedia['type'] = 'image'
-        if (file.type.startsWith('video/')) fileType = 'video'
-        setAttachedMedia({
-          url: reader.result,
-          name: file.name,
-          type: fileType,
-        })
+  // The '+' button of the composer covers every reference role:
+  //  - exactly one image/video picked -> the single attachment (frame source / edit source)
+  //  - everything else (audio or multiple files) -> the modality reference lists
+  //    attached to the generation as reference_images / reference_audio_count / reference_video_count
+  const handleMediaPick = (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    const list = [...files]
+    const images = list.filter((f) => f.type.startsWith('image/'))
+    const videos = list.filter((f) => f.type.startsWith('video/'))
+    const audios = list.filter((f) => f.type.startsWith('audio/'))
+    if (list.length === 1 && (images.length === 1 || videos.length === 1)) {
+      // Single attachment keeps the legacy frame/edit-source behavior.
+      const file = list[0]
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          setAttachedMedia({
+            url: reader.result,
+            name: file.name,
+            type: images.length === 1 ? 'image' : 'video',
+          })
+        }
       }
+      reader.readAsDataURL(file)
+      return
     }
-    reader.readAsDataURL(file)
+    if (images.length > 0) void handleReferenceFiles(images, 'image')
+    if (audios.length > 0) void handleReferenceFiles(audios, 'audio')
+    if (videos.length > 0) void handleReferenceFiles(videos, 'video')
+  }
+
+  // Paste files (Ctrl+V / Cmd+V) straight into the composer textarea —
+  // images become image references, audios/videos land in their own lists.
+  const handlePromptPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = [...e.clipboardData.items]
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file))
+    if (files.length === 0) return
+    e.preventDefault()
+    const images = files.filter((f) => f.type.startsWith('image/'))
+    const audios = files.filter((f) => f.type.startsWith('audio/'))
+    const videos = files.filter((f) => f.type.startsWith('video/'))
+    if (images.length > 0) void handleReferenceFiles(images, 'image')
+    if (audios.length > 0) void handleReferenceFiles(audios, 'audio')
+    if (videos.length > 0) void handleReferenceFiles(videos, 'video')
   }
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -1096,13 +1054,9 @@ export function Studio() {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
-    const file = e.dataTransfer.files?.[0]
-    if (file) {
-      if (file.type.startsWith('audio/')) {
-        toast.error(t('Please select an image or video'))
-        return
-      }
-      handleFileAttach(file)
+    const files = e.dataTransfer.files
+    if (files?.length) {
+      handleMediaPick(files)
     }
   }
 
@@ -1257,38 +1211,40 @@ export function Studio() {
                               </div>
                             )
                           }
-                          return brokenMediaIds.has(activeItem.id) ? (
-                            <div className='flex flex-col items-center justify-center gap-3 p-10 text-center'>
-                              <VideoIcon className='size-10 text-muted-foreground/40' />
-                              <p className='text-sm font-medium text-muted-foreground'>
-                                {t('The video could not be loaded.')}
-                              </p>
-                              <p className='max-w-xs text-[11px] text-muted-foreground/70'>
-                                {t('The upstream link may have expired, or the file could not be stored on the server. Regenerate to create a fresh copy.')}
-                              </p>
-                              <button
-                                type='button'
-                                onClick={() =>
-                                  setBrokenMediaIds((prev) => {
-                                    const next = new Set(prev)
-                                    next.delete(activeItem.id)
-                                    return next
-                                  })
-                                }
-                                className='h-8 rounded-lg border bg-background px-4 text-xs font-medium text-foreground transition hover:bg-muted'
-                              >
-                                {t('Retry')}
-                              </button>
-                            </div>
-                          ) : singleVideoUrl ? (
-                            <video
+                          if (brokenMediaIds.has(activeItem.id)) {
+                            return (
+                              <div className='flex flex-col items-center justify-center gap-3 p-10 text-center'>
+                                <VideoIcon className='size-10 text-muted-foreground/40' />
+                                <p className='text-sm font-medium text-muted-foreground'>
+                                  {t('The video could not be loaded.')}
+                                </p>
+                                <p className='max-w-xs text-[11px] text-muted-foreground/70'>
+                                  {t('The upstream link may have expired, or the file could not be stored on the server. Regenerate to create a fresh copy.')}
+                                </p>
+                                <button
+                                  type='button'
+                                  onClick={() =>
+                                    setBrokenMediaIds((prev) => {
+                                      const next = new Set(prev)
+                                      next.delete(activeItem.id)
+                                      return next
+                                    })
+                                  }
+                                  className='h-8 rounded-lg border bg-background px-4 text-xs font-medium text-foreground transition hover:bg-muted'
+                                >
+                                  {t('Retry')}
+                                </button>
+                              </div>
+                            )
+                          }
+                          return singleVideoUrl ? (
+                            <VideoJsPlayer
                               key={singleVideoUrl}
                               autoPlay
-                              className='max-h-[380px] w-full object-contain bg-black rounded-lg'
-                              controls
                               loop
-                              playsInline
+                              className='max-h-[380px] w-full object-contain bg-black rounded-lg'
                               src={getPlayableItemUrl(activeItem, localOnlyUrls) || singleVideoUrl}
+                              qualityLabel={activeItem.settings?.quality != null ? String(activeItem.settings.quality) : undefined}
                               onError={() => markMediaBroken(activeItem.id)}
                             />
                           ) : (
@@ -1366,47 +1322,132 @@ export function Studio() {
 
         {/* Google Flow Floating Bottom Input Capsule */}
         <div className='sticky bottom-6 z-20 w-full pt-4'>
-          {/* Attached Reference Chip (if any) positioned cleanly above the capsule */}
-          {attachedMedia && (
-            <div className='mb-2 flex items-center gap-2 rounded-xl bg-card/90 border border-border/60 p-1.5 pr-2.5 w-fit shadow-md backdrop-blur-md'>
-              {(() => {
-                if (attachedMedia.type === 'image') {
-                  return (
-                    <img
-                      src={attachedMedia.url}
-                      alt='Reference'
-                      className='size-7 rounded-lg object-cover'
-                    />
-                  )
-                }
-                if (attachedMedia.type === 'audio') {
-                  return (
-                    <div className='size-7 rounded-lg bg-background flex items-center justify-center'>
-                      <FileAudioIcon className='size-4 text-foreground' />
-                    </div>
-                  )
-                }
-                return (
-                  <div className='size-7 rounded-lg bg-background flex items-center justify-center'>
-                    <VideoIcon className='size-4 text-foreground' />
-                  </div>
-                )
-              })()}
-              <span className='max-w-[200px] truncate text-xs text-muted-foreground font-medium'>
-                {(() => {
-                  if (attachedMedia.name) return attachedMedia.name
-                  if (attachedMedia.type === 'audio') return t('Reference Audio')
-                  if (attachedMedia.type === 'video') return t('Reference Video')
-                  return t('Reference Image')
-                })()}
+          {/* Attached media & references strip, above the capsule */}
+          {(referenceImages.length > 0 ||
+            audioReferences.length > 0 ||
+            videoReferences.length > 0 ||
+            attachedMedia) && (
+            <div className='mb-2 flex max-w-full items-center gap-2 overflow-x-auto rounded-xl border border-border/60 bg-card/90 p-1.5 backdrop-blur-md w-fit'>
+              {attachedMedia && (
+                <div className='flex shrink-0 items-center gap-2 rounded-lg border border-border/60 bg-background/60 py-1 pe-2 ps-1.5'>
+                  {(() => {
+                    if (attachedMedia.type === 'image') {
+                      return (
+                        <img
+                          src={attachedMedia.url}
+                          alt={t('Reference Image')}
+                          className='size-7 rounded-md object-cover'
+                        />
+                      )
+                    }
+                    if (attachedMedia.type === 'audio') {
+                      return (
+                        <div className='flex size-7 items-center justify-center rounded-md bg-muted'>
+                          <FileAudioIcon className='size-4 text-foreground' />
+                        </div>
+                      )
+                    }
+                    return (
+                      <div className='flex size-7 items-center justify-center rounded-md bg-muted'>
+                        <VideoIcon className='size-4 text-foreground' />
+                      </div>
+                    )
+                  })()}
+                  <span className='max-w-[140px] truncate text-xs font-medium text-foreground'>
+                    {attachedMedia.name
+                      ? attachedMedia.name
+                      : (() => {
+                          switch (attachedMedia.type) {
+                            case 'audio':
+                              return t('Reference Audio')
+                            case 'video':
+                              return t('Reference Video')
+                            default:
+                              return t('Reference Image')
+                          }
+                        })()}
+                  </span>
+                  <button
+                    type='button'
+                    aria-label={t('Remove reference')}
+                    onClick={() => setAttachedMedia(null)}
+                    className='text-muted-foreground transition hover:text-foreground'
+                  >
+                    <XIcon className='size-3.5' />
+                  </button>
+                </div>
+              )}
+              {referenceImages.map((url, index) => (
+                <div
+                  key={`img-${referenceKey(url)}`}
+                  className='relative flex size-14 shrink-0 items-end overflow-hidden rounded-lg border border-border/60'
+                >
+                  <img
+                    src={url}
+                    alt={t('Reference image {{index}}', { index: index + 1 })}
+                    className='absolute inset-0 size-full object-cover'
+                  />
+                  <span className='absolute start-1 top-1 rounded bg-black/60 px-1 text-[9px] font-semibold text-white'>
+                    {index + 1}
+                  </span>
+                  <button
+                    type='button'
+                    aria-label={t('Remove reference image {{index}}', { index: index + 1 })}
+                    onClick={() =>
+                      setReferenceImages((prev) => prev.filter((_, i) => i !== index))
+                    }
+                    className='absolute end-0.5 top-0.5 rounded-md bg-black/60 p-0.5 text-white transition hover:bg-black/80'
+                  >
+                    <XIcon className='size-3' />
+                  </button>
+                </div>
+              ))}
+              {audioReferences.map((_url, index) => (
+                <div
+                  key={`aud-${referenceKey(_url)}`}
+                  className='relative flex size-14 shrink-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg border border-border/60 bg-muted'
+                >
+                  <FileAudioIcon className='size-5 text-foreground/80' />
+                  <span className='text-[9px] font-semibold text-muted-foreground'>
+                    {t('Audio {{index}}', { index: index + 1 })}
+                  </span>
+                  <button
+                    type='button'
+                    aria-label={t('Remove audio reference {{index}}', { index: index + 1 })}
+                    onClick={() =>
+                      setAudioReferences((prev) => prev.filter((_, i) => i !== index))
+                    }
+                    className='absolute end-0.5 top-0.5 rounded-md bg-black/60 p-0.5 text-white transition hover:bg-black/80'
+                  >
+                    <XIcon className='size-3' />
+                  </button>
+                </div>
+              ))}
+              {videoReferences.map((_url, index) => (
+                <div
+                  key={`vid-${referenceKey(_url)}`}
+                  className='relative flex size-14 shrink-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg border border-border/60 bg-muted'
+                >
+                  <VideoIcon className='size-5 text-foreground/80' />
+                  <span className='text-[9px] font-semibold text-muted-foreground'>
+                    {t('Video {{index}}', { index: index + 1 })}
+                  </span>
+                  <button
+                    type='button'
+                    aria-label={t('Remove video reference {{index}}', { index: index + 1 })}
+                    onClick={() =>
+                      setVideoReferences((prev) => prev.filter((_, i) => i !== index))
+                    }
+                    className='absolute end-0.5 top-0.5 rounded-md bg-black/60 p-0.5 text-white transition hover:bg-black/80'
+                  >
+                    <XIcon className='size-3' />
+                  </button>
+                </div>
+              ))}
+              <span className='shrink-0 ps-1 text-[10px] font-medium tabular-nums text-muted-foreground'>
+                {referenceImages.length + audioReferences.length + videoReferences.length} /{' '}
+                {referenceCap + audioReferenceCap + videoReferenceCap}
               </span>
-              <button
-                type='button'
-                onClick={() => setAttachedMedia(null)}
-                className='text-muted-foreground hover:text-foreground transition'
-              >
-                <XIcon className='size-3.5' />
-              </button>
             </div>
           )}
 
@@ -1446,7 +1487,7 @@ export function Studio() {
                 </button>
               )}
               <div className='ml-auto pe-1 pb-1.5 text-[10px] tabular-nums text-muted-foreground/70'>
-                {prompt.length >= 8000 ? t('{{count}} / 20000 characters', { count: prompt.length }) : ''}
+                {prompt.length > 0 ? t('{{count}} / 20000 characters', { count: prompt.length }) : ''}
               </div>
             </div>
 
@@ -1456,8 +1497,9 @@ export function Studio() {
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value.slice(0, 20000))}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePromptPaste}
                 placeholder={t('What do you want to create?')}
-                className='h-16 sm:h-20 w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-0'
+                className='h-12 sm:h-14 w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-0'
                 rows={2}
                 maxLength={20000}
               />
@@ -1476,9 +1518,13 @@ export function Studio() {
                   id='studio-file-upload'
                   ref={fileInputRef}
                   type='file'
-                  accept='image/*,video/*'
+                  accept='image/*,video/*,audio/*'
+                  multiple
                   className='hidden'
-                  onChange={(e) => handleFileAttach(e.target.files?.[0])}
+                  onChange={(e) => {
+                    handleMediaPick(e.target.files)
+                    e.target.value = ''
+                  }}
                 />
               </label>
 
@@ -1617,137 +1663,8 @@ export function Studio() {
                             </p>
                           )}
 
-                          <ReferenceImageChipsBlock
-                            allowed={referencesAllowed}
-                            cap={referenceCap}
-                            inputRef={referenceImageInputRef}
-                            onChange={setReferenceImages}
-                            onPick={(files) => void handleReferenceFiles(files, 'image')}
-                            values={referenceImages}
-                          />
-
-                          {/* Audio references — only for audio-capable models */}
-                          {selectedVideoModel?.audio_reference && (
-                            <div className='space-y-1.5'>
-                              <div className='flex items-center justify-between gap-2'>
-                                <Label className='text-[11px] text-muted-foreground'>
-                                  {t('Audio References')}
-                                  <span className='text-muted-foreground/70'>
-                                    {' '}
-                                    · {audioReferences.length}/{audioReferenceCap}
-                                  </span>
-                                </Label>
-                                <button
-                                  type='button'
-                                  disabled={audioReferences.length >= audioReferenceCap}
-                                  className='inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed'
-                                  onClick={() => audioReferenceInputRef.current?.click()}
-                                >
-                                  <PlusIcon className='size-3' />
-                                  {t('Add')}
-                                </button>
-                                <input
-                                  ref={audioReferenceInputRef}
-                                  type='file'
-                                  accept='audio/*'
-                                  multiple
-                                  className='hidden'
-                                  onChange={(e) => {
-                                    void handleReferenceFiles(e.target.files, 'audio')
-                                    e.target.value = ''
-                                  }}
-                                />
-                              </div>
-                              {audioReferences.length > 0 && (
-                                <div className='flex flex-wrap gap-1.5'>
-                                  {audioReferences.map((url, index) => (
-                                    <div
-                                      key={url}
-                                      className='relative flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/40 py-1 pe-6 ps-2'
-                                    >
-                                      <FileAudioIcon className='size-3.5 shrink-0 text-muted-foreground' />
-                                      <span className='text-[10px] text-muted-foreground'>
-                                        {t('Audio {{index}}', { index: index + 1 })}
-                                      </span>
-                                      <button
-                                        type='button'
-                                        className='absolute end-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-destructive'
-                                        onClick={() =>
-                                          setAudioReferences((prev) => prev.filter((_, i) => i !== index))
-                                        }
-                                        aria-label={t('Remove audio reference {{index}}', { index: index + 1 })}
-                                      >
-                                        <XIcon className='size-3' />
-                                      </button>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Video references — only for video-reference-capable models */}
-                          {selectedVideoModel?.video_reference && (
-                            <div className='space-y-1.5'>
-                              <div className='flex items-center justify-between gap-2'>
-                                <Label className='text-[11px] text-muted-foreground'>
-                                  {t('Video References')}
-                                  <span className='text-muted-foreground/70'>
-                                    {' '}
-                                    · {videoReferences.length}/{videoReferenceCap}
-                                  </span>
-                                </Label>
-                                <button
-                                  type='button'
-                                  disabled={videoReferences.length >= videoReferenceCap}
-                                  className='inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed'
-                                  onClick={() => videoReferenceInputRef.current?.click()}
-                                >
-                                  <PlusIcon className='size-3' />
-                                  {t('Add')}
-                                </button>
-                                <input
-                                  ref={videoReferenceInputRef}
-                                  type='file'
-                                  accept='video/*'
-                                  multiple
-                                  className='hidden'
-                                  onChange={(e) => {
-                                    void handleReferenceFiles(e.target.files, 'video')
-                                    e.target.value = ''
-                                  }}
-                                />
-                              </div>
-                              {videoReferences.length > 0 && (
-                                <div className='flex flex-wrap gap-1.5'>
-                                  {videoReferences.map((url, index) => (
-                                    <div
-                                      key={url}
-                                      className='relative flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/40 py-1 pe-6 ps-2'
-                                    >
-                                      <VideoIcon className='size-3.5 shrink-0 text-muted-foreground' />
-                                      <span className='text-[10px] text-muted-foreground'>
-                                        {t('Video {{index}}', { index: index + 1 })}
-                                      </span>
-                                      <button
-                                        type='button'
-                                        className='absolute end-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-destructive'
-                                        onClick={() =>
-                                          setVideoReferences((prev) => prev.filter((_, i) => i !== index))
-                                        }
-                                        aria-label={t('Remove video reference {{index}}', { index: index + 1 })}
-                                      >
-                                        <XIcon className='size-3' />
-                                      </button>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-
                           {/* Generate audio — disabled with reason when the model can't */}
-                          <div className='flex items-center justify-between gap-2 rounded-lg border border-border/60 px-2 py-1.5'>
+                          <div className='flex items-center justify-between gap-2 px-1 py-1.5'>
                             <div className='min-w-0'>
                               <Label
                                 className='text-[11px] text-foreground/90'
@@ -1913,16 +1830,6 @@ export function Studio() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className='col-span-2 pt-1'>
-                        <ReferenceImageChipsBlock
-                          allowed={referencesAllowed}
-                          cap={referenceCap}
-                          inputRef={referenceImageInputRef}
-                          onChange={setReferenceImages}
-                          onPick={(files) => void handleReferenceFiles(files, 'image')}
-                          values={referenceImages}
-                        />
-                      </div>
                     </div>
                   )}
 
@@ -1938,14 +1845,13 @@ export function Studio() {
                 </PopoverContent>
               </Popover>
 
-              {/* Prompt optimizer model picker */}
-              {optimizerModels.length > 0 && (
+              {/* Prompt optimizer model picker — only when several models are configured */}
+              {optimizerModels.length > 1 && (
                 <Popover open={optimizerPickerOpen} onOpenChange={setOptimizerPickerOpen}>
                   <PopoverTrigger
                     className='hidden sm:flex h-8 max-w-[160px] shrink-0 items-center gap-1.5 rounded-lg border border-border/70 bg-muted/40 px-2.5 text-xs font-medium text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground'
                     title={t('Prompt optimizer model')}
                   >
-                    <SparklesIcon className='size-3.5 shrink-0' />
                     <span className='truncate font-mono'>
                       {optimizerModel || optimizerModels[0]}
                     </span>
@@ -2103,12 +2009,13 @@ export function Studio() {
                         }
                         if (item.status === 'error' && playable && !brokenMediaIds.has(item.id)) {
                           return (
-                            <video
+                            <VideoJsPlayer
+                              key={playable}
                               controls
-                              playsInline
                               preload='metadata'
                               src={playable}
                               onError={() => markMediaBroken(item.id)}
+                              qualityLabel={item.settings?.quality != null ? String(item.settings.quality) : undefined}
                               className='max-h-48 w-full object-contain bg-black rounded'
                             />
                           )
@@ -2130,12 +2037,13 @@ export function Studio() {
                         }
                         if (item.status === 'ready' && playable) {
                           return item.mode === 'video' ? (
-                            <video
+                            <VideoJsPlayer
+                              key={playable}
                               controls
-                              playsInline
                               preload='metadata'
                               src={playable}
                               onError={() => markMediaBroken(item.id)}
+                              qualityLabel={item.settings?.quality != null ? String(item.settings.quality) : undefined}
                               className='max-h-48 w-full object-contain bg-black rounded'
                             />
                           ) : (

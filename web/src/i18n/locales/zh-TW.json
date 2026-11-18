@@ -8429,6 +8429,10 @@
     "Test ok": "測試通過",
     "Auto-enabled": "自動啟用",
     "Paste Claude Code OAuth access_token (sk-ant-oat01-...) or JSON credential {\"access_token\":\"...\",\"refresh_token\":\"...\"}": "貼上 Claude Code OAuth access_token（sk-ant-oat01-...）或 JSON 憑證 {\"access_token\":\"...\",\"refresh_token\":\"...\"}",
-    "The upstream link may have expired, or the file could not be stored on the server. Regenerate to create a fresh copy.": "上游連結可能已過期，或檔案未能儲存到伺服器。請重新產生以建立新副本。"
+    "The upstream link may have expired, or the file could not be stored on the server. Regenerate to create a fresh copy.": "上游連結可能已過期，或檔案未能儲存到伺服器。請重新產生以建立新副本。",
+    "OHVCloud (Anon) channel does not require an API key.": "OHVCloud (Anon) 頻道不需要 API 金鑰。",
+    "Page {{page}} / {{total}} · {{count}} proxies": "第 {{page}} / {{total}} 頁 · {{count}} 個代理",
+    "Reference image {{index}}": "參考圖 {{index}}",
+    "Remove reference": "移除參考"
   }
 }

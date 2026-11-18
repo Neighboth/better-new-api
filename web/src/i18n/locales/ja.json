@@ -8429,6 +8429,10 @@
     "Test ok": "テスト成功",
     "Auto-enabled": "自動有効化",
     "Paste Claude Code OAuth access_token (sk-ant-oat01-...) or JSON credential {\"access_token\":\"...\",\"refresh_token\":\"...\"}": "Claude Code OAuth access_token（sk-ant-oat01-...）または JSON クレデンシャル {\"access_token\":\"...\",\"refresh_token\":\"...\"} を貼り付けてください",
-    "The upstream link may have expired, or the file could not be stored on the server. Regenerate to create a fresh copy.": "アップストリームのリンクが期限切れになったか、ファイルをサーバーに保存できなかった可能性があります。再生成して新しいコピーを作成してください。"
+    "The upstream link may have expired, or the file could not be stored on the server. Regenerate to create a fresh copy.": "アップストリームのリンクが期限切れになったか、ファイルをサーバーに保存できなかった可能性があります。再生成して新しいコピーを作成してください。",
+    "OHVCloud (Anon) channel does not require an API key.": "OHVCloud (Anon) チャンネルは API キーを必要としません。",
+    "Page {{page}} / {{total}} · {{count}} proxies": "ページ {{page}} / {{total}} · {{count}} プロキシ",
+    "Reference image {{index}}": "参照画像 {{index}}",
+    "Remove reference": "参照を削除"
   }
 }

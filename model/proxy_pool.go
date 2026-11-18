@@ -214,20 +214,40 @@ type ProxyChannelAssignmentDetail struct {
 	CountryName    string `json:"country_name"`
 }
 
-// ListProxyPoolChannelAssignmentsDetail returns the joined rows for the
-// channel detail popup.
-func ListProxyPoolChannelAssignmentsDetail(channelID int) ([]ProxyChannelAssignmentDetail, error) {
+// ListProxyPoolChannelAssignmentsDetail returns one page of the joined rows
+// for the channel detail popup. Proxies can number in the tens of thousands
+// for a single channel, so the endpoint paginates.
+func ListProxyPoolChannelAssignmentsDetail(channelID int, limit int, offset int) ([]ProxyChannelAssignmentDetail, error) {
 	out := []ProxyChannelAssignmentDetail{}
 	if DB == nil {
 		return out, nil
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
 	}
 	err := DB.Table("proxy_pool_assignments as a").
 		Select("a.key_index, p.id as proxy_id, p.name as proxy_name, p.url as proxy_url, p.enabled as proxy_enabled, p.egress_ip, p.latency_ms, p.last_test_status, p.last_test_error, p.last_tested_at, p.country_code, p.country_name").
 		Joins("join proxy_pool_proxies as p on p.id = a.proxy_id").
 		Where("a.channel_id = ?", channelID).
 		Order("a.key_index ASC").
+		Limit(limit).
+		Offset(offset).
 		Scan(&out).Error
 	return out, err
+}
+
+// CountProxyPoolChannelAssignments returns the number of assignments bound to
+// the channel (used to paginate the channel detail popup).
+func CountProxyPoolChannelAssignments(channelID int) (int64, error) {
+	if DB == nil {
+		return 0, nil
+	}
+	var count int64
+	err := DB.Table("proxy_pool_assignments").Where("channel_id = ?", channelID).Count(&count).Error
+	return count, err
 }
 
 // ListProxyPoolAssignmentsForChannel returns the raw assignments of one
