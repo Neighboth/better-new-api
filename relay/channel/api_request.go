@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/QuantumNous/new-api/model"
+
 	common2 "github.com/QuantumNous/new-api/common"
 	rootconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
@@ -551,7 +553,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		keyIndex = info.ChannelMultiKeyIndex
 	}
 	rawProxyURL = service.EffectiveRelayProxyURL(info.ChannelId, keyIndex, info.ApiKey, rawProxyURL)
-	isAnonChannel := info != nil && (info.ChannelType == rootconstant.ChannelTypeOpenCode || info.ChannelType == rootconstant.ChannelTypeKiloCodeAnon)
+	isAnonChannel := info != nil && (info.ChannelType == rootconstant.ChannelTypeOpenCode || info.ChannelType == rootconstant.ChannelTypeKiloCodeAnon || info.ChannelType == rootconstant.ChannelTypeOHVCloudAnon)
 	isLocalhost := info != nil && (strings.Contains(info.ChannelBaseUrl, "localhost") || strings.Contains(info.ChannelBaseUrl, "127.0.0.1"))
 	if isAnonChannel && !isLocalhost && common2.OptionMap["ProxyPoolEnabled"] == "true" {
 		rawProxyURL = service.GetNextProxyForAnonChannel(info.ChannelId, rawProxyURL)
@@ -624,12 +626,20 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	// Smart retry on 429 for anonymous channels (OpenCode / Kilo Code) across proxy pool (30m cooldown, max 6 retries)
 	if isAnonChannel && !isLocalhost && resp.StatusCode == http.StatusTooManyRequests && common2.OptionMap["ProxyPoolEnabled"] == "true" && req.GetBody != nil {
 		for retry := 0; retry < 6; retry++ {
-			service.RecordProxyRateLimited(rawProxyURL, 30*time.Minute)
+			service.RecordProxyRateLimitedWithChannel(rawProxyURL, info.ChannelId, 30*time.Minute)
 			nextProxy := service.GetNextProxyForAnonChannel(info.ChannelId, rawProxyURL)
 			if nextProxy == "" || nextProxy == rawProxyURL {
 				break
 			}
+			previousProxy := rawProxyURL
 			rawProxyURL = nextProxy
+			if previousProxy != rawProxyURL {
+				proxyID := 0
+				if id, err := model.FindProxyPoolProxyIDByURL(rawProxyURL); err == nil && id > 0 {
+					proxyID = id
+				}
+				model.RecordProxyPoolEvent(info.ChannelId, -1, proxyID, rawProxyURL, "switch_429", fmt.Sprintf("Switched proxy after an upstream 429 (attempt %d/6)", retry+1))
+			}
 			_ = resp.Body.Close()
 
 			newBody, getBodyErr := req.GetBody()

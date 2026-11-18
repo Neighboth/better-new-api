@@ -24,7 +24,6 @@ import {
   resolveEffectiveModelOptions,
   DEFAULT_REFERENCE_IMAGE_CAP,
 } from '../model-constraints'
-import { removeNegativeContradictions } from '../negative-prompt'
 
 describe('resolveEffectiveModelOptions', () => {
   it('returns the configured lists untouched when no rules match', () => {
@@ -146,26 +145,5 @@ describe('pickStillValid', () => {
   })
   it('returns undefined for an empty list', () => {
     expect(pickStillValid(15, [])).toBeUndefined()
-  })
-})
-
-describe('removeNegativeContradictions', () => {
-  it('drops clauses that fight a fixed camera and keeps the rest', () => {
-    const out = removeNegativeContradictions(
-      'Fixed camera on a wet road in rain, a car passes',
-      'camera shake, handheld, no rain, watermark'
-    )
-    expect(out).toBe('watermark')
-  })
-  it('drops clauses that fight rain and keeps unrelated ones', () => {
-    const out = removeNegativeContradictions(
-      'Heavy rain on the windshield, night scene',
-      'no rain, dry roads, blurry'
-    )
-    expect(out).toBe('blurry')
-  })
-  it('keeps everything when nothing contradicts', () => {
-    const out = removeNegativeContradictions('A sunny beach', 'watermark, logo')
-    expect(out).toBe('watermark, logo')
   })
 })

@@ -176,6 +176,11 @@ func EnqueueAepiRelay(c *gin.Context, relayInfo *relaycommon.RelayInfo) (*relayd
 	if !IsAepiConcurrentLimitedModel(relayInfo.OriginModelName) {
 		return nil, nil
 	}
+	// The admission replay already claimed a slot for this placeholder — it
+	// holds the slot. Never park it again.
+	if forced, ok := c.Get("aepi_queued_task_force_public"); ok && forced != nil {
+		return nil, nil
+	}
 	if AepiInflightCount() < AepiConcurrentSlots {
 		return nil, nil
 	}
@@ -196,6 +201,7 @@ func EnqueueAepiRelay(c *gin.Context, relayInfo *relaycommon.RelayInfo) (*relayd
 	ov := queuedVideoResponse(publicTaskID, now, relayInfo.OriginModelName)
 
 	c.Header("X-New-Api-Task-Id", publicTaskID)
+	c.Set("studio_public_task_id", publicTaskID)
 	if existing := c.GetHeader("Access-Control-Expose-Headers"); existing == "" {
 		c.Header("Access-Control-Expose-Headers", "X-New-Api-Task-Id")
 	}
@@ -271,6 +277,7 @@ func TryParkAepiUpstreamFailure(c *gin.Context, relayInfo *relaycommon.RelayInfo
 		}
 		common.SysError(fmt.Sprintf("aepi queue: task %s re-queued (attempt %d) after retryable upstream %d", forced, attempts, taskErr.UpstreamStatusCode))
 		c.Header("X-New-Api-Task-Id", forced)
+		c.Set("studio_public_task_id", forced)
 		return queuedVideoResponse(forced, now, relayInfo.OriginModelName)
 	}
 
@@ -288,6 +295,7 @@ func TryParkAepiUpstreamFailure(c *gin.Context, relayInfo *relaycommon.RelayInfo
 	common.SysError(fmt.Sprintf("aepi queue: parked retryable upstream %d for model %s as %s", taskErr.UpstreamStatusCode, relayInfo.OriginModelName, publicTaskID))
 
 	c.Header("X-New-Api-Task-Id", publicTaskID)
+	c.Set("studio_public_task_id", publicTaskID)
 	if existing := c.GetHeader("Access-Control-Expose-Headers"); existing == "" {
 		c.Header("Access-Control-Expose-Headers", "X-New-Api-Task-Id")
 	}

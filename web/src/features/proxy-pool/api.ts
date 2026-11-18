@@ -158,6 +158,56 @@ export async function listChannels(): Promise<ApiEnvelope<ProxyPoolChannel[]>> {
   return res.data
 }
 
+export interface ProxyChannelAssignmentDetail {
+  key_index: number
+  proxy_id: number
+  proxy_name: string
+  proxy_url: string
+  proxy_enabled: boolean
+  egress_ip: string
+  latency_ms: number
+  last_test_status: string
+  last_test_error: string
+  last_tested_at: number
+  country_code: string
+  country_name: string
+}
+
+export interface ProxyPoolEvent {
+  id: number
+  channel_id: number
+  key_index: number
+  proxy_id: number
+  proxy_url: string
+  kind: string
+  message: string
+  created_at: number
+}
+
+export interface ProxyChannelDetailData {
+  channel: {
+    id: number
+    name: string
+    type: number
+    status: number
+    group: string
+    multi_key_size: number
+  }
+  assignments: ProxyChannelAssignmentDetail[]
+  cooldowns: Record<string, number>
+  events: ProxyPoolEvent[]
+  global_events: ProxyPoolEvent[]
+}
+
+export async function getChannelDetail(
+  channelId: number
+): Promise<ApiEnvelope<ProxyChannelDetailData>> {
+  const res = await api.get<ApiEnvelope<ProxyChannelDetailData>>(
+    `/api/proxy-pool/channels/${channelId}/detail`
+  )
+  return res.data
+}
+
 export async function listAssignments(
   channelId?: number
 ): Promise<ApiEnvelope<ProxyPoolAssignment[]>> {

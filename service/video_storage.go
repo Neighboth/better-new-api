@@ -177,13 +177,46 @@ func StoreVideoFromURL(ctx context.Context, userID int, taskID string, upstreamU
 	return "/" + filepath.ToSlash(dstPath), nil
 }
 
+// WouldDeleteAllError is returned when freeing minBytes would delete the
+// caller's entire stored library. The caller must confirm with the user
+// (allowAll) before proceeding — the sweep must never wipe everything
+// silently.
+type WouldDeleteAllError struct {
+	TotalBytes int64
+	TotalCount int64
+}
+
+func (e *WouldDeleteAllError) Error() string {
+	return fmt.Sprintf("freeing %d bytes would delete the entire stored library (%d items)", e.TotalBytes, e.TotalCount)
+}
+
 // DeleteOldestVideoAssets deletes the user's oldest stored videos until at least
 // minBytes are freed (or none remain). It returns freed bytes, delete count and
 // the public URLs of every removed file so callers can purge matching studio
 // items from their lists. The stored video_assets rows and the studio_items rows
 // referencing the same file are removed together — storage, history and the
 // popup can never disagree again.
-func DeleteOldestVideoAssets(userID int, minBytes int64) (freed int64, deleted int, deletedURLs []string, err error) {
+//
+// It refuses to wipe the entire library unless allowAll is set — the caller is
+// expected to confirm with the user first (see WouldDeleteAllError).
+func DeleteOldestVideoAssets(userID int, minBytes int64, allowAll bool) (freed int64, deleted int, deletedURLs []string, err error) {
+	if minBytes <= 0 {
+		minBytes = 256 << 20
+	}
+	var totalBytes int64
+	var totalCount int64
+	if err := model.DB.Model(&model.VideoAsset{}).
+		Where("user_id = ? AND deleted = ?", userID, false).
+		Select("COALESCE(SUM(size), 0), COUNT(*)").
+		Row().Scan(&totalBytes, &totalCount); err != nil {
+		return 0, 0, nil, err
+	}
+	if totalCount == 0 {
+		return 0, 0, nil, nil
+	}
+	if minBytes > totalBytes && !allowAll {
+		return 0, 0, nil, &WouldDeleteAllError{TotalBytes: totalBytes, TotalCount: totalCount}
+	}
 	for {
 		var asset model.VideoAsset
 		err = model.DB.Where("user_id = ? AND deleted = ?", userID, false).
@@ -194,13 +227,12 @@ func DeleteOldestVideoAssets(userID int, minBytes int64) (freed int64, deleted i
 			return freed, deleted, deletedURLs, nil
 		}
 		// storedAssetLocation resolves a stored asset to disk path and public URL.
-		path, url := storedAssetLocation(userID, asset)
+		_, url := storedAssetLocation(userID, asset)
 		fileName := asset.FileName
-		removeErr := os.Remove(path)
-		if removeErr != nil && !os.IsNotExist(removeErr) {
+		if removeErr := removeStoredAssetFile(userID, asset); removeErr != nil {
 			// Do not mark the row deleted or bill the user for space that is
 			// still occupied — surface the failure instead.
-			return freed, deleted, deletedURLs, fmt.Errorf("failed to delete the stored video %s: %w", path, removeErr)
+			return freed, deleted, deletedURLs, fmt.Errorf("failed to delete the stored video %s: %w", fileName, removeErr)
 		}
 		if selectorErr := removeStudioItemsForFile(userID, fileName); selectorErr != nil {
 			common.SysError(fmt.Sprintf("video storage: studio items for %s were not purged: %s", fileName, selectorErr.Error()))
@@ -221,14 +253,26 @@ func DeleteOldestVideoAssets(userID int, minBytes int64) (freed int64, deleted i
 }
 
 // storedAssetLocation resolves a stored asset to (diskPath, publicURL).
+// Legacy rows with kind "merged" are treated like ordinary stored videos;
+// files still sitting in the old uploads/merged bucket are removed
+// best-effort during deletion.
 func storedAssetLocation(userID int, asset model.VideoAsset) (diskPath string, publicURL string) {
-	switch asset.Kind {
-	case "merged":
-		return filepath.Join("uploads", "merged", asset.FileName), "/uploads/merged/" + asset.FileName
-	default:
-		directory := fmt.Sprint(userID)
-		return filepath.Join(videoUploadsDir, directory, asset.FileName), "/uploads/videos/" + directory + "/" + asset.FileName
+	directory := fmt.Sprint(userID)
+	return filepath.Join(videoUploadsDir, directory, asset.FileName), "/uploads/videos/" + directory + "/" + asset.FileName
+}
+
+// removeStoredAssetFile removes the primary stored file and, for legacy rows,
+// the uploads/merged bucket as well. Missing files are never an error.
+func removeStoredAssetFile(userID int, asset model.VideoAsset) error {
+	path, _ := storedAssetLocation(userID, asset)
+	removeErr := os.Remove(path)
+	if removeErr != nil && !os.IsNotExist(removeErr) {
+		return removeErr
 	}
+	if asset.Kind == "merged" {
+		_ = os.Remove(filepath.Join("uploads", "merged", asset.FileName))
+	}
+	return nil
 }
 
 // removeStudioItemsForFile removes studio_items rows of the user whose payload
@@ -309,14 +353,10 @@ func sweepVideoAssets() {
 	model.DB.Where("deleted = ? AND expires_at <= ?", false, now).
 		Find(&expired)
 	for _, asset := range expired {
-		var path string
-		switch asset.Kind {
-		case "merged":
-			path = filepath.Join("uploads", "merged", asset.FileName)
-		default:
-			path = filepath.Join(videoUploadsDir, fmt.Sprint(asset.UserId), asset.FileName)
+		_ = removeStoredAssetFile(asset.UserId, asset)
+		if purgeErr := removeStudioItemsForFile(asset.UserId, asset.FileName); purgeErr != nil {
+			common.SysError(fmt.Sprintf("video storage: studio items for %s were not purged: %s", asset.FileName, purgeErr.Error()))
 		}
-		_ = os.Remove(path)
 		model.DB.Model(&asset).Updates(map[string]interface{}{
 			"deleted":        true,
 			"deleted_reason": "expired",

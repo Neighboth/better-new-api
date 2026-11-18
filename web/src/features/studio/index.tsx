@@ -18,7 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowRightIcon,
+  ArrowUpIcon,
+  BookOpenIcon,
+  CheckIcon,
+  ChevronDownIcon,
   DownloadIcon,
   EyeIcon,
   EyeOffIcon,
@@ -87,6 +90,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { Switch } from '@/components/ui/switch'
 
 import { useStudioGeneration } from './hooks/use-studio-generation'
+import { listEnabledSkills } from '@/features/studio-skills/api'
 import {
   resolveEffectiveModelOptions,
   pickStillValid,
@@ -275,6 +279,9 @@ function VideoStorageQuota() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [deleting, setDeleting] = useState(false)
+  const [confirmOldestOpen, setConfirmOldestOpen] = useState(false)
+  const [confirmAllOpen, setConfirmAllOpen] = useState(false)
+  const [totalToWipe, setTotalToWipe] = useState({ bytes: 0, count: 0 })
   const { data } = useQuery({
     queryKey: ['media-storage'],
     queryFn: async () => {
@@ -289,13 +296,13 @@ function VideoStorageQuota() {
   const over = limit > 0 && used >= limit
   const percent = Math.round(ratio * 100)
 
-  const deleteOldest = async () => {
-    if (!window.confirm(t('Delete the oldest videos to free up space? This cannot be undone.'))) {
-      return
-    }
+  // Runs the delete sweep. Confirms happen in the dialogs — never window.confirm.
+  const runDelete = async (all: boolean) => {
     setDeleting(true)
     try {
-      const res = await api.delete('/api/media/storage', { skipErrorHandler: true } as Record<string, unknown>)
+      const res = await api.delete(`/api/media/storage${all ? '?all=1' : ''}`, {
+        skipErrorHandler: true,
+      } as Record<string, unknown>)
       const freed = Number(res?.data?.data?.freed_bytes ?? 0)
       const deletedUrls = (res?.data?.data?.deleted_urls ?? []) as string[]
       await queryClient.invalidateQueries({ queryKey: ['media-storage'] })
@@ -307,8 +314,20 @@ function VideoStorageQuota() {
         )
       }
       toast.success(t('Freed {{freed}} of storage by deleting oldest videos.', { freed: formatBytes(freed) }))
-    } catch {
-      toast.error(t('Failed to delete old videos.'))
+    } catch (err) {
+      const response = (err as { response?: { status?: number; data?: Record<string, unknown> } })?.response
+      if (
+        response?.status === 409 &&
+        response.data?.code === 'would_delete_all_stored'
+      ) {
+        setTotalToWipe({
+          bytes: Number(response.data.total_bytes ?? 0),
+          count: Number(response.data.total_count ?? 0),
+        })
+        setConfirmAllOpen(true)
+      } else {
+        toast.error(t('Failed to delete old videos.'))
+      }
     } finally {
       setDeleting(false)
     }
@@ -343,12 +362,59 @@ function VideoStorageQuota() {
         type='button'
         className='shrink-0 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[9px] font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40 disabled:pointer-events-none'
         disabled={deleting || used <= 0}
-        onClick={deleteOldest}
+        onClick={() => setConfirmOldestOpen(true)}
         title={t('Delete the oldest videos to free up space')}
       >
         {deleting ? <Loader2Icon className='size-3 animate-spin' /> : <Trash2Icon className='size-3' />}
         <span className='hidden xs:inline sm:inline'>{t('Delete oldest')}</span>
       </button>
+
+      <AlertDialog open={confirmOldestOpen} onOpenChange={setConfirmOldestOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Delete the oldest videos?')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('The oldest stored videos are deleted until at least 256 MB are freed. This cannot be undone.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmOldestOpen(false)
+                void runDelete(false)
+              }}
+            >
+              {t('Delete oldest')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmAllOpen} onOpenChange={setConfirmAllOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Delete ALL stored videos?')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                'Freeing that much space would delete your entire stored library ({{count}} videos · {{size}}). Delete everything?',
+                { count: totalToWipe.count, size: formatBytes(totalToWipe.bytes) }
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmAllOpen(false)
+                void runDelete(true)
+              }}
+            >
+              {t('Delete all')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -483,6 +549,22 @@ export function Studio() {
   const [startFrame, setStartFrame] = useState('')
   const [endFrame, setEndFrame] = useState('')
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('studio_selected_skill_id')
+    } catch {
+      return null
+    }
+  })
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false)
+  const [optimizerPickerOpen, setOptimizerPickerOpen] = useState(false)
+  const [optimizerModel, setOptimizerModel] = useState<string>(() => {
+    try {
+      return localStorage.getItem('studio_optimizer_model') ?? ''
+    } catch {
+      return ''
+    }
+  })
 
   const { data: runtimeData } = useQuery({
     queryKey: ['playground-runtime-config'],
@@ -490,6 +572,58 @@ export function Studio() {
     staleTime: 60_000,
   })
   const runtime = runtimeData ?? EMPTY_PLAYGROUND_RUNTIME_CONFIG
+
+  // The administrator may configure several optimizer models; when more than
+  // one is set the composer shows a picker (first is the default).
+  const optimizerModels = useMemo<string[]>(() => {
+    const fromList = (runtime.studio?.prompt_optimizer_models ?? [])
+      .map((value) => value.trim())
+      .filter(Boolean)
+    if (fromList.length > 0) return fromList
+    const single = runtime.studio?.prompt_optimizer_model?.trim()
+    return single ? single.split(',').map((value) => value.trim()).filter(Boolean) : []
+  }, [runtime.studio])
+
+  // Keep the stored selection valid against the configured list.
+  useEffect(() => {
+    if (optimizerModels.length === 0) {
+      if (optimizerModel) setOptimizerModel('')
+      return
+    }
+    if (!optimizerModel || !optimizerModels.includes(optimizerModel)) {
+      setOptimizerModel(optimizerModels[0])
+    }
+  }, [optimizerModels, optimizerModel])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('studio_optimizer_model', optimizerModel)
+    } catch {
+      // quota — best effort
+    }
+  }, [optimizerModel])
+
+  useEffect(() => {
+    try {
+      if (selectedSkillId) {
+        localStorage.setItem('studio_selected_skill_id', selectedSkillId)
+      } else {
+        localStorage.removeItem('studio_selected_skill_id')
+      }
+    } catch {
+      // quota — best effort
+    }
+  }, [selectedSkillId])
+
+  const skillsQuery = useQuery({
+    queryKey: ['studio-skills'],
+    queryFn: listEnabledSkills,
+    staleTime: 60_000,
+  })
+  const selectedSkill = useMemo(
+    () => (skillsQuery.data ?? []).find((skill) => skill.id === selectedSkillId) ?? null,
+    [skillsQuery.data, selectedSkillId]
+  )
 
   // Automatically fall back to video if selected mode is disabled
   useEffect(() => {
@@ -729,17 +863,6 @@ export function Studio() {
   // IndexedDB-backed object URLs for items kept in this browser (over-quota storage).
   const localOnlyUrls = useLocalOnlyUrls(items)
 
-  const [isMobileScreen, setIsMobileScreen] = useState(false)
-
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobileScreen(window.innerWidth < 640)
-    }
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
-  }, [])
-
   // Lifecycle for page reloads: if an active item has already finished and been viewed, archive it to history popup on reload
   const reloadCheckedRef = useRef(false)
   useEffect(() => {
@@ -835,6 +958,11 @@ export function Studio() {
           quality,
           count: imageCount,
           referenceImages: imageRefs,
+          referenceCap,
+          metadata: {
+            ...(selectedSkillId ? { skill_id: selectedSkillId } : {}),
+            ...(optimizerModel ? { optimizer_model: optimizerModel } : {}),
+          },
         },
         (id) => setActiveSessionItemId(id)
       )
@@ -859,6 +987,8 @@ export function Studio() {
         videoReferences: videoRefs,
         referenceCap,
         metadata: {
+          ...(selectedSkillId ? { skill_id: selectedSkillId } : {}),
+          ...(optimizerModel ? { optimizer_model: optimizerModel } : {}),
           ...(audioOfModel ? { audio: audioEnabled } : {}),
           ...(editMode && editMode !== 'none' && attachedMedia?.type === 'video'
             ? { operation: 'edit' }
@@ -912,6 +1042,18 @@ export function Studio() {
     const cap = capByKind[kind]
     const current = currentByKind[kind]
     const setter = setterByKind[kind]
+    const MAX_REFERENCE_FILE_BYTES = 8 << 20
+    const rejectedForSize = [...files].filter((file) => file.size > MAX_REFERENCE_FILE_BYTES).length
+    if (rejectedForSize > 0) {
+      toast.error(
+        t('Reference files must be under 8 MB each ({{count}} skipped).', {
+          count: rejectedForSize,
+        })
+      )
+    }
+    const filesWithinLimit = [...files].filter(
+      (file) => file.size <= MAX_REFERENCE_FILE_BYTES
+    )
     if (cap <= 0) {
       const message = {
         image: t('This model does not accept reference images at these settings.'),
@@ -922,7 +1064,7 @@ export function Studio() {
       return
     }
     const room = Math.max(0, cap - current.length)
-    const accepted = [...files].slice(0, room)
+    const accepted = filesWithinLimit.slice(0, room)
     if (accepted.length === 0) {
       toast.info(
         t('The model accepts at most {{max}} reference file(s) at these settings.', { max: cap })
@@ -936,7 +1078,7 @@ export function Studio() {
       toast.error(t('Failed to read one of the files.'))
       return
     }
-    if (files.length > accepted.length) {
+    if (filesWithinLimit.length > accepted.length) {
       toast.info(
         t('The model accepts at most {{max}} reference file(s) at these settings.', { max: cap })
       )
@@ -1268,50 +1410,191 @@ export function Studio() {
             </div>
           )}
 
-          <div className='relative flex items-center gap-1.5 sm:gap-2.5 rounded-full border border-border/70 bg-card/95 shadow-2xl backdrop-blur-xl px-2.5 sm:px-3 py-1.5 sm:py-2 transition-all focus-within:border-border'>
-            {/* Left Action: Plus file attach button */}
-            <label
-              htmlFor='studio-file-upload'
-              className='flex size-8 sm:size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition shadow-xs'
-              title={t('Add media file')}
-            >
-              <PlusIcon className='size-4' />
-              <input
-                id='studio-file-upload'
-                ref={fileInputRef}
-                type='file'
-                accept='image/*,video/*'
-                className='hidden'
-                onChange={(e) => handleFileAttach(e.target.files?.[0])}
-              />
-            </label>
+          <div className='w-full rounded-2xl border border-border/80 bg-card/95 shadow-2xl backdrop-blur-xl transition focus-within:border-border'>
+            {/* Tabs: Video | Image */}
+            <div className='relative flex items-center gap-1 border-b border-border/50 px-3 pt-2'>
+              {runtime.video.enabled && (
+                <button
+                  type='button'
+                  className={cn(
+                    'relative flex items-center gap-1.5 px-3 pb-2.5 pt-1.5 text-[13px] font-medium transition-colors',
+                    mode === 'video' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                  onClick={() => setMode('video')}
+                >
+                  <VideoIcon className='size-3.5' />
+                  {t('Video')}
+                  {mode === 'video' && (
+                    <span className='absolute bottom-[-1px] left-2 right-2 h-0.5 rounded-full bg-foreground' />
+                  )}
+                </button>
+              )}
+              {runtime.image.enabled && (
+                <button
+                  type='button'
+                  className={cn(
+                    'relative flex items-center gap-1.5 px-3 pb-2.5 pt-1.5 text-[13px] font-medium transition-colors',
+                    mode === 'image' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                  onClick={() => setMode('image')}
+                >
+                  <ImageIcon className='size-3.5' />
+                  {t('Image')}
+                  {mode === 'image' && (
+                    <span className='absolute bottom-[-1px] left-2 right-2 h-0.5 rounded-full bg-foreground' />
+                  )}
+                </button>
+              )}
+              <div className='ml-auto pe-1 pb-1.5 text-[10px] tabular-nums text-muted-foreground/70'>
+                {prompt.length >= 8000 ? t('{{count}} / 20000 characters', { count: prompt.length }) : ''}
+              </div>
+            </div>
 
-            {/* Prompt Input / Textarea */}
-            <div className='flex-1 min-w-0 flex items-center'>
+            {/* Prompt input */}
+            <div className='px-4 pb-1 pt-3'>
               <textarea
                 value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
+                onChange={(e) => setPrompt(e.target.value.slice(0, 20000))}
                 onKeyDown={handleKeyDown}
-                placeholder={isMobileScreen ? t('Describe your idea...') : t('What do you want to create?')}
-                className='w-full resize-none border-0 bg-transparent py-2 px-1.5 sm:px-2 text-xs sm:text-sm focus:outline-none focus:ring-0 leading-5 placeholder:text-muted-foreground/60 overflow-hidden align-middle my-auto placeholder:truncate whitespace-nowrap'
-                rows={1}
-                style={{ height: '36px', maxHeight: '100px' }}
-                onInput={(e) => {
-                  const target = e.currentTarget
-                  target.style.height = '36px'
-                  target.style.height = `${Math.min(target.scrollHeight, 100)}px`
-                }}
+                placeholder={t('What do you want to create?')}
+                className='h-16 sm:h-20 w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-0'
+                rows={2}
+                maxLength={20000}
               />
             </div>
+
+            {/* Bottom toolbar */}
+            <div className='flex items-center gap-1.5 px-2.5 pb-2.5 pt-1'>
+              {/* Left Action: Plus file attach button */}
+              <label
+                htmlFor='studio-file-upload'
+                className='flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border/70 bg-muted/40 text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground'
+                title={t('Add media file')}
+              >
+                <PlusIcon className='size-4' />
+                <input
+                  id='studio-file-upload'
+                  ref={fileInputRef}
+                  type='file'
+                  accept='image/*,video/*'
+                  className='hidden'
+                  onChange={(e) => handleFileAttach(e.target.files?.[0])}
+                />
+              </label>
+
+              {/* Skill picker */}
+              <Popover open={skillPickerOpen} onOpenChange={setSkillPickerOpen}>
+                <PopoverTrigger
+                  className='flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border/70 bg-muted/40 px-2.5 text-xs font-medium text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground'
+                  title={t('Apply a creative direction skill to this generation (optional)')}
+                >
+                  <BookOpenIcon className='size-3.5' />
+                  <span className='max-w-[140px] truncate'>
+                    {selectedSkill ? selectedSkill.title : t('Skill')}
+                  </span>
+                  {selectedSkill && (
+                    <span
+                      role='button'
+                      tabIndex={0}
+                      aria-label={t('Remove the selected skill')}
+                      className='text-muted-foreground/70 hover:text-foreground'
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        setSelectedSkillId(null)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.stopPropagation()
+                          e.preventDefault()
+                          setSelectedSkillId(null)
+                        }
+                      }}
+                    >
+                      <XIcon className='size-3' />
+                    </span>
+                  )}
+                </PopoverTrigger>
+                <PopoverContent
+                  align='start'
+                  side='top'
+                  className='w-96 rounded-2xl border border-border/80 bg-card p-3 shadow-xl'
+                >
+                  <div className='mb-2 flex items-center justify-between gap-2'>
+                    <div>
+                      <p className='text-sm font-semibold'>{t('Studio skills')}</p>
+                      <p className='text-[10px] text-muted-foreground'>
+                        {t('Applies the selected skill to the prompt optimizer.')}
+                      </p>
+                    </div>
+                    <button
+                      type='button'
+                      className='text-[10px] font-medium text-muted-foreground hover:text-foreground'
+                      onClick={() => setSkillPickerOpen(false)}
+                    >
+                      {t('Close')}
+                    </button>
+                  </div>
+                  <div className='max-h-80 space-y-1.5 overflow-y-auto'>
+                    {skillsQuery.isLoading && (
+                      <div className='flex h-20 items-center justify-center'>
+                        <Loader2Icon className='size-4 animate-spin text-muted-foreground' />
+                      </div>
+                    )}
+                    {!skillsQuery.isLoading && (skillsQuery.data ?? []).length === 0 && (
+                      <p className='rounded-md border border-dashed border-border/70 p-3 text-center text-[11px] leading-snug text-muted-foreground'>
+                        {t('No skills yet. Create one in System Settings → Playground & Studio → Studio skills.')}
+                      </p>
+                    )}
+                    {(skillsQuery.data ?? []).map((skill) => {
+                      const active = skill.id === selectedSkillId
+                      return (
+                        <button
+                          key={skill.id}
+                          type='button'
+                          onClick={() => setSelectedSkillId(active ? null : skill.id)}
+                          className={cn(
+                            'flex w-full items-center gap-2.5 rounded-xl border px-2 py-2 text-left transition',
+                            active
+                              ? 'border-primary/60 bg-primary/5'
+                              : 'border-border/50 hover:border-border hover:bg-muted/40'
+                          )}
+                        >
+                          {skill.image ? (
+                            <img
+                              alt={skill.title}
+                              src={skill.image}
+                              className='size-10 shrink-0 rounded-lg border border-border/60 object-cover'
+                            />
+                          ) : (
+                            <div className='flex size-10 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted'>
+                              <BookOpenIcon className='size-4 text-muted-foreground' />
+                            </div>
+                          )}
+                          <span className='min-w-0 flex-1'>
+                            <span className='block truncate text-xs font-medium'>{skill.title}</span>
+                            <span className='line-clamp-1 text-[10px] text-muted-foreground'>
+                              {skill.description}
+                            </span>
+                          </span>
+                          {active && <CheckIcon className='size-4 shrink-0 text-primary' />}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              <div className='flex-1' />
 
             {/* Right Controls: Model Pill & Send Arrow */}
             <div className='flex items-center gap-1.5 sm:gap-2 shrink-0'>
               {/* Model Pill Trigger displaying ONLY model name per requirements */}
               <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
                 <PopoverTrigger
-                  className='inline-flex h-8 sm:h-9 items-center gap-1 sm:gap-1.5 rounded-full bg-muted/70 hover:bg-muted border border-border/50 px-2.5 sm:px-3.5 text-xs font-medium text-foreground transition shadow-xs'
+                  className='inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border border-border/70 bg-muted/40 px-2.5 text-xs font-medium text-foreground transition hover:border-border hover:bg-muted'
                 >
-                  <span className='max-w-[85px] sm:max-w-[140px] truncate text-[11px] sm:text-xs'>
+                  <span className='max-w-[100px] sm:max-w-[140px] truncate'>
                     {currentModelDisplayName}
                   </span>
                   {currentModelRuntime?.tag && (
@@ -1319,6 +1602,7 @@ export function Studio() {
                       {currentModelRuntime.tag}
                     </span>
                   )}
+                  <ChevronDownIcon className='size-3.5 shrink-0 text-muted-foreground' />
                 </PopoverTrigger>
 
                 <PopoverContent
@@ -1326,42 +1610,7 @@ export function Studio() {
                   side='top'
                   className='w-80 rounded-2xl border border-border/80 bg-card p-3.5 shadow-xl backdrop-blur-md space-y-3'
                 >
-                  {/* Mode selection segmented control */}
-                  <div className='space-y-1.5'>
-                    <Label className='text-xs font-medium text-foreground/80'>{t('Type')}</Label>
-                    <div className='flex items-center rounded-xl bg-muted/60 p-1 border border-border/40 gap-1'>
-                      {runtime.video.enabled && (
-                        <button
-                          type='button'
-                          onClick={() => setMode('video')}
-                          className={cn(
-                            'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center',
-                            mode === 'video'
-                              ? 'bg-background text-foreground shadow-xs font-semibold'
-                              : 'text-muted-foreground hover:text-foreground'
-                          )}
-                        >
-                          <span>{t('Video')}</span>
-                        </button>
-                      )}
-                      {runtime.image.enabled && (
-                        <button
-                          type='button'
-                          onClick={() => setMode('image')}
-                          className={cn(
-                            'flex-1 h-7 rounded-lg text-xs font-medium transition flex items-center justify-center',
-                            mode === 'image'
-                              ? 'bg-background text-foreground shadow-xs font-semibold'
-                              : 'text-muted-foreground hover:text-foreground'
-                          )}
-                        >
-                          <span>{t('Image')}</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Model select */}
+                                    {/* Model select */}
                   <div className='space-y-1.5'>
                     <Label className='text-xs font-medium text-foreground/80'>{t('Model')}</Label>
                     <Select
@@ -1792,6 +2041,48 @@ export function Studio() {
                 </PopoverContent>
               </Popover>
 
+              {/* Prompt optimizer model picker */}
+              {optimizerModels.length > 0 && (
+                <Popover open={optimizerPickerOpen} onOpenChange={setOptimizerPickerOpen}>
+                  <PopoverTrigger
+                    className='hidden sm:flex h-8 max-w-[160px] shrink-0 items-center gap-1.5 rounded-lg border border-border/70 bg-muted/40 px-2.5 text-xs font-medium text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground'
+                    title={t('Prompt optimizer model')}
+                  >
+                    <SparklesIcon className='size-3.5 shrink-0' />
+                    <span className='truncate font-mono'>
+                      {optimizerModel || optimizerModels[0]}
+                    </span>
+                    <ChevronDownIcon className='size-3 shrink-0' />
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align='end'
+                    side='top'
+                    className='w-64 rounded-2xl border border-border/80 bg-card p-2 shadow-xl'
+                  >
+                    <p className='px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground'>
+                      {t('Prompt optimizer model')}
+                    </p>
+                    {optimizerModels.map((model) => (
+                      <button
+                        key={model}
+                        type='button'
+                        onClick={() => {
+                          setOptimizerModel(model)
+                          setOptimizerPickerOpen(false)
+                        }}
+                        className={cn(
+                          'flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-mono transition hover:bg-muted',
+                          optimizerModel === model ? 'text-foreground' : 'text-muted-foreground'
+                        )}
+                      >
+                        <span className='truncate'>{model}</span>
+                        {optimizerModel === model && <CheckIcon className='size-3.5 shrink-0' />}
+                      </button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
+              )}
+
               {/* Circular Send Arrow Button */}
               <button
                 type='button'
@@ -1805,17 +2096,18 @@ export function Studio() {
                   return t('Generate')
                 })()}
                 onClick={() => void handleGenerate()}
-                className='flex size-9 shrink-0 items-center justify-center rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-30 disabled:cursor-not-allowed transition shadow-sm'
+                className='flex size-8 sm:size-9 shrink-0 items-center justify-center rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-30 disabled:cursor-not-allowed transition shadow-sm'
               >
                 {isGenerating || hasActivePending ? (
                   <Loader2Icon className='size-4 animate-spin' />
                 ) : (
-                  <ArrowRightIcon className='size-4' />
+                  <ArrowUpIcon className='size-4' />
                 )}
               </button>
             </div>
           </div>
         </div>
+      </div>
       </div>
 
       {/* Previous Generations Dialog (Item 11) */}

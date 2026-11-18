@@ -9,12 +9,14 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/advancedcustom"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
@@ -490,6 +492,67 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 			"openrouter/free",
 			"reflection/beam-free",
 		}, nil
+	}
+
+	if channel.Type == constant.ChannelTypeOHVCloudAnon {
+		// OHVCloud's anonymous gateway lists models with a per-model pricing
+		// map. A model is free only when EVERY pricing field is "0".
+		base := strings.TrimRight(strings.TrimSpace(channel.GetBaseURL()), "/")
+		base = strings.TrimSuffix(base, "/v1")
+		fetchURL := base + "/v1/models"
+		reqHeaders := make(http.Header)
+		reqHeaders.Set("Accept", "application/json")
+		body, err := getFetchModelsResponseBody(http.MethodGet, fetchURL, channel, reqHeaders)
+		if err == nil {
+			var result struct {
+				Data []struct {
+					ID      string `json:"id"`
+					Pricing struct {
+						Prompt           string `json:"prompt"`
+						Completion       string `json:"completion"`
+						Image            string `json:"image"`
+						Request          string `json:"request"`
+						InputCacheReads  string `json:"input_cache_reads"`
+						InputCacheWrites string `json:"input_cache_writes"`
+					} `json:"pricing"`
+				} `json:"data"`
+			}
+			if commonErr := common.Unmarshal(body, &result); commonErr == nil {
+				isZeroPrice := func(value string) bool {
+					parsed, perr := strconv.ParseFloat(strings.TrimSpace(value), 64)
+					return perr == nil && parsed == 0
+				}
+				var freeModels []string
+				for _, item := range result.Data {
+					if item.ID == "" {
+						continue
+					}
+					fields := []string{
+						item.Pricing.Prompt,
+						item.Pricing.Completion,
+						item.Pricing.Image,
+						item.Pricing.Request,
+						item.Pricing.InputCacheReads,
+						item.Pricing.InputCacheWrites,
+					}
+					allZero := true
+					for _, field := range fields {
+						if !isZeroPrice(field) {
+							allZero = false
+							break
+						}
+					}
+					if allZero {
+						freeModels = append(freeModels, item.ID)
+					}
+				}
+				if len(freeModels) > 0 {
+					return normalizeModelNames(freeModels), nil
+				}
+			}
+		}
+		logger.LogError(context.Background(), fmt.Sprintf("OHVCloud: could not fetch zero-price models for channel %d (%v)", channel.Id, err))
+		return []string{}, nil
 	}
 
 	var url string

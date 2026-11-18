@@ -47,5 +47,6 @@ const (
 	APITypeGroq
 	APITypeClaudeSub
 	APITypeKiloCodeAnon
+	APITypeOHVCloudAnon
 	APITypeDummy // this one is only for count, do not add any channel after this
 )

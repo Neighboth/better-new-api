@@ -31,6 +31,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/moonshot"
 	"github.com/QuantumNous/new-api/relay/channel/newapi"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
+	"github.com/QuantumNous/new-api/relay/channel/ohvcloud"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	"github.com/QuantumNous/new-api/relay/channel/palm"
 	"github.com/QuantumNous/new-api/relay/channel/perplexity"
@@ -148,6 +149,9 @@ func GetAdaptor(apiType int) channel.Adaptor {
 	case constant.APITypeGroq, constant.APITypeKiloCodeAnon:
 		// OpenAI-compatible gateways: Groq, Kilo Code (Anon)
 		return &openai.Adaptor{}
+	case constant.APITypeOHVCloudAnon:
+		// OpenAI-compatible anonymous gateway; handles the /v1-suffixed base URL
+		return &ohvcloud.Adaptor{}
 	case constant.APITypeClaudeSub:
 		return &claudesub.Adaptor{}
 	}

@@ -246,6 +246,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	// installation. The header must be written before DoResponse streams the
 	// upstream body, otherwise it is lost.
 	c.Header("X-New-Api-Task-Id", info.PublicTaskID)
+	c.Set("studio_public_task_id", info.PublicTaskID)
 	if existing := c.GetHeader("Access-Control-Expose-Headers"); existing == "" {
 		c.Header("Access-Control-Expose-Headers", "X-New-Api-Task-Id, X-New-Api-Other-Ratios")
 	}

@@ -266,6 +266,17 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'kilo-auto/free,nvidia/nemotron-3.5-super-vl:free,baidu/ernie-5.5-flash-preview:free',
     },
   },
+  69: {
+    id: 69,
+    name: CHANNEL_TYPES[69],
+    icon: 'OvhCloud',
+    defaultBaseUrl: 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',
+    hints: {
+      baseUrl: 'Default: https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',
+      key: 'Keyless (Anonymous)',
+      models: 'Fetch Models lists only the models whose price is completely 0',
+    },
+  },
 }
 
 /**

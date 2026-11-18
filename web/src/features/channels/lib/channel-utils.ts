@@ -112,6 +112,7 @@ export function getChannelTypeIcon(type: number): string {
   66: 'Groq', // Groq
   67: 'Claude', // Claude Subscription
   68: 'Kilo', // Kilo Code (Anon)
+  69: 'OvhCloud', // OHVCloud (Anon)
 
     // Tools & Platforms
     37: 'Dify', // Dify

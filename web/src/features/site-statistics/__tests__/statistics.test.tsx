@@ -15,6 +15,19 @@ vi.mock('../api', () => ({
   getSiteStatistics: vi.fn(),
   getSiteStatsGroupOptions: vi.fn(),
   searchSiteStatsOptions: vi.fn(),
+  getProxyPoolStats: vi.fn().mockResolvedValue({ stats_by_date: [] }),
+}))
+// The Clarity/GA4/proxy-pool cards were added to the page after this suite was
+// written; mock them so the statistics tests stay focused on the statistics
+// behavior rather than on the analytics integrations.
+vi.mock('../components/proxy-pool-stats-card', () => ({
+  ProxyPoolStatsCard: () => null,
+}))
+vi.mock('../components/clarity-stats-card', () => ({
+  ClarityStatsCard: () => null,
+}))
+vi.mock('../components/google-analytics-console-card', () => ({
+  GoogleAnalyticsConsoleCard: () => null,
 }))
 vi.mock('@/components/layout', () => {
   const Component = ({ children }: { children: React.ReactNode }) => (

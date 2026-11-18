@@ -1036,7 +1036,16 @@ export function ChannelMutateDrawer({
     formErrors.status ||
     formErrors.openai_organization
   )
-  const isKeylessChannel = currentType === 65 || currentType === 68
+  const isKeylessChannel = currentType === 65 || currentType === 68 || currentType === 69
+  const keylessChannelInfoText = (() => {
+    if (currentType === 69) {
+      return t('OHVCloud (Anon) channel does not require an API key.')
+    }
+    if (currentType === 68) {
+      return t('Kilo Code (Anon) channel does not require an API key.')
+    }
+    return t('OpenCode (Anon) channel does not require an API key as it uses a local (http://localhost:4096) or remote server connection.')
+  })()
   const credentialsHaveErrors =
     !isKeylessChannel &&
     Boolean(
@@ -1581,9 +1590,17 @@ export function ChannelMutateDrawer({
     if (editingAdvancedCustom && channelId === null) {
       throw new Error(t('No channel selected'))
     }
+    let keyToSend: string | undefined
+    if (isEditing) {
+      keyToSend = undefined
+    } else if (type === 65 || type === 68 || type === 69) {
+      keyToSend = form.getValues('key') || 'default'
+    } else {
+      keyToSend = form.getValues('key')
+    }
     const response = await fetchModels({
       type,
-      key: isEditing ? undefined : (type === 65 || type === 68 ? (form.getValues('key') || 'default') : form.getValues('key')),
+      key: keyToSend,
       channel_id: editingAdvancedCustom ? channelId || undefined : undefined,
       base_url: form.getValues('base_url') || '',
       advanced_custom: form.getValues('advanced_custom'),
@@ -1745,7 +1762,7 @@ export function ChannelMutateDrawer({
     async (data: ChannelFormValues) => {
       // Validate key is required when creating
       if (!isEditing && !data.key?.trim()) {
-        if (data.type === 65 || data.type === 68) {
+        if (data.type === 65 || data.type === 68 || data.type === 69) {
           data.key = 'default'
         } else {
           form.setError('key', {
@@ -3148,14 +3165,10 @@ export function ChannelMutateDrawer({
                                     </div>
                                   )}
                                 </div>
-                              ) : currentType === 65 || currentType === 68 ? (
+                              ) : isKeylessChannel ? (
                                 <div className='rounded-lg border border-border/60 bg-muted/20 p-3.5 text-xs text-muted-foreground flex items-center gap-2'>
                                   <Info className='size-4 text-primary shrink-0' />
-                                  <span>
-                                    {currentType === 68
-                                      ? t('Kilo Code (Anon) channel does not require an API key.')
-                                      : t('OpenCode (Anon) channel does not require an API key as it uses a local (http://localhost:4096) or remote server connection.')}
-                                  </span>
+                                  <span>{keylessChannelInfoText}</span>
                                 </div>
                               ) : (
                                 <FormField

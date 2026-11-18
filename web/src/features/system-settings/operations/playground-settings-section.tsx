@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { nanoid } from 'nanoid'
 import { toast } from 'sonner'
+import { useNavigate } from '@tanstack/react-router'
 
 import { JsonCodeEditor } from '@/components/json-code-editor'
 import { Button } from '@/components/ui/button'
@@ -188,7 +189,8 @@ function normalizeVideoModels(
 }
 
 type TagFieldProps = {
-  label: string
+  /** Optional — omit when the parent already renders a label. */
+  label?: string
   description?: string
   values: string[]
   options?: string[]
@@ -215,7 +217,7 @@ function TagField(props: TagFieldProps) {
 
   return (
     <div className='space-y-1'>
-      <Label className='text-xs'>{props.label}</Label>
+      {props.label ? <Label className='text-xs'>{props.label}</Label> : null}
       <MultiSelect
         allowCreate={props.allowCreate ?? true}
         options={allOptions}
@@ -275,9 +277,9 @@ function ReferenceImageBlock(props: MediaModelBlockProps) {
             type='number'
             value={value.max_reference_images ?? 5}
           />
-          <p className='text-[10px] text-muted-foreground'>
+          <SettingsDescription>
             {t('Caps uploads and web-search-discovered references combined for this model.')}
-          </p>
+          </SettingsDescription>
         </div>
       )}
     </div>
@@ -304,7 +306,7 @@ function RuleEditorRow(props: RuleRowProps) {
   return (
     <div className='space-y-2 rounded-md border border-border/60 bg-muted/30 p-2'>
       <div className='flex items-center justify-between'>
-        <span className='text-[10px] font-semibold uppercase tracking-wide text-muted-foreground'>
+        <span className='text-[11px] font-medium text-muted-foreground'>
           {t('Rule {{index}}', { index: index + 1 })}
         </span>
         <Button
@@ -412,10 +414,10 @@ function OptionRulesBlock(props: MediaModelBlockProps) {
     <div className='space-y-2 pt-3 border-t border-border/40'>
       <div className='flex items-start justify-between gap-2'>
         <div>
-          <Label className='text-xs font-medium'>{t('Option rules')}</Label>
-          <p className='max-w-lg text-[10px] text-muted-foreground'>
+          <Label className='text-sm font-medium'>{t('Option rules')}</Label>
+          <SettingsDescription>
             {t('Narrow this model’s options for specific selections — e.g. “at 15s there is no 1080p”, “at 10s references are disabled”, “at 1080p at most 2 references”. Rules apply in order; the last matching rule wins per field.')}
-          </p>
+          </SettingsDescription>
         </div>
         <Button
           className='shrink-0'
@@ -454,107 +456,107 @@ function VideoCapabilitiesBlock(props: MediaModelBlockProps) {
   const { value, onChange } = props
   return (
     <div className='space-y-3 pt-3 border-t border-border/40'>
-      <Label className='text-[10px] font-semibold uppercase tracking-wide text-muted-foreground'>
-        {t('Model capabilities')}
-      </Label>
-      <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
-        <div className='space-y-1'>
-          <Label className='text-xs'>{t('Video edit')}</Label>
-          <Select
-            onValueChange={(next) => onChange({ edit_mode: next as MediaModelConfig['edit_mode'] })}
-            value={value.edit_mode ?? 'none'}
-          >
-            <SelectTrigger className='h-9 text-xs'>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem className='text-xs' value='none'>
-                {t('No')}
-              </SelectItem>
-              <SelectItem className='text-xs' value='supported'>
-                {t('Supported')}
-              </SelectItem>
-              <SelectItem className='text-xs' value='only'>
-                {t('Edit-only')}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-          <p className='text-[10px] text-muted-foreground'>
-            {t('“Supported”: the model may edit an input video. “Edit-only”: the model requires an input video and does not generate from text alone.')}
-          </p>
-        </div>
-        <div className='flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2'>
-          <div>
-            <Label className='text-xs'>{t('Generates audio')}</Label>
-            <p className='text-[10px] text-muted-foreground'>
-              {t('The model renders an audio track with the video.')}
-            </p>
+      <div className='space-y-1 pt-3 border-t border-border/40'>
+        <Label className='text-sm font-medium'>{t('Model capabilities')}</Label>
+        <div className='grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2'>
+          <div className='space-y-1'>
+            <Label className='text-xs'>{t('Video edit')}</Label>
+            <Select
+              onValueChange={(next) => onChange({ edit_mode: next as MediaModelConfig['edit_mode'] })}
+              value={value.edit_mode ?? 'none'}
+            >
+              <SelectTrigger className='h-9 text-xs'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem className='text-xs' value='none'>
+                  {t('No')}
+                </SelectItem>
+                <SelectItem className='text-xs' value='supported'>
+                  {t('Supported')}
+                </SelectItem>
+                <SelectItem className='text-xs' value='only'>
+                  {t('Edit-only')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <SettingsDescription>
+              {t('“Supported”: the model may edit an input video. “Edit-only”: the model requires an input video and does not generate from text alone.')}
+            </SettingsDescription>
           </div>
-          <Switch
-            checked={Boolean(value.audio)}
-            onCheckedChange={(checked) => onChange({ audio: checked })}
-          />
+          <SettingsSwitchRow className='items-center'>
+            <SettingsSwitchContent>
+              <Label className='text-sm'>{t('Generates audio')}</Label>
+              <SettingsDescription>
+                {t('The model renders an audio track with the video.')}
+              </SettingsDescription>
+            </SettingsSwitchContent>
+            <Switch
+              checked={Boolean(value.audio)}
+              onCheckedChange={(checked) => onChange({ audio: checked })}
+            />
+          </SettingsSwitchRow>
         </div>
-      </div>
-      <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
-        <div className='space-y-2 rounded-md border border-border/60 p-2'>
-          <div className='flex items-center justify-between gap-2'>
-            <div>
-              <Label className='text-xs'>{t('Accepts audio references')}</Label>
-              <p className='text-[10px] text-muted-foreground'>
+        <div className='grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-2 pt-1'>
+          <SettingsSwitchRow>
+            <SettingsSwitchContent>
+              <Label className='text-sm'>{t('Accepts audio references')}</Label>
+              <SettingsDescription>
                 {t('Audio clips the model conditions the video on.')}
-              </p>
-            </div>
+              </SettingsDescription>
+            </SettingsSwitchContent>
             <Switch
               checked={Boolean(value.audio_reference)}
               onCheckedChange={(checked) => onChange({ audio_reference: checked })}
             />
-          </div>
-          {value.audio_reference && (
-            <div className='flex items-center gap-2 ps-1'>
-              <Label className='text-xs'>{t('Max audio references')}</Label>
-              <Input
-                className='h-8 w-16 text-xs'
-                max={10}
-                min={1}
-                onChange={(event) =>
-                  onChange({ max_audio_references: clampInt(event.target.value, 1, 10, 3) })
-                }
-                type='number'
-                value={value.max_audio_references ?? 3}
-              />
-            </div>
-          )}
-        </div>
-        <div className='space-y-2 rounded-md border border-border/60 p-2'>
-          <div className='flex items-center justify-between gap-2'>
-            <div>
-              <Label className='text-xs'>{t('Accepts video references')}</Label>
-              <p className='text-[10px] text-muted-foreground'>
+          </SettingsSwitchRow>
+          <SettingsSwitchRow>
+            <SettingsSwitchContent>
+              <Label className='text-sm'>{t('Accepts video references')}</Label>
+              <SettingsDescription>
                 {t('Video clips the model conditions the video on.')}
-              </p>
-            </div>
+              </SettingsDescription>
+            </SettingsSwitchContent>
             <Switch
               checked={Boolean(value.video_reference)}
               onCheckedChange={(checked) => onChange({ video_reference: checked })}
             />
-          </div>
-          {value.video_reference && (
-            <div className='flex items-center gap-2 ps-1'>
-              <Label className='text-xs'>{t('Max video references')}</Label>
-              <Input
-                className='h-8 w-16 text-xs'
-                max={10}
-                min={1}
-                onChange={(event) =>
-                  onChange({ max_video_references: clampInt(event.target.value, 1, 10, 2) })
-                }
-                type='number'
-                value={value.max_video_references ?? 2}
-              />
-            </div>
-          )}
+          </SettingsSwitchRow>
         </div>
+        {(value.audio_reference || value.video_reference) && (
+          <div className='flex flex-wrap items-center gap-4 ps-1'>
+            {value.audio_reference && (
+              <div className='flex items-center gap-2'>
+                <Label className='text-xs shrink-0'>{t('Max audio references')}</Label>
+                <Input
+                  className='h-8 w-16 text-xs'
+                  max={10}
+                  min={1}
+                  onChange={(event) =>
+                    onChange({ max_audio_references: clampInt(event.target.value, 1, 10, 3) })
+                  }
+                  type='number'
+                  value={value.max_audio_references ?? 3}
+                />
+              </div>
+            )}
+            {value.video_reference && (
+              <div className='flex items-center gap-2'>
+                <Label className='text-xs shrink-0'>{t('Max video references')}</Label>
+                <Input
+                  className='h-8 w-16 text-xs'
+                  max={10}
+                  min={1}
+                  onChange={(event) =>
+                    onChange({ max_video_references: clampInt(event.target.value, 1, 10, 2) })
+                  }
+                  type='number'
+                  value={value.max_video_references ?? 2}
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -790,6 +792,7 @@ export function PlaygroundSettingsSection({
   defaultValues: PlaygroundSettingsDefaults
 }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const updateOptions = useUpdateOptionsBulk()
 
   const [imageEnabled, setImageEnabled] = useState<boolean>(
@@ -1166,22 +1169,41 @@ export function PlaygroundSettingsSection({
                   {t('Assistant Model')}
                   <span className='text-destructive' aria-hidden='true'> *</span>
                 </Label>
-                <Input
-                  className='font-mono text-xs'
-                  list='playground-optimizer-models'
-                  placeholder='gpt-4o-mini, gemini-2.5-flash...'
-                  value={promptOptimizerModel}
-                  onChange={(e) => setPromptOptimizerModel(e.target.value)}
-                  aria-required='true'
+                <TagField
+                  onChange={(values) => {
+                    // Persist as a comma-separated list; duplicates are harmless (trimmed on read).
+                    setPromptOptimizerModel(
+                      [...new Set(values.map((v) => v.trim()).filter(Boolean))].join(', ')
+                    )
+                  }}
+                  options={modelOptions}
+                  placeholder='gpt-4o-mini, gemini-2.5-flash'
+                  values={
+                    promptOptimizerModel
+                      .split(',')
+                      .map((v) => v.trim())
+                      .filter(Boolean)
+                  }
                 />
-                <datalist id='playground-optimizer-models'>
-                  {modelOptions.map((model) => (
-                    <option key={model} value={model} />
-                  ))}
-                </datalist>
                 <p className='text-muted-foreground text-[11px]'>
-                  {t('Required. A fast, vision-capable chat model that refines every prompt in the Studio, for images and videos.')}
+                  {t('Required. One or more vision-capable chat models. With several configured, the Studio shows a selector in the composer — the first model is the default.')}
                 </p>
+              </div>
+
+              <div className='flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2'>
+                <div>
+                  <Label className='text-xs font-medium'>{t('Studio skills')}</Label>
+                  <p className='text-[10px] text-muted-foreground'>
+                    {t('Reusable creative directions the Studio applies when selected (e.g. a GTA 6 visual style). Opens the skill editor on its own page.')}
+                  </p>
+                </div>
+                <Button
+                  onClick={() => void navigate({ to: '/studio-skills' })}
+                  size='sm'
+                  variant='outline'
+                >
+                  {t('Manage skills')}
+                </Button>
               </div>
 
               <div className='space-y-1.5'>

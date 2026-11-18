@@ -27,6 +27,7 @@ var proxyPoolRoutes = []proxyPoolRoute{
 	{http.MethodGet, "/:id/detail", authz.ProxyPoolRead, controller.GetProxyPoolProxyDetail},
 	{http.MethodPost, "/:id/unassign", authz.ProxyPoolWrite, controller.UnassignProxyPoolProxy},
 	{http.MethodGet, "/channels", authz.ProxyPoolRead, controller.ListProxyPoolChannels},
+	{http.MethodGet, "/channels/:id/detail", authz.ProxyPoolRead, controller.GetProxyChannelDetail},
 	{http.MethodGet, "/assignments", authz.ProxyPoolRead, controller.ListProxyPoolAssignments},
 	{http.MethodPost, "/assign", authz.ProxyPoolWrite, controller.AutoAssignProxyPool},
 	{http.MethodPost, "/rebalance", authz.ProxyPoolWrite, controller.RebalanceAllProxyPoolChannels},

@@ -284,6 +284,8 @@ func migrateDB() error {
 		&Setup{},
 		&VideoAsset{},
 		&StudioItem{},
+		&StudioSkill{},
+		&ProxyPoolEvent{},
 		&TwoFA{},
 		&TwoFABackupCode{},
 		&Checkin{},

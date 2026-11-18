@@ -132,6 +132,13 @@ var (
 // RecordProxyRateLimited places a proxy on cooldown following a 429 response.
 // Accepts an optional duration (e.g. 30 minutes for OpenCode / Kilo Code); defaults to 60s.
 func RecordProxyRateLimited(proxyURL string, duration ...time.Duration) {
+	RecordProxyRateLimitedWithChannel(proxyURL, 0, duration...)
+}
+
+// RecordProxyRateLimitedWithChannel places a proxy on cooldown following an
+// upstream 429 attributed to the given channel, and records the audit event.
+// Channel 0 means "pool-level" (no channel context available).
+func RecordProxyRateLimitedWithChannel(proxyURL string, channelID int, duration ...time.Duration) {
 	trimmed := strings.TrimSpace(proxyURL)
 	if trimmed == "" {
 		return
@@ -141,6 +148,19 @@ func RecordProxyRateLimited(proxyURL string, duration ...time.Duration) {
 		cd = duration[0]
 	}
 	proxy429Cooldown.Store(trimmed, time.Now().Add(cd))
+
+	proxyID := 0
+	if id, err := model.FindProxyPoolProxyIDByURL(trimmed); err == nil && id > 0 {
+		proxyID = id
+	}
+	// Cooldowns never last longer than the relay state we hold; recording is
+	// best-effort and never blocks a request.
+	message := fmt.Sprintf("Proxy placed on 429 cooldown for %s", cd)
+	if channelID > 0 {
+		model.RecordProxyPoolEvent(channelID, -1, proxyID, trimmed, "cooldown_429", message)
+	} else {
+		model.RecordProxyPoolEvent(0, -1, proxyID, trimmed, "cooldown_429", message)
+	}
 }
 
 // IsProxyRateLimited checks whether a proxy is currently within its 429 cooldown period.
@@ -153,12 +173,44 @@ func IsProxyRateLimited(proxyURL string) bool {
 	if !ok {
 		return false
 	}
-	expiresAt, ok := val.(time.Time)
-	if !ok || time.Now().After(expiresAt) {
-		proxy429Cooldown.Delete(trimmed)
+	until, ok := val.(time.Time)
+	if !ok {
 		return false
 	}
-	return true
+	if time.Now().Before(until) {
+		return true
+	}
+	// Lazily evict expired entries.
+	proxy429Cooldown.Delete(trimmed)
+	return false
+}
+
+func proxy429CooldownRemaining(proxyURL string) int64 {
+	trimmed := strings.TrimSpace(proxyURL)
+	if trimmed == "" {
+		return 0
+	}
+	if val, ok := proxy429Cooldown.Load(trimmed); ok {
+		if until, ok := val.(time.Time); ok {
+			seconds := time.Until(until).Seconds()
+			if seconds > 0 {
+				return int64(seconds)
+			}
+		}
+	}
+	return 0
+}
+
+// ProxyCooldownSnapshot returns the remaining cooldown seconds for every URL
+// currently on 429 cooldown, keyed by URL.
+func ProxyCooldownSnapshot(urls []string) map[string]int64 {
+	out := map[string]int64{}
+	for _, url := range urls {
+		if seconds := proxy429CooldownRemaining(url); seconds > 0 {
+			out[url] = seconds
+		}
+	}
+	return out
 }
 
 // GetProxiesForChannel returns the proxies explicitly assigned to a channel.
@@ -475,6 +527,8 @@ func StartProxyPoolAutoTester() {
 
 			for r := range results {
 				p := *r.proxy
+				prevStatus := p.LastTestStatus
+				prevEnabled := p.Enabled
 				p.LastTestedAt = time.Now().Unix()
 				p.LatencyMs = r.latency
 				if r.testErr != nil {
@@ -484,12 +538,24 @@ func StartProxyPoolAutoTester() {
 					if autoDisable {
 						p.Enabled = false
 					}
+					if prevStatus != "fail" {
+						model.RecordProxyPoolEvent(0, -1, p.Id, p.URL, "test_fail", fmt.Sprintf("Proxy failed its health check: %s", r.testErr.Error()))
+					}
+					if autoDisable && prevEnabled {
+						model.RecordProxyPoolEvent(0, -1, p.Id, p.URL, "auto_disabled", "Proxy auto-disabled after a failed health check")
+					}
 				} else {
 					p.LastTestStatus = "ok"
 					p.LastTestError = ""
 					p.EgressIP = r.egressIP
 					if autoDisable && !p.Enabled {
 						p.Enabled = true
+					}
+					if prevStatus == "fail" {
+						model.RecordProxyPoolEvent(0, -1, p.Id, p.URL, "test_ok", "Proxy recovered and passes its health check")
+					}
+					if autoDisable && !prevEnabled {
+						model.RecordProxyPoolEvent(0, -1, p.Id, p.URL, "auto_enabled", "Proxy auto-enabled after a passing health check")
 					}
 				}
 				_ = model.UpdateProxyPoolProxy(&p)

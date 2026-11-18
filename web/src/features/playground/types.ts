@@ -218,6 +218,7 @@ export interface ImageGenerationRequest {
   n?: number
   size?: string
   quality?: string
+  metadata?: Record<string, unknown>
 }
 
 export interface ImageGenerationResponse {
@@ -376,7 +377,10 @@ export interface PlaygroundRuntimeConfig {
     enabled: boolean
     default_model?: string
     prompt_optimizer_enabled?: boolean
+    /** First configured optimizer model — the default selector value. */
     prompt_optimizer_model?: string
+    /** Every configured optimizer model in order; the first is the default. */
+    prompt_optimizer_models?: string[]
     prompt_optimizer_system_prompt?: string
   }
   music: {
@@ -428,6 +432,7 @@ export const EMPTY_PLAYGROUND_RUNTIME_CONFIG: PlaygroundRuntimeConfig = {
   },
   studio: {
     enabled: true,
+    prompt_optimizer_models: [],
   },
   music: {
     enabled: true,

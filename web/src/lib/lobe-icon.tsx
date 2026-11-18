@@ -32,6 +32,7 @@ import { IconAepi } from '@/assets/custom/icon-aepi'
 import { IconAgnes } from '@/assets/custom/icon-agnes'
 import { IconKilo } from '@/assets/custom/icon-kilo'
 import { IconOpenCode } from '@/assets/custom/icon-opencode'
+import { IconOvhCloud } from '@/assets/custom/icon-ovhcloud'
 import { IconSub2api } from '@/assets/custom/icon-sub2api'
 
 const CUSTOM_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
@@ -40,6 +41,7 @@ const CUSTOM_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
   Aepi: IconAepi,
   OpenCode: IconOpenCode,
   Kilo: IconKilo,
+  OvhCloud: IconOvhCloud,
 }
 
 /**

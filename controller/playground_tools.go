@@ -162,7 +162,8 @@ func GetPlaygroundConfig(c *gin.Context) {
 			"enabled":                        setting.StudioEnabled,
 			"default_model":                  setting.StudioDefaultModel,
 			"prompt_optimizer_enabled":       setting.PromptOptimizerEnabled,
-			"prompt_optimizer_model":         setting.PromptOptimizerModel,
+			"prompt_optimizer_model":         firstOptimizerModel(setting.PromptOptimizerModel),
+			"prompt_optimizer_models":        parseOptimizerModels(setting.PromptOptimizerModel),
 			"prompt_optimizer_system_prompt": setting.PromptOptimizerSystemPrompt,
 		},
 	})
@@ -181,6 +182,33 @@ func uniqueStrings(values []string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+// chargeSearchQuota debits the group-scaled search price for one query and
+// records the consume log. It returns the charged quota (0 when searches are
+// free). Shared by the playground web-search tool and the studio prompt
+// optimizer's image/web search rounds.
+func chargeSearchQuota(c *gin.Context, userId int, group string, query string) (int, error) {
+	search := operation_setting.GetOnlineSearchSetting()
+	if search.PricePerSearch <= 0 || math.IsNaN(search.PricePerSearch) || math.IsInf(search.PricePerSearch, 0) {
+		return 0, nil
+	}
+	quotaFloat := search.PricePerSearch * common.QuotaPerUnit * ratio_setting.GetGroupRatio(group)
+	charged := int(math.Round(quotaFloat))
+	if charged <= 0 {
+		return 0, nil
+	}
+	if err := model.DecreaseUserQuota(userId, charged, false); err != nil {
+		return 0, err
+	}
+	model.RecordConsumeLog(c, userId, model.RecordConsumeLogParams{
+		ModelName: "web_search",
+		Quota:     charged,
+		Content:   query,
+		TokenName: "playground-web-search",
+		Group:     group,
+	})
+	return charged, nil
 }
 
 // PlaygroundWebSearch runs one SearXNG query for the web search tool of the
@@ -267,27 +295,14 @@ func PlaygroundWebSearch(c *gin.Context) {
 		group = "default"
 	}
 
-	charged := 0
-	if search.PricePerSearch > 0 && !math.IsNaN(search.PricePerSearch) && !math.IsInf(search.PricePerSearch, 0) {
-		quotaFloat := search.PricePerSearch * common.QuotaPerUnit * ratio_setting.GetGroupRatio(group)
-		charged = int(math.Round(quotaFloat))
-		if charged > 0 {
-			if err := model.DecreaseUserQuota(userId, charged, false); err != nil {
-				c.JSON(200, gin.H{
-					"success": false,
-					"message": "Failed to charge the search",
-					"code":    "web_search_billing_failed",
-				})
-				return
-			}
-			model.RecordConsumeLog(c, userId, model.RecordConsumeLogParams{
-				ModelName: "web_search",
-				Quota:     charged,
-				Content:   query,
-				TokenName: "playground-web-search",
-				Group:     group,
-			})
-		}
+	charged, err := chargeSearchQuota(c, userId, group, query)
+	if err != nil {
+		c.JSON(200, gin.H{
+			"success": false,
+			"message": "Failed to charge the search",
+			"code":    "web_search_billing_failed",
+		})
+		return
 	}
 
 	results := make([]gin.H, 0, len(hits))

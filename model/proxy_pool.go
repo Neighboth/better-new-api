@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -15,7 +16,7 @@ import (
 type ProxyPoolProxy struct {
 	Id             int    `json:"id" gorm:"primaryKey;autoIncrement"`
 	Name           string `json:"name" gorm:"type:varchar(191);not null;default:''"`
-	URL            string `json:"url" gorm:"type:text;not null"`
+	URL            string `json:"url" gorm:"type:text;not null;index:idx_proxy_pool_proxies_url"`
 	ProxyType      string `json:"proxy_type" gorm:"type:varchar(32);default:'standard'"`
 	Enabled        bool   `json:"enabled" gorm:"not null;default:true"`
 	LastTestStatus string `json:"last_test_status" gorm:"type:varchar(32);default:''"`
@@ -195,6 +196,71 @@ func ListProxyPoolProxies() ([]ProxyPoolProxy, error) {
 		}
 	}
 	return proxies, nil
+}
+
+// ListProxyPoolProxiesForAutoTest returns the N proxies with the stalest test
+// results, so each sweep covers a rotating slice of the pool instead of
+// hammering every entry on every run (important with tens of thousands).
+// FindProxyPoolProxyIDByURL resolves a proxy row id from its URL. Returns 0
+// when not found.
+func FindProxyPoolProxyIDByURL(url string) (int, error) {
+	if DB == nil {
+		return 0, nil
+	}
+	url = strings.TrimSpace(url)
+	if url == "" {
+		return 0, nil
+	}
+	var proxy ProxyPoolProxy
+	err := DB.Select("id").Where("url = ?", url).Take(&proxy).Error
+	if err != nil {
+		return 0, err
+	}
+	return proxy.Id, nil
+}
+
+// ProxyChannelAssignmentDetail is one row of the channel detail view: the
+// bound proxy joined with its health state.
+type ProxyChannelAssignmentDetail struct {
+	KeyIndex       int    `json:"key_index"`
+	ProxyID        int    `json:"proxy_id"`
+	ProxyName      string `json:"proxy_name"`
+	ProxyURL       string `json:"proxy_url"`
+	ProxyEnabled   bool   `json:"proxy_enabled"`
+	EgressIP       string `json:"egress_ip"`
+	LatencyMs      int64  `json:"latency_ms"`
+	LastTestStatus string `json:"last_test_status"`
+	LastTestError  string `json:"last_test_error"`
+	LastTestedAt   int64  `json:"last_tested_at"`
+	CountryCode    string `json:"country_code"`
+	CountryName    string `json:"country_name"`
+}
+
+// ListProxyPoolChannelAssignmentsDetail returns the joined rows for the
+// channel detail popup.
+func ListProxyPoolChannelAssignmentsDetail(channelID int) ([]ProxyChannelAssignmentDetail, error) {
+	out := []ProxyChannelAssignmentDetail{}
+	if DB == nil {
+		return out, nil
+	}
+	err := DB.Table("proxy_pool_assignments as a").
+		Select("a.key_index, p.id as proxy_id, p.name as proxy_name, p.url as proxy_url, p.enabled as proxy_enabled, p.egress_ip, p.latency_ms, p.last_test_status, p.last_test_error, p.last_tested_at, p.country_code, p.country_name").
+		Joins("join proxy_pool_proxies as p on p.id = a.proxy_id").
+		Where("a.channel_id = ?", channelID).
+		Order("a.key_index ASC").
+		Scan(&out).Error
+	return out, err
+}
+
+// ListProxyPoolAssignmentsForChannel returns the raw assignments of one
+// channel (used by rebalance/assign flows).
+func ListProxyPoolAssignmentsForChannel(channelID int) ([]ProxyPoolAssignment, error) {
+	out := []ProxyPoolAssignment{}
+	if DB == nil {
+		return out, nil
+	}
+	err := DB.Where("channel_id = ?", channelID).Order("key_index ASC").Find(&out).Error
+	return out, err
 }
 
 // ListProxyPoolProxiesForAutoTest returns the N proxies with the stalest test
@@ -398,7 +464,7 @@ func ListMultiKeyChannels() ([]MultiKeyChannelSummary, error) {
 	}
 	summaries := make([]MultiKeyChannelSummary, 0, len(channels))
 	for _, ch := range channels {
-		isPoolEligible := ch.ChannelInfo.IsMultiKey || ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon
+		isPoolEligible := ch.ChannelInfo.IsMultiKey || ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon || ch.Type == constant.ChannelTypeOHVCloudAnon
 		if !isPoolEligible {
 			continue
 		}

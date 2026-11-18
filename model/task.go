@@ -330,8 +330,15 @@ func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 func GetAllUnFinishSyncTasks(limit int) []*Task {
 	var tasks []*Task
 	var err error
-	// get all tasks progress is not 100%
-	err = DB.Where("progress != ?", "100%").Where("status != ?", TaskStatusFailure).Where("status != ?", TaskStatusSuccess).Limit(limit).Order("id").Find(&tasks).Error
+	// get all tasks progress is not 100%, excluding QUEUED placeholders — those
+	// are parked by the Aepi admission dispatcher and have no upstream id yet;
+	// polling them would mark them FAILURE ("Failed to get channel info,
+	// channel ID: 0") before the dispatcher can admit them.
+	err = DB.Where("progress != ?", "100%").
+		Where("status != ?", TaskStatusFailure).
+		Where("status != ?", TaskStatusSuccess).
+		Where("status != ?", TaskStatusQueued).
+		Limit(limit).Order("id").Find(&tasks).Error
 	if err != nil {
 		return nil
 	}

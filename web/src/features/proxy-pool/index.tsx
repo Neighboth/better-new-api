@@ -26,6 +26,7 @@ import {
   Eye,
   FileText,
   Gauge,
+  Info,
   Loader2,
   Pencil,
   Plus,
@@ -36,6 +37,7 @@ import {
   Upload,
   Waypoints,
   X,
+  Timer,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -95,6 +97,7 @@ import {
   clearAssignments,
   createProxy,
   deleteProxy,
+  getChannelDetail,
   getProxyDetail,
   listChannels,
   listProxies,
@@ -392,6 +395,8 @@ export function ProxyPool() {
   const totalPages = proxiesQuery.data?.total_pages ?? 1
   const enabledCount = proxiesQuery.data?.enabled_count ?? proxyList.filter((p) => p.enabled).length
 
+  const [detailChannelId, setDetailChannelId] = useState<number | null>(null)
+
   const channelsQuery = useQuery({
     queryKey: ['proxy-pool-channels'],
     queryFn: async () => {
@@ -402,6 +407,21 @@ export function ProxyPool() {
       return Array.isArray(res.data) ? res.data : []
     },
   })
+
+  const channelDetailQuery = useQuery({
+    queryKey: ['proxy-pool-channel-detail', detailChannelId],
+    queryFn: async () => {
+      if (detailChannelId === null) return null
+      const res = await getChannelDetail(detailChannelId)
+      if (!res.success) {
+        throw new Error(res.message || 'failed to load channel detail')
+      }
+      return res.data
+    },
+    enabled: detailChannelId !== null,
+    staleTime: 10_000,
+  })
+  const channelDetailData = channelDetailQuery.data
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['proxy-pool-proxies'] })
@@ -1007,7 +1027,7 @@ export function ProxyPool() {
                   </TableHeader>
                   <TableBody>
                     {(channelsQuery.data ?? []).map((channel) => {
-                      const isAnon = channel.type === 65 || channel.type === 68
+                      const isAnon = channel.type === 65 || channel.type === 68 || channel.type === 69
                       const isComplete = isAnon ? channel.assigned_keys > 0 : channel.assigned_keys === channel.multi_key_size
                       return (
                       <TableRow key={channel.id}>
@@ -1032,6 +1052,15 @@ export function ProxyPool() {
                         </TableCell>
                         <TableCell>
                           <div className='flex justify-end gap-1'>
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              onClick={() => setDetailChannelId(channel.id)}
+                              aria-label={t('Channel detail')}
+                              title={t('Channel detail')}
+                            >
+                              <Info className='size-3.5' />
+                            </Button>
                             <Button
                               size='sm'
                               variant='outline'
@@ -1771,6 +1800,209 @@ export function ProxyPool() {
         </div>
       )}
 
+      {/* Channel Detail Dialog */}
+      <Dialog
+        open={detailChannelId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailChannelId(null)
+        }}
+      >
+        <DialogContent className='max-w-3xl w-[96vw] sm:w-full max-h-[88vh] sm:max-h-[85vh] flex flex-col p-0 overflow-hidden'>
+          <DialogHeader className='p-5 sm:p-6 pb-3 border-b shrink-0'>
+            <DialogTitle>
+              {channelDetailData?.channel.name || t('Channel detail')}
+            </DialogTitle>
+            <DialogDescription>
+              #{channelDetailData?.channel.id ?? detailChannelId}
+              {channelDetailData
+                ? ` · ${t('Type {{type}}', { type: channelDetailData.channel.type })} · ${t(
+                    '{{count}} keys',
+                    { count: channelDetailData.channel.multi_key_size || 0 }
+                  )}`
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className='flex-1 overflow-y-auto p-5 sm:p-6 space-y-5'>
+            {channelDetailQuery.isLoading && (
+              <div className='flex h-24 items-center justify-center text-muted-foreground'>
+                <Loader2 className='me-2 size-4 animate-spin' />
+                {t('Loading')}
+              </div>
+            )}
+            {channelDetailQuery.isError && (
+              <p className='rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm'>
+                {t('Channels could not be loaded')}
+              </p>
+            )}
+            {channelDetailData && (
+              <>
+                <section className='space-y-2'>
+                  <h3 className='text-xs font-semibold uppercase tracking-wide text-muted-foreground'>
+                    {t('Assigned proxies')}
+                  </h3>
+                  {channelDetailData.assignments.length === 0 ? (
+                    <p className='rounded-lg border border-dashed border-border/70 p-4 text-center text-xs text-muted-foreground'>
+                      {t('No proxies assigned to this channel yet. Use "Assign evenly" or "Rebalance All".')}
+                    </p>
+                  ) : (
+                    <div className='overflow-x-auto rounded-lg border border-border/60'>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{t('Proxy')}</TableHead>
+                            <TableHead>{t('Egress')}</TableHead>
+                            <TableHead>{t('Latency')}</TableHead>
+                            <TableHead>{t('Last test')}</TableHead>
+                            <TableHead className='text-right'>{t('Cooldown')}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {channelDetailData.assignments.map((assignment) => {
+                            const cooldownSeconds =
+                              channelDetailData.cooldowns[assignment.proxy_url] ?? 0
+                            return (
+                              <TableRow key={`${assignment.key_index}:${assignment.proxy_id}`}>
+                                <TableCell>
+                                  <div className='flex flex-wrap items-center gap-1.5'>
+                                    <span className='text-[10px] font-mono text-muted-foreground'>
+                                      #{assignment.proxy_id}
+                                    </span>
+                                    <span className='font-medium'>{assignment.proxy_name}</span>
+                                  </div>
+                                  <div
+                                    className='max-w-[260px] truncate text-[10px] font-mono text-muted-foreground'
+                                    title={assignment.proxy_url}
+                                  >
+                                    {assignment.proxy_url}
+                                  </div>
+                                  {assignment.country_name && (
+                                    <div className='text-[10px] text-muted-foreground'>
+                                      {assignment.country_name}
+                                      {assignment.country_code ? ` (${assignment.country_code})` : ''}
+                                    </div>
+                                  )}
+                                </TableCell>
+                                <TableCell className='font-mono text-[10px]'>
+                                  {assignment.egress_ip || '—'}
+                                </TableCell>
+                                <TableCell className='font-mono text-[10px]'>
+                                  {assignment.latency_ms > 0 ? `${assignment.latency_ms} ms` : '—'}
+                                </TableCell>
+                                <TableCell>
+                                  {(() => {
+                                    let testBadgeVariant: 'secondary' | 'destructive' | 'outline' = 'outline'
+                                    if (assignment.last_test_status === 'ok') {
+                                      testBadgeVariant = 'secondary'
+                                    } else if (assignment.last_test_status === 'fail') {
+                                      testBadgeVariant = 'destructive'
+                                    }
+                                    return (
+                                      <Badge
+                                        variant={testBadgeVariant}
+                                        className='text-[10px]'
+                                        title={assignment.last_test_error || undefined}
+                                      >
+                                        {assignment.last_test_status || t('Not tested')}
+                                      </Badge>
+                                    )
+                                  })()}
+                                  {assignment.last_tested_at > 0 && (
+                                    <div className='text-[9px] text-muted-foreground'>
+                                      {formatTimestampRelative(assignment.last_tested_at)}
+                                    </div>
+                                  )}
+                                </TableCell>
+                                <TableCell className='text-right'>
+                                  {cooldownSeconds > 0 ? (
+                                    <Badge
+                                      variant='outline'
+                                      className='inline-flex items-center gap-1 border-amber-500/50 text-[10px] text-amber-600 dark:text-amber-400'
+                                    >
+                                      <Timer className='size-3' />
+                                      {t('On cooldown · {{seconds}}s left', {
+                                        seconds: cooldownSeconds,
+                                      })}
+                                    </Badge>
+                                  ) : (
+                                    <span className='text-[10px] text-muted-foreground'>—</span>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </section>
+
+                <section className='space-y-2'>
+                  <h3 className='text-xs font-semibold uppercase tracking-wide text-muted-foreground'>
+                    {t('Channel event log')}
+                  </h3>
+                  {channelDetailData.events.length === 0 ? (
+                    <p className='rounded-lg border border-dashed border-border/70 p-4 text-center text-xs text-muted-foreground'>
+                      {t('No events yet')}
+                    </p>
+                  ) : (
+                    <ul className='max-h-56 space-y-1.5 overflow-y-auto pe-1'>
+                      {channelDetailData.events.map((event) => (
+                        <li
+                          key={event.id}
+                          className='flex items-start gap-2 rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-[11px]'
+                        >
+                          <Badge
+                            variant={eventKindBadgeVariant(event.kind)}
+                            className='mt-0.5 shrink-0 text-[9px]'
+                          >
+                            {eventKindLabel(event.kind, t)}
+                          </Badge>
+                          <span className='min-w-0 flex-1 break-words'>{event.message}</span>
+                          <span className='shrink-0 text-[9px] text-muted-foreground tabular-nums'>
+                            {formatTimestampRelative(event.created_at)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+
+                <section className='space-y-2'>
+                  <h3 className='text-xs font-semibold uppercase tracking-wide text-muted-foreground'>
+                    {t('Global pool events')}
+                  </h3>
+                  {channelDetailData.global_events.length === 0 ? (
+                    <p className='rounded-lg border border-dashed border-border/70 p-4 text-center text-xs text-muted-foreground'>
+                      {t('No events yet')}
+                    </p>
+                  ) : (
+                    <ul className='max-h-40 space-y-1.5 overflow-y-auto pe-1'>
+                      {channelDetailData.global_events.map((event) => (
+                        <li
+                          key={event.id}
+                          className='flex items-start gap-2 rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-[11px]'
+                        >
+                          <Badge
+                            variant={eventKindBadgeVariant(event.kind)}
+                            className='mt-0.5 shrink-0 text-[9px]'
+                          >
+                            {eventKindLabel(event.kind, t)}
+                          </Badge>
+                          <span className='min-w-0 flex-1 break-words'>{event.message}</span>
+                          <span className='shrink-0 text-[9px] text-muted-foreground tabular-nums'>
+                            {formatTimestampRelative(event.created_at)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Batch Rename Dialog */}
       <Dialog open={batchNameDialogOpen} onOpenChange={setBatchNameDialogOpen}>
         <DialogContent className='max-w-md'>
@@ -1827,8 +2059,53 @@ export function ProxyPool() {
   )
 }
 
+function eventKindBadgeVariant(kind: string): 'default' | 'secondary' | 'destructive' | 'outline' {
+  switch (kind) {
+    case 'cooldown_429':
+    case 'switch_429':
+      return 'destructive'
+    case 'test_fail':
+    case 'auto_disabled':
+      return 'destructive'
+    case 'assign':
+    case 'import':
+    case 'auto_enabled':
+    case 'test_ok':
+      return 'secondary'
+    default:
+      return 'outline'
+  }
+}
+
+function eventKindLabel(kind: string, t: (key: string) => string): string {
+  switch (kind) {
+    case 'assign':
+      return t('Assignment')
+    case 'import':
+      return t('Imported')
+    case 'clear':
+      return t('Cleared')
+    case 'unassign':
+      return t('Unassigned')
+    case 'cooldown_429':
+      return t('429 cooldown')
+    case 'switch_429':
+      return t('429 switch')
+    case 'test_fail':
+      return t('Test failed')
+    case 'test_ok':
+      return t('Test ok')
+    case 'auto_disabled':
+      return t('Auto-disabled')
+    case 'auto_enabled':
+      return t('Auto-enabled')
+    default:
+      return kind
+  }
+}
+
 function assignedIconFor(channel: ProxyPoolChannel) {
-  const isAnon = channel.type === 65 || channel.type === 68
+  const isAnon = channel.type === 65 || channel.type === 68 || channel.type === 69
   const isComplete = isAnon ? channel.assigned_keys > 0 : channel.assigned_keys === channel.multi_key_size
   return isComplete ? (
     <CheckCircle2 className='mr-1 h-3.5 w-3.5 text-emerald-600' />

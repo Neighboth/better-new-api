@@ -1,7 +1,12 @@
 package model
 
 import (
+	"fmt"
+	"strings"
+
 	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
 // StudioItem is a per-user row for one Studio generation item. The Studio
@@ -56,6 +61,119 @@ func UpsertStudioItem(userId int, itemId, payload string, now int64) error {
 		}
 		return tx.Create(&created).Error
 	})
+}
+
+// OverlayStudioItem merges the server-side facts of a generation into the
+// studio_items row for the user — used when the prompt optimizer and the task
+// submission run entirely server-side. It preserves the client's own fields
+// (prompt, settings, localOnly, createdAt, urls) and fills in what the server
+// knows: the task id, the optimized prompt, and the merged reference images.
+func OverlayStudioItem(userId int, itemId string, overlay StudioItemOverlay, now int64) error {
+	if DB == nil {
+		return nil
+	}
+	if strings.TrimSpace(itemId) == "" {
+		return fmt.Errorf("studio item id is required")
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var row StudioItem
+		fetchErr := tx.Where("user_id = ? AND item_id = ?", userId, itemId).First(&row).Error
+		payload := map[string]interface{}{}
+		if fetchErr == nil {
+			if strings.TrimSpace(row.Payload) != "" {
+				_ = common.UnmarshalJsonStr(row.Payload, &payload)
+			}
+		}
+		// Base fields the client owns — never invent them on the server side
+		// when they are missing (the client supplies its own on first sync).
+		if _, ok := payload["id"]; !ok {
+			payload["id"] = itemId
+		}
+		if _, ok := payload["mode"]; !ok {
+			payload["mode"] = "video"
+		}
+		if _, ok := payload["prompt"]; !ok && overlay.Prompt != "" {
+			payload["prompt"] = overlay.Prompt
+		}
+		if _, ok := payload["createdAt"]; !ok {
+			payload["createdAt"] = now * 1000
+		}
+		if _, ok := payload["urls"]; !ok {
+			payload["urls"] = []string{}
+		}
+		status, _ := payload["status"].(string)
+		if status != "ready" && status != "error" {
+			payload["status"] = "pending"
+		}
+		if overlay.TaskID != "" {
+			payload["taskId"] = overlay.TaskID
+		}
+		if len(overlay.Settings) > 0 {
+			settings, _ := payload["settings"].(map[string]interface{})
+			if settings == nil {
+				settings = map[string]interface{}{}
+			}
+			for key, value := range overlay.Settings {
+				if strings.TrimSpace(value) == "" {
+					continue
+				}
+				settings[key] = value
+			}
+			payload["settings"] = settings
+		}
+		details, _ := payload["details"].(map[string]interface{})
+		if details == nil {
+			details = map[string]interface{}{}
+		}
+		if overlay.OptimizedPrompt != "" {
+			details["optimizedPrompt"] = overlay.OptimizedPrompt
+		}
+		if overlay.NegativePrompt != "" {
+			details["negativePrompt"] = overlay.NegativePrompt
+		}
+		if len(overlay.References) > 0 {
+			kept := make([]string, 0, len(overlay.References))
+			for _, ref := range overlay.References {
+				// data: URLs are enormous — never persist media bytes in the
+				// payload (same rule as the client's own sync).
+				if strings.HasPrefix(ref, "data:") {
+					continue
+				}
+				kept = append(kept, ref)
+			}
+			details["referenceImages"] = kept
+		}
+		payload["details"] = details
+		payload["updatedAt"] = now * 1000
+		serialized, err := common.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		encoded := string(serialized)
+		if fetchErr == nil {
+			row.Payload = encoded
+			row.UpdatedAt = now
+			return tx.Save(&row).Error
+		}
+		created := StudioItem{
+			UserId:    userId,
+			ItemId:    itemId,
+			Payload:   encoded,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		return tx.Create(&created).Error
+	})
+}
+
+// StudioItemOverlay carries the server-side facts of one generation.
+type StudioItemOverlay struct {
+	TaskID          string
+	Prompt          string
+	NegativePrompt  string
+	OptimizedPrompt string
+	References      []string
+	Settings        map[string]string
 }
 
 // DeleteStudioItem removes one stored item payload for the user.

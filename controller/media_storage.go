@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -48,8 +50,20 @@ func DeleteOldestVideoAssets(c *gin.Context) {
 		// sensible default: free 256 MB so one more short generation fits
 		limit = 256 << 20
 	}
-	freed, deleted, deletedURLs, err := service.DeleteOldestVideoAssets(userId, limit)
+	allowAll := c.Query("all") == "1" || c.Query("all") == "true"
+	freed, deleted, deletedURLs, err := service.DeleteOldestVideoAssets(userId, limit, allowAll)
 	if err != nil {
+		var wouldDeleteAll *service.WouldDeleteAllError
+		if errors.As(err, &wouldDeleteAll) {
+			c.JSON(http.StatusConflict, gin.H{
+				"success":     false,
+				"message":     "Freeing the requested amount would delete the entire stored library",
+				"code":        "would_delete_all_stored",
+				"total_bytes": wouldDeleteAll.TotalBytes,
+				"total_count": wouldDeleteAll.TotalCount,
+			})
+			return
+		}
 		common.SysError(fmt.Sprintf("video storage delete-oldest for user %d failed: %s", userId, err.Error()))
 		common.ApiError(c, err)
 		return

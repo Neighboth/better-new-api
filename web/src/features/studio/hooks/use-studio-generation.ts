@@ -30,13 +30,6 @@ import {
   pollVideoTask,
   resolveSubmittedTaskIdWithLookup,
 } from '../api'
-import {
-  optimizeImagePrompt,
-  optimizeVideoPrompt,
-  gatherVisionImages,
-  type LabeledImage,
-} from '../lib/video-plan'
-import { removeNegativeContradictions } from '../lib/negative-prompt'
 import { mergeStudioItems, isStudioItem, stripVolatileMediaFields, STUDIO_ITEMS_PURGED_EVENT } from '../lib/studio-sync'
 import { putStudioVideo, deleteStudioVideo } from '../lib/studio-indexeddb'
 import type { StudioItem } from '../types'
@@ -104,6 +97,10 @@ type ImageParams = {
   count?: number
   /** Reference images attached by the user — they anchor the prompt rewrite. */
   referenceImages?: string[]
+  /** Effective cap for reference images (0 = disabled). */
+  referenceCap?: number
+  /** Extra metadata forwarded to the relay (studio_optimize, skill_id…). */
+  metadata?: Record<string, unknown>
 }
 
 type VideoParams = {
@@ -255,16 +252,6 @@ async function runVideoChunk(
   }
 
   throw lastErr || new Error('All duration and quality attempts failed for chunk')
-}
-
-async function optimizeStudioPrompt(
-  prompt: string,
-  signal: AbortSignal,
-  images?: LabeledImage[]
-): Promise<string> {
-  const trimmed = prompt.trim()
-  if (!trimmed) return prompt
-  return optimizeImagePrompt(trimmed, signal, images)
 }
 
 function errorMessageOf(error: unknown): string {
@@ -443,7 +430,20 @@ export function useStudioGeneration() {
 
     pendingVideos.forEach((item) => {
       if (activePollingTasks.current.has(item.id)) return
+      // Items started in this tab are already tracked in controllersRef —
+      // their generation is in flight locally and a second poller would
+      // fight the in-flight one over the progress value.
+      if (controllersRef.current.has(item.id)) return
       activePollingTasks.current.add(item.id)
+      // Stale items whose submit never reached the server would otherwise
+      // poll /api/task/self for 45 minutes — give them a clear error
+      // immediately instead.
+      const itemAgeMs = Date.now() - (item.createdAt ?? Date.now())
+      if (!item.taskId && itemAgeMs > 2 * 60 * 60 * 1000) {
+        patchItem(item.id, { status: 'error', error: 'The generation was interrupted before the video task was created' })
+        activePollingTasks.current.delete(item.id)
+        return
+      }
 
       const controller = new AbortController()
       controllersRef.current.set(item.id, controller)
@@ -570,19 +570,24 @@ export function useStudioGeneration() {
       setIsGenerating(true)
 
       try {
-        const optimizerImages = gatherVisionImages({
-          prompt: params.prompt,
-          userReferenceImages: params.referenceImages?.length ? params.referenceImages : undefined,
-        })
-        const finalPrompt = await optimizeStudioPrompt(params.prompt, controller.signal, optimizerImages)
+        // Server-side optimizer: the browser just calls the relay and waits.
+        const referenceCap = Math.max(0, params.referenceCap ?? 5)
+        const imageRefs = referenceCap === 0 ? [] : (params.referenceImages ?? [])
         const response = await submitImageGeneration(
           {
             model: params.model,
             group: params.group,
-            prompt: finalPrompt,
+            prompt: params.prompt,
             n: params.count && params.count > 0 ? params.count : 1,
             size: params.size,
             quality: params.quality,
+            metadata: {
+              ...params.metadata,
+              studio_optimize: true,
+              studio_item_id: id,
+              reference_images: imageRefs,
+              reference_image_count: imageRefs.length,
+            },
           },
           controller.signal
         )
@@ -631,9 +636,6 @@ export function useStudioGeneration() {
           negativePrompt: params.negativePrompt?.trim() || undefined,
           startFrame: params.startFrame,
           endFrame: params.endFrame,
-          // Search-discovered references are merged in after the optimizer
-          // runs; the details dialog is patched at that point (below) so this
-          // stays the user-provided view of the request.
           referenceImages: params.referenceImages?.length ? params.referenceImages : undefined,
         },
       })
@@ -644,65 +646,15 @@ export function useStudioGeneration() {
       setIsGenerating(true)
 
       try {
-        // Single, uninterrupted generation — the Studio never chains or stitches.
-        // Image references are capped by the model's rules; audio and video
-        // references have their own caps and live at the tail of the job's
-        // reference list (Aepi accepts one multimodal reference channel).
+        // The prompt optimization, web/image search and the reference upload
+        // wiring all happen server-side now — the browser only polls the
+        // task. Cap the reference lists client-side too so we never POST
+        // more than the model accepts; the server enforces the same caps.
         const referenceCap = Math.max(0, params.referenceCap ?? 5)
         const imageRefs = referenceCap === 0 ? [] : (params.referenceImages ?? [])
-        const searchRefBudget = Math.max(0, referenceCap - imageRefs.length)
-        const { text: finalPrompt, references: searchReferences } = await optimizeVideoPrompt(
-          params.prompt,
-          controller.signal,
-          gatherVisionImages({
-            prompt: params.prompt,
-            userReferenceImages: [
-              ...imageRefs,
-              ...(params.imageUrl ? [params.imageUrl] : []),
-            ],
-            startFrame: params.startFrame,
-            endFrame: params.endFrame,
-          })
-        )
-        const mergedImageRefs = [
-          ...imageRefs,
-          ...searchReferences.filter((url) => !imageRefs.includes(url)).slice(0, searchRefBudget),
-        ]
         const audioRefs = params.audioReferences ?? []
         const videoRefs = params.videoReferences ?? []
-        const mergedReferences = [...mergedImageRefs, ...audioRefs, ...videoRefs]
-        if (searchReferences.length > 0 || audioRefs.length > 0 || videoRefs.length > 0) {
-          patchItem(id, {
-            details: {
-              negativePrompt: params.negativePrompt?.trim() || undefined,
-              startFrame: params.startFrame,
-              endFrame: params.endFrame,
-              referenceImages: mergedReferences,
-            },
-          })
-        }
-        // Audio/video references can't go through vision — describe them
-        // deterministically so the video model knows what each one is.
-        const extraNotes = [
-          ...audioRefs.map(
-            (_, i) =>
-              `Reference ${mergedImageRefs.length + i + 1}: an attached audio clip — condition the music, rhythm and sound design of the video on it.`
-          ),
-          ...videoRefs.map(
-            (_, i) =>
-              `Reference ${mergedImageRefs.length + audioRefs.length + i + 1}: an attached video clip — carry over its camera grammar, motion, framing and pacing.`
-          ),
-        ]
-        const submittedPrompt =
-          extraNotes.length > 0
-            ? `${finalPrompt}\n\nADDITIONAL REFERENCES:\n${extraNotes.join('\n')}`
-            : finalPrompt
-        // Negative prompt must never contradict the positive description;
-        // drop any clause that fights it regardless of what the user wrote.
-        const userNegative = params.negativePrompt?.trim() ?? ''
-        const negativeOut = userNegative
-          ? removeNegativeContradictions(finalPrompt, userNegative)
-          : ''
+        const allReferences = [...imageRefs, ...audioRefs, ...videoRefs]
         const result = await runVideoChunk(
           {
             controller,
@@ -712,17 +664,25 @@ export function useStudioGeneration() {
             group: params.group,
             ratio: params.ratio,
             imageUrl: params.imageUrl,
-            referenceImages: mergedReferences,
-            negativePrompt: negativeOut || undefined,
-            metadata: params.metadata,
+            referenceImages: allReferences,
+            negativePrompt: params.negativePrompt?.trim() || undefined,
+            metadata: {
+              ...params.metadata,
+              studio_optimize: true,
+              studio_item_id: id,
+              reference_images: allReferences,
+              reference_image_count: imageRefs.length,
+              reference_audio_count: audioRefs.length,
+              reference_video_count: videoRefs.length,
+            },
           },
-          submittedPrompt,
+          params.prompt,
           params.startFrame,
           params.endFrame,
           params.duration,
           params.quality,
-          negativeOut || undefined,
-          mergedReferences
+          params.negativePrompt?.trim() || undefined,
+          allReferences
         )
 
         const localOnlyUrls = await maybePersistLocalOnly(id, [result.url])

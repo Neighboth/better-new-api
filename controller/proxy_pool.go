@@ -125,8 +125,8 @@ func BatchCreateProxyPoolProxies(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-
 	service.InvalidateProxyPoolCache()
+	model.RecordProxyPoolEvent(0, -1, 0, "", "import", fmt.Sprintf("Imported %d proxy(ies) into the pool", count))
 	common.ApiSuccess(c, gin.H{
 		"count": count,
 	})
@@ -408,7 +408,7 @@ func AutoAssignProxyPool(c *gin.Context) {
 		return
 	}
 	keyLines := splitKeyLines(ch.Key)
-	isAnon := ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon
+	isAnon := ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon || ch.Type == constant.ChannelTypeOHVCloudAnon
 	if (!ch.ChannelInfo.IsMultiKey && !isAnon) || (len(keyLines) == 0 && !isAnon) {
 		common.ApiErrorMsg(c, "channel is not a multi-key or pool channel")
 		return
@@ -443,12 +443,62 @@ func AutoAssignProxyPool(c *gin.Context) {
 		return
 	}
 	service.InvalidateProxyPoolCache()
+	model.RecordProxyPoolEvent(req.ChannelId, -1, 0, "", "assign", fmt.Sprintf("Assigned %d key index entries to %d enabled proxy(ies)", len(mapping), len(enabled)))
 	common.ApiSuccess(c, gin.H{
 		"channel_id":  req.ChannelId,
 		"key_count":   len(keyLines),
 		"proxy_count": len(enabled),
 		"assigned":    len(mapping),
 		"per_proxy":   ceilDiv(len(keyLines), len(enabled)),
+	})
+}
+
+// GetProxyChannelDetail returns the proxy-pool view of one channel: its
+// current assignments joined with the proxies' health state, live 429 cooldown
+// remaining seconds, and the audit event log for the channel plus global pool
+// events.
+func GetProxyChannelDetail(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "invalid channel id")
+		return
+	}
+	ch, err := model.GetChannelById(id, true)
+	if err != nil {
+		common.ApiErrorMsg(c, "channel not found")
+		return
+	}
+	assignments, err := model.ListProxyPoolChannelAssignmentsDetail(id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	urls := make([]string, 0, len(assignments))
+	for _, assignment := range assignments {
+		urls = append(urls, assignment.ProxyURL)
+	}
+	cooldowns := service.ProxyCooldownSnapshot(urls)
+	events, err := model.ListProxyPoolEvents(id, 200)
+	if err != nil {
+		events = []model.ProxyPoolEvent{}
+	}
+	globalEvents, err := model.ListProxyPoolEvents(0, 60)
+	if err != nil {
+		globalEvents = []model.ProxyPoolEvent{}
+	}
+	common.ApiSuccess(c, gin.H{
+		"channel": gin.H{
+			"id":             ch.Id,
+			"name":           ch.Name,
+			"type":           ch.Type,
+			"status":         ch.Status,
+			"group":          ch.Group,
+			"multi_key_size": ch.ChannelInfo.MultiKeySize,
+		},
+		"assignments":   assignments,
+		"cooldowns":     cooldowns,
+		"events":        events,
+		"global_events": globalEvents,
 	})
 }
 
@@ -518,6 +568,7 @@ func UnassignProxyPoolProxy(c *gin.Context) {
 		return
 	}
 	service.InvalidateProxyPoolCache()
+	model.RecordProxyPoolEvent(0, -1, id, "", "unassign", fmt.Sprintf("Unassigned proxy #%d from all channels", id))
 	common.ApiSuccess(c, gin.H{
 		"proxy_id": id,
 	})
@@ -557,7 +608,7 @@ func RebalanceAllProxyPoolChannels(c *gin.Context) {
 		if err != nil {
 			continue
 		}
-		isAnon := ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon
+		isAnon := ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon || ch.Type == constant.ChannelTypeOHVCloudAnon
 		if isAnon {
 			mapping := make(map[int]int, len(enabled))
 			for i, p := range enabled {
@@ -566,6 +617,7 @@ func RebalanceAllProxyPoolChannels(c *gin.Context) {
 			if err := model.ReplaceProxyPoolAssignments(summary.Id, mapping); err == nil {
 				rebalancedChannels++
 				totalKeysAssigned += len(mapping)
+				model.RecordProxyPoolEvent(summary.Id, -1, 0, "", "assign", fmt.Sprintf("Rebalanced: bound %d proxy(ies) to this anonymous channel", len(mapping)))
 			}
 			continue
 		}
@@ -591,6 +643,7 @@ func RebalanceAllProxyPoolChannels(c *gin.Context) {
 		if err := model.ReplaceProxyPoolAssignments(summary.Id, mapping); err == nil {
 			rebalancedChannels++
 			totalKeysAssigned += len(mapping)
+			model.RecordProxyPoolEvent(summary.Id, -1, 0, "", "assign", fmt.Sprintf("Rebalanced: bound %d key(s) to proxies", len(mapping)))
 		}
 	}
 
@@ -613,6 +666,7 @@ func ClearChannelProxyPoolAssignments(c *gin.Context) {
 		return
 	}
 	service.InvalidateProxyPoolCache()
+	model.RecordProxyPoolEvent(id, -1, 0, "", "clear", "Cleared all proxy assignments for this channel")
 	common.ApiSuccess(c, gin.H{
 		"channel_id": id,
 	})
@@ -838,6 +892,11 @@ func ClearProxyPoolAssignments(c *gin.Context) {
 		return
 	}
 	service.InvalidateProxyPoolCache()
+	if channelId == 0 {
+		model.RecordProxyPoolEvent(0, -1, 0, "", "clear", "Cleared ALL proxy assignments across all channels")
+	} else {
+		model.RecordProxyPoolEvent(channelId, -1, 0, "", "clear", "Cleared all proxy assignments for this channel")
+	}
 	common.ApiSuccess(c, gin.H{})
 }
 
