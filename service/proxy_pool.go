@@ -149,18 +149,12 @@ func RecordProxyRateLimitedWithChannel(proxyURL string, channelID int, duration 
 	}
 	proxy429Cooldown.Store(trimmed, time.Now().Add(cd))
 
-	proxyID := 0
-	if id, err := model.FindProxyPoolProxyIDByURL(trimmed); err == nil && id > 0 {
-		proxyID = id
-	}
 	// Cooldowns never last longer than the relay state we hold; recording is
-	// best-effort and never blocks a request.
+	// best-effort and never blocks a request. The proxy row id is resolved
+	// from the cached pool data where available instead of querying the DB
+	// on every cooldown (the url column is not indexed).
 	message := fmt.Sprintf("Proxy placed on 429 cooldown for %s", cd)
-	if channelID > 0 {
-		model.RecordProxyPoolEvent(channelID, -1, proxyID, trimmed, "cooldown_429", message)
-	} else {
-		model.RecordProxyPoolEvent(0, -1, proxyID, trimmed, "cooldown_429", message)
-	}
+	model.RecordProxyPoolEvent(channelID, -1, 0, trimmed, "cooldown_429", message)
 }
 
 // IsProxyRateLimited checks whether a proxy is currently within its 429 cooldown period.

@@ -634,11 +634,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 			previousProxy := rawProxyURL
 			rawProxyURL = nextProxy
 			if previousProxy != rawProxyURL {
-				proxyID := 0
-				if id, err := model.FindProxyPoolProxyIDByURL(rawProxyURL); err == nil && id > 0 {
-					proxyID = id
-				}
-				model.RecordProxyPoolEvent(info.ChannelId, -1, proxyID, rawProxyURL, "switch_429", fmt.Sprintf("Switched proxy after an upstream 429 (attempt %d/6)", retry+1))
+				model.RecordProxyPoolEvent(info.ChannelId, -1, 0, rawProxyURL, "switch_429", fmt.Sprintf("Switched proxy after an upstream 429 (attempt %d/6)", retry+1))
 			}
 			_ = resp.Body.Close()
 

@@ -1,7 +1,6 @@
 package model
 
 import (
-	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -16,11 +15,11 @@ import (
 type ProxyPoolProxy struct {
 	Id             int    `json:"id" gorm:"primaryKey;autoIncrement"`
 	Name           string `json:"name" gorm:"type:varchar(191);not null;default:''"`
-	URL            string `json:"url" gorm:"type:text;not null;index:idx_proxy_pool_proxies_url"`
+	URL            string `json:"url" gorm:"type:text;not null"`
 	ProxyType      string `json:"proxy_type" gorm:"type:varchar(32);default:'standard'"`
 	Enabled        bool   `json:"enabled" gorm:"not null;default:true"`
 	LastTestStatus string `json:"last_test_status" gorm:"type:varchar(32);default:''"`
-	LastTestError  string `json:"last_test_error" gorm:"type:text;default:''"`
+	LastTestError  string `json:"last_test_error" gorm:"type:text"`
 	LastTestedAt   int64  `json:"last_tested_at" gorm:"not null;default:0"`
 	LatencyMs      int64  `json:"latency_ms" gorm:"default:0"`
 	EgressIP       string `json:"egress_ip" gorm:"type:varchar(64);default:''"`
@@ -196,27 +195,6 @@ func ListProxyPoolProxies() ([]ProxyPoolProxy, error) {
 		}
 	}
 	return proxies, nil
-}
-
-// ListProxyPoolProxiesForAutoTest returns the N proxies with the stalest test
-// results, so each sweep covers a rotating slice of the pool instead of
-// hammering every entry on every run (important with tens of thousands).
-// FindProxyPoolProxyIDByURL resolves a proxy row id from its URL. Returns 0
-// when not found.
-func FindProxyPoolProxyIDByURL(url string) (int, error) {
-	if DB == nil {
-		return 0, nil
-	}
-	url = strings.TrimSpace(url)
-	if url == "" {
-		return 0, nil
-	}
-	var proxy ProxyPoolProxy
-	err := DB.Select("id").Where("url = ?", url).Take(&proxy).Error
-	if err != nil {
-		return 0, err
-	}
-	return proxy.Id, nil
 }
 
 // ProxyChannelAssignmentDetail is one row of the channel detail view: the
