@@ -8433,6 +8433,26 @@
     "OHVCloud (Anon) channel does not require an API key.": "Kênh OHVCloud (Anon) không yêu cầu khóa API.",
     "Page {{page}} / {{total}} · {{count}} proxies": "Trang {{page}} / {{total}} · {{count}} proxy",
     "Reference image {{index}}": "Ảnh tham chiếu {{index}}",
-    "Remove reference": "Xóa tham chiếu"
+    "Remove reference": "Xóa tham chiếu",
+    "Assign manually": "Gán thủ công",
+    "Manual assign": "Gán thủ công",
+    "Assign {{count}} proxies": "Gán {{count}} proxy",
+    "Choose the proxies to bind. This REPLACES all current assignments for this channel.": "Chọn các proxy để bind. Thao tác này THAY THẾ toàn bộ phân công hiện tại của kênh.",
+    "Could not test and delete proxies": "Không thể kiểm tra và xóa proxy",
+    "Delete ALL proxies?": "Xóa TẤT CẢ proxy?",
+    "Delete everything": "Xóa tất cả",
+    "Deleted all {{count}} proxies": "Đã xóa tất cả {{count}} proxy",
+    "Manual assignment — {{name}}": "Gán thủ công — {{name}}",
+    "Name, URL or egress IP…": "Tên, URL hoặc egress IP…",
+    "No enabled proxies match this search.": "Không có proxy đang bật nào khớp.",
+    "Page {{page}} of {{total}} · {{count}} enabled proxies": "Trang {{page}} / {{total}} · {{count}} proxy đang bật",
+    "Proxies could not be deleted": "Không thể xóa proxy",
+    "Search proxies": "Tìm proxy",
+    "Select all on this page": "Chọn tất cả trên trang",
+    "Select proxies": "Chọn proxy",
+    "Test & Delete broken": "Kiểm tra & xóa lỗi",
+    "Test completed — {{deleted}} broken proxies deleted": "Kiểm tra xong — đã xóa {{deleted}} proxy lỗi",
+    "This will delete all {{count}} proxies in the pool and remove every key assignment bound to them. This cannot be undone.": "Toàn bộ {{count}} proxy trong pool sẽ bị xóa và mọi phân công key liên quan cũng bị gỡ. Không thể hoàn tác.",
+    "{{assigned}} key(s) bound to {{proxies}} proxies": "{{assigned}} khóa được gán cho {{proxies}} proxy"
   }
 }

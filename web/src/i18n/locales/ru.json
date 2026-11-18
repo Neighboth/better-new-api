@@ -8433,6 +8433,26 @@
     "OHVCloud (Anon) channel does not require an API key.": "Канал OHVCloud (Anon) не требует API-ключа.",
     "Page {{page}} / {{total}} · {{count}} proxies": "Страница {{page}} / {{total}} · {{count}} прокси",
     "Reference image {{index}}": "Референс {{index}}",
-    "Remove reference": "Убрать референс"
+    "Remove reference": "Убрать референс",
+    "Assign manually": "Назначить вручную",
+    "Manual assign": "Ручное назначение",
+    "Assign {{count}} proxies": "Назначить {{count}} прокси",
+    "Choose the proxies to bind. This REPLACES all current assignments for this channel.": "Выберите прокси для привязки. Это ЗАМЕНИТ все текущие назначения для этого канала.",
+    "Could not test and delete proxies": "Не удалось протестировать и удалить прокси",
+    "Delete ALL proxies?": "Удалить ВСЕ прокси?",
+    "Delete everything": "Удалить всё",
+    "Deleted all {{count}} proxies": "Удалено всех прокси: {{count}}",
+    "Manual assignment — {{name}}": "Ручное назначение — {{name}}",
+    "Name, URL or egress IP…": "Имя, URL или IP выхода…",
+    "No enabled proxies match this search.": "Нет включённых прокси, соответствующих запросу.",
+    "Page {{page}} of {{total}} · {{count}} enabled proxies": "Страница {{page}} из {{total}} · {{count}} включённых прокси",
+    "Proxies could not be deleted": "Не удалось удалить прокси",
+    "Search proxies": "Поиск прокси",
+    "Select all on this page": "Выбрать все на странице",
+    "Select proxies": "Выбрать прокси",
+    "Test & Delete broken": "Проверить и удалить нерабочие",
+    "Test completed — {{deleted}} broken proxies deleted": "Тест завершён — удалено нерабочих: {{deleted}}",
+    "This will delete all {{count}} proxies in the pool and remove every key assignment bound to them. This cannot be undone.": "Будут удалены все {{count}} прокси из пула и все привязанные к ним назначения ключей. Отменить это нельзя.",
+    "{{assigned}} key(s) bound to {{proxies}} proxies": "{{assigned}} ключей привязано к {{proxies}} прокси"
   }
 }

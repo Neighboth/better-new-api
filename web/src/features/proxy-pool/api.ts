@@ -235,6 +235,24 @@ export async function assignProxiesEvenly(
   return res.data
 }
 
+export async function assignProxiesManual(
+  channelId: number,
+  proxyIds: number[]
+): Promise<ApiEnvelope<ProxyPoolAssignResult>> {
+  const res = await api.post<ApiEnvelope<ProxyPoolAssignResult>>(
+    `/api/proxy-pool/channels/${channelId}/assign-manual`,
+    { proxy_ids: proxyIds }
+  )
+  return res.data
+}
+
+export async function deleteAllProxies(): Promise<ApiEnvelope<{ deleted: number }>> {
+  const res = await api.delete<ApiEnvelope<{ deleted: number }>>(
+    '/api/proxy-pool/all'
+  )
+  return res.data
+}
+
 export async function clearAssignments(
   channelId: number
 ): Promise<ApiEnvelope<object>> {

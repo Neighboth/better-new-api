@@ -8433,6 +8433,26 @@
     "OHVCloud (Anon) channel does not require an API key.": "OHVCloud (Anon) 頻道不需要 API 金鑰。",
     "Page {{page}} / {{total}} · {{count}} proxies": "第 {{page}} / {{total}} 頁 · {{count}} 個代理",
     "Reference image {{index}}": "參考圖 {{index}}",
-    "Remove reference": "移除參考"
+    "Remove reference": "移除參考",
+    "Assign manually": "手動分配",
+    "Manual assign": "手動分配",
+    "Assign {{count}} proxies": "綁定 {{count}} 個代理",
+    "Choose the proxies to bind. This REPLACES all current assignments for this channel.": "選擇要綁定的代理。這將取代此頻道目前的所有指派。",
+    "Could not test and delete proxies": "無法測試並刪除代理",
+    "Delete ALL proxies?": "刪除所有代理？",
+    "Delete everything": "全部刪除",
+    "Deleted all {{count}} proxies": "已刪除全部 {{count}} 個代理",
+    "Manual assignment — {{name}}": "手動分配 — {{name}}",
+    "Name, URL or egress IP…": "名稱、URL 或出口 IP…",
+    "No enabled proxies match this search.": "沒有符合條件的已啟用代理。",
+    "Page {{page}} of {{total}} · {{count}} enabled proxies": "第 {{page}} / {{total}} 頁 · {{count}} 啟用代理",
+    "Proxies could not be deleted": "代理無法刪除",
+    "Search proxies": "搜尋代理",
+    "Select all on this page": "選擇本頁全部",
+    "Select proxies": "選擇代理",
+    "Test & Delete broken": "測試並刪除失效代理",
+    "Test completed — {{deleted}} broken proxies deleted": "測試完成 — 已刪除 {{deleted}} 個失效代理",
+    "This will delete all {{count}} proxies in the pool and remove every key assignment bound to them. This cannot be undone.": "這將刪除池中的全部 {{count}} 個代理，並移除綁定到它們的所有金鑰分配。此操作無法復原。",
+    "{{assigned}} key(s) bound to {{proxies}} proxies": "已將 {{assigned}} 個金鑰綁定到 {{proxies}} 個代理"
   }
 }

@@ -389,6 +389,105 @@ func fairAssignKeysToProxies(channelId int, keyCount int, enabled []model.ProxyP
 	return mapping
 }
 
+// proxyPoolManualAssignRequest carries an explicit hand-picked set of proxies
+// to bind to the channel.
+type proxyPoolManualAssignRequest struct {
+	ProxyIds []int `json:"proxy_ids"`
+}
+
+// AssignProxyPoolManual replaces ALL assignments of one channel with an
+// explicitly chosen set of proxies ("manual assign"). Ordering is honored:
+// anonymous channels bind proxy N at key_index N; multi-key channels
+// distribute the chosen proxies round-robin across every key of the channel.
+func AssignProxyPoolManual(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "invalid channel id")
+		return
+	}
+	var req proxyPoolManualAssignRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		common.ApiErrorMsg(c, "invalid request body")
+		return
+	}
+	seen := map[int]struct{}{}
+	proxyIds := make([]int, 0, len(req.ProxyIds))
+	for _, proxyId := range req.ProxyIds {
+		if proxyId <= 0 {
+			continue
+		}
+		if _, dup := seen[proxyId]; dup {
+			continue
+		}
+		seen[proxyId] = struct{}{}
+		proxyIds = append(proxyIds, proxyId)
+	}
+	if len(proxyIds) == 0 {
+		common.ApiErrorMsg(c, "choose at least one proxy")
+		return
+	}
+	ch, err := model.GetChannelById(id, true)
+	if err != nil {
+		common.ApiErrorMsg(c, "channel not found")
+		return
+	}
+	keyLines := splitKeyLines(ch.Key)
+	isAnon := ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon || ch.Type == constant.ChannelTypeOHVCloudAnon
+	if (!ch.ChannelInfo.IsMultiKey && !isAnon) || (len(keyLines) == 0 && !isAnon) {
+		common.ApiErrorMsg(c, "channel is not a multi-key or pool channel")
+		return
+	}
+	proxies, err := model.ListProxyPoolProxiesByIDs(proxyIds)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	found := make(map[int]model.ProxyPoolProxy, len(proxies))
+	for _, proxy := range proxies {
+		found[proxy.Id] = proxy
+	}
+	missing := make([]int, 0)
+	ordered := make([]model.ProxyPoolProxy, 0, len(proxyIds))
+	for _, proxyId := range proxyIds {
+		proxy, ok := found[proxyId]
+		if !ok {
+			missing = append(missing, proxyId)
+			continue
+		}
+		ordered = append(ordered, proxy)
+	}
+	if len(missing) > 0 {
+		common.ApiErrorMsg(c, fmt.Sprintf("proxies not found: %v", missing))
+		return
+	}
+	if len(ordered) == 0 {
+		common.ApiErrorMsg(c, "none of the chosen proxies exist")
+		return
+	}
+	mapping := make(map[int]int, len(ordered))
+	if isAnon {
+		for i, proxy := range ordered {
+			mapping[i] = proxy.Id
+		}
+	} else {
+		for keyIdx := 0; keyIdx < len(keyLines); keyIdx++ {
+			mapping[keyIdx] = ordered[keyIdx%len(ordered)].Id
+		}
+	}
+	if err := model.ReplaceProxyPoolAssignments(id, mapping); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	service.InvalidateProxyPoolCache()
+	model.RecordProxyPoolEvent(id, -1, 0, "", "assign_manual", fmt.Sprintf("Manual assignment: bound %d proxy(ies) across %d key slot(s)", len(ordered), len(mapping)))
+	common.ApiSuccess(c, gin.H{
+		"channel_id": id,
+		"key_count":  len(keyLines),
+		"proxy_count": len(ordered),
+		"assigned":   len(mapping),
+	})
+}
+
 // AutoAssignProxyPool distributes the enabled proxies across every key of a
 // multi-key channel: keys are handed out with balanced, least-loaded distribution
 // so each proxy carries as equal a share as possible across the entire system.
@@ -937,4 +1036,28 @@ func ceilDiv(a, b int) int {
 		return a / b
 	}
 	return a/b + 1
+}
+
+// DeleteAllProxyPoolProxies removes the entire proxy pool in one operation:
+// every assignment is cleared and every proxy row is deleted. The caller is
+// expected to have confirmed with the user first — there is no undo.
+func DeleteAllProxyPoolProxies(c *gin.Context) {
+	var count int64
+	if err := model.DB.Model(&model.ProxyPoolProxy{}).Count(&count).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.DeleteProxyPoolAssignments(0); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.DB.Where("id > ?", 0).Delete(&model.ProxyPoolProxy{}).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	service.InvalidateProxyPoolCache()
+	model.RecordProxyPoolEvent(0, -1, 0, "", "clear_all", fmt.Sprintf("Deleted all %d proxies and cleared all pool assignments", count))
+	common.ApiSuccess(c, gin.H{
+		"deleted": count,
+	})
 }

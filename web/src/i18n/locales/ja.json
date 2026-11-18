@@ -8433,6 +8433,26 @@
     "OHVCloud (Anon) channel does not require an API key.": "OHVCloud (Anon) チャンネルは API キーを必要としません。",
     "Page {{page}} / {{total}} · {{count}} proxies": "ページ {{page}} / {{total}} · {{count}} プロキシ",
     "Reference image {{index}}": "参照画像 {{index}}",
-    "Remove reference": "参照を削除"
+    "Remove reference": "参照を削除",
+    "Assign manually": "手動で割り当て",
+    "Manual assign": "手動割り当て",
+    "Assign {{count}} proxies": "{{count}} 個のプロキシを割り当て",
+    "Choose the proxies to bind. This REPLACES all current assignments for this channel.": "バインドするプロキシを選択してください。この操作により、このチャンネルの現在の割り当てがすべて置き換えられます。",
+    "Could not test and delete proxies": "プロキシのテストと削除に失敗しました",
+    "Delete ALL proxies?": "すべてのプロキシを削除しますか？",
+    "Delete everything": "すべて削除",
+    "Deleted all {{count}} proxies": "{{count}} 個のプロキシをすべて削除しました",
+    "Manual assignment — {{name}}": "手動割り当て — {{name}}",
+    "Name, URL or egress IP…": "名前、URL、または出口 IP…",
+    "No enabled proxies match this search.": "条件に一致する有効なプロキシはありません。",
+    "Page {{page}} of {{total}} · {{count}} enabled proxies": "{{page}} / {{total}} ページ · {{count}} 個の有効なプロキシ",
+    "Proxies could not be deleted": "プロキシを削除できませんでした",
+    "Search proxies": "プロキシを検索",
+    "Select all on this page": "このページをすべて選択",
+    "Select proxies": "プロキシを選択",
+    "Test & Delete broken": "テストして削除",
+    "Test completed — {{deleted}} broken proxies deleted": "テスト完了 — 壊れたプロキシ {{deleted}} 件を削除しました",
+    "This will delete all {{count}} proxies in the pool and remove every key assignment bound to them. This cannot be undone.": "プール内の {{count}} 個のプロキシがすべて削除され、それに紐づくキー割り当てもすべて解除されます。この操作は元に戻せません。",
+    "{{assigned}} key(s) bound to {{proxies}} proxies": "{{assigned}} 個のキーを {{proxies}} 個のプロキシにバインドしました"
   }
 }

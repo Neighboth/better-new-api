@@ -8433,6 +8433,26 @@
     "OHVCloud (Anon) channel does not require an API key.": "OHVCloud (Anon) channel does not require an API key.",
     "Page {{page}} / {{total}} · {{count}} proxies": "Page {{page}} / {{total}} · {{count}} proxies",
     "Reference image {{index}}": "Reference image {{index}}",
-    "Remove reference": "Remove reference"
+    "Remove reference": "Remove reference",
+    "Assign manually": "Assign manually",
+    "Manual assign": "Manual assign",
+    "Assign {{count}} proxies": "Assign {{count}} proxies",
+    "Choose the proxies to bind. This REPLACES all current assignments for this channel.": "Choose the proxies to bind. This REPLACES all current assignments for this channel.",
+    "Could not test and delete proxies": "Could not test and delete proxies",
+    "Delete ALL proxies?": "Delete ALL proxies?",
+    "Delete everything": "Delete everything",
+    "Deleted all {{count}} proxies": "Deleted all {{count}} proxies",
+    "Manual assignment — {{name}}": "Manual assignment — {{name}}",
+    "Name, URL or egress IP…": "Name, URL or egress IP…",
+    "No enabled proxies match this search.": "No enabled proxies match this search.",
+    "Page {{page}} of {{total}} · {{count}} enabled proxies": "Page {{page}} of {{total}} · {{count}} enabled proxies",
+    "Proxies could not be deleted": "Proxies could not be deleted",
+    "Search proxies": "Search proxies",
+    "Select all on this page": "Select all on this page",
+    "Select proxies": "Select proxies",
+    "Test & Delete broken": "Test & Delete broken",
+    "Test completed — {{deleted}} broken proxies deleted": "Test completed — {{deleted}} broken proxies deleted",
+    "This will delete all {{count}} proxies in the pool and remove every key assignment bound to them. This cannot be undone.": "This will delete all {{count}} proxies in the pool and remove every key assignment bound to them. This cannot be undone.",
+    "{{assigned}} key(s) bound to {{proxies}} proxies": "{{assigned}} key(s) bound to {{proxies}} proxies"
   }
 }

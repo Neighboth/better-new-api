@@ -8433,6 +8433,26 @@
     "OHVCloud (Anon) channel does not require an API key.": "Le canal OHVCloud (Anon) ne nécessite pas de clé API.",
     "Page {{page}} / {{total}} · {{count}} proxies": "Page {{page}} / {{total}} · {{count}} proxys",
     "Reference image {{index}}": "Image de référence {{index}}",
-    "Remove reference": "Retirer la référence"
+    "Remove reference": "Retirer la référence",
+    "Assign manually": "Assigner manuellement",
+    "Manual assign": "Assignation manuelle",
+    "Assign {{count}} proxies": "Assigner {{count}} proxys",
+    "Choose the proxies to bind. This REPLACES all current assignments for this channel.": "Choisissez les proxys à affecter. Ceci REMPLACE toutes les affectations actuelles de ce canal.",
+    "Could not test and delete proxies": "Échec du test et de la suppression",
+    "Delete ALL proxies?": "Supprimer TOUS les proxys ?",
+    "Delete everything": "Tout supprimer",
+    "Deleted all {{count}} proxies": "{{count}} proxys supprimés",
+    "Manual assignment — {{name}}": "Assignation manuelle — {{name}}",
+    "Name, URL or egress IP…": "Nom, URL ou IP de sortie…",
+    "No enabled proxies match this search.": "Aucun proxy activé ne correspond.",
+    "Page {{page}} of {{total}} · {{count}} enabled proxies": "Page {{page}} / {{total}} · {{count}} proxys activés",
+    "Proxies could not be deleted": "Échec de la suppression",
+    "Search proxies": "Rechercher des proxys",
+    "Select all on this page": "Tout sélectionner sur la page",
+    "Select proxies": "Sélectionner des proxys",
+    "Test & Delete broken": "Tester et supprimer les défectueux",
+    "Test completed — {{deleted}} broken proxies deleted": "Test terminé — {{deleted}} proxys défectueux supprimés",
+    "This will delete all {{count}} proxies in the pool and remove every key assignment bound to them. This cannot be undone.": "Ceci supprimera les {{count}} proxys du pool et toutes les affectations de clés liées. Action irréversible.",
+    "{{assigned}} key(s) bound to {{proxies}} proxies": "{{assigned}} clés liées à {{proxies}} proxys"
   }
 }

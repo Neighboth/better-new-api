@@ -36,10 +36,11 @@ import {
   Trash2,
   Upload,
   Waypoints,
+  ListChecks,
   X,
   Timer,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import {
@@ -93,9 +94,11 @@ import { cn } from '@/lib/utils'
 
 import {
   assignProxiesEvenly,
+  assignProxiesManual,
   batchCreateProxies,
   clearAssignments,
   createProxy,
+  deleteAllProxies,
   deleteProxy,
   getChannelDetail,
   getProxyDetail,
@@ -161,6 +164,8 @@ export function ProxyPool() {
   const [batchNameDialogOpen, setBatchNameDialogOpen] = useState(false)
   const [batchNameValue, setBatchNameValue] = useState('')
   const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false)
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false)
+  const [manualAssignTarget, setManualAssignTarget] = useState<number | null>(null)
   const [isBatchTesting, setIsBatchTesting] = useState(false)
   const [isBatchRenaming, setIsBatchRenaming] = useState(false)
   const [isBatchDeleting, setIsBatchDeleting] = useState(false)
@@ -501,6 +506,72 @@ export function ProxyPool() {
     },
   })
 
+  const deleteAllMutation = useMutation({
+    mutationFn: () => deleteAllProxies(),
+    onSuccess: (res) => {
+      if (!res.success) {
+        toast.error(res.message || t('Proxies could not be deleted'))
+        return
+      }
+      toast.success(t('Deleted all {{count}} proxies', { count: res.data.deleted }))
+      setDeleteAllOpen(false)
+      setSelectedProxyIds([])
+      invalidateAll()
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || t('Proxies could not be deleted'))
+    },
+  })
+
+  // Tests the selection, then removes the proxies whose last test is 'fail'.
+  const testAndDeleteMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const results = await Promise.allSettled(ids.map((id) => testProxy(id)))
+      const failIds: number[] = []
+      results.forEach((result, idx) => {
+        if (result.status === 'rejected' || !result.value.data?.ok) {
+          failIds.push(ids[idx])
+        }
+      })
+      for (const id of failIds) {
+        await deleteProxy(id)
+      }
+      return failIds.length
+    },
+    onSuccess: (deleted) => {
+      toast.success(
+        t('Test completed — {{deleted}} broken proxies deleted', { deleted })
+      )
+      setSelectedProxyIds([])
+      invalidateAll()
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || t('Could not test and delete proxies'))
+    },
+  })
+
+  const manualAssignMutation = useMutation({
+    mutationFn: ({ channelId, proxyIds }: { channelId: number; proxyIds: number[] }) =>
+      assignProxiesManual(channelId, proxyIds),
+    onSuccess: (res) => {
+      if (!res.success) {
+        toast.error(res.message || t('Proxies could not be assigned'))
+        return
+      }
+      toast.success(
+        t('{{assigned}} key(s) bound to {{proxies}} proxies', {
+          assigned: res.data.assigned,
+          proxies: res.data.proxy_count,
+        })
+      )
+      setManualAssignTarget(null)
+      invalidateAll()
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || t('Proxies could not be assigned'))
+    },
+  })
+
   const clearMutation = useMutation({
     mutationFn: (channelId: number) => clearAssignments(channelId),
     onSuccess: (res) => {
@@ -624,10 +695,22 @@ export function ProxyPool() {
                     )}
                   </CardDescription>
                 </div>
-                <Button onClick={openCreateDialog} className='shrink-0'>
-                  <Plus className='mr-2 h-4 w-4' />
-                  {t('Add proxy')}
-                </Button>
+                <div className='flex shrink-0 flex-wrap items-center justify-end gap-2'>
+                  <Button
+                    onClick={() => setDeleteAllOpen(true)}
+                    variant='destructive'
+                    size='sm'
+                    disabled={totalProxies === 0}
+                    className='h-9'
+                  >
+                    <Trash2 className='mr-1.5 h-4 w-4' />
+                    {t('Delete all')}
+                  </Button>
+                  <Button onClick={openCreateDialog} className='h-9'>
+                    <Plus className='mr-2 h-4 w-4' />
+                    {t('Add proxy')}
+                  </Button>
+                </div>
               </CardHeader>
             <CardContent>
               {(() => {
@@ -1075,10 +1158,20 @@ export function ProxyPool() {
                             <Button
                               size='sm'
                               variant='outline'
-                              disabled={
-                                assignMutation.isPending ||
-                                enabledCount === 0
-                              }
+                              disabled={manualAssignMutation.isPending}
+                              onClick={() => {
+                                setManualAssignTarget(channel.id)
+                              }}
+                              aria-label={t('Assign manually')}
+                              title={t('Assign manually')}
+                            >
+                              <ListChecks className='mr-1.5 h-3.5 w-3.5 text-muted-foreground' />
+                              {t('Manual assign')}
+                            </Button>
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              disabled={assignMutation.isPending || enabledCount === 0}
                               onClick={() => assignMutation.mutate(channel.id)}
                             >
                               {assignMutation.isPending ? (
@@ -1759,14 +1852,15 @@ export function ProxyPool() {
 
       {/* Bulk Operations Toolbar */}
       {selectedProxyIds.length > 0 && (
-        <div className='fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-wrap items-center gap-2 rounded-full border bg-background/95 px-4 py-2 shadow-xl backdrop-blur'>
-          <span className='text-xs font-medium px-2'>
+        <div className='fixed inset-x-3 bottom-3 z-50 mx-auto max-w-2xl rounded-2xl border bg-background/95 p-2 shadow-xl backdrop-blur sm:bottom-6'>
+          <div className='flex items-center gap-2 overflow-x-auto whitespace-nowrap [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'>
+          <span className='shrink-0 px-1.5 text-xs font-medium'>
             {t('{{count}} proxies selected', { count: selectedProxyIds.length })}
           </span>
           <Button
             size='sm'
             variant='outline'
-            className='h-8 text-xs'
+            className='h-8 shrink-0 text-xs'
             disabled={isBatchTesting}
             onClick={handleBatchTest}
           >
@@ -1780,7 +1874,23 @@ export function ProxyPool() {
           <Button
             size='sm'
             variant='outline'
-            className='h-8 text-xs'
+            className='h-8 shrink-0 text-xs'
+            disabled={testAndDeleteMutation.isPending}
+            onClick={() =>
+              testAndDeleteMutation.mutate(selectedProxyIds)
+            }
+          >
+            {testAndDeleteMutation.isPending ? (
+              <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+            ) : (
+              <CircleX className='mr-1.5 h-3.5 w-3.5' />
+            )}
+            {t('Test & Delete broken')}
+          </Button>
+          <Button
+            size='sm'
+            variant='outline'
+            className='h-8 shrink-0 text-xs'
             disabled={isBatchRenaming}
             onClick={() => {
               setBatchNameValue('')
@@ -1793,7 +1903,7 @@ export function ProxyPool() {
           <Button
             size='sm'
             variant='destructive'
-            className='h-8 text-xs'
+            className='h-8 shrink-0 text-xs'
             disabled={isBatchDeleting}
             onClick={() => setBatchDeleteDialogOpen(true)}
           >
@@ -1803,11 +1913,12 @@ export function ProxyPool() {
           <Button
             size='sm'
             variant='ghost'
-            className='h-8 text-xs'
+            className='h-8 shrink-0 text-xs'
             onClick={() => setSelectedProxyIds([])}
           >
             {t('Clear')}
           </Button>
+          </div>
         </div>
       )}
 
@@ -2086,6 +2197,44 @@ export function ProxyPool() {
         </DialogContent>
       </Dialog>
 
+      {/* Delete ALL Proxies ConfirmDialog */}
+      <ConfirmDialog
+        open={deleteAllOpen}
+        onOpenChange={setDeleteAllOpen}
+        title={t('Delete ALL proxies?')}
+        desc={t(
+          'This will delete all {{count}} proxies in the pool and remove every key assignment bound to them. This cannot be undone.',
+          { count: totalProxies }
+        )}
+        destructive
+        isLoading={deleteAllMutation.isPending}
+        handleConfirm={() => deleteAllMutation.mutate()}
+        confirmText={t('Delete everything')}
+      />
+
+      {/* Manual Assign Dialog */}
+      <ManualAssignDialog
+        open={manualAssignTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setManualAssignTarget(null)
+          }
+        }}
+        channelId={manualAssignTarget}
+        channelName={
+          (channelsQuery.data ?? []).find((ch) => ch.id === manualAssignTarget)?.name ??
+          `#${manualAssignTarget ?? ''}`
+        }
+        isSubmitting={manualAssignMutation.isPending}
+        onSubmit={(proxyIds) => {
+          if (manualAssignTarget === null) return
+          manualAssignMutation.mutate({
+            channelId: manualAssignTarget,
+            proxyIds,
+          })
+        }}
+      />
+
       {/* Batch Delete ConfirmDialog */}
       <ConfirmDialog
         open={batchDeleteDialogOpen}
@@ -2101,6 +2250,189 @@ export function ProxyPool() {
         confirmText={t('Delete')}
       />
     </>
+  )
+}
+
+function ManualAssignDialog(props: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  channelId: number | null
+  channelName: string
+  isSubmitting: boolean
+  onSubmit: (proxyIds: number[]) => void
+}) {
+  const { t } = useTranslation()
+  const [query, setQuery] = useState('')
+  const [debounced, setDebounced] = useState('')
+  const [page, setPage] = useState(1)
+  const [selection, setSelection] = useState<number[]>([])
+
+  useEffect(() => {
+    const handler = setTimeout(() => setDebounced(query.trim()), 250)
+    return () => clearTimeout(handler)
+  }, [query])
+
+  useEffect(() => {
+    if (props.open) {
+      setQuery('')
+      setDebounced('')
+      setPage(1)
+      setSelection([])
+    }
+  }, [props.open])
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['manual-assign', debounced, page],
+    queryFn: async () => {
+      const res = await listProxies({
+        page,
+        page_size: 20,
+        keyword: debounced || undefined,
+        status: 'enabled',
+      })
+      if (!res.success) {
+        throw new Error(res.message || 'failed to load proxies')
+      }
+      return res.data
+    },
+    enabled: props.open,
+    placeholderData: (previous) => previous,
+  })
+
+  const rows: ProxyPoolProxy[] = Array.isArray(data) ? data : (data?.items ?? [])
+  const total = Array.isArray(data) ? data.length : (data?.total ?? 0)
+  const totalPages = Math.max(1, Math.ceil(total / 20))
+
+  const toggle = (id: number, checked: boolean) => {
+    setSelection((prev) => (checked ? [...prev, id] : prev.filter((x) => x !== id)))
+  }
+  const toggleAllOnPage = (checked: boolean) => {
+    const pageIds = rows.map((proxy) => proxy.id)
+    setSelection((prev) =>
+      checked
+        ? [...new Set([...prev, ...pageIds])]
+        : prev.filter((id) => !pageIds.includes(id))
+    )
+  }
+  const allOnPageSelected = rows.length > 0 && rows.every((proxy) => selection.includes(proxy.id))
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className='max-w-2xl'>
+        <DialogHeader>
+          <DialogTitle>
+            {t('Manual assignment — {{name}}', { name: props.channelName })}
+          </DialogTitle>
+          <DialogDescription>
+            {t('Choose the proxies to bind. This REPLACES all current assignments for this channel.')}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className='space-y-1.5'>
+          <Label htmlFor='manual-assign-search'>{t('Search proxies')}</Label>
+          <div className='relative'>
+            <Input
+              id='manual-assign-search'
+              placeholder={t('Name, URL or egress IP…')}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              autoFocus
+            />
+            {isLoading && (
+              <Loader2 className='absolute end-2.5 top-2.5 size-4 animate-spin text-muted-foreground' />
+            )}
+          </div>
+        </div>
+
+        <div className='max-h-80 overflow-y-auto rounded-lg border border-border/60'>
+          {rows.length === 0 ? (
+            <p className='p-6 text-center text-xs text-muted-foreground'>
+              {isLoading ? t('Loading') : t('No enabled proxies match this search.')}
+            </p>
+          ) : (
+            <div className='divide-y divide-border/50'>
+              <div className='flex items-center gap-2 px-3 py-2'>
+                <Checkbox
+                  checked={allOnPageSelected}
+                  onCheckedChange={(checked) => toggleAllOnPage(Boolean(checked))}
+                  aria-label={t('Select all on this page')}
+                />
+                <span className='text-xs text-muted-foreground'>
+                  {selection.length > 0
+                    ? t('{{count}} selected', { count: selection.length })
+                    : t('Select proxies')}
+                </span>
+              </div>
+              {rows.map((proxy) => (
+                <label key={proxy.id} className='flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-muted/40'>
+                  <Checkbox
+                    checked={selection.includes(proxy.id)}
+                    onCheckedChange={(checked) => toggle(proxy.id, Boolean(checked))}
+                    aria-label={proxy.name}
+                  />
+                  <span className='min-w-0 flex-1'>
+                    <span className='block truncate text-xs font-medium'>{proxy.name}</span>
+                    <span className='block truncate font-mono text-[10px] text-muted-foreground'>
+                      {proxy.url}
+                    </span>
+                  </span>
+                  {proxy.egress_ip && (
+                    <span className='shrink-0 font-mono text-[10px] text-muted-foreground'>
+                      {proxy.egress_ip}
+                    </span>
+                  )}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {totalPages > 1 && (
+          <div className='flex items-center justify-between gap-2'>
+            <p className='text-[11px] tabular-nums text-muted-foreground'>
+              {t('Page {{page}} of {{total}} · {{count}} enabled proxies', {
+                page,
+                total: totalPages,
+                count: total,
+              })}
+            </p>
+            <div className='flex items-center gap-1'>
+              <Button
+                size='sm'
+                variant='outline'
+                className='h-7 text-xs'
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                {t('Previous')}
+              </Button>
+              <Button
+                size='sm'
+                variant='outline'
+                className='h-7 text-xs'
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                {t('Next')}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant='outline' onClick={() => props.onOpenChange(false)}>
+            {t('Cancel')}
+          </Button>
+          <Button
+            disabled={selection.length === 0 || props.isSubmitting}
+            onClick={() => props.onSubmit(selection)}
+          >
+            {props.isSubmitting && <Loader2 className='mr-1.5 h-4 w-4 animate-spin' />}
+            {t('Assign {{count}} proxies', { count: selection.length })}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

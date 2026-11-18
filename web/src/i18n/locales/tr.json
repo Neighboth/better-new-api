@@ -8433,6 +8433,26 @@
     "OHVCloud (Anon) channel does not require an API key.": "OHVCloud (Anon) kanalı API anahtarı gerektirmez.",
     "Page {{page}} / {{total}} · {{count}} proxies": "Sayfa {{page}} / {{total}} · {{count}} proxy",
     "Reference image {{index}}": "Referans görsel {{index}}",
-    "Remove reference": "Referansı kaldır"
+    "Remove reference": "Referansı kaldır",
+    "Assign manually": "Elle ata",
+    "Manual assign": "Elle ata",
+    "Assign {{count}} proxies": "{{count}} proxy ata",
+    "Choose the proxies to bind. This REPLACES all current assignments for this channel.": "Bağlanacak proxy'leri seçin. Bu işlem kanalın mevcut tüm atamalarını DEĞİŞTİRİR.",
+    "Could not test and delete proxies": "Proxyler test edilemedi ve silinemedi",
+    "Delete ALL proxies?": "TÜM proxyleri sil?",
+    "Delete everything": "Hepsini sil",
+    "Deleted all {{count}} proxies": "{{count}} proxyin tamamı silindi",
+    "Manual assignment — {{name}}": "Elle atama — {{name}}",
+    "Name, URL or egress IP…": "Ad, URL veya çıkış IP…",
+    "No enabled proxies match this search.": "Bu aramayla eşleşen etkin proxy yok.",
+    "Page {{page}} of {{total}} · {{count}} enabled proxies": "Sayfa {{page}} / {{total}} · {{count}} etkin proxy",
+    "Proxies could not be deleted": "Proxyler silinemedi",
+    "Search proxies": "Proxy ara",
+    "Select all on this page": "Bu sayfadaki tümünü seç",
+    "Select proxies": "Proxy seç",
+    "Test & Delete broken": "Test Et & Bozukları Sil",
+    "Test completed — {{deleted}} broken proxies deleted": "Test tamamlandı — {{deleted}} bozuk proxy silindi",
+    "This will delete all {{count}} proxies in the pool and remove every key assignment bound to them. This cannot be undone.": "Havuzdaki {{count}} proxyin tamamı silinecek ve onlara bağlı tüm anahtar atamaları kaldırılacak. Bu işlem geri alınamaz.",
+    "{{assigned}} key(s) bound to {{proxies}} proxies": "{{assigned}} anahtar {{proxies}} proxyye bağlandı"
   }
 }

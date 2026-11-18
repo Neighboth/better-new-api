@@ -167,6 +167,23 @@ func BatchCreateProxyPoolProxies(proxies []ProxyPoolProxy) (int, error) {
 	return len(proxies), nil
 }
 
+// ListProxyPoolProxiesByIDs returns the proxies with the given ids, ordered
+// by id. Unknown ids are simply absent from the result.
+func ListProxyPoolProxiesByIDs(ids []int) ([]ProxyPoolProxy, error) {
+	if DB == nil {
+		return []ProxyPoolProxy{}, nil
+	}
+	if len(ids) == 0 {
+		return []ProxyPoolProxy{}, nil
+	}
+	var proxies []ProxyPoolProxy
+	err := DB.Where("id IN (?)", ids).Order("id ASC").Find(&proxies).Error
+	if err != nil {
+		return nil, err
+	}
+	return proxies, nil
+}
+
 func ListProxyPoolProxies() ([]ProxyPoolProxy, error) {
 	if DB == nil {
 		return []ProxyPoolProxy{}, nil
