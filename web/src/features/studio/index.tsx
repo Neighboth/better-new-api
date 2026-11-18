@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowUpIcon,
-  BookOpenIcon,
   CheckIcon,
   ChevronDownIcon,
   DownloadIcon,
@@ -90,7 +89,6 @@ import { useAuthStore } from '@/stores/auth-store'
 import { Switch } from '@/components/ui/switch'
 
 import { useStudioGeneration } from './hooks/use-studio-generation'
-import { listEnabledSkills } from '@/features/studio-skills/api'
 import {
   resolveEffectiveModelOptions,
   pickStillValid,
@@ -526,6 +524,16 @@ export function Studio() {
   }, [])
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyTab, setHistoryTab] = useState<'all' | StudioMode>('all')
+  // Items whose media URL failed to load (e.g. an expired upstream link).
+  // Broken videos render an explicit state instead of an endless 0:00 player.
+  const [brokenMediaIds, setBrokenMediaIds] = useState<ReadonlySet<string>>(new Set())
+  const markMediaBroken = (id: string) =>
+    setBrokenMediaIds((prev) => {
+      if (prev.has(id)) return prev
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -549,14 +557,6 @@ export function Studio() {
   const [startFrame, setStartFrame] = useState('')
   const [endFrame, setEndFrame] = useState('')
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
-  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem('studio_selected_skill_id')
-    } catch {
-      return null
-    }
-  })
-  const [skillPickerOpen, setSkillPickerOpen] = useState(false)
   const [optimizerPickerOpen, setOptimizerPickerOpen] = useState(false)
   const [optimizerModel, setOptimizerModel] = useState<string>(() => {
     try {
@@ -602,28 +602,6 @@ export function Studio() {
       // quota — best effort
     }
   }, [optimizerModel])
-
-  useEffect(() => {
-    try {
-      if (selectedSkillId) {
-        localStorage.setItem('studio_selected_skill_id', selectedSkillId)
-      } else {
-        localStorage.removeItem('studio_selected_skill_id')
-      }
-    } catch {
-      // quota — best effort
-    }
-  }, [selectedSkillId])
-
-  const skillsQuery = useQuery({
-    queryKey: ['studio-skills'],
-    queryFn: listEnabledSkills,
-    staleTime: 60_000,
-  })
-  const selectedSkill = useMemo(
-    () => (skillsQuery.data ?? []).find((skill) => skill.id === selectedSkillId) ?? null,
-    [skillsQuery.data, selectedSkillId]
-  )
 
   // Automatically fall back to video if selected mode is disabled
   useEffect(() => {
@@ -960,7 +938,6 @@ export function Studio() {
           referenceImages: imageRefs,
           referenceCap,
           metadata: {
-            ...(selectedSkillId ? { skill_id: selectedSkillId } : {}),
             ...(optimizerModel ? { optimizer_model: optimizerModel } : {}),
           },
         },
@@ -987,7 +964,6 @@ export function Studio() {
         videoReferences: videoRefs,
         referenceCap,
         metadata: {
-          ...(selectedSkillId ? { skill_id: selectedSkillId } : {}),
           ...(optimizerModel ? { optimizer_model: optimizerModel } : {}),
           ...(audioOfModel ? { audio: audioEnabled } : {}),
           ...(editMode && editMode !== 'none' && attachedMedia?.type === 'video'
@@ -1281,7 +1257,30 @@ export function Studio() {
                               </div>
                             )
                           }
-                          return singleVideoUrl ? (
+                          return brokenMediaIds.has(activeItem.id) ? (
+                            <div className='flex flex-col items-center justify-center gap-3 p-10 text-center'>
+                              <VideoIcon className='size-10 text-muted-foreground/40' />
+                              <p className='text-sm font-medium text-muted-foreground'>
+                                {t('The video could not be loaded.')}
+                              </p>
+                              <p className='max-w-xs text-[11px] text-muted-foreground/70'>
+                                {t('The upstream link may have expired, or the file could not be stored on the server. Regenerate to create a fresh copy.')}
+                              </p>
+                              <button
+                                type='button'
+                                onClick={() =>
+                                  setBrokenMediaIds((prev) => {
+                                    const next = new Set(prev)
+                                    next.delete(activeItem.id)
+                                    return next
+                                  })
+                                }
+                                className='h-8 rounded-lg border bg-background px-4 text-xs font-medium text-foreground transition hover:bg-muted'
+                              >
+                                {t('Retry')}
+                              </button>
+                            </div>
+                          ) : singleVideoUrl ? (
                             <video
                               key={singleVideoUrl}
                               autoPlay
@@ -1290,6 +1289,7 @@ export function Studio() {
                               loop
                               playsInline
                               src={getPlayableItemUrl(activeItem, localOnlyUrls) || singleVideoUrl}
+                              onError={() => markMediaBroken(activeItem.id)}
                             />
                           ) : (
                             <p className='max-w-sm py-8 text-center text-sm font-medium text-muted-foreground'>
@@ -1464,7 +1464,7 @@ export function Studio() {
             </div>
 
             {/* Bottom toolbar */}
-            <div className='flex items-center gap-1.5 px-2.5 pb-2.5 pt-1'>
+            <div className='flex min-w-0 items-center gap-1.5 overflow-hidden px-2.5 pb-2.5 pt-1'>
               {/* Left Action: Plus file attach button */}
               <label
                 htmlFor='studio-file-upload'
@@ -1482,123 +1482,20 @@ export function Studio() {
                 />
               </label>
 
-              {/* Skill picker */}
-              <Popover open={skillPickerOpen} onOpenChange={setSkillPickerOpen}>
-                <PopoverTrigger
-                  className='flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border/70 bg-muted/40 px-2.5 text-xs font-medium text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground'
-                  title={t('Apply a creative direction skill to this generation (optional)')}
-                >
-                  <BookOpenIcon className='size-3.5' />
-                  <span className='max-w-[140px] truncate'>
-                    {selectedSkill ? selectedSkill.title : t('Skill')}
-                  </span>
-                  {selectedSkill && (
-                    <span
-                      role='button'
-                      tabIndex={0}
-                      aria-label={t('Remove the selected skill')}
-                      className='text-muted-foreground/70 hover:text-foreground'
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        setSelectedSkillId(null)
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.stopPropagation()
-                          e.preventDefault()
-                          setSelectedSkillId(null)
-                        }
-                      }}
-                    >
-                      <XIcon className='size-3' />
-                    </span>
-                  )}
-                </PopoverTrigger>
-                <PopoverContent
-                  align='start'
-                  side='top'
-                  className='w-96 rounded-2xl border border-border/80 bg-card p-3 shadow-xl'
-                >
-                  <div className='mb-2 flex items-center justify-between gap-2'>
-                    <div>
-                      <p className='text-sm font-semibold'>{t('Studio skills')}</p>
-                      <p className='text-[10px] text-muted-foreground'>
-                        {t('Applies the selected skill to the prompt optimizer.')}
-                      </p>
-                    </div>
-                    <button
-                      type='button'
-                      className='text-[10px] font-medium text-muted-foreground hover:text-foreground'
-                      onClick={() => setSkillPickerOpen(false)}
-                    >
-                      {t('Close')}
-                    </button>
-                  </div>
-                  <div className='max-h-80 space-y-1.5 overflow-y-auto'>
-                    {skillsQuery.isLoading && (
-                      <div className='flex h-20 items-center justify-center'>
-                        <Loader2Icon className='size-4 animate-spin text-muted-foreground' />
-                      </div>
-                    )}
-                    {!skillsQuery.isLoading && (skillsQuery.data ?? []).length === 0 && (
-                      <p className='rounded-md border border-dashed border-border/70 p-3 text-center text-[11px] leading-snug text-muted-foreground'>
-                        {t('No skills yet. Create one in System Settings → Playground & Studio → Studio skills.')}
-                      </p>
-                    )}
-                    {(skillsQuery.data ?? []).map((skill) => {
-                      const active = skill.id === selectedSkillId
-                      return (
-                        <button
-                          key={skill.id}
-                          type='button'
-                          onClick={() => setSelectedSkillId(active ? null : skill.id)}
-                          className={cn(
-                            'flex w-full items-center gap-2.5 rounded-xl border px-2 py-2 text-left transition',
-                            active
-                              ? 'border-primary/60 bg-primary/5'
-                              : 'border-border/50 hover:border-border hover:bg-muted/40'
-                          )}
-                        >
-                          {skill.image ? (
-                            <img
-                              alt={skill.title}
-                              src={skill.image}
-                              className='size-10 shrink-0 rounded-lg border border-border/60 object-cover'
-                            />
-                          ) : (
-                            <div className='flex size-10 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted'>
-                              <BookOpenIcon className='size-4 text-muted-foreground' />
-                            </div>
-                          )}
-                          <span className='min-w-0 flex-1'>
-                            <span className='block truncate text-xs font-medium'>{skill.title}</span>
-                            <span className='line-clamp-1 text-[10px] text-muted-foreground'>
-                              {skill.description}
-                            </span>
-                          </span>
-                          {active && <CheckIcon className='size-4 shrink-0 text-primary' />}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </PopoverContent>
-              </Popover>
-
               <div className='flex-1' />
 
             {/* Right Controls: Model Pill & Send Arrow */}
-            <div className='flex items-center gap-1.5 sm:gap-2 shrink-0'>
+            <div className='flex min-w-0 shrink items-center gap-1.5 sm:gap-2'>
               {/* Model Pill Trigger displaying ONLY model name per requirements */}
               <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
                 <PopoverTrigger
-                  className='inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border border-border/70 bg-muted/40 px-2.5 text-xs font-medium text-foreground transition hover:border-border hover:bg-muted'
+                  className='inline-flex h-8 min-w-0 shrink items-center gap-1 rounded-lg border border-border/70 bg-muted/40 px-2.5 text-xs font-medium text-foreground transition hover:border-border hover:bg-muted'
                 >
-                  <span className='max-w-[100px] sm:max-w-[140px] truncate'>
+                  <span className='max-w-[72px] min-w-0 truncate min-[420px]:max-w-[120px] sm:max-w-[140px]'>
                     {currentModelDisplayName}
                   </span>
                   {currentModelRuntime?.tag && (
-                    <span className='rounded bg-primary/10 px-1.5 py-0.2 text-[9px] font-semibold text-primary uppercase border border-primary/20 shrink-0'>
+                    <span className='hidden min-[420px]:inline rounded bg-primary/10 px-1.5 py-0.2 text-[9px] font-semibold text-primary uppercase border border-primary/20 shrink-0'>
                       {currentModelRuntime.tag}
                     </span>
                   )}
@@ -2204,13 +2101,14 @@ export function Studio() {
                             </div>
                           )
                         }
-                        if (item.status === 'error' && playable) {
+                        if (item.status === 'error' && playable && !brokenMediaIds.has(item.id)) {
                           return (
                             <video
                               controls
                               playsInline
                               preload='metadata'
                               src={playable}
+                              onError={() => markMediaBroken(item.id)}
                               className='max-h-48 w-full object-contain bg-black rounded'
                             />
                           )
@@ -2222,6 +2120,14 @@ export function Studio() {
                             </div>
                           )
                         }
+                        if (brokenMediaIds.has(item.id)) {
+                          return (
+                            <div className='flex h-full flex-col items-center justify-center gap-1.5 p-4 text-center'>
+                              <VideoIcon className='size-6 text-muted-foreground/40' />
+                              <span className='text-[10px] text-muted-foreground'>{t('The video could not be loaded.')}</span>
+                            </div>
+                          )
+                        }
                         if (item.status === 'ready' && playable) {
                           return item.mode === 'video' ? (
                             <video
@@ -2229,6 +2135,7 @@ export function Studio() {
                               playsInline
                               preload='metadata'
                               src={playable}
+                              onError={() => markMediaBroken(item.id)}
                               className='max-h-48 w-full object-contain bg-black rounded'
                             />
                           ) : (

@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { nanoid } from 'nanoid'
 import { toast } from 'sonner'
-import { useNavigate } from '@tanstack/react-router'
 
 import { JsonCodeEditor } from '@/components/json-code-editor'
 import { Button } from '@/components/ui/button'
@@ -792,7 +791,6 @@ export function PlaygroundSettingsSection({
   defaultValues: PlaygroundSettingsDefaults
 }) {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const updateOptions = useUpdateOptionsBulk()
 
   const [imageEnabled, setImageEnabled] = useState<boolean>(
@@ -1188,22 +1186,6 @@ export function PlaygroundSettingsSection({
                 <p className='text-muted-foreground text-[11px]'>
                   {t('Required. One or more vision-capable chat models. With several configured, the Studio shows a selector in the composer — the first model is the default.')}
                 </p>
-              </div>
-
-              <div className='flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2'>
-                <div>
-                  <Label className='text-xs font-medium'>{t('Studio skills')}</Label>
-                  <p className='text-[10px] text-muted-foreground'>
-                    {t('Reusable creative directions the Studio applies when selected (e.g. a GTA 6 visual style). Opens the skill editor on its own page.')}
-                  </p>
-                </div>
-                <Button
-                  onClick={() => void navigate({ to: '/studio-skills' })}
-                  size='sm'
-                  variant='outline'
-                >
-                  {t('Manage skills')}
-                </Button>
               </div>
 
               <div className='space-y-1.5'>

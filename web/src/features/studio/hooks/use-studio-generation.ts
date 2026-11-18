@@ -99,7 +99,7 @@ type ImageParams = {
   referenceImages?: string[]
   /** Effective cap for reference images (0 = disabled). */
   referenceCap?: number
-  /** Extra metadata forwarded to the relay (studio_optimize, skill_id…). */
+  /** Extra metadata forwarded to the relay (studio_optimize, optimizer_model…). */
   metadata?: Record<string, unknown>
 }
 

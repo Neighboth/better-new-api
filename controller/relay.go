@@ -339,7 +339,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			// For a multi-key channel, disable the failing key SYNCHRONOUSLY so the
 			// next attempt deterministically picks a fresh key; the channel itself
 			// stays in the pool until every enabled key is gone.
-			if service.ShouldDisableChannel(newAPIError) && chErr.AutoBan {
+			if service.ShouldDisableChannel(newAPIError, chErr.ChannelType) && chErr.AutoBan {
 				model.UpdateChannelStatus(channel.Id, chErr.UsingKey, common.ChannelStatusAutoDisabled, newAPIError.ErrorWithStatusCode())
 			}
 			if retryParam.AttemptedKeys == nil {
@@ -347,7 +347,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 			retryParam.AttemptedKeys[channel.Id]++
 			keyExhausted = retryParam.AttemptedKeys[channel.Id] >= channel.ChannelInfo.MultiKeySize
-		} else if service.ShouldDisableChannel(newAPIError) && chErr.AutoBan {
+		} else if service.ShouldDisableChannel(newAPIError, chErr.ChannelType) && chErr.AutoBan {
 			gopool.Go(func() {
 				service.DisableChannel(chErr, newAPIError.ErrorWithStatusCode())
 			})
@@ -687,7 +687,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
-	if service.ShouldDisableChannel(err) && channelError.AutoBan {
+	if service.ShouldDisableChannel(err, channelError.ChannelType) && channelError.AutoBan {
 		gopool.Go(func() {
 			service.DisableChannel(channelError, err.ErrorWithStatusCode())
 		})
@@ -818,6 +818,13 @@ func RelayTask(c *gin.Context) {
 		}
 	}()
 
+	// Configured video fallback models, in order. When the current model
+	// cannot serve (its channels are disabled, e.g. Aepi auto-disable) or
+	// every attempt answered with a non-local upstream error, the relay
+	// walks this list. The chat fallback's "every enabled model" sweep is
+	// deliberately NOT applied here.
+	fbState := newTaskVideoFallbackState(relayInfo)
+
 	retryParam := &service.RetryParam{
 		Ctx:         c,
 		TokenGroup:  relayInfo.TokenGroup,
@@ -826,83 +833,99 @@ func RelayTask(c *gin.Context) {
 		Retry:       common.GetPointer(0),
 	}
 
-	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
-		var channel *model.Channel
+	for {
+		// False when the current model exhausted its channels; drives the
+		// fallback decision at the end of the pass.
+		channelUnavailable := false
+		for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
+			var channel *model.Channel
 
-		if lockedCh, ok := relayInfo.LockedChannel.(*model.Channel); ok && lockedCh != nil {
-			channel = lockedCh
-			if retryParam.GetRetry() > 0 {
-				if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
-					taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
+			if lockedCh, ok := relayInfo.LockedChannel.(*model.Channel); ok && lockedCh != nil {
+				channel = lockedCh
+				if retryParam.GetRetry() > 0 {
+					if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
+						taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
+						break
+					}
+				}
+			} else {
+				var channelErr *types.NewAPIError
+				channel, channelErr = getChannel(c, relayInfo, retryParam)
+				if channelErr != nil {
+					channelUnavailable = true
+					logger.LogError(c, channelErr.Error())
+					if previousTaskErr != nil {
+						// Every channel with an upstream answer was skipped while
+						// retrying, so the pool looks "empty" now. The informative
+						// error is the previous task error, not this wrapper.
+						logger.LogError(c, fmt.Sprintf("task submit failed after exhausting channels (retries=%d): %s", retryParam.GetRetry(), previousTaskErr.Error))
+						taskErr = previousTaskErr
+						break
+					}
+					taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
 					break
 				}
 			}
-		} else {
-			var channelErr *types.NewAPIError
-			channel, channelErr = getChannel(c, relayInfo, retryParam)
-			if channelErr != nil {
-				logger.LogError(c, channelErr.Error())
-				if previousTaskErr != nil {
-					// Every channel with an upstream answer was skipped while
-					// retrying, so the pool looks "empty" now. The informative
-					// error is the previous task error, not this wrapper.
-					logger.LogError(c, fmt.Sprintf("task submit failed after exhausting channels (retries=%d): %s", retryParam.GetRetry(), previousTaskErr.Error))
-					taskErr = previousTaskErr
-					break
+
+			addUsedChannel(c, channel.Id)
+			bodyStorage, bodyErr := common.GetBodyStorage(c)
+			if bodyErr != nil {
+				if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
+					taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusRequestEntityTooLarge)
+				} else {
+					taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusBadRequest)
 				}
-				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
+				break
+			}
+			c.Request.Body = io.NopCloser(bodyStorage)
+
+			result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
+			if taskErr == nil {
+				break
+			}
+
+			if !taskErr.LocalError {
+				previousTaskErr = taskErr
+				if constant.ErrorLogEnabled {
+					// Upstream task failures were previously invisible: the final
+					// getChannel exhaustion masked the real reason, so nothing
+					// reached the error log. Record them like chat relay errors.
+					recordRelayErrorLog(c, relayInfo, types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
+				}
+				chTaskErr := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
+					common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan())
+				if chTaskErr.IsMultiKey {
+					if service.ShouldDisableChannel(types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode), chTaskErr.ChannelType) && chTaskErr.AutoBan {
+						model.UpdateChannelStatus(channel.Id, chTaskErr.UsingKey, common.ChannelStatusAutoDisabled, types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode).ErrorWithStatusCode())
+					}
+					if retryParam.AttemptedKeys == nil {
+						retryParam.AttemptedKeys = map[int]int{}
+					}
+					retryParam.AttemptedKeys[channel.Id]++
+				} else if service.ShouldDisableChannel(types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode), chTaskErr.ChannelType) && chTaskErr.AutoBan {
+					processChannelError(c,
+						chTaskErr,
+						types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
+				}
+				if !chTaskErr.IsMultiKey || retryParam.AttemptedKeys[channel.Id] >= channel.ChannelInfo.MultiKeySize {
+					retryParam.IgnoredChannelIds = append(retryParam.IgnoredChannelIds, channel.Id)
+				}
+			}
+
+			if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
 				break
 			}
 		}
 
-		addUsedChannel(c, channel.Id)
-		bodyStorage, bodyErr := common.GetBodyStorage(c)
-		if bodyErr != nil {
-			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
-				taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusRequestEntityTooLarge)
-			} else {
-				taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusBadRequest)
-			}
-			break
-		}
-		c.Request.Body = io.NopCloser(bodyStorage)
-
-		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
 		if taskErr == nil {
 			break
 		}
-
-		if !taskErr.LocalError {
-			previousTaskErr = taskErr
-			if constant.ErrorLogEnabled {
-				// Upstream task failures were previously invisible: the final
-				// getChannel exhaustion masked the real reason, so nothing
-				// reached the error log. Record them like chat relay errors.
-				recordRelayErrorLog(c, relayInfo, types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
-			}
-			chTaskErr := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
-				common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan())
-			if chTaskErr.IsMultiKey {
-				if service.ShouldDisableChannel(types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode)) && chTaskErr.AutoBan {
-					model.UpdateChannelStatus(channel.Id, chTaskErr.UsingKey, common.ChannelStatusAutoDisabled, types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode).ErrorWithStatusCode())
-				}
-				if retryParam.AttemptedKeys == nil {
-					retryParam.AttemptedKeys = map[int]int{}
-				}
-				retryParam.AttemptedKeys[channel.Id]++
-			} else if service.ShouldDisableChannel(types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode)) && chTaskErr.AutoBan {
-				processChannelError(c,
-					chTaskErr,
-					types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
-			}
-			if !chTaskErr.IsMultiKey || retryParam.AttemptedKeys[channel.Id] >= channel.ChannelInfo.MultiKeySize {
-				retryParam.IgnoredChannelIds = append(retryParam.IgnoredChannelIds, channel.Id)
-			}
+		// The current model cannot serve; walk the configured fallback
+		// models in order before surfacing the error.
+		if advanceTaskVideoFallback(c, relayInfo, retryParam, fbState, channelUnavailable, previousTaskErr, taskErr) {
+			continue
 		}
-
-		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
-			break
-		}
+		break
 	}
 
 	useChannel := c.GetStringSlice("use_channel")
@@ -962,7 +985,7 @@ func RelayTask(c *gin.Context) {
 // respondTaskError 统一输出 Task 错误响应（含 429 限流提示改写）
 func respondTaskError(c *gin.Context, taskErr *taskdto.TaskError) {
 	if taskErr.StatusCode == http.StatusTooManyRequests {
-		taskErr.Message = "当前分组上游负载已饱和，请稍后再试"
+		taskErr.Message = "The upstream for this group is saturated right now — please try again in a little while."
 	}
 	c.JSON(taskErr.StatusCode, taskErr)
 }

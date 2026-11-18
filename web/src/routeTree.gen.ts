@@ -60,7 +60,6 @@ import { Route as AuthenticatedProxyPoolIndexRouteImport } from './routes/_authe
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
 import { Route as AuthenticatedResellerIndexRouteImport } from './routes/_authenticated/reseller/index'
 import { Route as AuthenticatedStatisticsIndexRouteImport } from './routes/_authenticated/statistics/index'
-import { Route as AuthenticatedStudioSkillsIndexRouteImport } from './routes/_authenticated/studio-skills/index'
 import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_authenticated/subscriptions/index'
 import { Route as AuthenticatedSystemInfoIndexRouteImport } from './routes/_authenticated/system-info/index'
 import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
@@ -358,12 +357,6 @@ const AuthenticatedStatisticsIndexRoute =
     path: '/statistics/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedStudioSkillsIndexRoute =
-  AuthenticatedStudioSkillsIndexRouteImport.update({
-    id: '/studio-skills/',
-    path: '/studio-skills/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
 const AuthenticatedSubscriptionsIndexRoute =
   AuthenticatedSubscriptionsIndexRouteImport.update({
     id: '/subscriptions/',
@@ -558,7 +551,6 @@ export interface FileRoutesByFullPath {
   '/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/reseller/': typeof AuthenticatedResellerIndexRoute
   '/statistics/': typeof AuthenticatedStatisticsIndexRoute
-  '/studio-skills/': typeof AuthenticatedStudioSkillsIndexRoute
   '/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
@@ -632,7 +624,6 @@ export interface FileRoutesByTo {
   '/redemption-codes': typeof AuthenticatedRedemptionCodesIndexRoute
   '/reseller': typeof AuthenticatedResellerIndexRoute
   '/statistics': typeof AuthenticatedStatisticsIndexRoute
-  '/studio-skills': typeof AuthenticatedStudioSkillsIndexRoute
   '/subscriptions': typeof AuthenticatedSubscriptionsIndexRoute
   '/system-info': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings': typeof AuthenticatedSystemSettingsIndexRoute
@@ -711,7 +702,6 @@ export interface FileRoutesById {
   '/_authenticated/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/_authenticated/reseller/': typeof AuthenticatedResellerIndexRoute
   '/_authenticated/statistics/': typeof AuthenticatedStatisticsIndexRoute
-  '/_authenticated/studio-skills/': typeof AuthenticatedStudioSkillsIndexRoute
   '/_authenticated/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/_authenticated/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/_authenticated/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
@@ -789,7 +779,6 @@ export interface FileRouteTypes {
     | '/redemption-codes/'
     | '/reseller/'
     | '/statistics/'
-    | '/studio-skills/'
     | '/subscriptions/'
     | '/system-info/'
     | '/system-settings/'
@@ -863,7 +852,6 @@ export interface FileRouteTypes {
     | '/redemption-codes'
     | '/reseller'
     | '/statistics'
-    | '/studio-skills'
     | '/subscriptions'
     | '/system-info'
     | '/system-settings'
@@ -941,7 +929,6 @@ export interface FileRouteTypes {
     | '/_authenticated/redemption-codes/'
     | '/_authenticated/reseller/'
     | '/_authenticated/statistics/'
-    | '/_authenticated/studio-skills/'
     | '/_authenticated/subscriptions/'
     | '/_authenticated/system-info/'
     | '/_authenticated/system-settings/'
@@ -1348,13 +1335,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedStatisticsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/studio-skills/': {
-      id: '/_authenticated/studio-skills/'
-      path: '/studio-skills'
-      fullPath: '/studio-skills/'
-      preLoaderRoute: typeof AuthenticatedStudioSkillsIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/subscriptions/': {
       id: '/_authenticated/subscriptions/'
       path: '/subscriptions'
@@ -1651,7 +1631,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedRedemptionCodesIndexRoute: typeof AuthenticatedRedemptionCodesIndexRoute
   AuthenticatedResellerIndexRoute: typeof AuthenticatedResellerIndexRoute
   AuthenticatedStatisticsIndexRoute: typeof AuthenticatedStatisticsIndexRoute
-  AuthenticatedStudioSkillsIndexRoute: typeof AuthenticatedStudioSkillsIndexRoute
   AuthenticatedSubscriptionsIndexRoute: typeof AuthenticatedSubscriptionsIndexRoute
   AuthenticatedSystemInfoIndexRoute: typeof AuthenticatedSystemInfoIndexRoute
   AuthenticatedTicketsIndexRoute: typeof AuthenticatedTicketsIndexRoute
@@ -1687,7 +1666,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedRedemptionCodesIndexRoute,
   AuthenticatedResellerIndexRoute: AuthenticatedResellerIndexRoute,
   AuthenticatedStatisticsIndexRoute: AuthenticatedStatisticsIndexRoute,
-  AuthenticatedStudioSkillsIndexRoute: AuthenticatedStudioSkillsIndexRoute,
   AuthenticatedSubscriptionsIndexRoute: AuthenticatedSubscriptionsIndexRoute,
   AuthenticatedSystemInfoIndexRoute: AuthenticatedSystemInfoIndexRoute,
   AuthenticatedTicketsIndexRoute: AuthenticatedTicketsIndexRoute,

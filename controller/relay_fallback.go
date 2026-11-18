@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -369,6 +370,102 @@ func isPriceNotConfiguredError(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "price not configured") || strings.Contains(msg, "价格未配置") || strings.Contains(msg, "尚未由管理员配置")
+}
+
+// newTaskVideoFallbackState builds the fallback chain for video task
+// submissions. It contains ONLY the models configured in
+// System Settings → Relay Fallback → Video Fallback Models, in their
+// configured order — never the alphabetical sweep the chat fallback
+// performs, because an arbitrary video model is not a drop-in replacement
+// for another. A candidate equal to the requested model, one the user may
+// not use, or one that is globally disabled is skipped (a candidate dead on
+// channel configuration is exercised through getChannel instead and moves on
+// to the next candidate).
+func newTaskVideoFallbackState(info *relaycommon.RelayInfo) *fallbackState {
+	s := operation_setting.GetRelayFallbackSetting()
+	if s == nil || !s.EnableFallback {
+		return nil
+	}
+	configured := s.FallbackVideoModelList()
+	if len(configured) == 0 {
+		return nil
+	}
+	blocked := userBlockedModels(info)
+	enabled := model.GetEnabledModels()
+	enabledSet := map[string]bool{}
+	for _, m := range enabled {
+		enabledSet[m] = true
+	}
+	useEnabledFilter := len(enabled) > 0
+	seen := map[string]bool{info.GetOriginModelName(): true}
+	unique := make([]string, 0, len(configured))
+	for _, m := range configured {
+		m = strings.TrimSpace(m)
+		if m == "" || seen[m] {
+			continue
+		}
+		if isModelBlockedForUser(m, blocked) {
+			continue
+		}
+		if useEnabledFilter && !enabledSet[m] {
+			common.SysLog(fmt.Sprintf("relay fallback: configured video fallback model %s is disabled; skipping", m))
+			continue
+		}
+		seen[m] = true
+		unique = append(unique, m)
+	}
+	if len(unique) == 0 {
+		return nil
+	}
+	return &fallbackState{
+		models: unique,
+		orig:   info.GetOriginModelName(),
+		on:     true,
+		// No fallback system prompt for video tasks; the composed scene
+		// prompt is already self-contained.
+	}
+}
+
+// advanceTaskVideoFallback decides whether a failed video submission may
+// move to the next configured fallback model. Eligible when no channel can
+// serve the CURRENT model (e.g. the Aepi channel was disabled) or every
+// attempt answered with a non-local upstream error. User-facing (local)
+// failures — 400s, quota holds, price errors — never switch models. A
+// locked (remix) request is pinned to the origin task's channel and never
+// falls back. On success the relayInfo, retryParam and request body are
+// already pointed at the next model.
+func advanceTaskVideoFallback(c *gin.Context, relayInfo *relaycommon.RelayInfo, retryParam *service.RetryParam, fb *fallbackState, channelUnavailable bool, previousTaskErr, taskErr *taskdto.TaskError) bool {
+	if fb == nil || !fb.on {
+		return false
+	}
+	if relayInfo.LockedChannel != nil {
+		return false
+	}
+	if !channelUnavailable {
+		if taskErr == nil || taskErr.LocalError {
+			return false
+		}
+		if previousTaskErr == nil {
+			return false
+		}
+	}
+	reason := ""
+	switch {
+	case previousTaskErr != nil:
+		reason = previousTaskErr.Message
+		if reason == "" && previousTaskErr.Error != nil {
+			reason = previousTaskErr.Error.Error()
+		}
+	case taskErr != nil:
+		reason = taskErr.Message
+		if reason == "" && taskErr.Error != nil {
+			reason = taskErr.Error.Error()
+		}
+	}
+	if reason == "" {
+		reason = "model unavailable"
+	}
+	return advanceFallbackModel(c, relayInfo, retryParam, fb, reason)
 }
 
 func advanceFallbackModel(c *gin.Context, relayInfo *relaycommon.RelayInfo, retryParam *service.RetryParam, fb *fallbackState, reason string) bool {

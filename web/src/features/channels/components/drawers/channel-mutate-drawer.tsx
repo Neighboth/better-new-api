@@ -1568,8 +1568,8 @@ export function ChannelMutateDrawer({
       return
     }
 
-    // Advanced Custom, OpenCode and Kilo Code can fetch models without an API key.
-    if (!isEditing && type !== CHANNEL_TYPE_ADVANCED_CUSTOM && type !== 65 && type !== 68) {
+    // Advanced Custom, OpenCode, Kilo Code (Anon) and OHVCloud (Anon) can fetch models without an API key.
+    if (!isEditing && type !== CHANNEL_TYPE_ADVANCED_CUSTOM && type !== 65 && type !== 68 && type !== 69) {
       const key = form.getValues('key')
       if (!key?.trim()) {
         toast.error(t('Please enter API key first'))

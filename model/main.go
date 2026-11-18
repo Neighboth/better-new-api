@@ -261,6 +261,12 @@ func migrateDB() error {
 	if err := migrateTokenModelLimitsToText(); err != nil {
 		return err
 	}
+	// The Studio Skills feature was retired before real usage. Remove the
+	// table entirely so nothing references the old concept (the optimizer
+	// no longer reads skills at all).
+	if err := DB.Exec("DROP TABLE IF EXISTS studio_skills").Error; err != nil {
+		common.SysError(fmt.Sprintf("database migration: dropping studio_skills failed: %s", err.Error()))
+	}
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -284,7 +290,6 @@ func migrateDB() error {
 		&Setup{},
 		&VideoAsset{},
 		&StudioItem{},
-		&StudioSkill{},
 		&ProxyPoolEvent{},
 		&TwoFA{},
 		&TwoFABackupCode{},

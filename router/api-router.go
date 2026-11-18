@@ -115,7 +115,6 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/studio/items", middleware.UserAuth(), controller.GetStudioItems)
 		apiRouter.PUT("/studio/items", middleware.UserAuth(), controller.PutStudioItems)
 		apiRouter.DELETE("/studio/items/:id", middleware.UserAuth(), controller.DeleteStudioItem)
-		apiRouter.GET("/playground/skills", middleware.UserAuth(), controller.ListStudioSkills)
 
 		userRoute := apiRouter.Group("/user")
 		{
@@ -534,15 +533,6 @@ func SetApiRouter(router *gin.Engine) {
 			vendorRoute.POST("/upload", controller.UploadVendorLogo)
 		}
 
-		playgroundAdminRoute := apiRouter.Group("/playground/admin/skills")
-		playgroundAdminRoute.Use(middleware.AdminAuth())
-		{
-			playgroundAdminRoute.GET("/", controller.ListStudioSkillsAdmin)
-			playgroundAdminRoute.POST("/", controller.CreateStudioSkill)
-			playgroundAdminRoute.PUT("/:id", controller.UpdateStudioSkill)
-			playgroundAdminRoute.DELETE("/:id", controller.DeleteStudioSkill)
-			playgroundAdminRoute.POST("/upload", controller.UploadStudioSkillImage)
-		}
 
 		modelsRoute := apiRouter.Group("/models")
 		modelsRoute.Use(middleware.AdminAuth())

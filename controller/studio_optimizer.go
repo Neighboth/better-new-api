@@ -80,7 +80,6 @@ type StudioOptimizeResult struct {
 	References     []string
 	Optimized      bool
 	Fallback       bool
-	SkillID        string
 }
 
 func metadataStudioFlag(metadata map[string]interface{}, key string) bool {
@@ -480,13 +479,6 @@ func RunStudioOptimization(parent *gin.Context, userID int, group string, req *r
 		systemPrompt = studioDefaultOptimizerPrompt
 	}
 
-	skillID := metadataStringValue(req.Metadata, "skill_id")
-	if skillID != "" {
-		if skill, err := model.GetStudioSkill(skillID); err == nil && skill != nil && skill.Enabled {
-			systemPrompt += "\n\nSTUDIO SKILL (the user selected this creative direction for this generation; follow it strictly when it does not conflict with safety rules):\n" + skill.Content
-		}
-	}
-
 	mdl := effectiveModelFor(req.Model, modelKind)
 	effective := service.ResolveEffectiveStudioModel(
 		mdl, req.Duration, req.Duration > 0, req.Quality, req.Ratio,
@@ -545,7 +537,7 @@ func RunStudioOptimization(parent *gin.Context, userID int, group string, req *r
 
 	answer, searchRefs, err := optimizeStudioPromptWithTools(parent, userID, group, selected, systemPrompt, optimizerMessages)
 	if err != nil {
-		return &StudioOptimizeResult{Prompt: req.Prompt, Optimized: false, Fallback: true, SkillID: skillID}, err
+		return &StudioOptimizeResult{Prompt: req.Prompt, Optimized: false, Fallback: true}, err
 	}
 
 	negativeRaw := metadataStringValue(req.Metadata, "negative_prompt")
@@ -578,7 +570,6 @@ func RunStudioOptimization(parent *gin.Context, userID int, group string, req *r
 		References:     merged,
 		Optimized:      true,
 		Fallback:       false,
-		SkillID:        skillID,
 	}, nil
 }
 

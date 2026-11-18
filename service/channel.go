@@ -5,11 +5,25 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
+
+// isAnonymousPoolChannelType reports whether the channel is an anonymous,
+// keyless lane that rides the proxy pool (OpenCode, Kilo Code, OHVCloud).
+// These lanes have no account to protect: an upstream 429 means the
+// per-route anonymous quota is exhausted — the proxy pool exists exactly
+// for that and rotates exits per request. Auto-disabling the whole channel
+// on a single 429 would take the lane offline for every user while 65k
+// proxies sit idle, which is the opposite of the point.
+func isAnonymousPoolChannelType(channelType int) bool {
+	return channelType == constant.ChannelTypeOpenCode ||
+		channelType == constant.ChannelTypeKiloCodeAnon ||
+		channelType == constant.ChannelTypeOHVCloudAnon
+}
 
 func formatNotifyType(channelId int, status int) string {
 	return fmt.Sprintf("%s_%d_%d", dto.NotifyTypeChannelUpdate, channelId, status)
@@ -42,12 +56,32 @@ func EnableChannel(channelId int, usingKey string, channelName string) {
 	}
 }
 
-func ShouldDisableChannel(err *types.NewAPIError) bool {
+// ShouldDisableChannel mirrors the historical behavior for ordinary channels.
+// For anonymous proxy-pool channels, upstream HTTP 429 never auto-disables
+// the channel: the proxy pool rotates exits instead (see
+// isAnonymousPoolChannelType). Call sites that know the channel pass its
+// type; without it the legacy rule applies.
+func ShouldDisableChannel(err *types.NewAPIError, channelTypes ...int) bool {
 	if !common.AutomaticDisableChannelEnabled {
 		return false
 	}
 	if err == nil {
 		return false
+	}
+	if len(channelTypes) > 0 && isAnonymousPoolChannelType(channelTypes[0]) {
+		if err.StatusCode == 429 {
+			return false
+		}
+		// Anonymous lanes carry no account: keyword bans targeting account
+		// exhaustion ("credit balance too low", "exceeded your current quota",
+		// "sign up for free…") describe the free anonymous route, not a
+		// broken channel. Never let them take the channel offline either —
+		// the pool's per-proxy cooldowns are the correct protection.
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "quota") || strings.Contains(lower, "credit") || strings.Contains(lower, "sign up") ||
+			strings.Contains(lower, "credit card") || strings.Contains(lower, "upgrade") {
+			return false
+		}
 	}
 	if types.IsChannelError(err) {
 		return true

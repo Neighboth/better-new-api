@@ -2009,7 +2009,7 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 	shouldBanChannel := false
 	newAPIError := result.newAPIError
 	if newAPIError != nil {
-		shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
+		shouldBanChannel = service.ShouldDisableChannel(result.newAPIError, channel.Type)
 	}
 
 	if common.AutomaticDisableChannelEnabled && !shouldBanChannel {
