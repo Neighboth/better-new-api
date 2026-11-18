@@ -427,6 +427,16 @@ func DeleteProxyPoolAssignments(channelId int) error {
 	return DB.Where("channel_id = ?", channelId).Delete(&ProxyPoolAssignment{}).Error
 }
 
+// DeleteAllProxyPoolAssignments removes every assignment row across all
+// channels. Used by the "delete all proxies" path so no channel is left
+// with assignments pointing at proxies that no longer exist.
+func DeleteAllProxyPoolAssignments() error {
+	if DB == nil {
+		return nil
+	}
+	return DB.Where("id > ?", 0).Delete(&ProxyPoolAssignment{}).Error
+}
+
 // ProxyPoolAssignmentURLMap loads the (channel_id, key_index) -> proxy URL
 // mapping for every assignment whose proxy is enabled. Disabled proxies are
 // skipped, leaving their keys on the channel's own default path (or direct).

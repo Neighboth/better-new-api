@@ -715,7 +715,8 @@ func RebalanceAllProxyPoolChannels(c *gin.Context) {
 	totalKeysAssigned := 0
 
 	// Clear all existing assignments first so fair allocation runs globally
-	_ = model.DeleteProxyPoolAssignments(0)
+	// Clear every assignment before re-balancing: no stale mapping may survive.
+	_ = model.DeleteAllProxyPoolAssignments()
 
 	roundUsage := make(map[int]int, len(enabled))
 	for _, summary := range channels {
@@ -1047,7 +1048,7 @@ func DeleteAllProxyPoolProxies(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.DeleteProxyPoolAssignments(0); err != nil {
+	if err := model.DeleteAllProxyPoolAssignments(); err != nil {
 		common.ApiError(c, err)
 		return
 	}

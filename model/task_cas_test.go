@@ -62,6 +62,8 @@ func TestMain(m *testing.M) {
 		&SystemTaskLock{},
 		&VideoAsset{},
 		&StudioItem{},
+		&ProxyPoolProxy{},
+		&ProxyPoolAssignment{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
