@@ -45,10 +45,13 @@ export interface VideoJsPlayerProps {
   onError?: () => void
 }
 
-class QualityMenuButton extends (videojs as any).MenuButton {
+const MenuButton: any = videojs.getComponent('MenuButton')
+const MenuItem: any = videojs.getComponent('MenuItem')
+
+class QualityMenuButton extends MenuButton {
   constructor(player: any, options?: any) {
     super(player, options)
-    this.controlText((options?.label as string) ?? 'Quality')
+    ;(this as any).controlText((options?.label as string) ?? 'Quality')
   }
 
   buildCSSClass(): string {
@@ -58,7 +61,7 @@ class QualityMenuButton extends (videojs as any).MenuButton {
   createItems() {
     const label = ((this as any).options_?.label as string) ?? 'Original'
     return [
-      new (videojs as any).MenuItem((this as any).player_, {
+      new MenuItem((this as any).player_, {
         label,
         selectable: true,
         selected: true,
@@ -67,7 +70,7 @@ class QualityMenuButton extends (videojs as any).MenuButton {
   }
 }
 
-;(videojs as any).registerComponent('QualityMenuButton', QualityMenuButton)
+videojs.registerComponent('QualityMenuButton', QualityMenuButton as any)
 
 type VjsPlayer = ReturnType<typeof videojs>
 

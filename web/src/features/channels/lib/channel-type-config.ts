@@ -270,9 +270,9 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     id: 69,
     name: CHANNEL_TYPES[69],
     icon: 'OvhCloud',
-    defaultBaseUrl: 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',
+    defaultBaseUrl: 'https://oai.endpoints.kepler.ai.cloud.ovh.net',
     hints: {
-      baseUrl: 'Default: https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',
+      baseUrl: 'Default: https://oai.endpoints.kepler.ai.cloud.ovh.net (no /v1 suffix)',
       key: 'Keyless (Anonymous)',
       models: 'Fetch Models lists only the models whose price is completely 0',
     },

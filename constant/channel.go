@@ -140,7 +140,7 @@ var ChannelBaseURLs = []string{
 	"https://api.groq.com/openai",               //66
 	"https://api.anthropic.com",                 //67 Claude subscription
 	"https://ai-gateway.kilo.ai/api",            //68 Kilo Code Anon
-	"https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", //69 OHVCloud Anon
+	"https://oai.endpoints.kepler.ai.cloud.ovh.net", //69 OHVCloud Anon — no /v1 suffix; adaptors append it
 }
 
 var ChannelTypeNames = map[int]string{

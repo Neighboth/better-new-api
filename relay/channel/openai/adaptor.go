@@ -171,6 +171,17 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		url = strings.Replace(url, "{model}", info.UpstreamModelName, -1)
 		return url, nil
 	default:
+		// The OpenAI-compatible convention stores the base URL WITHOUT the
+		// /v1 suffix (the relay appends /v1/<endpoint> itself). A pasted
+		// "/v1" suffix would otherwise produce /v1/v1/<endpoint> and the
+		// upstream answers 404 — tolerate it defensively.
+		base := strings.TrimRight(strings.TrimSpace(info.ChannelBaseUrl), "/")
+		lowerBase := strings.ToLower(base)
+		for strings.HasSuffix(lowerBase, "/v1") {
+			base = strings.TrimRight(base[:len(base)-3], "/")
+			lowerBase = strings.ToLower(base)
+		}
+		info.ChannelBaseUrl = base
 		if (info.RelayFormat == types.RelayFormatClaude || info.RelayFormat == types.RelayFormatGemini) &&
 			info.RelayMode != relayconstant.RelayModeResponses &&
 			info.RelayMode != relayconstant.RelayModeResponsesCompact {
