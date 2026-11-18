@@ -41,6 +41,21 @@ import { useUpdateOptionsBulk } from '../hooks/use-update-option'
  * 8 and 12 seconds. The studio shows exactly the options of the selected
  * model.
  */
+export type MediaModelConstraintConfig = {
+  /** Client-side row identity only; stripped before persisting. */
+  _rowId?: string
+  /** Match conditions (empty array = any value matches). */
+  durations?: number[]
+  qualities?: string[]
+  ratios?: string[]
+  /** Effects (empty array / 0 = no effect). */
+  durations_only?: number[]
+  qualities_only?: string[]
+  ratios_only?: string[]
+  /** 0 = no override, -1 = reference images disabled, >=1 = cap override. */
+  max_reference_images?: number
+}
+
 export type MediaModelConfig = {
   /** Client-side React row identity only; it is stripped before persisting. */
   _rowId?: string
@@ -51,6 +66,20 @@ export type MediaModelConfig = {
   ratios?: string[]
   durations?: number[]
   reference_image?: boolean
+  /** Max reference images for this model (uploads + web search combined). */
+  max_reference_images?: number
+  /** Conditional option rules, applied in order, last match wins per field. */
+  constraints?: MediaModelConstraintConfig[]
+  /** '' = no video edit, 'supported' = may edit an input video, 'only' = edit-only. */
+  edit_mode?: 'none' | 'supported' | 'only'
+  /** The model generates an audio track with the video. */
+  audio?: boolean
+  /** The model accepts audio reference clips/tracks. */
+  audio_reference?: boolean
+  max_audio_references?: number
+  /** The model accepts video reference clips. */
+  video_reference?: boolean
+  max_video_references?: number
   default_size?: string
   default_quality?: string
   default_ratio?: string
@@ -93,14 +122,21 @@ function splitLegacyList(raw?: string): string[] {
 
 /** Assigns a stable row identity for React keys when the entry lacks one. */
 function ensureRowIds(models: MediaModelConfig[]): MediaModelConfig[] {
-  return models.map((model) =>
-    model._rowId ? model : { ...model, _rowId: nanoid() }
-  )
+  return models.map((model) => ({
+    ...model,
+    _rowId: model._rowId ?? nanoid(),
+    constraints: model.constraints?.map((rule) =>
+      rule._rowId ? rule : { ...rule, _rowId: nanoid() }
+    ),
+  }))
 }
 
-/** Strips the client-only row identity right before persisting. */
+/** Strips the client-only row identities right before persisting. */
 function stripRowIds(models: MediaModelConfig[]): MediaModelConfig[] {
-  return models.map(({ _rowId, ...rest }) => rest)
+  return models.map(({ _rowId, constraints, ...rest }) => ({
+    ...rest,
+    constraints: constraints?.map(({ _rowId: _ruleRowId, ...rule }) => rule),
+  }))
 }
 
 /**
@@ -157,6 +193,7 @@ type TagFieldProps = {
   values: string[]
   options?: string[]
   placeholder?: string
+  allowCreate?: boolean
   onChange: (values: string[]) => void
 }
 
@@ -180,7 +217,7 @@ function TagField(props: TagFieldProps) {
     <div className='space-y-1'>
       <Label className='text-xs'>{props.label}</Label>
       <MultiSelect
-        allowCreate
+        allowCreate={props.allowCreate ?? true}
         options={allOptions}
         selected={props.values}
         onChange={props.onChange}
@@ -191,6 +228,334 @@ function TagField(props: TagFieldProps) {
           {props.description}
         </p>
       )}
+    </div>
+  )
+}
+
+/** Clamps a raw <input type=number> value into [min, max]. */
+function clampInt(raw: string, min: number, max: number, fallback: number): number {
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(max, Math.max(min, Math.floor(n)))
+}
+
+type MediaModelBlockProps = {
+  value: MediaModelConfig
+  onChange: (patch: Partial<MediaModelConfig>) => void
+}
+
+/** Shared "Reference images" block: master switch + per-model cap. */
+function ReferenceImageBlock(props: MediaModelBlockProps) {
+  const { t } = useTranslation()
+  const { value, onChange } = props
+  return (
+    <div className='space-y-3 pt-3 border-t border-border/40'>
+      <SettingsSwitchRow>
+        <SettingsSwitchContent>
+          <Label className='text-sm'>{t('Accepts reference images')}</Label>
+          <SettingsDescription>
+            {t('Shows the reference image picker for this model. Applies to uploads and to web-search-discovered references combined.')}
+          </SettingsDescription>
+        </SettingsSwitchContent>
+        <Switch
+          checked={Boolean(value.reference_image)}
+          onCheckedChange={(checked) => onChange({ reference_image: checked })}
+        />
+      </SettingsSwitchRow>
+      {value.reference_image && (
+        <div className='flex items-center gap-2 ps-1'>
+          <Label className='text-xs shrink-0'>{t('Max reference images')}</Label>
+          <Input
+            className='h-8 w-20 text-xs'
+            max={20}
+            min={1}
+            onChange={(event) =>
+              onChange({ max_reference_images: clampInt(event.target.value, 1, 20, 5) })
+            }
+            type='number'
+            value={value.max_reference_images ?? 5}
+          />
+          <p className='text-[10px] text-muted-foreground'>
+            {t('Caps uploads and web-search-discovered references combined for this model.')}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+type RuleRowProps = {
+  rule: MediaModelConstraintConfig
+  index: number
+  model: MediaModelConfig
+  onChange: (patch: Partial<MediaModelConstraintConfig>) => void
+  onRemove: () => void
+}
+
+function RuleEditorRow(props: RuleRowProps) {
+  const { t } = useTranslation()
+  const { rule, index, model, onChange, onRemove } = props
+  const modelDurations = (model.durations ?? []).map(String)
+  const modelQualities = model.qualities ?? []
+  const modelRatios = model.ratios ?? []
+  const toNumbers = (raw: string[]) =>
+    raw.map((item) => Number(item)).filter((item) => Number.isFinite(item) && item > 0)
+
+  return (
+    <div className='space-y-2 rounded-md border border-border/60 bg-muted/30 p-2'>
+      <div className='flex items-center justify-between'>
+        <span className='text-[10px] font-semibold uppercase tracking-wide text-muted-foreground'>
+          {t('Rule {{index}}', { index: index + 1 })}
+        </span>
+        <Button
+          aria-label={t('Remove rule')}
+          className='size-6'
+          onClick={onRemove}
+          size='icon'
+          type='button'
+          variant='ghost'
+        >
+          <XIcon className='size-3.5' />
+        </Button>
+      </div>
+      <div className='grid grid-cols-1 sm:grid-cols-3 gap-2'>
+        <TagField
+          description={t('Empty = any')}
+          label={t('When duration is')}
+          onChange={(raw) => onChange({ durations: toNumbers(raw) })}
+          options={modelDurations}
+          placeholder='15, 30'
+          values={(rule.durations ?? []).map(String)}
+        />
+        <TagField
+          description={t('Empty = any')}
+          label={t('When quality is')}
+          onChange={(qualities) => onChange({ qualities })}
+          options={modelQualities}
+          placeholder='1080p'
+          values={rule.qualities ?? []}
+        />
+        <TagField
+          description={t('Empty = any')}
+          label={t('When ratio is')}
+          onChange={(ratios) => onChange({ ratios })}
+          options={modelRatios}
+          placeholder='16:9'
+          values={rule.ratios ?? []}
+        />
+      </div>
+      <div className='grid grid-cols-1 sm:grid-cols-4 gap-2'>
+        <TagField
+          allowCreate={false}
+          description={t('Empty = keep all')}
+          label={t('Offer only durations')}
+          onChange={(raw) => onChange({ durations_only: toNumbers(raw) })}
+          options={modelDurations}
+          placeholder='10'
+          values={(rule.durations_only ?? []).map(String)}
+        />
+        <TagField
+          allowCreate={false}
+          description={t('Empty = keep all')}
+          label={t('Offer only qualities')}
+          onChange={(qualities_only) => onChange({ qualities_only })}
+          options={modelQualities}
+          placeholder='720p'
+          values={rule.qualities_only ?? []}
+        />
+        <TagField
+          allowCreate={false}
+          description={t('Empty = keep all')}
+          label={t('Offer only ratios')}
+          onChange={(ratios_only) => onChange({ ratios_only })}
+          options={modelRatios}
+          placeholder='16:9'
+          values={rule.ratios_only ?? []}
+        />
+        <div className='space-y-1'>
+          <Label className='text-xs'>{t('Reference images')}</Label>
+          <Select
+            onValueChange={(next) => onChange({ max_reference_images: Number(next) })}
+            value={String(rule.max_reference_images ?? 0)}
+          >
+            <SelectTrigger className='h-8 text-xs'>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem className='text-xs' value='0'>
+                {t('Unchanged')}
+              </SelectItem>
+              <SelectItem className='text-xs' value='-1'>
+                {t('Disabled')}
+              </SelectItem>
+              {Array.from({ length: 20 }, (_, position) => position + 1).map((n) => (
+                <SelectItem className='text-xs' key={n} value={String(n)}>
+                  {n}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Conditional option rules editor ("15s: no 1080p", "at 1080p: max 2 references"). */
+function OptionRulesBlock(props: MediaModelBlockProps) {
+  const { t } = useTranslation()
+  const { value, onChange } = props
+  const rules = value.constraints ?? []
+  const setRules = (next: MediaModelConstraintConfig[]) => onChange({ constraints: next })
+
+  return (
+    <div className='space-y-2 pt-3 border-t border-border/40'>
+      <div className='flex items-start justify-between gap-2'>
+        <div>
+          <Label className='text-xs font-medium'>{t('Option rules')}</Label>
+          <p className='max-w-lg text-[10px] text-muted-foreground'>
+            {t('Narrow this model’s options for specific selections — e.g. “at 15s there is no 1080p”, “at 10s references are disabled”, “at 1080p at most 2 references”. Rules apply in order; the last matching rule wins per field.')}
+          </p>
+        </div>
+        <Button
+          className='shrink-0'
+          onClick={() => setRules([...rules, { _rowId: nanoid() }])}
+          size='sm'
+          type='button'
+          variant='outline'
+        >
+          <PlusIcon className='size-3.5' />
+          {t('Add rule')}
+        </Button>
+      </div>
+      {rules.length > 0 && (
+        <div className='space-y-2'>
+          {rules.map((rule, index) => (
+            <RuleEditorRow
+              index={index}
+              key={rule._rowId ?? JSON.stringify(rule)}
+              model={value}
+              onChange={(patch) =>
+                setRules(rules.map((item, i) => (i === index ? { ...item, ...patch } : item)))
+              }
+              onRemove={() => setRules(rules.filter((_, i) => i !== index))}
+              rule={rule}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Video-model capabilities: edit mode, audio generation, media references. */
+function VideoCapabilitiesBlock(props: MediaModelBlockProps) {
+  const { t } = useTranslation()
+  const { value, onChange } = props
+  return (
+    <div className='space-y-3 pt-3 border-t border-border/40'>
+      <Label className='text-[10px] font-semibold uppercase tracking-wide text-muted-foreground'>
+        {t('Model capabilities')}
+      </Label>
+      <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+        <div className='space-y-1'>
+          <Label className='text-xs'>{t('Video edit')}</Label>
+          <Select
+            onValueChange={(next) => onChange({ edit_mode: next as MediaModelConfig['edit_mode'] })}
+            value={value.edit_mode ?? 'none'}
+          >
+            <SelectTrigger className='h-9 text-xs'>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem className='text-xs' value='none'>
+                {t('No')}
+              </SelectItem>
+              <SelectItem className='text-xs' value='supported'>
+                {t('Supported')}
+              </SelectItem>
+              <SelectItem className='text-xs' value='only'>
+                {t('Edit-only')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p className='text-[10px] text-muted-foreground'>
+            {t('“Supported”: the model may edit an input video. “Edit-only”: the model requires an input video and does not generate from text alone.')}
+          </p>
+        </div>
+        <div className='flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2'>
+          <div>
+            <Label className='text-xs'>{t('Generates audio')}</Label>
+            <p className='text-[10px] text-muted-foreground'>
+              {t('The model renders an audio track with the video.')}
+            </p>
+          </div>
+          <Switch
+            checked={Boolean(value.audio)}
+            onCheckedChange={(checked) => onChange({ audio: checked })}
+          />
+        </div>
+      </div>
+      <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+        <div className='space-y-2 rounded-md border border-border/60 p-2'>
+          <div className='flex items-center justify-between gap-2'>
+            <div>
+              <Label className='text-xs'>{t('Accepts audio references')}</Label>
+              <p className='text-[10px] text-muted-foreground'>
+                {t('Audio clips the model conditions the video on.')}
+              </p>
+            </div>
+            <Switch
+              checked={Boolean(value.audio_reference)}
+              onCheckedChange={(checked) => onChange({ audio_reference: checked })}
+            />
+          </div>
+          {value.audio_reference && (
+            <div className='flex items-center gap-2 ps-1'>
+              <Label className='text-xs'>{t('Max audio references')}</Label>
+              <Input
+                className='h-8 w-16 text-xs'
+                max={10}
+                min={1}
+                onChange={(event) =>
+                  onChange({ max_audio_references: clampInt(event.target.value, 1, 10, 3) })
+                }
+                type='number'
+                value={value.max_audio_references ?? 3}
+              />
+            </div>
+          )}
+        </div>
+        <div className='space-y-2 rounded-md border border-border/60 p-2'>
+          <div className='flex items-center justify-between gap-2'>
+            <div>
+              <Label className='text-xs'>{t('Accepts video references')}</Label>
+              <p className='text-[10px] text-muted-foreground'>
+                {t('Video clips the model conditions the video on.')}
+              </p>
+            </div>
+            <Switch
+              checked={Boolean(value.video_reference)}
+              onCheckedChange={(checked) => onChange({ video_reference: checked })}
+            />
+          </div>
+          {value.video_reference && (
+            <div className='flex items-center gap-2 ps-1'>
+              <Label className='text-xs'>{t('Max video references')}</Label>
+              <Input
+                className='h-8 w-16 text-xs'
+                max={10}
+                min={1}
+                onChange={(event) =>
+                  onChange({ max_video_references: clampInt(event.target.value, 1, 10, 2) })
+                }
+                type='number'
+                value={value.max_video_references ?? 2}
+              />
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -410,20 +775,11 @@ function ModelCard(props: ModelCardProps) {
               </div>
             </div>
           </SettingsFormGrid>
-          <SettingsSwitchRow>
-            <SettingsSwitchContent>
-              <Label className='text-sm'>{t('Accepts a reference image')}</Label>
-              <SettingsDescription>
-                {t('Shows the reference image picker for this model.')}
-              </SettingsDescription>
-            </SettingsSwitchContent>
-            <Switch
-              checked={Boolean(value.reference_image)}
-              onCheckedChange={(checked) => update({ reference_image: checked })}
-            />
-          </SettingsSwitchRow>
         </>
       )}
+      <ReferenceImageBlock onChange={update} value={value} />
+      <OptionRulesBlock onChange={update} value={value} />
+      {mode === 'video' && <VideoCapabilitiesBlock onChange={update} value={value} />}
     </div>
   )
 }
@@ -589,6 +945,8 @@ export function PlaygroundSettingsSection({
             model: '',
             sizes: ['1024x1024', '1024x1792', '1792x1024'],
             qualities: ['standard', 'hd'],
+            reference_image: false,
+            max_reference_images: 5,
             default_size: '1024x1024',
             default_quality: 'standard',
           }
@@ -598,6 +956,13 @@ export function PlaygroundSettingsSection({
             durations: [5, 10],
             ratios: ['16:9', '9:16', '1:1'],
             qualities: ['standard', 'high'],
+            max_reference_images: 5,
+            edit_mode: 'none',
+            audio: false,
+            audio_reference: false,
+            max_audio_references: 3,
+            video_reference: false,
+            max_video_references: 2,
             default_ratio: '16:9',
             default_duration: 5,
             default_quality: 'standard',
@@ -787,7 +1152,7 @@ export function PlaygroundSettingsSection({
                   <span className='text-destructive' aria-hidden='true'> *</span>
                 </Label>
                 <SettingsDescription>
-                  {t('Required — always on. Assists every generation in the Studio — it rewrites prompts, plans multi-part (chained) videos as one continuous take, and refines each part against frames captured from the actual previous clip. Dialogue and quotes are preserved verbatim, in their original language. The model must support image (vision) input.')}
+                  {t('Required — always on. Assists every generation in the Studio — it rewrites each prompt into an exhaustive, physics-consistent scene description before the job is submitted. Dialogue and quotes are preserved verbatim, in their original language. The model must support image (vision) input.')}
                 </SettingsDescription>
               </SettingsSwitchContent>
               <span className='shrink-0 rounded-md border border-border bg-muted/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground'>
@@ -815,7 +1180,7 @@ export function PlaygroundSettingsSection({
                   ))}
                 </datalist>
                 <p className='text-muted-foreground text-[11px]'>
-                  {t('Required. A fast, vision-capable chat model that plans and refines every generation in the Studio, for images and multi-part videos.')}
+                  {t('Required. A fast, vision-capable chat model that refines every prompt in the Studio, for images and videos.')}
                 </p>
               </div>
 

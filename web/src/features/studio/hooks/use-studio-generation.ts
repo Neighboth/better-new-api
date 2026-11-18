@@ -24,9 +24,6 @@ import { parseRequestErrorDetails } from '@/features/playground/lib/streaming/re
 import { api } from '@/lib/api'
 import { findLatestVideoTask } from '@/features/playground/api'
 
-import { toast } from 'sonner'
-import { t } from 'i18next'
-
 import {
   generateImages as submitImageGeneration,
   generateVideo as submitVideoGeneration,
@@ -37,13 +34,9 @@ import {
   optimizeImagePrompt,
   optimizeVideoPrompt,
   gatherVisionImages,
-  buildReferenceImageList,
-  planVideoSequence,
-  refinePlanForStep,
-  type VideoPlan,
+  type LabeledImage,
 } from '../lib/video-plan'
-import { mergeVideoParts, measureVideoDuration, deleteMergedMedia } from '../lib/media-merge'
-import { captureVideoFrames } from '../lib/video-frames'
+import { removeNegativeContradictions } from '../lib/negative-prompt'
 import { mergeStudioItems, isStudioItem, stripVolatileMediaFields, STUDIO_ITEMS_PURGED_EVENT } from '../lib/studio-sync'
 import { putStudioVideo, deleteStudioVideo } from '../lib/studio-indexeddb'
 import type { StudioItem } from '../types'
@@ -109,6 +102,8 @@ type ImageParams = {
   size?: string
   quality?: string
   count?: number
+  /** Reference images attached by the user — they anchor the prompt rewrite. */
+  referenceImages?: string[]
 }
 
 type VideoParams = {
@@ -122,11 +117,17 @@ type VideoParams = {
   imageUrl?: string
   startFrame?: string
   endFrame?: string
+  /** Image reference images (uploads) — capped by the model's rules. */
   referenceImages?: string[]
+  /** Audio reference clips — appended to the job's reference list after images. */
+  audioReferences?: string[]
+  /** Video reference clips — appended after image and audio references. */
+  videoReferences?: string[]
+  /** Effective cap for image references from the model's option rules (0 = disabled). */
+  referenceCap?: number
   negativePrompt?: string
-  videoExtension?: string
-  /** Max duration (seconds) one clip may run — clamped to 2..30, defaults to 30. */
-  chunkSeconds?: number
+  /** Extra metadata forwarded to the upstream adapter (audio flag, edit operation…). */
+  metadata?: Record<string, unknown>
 }
 
 type ChainContext = {
@@ -139,7 +140,7 @@ type ChainContext = {
   imageUrl?: string
   referenceImages?: string[]
   negativePrompt?: string
-  videoExtension?: string
+  metadata?: Record<string, unknown>
 }
 
 async function runVideoChunk(
@@ -149,8 +150,6 @@ async function runVideoChunk(
   chunkEndFrame: string | undefined,
   preferredDuration: string | number | undefined,
   preferredQuality: string | undefined,
-  chunkIndex: number,
-  totalChunks: number,
   negativePrompt?: string,
   referenceImages?: string[]
 ): Promise<{ url: string; duration: number; quality: string }> {
@@ -173,10 +172,7 @@ async function runVideoChunk(
   if (!qualityAttempts.includes('720p')) qualityAttempts.push('720p')
 
   let lastErr: unknown = null
-  let referenceImagesForChunk = chunkIndex === 0 ? ctx.referenceImages : undefined
-  if (referenceImages && referenceImages.length > 0) {
-    referenceImagesForChunk = referenceImages
-  }
+  const referenceImagesForChunk = referenceImages ?? ctx.referenceImages
 
   for (const curQuality of qualityAttempts) {
     for (const curDuration of durationAttempts) {
@@ -193,19 +189,17 @@ async function runVideoChunk(
             duration: curDuration,
             ratio: ctx.ratio,
             quality: curQuality,
-            image_url: chunkIndex === 0 ? ctx.imageUrl : undefined,
+            image_url: ctx.imageUrl,
             start_frame: chunkStartFrame,
             end_frame: chunkEndFrame,
             reference_images: referenceImagesForChunk,
             negative_prompt: negativePrompt ?? ctx.negativePrompt,
             metadata: {
+              ...ctx.metadata,
               start_frame: chunkStartFrame,
               end_frame: chunkEndFrame,
-              reference_images: referenceImages ?? ctx.referenceImages,
+              reference_images: referenceImagesForChunk,
               negative_prompt: negativePrompt ?? ctx.negativePrompt,
-              video_extension: ctx.videoExtension,
-              chunk_index: chunkIndex,
-              total_chunks: totalChunks,
             },
           },
           controller.signal
@@ -235,15 +229,11 @@ async function runVideoChunk(
               minCreatedAt,
             }),
           (progress) => {
-            // The upstream reports a raw percent string ("12%"); parse it
-            // before doing any arithmetic (raw strings produce NaN).
-            const chunkWeight = 100 / (totalChunks + 1)
             const parsed = Number.parseFloat(String(progress))
             const clamped = Number.isFinite(parsed)
-              ? Math.min(Math.max(parsed, 0), 100)
+              ? Math.min(Math.max(parsed, 0), 99)
               : 0
-            const overallProgress = Math.round((chunkIndex * chunkWeight) + ((clamped / 100) * chunkWeight))
-            patchItem(itemId, { progress: `${Math.min(Math.max(overallProgress, 0), 99)}%` })
+            patchItem(itemId, { progress: `${clamped}%` })
           },
           0,
           (status, queuePosition) => {
@@ -267,273 +257,14 @@ async function runVideoChunk(
   throw lastErr || new Error('All duration and quality attempts failed for chunk')
 }
 
-type VideoChainConfig = {
-  id: string
-  baseSettings: Record<string, string | number | undefined>
-  model: string
-  group?: string
-  ratio?: string
-  quality?: string
-  prompt: string
-  negativePrompt?: string
-  imageUrl?: string
-  /** Reference images carried into every step (aepi reference_images). */
-  userReferenceImages: string[]
-  startFrame?: string
-  endFrame?: string
-  videoExtension?: string
-  totalScenes: number
-  chunkSeconds: number
-  /** A plan restored from a persisted item (page-reload resume); created when absent. */
-  plan?: VideoPlan
-  /** Clips completed so far, in order; mutated in place so an interrupted chain can resume. */
-  accumulatedUrls: string[]
-  controller: AbortController
-}
-
-async function runVideoChain(
-  config: VideoChainConfig,
-  patchItem: (id: string, patch: Partial<StudioItem>) => void
-): Promise<{ urls: string[]; units: number }> {
-  const { controller } = config
-  const totalScenes = Math.max(1, config.totalScenes)
-  const chunkDurationSec = Math.max(2, Math.min(30, Math.floor(config.chunkSeconds) || 30))
-  const totalSeconds = totalScenes * chunkDurationSec
-  // Generation segments (chunks). The merge stage counts as one extra unit of
-  // progress weight: (units + 1) always divides the bar, so the merge can
-  // start where the generation leaves it. Make-up steps grow this counter.
-  let units = totalScenes
-  const accumulatedUrls = config.accumulatedUrls
-  const startAt = Math.max(0, Math.min(accumulatedUrls.length, totalScenes))
-
-  const planned =
-    config.plan ??
-    (await planVideoSequence(
-      {
-        prompt: config.prompt,
-        totalSeconds,
-        chunkSeconds: chunkDurationSec,
-        ratio: config.ratio,
-        quality: config.quality,
-        negativePrompt: config.negativePrompt,
-        userReferenceImages: config.userReferenceImages.length ? config.userReferenceImages : undefined,
-        startFrame: config.startFrame,
-        endFrame: config.endFrame,
-      },
-      totalScenes,
-      controller.signal
-    ))
-  let workingPlan = planned
-
-  const writeStep = (step: number, progress?: string, title = workingPlan.title) =>
-    patchItem(config.id, {
-      ...(progress ? { progress } : {}),
-      step: { current: step, total: units, title, plan: workingPlan },
-    })
-
-  patchItem(config.id, {
-    settings: { ...config.baseSettings },
-    step: { current: Math.min(startAt + 1, totalScenes), total: units, title: workingPlan.title, plan: workingPlan },
-  })
-
-  // Re-hydrate reference material from the clips persisted so far. Frames are
-  // always derivable from the stored URLs, so a reload loses nothing.
-  const accumulatedFrames: string[] = []
-  let currentStartFrame = config.startFrame
-  const resumeFrom = accumulatedUrls.at(-1)
-  if (startAt > 0 && resumeFrom) {
-    try {
-      const captured = await captureVideoFrames(resumeFrom, [0.2, 0.5, 0.8], 0.85)
-      accumulatedFrames.push(...captured.frames)
-      currentStartFrame = captured.lastFrame
-    } catch {
-      currentStartFrame = undefined
-    }
-  }
-
-  for (let i = startAt; i < totalScenes; i++) {
-    if (controller.signal.aborted) {
-      patchItem(config.id, { status: 'error', error: 'Cancelled', urls: accumulatedUrls })
-      return { urls: accumulatedUrls, units }
-    }
-    const stepNumber = i + 1
-    const isFinalChunk = i === totalScenes - 1
-    writeStep(stepNumber, `${Math.min(99, Math.max(0, Math.round((i / (units + 1)) * 100)))}%`)
-
-    let stepFrames: string[] = []
-    const previousClipUrl = accumulatedUrls.at(-1)
-    if (i > 0 && previousClipUrl) {
-      try {
-        const captured = await captureVideoFrames(previousClipUrl, [0.2, 0.5, 0.8], 0.85)
-        stepFrames = captured.frames
-        accumulatedFrames.push(...captured.frames)
-        currentStartFrame = captured.lastFrame
-      } catch {
-        // Never pass a video URL as the start frame — the provider rejects it
-        // as "Start frame must be an image". Without a captured frame the clip
-        // is generated from the prompt alone (reference images still carry the
-        // look) instead of failing the whole step.
-        currentStartFrame = undefined
-      }
-    }
-
-    const refined = await refinePlanForStep(
-      {
-        prompt: config.prompt,
-        totalSeconds,
-        chunkSeconds: chunkDurationSec,
-        ratio: config.ratio,
-        quality: config.quality,
-        negativePrompt: config.negativePrompt,
-        userReferenceImages: config.userReferenceImages.length ? config.userReferenceImages : undefined,
-        startFrame: config.startFrame,
-        endFrame: config.endFrame,
-        plan: workingPlan,
-        stepIndex: i,
-        frames: stepFrames,
-      },
-      controller.signal
-    )
-    workingPlan = refined.plan
-    writeStep(stepNumber, undefined, workingPlan.title)
-
-    const chunkEndFrame = isFinalChunk ? config.endFrame : undefined
-    // References come straight from the refine call (user refs + selected
-    // critical frames, vision-picked) so the video model gets exactly the
-    // same images in the same order the optimizer used.
-    const stepReferences = refined.references
-    const chunkRes = await runVideoChunk(
-      {
-        controller,
-        itemId: config.id,
-        patchItem,
-        model: config.model,
-        group: config.group,
-        ratio: config.ratio,
-        imageUrl: config.imageUrl,
-        referenceImages: config.userReferenceImages,
-        negativePrompt: config.negativePrompt,
-        videoExtension: config.videoExtension,
-      },
-      refined.stepPrompt,
-      currentStartFrame,
-      chunkEndFrame,
-      chunkDurationSec,
-      config.quality,
-      i,
-      units,
-      refined.negativePrompt || config.negativePrompt,
-      stepReferences.length ? stepReferences : undefined
-    )
-
-    accumulatedUrls.push(chunkRes.url)
-    patchItem(config.id, {
-      urls: [...accumulatedUrls],
-      step: { current: stepNumber, total: units, title: workingPlan.title, plan: workingPlan },
-    })
-  }
-
-  // Shortfall make-up: the duration fallback can silently shrink a chunk
-  // (e.g. asking 30s and getting a 20s clip), which would end the generation
-  // below the total the user asked for. Close the gap with one or more
-  // extension steps that continue from the final frame — the same treatment
-  // the rest of the chain gets, capped to avoid runaway spend.
-  const requestedSeconds = totalScenes * chunkDurationSec
-  if (requestedSeconds > 1 && !controller.signal.aborted) {
-    let measuredSeconds = 0
-    for (const url of accumulatedUrls) {
-      const measured = await measureVideoDuration(url)
-      measuredSeconds += measured ?? chunkDurationSec
-    }
-    let makeupSteps = 0
-    while (requestedSeconds - measuredSeconds > 1 && makeupSteps < 3 && !controller.signal.aborted) {
-      const gap = Math.min(30, Math.max(2, Math.ceil(requestedSeconds - measuredSeconds)))
-      const previousClipUrl = accumulatedUrls.at(-1)
-      let stepFrames: string[] = []
-      let makeupStartFrame: string | undefined
-      if (previousClipUrl) {
-        try {
-          const captured = await captureVideoFrames(previousClipUrl, [0.2, 0.5, 0.8], 0.85)
-          stepFrames = captured.frames
-          makeupStartFrame = captured.lastFrame
-        } catch {
-          makeupStartFrame = undefined
-        }
-      }
-      accumulatedFrames.push(...stepFrames)
-    // Keep the same deterministic reference picker as the rest of the chain,
-    // so the optimizer and the video model see matching images in matching order.
-    const shortfallReferenceSource = {
-      prompt: config.prompt,
-      totalSeconds,
-      chunkSeconds: chunkDurationSec,
-      ratio: config.ratio,
-      quality: config.quality,
-      negativePrompt: config.negativePrompt,
-      userReferenceImages: [
-        ...(config.userReferenceImages ?? []),
-        ...(workingPlan.references ?? []),
-      ],
-    }
-    const stepReferences = buildReferenceImageList(shortfallReferenceSource, accumulatedFrames)
-      units += 1
-      makeupSteps += 1
-      const makeupIndex = units - 1
-      const makeupPrompt = `Continue seamlessly from the last frame for the remaining ${gap} seconds. Keep the same characters, setting, wardrobe, lighting, camera motion, and style. End the shot naturally and resolve the scene.`
-      const chunkRes = await runVideoChunk(
-        {
-          controller,
-          itemId: config.id,
-          patchItem,
-          model: config.model,
-          group: config.group,
-          ratio: config.ratio,
-          imageUrl: undefined,
-          referenceImages: [],
-          negativePrompt: config.negativePrompt,
-          videoExtension: config.videoExtension,
-        },
-        makeupPrompt,
-        makeupStartFrame,
-        undefined,
-        gap,
-        config.quality,
-        makeupIndex,
-        units,
-        config.negativePrompt,
-        stepReferences.length ? stepReferences : undefined
-      )
-      accumulatedUrls.push(chunkRes.url)
-      const measured = await measureVideoDuration(chunkRes.url)
-      measuredSeconds += measured ?? gap
-      patchItem(config.id, {
-        urls: [...accumulatedUrls],
-        step: { current: units, total: units, title: workingPlan.title, plan: workingPlan },
-      })
-    }
-  }
-
-  patchItem(config.id, {
-    status: 'ready',
-    urls: accumulatedUrls,
-    progress: `${Math.min(99, Math.max(0, Math.round((units / (units + 1)) * 100)))}%`,
-    step: { current: units, total: units, title: workingPlan.title, plan: workingPlan },
-  })
-  return { urls: accumulatedUrls, units }
-}
-
 async function optimizeStudioPrompt(
   prompt: string,
-  mode: StudioItem['mode'],
-  signal: AbortSignal
+  signal: AbortSignal,
+  images?: LabeledImage[]
 ): Promise<string> {
   const trimmed = prompt.trim()
   if (!trimmed) return prompt
-  if (mode === 'image') {
-    return optimizeImagePrompt(trimmed, signal)
-  }
-  const { text } = await optimizeVideoPrompt(trimmed, signal)
-  return text
+  return optimizeImagePrompt(trimmed, signal, images)
 }
 
 function errorMessageOf(error: unknown): string {
@@ -573,9 +304,7 @@ export function useStudioGeneration() {
     }
   })
   const [isGenerating, setIsGenerating] = useState(false)
-  const [mergeJobs, setMergeJobs] = useState<Record<string, number>>({})
   const abortRef = useRef<AbortController | null>(null)
-  const mergingRef = useRef<Set<string>>(new Set())
   const controllersRef = useRef<Map<string, AbortController>>(new Map())
   const activePollingTasks = useRef<Set<string>>(new Set())
   const hasMountedResumeRef = useRef(false)
@@ -699,63 +428,6 @@ export function useStudioGeneration() {
     )
   }, [])
 
-  // Stitch every part of a finished multi-part chain into one file in the
-  // background so the user gets a single video instead of N separate parts.
-  const autoMergeItem = useCallback(
-    (id: string, urls: string[], opts?: { autoDownload?: boolean; progressBase?: number }) => {
-      const parts = urls.filter((url) => typeof url === 'string' && url)
-      if (parts.length < 2) return
-      if (mergingRef.current.has(id)) return
-      mergingRef.current.add(id)
-      setMergeJobs((prev) => ({ ...prev, [id]: 0 }))
-      const progressBase = opts?.progressBase
-      void (async () => {
-        try {
-          const url = await mergeVideoParts(parts, {
-            onProgress: (progress) => {
-              setMergeJobs((prev) => ({ ...prev, [id]: progress }))
-              if (typeof progressBase === 'number') {
-                // Fold the merge stage into the creation progress bar so the
-                // user watches one continuous percentage from first frame to
-                // single downloadable video.
-                const base = Math.min(99, Math.max(0, progressBase))
-                const combined = base + (progress / 100) * (100 - base)
-                patchItem(id, { progress: `${Math.min(99, Math.max(0, Math.round(combined)))}%` })
-              }
-            },
-          })
-          const localOnlyUrls = await maybePersistLocalOnly(id, [url])
-          patchItem(id, {
-            urls: localOnlyUrls ?? [url],
-            merged: true,
-            localOnly: localOnlyUrls !== null,
-            progress: '100%',
-          })
-          if (opts?.autoDownload) {
-            const anchor = document.createElement('a')
-            anchor.href = url
-            anchor.download = 'studio-video.webm'
-            anchor.rel = 'noreferrer'
-            document.body.appendChild(anchor)
-            anchor.click()
-            anchor.remove()
-          }
-        } catch {
-          toast.error(t('Video parts could not be merged into one file'))
-          patchItem(id, { progress: '100%' })
-        } finally {
-          mergingRef.current.delete(id)
-          setMergeJobs((prev) => {
-            const next = { ...prev }
-            delete next[id]
-            return next
-          })
-        }
-      })()
-    },
-    [patchItem]
-  )
-
   // Auto-resume background polling for any pending video items on mount once
   useEffect(() => {
     if (hasMountedResumeRef.current) return
@@ -775,142 +447,6 @@ export function useStudioGeneration() {
 
       const controller = new AbortController()
       controllersRef.current.set(item.id, controller)
-
-      // Multi-part chained generations resume from the persisted plan. A plain
-      // re-poll of the in-flight task is not enough: the remaining parts were
-      // never submitted, so the interrupted sequence is completed here instead.
-      const resumeChain = item.step?.plan && (item.step?.total ?? 1) > 1
-      if (resumeChain) {
-        void (async () => {
-          try {
-            const plan = item.step?.plan
-            const settings = (item.settings ?? {}) as Record<string, string | number | undefined>
-            const model = typeof settings.model === 'string' ? settings.model : ''
-            const baseSettings: Record<string, string | number | undefined> = {
-              model: settings.model,
-              duration: settings.duration,
-              ratio: settings.ratio,
-              quality: settings.quality,
-            }
-            const persistedUrls = Array.isArray(item.urls)
-              ? item.urls.filter((url) => typeof url === 'string' && url)
-              : []
-            const totalScenes = Math.max(1, plan?.steps?.length ?? item.step?.total ?? persistedUrls.length + 1)
-            const totalDurationMatch = /\((\d+)x(\d+)s\)/.exec(String(settings.duration ?? ''))
-            const chunkSeconds = totalDurationMatch ? Number(totalDurationMatch[2]) : 30
-            const negativePrompt = plan?.negative_prompt?.trim() || undefined
-            const accumulatedUrls = [...persistedUrls]
-
-            // If the page was reloaded while the task was being created, its id
-            // never reached the persisted item. Re-submitting now would bill the
-            // same step twice, so give the task row time to appear and join it.
-            let inFlightTaskId = item.taskId
-            if (!inFlightTaskId && accumulatedUrls.length < totalScenes) {
-              const lookupDeadline = Date.now() + 2 * 60 * 1000
-              while (!controller.signal.aborted && !inFlightTaskId && Date.now() < lookupDeadline) {
-                try {
-                  const foundTask = await findLatestVideoTask({
-                    model: typeof settings.model === 'string' ? settings.model : undefined,
-                    sinceMs: item.createdAt,
-                    signal: controller.signal,
-                    minCreatedAt: Math.floor((item.createdAt ?? Date.now()) / 1000),
-                  })
-                  if (foundTask?.task_id) {
-                    inFlightTaskId = foundTask.task_id
-                    patchItem(item.id, { taskId: inFlightTaskId })
-                    break
-                  }
-                } catch {
-                  // network not ready yet; keep waiting
-                }
-                await new Promise((resolve) => setTimeout(resolve, 5000))
-              }
-            }
-
-            // If a task was in flight when the page reloaded, join it first so
-            // its part is not submitted twice; otherwise continue from the plan.
-            if (inFlightTaskId && accumulatedUrls.length < totalScenes) {
-              try {
-                const inFlightProgress = item.progress ? Number.parseFloat(String(item.progress)) : 0
-                const finished = await pollVideoTask(
-                  inFlightTaskId,
-                  controller.signal,
-                  undefined,
-                  (progress) => {
-                    const chunkWeight = 100 / (totalScenes + 1)
-                    const parsed = Number.parseFloat(String(progress))
-                    const clamped = Number.isFinite(parsed)
-                      ? Math.min(Math.max(parsed, 0), 100)
-                      : 0
-                    const overall = Math.round(accumulatedUrls.length * chunkWeight + (clamped / 100) * chunkWeight)
-                    patchItem(item.id, { progress: `${Math.min(Math.max(overall, 0), 99)}%` })
-                  },
-                  Number.isFinite(inFlightProgress) ? inFlightProgress : 0,
-                  (status, queuePosition) => {
-                    patchItem(item.id, { queuePosition: status === 'queued' ? queuePosition : undefined })
-                  }
-                )
-                if (finished.result_url && !accumulatedUrls.includes(finished.result_url)) {
-                  accumulatedUrls.push(finished.result_url)
-                  patchItem(item.id, { urls: [...accumulatedUrls] })
-                }
-              } catch {
-                // The in-flight task was lost upstream; the plan continues from the completed clips.
-              }
-            }
-
-            const resumed = await runVideoChain(
-              {
-                id: item.id,
-                baseSettings,
-                model,
-                group: undefined,
-                ratio: typeof settings.ratio === 'string' ? settings.ratio : undefined,
-                quality: typeof settings.quality === 'string' ? settings.quality : undefined,
-                prompt: item.prompt,
-                negativePrompt,
-                imageUrl: undefined,
-                userReferenceImages: [],
-                startFrame: undefined,
-                endFrame: undefined,
-                videoExtension: undefined,
-                totalScenes,
-                chunkSeconds,
-                plan,
-                accumulatedUrls,
-                controller,
-              },
-              patchItem
-            )
-            autoMergeItem(item.id, resumed.urls, {
-              progressBase: Math.round((resumed.units / (resumed.units + 1)) * 100),
-            })
-          } catch (error) {
-            if (controller.signal.aborted) {
-              patchItem(item.id, { status: 'error', error: 'Cancelled' })
-            } else {
-              const kept = Array.isArray(item.urls)
-                ? item.urls.filter((url) => typeof url === 'string' && url)
-                : []
-              const message = errorMessageOf(error)
-              if (kept.length > 0) {
-                patchItem(item.id, {
-                  status: 'error',
-                  error: `${message} The ${kept.length} completed part(s) are kept in this item.`,
-                  urls: kept,
-                })
-              } else {
-                patchItem(item.id, { status: 'error', error: message })
-              }
-            }
-          } finally {
-            activePollingTasks.current.delete(item.id)
-            controllersRef.current.delete(item.id)
-            setIsGenerating(false)
-          }
-        })()
-        return
-      }
 
       const resumePolling = async () => {
         try {
@@ -998,7 +534,7 @@ export function useStudioGeneration() {
 
       void resumePolling()
     })
-  }, [items, patchItem, autoMergeItem])
+  }, [items, patchItem])
 
   const startItem = useCallback(
     (item: Omit<StudioItem, 'id' | 'createdAt' | 'status' | 'urls'>) => {
@@ -1023,6 +559,9 @@ export function useStudioGeneration() {
           quality: params.quality,
           count: params.count,
         },
+        details: {
+          referenceImages: params.referenceImages?.length ? params.referenceImages : undefined,
+        },
       })
       onStarted?.(id)
       const controller = new AbortController()
@@ -1031,11 +570,11 @@ export function useStudioGeneration() {
       setIsGenerating(true)
 
       try {
-        const finalPrompt = await optimizeStudioPrompt(
-          params.prompt,
-          params.mode || 'image',
-          controller.signal
-        )
+        const optimizerImages = gatherVisionImages({
+          prompt: params.prompt,
+          userReferenceImages: params.referenceImages?.length ? params.referenceImages : undefined,
+        })
+        const finalPrompt = await optimizeStudioPrompt(params.prompt, controller.signal, optimizerImages)
         const response = await submitImageGeneration(
           {
             model: params.model,
@@ -1079,24 +618,12 @@ export function useStudioGeneration() {
 
   const generateVideo = useCallback(
     async (params: VideoParams, onStarted?: (id: string) => void) => {
-      // Determine if chained multi-chunk extension is requested
-      const targetTotalSeconds = params.videoExtension && params.videoExtension !== 'off'
-        ? Number.parseInt(params.videoExtension, 10) || 0
-        : 0
-      const requestedChunkSeconds = Number(params.chunkSeconds)
-      const chunkDurationSec = Number.isFinite(requestedChunkSeconds) && requestedChunkSeconds > 0
-        ? Math.max(2, Math.min(30, Math.floor(requestedChunkSeconds)))
-        : 30
-      const totalChunks = targetTotalSeconds > chunkDurationSec
-        ? Math.max(1, Math.ceil(targetTotalSeconds / chunkDurationSec))
-        : 1
-
       const id = startItem({
         mode: params.mode || 'video',
         prompt: params.prompt,
         settings: {
           model: params.model,
-          duration: targetTotalSeconds > 0 ? `${targetTotalSeconds}s (${totalChunks}x${chunkDurationSec}s)` : params.duration,
+          duration: params.duration,
           ratio: params.ratio,
           quality: params.quality,
         },
@@ -1108,7 +635,6 @@ export function useStudioGeneration() {
           // runs; the details dialog is patched at that point (below) so this
           // stays the user-provided view of the request.
           referenceImages: params.referenceImages?.length ? params.referenceImages : undefined,
-          chunkSeconds: chunkDurationSec,
         },
       })
       onStarted?.(id)
@@ -1116,138 +642,100 @@ export function useStudioGeneration() {
       abortRef.current = controller
       controllersRef.current.set(id, controller)
       setIsGenerating(true)
-      // Chunks of a multi-part extension that finished before a failure — kept
-      // on the item so a broken chain never loses the completed parts.
-      const accumulatedUrls: string[] = []
 
       try {
-        const baseSettings: Record<string, string | number | undefined> = {
-          model: params.model,
-          duration: targetTotalSeconds > 0
-            ? `${targetTotalSeconds}s (${totalChunks}x${chunkDurationSec}s)`
-            : params.duration,
-          ratio: params.ratio,
-          quality: params.quality,
-        }
-
-        // If no multi-chunk extension is requested, run as a single planned generation
-        if (targetTotalSeconds <= chunkDurationSec) {
-          const mergedBeforeOptimize = [
-            ...(params.referenceImages ?? []),
-            ...(params.imageUrl ? [params.imageUrl] : []),
-          ]
-          const imagesForOptimizer = gatherVisionImages({
+        // Single, uninterrupted generation — the Studio never chains or stitches.
+        // Image references are capped by the model's rules; audio and video
+        // references have their own caps and live at the tail of the job's
+        // reference list (Aepi accepts one multimodal reference channel).
+        const referenceCap = Math.max(0, params.referenceCap ?? 5)
+        const imageRefs = referenceCap === 0 ? [] : (params.referenceImages ?? [])
+        const searchRefBudget = Math.max(0, referenceCap - imageRefs.length)
+        const { text: finalPrompt, references: searchReferences } = await optimizeVideoPrompt(
+          params.prompt,
+          controller.signal,
+          gatherVisionImages({
             prompt: params.prompt,
-            totalSeconds: Number(params.duration) || chunkDurationSec,
-            chunkSeconds: chunkDurationSec,
-            userReferenceImages: mergedBeforeOptimize,
+            userReferenceImages: [
+              ...imageRefs,
+              ...(params.imageUrl ? [params.imageUrl] : []),
+            ],
             startFrame: params.startFrame,
             endFrame: params.endFrame,
           })
-          const { text: finalPrompt, references: searchReferences } = await optimizeVideoPrompt(
-            params.prompt,
-            controller.signal,
-            imagesForOptimizer
-          )
-          const mergedReferences = [
-            ...(params.referenceImages ?? []),
-            ...(params.imageUrl ? [params.imageUrl] : []),
-            ...searchReferences.filter((url) => !(params.referenceImages ?? []).includes(url) && url !== params.imageUrl),
-          ].slice(0, 5)
-          if (mergedReferences.length > (params.referenceImages?.length ?? 0)) {
-            patchItem(id, {
-              details: {
-                negativePrompt: params.negativePrompt?.trim() || undefined,
-                startFrame: params.startFrame,
-                endFrame: params.endFrame,
-                referenceImages: mergedReferences,
-                chunkSeconds: chunkDurationSec,
-              },
-            })
-          }
-          const singleChunkDuration = params.duration || (targetTotalSeconds > 0 ? targetTotalSeconds : undefined)
-          const result = await runVideoChunk(
-            {
-              controller,
-              itemId: id,
-              patchItem,
-              model: params.model,
-              group: params.group,
-              ratio: params.ratio,
-              imageUrl: params.imageUrl,
-              referenceImages: mergedReferences,
-              negativePrompt: params.negativePrompt,
-              videoExtension: params.videoExtension,
-            },
-            finalPrompt,
-            params.startFrame,
-            params.endFrame,
-            singleChunkDuration,
-            params.quality,
-            0,
-            1,
-            params.negativePrompt,
-            mergedReferences
-          )
-
-          const localOnlyUrls = await maybePersistLocalOnly(id, [result.url])
+        )
+        const mergedImageRefs = [
+          ...imageRefs,
+          ...searchReferences.filter((url) => !imageRefs.includes(url)).slice(0, searchRefBudget),
+        ]
+        const audioRefs = params.audioReferences ?? []
+        const videoRefs = params.videoReferences ?? []
+        const mergedReferences = [...mergedImageRefs, ...audioRefs, ...videoRefs]
+        if (searchReferences.length > 0 || audioRefs.length > 0 || videoRefs.length > 0) {
           patchItem(id, {
-            status: 'ready',
-            urls: localOnlyUrls ?? [result.url],
-            localOnly: localOnlyUrls !== null,
-            progress: '100%',
+            details: {
+              negativePrompt: params.negativePrompt?.trim() || undefined,
+              startFrame: params.startFrame,
+              endFrame: params.endFrame,
+              referenceImages: mergedReferences,
+            },
           })
-          return id
         }
-
-        // Multi-chunk chained generation, planned as one continuous take.
-        // A vision-capable prompt optimizer (mandatory) writes the global
-        // visual bible + per-step directions as JSON, and every step is refined
-        // against frames captured from the ACTUAL previous clip. The chain is
-        // persisted on the item, so a page reload resumes it automatically.
-        const userReferenceImages = [
-          ...(params.referenceImages ?? []),
-          ...(params.imageUrl ? [params.imageUrl] : []),
-        ].filter(Boolean)
-
-        const chain = await runVideoChain(
+        // Audio/video references can't go through vision — describe them
+        // deterministically so the video model knows what each one is.
+        const extraNotes = [
+          ...audioRefs.map(
+            (_, i) =>
+              `Reference ${mergedImageRefs.length + i + 1}: an attached audio clip — condition the music, rhythm and sound design of the video on it.`
+          ),
+          ...videoRefs.map(
+            (_, i) =>
+              `Reference ${mergedImageRefs.length + audioRefs.length + i + 1}: an attached video clip — carry over its camera grammar, motion, framing and pacing.`
+          ),
+        ]
+        const submittedPrompt =
+          extraNotes.length > 0
+            ? `${finalPrompt}\n\nADDITIONAL REFERENCES:\n${extraNotes.join('\n')}`
+            : finalPrompt
+        // Negative prompt must never contradict the positive description;
+        // drop any clause that fights it regardless of what the user wrote.
+        const userNegative = params.negativePrompt?.trim() ?? ''
+        const negativeOut = userNegative
+          ? removeNegativeContradictions(finalPrompt, userNegative)
+          : ''
+        const result = await runVideoChunk(
           {
-            id,
-            baseSettings,
+            controller,
+            itemId: id,
+            patchItem,
             model: params.model,
             group: params.group,
             ratio: params.ratio,
-            quality: params.quality,
-            prompt: params.prompt,
-            negativePrompt: params.negativePrompt,
             imageUrl: params.imageUrl,
-            userReferenceImages,
-            startFrame: params.startFrame,
-            endFrame: params.endFrame,
-            videoExtension: params.videoExtension,
-            totalScenes: totalChunks,
-            chunkSeconds: chunkDurationSec,
-            accumulatedUrls,
-            controller,
+            referenceImages: mergedReferences,
+            negativePrompt: negativeOut || undefined,
+            metadata: params.metadata,
           },
-          patchItem
+          submittedPrompt,
+          params.startFrame,
+          params.endFrame,
+          params.duration,
+          params.quality,
+          negativeOut || undefined,
+          mergedReferences
         )
-        autoMergeItem(id, chain.urls, {
-          progressBase: Math.round((chain.units / (chain.units + 1)) * 100),
+
+        const localOnlyUrls = await maybePersistLocalOnly(id, [result.url])
+        patchItem(id, {
+          status: 'ready',
+          urls: localOnlyUrls ?? [result.url],
+          localOnly: localOnlyUrls !== null,
+          progress: '100%',
         })
         return id
       } catch (error) {
         if (controller.signal.aborted) {
           patchItem(id, { status: 'error', error: 'Cancelled' })
-          return id
-        }
-        const completedParts = accumulatedUrls.length
-        if (targetTotalSeconds > chunkDurationSec && completedParts > 0) {
-          patchItem(id, {
-            status: 'error',
-            error: `${errorMessageOf(error)} The ${completedParts} completed part(s) are kept in this item.`,
-            urls: accumulatedUrls,
-          })
           return id
         }
         patchItem(id, { status: 'error', error: errorMessageOf(error) })
@@ -1258,7 +746,7 @@ export function useStudioGeneration() {
         controllersRef.current.delete(id)
       }
     },
-    [patchItem, startItem, autoMergeItem]
+    [patchItem, startItem]
   )
 
   const stop = useCallback((id?: string) => {
@@ -1289,11 +777,9 @@ export function useStudioGeneration() {
       if (itemToDelete?.urls?.length) {
         itemToDelete.urls.forEach((u) => {
           if (!u) return
-          if (u.startsWith('/uploads/merged/')) {
-            void deleteMergedMedia(u.slice('/uploads/merged/'.length))
-            return
-          }
-          if (u.startsWith('/uploads/videos/')) {
+          // /uploads/merged/ is gone with the stitching feature; legacy merged
+          // URLs still route through the same delete endpoint, which knows them.
+          if (u.startsWith('/uploads/videos/') || u.startsWith('/uploads/merged/')) {
             void api.delete('/api/media/file', { params: { url: u } }).catch(() => {})
             return
           }
@@ -1343,12 +829,10 @@ export function useStudioGeneration() {
   return {
     items,
     isGenerating,
-    mergeJobs,
     generateImage,
     generateVideo,
     stop,
     removeItem,
     clearItems,
-    mergeItemParts: autoMergeItem,
   }
 }

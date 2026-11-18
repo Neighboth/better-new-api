@@ -75,7 +75,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
+import type { StudioItem, StudioMode } from './types'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getPlaygroundRuntimeConfig } from '@/features/playground/api'
 import {
@@ -84,12 +84,17 @@ import {
 } from '@/features/playground/types'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
+import { Switch } from '@/components/ui/switch'
 
 import { useStudioGeneration } from './hooks/use-studio-generation'
+import {
+  resolveEffectiveModelOptions,
+  pickStillValid,
+  type EffectiveModelOptions,
+} from './lib/model-constraints'
 import { getStudioVideo } from './lib/studio-indexeddb'
 import { StudioItemDetailsDialog } from './components/studio-item-details-dialog'
 import { STUDIO_ITEMS_PURGED_EVENT } from './lib/studio-sync'
-import type { StudioItem, StudioMode } from './types'
 
 /** Serves media through local cache proxy to avoid 12-hour upstream expiration. */
 function getPlayableMediaUrl(url?: string): string {
@@ -348,6 +353,81 @@ function VideoStorageQuota() {
   )
 }
 
+/** Reference-image chip strip: cap + source from the model's option rules. */
+function ReferenceImageChipsBlock(props: {
+  cap: number
+  allowed: boolean
+  values: string[]
+  onChange: (next: string[]) => void
+  inputRef: React.RefObject<HTMLInputElement | null>
+  onPick: (files: FileList | null) => void
+}) {
+  const { t } = useTranslation()
+  const { cap, allowed, values, onChange, inputRef, onPick } = props
+  return (
+    <div className='space-y-1.5'>
+      <div className='flex items-center justify-between gap-2'>
+        <Label className='text-[11px] text-muted-foreground'>
+          {t('Reference Images')}
+          <span className='text-muted-foreground/70'>
+            {' '}
+            · {values.length}/{cap}
+          </span>
+        </Label>
+        <button
+          type='button'
+          disabled={!allowed || values.length >= cap}
+          className='inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed'
+          onClick={() => inputRef.current?.click()}
+        >
+          <PlusIcon className='size-3' />
+          {t('Add')}
+        </button>
+        <input
+          ref={inputRef}
+          type='file'
+          accept='image/*'
+          multiple
+          className='hidden'
+          onChange={(e) => {
+            onPick(e.target.files)
+            e.target.value = ''
+          }}
+        />
+      </div>
+      {!allowed && (
+        <p className='text-[10px] leading-snug text-amber-600 dark:text-amber-400'>
+          {t('Reference images are not available at these settings for this model.')}
+        </p>
+      )}
+      {values.length > 0 && (
+        <div className='flex flex-wrap gap-1.5'>
+          {values.map((url, index) => (
+            <div
+              key={url}
+              className='relative size-12 overflow-hidden rounded-lg border border-border/70'
+            >
+              <img
+                src={url}
+                alt={t('Reference {{index}}', { index: index + 1 })}
+                className='size-full object-cover'
+              />
+              <button
+                type='button'
+                className='absolute end-0.5 top-0.5 rounded bg-black/70 p-0.5 text-white hover:bg-black'
+                onClick={() => onChange(values.filter((_, i) => i !== index))}
+                aria-label={t('Remove reference image {{index}}', { index: index + 1 })}
+              >
+                <XIcon className='size-3' />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function Studio() {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
@@ -392,7 +472,13 @@ export function Studio() {
   const [videoDuration, setVideoDuration] = useState('')
   const [videoRatio, setVideoRatio] = useState('')
   const [videoQuality, setVideoQuality] = useState('')
-  const [videoExtension, setVideoExtension] = useState<'off' | '60' | '120' | '300' | '600'>('off')
+  const [audioEnabled, setAudioEnabled] = useState(true)
+  const [referenceImages, setReferenceImages] = useState<string[]>([])
+  const [audioReferences, setAudioReferences] = useState<string[]>([])
+  const [videoReferences, setVideoReferences] = useState<string[]>([])
+  const referenceImageInputRef = useRef<HTMLInputElement>(null)
+  const audioReferenceInputRef = useRef<HTMLInputElement>(null)
+  const videoReferenceInputRef = useRef<HTMLInputElement>(null)
   const [negativePrompt, setNegativePrompt] = useState('')
   const [startFrame, setStartFrame] = useState('')
   const [endFrame, setEndFrame] = useState('')
@@ -528,15 +614,116 @@ export function Studio() {
     selectedVideoModel?.default_quality ||
     runtime.video.default_quality
 
+  // ── Effective options after the model's conditional rules ────────────────
+  // Rules narrow durations/qualities/ratios and the reference cap per
+  // selection ("15s: no 1080p", "at 1080p: max 2 references", "at 10s: no
+  // references"). Everything downstream renders and submits these.
+  const effectiveVideoOptions = useMemo<EffectiveModelOptions>(
+    () =>
+      resolveEffectiveModelOptions(
+        selectedVideoModel ?? {},
+        duration > 0 ? duration : undefined,
+        videoQualityValue || undefined,
+        ratio || undefined
+      ),
+    [selectedVideoModel, duration, videoQualityValue, ratio]
+  )
+  const effectiveImageOptions = useMemo<EffectiveModelOptions>(
+    () =>
+      resolveEffectiveModelOptions(
+        selectedImageModel ?? {},
+        undefined,
+        imageQuality || selectedImageModel?.default_quality || runtime.image.default_quality || undefined,
+        undefined
+      ),
+    [selectedImageModel, imageQuality, runtime.image.default_quality]
+  )
+  const activeEffective = mode === 'video' ? effectiveVideoOptions : effectiveImageOptions
+  const offeredDurations = effectiveVideoOptions.durations.length
+    ? effectiveVideoOptions.durations
+    : videoDurations
+  const offeredRatios = effectiveVideoOptions.ratios.length
+    ? effectiveVideoOptions.ratios
+    : videoRatios
+  const offeredVideoQualities = effectiveVideoOptions.qualities.length
+    ? effectiveVideoOptions.qualities
+    : videoQualities
+  const offeredImageQualities = effectiveImageOptions.qualities.length
+    ? effectiveImageOptions.qualities
+    : imageQualities
+  const referenceCap = activeEffective.maxReferenceImages
+  const referencesAllowed = activeEffective.referencesAllowed
+  const audioReferenceCap = selectedVideoModel?.audio_reference
+    ? Math.max(1, selectedVideoModel.max_audio_references ?? 3)
+    : 0
+  const videoReferenceCap = selectedVideoModel?.video_reference
+    ? Math.max(1, selectedVideoModel.max_video_references ?? 2)
+    : 0
+
+  // Keep the selected values inside the rule-narrowed lists; if the rules
+  // disallow the current selection, fall back to the first offered option.
+  useEffect(() => {
+    const picked = pickStillValid(
+      videoDuration ? Number(videoDuration) : undefined,
+      effectiveVideoOptions.durations
+    )
+    if (picked !== undefined && String(picked) !== videoDuration) {
+      setVideoDuration(String(picked))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveVideoOptions.durations])
+  useEffect(() => {
+    if (videoQualityValue && effectiveVideoOptions.qualities.length > 0 &&
+        !effectiveVideoOptions.qualities.includes(videoQualityValue)) {
+      setVideoQuality(effectiveVideoOptions.qualities[0])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveVideoOptions.qualities])
+  useEffect(() => {
+    if (ratio && effectiveVideoOptions.ratios.length > 0 &&
+        !effectiveVideoOptions.ratios.includes(ratio)) {
+      setVideoRatio(effectiveVideoOptions.ratios[0])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveVideoOptions.ratios])
+
+  // Trim reference images when the rules shrink the cap (e.g. switching to a
+  // duration at which references are disabled).
+  useEffect(() => {
+    if (referenceImages.length > referenceCap) {
+      setReferenceImages((prev) => prev.slice(0, referenceCap))
+      toast.info(
+        t('Reference images are not available at these settings for this model.')
+      )
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [referenceCap])
+  useEffect(() => {
+    if (audioReferenceCap > 0) {
+      setAudioReferences((prev) => prev.slice(0, audioReferenceCap))
+    } else if (audioReferences.length > 0) {
+      setAudioReferences([])
+      toast.info(t('This model does not accept audio references.'))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioReferenceCap])
+  useEffect(() => {
+    if (videoReferenceCap > 0) {
+      setVideoReferences((prev) => prev.slice(0, videoReferenceCap))
+    } else if (videoReferences.length > 0) {
+      setVideoReferences([])
+      toast.info(t('This model does not accept video references.'))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoReferenceCap])
+
   const {
     items,
     isGenerating,
-    mergeJobs,
     generateImage,
     generateVideo,
     stop,
     removeItem,
-    mergeItemParts,
   } = useStudioGeneration()
 
   // IndexedDB-backed object URLs for items kept in this browser (over-quota storage).
@@ -612,25 +799,30 @@ export function Studio() {
   // Only the active stage item being pending or an active generation blocks the send button
   const hasActivePending = isGenerating || activeItem?.status === 'pending'
 
-  // A chained video is either a single stitched file or it is not playable at
-  // all — no "part" buttons are ever shown on the stage.
-  const activeItemMergeProgress = activeItem ? mergeJobs[activeItem.id] : undefined
   const singleVideoUrl = (() => {
     if (activeItem?.localOnly) {
       return localOnlyUrls[activeItem.id] || undefined
     }
     const urls = activeItem?.urls ?? []
-    if (urls.length === 0) return undefined
-    if (activeItem?.merged) return urls[0]
-    if (urls.length === 1) return urls[0]
-    return undefined
+    return urls.length > 0 ? urls[0] : undefined
   })()
 
-  const canGenerate = prompt.trim().length > 0 && !hasActivePending && Boolean(currentModelName)
+  const editModeOnly = mode === 'video' && selectedVideoModel?.edit_mode === 'only'
+  const editReady = !editModeOnly || attachedMedia?.type === 'video'
+  const audioRenderAvailable = Boolean(selectedVideoModel?.audio)
+  const canGenerate =
+    prompt.trim().length > 0 && !hasActivePending && Boolean(currentModelName) && editReady
 
   const handleGenerate = async () => {
     if (!canGenerate || hasActivePending) return
     const text = prompt.trim()
+    // The rules may have switched a modality off after the files were picked —
+    // gate each list again at submission time.
+    const imageRefs = referencesAllowed ? referenceImages : []
+    const audioRefs = audioReferenceCap > 0 ? audioReferences : []
+    const videoRefs = videoReferenceCap > 0 ? videoReferences : []
+    const editMode = selectedVideoModel?.edit_mode ?? 'none'
+    const audioOfModel = Boolean(selectedVideoModel?.audio)
 
     if (mode === 'image') {
       await generateImage(
@@ -642,15 +834,12 @@ export function Studio() {
           size,
           quality,
           count: imageCount,
+          referenceImages: imageRefs,
         },
         (id) => setActiveSessionItemId(id)
       )
       return
     }
-
-    const chunkSecondsForModel = videoDurations.length
-      ? Math.min(30, Math.max(...videoDurations.map((value) => Number(value) || 0)) || 30)
-      : 30
 
     await generateVideo(
       {
@@ -665,8 +854,16 @@ export function Studio() {
         startFrame: startFrame.trim() || undefined,
         endFrame: endFrame.trim() || undefined,
         negativePrompt: negativePrompt.trim() || undefined,
-        videoExtension: videoExtension !== 'off' ? videoExtension : undefined,
-        chunkSeconds: chunkSecondsForModel,
+        referenceImages: imageRefs,
+        audioReferences: audioRefs,
+        videoReferences: videoRefs,
+        referenceCap,
+        metadata: {
+          ...(audioOfModel ? { audio: audioEnabled } : {}),
+          ...(editMode && editMode !== 'none' && attachedMedia?.type === 'video'
+            ? { operation: 'edit' }
+            : {}),
+        },
       },
       (id) => setActiveSessionItemId(id)
     )
@@ -678,6 +875,71 @@ export function Studio() {
       if (canGenerate && !hasActivePending) {
         void handleGenerate()
       }
+    }
+  }
+
+  const readFileAsDataURL = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () =>
+        typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('read failed'))
+      reader.onerror = () => reject(reader.error ?? new Error('read failed'))
+      reader.readAsDataURL(file)
+    })
+
+  // Adds reference files (image/audio/video) to the matching chip list,
+  // honoring the model's per-modality cap and the current option rules.
+  const handleReferenceFiles = async (
+    files: FileList | null,
+    kind: 'image' | 'audio' | 'video'
+  ) => {
+    if (!files || files.length === 0) return
+    const capByKind = {
+      image: referenceCap,
+      audio: audioReferenceCap,
+      video: videoReferenceCap,
+    } as const
+    const currentByKind = {
+      image: referenceImages,
+      audio: audioReferences,
+      video: videoReferences,
+    } as const
+    const setterByKind: Record<'image' | 'audio' | 'video', React.Dispatch<React.SetStateAction<string[]>>> = {
+      image: setReferenceImages,
+      audio: setAudioReferences,
+      video: setVideoReferences,
+    }
+    const cap = capByKind[kind]
+    const current = currentByKind[kind]
+    const setter = setterByKind[kind]
+    if (cap <= 0) {
+      const message = {
+        image: t('This model does not accept reference images at these settings.'),
+        audio: t('This model does not accept audio references.'),
+        video: t('This model does not accept video references.'),
+      }[kind]
+      toast.error(message)
+      return
+    }
+    const room = Math.max(0, cap - current.length)
+    const accepted = [...files].slice(0, room)
+    if (accepted.length === 0) {
+      toast.info(
+        t('The model accepts at most {{max}} reference file(s) at these settings.', { max: cap })
+      )
+      return
+    }
+    try {
+      const urls = await Promise.all(accepted.map(readFileAsDataURL))
+      setter((prev) => [...new Set([...prev, ...urls])].slice(0, cap))
+    } catch {
+      toast.error(t('Failed to read one of the files.'))
+      return
+    }
+    if (files.length > accepted.length) {
+      toast.info(
+        t('The model accepts at most {{max}} reference file(s) at these settings.', { max: cap })
+      )
     }
   }
 
@@ -822,16 +1084,6 @@ export function Studio() {
                         <p className='line-clamp-2 max-w-sm text-xs text-muted-foreground'>
                           &ldquo;{activeItem.prompt}&rdquo;
                         </p>
-                        {activeItem.mode === 'video' && activeItem.step && activeItem.step.total > 1 && (
-                          <p className='text-[11px] font-medium text-muted-foreground'>
-                            {t('Step')} {activeItem.step.current}/{activeItem.step.total}
-                            {activeItem.step.title && (
-                              <span className='block text-[10px] font-normal text-muted-foreground/80'>
-                                {activeItem.step.title}
-                              </span>
-                            )}
-                          </p>
-                        )}
                       </div>
                       {activeItem.mode === 'video' && activeItem.queuePosition !== undefined && (
                         <div className='inline-flex flex-col items-center gap-1 rounded-full border border-border/60 bg-background/85 px-4 py-1.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur'>
@@ -870,16 +1122,6 @@ export function Studio() {
                       <p className='text-xs font-medium text-destructive max-w-md text-center'>
                         {activeItem.error || t('Generation failed')}
                       </p>
-                      {(activeItem.urls?.length ?? 0) > 1 && (
-                        <button
-                          type='button'
-                          onClick={() => mergeItemParts(activeItem.id, activeItem.urls)}
-                          className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs'
-                        >
-                          <DownloadIcon className='size-3.5' />
-                          {t('Retry merge')}
-                        </button>
-                      )}
                     </div>
                   )}
 
@@ -887,33 +1129,9 @@ export function Studio() {
                     <div className='relative w-full p-2 flex flex-col items-center justify-center gap-2'>
                       {activeItem.mode === 'video' ? (
                         (() => {
-                          if (activeItemMergeProgress !== undefined) {
-                            // Nothing watchable while the merge runs — only the
-                            // finished single video plays once the stitch ends.
-                            return (
-                              <div className='flex flex-col items-center justify-center gap-4 p-10 text-center'>
-                                <Loader2Icon className='size-9 animate-spin text-muted-foreground' />
-                                <div className='space-y-1'>
-                                  <p className='text-sm font-medium'>{t('Stitching video parts')}</p>
-                                  <p className='max-w-sm text-[11px] text-muted-foreground'>
-                                    {t('Merging the parts into one video. It will play as soon as it is ready.')}
-                                  </p>
-                                </div>
-                                <div className='flex w-full max-w-sm items-center gap-3'>
-                                  <Progress
-                                    value={progressPercentOf(activeItem.progress ?? '') ?? 0}
-                                    className='h-1.5 flex-1'
-                                  />
-                                  <span className='font-mono text-xs text-muted-foreground shrink-0 min-w-[36px] text-right'>
-                                    {activeItem.progress || '0%'}
-                                  </span>
-                                </div>
-                              </div>
-                            )
-                          }
                           if (activeItem.localOnly && !singleVideoUrl) {
                             // The video is opening from this browser's IndexedDB — a
-                            // brief local read, not a merge failure.
+                            // brief local read.
                             return (
                               <div className='flex flex-col items-center justify-center gap-3 p-10 text-center'>
                                 <Loader2Icon className='size-9 animate-spin text-muted-foreground' />
@@ -932,22 +1150,12 @@ export function Studio() {
                               src={getPlayableItemUrl(activeItem, localOnlyUrls) || singleVideoUrl}
                             />
                           ) : (
-                            <div className='flex flex-col items-center gap-3 py-8'>
-                              <p className='text-sm font-medium text-muted-foreground'>
-                                {t('Generation finished, but the video could not be stitched into one file.')}
-                              </p>
-                              <button
-                                type='button'
-                                onClick={() => mergeItemParts(activeItem.id, activeItem.urls)}
-                                className='inline-flex items-center gap-1.5 h-8 px-4 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs'
-                              >
-                                <DownloadIcon className='size-3.5' />
-                                {t('Retry merge')}
-                              </button>
-                            </div>
+                            <p className='max-w-sm py-8 text-center text-sm font-medium text-muted-foreground'>
+                              {t('The video could not be loaded.')}
+                            </p>
                           )
                         })()
-                        ) : (
+                      ) : (
                         <img
                           alt={activeItem.prompt}
                           className='max-h-[380px] w-full object-contain rounded-lg'
@@ -970,44 +1178,18 @@ export function Studio() {
                     <div className='flex items-center gap-1.5'>
                       {(() => {
                         const stagePlayable = getPlayableItemUrl(activeItem, localOnlyUrls)
-                        if (activeItem.urls.length <= 1 || activeItem.merged || activeItem.localOnly) {
-                          return (
-                            <a
-                              href={stagePlayable || undefined}
-                              download
-                              rel='noreferrer'
-                              target='_blank'
-                              className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs aria-disabled:pointer-events-none aria-disabled:opacity-50'
-                              aria-disabled={!stagePlayable}
-                            >
-                              <DownloadIcon className='size-3.5' />
-                              {t('Download')}
-                            </a>
-                          )
-                        }
-                        if (activeItemMergeProgress !== undefined) {
-                          return (
-                            <button
-                              type='button'
-                              disabled
-                              className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-muted/60 text-xs font-medium text-muted-foreground cursor-wait'
-                            >
-                              <Loader2Icon className='size-3.5 animate-spin' />
-                              {t('Stitching video parts')} · {activeItemMergeProgress}%
-                            </button>
-                          )
-                        }
                         return (
-                          <button
-                            type='button'
-                            onClick={() =>
-                              mergeItemParts(activeItem.id, activeItem.urls, { autoDownload: true })
-                            }
-                            className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs'
+                          <a
+                            href={stagePlayable || undefined}
+                            download
+                            rel='noreferrer'
+                            target='_blank'
+                            className='inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border bg-background hover:bg-muted text-xs font-medium text-foreground transition shadow-xs aria-disabled:pointer-events-none aria-disabled:opacity-50'
+                            aria-disabled={!stagePlayable}
                           >
                             <DownloadIcon className='size-3.5' />
-                            {t('Download merged video')}
-                          </button>
+                            {t('Download')}
+                          </a>
                         )
                       })()}
                     </div>
@@ -1226,7 +1408,7 @@ export function Studio() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {videoRatios.map((r) => (
+                            {offeredRatios.map((r) => (
                               <SelectItem key={r} value={r} className='text-xs'>
                                 {r}
                               </SelectItem>
@@ -1242,7 +1424,7 @@ export function Studio() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {videoDurations.map((d) => (
+                            {offeredDurations.map((d) => (
                               <SelectItem key={d} value={String(d)} className='text-xs'>
                                 {d}
                               </SelectItem>
@@ -1258,7 +1440,7 @@ export function Studio() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {videoQualities.map((q) => (
+                            {offeredVideoQualities.map((q) => (
                               <SelectItem key={q} value={q} className='text-xs'>
                                 {q}
                               </SelectItem>
@@ -1280,6 +1462,167 @@ export function Studio() {
                       </button>
                       {showAdvancedOptions && (
                         <div className='space-y-2 pt-1'>
+                          {/* Edit-mode hint for edit-capable video models */}
+                          {selectedVideoModel?.edit_mode && selectedVideoModel.edit_mode !== 'none' && (
+                            <p className='rounded-lg border border-border/60 bg-muted/30 px-2 py-1.5 text-[10px] leading-snug text-muted-foreground'>
+                              {selectedVideoModel.edit_mode === 'only'
+                                ? t('This model edits an input video — attach the video to edit with the + button before generating.')
+                                : t('This model can edit an input video — attach a video with the + button to edit it, or generate from text or image as usual.')}
+                            </p>
+                          )}
+
+                          <ReferenceImageChipsBlock
+                            allowed={referencesAllowed}
+                            cap={referenceCap}
+                            inputRef={referenceImageInputRef}
+                            onChange={setReferenceImages}
+                            onPick={(files) => void handleReferenceFiles(files, 'image')}
+                            values={referenceImages}
+                          />
+
+                          {/* Audio references — only for audio-capable models */}
+                          {selectedVideoModel?.audio_reference && (
+                            <div className='space-y-1.5'>
+                              <div className='flex items-center justify-between gap-2'>
+                                <Label className='text-[11px] text-muted-foreground'>
+                                  {t('Audio References')}
+                                  <span className='text-muted-foreground/70'>
+                                    {' '}
+                                    · {audioReferences.length}/{audioReferenceCap}
+                                  </span>
+                                </Label>
+                                <button
+                                  type='button'
+                                  disabled={audioReferences.length >= audioReferenceCap}
+                                  className='inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed'
+                                  onClick={() => audioReferenceInputRef.current?.click()}
+                                >
+                                  <PlusIcon className='size-3' />
+                                  {t('Add')}
+                                </button>
+                                <input
+                                  ref={audioReferenceInputRef}
+                                  type='file'
+                                  accept='audio/*'
+                                  multiple
+                                  className='hidden'
+                                  onChange={(e) => {
+                                    void handleReferenceFiles(e.target.files, 'audio')
+                                    e.target.value = ''
+                                  }}
+                                />
+                              </div>
+                              {audioReferences.length > 0 && (
+                                <div className='flex flex-wrap gap-1.5'>
+                                  {audioReferences.map((url, index) => (
+                                    <div
+                                      key={url}
+                                      className='relative flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/40 py-1 pe-6 ps-2'
+                                    >
+                                      <FileAudioIcon className='size-3.5 shrink-0 text-muted-foreground' />
+                                      <span className='text-[10px] text-muted-foreground'>
+                                        {t('Audio {{index}}', { index: index + 1 })}
+                                      </span>
+                                      <button
+                                        type='button'
+                                        className='absolute end-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-destructive'
+                                        onClick={() =>
+                                          setAudioReferences((prev) => prev.filter((_, i) => i !== index))
+                                        }
+                                        aria-label={t('Remove audio reference {{index}}', { index: index + 1 })}
+                                      >
+                                        <XIcon className='size-3' />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Video references — only for video-reference-capable models */}
+                          {selectedVideoModel?.video_reference && (
+                            <div className='space-y-1.5'>
+                              <div className='flex items-center justify-between gap-2'>
+                                <Label className='text-[11px] text-muted-foreground'>
+                                  {t('Video References')}
+                                  <span className='text-muted-foreground/70'>
+                                    {' '}
+                                    · {videoReferences.length}/{videoReferenceCap}
+                                  </span>
+                                </Label>
+                                <button
+                                  type='button'
+                                  disabled={videoReferences.length >= videoReferenceCap}
+                                  className='inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed'
+                                  onClick={() => videoReferenceInputRef.current?.click()}
+                                >
+                                  <PlusIcon className='size-3' />
+                                  {t('Add')}
+                                </button>
+                                <input
+                                  ref={videoReferenceInputRef}
+                                  type='file'
+                                  accept='video/*'
+                                  multiple
+                                  className='hidden'
+                                  onChange={(e) => {
+                                    void handleReferenceFiles(e.target.files, 'video')
+                                    e.target.value = ''
+                                  }}
+                                />
+                              </div>
+                              {videoReferences.length > 0 && (
+                                <div className='flex flex-wrap gap-1.5'>
+                                  {videoReferences.map((url, index) => (
+                                    <div
+                                      key={url}
+                                      className='relative flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/40 py-1 pe-6 ps-2'
+                                    >
+                                      <VideoIcon className='size-3.5 shrink-0 text-muted-foreground' />
+                                      <span className='text-[10px] text-muted-foreground'>
+                                        {t('Video {{index}}', { index: index + 1 })}
+                                      </span>
+                                      <button
+                                        type='button'
+                                        className='absolute end-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-destructive'
+                                        onClick={() =>
+                                          setVideoReferences((prev) => prev.filter((_, i) => i !== index))
+                                        }
+                                        aria-label={t('Remove video reference {{index}}', { index: index + 1 })}
+                                      >
+                                        <XIcon className='size-3' />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Generate audio — disabled with reason when the model can't */}
+                          <div className='flex items-center justify-between gap-2 rounded-lg border border-border/60 px-2 py-1.5'>
+                            <div className='min-w-0'>
+                              <Label
+                                className='text-[11px] text-foreground/90'
+                                htmlFor='studio-generate-audio'
+                              >
+                                {t('Generate audio')}
+                              </Label>
+                              <p className='text-[9px] leading-snug text-muted-foreground'>
+                                {audioRenderAvailable
+                                  ? t('The model renders an audio track with the video.')
+                                  : t('This model does not generate audio.')}
+                              </p>
+                            </div>
+                            <Switch
+                              checked={audioEnabled}
+                              disabled={!audioRenderAvailable}
+                              id='studio-generate-audio'
+                              onCheckedChange={setAudioEnabled}
+                            />
+                          </div>
+
                           <div className='space-y-1'>
                             <Label className='text-[11px] text-muted-foreground'>{t('Negative Prompt')}</Label>
                             <Input
@@ -1416,7 +1759,7 @@ export function Studio() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {imageQualities.map((q) => (
+                            {offeredImageQualities.map((q) => (
                               <SelectItem key={q} value={q} className='text-xs'>
                                 {q}
                               </SelectItem>
@@ -1424,41 +1767,16 @@ export function Studio() {
                           </SelectContent>
                         </Select>
                       </div>
-                    </div>
-                  )}
-
-                  {/* Video extension (multi-part; steps planned by the mandatory prompt optimizer) */}
-                  {mode === 'video' && (
-                    <div className='space-y-2 pt-2 border-t border-border/50'>
-                      <div className='flex items-center justify-between gap-2'>
-                        <div className='space-y-0.5'>
-                          <Label className='text-xs font-medium'>{t('Video Extension')}</Label>
-                          <p className='text-[10px] text-muted-foreground'>
-                            {t('Extend video duration through chained generations — the mandatory prompt optimizer plans and directs every part')}
-                          </p>
-                        </div>
-                        <Switch
-                          checked={videoExtension !== 'off'}
-                          onCheckedChange={(checked) => {
-                            setVideoExtension(checked ? '60' : 'off')
-                          }}
+                      <div className='col-span-2 pt-1'>
+                        <ReferenceImageChipsBlock
+                          allowed={referencesAllowed}
+                          cap={referenceCap}
+                          inputRef={referenceImageInputRef}
+                          onChange={setReferenceImages}
+                          onPick={(files) => void handleReferenceFiles(files, 'image')}
+                          values={referenceImages}
                         />
                       </div>
-                      {videoExtension !== 'off' && (
-                        <div className='pt-1'>
-                          <Select value={videoExtension} onValueChange={(val) => setVideoExtension(val as any)}>
-                            <SelectTrigger className='h-8 w-full rounded-xl border border-border/60 bg-background px-2.5 text-xs font-medium'>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value='60' className='text-xs'>1 {t('min')} (60s - {t('Chained')})</SelectItem>
-                              <SelectItem value='120' className='text-xs'>2 {t('min')} (120s - {t('Chained')})</SelectItem>
-                              <SelectItem value='300' className='text-xs'>5 {t('min')} (300s - {t('Chained')})</SelectItem>
-                              <SelectItem value='600' className='text-xs'>10 {t('min')} (600s - {t('Chained')})</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
                     </div>
                   )}
 

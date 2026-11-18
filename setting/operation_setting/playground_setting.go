@@ -8,13 +8,37 @@ import (
 	"github.com/QuantumNous/new-api/setting/config"
 )
 
+// MediaModelConstraint is one conditional option rule for a model.
+//
+// All non-empty match dimensions must hold (AND). Effects apply on top of
+// the model's own option lists; multiple matching rules all apply, and a
+// later rule overrides an earlier one per field. The zero value of an effect
+// means "no effect" — with one exception: MaxReferenceImages -1 disables
+// reference images for the matching combination.
+type MediaModelConstraint struct {
+	// Match conditions (empty = any value matches).
+	Durations []int    `json:"durations,omitempty"`
+	Qualities []string `json:"qualities,omitempty"`
+	Ratios    []string `json:"ratios,omitempty"`
+
+	// Effects (empty / 0 = no effect).
+	DurationsOnly []int    `json:"durations_only,omitempty"`
+	QualitiesOnly []string `json:"qualities_only,omitempty"`
+	RatiosOnly    []string `json:"ratios_only,omitempty"`
+	// 0 = no override, -1 = references disabled, >=1 = cap override.
+	MaxReferenceImages int `json:"max_reference_images,omitempty"`
+}
+
 // MediaModel is one image or video model the administrator offers in the
 // playground tools and in the studio.
 //
 // Every entry carries its own options: the quality levels of one model are not
 // the quality levels of another one, and the durations, sizes and aspect
 // ratios differ per model as well. The studio shows the option set of the
-// model the user picked.
+// model the user picked. Conditional rules in Constraints can narrow the
+// offered durations, qualities, ratios and the reference-image cap for
+// specific combinations (e.g. "15s: no 1080p", "10s: no reference images",
+// "1080p: at most 2 references").
 type MediaModel struct {
 	Model          string   `json:"model"`
 	DisplayName    string   `json:"display_name,omitempty"`
@@ -24,10 +48,28 @@ type MediaModel struct {
 	Ratios         []string `json:"ratios,omitempty"`
 	Durations      []int    `json:"durations,omitempty"`
 	ReferenceImage bool     `json:"reference_image,omitempty"`
-	DefaultSize    string   `json:"default_size,omitempty"`
-	DefaultQuality string   `json:"default_quality,omitempty"`
-	DefaultRatio   string   `json:"default_ratio,omitempty"`
-	DefaultDuration int     `json:"default_duration,omitempty"`
+	// MaxReferenceImages caps reference images for this model (uploads and
+	// web-search-discovered references combined). 0 = unset (clients treat it
+	// as 5). Ignored when ReferenceImage is false.
+	MaxReferenceImages int `json:"max_reference_images,omitempty"`
+	// Constraints are conditional rules narrowing the options per selection.
+	Constraints []MediaModelConstraint `json:"constraints,omitempty"`
+	// EditMode: "" = no video editing, "supported" = may edit an input video,
+	// "only" = requires an input video to edit and does not generate from
+	// text/image alone.
+	EditMode string `json:"edit_mode,omitempty"`
+	// Audio reports whether the model generates an audio track with the video.
+	Audio bool `json:"audio,omitempty"`
+	// AudioReference: the model accepts audio reference clips/tracks.
+	AudioReference     bool `json:"audio_reference,omitempty"`
+	MaxAudioReferences int  `json:"max_audio_references,omitempty"`
+	// VideoReference: the model accepts video reference clips.
+	VideoReference     bool   `json:"video_reference,omitempty"`
+	MaxVideoReferences int    `json:"max_video_references,omitempty"`
+	DefaultSize        string `json:"default_size,omitempty"`
+	DefaultQuality     string `json:"default_quality,omitempty"`
+	DefaultRatio       string `json:"default_ratio,omitempty"`
+	DefaultDuration    int    `json:"default_duration,omitempty"`
 }
 
 // PlaygroundSetting is the administrator configuration of the playground and

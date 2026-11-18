@@ -20,31 +20,20 @@ export type StudioMode = 'video' | 'image'
 
 export type StudioItemStatus = 'pending' | 'ready' | 'error'
 
-/** Multi-part plan info for chained (extension) video generations. */
-export type StudioItemStep = {
-  current: number
-  total: number
-  title?: string
-  /** The live optimizer plan; persisted so a page reload resumes the chain. */
-  plan?: import('./lib/video-plan').VideoPlan
-}
-
 /** Generation details shown in the Previous Generations details view. */
 export type StudioItemDetails = {
   /** Optimized prompt negative prompt handed to the engine, if any. */
   negativePrompt?: string
-  /** Start frame used for the first (or only) segment, as URL or data URI. */
+  /** Start frame used for the (only) shot, as URL or data URI. */
   startFrame?: string
-  /** End frame for the last segment, when set. */
+  /** End frame for the shot, when set. */
   endFrame?: string
   /** Character/style reference images passed to the engine. */
   referenceImages?: string[]
-  /** Engine/model variant selected for the chain, if set. */
+  /** Engine/model variant selected, if set. */
   engine?: string
   /** Sampling seed, when the provider exposes one. */
   seed?: number
-  /** Seconds per segment for chained generations. */
-  chunkSeconds?: number
 }
 
 export type StudioItem = {
@@ -69,10 +58,6 @@ export type StudioItem = {
   /** Generation details for the details view (start/end frames, references,
    * negative prompt, engine, seed). */
   details?: StudioItemDetails
-  /** True once the parts were stitched into a single file (single player, single download). */
-  merged?: boolean
   /** True when the bytes live in this browser's IndexedDB (server storage full). */
   localOnly?: boolean
-  /** Multi-part plan info for chained (extension) video generations. */
-  step?: StudioItemStep
 }

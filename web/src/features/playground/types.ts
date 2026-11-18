@@ -297,10 +297,36 @@ export interface MediaModelRuntime {
   ratios?: string[]
   durations?: number[]
   reference_image?: boolean
+  /** Max reference images for this model (uploads + web-search-discovered combined). */
+  max_reference_images?: number
+  /** Conditional option rules, applied in order, last matching rule wins per field. */
+  constraints?: MediaModelConstraintRuntime[]
+  /** 'none' = no video edit, 'supported' = may edit an input video, 'only' = edit-only. */
+  edit_mode?: 'none' | 'supported' | 'only'
+  /** The model generates an audio track with the video. */
+  audio?: boolean
+  /** The model accepts audio reference clips/tracks. */
+  audio_reference?: boolean
+  max_audio_references?: number
+  /** The model accepts video reference clips. */
+  video_reference?: boolean
+  max_video_references?: number
   default_size?: string
   default_quality?: string
   default_ratio?: string
   default_duration?: number
+}
+
+/** One conditional option rule for a model — see MediaModelConstraint in the backend. */
+export interface MediaModelConstraintRuntime {
+  durations?: number[]
+  qualities?: string[]
+  ratios?: string[]
+  durations_only?: number[]
+  qualities_only?: string[]
+  ratios_only?: string[]
+  /** 0 = no override, -1 = reference images disabled, >=1 = cap override. */
+  max_reference_images?: number
 }
 
 /**

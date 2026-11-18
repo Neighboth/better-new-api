@@ -20,7 +20,7 @@ func TestUpsertStudioItemRoundTrip(t *testing.T) {
 
 	// The second upsert refreshes payload and UpdatedAt (GORM owns the update
 	// timestamp) but keeps the original CreatedAt.
-	require.NoError(t, UpsertStudioItem(42, "item-a", `{"id":"item-a","prompt":"second","urls":["/uploads/merged/42_1_abc.mp4"]}`, 2000))
+	require.NoError(t, UpsertStudioItem(42, "item-a", `{"id":"item-a","prompt":"second","urls":["/uploads/videos/42/g.mp4"]}`, 2000))
 	items, err = ListStudioItems(42, 10)
 	require.NoError(t, err)
 	require.Len(t, items, 1)

@@ -24,6 +24,7 @@ import {
   Cloud,
   Copy,
   Eye,
+  FileText,
   Gauge,
   Loader2,
   Pencil,
@@ -34,6 +35,7 @@ import {
   Trash2,
   Upload,
   Waypoints,
+  X,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -146,6 +148,8 @@ export function ProxyPool() {
   const [bulkEnabled, setBulkEnabled] = useState(true)
   const [isBulkSaving, setIsBulkSaving] = useState(false)
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null)
+  const [bulkFileName, setBulkFileName] = useState<string | null>(null)
+  const [bulkFileLines, setBulkFileLines] = useState<string[] | null>(null)
   const [togglingProxyId, setTogglingProxyId] = useState<number | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const pageSize = 20
@@ -273,11 +277,15 @@ export function ProxyPool() {
     }
   }
 
-  const handleBulkSave = async () => {
-    const lines = bulkText
+  // Shared line parser for the paste area and the file picker.
+  const parseBulkLines = (text: string) =>
+    text
       .split('\n')
       .map((l) => l.trim())
       .filter((l) => l.length > 0 && !l.startsWith('#'))
+
+  const handleBulkSave = async () => {
+    const lines = bulkFileLines ?? parseBulkLines(bulkText)
     if (lines.length === 0) {
       toast.error(t('Please enter at least one proxy'))
       return
@@ -312,6 +320,8 @@ export function ProxyPool() {
       toast.success(t('Successfully imported {{count}} proxies', { count: imported }))
       setDialogOpen(false)
       setBulkText('')
+      setBulkFileLines(null)
+      setBulkFileName(null)
       invalidateAll()
     } catch (err: any) {
       toast.error(err?.response?.data?.message || err?.message || t('Failed to import proxies'))
@@ -1250,23 +1260,69 @@ export function ProxyPool() {
                               const reader = new FileReader()
                               reader.onload = () => {
                                 if (typeof reader.result === 'string') {
-                                  setBulkText(reader.result)
+                                  const parsed = parseBulkLines(reader.result)
+                                  setBulkFileLines(parsed)
+                                  setBulkFileName(file.name)
+                                  setBulkText('')
                                 }
                               }
                               reader.readAsText(file)
                             }
+                            // allow picking the same file again after removing it
+                            e.target.value = ''
                           }}
                         />
                       </label>
                     </div>
-                    <Textarea
-                      id='bulk-text'
-                      value={bulkText}
-                      onChange={(e) => setBulkText(e.target.value)}
-                      placeholder="socks5://1.2.3.4:1080, socks5h://user:pass@1.2.3.4:1080, socks4://user:pass@1.2.3.4:1080, 1.2.3.4:8080:user:pass, http://1.2.3.4:8080 (one per line)"
-                      rows={5}
-                      className='font-mono text-xs'
-                    />
+                    {bulkFileLines !== null ? (
+                      <div className='rounded-md border border-border bg-muted/40 p-3 space-y-2'>
+                        <div className='flex items-center gap-2'>
+                          <FileText className='size-4 shrink-0 text-muted-foreground' />
+                          <div className='min-w-0 flex-1'>
+                            <p className='truncate text-xs font-medium'>{bulkFileName ?? t('Pasted text')}</p>
+                            <p className='text-[11px] text-muted-foreground'>
+                              {t('{{count}} proxies ready to import', { count: bulkFileLines.length })}
+                            </p>
+                          </div>
+                          <button
+                            type='button'
+                            className='rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground'
+                            onClick={() => {
+                              setBulkFileLines(null)
+                              setBulkFileName(null)
+                            }}
+                            aria-label={t('Remove file')}
+                          >
+                            <X className='size-4' />
+                          </button>
+                        </div>
+                        <pre className='max-h-28 overflow-auto rounded bg-background/60 p-2 font-mono text-[10px] leading-4 text-muted-foreground'>
+                          {bulkFileLines.slice(0, 6).join('\n')}
+                          {bulkFileLines.length > 6 ? `\n… +${bulkFileLines.length - 6}` : ''}
+                        </pre>
+                      </div>
+                    ) : (
+                      <Textarea
+                        id='bulk-text'
+                        value={bulkText}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          // Very large pastes would freeze a controlled textarea —
+                          // parse them straight into the file-mode summary instead.
+                          if (value.length > 100_000) {
+                            const parsed = parseBulkLines(value)
+                            setBulkFileLines(parsed)
+                            setBulkFileName(null)
+                            setBulkText('')
+                            return
+                          }
+                          setBulkText(value)
+                        }}
+                        placeholder="socks5://1.2.3.4:1080, socks5h://user:pass@1.2.3.4:1080, socks4://user:pass@1.2.3.4:1080, 1.2.3.4:8080:user:pass, http://1.2.3.4:8080 (one per line)"
+                        rows={5}
+                        className='font-mono text-xs'
+                      />
+                    )}
                     <p className='text-[11px] text-muted-foreground'>
                       {t('Supports socks5, socks5h, socks4, http, https, host:port:user:pass or host:port formats.')}
                     </p>
@@ -1291,7 +1347,10 @@ export function ProxyPool() {
                   <Button
                     type='button'
                     className='w-full'
-                    disabled={isBulkSaving || !bulkText.trim()}
+                    disabled={
+                      isBulkSaving ||
+                      (bulkFileLines !== null ? bulkFileLines.length === 0 : !bulkText.trim())
+                    }
                     onClick={() => void handleBulkSave()}
                   >
                     {isBulkSaving ? (

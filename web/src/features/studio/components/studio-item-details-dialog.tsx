@@ -19,8 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 /**
  * Read-only detail view for one Studio generation: prompt, model settings,
- * uploaded references, start/end frames, negative prompt, and — for chained
- * videos — the optimizer's shot plan.
+ * uploaded references, start/end frames and negative prompt.
  */
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -86,56 +85,6 @@ function ReferenceStrip({ urls }: { urls?: string[] }) {
   )
 }
 
-function PlanBlock({ plan }: { plan: NonNullable<StudioItem['step']>['plan'] }) {
-  const { t } = useTranslation()
-  if (!plan) return null
-  return (
-    <Section label={t('Shot plan')}>
-      <div className='max-h-56 overflow-y-auto rounded-md border border-border/60 p-2 text-[11px] leading-snug space-y-2'>
-        {plan.title && <p className='font-semibold'>{plan.title}</p>}
-        {plan.global_style && (
-          <p><span className='text-muted-foreground'>{t('Global style')}:</span> {plan.global_style}</p>
-        )}
-        {plan.location?.description && (
-          <p><span className='text-muted-foreground'>{t('Location')}:</span> {plan.location.description}</p>
-        )}
-        {Array.isArray(plan.consistency_anchors) && plan.consistency_anchors.length > 0 && (
-          <div>
-            <p className='text-muted-foreground'>{t('Consistency anchors')}:</p>
-            <ul className='list-disc ps-4'>
-              {plan.consistency_anchors.map((anchor) => (
-                <li key={anchor}>{anchor}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {Array.isArray(plan.steps) && plan.steps.length > 0 && (
-          <ol className='space-y-1'>
-            {plan.steps.map((step, index) => (
-              <li key={`${step.step ?? index + 1}:${step.action.slice(0, 32)}`} className='rounded bg-muted/40 p-1.5'>
-                <span className='font-medium'>{t('Step {{step}}', { step: step.step ?? index + 1 })}: </span>
-                {step.action}
-                {step.camera ? <span className='text-muted-foreground'> · {step.camera}</span> : null}
-              </li>
-            ))}
-          </ol>
-        )}
-        {Array.isArray(plan.references) && plan.references.length > 0 && (
-          <div>
-            <p className='text-muted-foreground'>{t('Search references')}:</p>
-            <ReferenceStrip urls={plan.references} />
-          </div>
-        )}
-        {plan.negative_prompt && (
-          <p>
-            <span className='text-muted-foreground'>{t('Negative prompt')}:</span> {plan.negative_prompt}
-          </p>
-        )}
-      </div>
-    </Section>
-  )
-}
-
 const settingLabelKeys: Record<string, string> = {
   model: 'Model',
   duration: 'Duration',
@@ -155,7 +104,6 @@ function detailRows(item: StudioItem, details?: StudioItemDetails): Array<[strin
   }
   if (details?.engine) rows.push(['Engine', details.engine])
   if (details?.seed !== undefined) rows.push(['Seed', details.seed])
-  if (details?.chunkSeconds) rows.push(['Chunk seconds', details.chunkSeconds])
   return rows
 }
 
@@ -264,7 +212,6 @@ export function StudioItemDetailsDialog(props: {
           )}
 
           {/* Chained plan */}
-          <PlanBlock plan={item.step?.plan} />
 
           {/* Footer meta */}
           <div className='flex flex-wrap items-center gap-2 pt-1 text-[10px] text-muted-foreground'>
