@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
@@ -56,22 +57,121 @@ func getMediaCacheKey(rawURL string) (string, string) {
 }
 
 func setMediaCacheHeaders(c *gin.Context) {
-	// no-transform: never let an intermediary re-encode video.
-	// X-Accel-Buffering: no: stream through nginx instead of buffering the
-	// whole body before flushing to the browser (choppy seeking symptom).
 	c.Header("Cache-Control", "public, max-age=31536000, immutable, no-transform")
 	c.Header("Accept-Ranges", "bytes")
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("X-Accel-Buffering", "no")
 }
 
+// resolveMediaSource resolves a relative URL, video proxy route, local upload or remote URL
+// to an accessible file path on disk (downloading/caching remote files if needed).
+func resolveMediaSource(ctx context.Context, rawURL string) (string, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return "", fmt.Errorf("url is empty")
+	}
+
+	// 1. Check if direct local upload (e.g. /uploads/...)
+	if strings.HasPrefix(rawURL, "/uploads/") || strings.HasPrefix(rawURL, "uploads/") {
+		localFile := filepath.Clean(strings.TrimPrefix(rawURL, "/"))
+		if info, err := os.Stat(localFile); err == nil && info.Size() > 0 {
+			return localFile, nil
+		}
+	}
+
+	// 2. Check if URL contains /uploads/ or /v1/videos/
+	if parsed, err := url.Parse(rawURL); err == nil {
+		if strings.HasPrefix(parsed.Path, "/uploads/") {
+			localFile := filepath.Clean(strings.TrimPrefix(parsed.Path, "/"))
+			if info, err := os.Stat(localFile); err == nil && info.Size() > 0 {
+				return localFile, nil
+			}
+		}
+
+		if strings.Contains(parsed.Path, "/v1/videos/") && strings.Contains(parsed.Path, "/content") {
+			parts := strings.Split(parsed.Path, "/")
+			for i, p := range parts {
+				if p == "videos" && i+1 < len(parts) {
+					taskID := parts[i+1]
+					var task model.Task
+					if err := model.DB.Where("task_id = ?", taskID).First(&task).Error; err == nil {
+						resURL := task.GetResultURL()
+						if resURL != "" && resURL != rawURL {
+							return resolveMediaSource(ctx, resURL)
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// 3. For remote or cached HTTP/HTTPS URLs
+	hash, ext := getMediaCacheKey(rawURL)
+	fileName := hash + ext
+	filePath := filepath.Join(mediaCacheDir, fileName)
+
+	// If already cached locally, return existing cache file
+	if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
+		return filePath, nil
+	}
+
+	// Validate remote URL
+	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
+		return "", fmt.Errorf("invalid URL format: %s", rawURL)
+	}
+	if err := service.ValidateSSRFProtectedFetchURL(rawURL); err != nil {
+		return "", fmt.Errorf("access to URL blocked: %w", err)
+	}
+
+	// Fetch and cache the original file to disk
+	unlock := lockCacheFill(fileName)
+	defer unlock()
+
+	if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
+		return filePath, nil
+	}
+
+	client := service.GetSSRFProtectedHTTPClient()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("User-Agent", "curl/8.4.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch remote media: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		return "", fmt.Errorf("upstream returned status %d", resp.StatusCode)
+	}
+
+	tempPath := fmt.Sprintf("%s.%s.tmp", filePath, common.GetRandomString(6))
+	out, err := os.Create(tempPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp cache file: %w", err)
+	}
+
+	n, copyErr := copyToTee(out, io.Discard, resp.Body, maxMediaSize)
+	_ = out.Close()
+
+	if copyErr != nil || n <= 0 || n > maxMediaSize {
+		_ = os.Remove(tempPath)
+		return "", fmt.Errorf("failed to stream media or file exceeds size limit")
+	}
+
+	if err := os.Rename(tempPath, filePath); err != nil {
+		_ = os.Remove(tempPath)
+		return "", fmt.Errorf("failed to save cached media: %w", err)
+	}
+
+	return filePath, nil
+}
+
 // GetCachedMedia handles GET /api/media/cache?url=...
-// It serves from the local disk cache when possible; on a cold miss it
-// streams the upstream response to the browser while (optionally) teeing it
-// into the cache. A Range request on a cold miss is proxied to the upstream
-// and answered 206 without touching the disk. `nostore=1` streams without
-// caching anything (used by the browser to import media into IndexedDB when
-// the user's server-side storage quota is exhausted).
 func GetCachedMedia(c *gin.Context) {
 	rawURL := strings.TrimSpace(c.Query("url"))
 	if rawURL == "" {
@@ -87,84 +187,63 @@ func GetCachedMedia(c *gin.Context) {
 	targetHeight, _ := strconv.Atoi(heightParam)
 	targetFps, _ := strconv.Atoi(fpsParam)
 
-	// Check if this is a local server upload file (e.g. /uploads/...)
-	isLocalUpload := strings.HasPrefix(rawURL, "/uploads/") || strings.HasPrefix(rawURL, "uploads/")
-	if !isLocalUpload {
-		if parsed, err := url.Parse(rawURL); err == nil {
-			if strings.HasPrefix(parsed.Path, "/uploads/") {
-				isLocalUpload = true
-				rawURL = parsed.Path
-			}
+	// If quality or FPS transcoding is requested:
+	if targetHeight > 0 || targetFps > 0 {
+		hash, _ := getMediaCacheKey(rawURL)
+		transcodeName := fmt.Sprintf("%s_h%d_fps%d.mp4", hash, targetHeight, targetFps)
+		transcodePath := filepath.Join(mediaCacheDir, transcodeName)
+
+		// Fast path: cached transcoded file exists
+		if info, err := os.Stat(transcodePath); err == nil && info.Size() > 0 {
+			setMediaCacheHeaders(c)
+			c.File(transcodePath)
+			return
 		}
+
+		// Transcode and serve
+		unlock := lockCacheFill(transcodeName)
+		defer unlock()
+
+		if info, err := os.Stat(transcodePath); err == nil && info.Size() > 0 {
+			setMediaCacheHeaders(c)
+			c.File(transcodePath)
+			return
+		}
+
+		inputPath, err := resolveMediaSource(c.Request.Context(), rawURL)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if err := transcodeMediaToFile(c.Request.Context(), inputPath, transcodePath, targetHeight, targetFps); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Transcoding failed: " + err.Error()})
+			return
+		}
+
+		setMediaCacheHeaders(c)
+		c.File(transcodePath)
+		return
 	}
 
-	if isLocalUpload {
-		localFile := filepath.Clean(strings.TrimPrefix(rawURL, "/"))
-		if info, err := os.Stat(localFile); err == nil && info.Size() > 0 {
-			if targetHeight > 0 || targetFps > 0 {
-				transcodeAndStreamMedia(c, localFile, targetHeight, targetFps)
-				return
-			}
+	// Normal path (no transcoding):
+	inputPath, err := resolveMediaSource(c.Request.Context(), rawURL)
+	if err == nil && inputPath != "" {
+		if info, err := os.Stat(inputPath); err == nil && info.Size() > 0 {
 			setMediaCacheHeaders(c)
-			c.File(localFile)
+			c.File(inputPath)
 			return
 		}
 	}
 
+	// Fallback to streaming proxy
 	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Only HTTP/HTTPS URLs are allowed"})
 		return
 	}
 	nostore := c.Query("nostore") == "1" || strings.EqualFold(c.Query("nostore"), "true")
-
-	hash, ext := getMediaCacheKey(rawURL)
-	fileName := hash + ext
-	filePath := filepath.Join(mediaCacheDir, fileName)
-
-	// If on-the-fly transcoding is requested, stream directly via ffmpeg without extra disk storage
-	if targetHeight > 0 || targetFps > 0 {
-		inputSource := filePath
-		if info, err := os.Stat(filePath); err != nil || info.Size() <= 0 {
-			if err := service.ValidateSSRFProtectedFetchURL(rawURL); err != nil {
-				c.JSON(http.StatusForbidden, gin.H{"error": "Access to URL blocked: " + err.Error()})
-				return
-			}
-			inputSource = rawURL
-		}
-		transcodeAndStreamMedia(c, inputSource, targetHeight, targetFps)
-		return
-	}
-
-	// Cache hit: serve from disk (Range supported by http.ServeFile).
-	if !nostore {
-		if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
-			setMediaCacheHeaders(c)
-			c.File(filePath)
-			return
-		}
-	}
-
-	if err := service.ValidateSSRFProtectedFetchURL(rawURL); err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Access to URL blocked: " + err.Error()})
-		return
-	}
-
 	clientRange := c.GetHeader("Range")
-	if clientRange != "" || nostore {
-		streamMediaUpstream(c, rawURL, nostore, clientRange != "")
-		return
-	}
-
-	unlock := lockCacheFill(fileName)
-	defer unlock()
-	// Another goroutine may have filled the cache while we were waiting.
-	if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
-		setMediaCacheHeaders(c)
-		c.File(filePath)
-		return
-	}
-
-	streamMediaUpstreamNoLock(c, rawURL, filePath, fileName)
+	streamMediaUpstream(c, rawURL, nostore, clientRange != "")
 }
 
 // streamMediaUpstream proxies the upstream verbatim and never touches disk.
@@ -393,15 +472,13 @@ func DeleteCachedMedia(c *gin.Context) {
 	fileName := hash + ext
 	filePath := filepath.Join(mediaCacheDir, fileName)
 
-	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
-		return
-	}
-	// Clean any in-flight or stale temp files belonging to this key.
+	_ = os.Remove(filePath)
+
+	// Clean all transcoded variants (<hash>_h..._fps...) and temp files belonging to this key.
 	if entries, err := os.ReadDir(mediaCacheDir); err == nil {
 		for _, entry := range entries {
 			name := entry.Name()
-			if strings.HasPrefix(name, fileName+".") && strings.HasSuffix(name, ".tmp") {
+			if strings.HasPrefix(name, hash+"_") || strings.HasPrefix(name, fileName+".") || name == fileName {
 				_ = os.Remove(filepath.Join(mediaCacheDir, name))
 			}
 		}
@@ -410,10 +487,9 @@ func DeleteCachedMedia(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "media cache deleted"})
 }
 
-// transcodeAndStreamMedia streams transcoded video on-the-fly using ffmpeg.
-// Zero extra disk storage is used; ffmpeg output is piped straight to the client response.
-// Process is bounded by the client request context and terminates immediately if client disconnects.
-func transcodeAndStreamMedia(c *gin.Context, inputSource string, height int, fps int) {
+// transcodeMediaToFile transcodes an input media file to a faststart MP4 file.
+// Yields fully seekable video with HTTP 206 Range support and moov atom at the front.
+func transcodeMediaToFile(ctx context.Context, inputSource, outputPath string, height int, fps int) error {
 	var vfParts []string
 	if height > 0 {
 		vfParts = append(vfParts, fmt.Sprintf("scale=trunc(oh*a/2)*2:'min(ih,%d)'", height))
@@ -422,20 +498,16 @@ func transcodeAndStreamMedia(c *gin.Context, inputSource string, height int, fps
 		vfParts = append(vfParts, fmt.Sprintf("fps=%d", fps))
 	}
 
+	tempPath := fmt.Sprintf("%s.%s.tmp", outputPath, common.GetRandomString(6))
+
 	args := []string{
 		"-loglevel", "error",
-	}
-
-	ssParam := strings.TrimSpace(c.Query("ss"))
-	if ssParam != "" {
-		if targetSS, err := strconv.ParseFloat(ssParam, 64); err == nil && targetSS > 0 {
-			args = append(args, "-ss", fmt.Sprintf("%.2f", targetSS))
-		}
 	}
 
 	if strings.HasPrefix(inputSource, "http://") || strings.HasPrefix(inputSource, "https://") {
 		args = append(args, "-user-agent", "curl/8.4.0")
 	}
+
 	args = append(args,
 		"-i", inputSource,
 		"-vf", strings.Join(vfParts, ","),
@@ -446,37 +518,23 @@ func transcodeAndStreamMedia(c *gin.Context, inputSource string, height int, fps
 		"-crf", "26",
 		"-c:a", "aac",
 		"-strict", "experimental",
-		"-f", "mp4",
-		"-movflags", "frag_keyframe+empty_moov",
-		"pipe:1",
+		"-movflags", "+faststart",
+		"-y",
+		tempPath,
 	)
 
-	cmd := exec.CommandContext(c.Request.Context(), "ffmpeg", args...)
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	cmd.Stderr = os.Stderr
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create transcode pipe: " + err.Error()})
-		return
+	if err := cmd.Run(); err != nil {
+		_ = os.Remove(tempPath)
+		return err
 	}
 
-	if err := cmd.Start(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start ffmpeg: " + err.Error()})
-		return
+	if err := os.Rename(tempPath, outputPath); err != nil {
+		_ = os.Remove(tempPath)
+		return err
 	}
-	defer func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-		_ = cmd.Wait()
-	}()
-
-	c.Header("Content-Type", "video/mp4")
-	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
-	c.Header("X-Accel-Buffering", "no")
-	c.Header("Access-Control-Allow-Origin", "*")
-	c.Writer.WriteHeader(http.StatusOK)
-
-	_, _ = io.Copy(c.Writer, stdout)
+	return nil
 }
 
 type MediaProbeResult struct {
@@ -501,36 +559,10 @@ func ProbeMediaInfo(c *gin.Context) {
 		return
 	}
 
-	// Check if this is a local server upload file (e.g. /uploads/...)
-	isLocalUpload := strings.HasPrefix(rawURL, "/uploads/") || strings.HasPrefix(rawURL, "uploads/")
-	if !isLocalUpload {
-		if parsed, err := url.Parse(rawURL); err == nil {
-			if strings.HasPrefix(parsed.Path, "/uploads/") {
-				isLocalUpload = true
-				rawURL = parsed.Path
-			}
-		}
-	}
-
-	inputSource := rawURL
-	if isLocalUpload {
-		localFile := filepath.Clean(strings.TrimPrefix(rawURL, "/"))
-		if info, err := os.Stat(localFile); err == nil && info.Size() > 0 {
-			inputSource = localFile
-		}
-	} else {
-		hash, ext := getMediaCacheKey(rawURL)
-		fileName := hash + ext
-		filePath := filepath.Join(mediaCacheDir, fileName)
-
-		if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
-			inputSource = filePath
-		} else {
-			if err := service.ValidateSSRFProtectedFetchURL(rawURL); err != nil {
-				c.JSON(http.StatusForbidden, gin.H{"error": "Access to URL blocked: " + err.Error()})
-				return
-			}
-		}
+	inputSource, err := resolveMediaSource(c.Request.Context(), rawURL)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
 	args := []string{

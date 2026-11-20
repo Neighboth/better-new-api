@@ -383,13 +383,15 @@ export function VideoJsPlayer({
     toast.success(`Video bağlantısı (${time}s) panoya kopyalandı`)
   }, [src])
 
-  // Custom Context Menu handler: smart positioning that flips UPWARDS when clicking near bottom
+  // Custom Context Menu handler: smart positioning that flips UPWARDS when clicking near bottom,
+  // and renders at full natural height on large screens without forced scrollbars.
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
 
+    const fsEl = document.fullscreenElement as HTMLElement | null
     const skinEl = containerRef.current?.querySelector('.studio-video-skin') as HTMLElement | null
-    const container = skinEl || containerRef.current
+    const container = fsEl || skinEl || containerRef.current
     if (!container) return
 
     const rect = container.getBoundingClientRect()
@@ -397,7 +399,7 @@ export function VideoJsPlayer({
     const clickY = e.clientY - rect.top
 
     const menuWidth = 184
-    const estimatedMenuHeight = 230
+    const naturalMenuHeight = 350
     const pad = 6
 
     // Horizontal clamping
@@ -412,16 +414,25 @@ export function VideoJsPlayer({
     const spaceBelow = rect.height - clickY - pad
     const spaceAbove = clickY - pad
     let y: number
-    let maxHeight: number
+    let maxHeight: number | undefined
 
-    if (spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow) {
+    if (spaceBelow < naturalMenuHeight && spaceAbove > spaceBelow) {
       // Flip UPWARDS
-      maxHeight = Math.min(estimatedMenuHeight, spaceAbove)
-      y = Math.max(pad, clickY - maxHeight)
+      if (spaceAbove >= naturalMenuHeight) {
+        y = Math.max(pad, clickY - naturalMenuHeight)
+        maxHeight = undefined
+      } else {
+        maxHeight = Math.max(100, spaceAbove)
+        y = Math.max(pad, clickY - maxHeight)
+      }
     } else {
       // Open DOWNWARDS
       y = Math.max(pad, clickY)
-      maxHeight = Math.min(estimatedMenuHeight, Math.max(80, spaceBelow))
+      if (spaceBelow >= naturalMenuHeight) {
+        maxHeight = undefined
+      } else {
+        maxHeight = Math.max(100, spaceBelow)
+      }
     }
 
     setContextMenu({ x, y, maxHeight })

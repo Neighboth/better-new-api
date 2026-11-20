@@ -70,7 +70,27 @@ export function VideoSettingsPopover({
 }: VideoSettingsPopoverProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [view, setView] = useState<'main' | 'quality' | 'fps' | 'speed'>('main')
+  const [maxAvailableHeight, setMaxAvailableHeight] = useState<number | undefined>(undefined)
   const rootRef = useRef<HTMLDivElement>(null)
+
+  // Measure space above gear button so popover never overflows the top of video
+  useEffect(() => {
+    if (!isOpen) return
+    const updateMaxHeight = () => {
+      const container = rootRef.current?.closest('.studio-video-skin') as HTMLElement | null
+      if (container && rootRef.current) {
+        const containerRect = container.getBoundingClientRect()
+        const buttonRect = rootRef.current.getBoundingClientRect()
+        const spaceAbove = buttonRect.top - containerRect.top - 8
+        if (spaceAbove > 50) {
+          setMaxAvailableHeight(Math.floor(spaceAbove))
+        }
+      }
+    }
+    updateMaxHeight()
+    window.addEventListener('resize', updateMaxHeight)
+    return () => window.removeEventListener('resize', updateMaxHeight)
+  }, [isOpen])
 
   // Close on outside click
   useEffect(() => {
@@ -118,7 +138,10 @@ export function VideoSettingsPopover({
       {isOpen && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className="absolute bottom-full right-0 mb-2 w-44 rounded-lg bg-zinc-900/85 backdrop-blur-xl border border-white/10 p-1 shadow-2xl text-zinc-100 text-[11px] sm:text-xs select-none z-50 max-h-[min(260px,calc(100cqh-50px))] overflow-y-auto dark-custom-scrollbar studio-settings-popover animate-in fade-in zoom-in-95 duration-150"
+          style={{
+            maxHeight: maxAvailableHeight ? `${maxAvailableHeight}px` : undefined,
+          }}
+          className="absolute bottom-full right-0 mb-2 w-44 rounded-lg bg-zinc-900/85 backdrop-blur-xl border border-white/10 p-1 shadow-2xl text-zinc-100 text-[11px] sm:text-xs select-none z-50 max-h-56 overflow-y-auto dark-custom-scrollbar studio-settings-popover animate-in fade-in zoom-in-95 duration-150"
         >
           {view === 'main' && (
             <div className="space-y-0.5">
@@ -171,10 +194,10 @@ export function VideoSettingsPopover({
                 <span>Döngü</span>
                 <div
                   className={`w-7 h-4 rounded-full p-0.5 transition-colors flex items-center ${
-                    isLooping ? 'bg-emerald-500 justify-end' : 'bg-zinc-700/80 justify-start'
+                    isLooping ? 'bg-white justify-end' : 'bg-zinc-700/80 justify-start'
                   }`}
                 >
-                  <div className="w-3 h-3 rounded-full bg-white shadow-xs" />
+                  <div className={`w-3 h-3 rounded-full shadow-xs ${isLooping ? 'bg-zinc-950' : 'bg-white'}`} />
                 </div>
               </div>
 
@@ -186,10 +209,10 @@ export function VideoSettingsPopover({
                 <span>Geliştirici bilgisi</span>
                 <div
                   className={`w-7 h-4 rounded-full p-0.5 transition-colors flex items-center ${
-                    showStats ? 'bg-amber-500 justify-end' : 'bg-zinc-700/80 justify-start'
+                    showStats ? 'bg-white justify-end' : 'bg-zinc-700/80 justify-start'
                   }`}
                 >
-                  <div className="w-3 h-3 rounded-full bg-white shadow-xs" />
+                  <div className={`w-3 h-3 rounded-full shadow-xs ${showStats ? 'bg-zinc-950' : 'bg-white'}`} />
                 </div>
               </div>
             </div>
@@ -216,7 +239,7 @@ export function VideoSettingsPopover({
                   className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
                 >
                   <span>Otomatik</span>
-                  {selectedQuality === null && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
+                  {selectedQuality === null && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
                 </button>
                 {qualities.map((item) => (
                   <button
@@ -229,7 +252,7 @@ export function VideoSettingsPopover({
                     className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
                   >
                     <span>{item.label}</span>
-                    {selectedQuality === item.height && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
+                    {selectedQuality === item.height && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
                   </button>
                 ))}
               </div>
@@ -257,7 +280,7 @@ export function VideoSettingsPopover({
                   className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
                 >
                   <span>Orijinal</span>
-                  {selectedFps === null && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
+                  {selectedFps === null && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
                 </button>
                 {fpsList.map((item) => (
                   <button
@@ -270,7 +293,7 @@ export function VideoSettingsPopover({
                     className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
                   >
                     <span>{item.label}</span>
-                    {selectedFps === item.fps && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
+                    {selectedFps === item.fps && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
                   </button>
                 ))}
               </div>
@@ -300,7 +323,7 @@ export function VideoSettingsPopover({
                     className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
                   >
                     <span>{rate === 1 ? 'Normal' : `${rate}x`}</span>
-                    {playbackSpeed === rate && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
+                    {playbackSpeed === rate && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
                   </button>
                 ))}
               </div>

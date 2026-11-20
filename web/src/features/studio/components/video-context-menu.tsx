@@ -136,7 +136,7 @@ export function VideoContextMenu({
             className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
             <span>Döngü</span>
-            {isLooping && <Check className="w-3.5 h-3.5 text-emerald-400 studio-menu-icon" />}
+            {isLooping && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
           </button>
 
           {/* 3. Stats for Nerds */}
@@ -149,7 +149,7 @@ export function VideoContextMenu({
             className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
             <span>Geliştirici bilgisi</span>
-            {showStats && <Check className="w-3.5 h-3.5 text-amber-400 studio-menu-icon" />}
+            {showStats && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
           </button>
 
           <div className="h-px bg-white/10 my-0.5" />
@@ -268,7 +268,7 @@ export function VideoContextMenu({
               className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
             >
               <span>Otomatik</span>
-              {selectedQuality === null && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
+              {selectedQuality === null && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
             </button>
             {qualities.map((item) => (
               <button
@@ -281,7 +281,7 @@ export function VideoContextMenu({
                 className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
               >
                 <span>{item.label}</span>
-                {selectedQuality === item.height && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
+                {selectedQuality === item.height && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
               </button>
             ))}
           </div>
@@ -309,7 +309,7 @@ export function VideoContextMenu({
               className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
             >
               <span>Orijinal</span>
-              {selectedFps === null && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
+              {selectedFps === null && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
             </button>
             {fpsList.map((item) => (
               <button
@@ -322,7 +322,7 @@ export function VideoContextMenu({
                 className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
               >
                 <span>{item.label}</span>
-                {selectedFps === item.fps && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
+                {selectedFps === item.fps && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
               </button>
             ))}
           </div>
@@ -352,7 +352,7 @@ export function VideoContextMenu({
                 className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
               >
                 <span>{rate === 1 ? 'Normal' : `${rate}x`}</span>
-                {playbackSpeed === rate && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
+                {playbackSpeed === rate && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
               </button>
             ))}
           </div>

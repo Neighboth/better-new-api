@@ -1048,7 +1048,7 @@ export function Studio() {
       {/* Main Canvas Area */}
       <div className='mx-auto flex w-full max-w-4xl flex-1 flex-col justify-between p-4 md:p-8'>
         {/* Stage Area */}
-        <div className='flex flex-1 flex-col justify-center py-6 pb-20'>
+        <div className='flex flex-1 flex-col justify-start sm:justify-center py-4 pb-28 sm:pb-36'>
           {activeItem ? (
             <div className='space-y-6'>
               {/* Active / Latest Generation Display Card */}
@@ -1404,7 +1404,7 @@ export function Studio() {
             </div>
           )}
 
-          <div className='w-full rounded-2xl border border-border/80 bg-card/95 shadow-2xl backdrop-blur-xl transition focus-within:border-border'>
+          <div className='w-full rounded-2xl border border-border/80 bg-card shadow-2xl transition focus-within:border-border'>
             {/* Tabs: Video | Image */}
             <div className='relative flex items-center gap-1 border-b border-border/50 px-3 pt-2'>
               {runtime.video.enabled && (

@@ -30,7 +30,7 @@ export function VideoReplayOverlay({ onReplay }: VideoReplayOverlayProps) {
         e.stopPropagation()
         onReplay()
       }}
-      className="absolute inset-0 z-40 flex items-center justify-center bg-black/20 backdrop-blur-[1px] rounded-inherit overflow-hidden cursor-pointer animate-in fade-in duration-200"
+      className="absolute inset-0 z-20 flex items-center justify-center bg-black/20 backdrop-blur-[1px] rounded-inherit overflow-hidden cursor-pointer animate-in fade-in duration-200"
     >
       <button
         type="button"
