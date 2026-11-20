@@ -117,7 +117,7 @@ export function VideoJsPlayer({
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
 
   // Context menu state
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; maxHeight?: number } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; maxHeight?: number; isWide?: boolean } | null>(null)
 
   // Native metadata & selected options
   const [nativeWidth, setNativeWidth] = useState<number | undefined>(undefined)
@@ -383,8 +383,11 @@ export function VideoJsPlayer({
     toast.success(`Video bağlantısı (${time}s) panoya kopyalandı`)
   }, [src])
 
-  // Custom Context Menu handler: smart positioning that flips UPWARDS when clicking near bottom,
-  // and renders at full natural height on large screens without forced scrollbars.
+  // Custom Context Menu handler:
+  // 1. Dynamic width: wide menus on wide video boxes (and in fullscreen).
+  // 2. Smart positioning: if opening downwards would cause a scrollbar,
+  //    checks if the full menu fits slightly higher up / upwards and opens fully without scrolling.
+  //    Only scrolls if the video container itself is shorter than the menu.
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -398,9 +401,10 @@ export function VideoJsPlayer({
     const clickX = e.clientX - rect.left
     const clickY = e.clientY - rect.top
 
-    const menuWidth = 184
-    const naturalMenuHeight = 350
-    const pad = 6
+    const isWide = rect.width >= 480
+    const menuWidth = isWide ? 228 : 184
+    const naturalMenuHeight = isWide ? 370 : 345
+    const pad = 8
 
     // Horizontal clamping
     let x = clickX
@@ -410,32 +414,43 @@ export function VideoJsPlayer({
       x = Math.max(pad, x)
     }
 
-    // Vertical positioning: flip UPWARDS if clicking near bottom!
+    // Vertical positioning:
     const spaceBelow = rect.height - clickY - pad
     const spaceAbove = clickY - pad
     let y: number
     let maxHeight: number | undefined
 
-    if (spaceBelow < naturalMenuHeight && spaceAbove > spaceBelow) {
-      // Flip UPWARDS
-      if (spaceAbove >= naturalMenuHeight) {
-        y = Math.max(pad, clickY - naturalMenuHeight)
-        maxHeight = undefined
-      } else {
-        maxHeight = Math.max(100, spaceAbove)
-        y = Math.max(pad, clickY - maxHeight)
-      }
+    // 1. Does the menu fit naturally downwards from the click position?
+    if (spaceBelow >= naturalMenuHeight) {
+      y = clickY
+      maxHeight = undefined
     } else {
-      // Open DOWNWARDS
-      y = Math.max(pad, clickY)
-      if (spaceBelow >= naturalMenuHeight) {
+      // 2. Downwards would cause a scrollbar. Check if the container has enough total height
+      // to display the full menu without scrolling if shifted up.
+      const totalAvailableHeight = rect.height - pad * 2
+      if (totalAvailableHeight >= naturalMenuHeight) {
+        if (spaceAbove >= naturalMenuHeight) {
+          // Fits directly upwards from click
+          y = clickY - naturalMenuHeight
+        } else {
+          // Fits by shifting up so its bottom aligns nicely at (rect.height - pad)
+          y = Math.max(pad, rect.height - naturalMenuHeight - pad)
+        }
         maxHeight = undefined
       } else {
-        maxHeight = Math.max(100, spaceBelow)
+        // 3. Container itself is too small to display the full menu.
+        // Opens at click point with scrolling.
+        if (spaceBelow >= spaceAbove) {
+          y = Math.max(pad, clickY)
+          maxHeight = Math.max(80, spaceBelow)
+        } else {
+          maxHeight = Math.max(80, spaceAbove)
+          y = Math.max(pad, clickY - maxHeight)
+        }
       }
     }
 
-    setContextMenu({ x, y, maxHeight })
+    setContextMenu({ x, y, maxHeight, isWide })
   }
 
   // Gracefully handle video playback errors
@@ -507,6 +522,7 @@ export function VideoJsPlayer({
               x={contextMenu.x}
               y={contextMenu.y}
               maxHeight={contextMenu.maxHeight}
+              isWide={contextMenu.isWide}
               isPlaying={isPlaying}
               isLooping={isLooping}
               showStats={showStats}

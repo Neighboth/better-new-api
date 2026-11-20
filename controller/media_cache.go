@@ -217,7 +217,10 @@ func GetCachedMedia(c *gin.Context) {
 		}
 
 		if err := transcodeMediaToFile(c.Request.Context(), inputPath, transcodePath, targetHeight, targetFps); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Transcoding failed: " + err.Error()})
+			common.SysError(fmt.Sprintf("media transcode failed (%v), falling back to original media: %s", err, inputPath))
+			// Fallback gracefully to original media so playback never fails
+			setMediaCacheHeaders(c)
+			c.File(inputPath)
 			return
 		}
 
@@ -490,6 +493,11 @@ func DeleteCachedMedia(c *gin.Context) {
 // transcodeMediaToFile transcodes an input media file to a faststart MP4 file.
 // Yields fully seekable video with HTTP 206 Range support and moov atom at the front.
 func transcodeMediaToFile(ctx context.Context, inputSource, outputPath string, height int, fps int) error {
+	ffmpegBin, err := service.EnsureFFmpeg(ctx)
+	if err != nil || ffmpegBin == "" {
+		return fmt.Errorf("ffmpeg not available: %w", err)
+	}
+
 	var vfParts []string
 	if height > 0 {
 		vfParts = append(vfParts, fmt.Sprintf("scale=trunc(oh*a/2)*2:'min(ih,%d)'", height))
@@ -523,7 +531,7 @@ func transcodeMediaToFile(ctx context.Context, inputSource, outputPath string, h
 		tempPath,
 	)
 
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd := exec.CommandContext(ctx, ffmpegBin, args...)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		_ = os.Remove(tempPath)
@@ -579,7 +587,13 @@ func ProbeMediaInfo(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "ffprobe", args...)
+	ffprobeBin := service.FindFFprobe()
+	if ffprobeBin == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ffprobe is not available on host"})
+		return
+	}
+
+	cmd := exec.CommandContext(ctx, ffprobeBin, args...)
 	out, err := cmd.Output()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ffprobe failed: " + err.Error()})

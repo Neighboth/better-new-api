@@ -23,6 +23,7 @@ import {
   ChevronLeft,
   Check,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 export interface QualityItem {
   height: number
@@ -40,6 +41,7 @@ export interface VideoContextMenuProps {
   x: number
   y: number
   maxHeight?: number
+  isWide?: boolean
   isPlaying: boolean
   isLooping: boolean
   showStats: boolean
@@ -68,6 +70,7 @@ export function VideoContextMenu({
   x,
   y,
   maxHeight,
+  isWide = false,
   isPlaying,
   isLooping,
   showStats,
@@ -110,7 +113,10 @@ export function VideoContextMenu({
         maxHeight: maxHeight ? `${maxHeight}px` : 'calc(100% - 16px)',
       }}
       onClick={(e) => e.stopPropagation()}
-      className="absolute z-50 w-46 rounded-lg bg-zinc-900/85 backdrop-blur-xl border border-white/10 p-1 shadow-2xl text-zinc-100 text-[11px] sm:text-xs select-none dark-custom-scrollbar studio-context-menu overflow-y-auto animate-in fade-in zoom-in-95 duration-150"
+      className={cn(
+        "absolute z-50 rounded-lg bg-zinc-900/85 backdrop-blur-xl border border-white/10 p-1 shadow-2xl text-zinc-100 select-none dark-custom-scrollbar studio-context-menu overflow-y-auto animate-in fade-in zoom-in-95 duration-150",
+        isWide ? "w-56 sm:w-60 text-xs py-1.5" : "w-46 text-[11px] sm:text-xs"
+      )}
     >
       {view === 'main' && (
         <div className="space-y-0.5">
