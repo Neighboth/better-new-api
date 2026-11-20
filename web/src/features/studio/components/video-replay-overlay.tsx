@@ -30,7 +30,7 @@ export function VideoReplayOverlay({ onReplay }: VideoReplayOverlayProps) {
         e.stopPropagation()
         onReplay()
       }}
-      className="absolute inset-0 z-40 flex items-center justify-center bg-black/45 backdrop-blur-[2px] cursor-pointer animate-in fade-in duration-200"
+      className="absolute inset-0 z-40 flex items-center justify-center bg-black/20 backdrop-blur-[1px] rounded-inherit overflow-hidden cursor-pointer animate-in fade-in duration-200"
     >
       <button
         type="button"
@@ -38,10 +38,10 @@ export function VideoReplayOverlay({ onReplay }: VideoReplayOverlayProps) {
           e.stopPropagation()
           onReplay()
         }}
-        className="group relative flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-full bg-zinc-900/90 text-white border border-white/25 shadow-2xl hover:scale-110 active:scale-95 hover:bg-zinc-800 transition-all duration-200"
+        className="group relative flex items-center justify-center w-14 h-14 md:w-16 md:h-16 rounded-full bg-zinc-900/85 hover:bg-zinc-800/95 text-white border border-white/20 shadow-2xl hover:scale-110 active:scale-95 transition-all duration-200"
         title="Yeniden Başlat"
       >
-        <RotateCcw className="w-8 h-8 md:w-10 md:h-10 text-white transition-transform group-hover:-rotate-45 duration-300" />
+        <RotateCcw className="w-7 h-7 md:w-8 md:h-8 text-white transition-transform group-hover:-rotate-45 duration-300" />
       </button>
     </div>
   )

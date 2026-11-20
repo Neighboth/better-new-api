@@ -49,11 +49,11 @@ export interface VideoJsPlayerProps {
 }
 
 const STANDARD_HEIGHTS = [
-  { height: 2160, label: '4K (2160p)' },
-  { height: 1440, label: '1440p (QHD)' },
-  { height: 1080, label: '1080p (Full HD)' },
-  { height: 720, label: '720p (HD)' },
-  { height: 480, label: '480p (SD)' },
+  { height: 2160, label: '4K' },
+  { height: 1440, label: '1440p' },
+  { height: 1080, label: '1080p' },
+  { height: 720, label: '720p' },
+  { height: 480, label: '480p' },
   { height: 360, label: '360p' },
   { height: 260, label: '260p' },
   { height: 144, label: '144p' },
@@ -70,6 +70,15 @@ function getRawUrl(sourceUrl: string): string {
     }
   } catch {}
   return sourceUrl
+}
+
+function getFullUrl(sourceUrl: string): string {
+  const raw = getRawUrl(sourceUrl)
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    return raw
+  }
+  const cleanPath = raw.startsWith('/') ? raw : `/${raw}`
+  return `${window.location.origin}${cleanPath}`
 }
 
 function buildTranscodedUrl(rawUrl: string, height: number | null, fps: number | null): string {
@@ -131,7 +140,7 @@ export function VideoJsPlayer({
   // Probe media metadata on mount/src change
   useEffect(() => {
     const rawUrl = getRawUrl(src)
-    if (!rawUrl || (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://'))) return
+    if (!rawUrl) return
 
     let isMounted = true
     fetch(`/api/media/probe?url=${encodeURIComponent(rawUrl)}`)
@@ -200,7 +209,7 @@ export function VideoJsPlayer({
     }
   }, [controlsPrimaryEl])
 
-  // Compute available qualities (only <= original height, plus custom detected height)
+  // Compute available qualities without parentheses
   const availableQualities: QualityItem[] = useMemo(() => {
     const origH = nativeHeight || 720
     let list = STANDARD_HEIGHTS.filter((item) => item.height <= origH)
@@ -214,11 +223,11 @@ export function VideoJsPlayer({
     return list.map((item) => ({
       ...item,
       isOriginal: item.height === origH,
-      label: item.height === origH ? `${item.label} (Orijinal)` : item.label,
+      label: item.label,
     }))
   }, [nativeHeight])
 
-  // Compute available FPS (only <= original FPS, plus custom detected FPS)
+  // Compute available FPS without parentheses
   const availableFps: FpsItem[] = useMemo(() => {
     const origFps = nativeFps || 30
     let list = STANDARD_FPS.filter((fps) => fps <= origFps)
@@ -231,7 +240,7 @@ export function VideoJsPlayer({
     return list.map((fps) => ({
       fps,
       isOriginal: fps === origFps,
-      label: fps === origFps ? `${fps} FPS (Orijinal)` : `${fps} FPS`,
+      label: `${fps} FPS`,
     }))
   }, [nativeFps])
 
@@ -361,15 +370,15 @@ export function VideoJsPlayer({
   }, [currentSrc])
 
   const handleCopyUrl = useCallback(async () => {
-    const raw = getRawUrl(src)
-    await navigator.clipboard.writeText(raw)
+    const full = getFullUrl(src)
+    await navigator.clipboard.writeText(full)
     toast.success('Video bağlantısı panoya kopyalandı')
   }, [src])
 
   const handleCopyUrlAtTime = useCallback(async () => {
-    const raw = getRawUrl(src)
+    const full = getFullUrl(src)
     const time = Math.floor(videoRef.current?.currentTime || 0)
-    const urlWithTime = `${raw}#t=${time}`
+    const urlWithTime = `${full}#t=${time}`
     await navigator.clipboard.writeText(urlWithTime)
     toast.success(`Video bağlantısı (${time}s) panoya kopyalandı`)
   }, [src])
@@ -385,18 +394,32 @@ export function VideoJsPlayer({
     const clickY = e.clientY - rect.top
 
     // Clamp inside container
-    const menuWidth = 260
-    const menuHeight = 360
-    const x = Math.min(Math.max(8, clickX), Math.max(8, rect.width - menuWidth - 8))
-    const y = Math.min(Math.max(8, clickY), Math.max(8, rect.height - menuHeight - 8))
+    const menuWidth = 192
+    const menuHeight = 240
+    const x = Math.min(Math.max(4, clickX), Math.max(4, rect.width - menuWidth - 4))
+    const y = Math.min(Math.max(4, clickY), Math.max(4, rect.height - menuHeight - 4))
 
     setContextMenu({ x, y })
+  }
+
+  // Gracefully handle video playback errors
+  const handleVideoError = () => {
+    if (selectedQuality !== null || selectedFps !== null) {
+      // Transcode stream error: revert to original without marking item as broken
+      setSelectedQuality(null)
+      setSelectedFps(null)
+      setCurrentSrc(src)
+      toast.error('Seçilen kalitede video akışı açılamadı, orijinal kaliteye dönüldü')
+      return
+    }
+    // Only call outer onError if the original source itself failed
+    onError?.()
   }
 
   return (
     <div
       ref={containerRef}
-      className={cn('relative w-full h-full select-none group/studio-player', className)}
+      className={cn('relative w-full h-full select-none overflow-hidden rounded-inherit group/studio-player', className)}
       onContextMenu={handleContextMenu}
     >
       <VideoPlayer>
@@ -410,7 +433,7 @@ export function VideoJsPlayer({
             controls={false}
             playsInline={playsInline}
             preload={preload}
-            onError={onError}
+            onError={handleVideoError}
             onLoadedMetadata={handleLoadedMetadata}
             onPlay={() => {
               setIsPlaying(true)

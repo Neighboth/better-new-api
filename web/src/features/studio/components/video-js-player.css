@@ -3,6 +3,8 @@
 /* 1. Base scale: compact 0.75 when in normal mode, regular/larger scale in fullscreen */
 .studio-video-skin {
   --media-scale: 0.75;
+  overflow: hidden !important;
+  border-radius: inherit;
 }
 
 /* In fullscreen, restore normal/larger scale so controls are appropriately sized */

@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import { useEffect, useState } from 'react'
-import { X, Activity } from 'lucide-react'
+import { X } from 'lucide-react'
 
 export interface VideoStatsDialogProps {
   videoEl: HTMLVideoElement | null
@@ -127,18 +127,17 @@ export function VideoStatsDialog({
 
   return (
     <div
-      className="absolute top-3 left-3 z-50 min-w-[280px] max-w-[340px] rounded-lg bg-black/85 backdrop-blur-md p-3 text-xs font-mono text-zinc-200 shadow-2xl border border-white/15 select-none pointer-events-auto"
+      className="absolute top-2 left-2 z-50 min-w-[230px] max-w-[270px] rounded-2xl bg-zinc-900/75 backdrop-blur-xl p-2.5 text-[11px] font-mono text-zinc-100 shadow-2xl border border-white/10 select-none pointer-events-auto"
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="flex items-center justify-between border-b border-white/10 pb-1.5 mb-2">
-        <div className="flex items-center gap-1.5 text-blue-400 font-semibold tracking-wide uppercase text-[11px]">
-          <Activity className="w-3.5 h-3.5" />
-          <span>Geliştirici Bilgisi</span>
-        </div>
+      <div className="flex items-center justify-between border-b border-white/10 pb-1 mb-1.5">
+        <span className="text-zinc-200 font-semibold tracking-wide uppercase text-[10px]">
+          Geliştirici Bilgisi
+        </span>
         <button
           type="button"
           onClick={onClose}
-          className="text-zinc-400 hover:text-white transition-colors p-0.5 rounded hover:bg-white/10"
+          className="text-zinc-400 hover:text-white transition-colors p-0.5 rounded-md hover:bg-white/10"
           title="Kapat"
         >
           <X className="w-3.5 h-3.5" />
@@ -149,7 +148,7 @@ export function VideoStatsDialog({
         <div className="flex justify-between">
           <span className="text-zinc-400">Çözünürlük:</span>
           <span className="text-zinc-100 font-medium">
-            {stats.currentRes} {selectedQualityLabel ? `(${selectedQualityLabel})` : ''}
+            {stats.currentRes} {selectedQualityLabel ? `[${selectedQualityLabel}]` : ''}
           </span>
         </div>
         <div className="flex justify-between">
@@ -157,7 +156,7 @@ export function VideoStatsDialog({
           <span className="text-zinc-100">{stats.viewportRes}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-zinc-400">Kare Hızı (FPS):</span>
+          <span className="text-zinc-400">Kare Hızı:</span>
           <span className="text-zinc-100 font-medium">
             {selectedFpsLabel || (nativeFps ? `${nativeFps} FPS` : '30 FPS')}
           </span>
@@ -193,7 +192,7 @@ export function VideoStatsDialog({
         <div className="flex justify-between pt-1 border-t border-white/10">
           <span className="text-zinc-400">Yayın Tipi:</span>
           <span className={stats.isTranscoded ? 'text-amber-400' : 'text-blue-400'}>
-            {stats.isTranscoded ? 'Dinamik Transcode' : 'Orijinal Kaynak'}
+            {stats.isTranscoded ? 'Transcode' : 'Orijinal'}
           </span>
         </div>
       </div>

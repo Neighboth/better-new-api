@@ -1487,7 +1487,7 @@ export function Studio() {
                 </button>
               )}
               <div className='ml-auto pe-1 pb-1.5 text-[10px] tabular-nums text-muted-foreground/70'>
-                {prompt.length > 0 ? t('{{count}} / 20000 characters', { count: prompt.length }) : ''}
+                {prompt.length > 0 ? t('{{count}} / 15000 characters', { count: prompt.length }) : ''}
               </div>
             </div>
 
@@ -1495,13 +1495,13 @@ export function Studio() {
             <div className='px-4 pb-1 pt-3'>
               <textarea
                 value={prompt}
-                onChange={(e) => setPrompt(e.target.value.slice(0, 20000))}
+                onChange={(e) => setPrompt(e.target.value.slice(0, 15000))}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePromptPaste}
                 placeholder={t('What do you want to create?')}
                 className='h-12 sm:h-14 w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-0'
                 rows={2}
-                maxLength={20000}
+                maxLength={15000}
               />
             </div>
 

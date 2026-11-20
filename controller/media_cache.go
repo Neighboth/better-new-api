@@ -79,6 +79,38 @@ func GetCachedMedia(c *gin.Context) {
 		return
 	}
 
+	heightParam := c.Query("height")
+	if heightParam == "" {
+		heightParam = c.Query("h")
+	}
+	fpsParam := c.Query("fps")
+	targetHeight, _ := strconv.Atoi(heightParam)
+	targetFps, _ := strconv.Atoi(fpsParam)
+
+	// Check if this is a local server upload file (e.g. /uploads/...)
+	isLocalUpload := strings.HasPrefix(rawURL, "/uploads/") || strings.HasPrefix(rawURL, "uploads/")
+	if !isLocalUpload {
+		if parsed, err := url.Parse(rawURL); err == nil {
+			if strings.HasPrefix(parsed.Path, "/uploads/") {
+				isLocalUpload = true
+				rawURL = parsed.Path
+			}
+		}
+	}
+
+	if isLocalUpload {
+		localFile := filepath.Clean(strings.TrimPrefix(rawURL, "/"))
+		if info, err := os.Stat(localFile); err == nil && info.Size() > 0 {
+			if targetHeight > 0 || targetFps > 0 {
+				transcodeAndStreamMedia(c, localFile, targetHeight, targetFps)
+				return
+			}
+			setMediaCacheHeaders(c)
+			c.File(localFile)
+			return
+		}
+	}
+
 	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Only HTTP/HTTPS URLs are allowed"})
 		return
@@ -88,14 +120,6 @@ func GetCachedMedia(c *gin.Context) {
 	hash, ext := getMediaCacheKey(rawURL)
 	fileName := hash + ext
 	filePath := filepath.Join(mediaCacheDir, fileName)
-
-	heightParam := c.Query("height")
-	if heightParam == "" {
-		heightParam = c.Query("h")
-	}
-	fpsParam := c.Query("fps")
-	targetHeight, _ := strconv.Atoi(heightParam)
-	targetFps, _ := strconv.Atoi(fpsParam)
 
 	// If on-the-fly transcoding is requested, stream directly via ffmpeg without extra disk storage
 	if targetHeight > 0 || targetFps > 0 {
@@ -402,6 +426,14 @@ func transcodeAndStreamMedia(c *gin.Context, inputSource string, height int, fps
 		"-hide_banner",
 		"-loglevel", "error",
 	}
+
+	ssParam := strings.TrimSpace(c.Query("ss"))
+	if ssParam != "" {
+		if targetSS, err := strconv.ParseFloat(ssParam, 64); err == nil && targetSS > 0 {
+			args = append(args, "-ss", fmt.Sprintf("%.2f", targetSS))
+		}
+	}
+
 	if strings.HasPrefix(inputSource, "http://") || strings.HasPrefix(inputSource, "https://") {
 		args = append(args, "-user-agent", "curl/8.4.0")
 	}
@@ -469,17 +501,35 @@ func ProbeMediaInfo(c *gin.Context) {
 		return
 	}
 
-	hash, ext := getMediaCacheKey(rawURL)
-	fileName := hash + ext
-	filePath := filepath.Join(mediaCacheDir, fileName)
+	// Check if this is a local server upload file (e.g. /uploads/...)
+	isLocalUpload := strings.HasPrefix(rawURL, "/uploads/") || strings.HasPrefix(rawURL, "uploads/")
+	if !isLocalUpload {
+		if parsed, err := url.Parse(rawURL); err == nil {
+			if strings.HasPrefix(parsed.Path, "/uploads/") {
+				isLocalUpload = true
+				rawURL = parsed.Path
+			}
+		}
+	}
 
 	inputSource := rawURL
-	if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
-		inputSource = filePath
+	if isLocalUpload {
+		localFile := filepath.Clean(strings.TrimPrefix(rawURL, "/"))
+		if info, err := os.Stat(localFile); err == nil && info.Size() > 0 {
+			inputSource = localFile
+		}
 	} else {
-		if err := service.ValidateSSRFProtectedFetchURL(rawURL); err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access to URL blocked: " + err.Error()})
-			return
+		hash, ext := getMediaCacheKey(rawURL)
+		fileName := hash + ext
+		filePath := filepath.Join(mediaCacheDir, fileName)
+
+		if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
+			inputSource = filePath
+		} else {
+			if err := service.ValidateSSRFProtectedFetchURL(rawURL); err != nil {
+				c.JSON(http.StatusForbidden, gin.H{"error": "Access to URL blocked: " + err.Error()})
+				return
+			}
 		}
 	}
 
