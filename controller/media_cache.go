@@ -1,16 +1,22 @@
 package controller
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/service"
@@ -82,6 +88,28 @@ func GetCachedMedia(c *gin.Context) {
 	hash, ext := getMediaCacheKey(rawURL)
 	fileName := hash + ext
 	filePath := filepath.Join(mediaCacheDir, fileName)
+
+	heightParam := c.Query("height")
+	if heightParam == "" {
+		heightParam = c.Query("h")
+	}
+	fpsParam := c.Query("fps")
+	targetHeight, _ := strconv.Atoi(heightParam)
+	targetFps, _ := strconv.Atoi(fpsParam)
+
+	// If on-the-fly transcoding is requested, stream directly via ffmpeg without extra disk storage
+	if targetHeight > 0 || targetFps > 0 {
+		inputSource := filePath
+		if info, err := os.Stat(filePath); err != nil || info.Size() <= 0 {
+			if err := service.ValidateSSRFProtectedFetchURL(rawURL); err != nil {
+				c.JSON(http.StatusForbidden, gin.H{"error": "Access to URL blocked: " + err.Error()})
+				return
+			}
+			inputSource = rawURL
+		}
+		transcodeAndStreamMedia(c, inputSource, targetHeight, targetFps)
+		return
+	}
 
 	// Cache hit: serve from disk (Range supported by http.ServeFile).
 	if !nostore {
@@ -357,3 +385,166 @@ func DeleteCachedMedia(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "media cache deleted"})
 }
+
+// transcodeAndStreamMedia streams transcoded video on-the-fly using ffmpeg.
+// Zero extra disk storage is used; ffmpeg output is piped straight to the client response.
+// Process is bounded by the client request context and terminates immediately if client disconnects.
+func transcodeAndStreamMedia(c *gin.Context, inputSource string, height int, fps int) {
+	var vfParts []string
+	if height > 0 {
+		vfParts = append(vfParts, fmt.Sprintf("scale=trunc(oh*a/2)*2:'min(ih,%d)'", height))
+	}
+	if fps > 0 {
+		vfParts = append(vfParts, fmt.Sprintf("fps=%d", fps))
+	}
+
+	args := []string{
+		"-hide_banner",
+		"-loglevel", "error",
+	}
+	if strings.HasPrefix(inputSource, "http://") || strings.HasPrefix(inputSource, "https://") {
+		args = append(args, "-user-agent", "curl/8.4.0")
+	}
+	args = append(args,
+		"-i", inputSource,
+		"-vf", strings.Join(vfParts, ","),
+		"-pix_fmt", "yuv420p",
+		"-c:v", "libx264",
+		"-preset", "ultrafast",
+		"-tune", "zerolatency",
+		"-crf", "26",
+		"-c:a", "aac",
+		"-strict", "experimental",
+		"-f", "mp4",
+		"-movflags", "frag_keyframe+empty_moov",
+		"pipe:1",
+	)
+
+	cmd := exec.CommandContext(c.Request.Context(), "ffmpeg", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create transcode pipe: " + err.Error()})
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start ffmpeg: " + err.Error()})
+		return
+	}
+	defer func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+	}()
+
+	c.Header("Content-Type", "video/mp4")
+	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.Header("X-Accel-Buffering", "no")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Writer.WriteHeader(http.StatusOK)
+
+	_, _ = io.Copy(c.Writer, stdout)
+}
+
+type MediaProbeResult struct {
+	Width    int     `json:"width"`
+	Height   int     `json:"height"`
+	FPS      float64 `json:"fps"`
+	Duration float64 `json:"duration"`
+}
+
+var mediaProbeCache sync.Map
+
+// ProbeMediaInfo returns video resolution, fps, and duration using ffprobe.
+func ProbeMediaInfo(c *gin.Context) {
+	rawURL := strings.TrimSpace(c.Query("url"))
+	if rawURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "url parameter is required"})
+		return
+	}
+
+	if val, ok := mediaProbeCache.Load(rawURL); ok {
+		c.JSON(http.StatusOK, val)
+		return
+	}
+
+	hash, ext := getMediaCacheKey(rawURL)
+	fileName := hash + ext
+	filePath := filepath.Join(mediaCacheDir, fileName)
+
+	inputSource := rawURL
+	if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
+		inputSource = filePath
+	} else {
+		if err := service.ValidateSSRFProtectedFetchURL(rawURL); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access to URL blocked: " + err.Error()})
+			return
+		}
+	}
+
+	args := []string{
+		"-v", "error",
+		"-select_streams", "v:0",
+		"-show_entries", "stream=width,height,r_frame_rate,duration",
+		"-of", "json",
+	}
+	if strings.HasPrefix(inputSource, "http://") || strings.HasPrefix(inputSource, "https://") {
+		args = append(args, "-user-agent", "curl/8.4.0")
+	}
+	args = append(args, inputSource)
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ffprobe", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ffprobe failed: " + err.Error()})
+		return
+	}
+
+	var parsed struct {
+		Streams []struct {
+			Width      int    `json:"width"`
+			Height     int    `json:"height"`
+			RFrameRate string `json:"r_frame_rate"`
+			Duration   string `json:"duration"`
+		} `json:"streams"`
+	}
+	if err := json.Unmarshal(out, &parsed); err != nil || len(parsed.Streams) == 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse probe data"})
+		return
+	}
+
+	stream := parsed.Streams[0]
+	fps := parseFrameRate(stream.RFrameRate)
+	dur, _ := strconv.ParseFloat(stream.Duration, 64)
+
+	res := MediaProbeResult{
+		Width:    stream.Width,
+		Height:   stream.Height,
+		FPS:      fps,
+		Duration: dur,
+	}
+	mediaProbeCache.Store(rawURL, res)
+	c.JSON(http.StatusOK, res)
+}
+
+func parseFrameRate(r string) float64 {
+	parts := strings.Split(r, "/")
+	if len(parts) == 2 {
+		num, err1 := strconv.ParseFloat(parts[0], 64)
+		den, err2 := strconv.ParseFloat(parts[1], 64)
+		if err1 == nil && err2 == nil && den != 0 {
+			return math.Round((num/den)*100) / 100
+		}
+	} else if len(parts) == 1 {
+		num, err := strconv.ParseFloat(parts[0], 64)
+		if err == nil {
+			return num
+		}
+	}
+	return 30
+}
+

@@ -18,7 +18,17 @@
   display: none !important;
 }
 
-/* 3. When container is compact (< 32rem), move fullscreen button to the bottom-right of the control bar */
+/* 3. Hide default video settings menu so our custom settings menu (Quality, FPS, Loop) takes its place */
+.studio-video-skin .video-controls-settings-button {
+  display: none !important;
+}
+
+/* 4. Hide default center play button when ended so our YouTube-style replay button takes center stage */
+.studio-video-skin .video-controls-center-play[data-ended] {
+  display: none !important;
+}
+
+/* 5. When container is compact (< 32rem), move fullscreen button to the bottom-right of the control bar */
 @container media-root (width < 32rem) {
   .studio-video-skin .video-controls-secondary {
     position: absolute !important;
@@ -38,17 +48,4 @@
   .studio-video-skin .video-controls-primary {
     right: calc(var(--media-spacing) * 2 + var(--media-control-size) + var(--media-spacing) * 2) !important;
   }
-}
-
-/* 4. When video ends, show center play/restart button prominently */
-.studio-video-skin .video-controls-center-play[data-ended] {
-  pointer-events: auto !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-}
-
-.studio-video-skin :where(.video-controls-center):has([data-ended]) {
-  opacity: 1 !important;
-  scale: 1 !important;
-  pointer-events: auto !important;
 }

@@ -107,6 +107,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.POST("/verify", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.UniversalVerify)
 		apiRouter.GET("/test-media/:id", controller.GetChannelTestMedia)
 		apiRouter.GET("/media/cache", controller.GetCachedMedia)
+		apiRouter.GET("/media/probe", controller.ProbeMediaInfo)
 		apiRouter.POST("/media/cache", controller.PreCacheMedia)
 		apiRouter.DELETE("/media/cache", controller.DeleteCachedMedia)
 		apiRouter.GET("/media/storage", middleware.UserAuth(), controller.GetVideoStorageStats)
