@@ -22,6 +22,7 @@ For commercial licensing, please contact support@quantumnous.com
  */
 import '@videojs/react/video/skin.css'
 import { VideoPlayer, VideoSkin, Video } from '@videojs/react/video'
+import { cn } from '@/lib/utils'
 
 export interface VideoJsPlayerProps {
   src: string
@@ -42,21 +43,29 @@ export function VideoJsPlayer({
   autoPlay = false,
   loop = false,
   muted = false,
-  controls = true,
   playsInline = true,
   preload = 'auto',
   className,
   onError,
 }: VideoJsPlayerProps) {
+  // Native HTML5 controls on <Video> must be omitted/false to avoid a duplicate
+  // browser player bar rendered inside the video element. VideoSkin handles custom controls.
+  // We scale down the controls bar using CSS custom property (--media-scale)
+  // so it sits sleek and compact on both desktop and mobile viewports.
   return (
     <VideoPlayer>
-      <VideoSkin className={className}>
+      <VideoSkin
+        className={cn(
+          '[--media-scale:0.75]',
+          className
+        )}
+      >
         <Video
           src={src}
           autoPlay={autoPlay}
           loop={loop}
           muted={muted}
-          controls={controls}
+          controls={false}
           playsInline={playsInline}
           preload={preload}
           onError={onError}
