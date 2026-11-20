@@ -21,6 +21,7 @@ For commercial licensing, please contact support@quantumnous.com
  * Studio video player built on Video.js v10 default theme (@videojs/react).
  */
 import '@videojs/react/video/skin.css'
+import './video-js-player.css'
 import { VideoPlayer, VideoSkin, Video } from '@videojs/react/video'
 import { cn } from '@/lib/utils'
 
@@ -48,18 +49,9 @@ export function VideoJsPlayer({
   className,
   onError,
 }: VideoJsPlayerProps) {
-  // Native HTML5 controls on <Video> must be omitted/false to avoid a duplicate
-  // browser player bar rendered inside the video element. VideoSkin handles custom controls.
-  // We scale down the controls bar using CSS custom property (--media-scale)
-  // so it sits sleek and compact on both desktop and mobile viewports.
   return (
     <VideoPlayer>
-      <VideoSkin
-        className={cn(
-          '[--media-scale:0.75]',
-          className
-        )}
-      >
+      <VideoSkin className={cn('studio-video-skin', className)}>
         <Video
           src={src}
           autoPlay={autoPlay}

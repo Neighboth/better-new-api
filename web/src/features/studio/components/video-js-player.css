@@ -1,0 +1,54 @@
+/* Custom adjustments for Video.js v10 in Studio */
+
+/* 1. Base scale: compact 0.75 when in normal mode, regular/larger scale in fullscreen */
+.studio-video-skin {
+  --media-scale: 0.75;
+}
+
+/* In fullscreen, restore normal/larger scale so controls are appropriately sized */
+.studio-video-skin:fullscreen,
+.studio-video-skin:is(:fullscreen, :-webkit-full-screen, :-moz-full-screen) {
+  --media-scale: 1.15;
+}
+
+/* 2. Hide Cast and Picture-in-Picture buttons (and any airplay button) */
+.studio-video-skin .media-cast-button,
+.studio-video-skin .media-pip-button,
+.studio-video-skin .media-airplay-button {
+  display: none !important;
+}
+
+/* 3. When container is compact (< 32rem), move fullscreen button to the bottom-right of the control bar */
+@container media-root (width < 32rem) {
+  .studio-video-skin .video-controls-secondary {
+    position: absolute !important;
+    top: auto !important;
+    bottom: calc(var(--media-spacing) * 2) !important;
+    right: calc(var(--media-spacing) * 2) !important;
+    padding: calc(var(--media-spacing) * 0.5) !important;
+    background-color: var(--media-popover) !important;
+    box-shadow: 0 0 0 1px var(--media-surface-border, var(--media-border)), var(--media-shadow-surface) !important;
+    border-radius: var(--media-controls-radius) !important;
+    display: flex !important;
+    align-items: center !important;
+    z-index: 35 !important;
+  }
+
+  /* Make sure the primary control bar leaves room on the right for the fullscreen pill */
+  .studio-video-skin .video-controls-primary {
+    right: calc(var(--media-spacing) * 2 + var(--media-control-size) + var(--media-spacing) * 2) !important;
+  }
+}
+
+/* 4. When video ends, show center play/restart button prominently */
+.studio-video-skin .video-controls-center-play[data-ended] {
+  pointer-events: auto !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.studio-video-skin :where(.video-controls-center):has([data-ended]) {
+  opacity: 1 !important;
+  scale: 1 !important;
+  pointer-events: auto !important;
+}

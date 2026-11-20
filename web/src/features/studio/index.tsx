@@ -1241,7 +1241,7 @@ export function Studio() {
                             <VideoJsPlayer
                               key={singleVideoUrl}
                               autoPlay
-                              loop
+                              loop={false}
                               className='max-h-[380px] w-full object-contain bg-black rounded-lg'
                               src={getPlayableItemUrl(activeItem, localOnlyUrls) || singleVideoUrl}
                               qualityLabel={activeItem.settings?.quality != null ? String(activeItem.settings.quality) : undefined}
