@@ -273,14 +273,14 @@ function formatBytes(value?: number): string {
   return `${(value / (1024 * 1024)).toFixed(1)} MB`
 }
 
+interface VideoStorageQuotaProps {
+  onConfirmOldest: () => void
+  deleting: boolean
+}
+
 /** Shows the per-user video storage quota and offers to free space by deleting the oldest videos. Compact single-row design. */
-function VideoStorageQuota() {
+function VideoStorageQuota({ onConfirmOldest, deleting }: VideoStorageQuotaProps) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const [deleting, setDeleting] = useState(false)
-  const [confirmOldestOpen, setConfirmOldestOpen] = useState(false)
-  const [confirmAllOpen, setConfirmAllOpen] = useState(false)
-  const [totalToWipe, setTotalToWipe] = useState({ bytes: 0, count: 0 })
   const { data } = useQuery({
     queryKey: ['media-storage'],
     queryFn: async () => {
@@ -294,43 +294,6 @@ function VideoStorageQuota() {
   const ratio = limit > 0 ? Math.min(1, used / limit) : 0
   const over = limit > 0 && used >= limit
   const percent = Math.round(ratio * 100)
-
-  // Runs the delete sweep. Confirms happen in the dialogs — never window.confirm.
-  const runDelete = async (all: boolean) => {
-    setDeleting(true)
-    try {
-      const res = await api.delete(`/api/media/storage${all ? '?all=1' : ''}`, {
-        skipErrorHandler: true,
-      } as Record<string, unknown>)
-      const freed = Number(res?.data?.data?.freed_bytes ?? 0)
-      const deletedUrls = (res?.data?.data?.deleted_urls ?? []) as string[]
-      await queryClient.invalidateQueries({ queryKey: ['media-storage'] })
-      if (deletedUrls.length > 0) {
-        // Drop the matching cards from the local history so the popup is
-        // consistent with the server immediately, even before a reload.
-        window.dispatchEvent(
-          new CustomEvent(STUDIO_ITEMS_PURGED_EVENT, { detail: { urls: deletedUrls } })
-        )
-      }
-      toast.success(t('Freed {{freed}} of storage by deleting oldest videos.', { freed: formatBytes(freed) }))
-    } catch (err) {
-      const response = (err as { response?: { status?: number; data?: Record<string, unknown> } })?.response
-      if (
-        response?.status === 409 &&
-        response.data?.code === 'would_delete_all_stored'
-      ) {
-        setTotalToWipe({
-          bytes: Number(response.data.total_bytes ?? 0),
-          count: Number(response.data.total_count ?? 0),
-        })
-        setConfirmAllOpen(true)
-      } else {
-        toast.error(t('Failed to delete old videos.'))
-      }
-    } finally {
-      setDeleting(false)
-    }
-  }
 
   return (
     <div className='border-b border-border/60 bg-muted/30 px-3 sm:px-4 py-1.5 flex items-center gap-2'>
@@ -361,61 +324,12 @@ function VideoStorageQuota() {
         type='button'
         className='shrink-0 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[9px] font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40 disabled:pointer-events-none'
         disabled={deleting || used <= 0}
-        onClick={() => setConfirmOldestOpen(true)}
+        onClick={onConfirmOldest}
         title={t('Delete the oldest videos to free up space')}
       >
         {deleting ? <Loader2Icon className='size-3 animate-spin' /> : <Trash2Icon className='size-3' />}
         <span className='hidden xs:inline sm:inline'>{t('Delete oldest')}</span>
       </button>
-
-      <AlertDialog open={confirmOldestOpen} onOpenChange={setConfirmOldestOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('Delete the oldest videos?')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('The oldest stored videos are deleted until at least 256 MB are freed. This cannot be undone.')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setConfirmOldestOpen(false)
-                void runDelete(false)
-              }}
-              className='bg-destructive text-white hover:bg-destructive/90'
-            >
-              {t('Delete oldest')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={confirmAllOpen} onOpenChange={setConfirmAllOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('Delete ALL stored videos?')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t(
-                'Freeing that much space would delete your entire stored library ({{count}} videos · {{size}}). Delete everything?',
-                { count: totalToWipe.count, size: formatBytes(totalToWipe.bytes) }
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setConfirmAllOpen(false)
-                void runDelete(true)
-              }}
-              className='bg-destructive text-white hover:bg-destructive/90'
-            >
-              {t('Delete all')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }
@@ -441,6 +355,45 @@ export function Studio() {
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [deleteConfirmItemId, setDeleteConfirmItemId] = useState<string | null>(null)
   const [detailsItemId, setDetailsItemId] = useState<string | null>(null)
+  const queryClient = useQueryClient()
+  const [confirmOldestOpen, setConfirmOldestOpen] = useState(false)
+  const [confirmAllOpen, setConfirmAllOpen] = useState(false)
+  const [totalToWipe, setTotalToWipe] = useState({ bytes: 0, count: 0 })
+  const [deletingStorage, setDeletingStorage] = useState(false)
+
+  const runDeleteStorage = async (all: boolean) => {
+    setDeletingStorage(true)
+    try {
+      const res = await api.delete(`/api/media/storage${all ? '?all=1' : ''}`, {
+        skipErrorHandler: true,
+      } as Record<string, unknown>)
+      const freed = Number(res?.data?.data?.freed_bytes ?? 0)
+      const deletedUrls = (res?.data?.data?.deleted_urls ?? []) as string[]
+      await queryClient.invalidateQueries({ queryKey: ['media-storage'] })
+      if (deletedUrls.length > 0) {
+        window.dispatchEvent(
+          new CustomEvent(STUDIO_ITEMS_PURGED_EVENT, { detail: { urls: deletedUrls } })
+        )
+      }
+      toast.success(t('Freed {{freed}} of storage by deleting oldest videos.', { freed: formatBytes(freed) }))
+    } catch (err) {
+      const response = (err as { response?: { status?: number; data?: Record<string, unknown> } })?.response
+      if (
+        response?.status === 409 &&
+        response.data?.code === 'would_delete_all_stored'
+      ) {
+        setTotalToWipe({
+          bytes: Number(response.data.total_bytes ?? 0),
+          count: Number(response.data.total_count ?? 0),
+        })
+        setConfirmAllOpen(true)
+      } else {
+        toast.error(t('Failed to delete old videos.'))
+      }
+    } finally {
+      setDeletingStorage(false)
+    }
+  }
 
   // Track active stage item during this session (stored in localStorage so returning to tab keeps finished item on stage)
   const [activeSessionItemId, setActiveSessionItemIdState] = useState<string | null>(() => {
@@ -1095,11 +1048,11 @@ export function Studio() {
       {/* Main Canvas Area */}
       <div className='mx-auto flex w-full max-w-4xl flex-1 flex-col justify-between p-4 md:p-8'>
         {/* Stage Area */}
-        <div className='flex flex-1 flex-col justify-center py-6'>
+        <div className='flex flex-1 flex-col justify-center py-6 pb-20'>
           {activeItem ? (
             <div className='space-y-6'>
               {/* Active / Latest Generation Display Card */}
-              <div className='relative mx-auto w-full max-w-2xl overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm'>
+              <div className='relative isolate z-0 mx-auto w-full max-w-2xl overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm'>
                 {/* Top action buttons: Previous Generations & Dismiss/Clear */}
                 <div className='absolute end-3 top-3 z-10 flex items-center gap-1.5'>
                   <Button
@@ -1321,7 +1274,7 @@ export function Studio() {
         </div>
 
         {/* Google Flow Floating Bottom Input Capsule */}
-        <div className='sticky bottom-6 z-20 w-full pt-4'>
+        <div className='sticky bottom-6 z-30 w-full pt-4'>
           {/* Attached media & references strip, above the capsule */}
           {(referenceImages.length > 0 ||
             audioReferences.length > 0 ||
@@ -1944,7 +1897,10 @@ export function Studio() {
             </Tabs>
           </div>
 
-          <VideoStorageQuota />
+          <VideoStorageQuota
+            onConfirmOldest={() => setConfirmOldestOpen(true)}
+            deleting={deletingStorage}
+          />
 
           {/* Items Grid */}
           <div className='flex-1 overflow-y-auto p-4'>
@@ -2149,6 +2105,57 @@ export function Studio() {
               }}
             >
               {t('Delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Oldest Videos Confirmation Alert Dialog */}
+      <AlertDialog open={confirmOldestOpen} onOpenChange={setConfirmOldestOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Delete the oldest videos?')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('The oldest stored videos are deleted until at least 256 MB are freed. This cannot be undone.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmOldestOpen(false)
+                void runDeleteStorage(false)
+              }}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {t('Delete oldest')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete ALL Videos Confirmation Alert Dialog */}
+      <AlertDialog open={confirmAllOpen} onOpenChange={setConfirmAllOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Delete ALL stored videos?')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                'Freeing that much space would delete your entire stored library ({{count}} videos · {{size}}). Delete everything?',
+                { count: totalToWipe.count, size: formatBytes(totalToWipe.bytes) }
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmAllOpen(false)
+                void runDeleteStorage(true)
+              }}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {t('Delete all')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

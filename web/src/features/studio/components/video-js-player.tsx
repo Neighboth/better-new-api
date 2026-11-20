@@ -117,7 +117,7 @@ export function VideoJsPlayer({
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
 
   // Context menu state
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; maxHeight?: number } | null>(null)
 
   // Native metadata & selected options
   const [nativeWidth, setNativeWidth] = useState<number | undefined>(undefined)
@@ -383,23 +383,48 @@ export function VideoJsPlayer({
     toast.success(`Video bağlantısı (${time}s) panoya kopyalandı`)
   }, [src])
 
-  // Custom Context Menu handler
+  // Custom Context Menu handler: smart positioning that flips UPWARDS when clicking near bottom
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
 
-    if (!containerRef.current) return
-    const rect = containerRef.current.getBoundingClientRect()
+    const skinEl = containerRef.current?.querySelector('.studio-video-skin') as HTMLElement | null
+    const container = skinEl || containerRef.current
+    if (!container) return
+
+    const rect = container.getBoundingClientRect()
     const clickX = e.clientX - rect.left
     const clickY = e.clientY - rect.top
 
-    // Clamp inside container
-    const menuWidth = 192
-    const menuHeight = 240
-    const x = Math.min(Math.max(4, clickX), Math.max(4, rect.width - menuWidth - 4))
-    const y = Math.min(Math.max(4, clickY), Math.max(4, rect.height - menuHeight - 4))
+    const menuWidth = 184
+    const estimatedMenuHeight = 230
+    const pad = 6
 
-    setContextMenu({ x, y })
+    // Horizontal clamping
+    let x = clickX
+    if (x + menuWidth > rect.width - pad) {
+      x = Math.max(pad, rect.width - menuWidth - pad)
+    } else {
+      x = Math.max(pad, x)
+    }
+
+    // Vertical positioning: flip UPWARDS if clicking near bottom!
+    const spaceBelow = rect.height - clickY - pad
+    const spaceAbove = clickY - pad
+    let y: number
+    let maxHeight: number
+
+    if (spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow) {
+      // Flip UPWARDS
+      maxHeight = Math.min(estimatedMenuHeight, spaceAbove)
+      y = Math.max(pad, clickY - maxHeight)
+    } else {
+      // Open DOWNWARDS
+      y = Math.max(pad, clickY)
+      maxHeight = Math.min(estimatedMenuHeight, Math.max(80, spaceBelow))
+    }
+
+    setContextMenu({ x, y, maxHeight })
   }
 
   // Gracefully handle video playback errors
@@ -423,7 +448,7 @@ export function VideoJsPlayer({
       onContextMenu={handleContextMenu}
     >
       <VideoPlayer>
-        <VideoSkin className="studio-video-skin">
+        <VideoSkin className="studio-video-skin" onContextMenu={handleContextMenu}>
           <Video
             ref={videoRef}
             src={currentSrc}
@@ -442,58 +467,59 @@ export function VideoJsPlayer({
             onPause={() => setIsPlaying(false)}
             onEnded={handleEnded}
           />
+
+          {/* 1. Large Central Replay Button (When ended && !isLooping) */}
+          {isEnded && !isLooping && <VideoReplayOverlay onReplay={handleReplay} />}
+
+          {/* 2. Stats for Nerds (Geliştirici Bilgisi) Overlay */}
+          {showStats && (
+            <VideoStatsDialog
+              videoEl={videoRef.current}
+              src={currentSrc}
+              selectedQualityLabel={
+                selectedQuality
+                  ? `${selectedQuality}p`
+                  : availableQualities.find((q) => q.isOriginal)?.label
+              }
+              selectedFpsLabel={selectedFps ? `${selectedFps} FPS` : undefined}
+              nativeWidth={nativeWidth}
+              nativeHeight={nativeHeight}
+              nativeFps={nativeFps}
+              isLooping={isLooping}
+              onClose={() => setShowStats(false)}
+            />
+          )}
+
+          {/* 3. Custom Right-Click Context Menu (Inside VideoSkin so it works in fullscreen) */}
+          {contextMenu && (
+            <VideoContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              maxHeight={contextMenu.maxHeight}
+              isPlaying={isPlaying}
+              isLooping={isLooping}
+              showStats={showStats}
+              isFullscreen={isFullscreen}
+              playbackSpeed={playbackSpeed}
+              qualities={availableQualities}
+              selectedQuality={selectedQuality}
+              fpsList={availableFps}
+              selectedFps={selectedFps}
+              onTogglePlay={togglePlay}
+              onToggleLoop={toggleLoop}
+              onToggleStats={() => setShowStats((prev) => !prev)}
+              onToggleFullscreen={toggleFullscreen}
+              onDownload={handleDownload}
+              onCopyUrl={handleCopyUrl}
+              onCopyUrlAtTime={handleCopyUrlAtTime}
+              onSelectQuality={handleSelectQuality}
+              onSelectFps={handleSelectFps}
+              onSelectSpeed={handleSelectSpeed}
+              onClose={() => setContextMenu(null)}
+            />
+          )}
         </VideoSkin>
       </VideoPlayer>
-
-      {/* 1. Large Central Replay Button (When ended && !isLooping) */}
-      {isEnded && !isLooping && <VideoReplayOverlay onReplay={handleReplay} />}
-
-      {/* 2. Stats for Nerds (Geliştirici Bilgisi) Overlay */}
-      {showStats && (
-        <VideoStatsDialog
-          videoEl={videoRef.current}
-          src={currentSrc}
-          selectedQualityLabel={
-            selectedQuality
-              ? `${selectedQuality}p`
-              : availableQualities.find((q) => q.isOriginal)?.label
-          }
-          selectedFpsLabel={selectedFps ? `${selectedFps} FPS` : undefined}
-          nativeWidth={nativeWidth}
-          nativeHeight={nativeHeight}
-          nativeFps={nativeFps}
-          isLooping={isLooping}
-          onClose={() => setShowStats(false)}
-        />
-      )}
-
-      {/* 3. Custom Right-Click Context Menu */}
-      {contextMenu && (
-        <VideoContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          isPlaying={isPlaying}
-          isLooping={isLooping}
-          showStats={showStats}
-          isFullscreen={isFullscreen}
-          playbackSpeed={playbackSpeed}
-          qualities={availableQualities}
-          selectedQuality={selectedQuality}
-          fpsList={availableFps}
-          selectedFps={selectedFps}
-          onTogglePlay={togglePlay}
-          onToggleLoop={toggleLoop}
-          onToggleStats={() => setShowStats((prev) => !prev)}
-          onToggleFullscreen={toggleFullscreen}
-          onDownload={handleDownload}
-          onCopyUrl={handleCopyUrl}
-          onCopyUrlAtTime={handleCopyUrlAtTime}
-          onSelectQuality={handleSelectQuality}
-          onSelectFps={handleSelectFps}
-          onSelectSpeed={handleSelectSpeed}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
 
       {/* 4. Bottom Bar Custom Settings Popover via Portal */}
       {controlsPrimaryEl &&

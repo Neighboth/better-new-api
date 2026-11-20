@@ -39,6 +39,7 @@ export interface FpsItem {
 export interface VideoContextMenuProps {
   x: number
   y: number
+  maxHeight?: number
   isPlaying: boolean
   isLooping: boolean
   showStats: boolean
@@ -66,6 +67,7 @@ const SPEED_OPTIONS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
 export function VideoContextMenu({
   x,
   y,
+  maxHeight,
   isPlaying,
   isLooping,
   showStats,
@@ -102,9 +104,13 @@ export function VideoContextMenu({
 
   return (
     <div
-      style={{ left: `${x}px`, top: `${y}px` }}
+      style={{
+        left: `${x}px`,
+        top: `${y}px`,
+        maxHeight: maxHeight ? `${maxHeight}px` : 'calc(100% - 16px)',
+      }}
       onClick={(e) => e.stopPropagation()}
-      className="absolute z-50 w-48 rounded-2xl bg-zinc-900/75 backdrop-blur-xl border border-white/10 p-1 shadow-2xl text-zinc-100 text-[11px] sm:text-xs select-none max-h-[calc(100%-16px)] overflow-y-auto animate-in fade-in zoom-in-95 duration-150"
+      className="absolute z-50 w-46 rounded-lg bg-zinc-900/85 backdrop-blur-xl border border-white/10 p-1 shadow-2xl text-zinc-100 text-[11px] sm:text-xs select-none dark-custom-scrollbar studio-context-menu overflow-y-auto animate-in fade-in zoom-in-95 duration-150"
     >
       {view === 'main' && (
         <div className="space-y-0.5">
@@ -115,7 +121,7 @@ export function VideoContextMenu({
               onTogglePlay()
               onClose()
             }}
-            className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl hover:bg-white/10 text-left transition-colors"
+            className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
             <span>{isPlaying ? 'Durdur' : 'Oynat'}</span>
           </button>
@@ -127,10 +133,10 @@ export function VideoContextMenu({
               onToggleLoop()
               onClose()
             }}
-            className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl hover:bg-white/10 text-left transition-colors"
+            className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
             <span>Döngü</span>
-            {isLooping && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+            {isLooping && <Check className="w-3.5 h-3.5 text-emerald-400 studio-menu-icon" />}
           </button>
 
           {/* 3. Stats for Nerds */}
@@ -140,10 +146,10 @@ export function VideoContextMenu({
               onToggleStats()
               onClose()
             }}
-            className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl hover:bg-white/10 text-left transition-colors"
+            className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
             <span>Geliştirici bilgisi</span>
-            {showStats && <Check className="w-3.5 h-3.5 text-amber-400" />}
+            {showStats && <Check className="w-3.5 h-3.5 text-amber-400 studio-menu-icon" />}
           </button>
 
           <div className="h-px bg-white/10 my-0.5" />
@@ -152,12 +158,12 @@ export function VideoContextMenu({
           <button
             type="button"
             onClick={() => setView('quality')}
-            className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl hover:bg-white/10 text-left transition-colors"
+            className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
             <span>Kalite</span>
             <div className="flex items-center gap-1 text-[11px] text-zinc-400">
-              <span className="truncate max-w-[75px]">{currentQualityLabel}</span>
-              <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
+              <span className="truncate max-w-[70px]">{currentQualityLabel}</span>
+              <ChevronRight className="w-3.5 h-3.5 text-zinc-400 studio-menu-icon" />
             </div>
           </button>
 
@@ -165,12 +171,12 @@ export function VideoContextMenu({
           <button
             type="button"
             onClick={() => setView('fps')}
-            className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl hover:bg-white/10 text-left transition-colors"
+            className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
             <span>Kare Hızı</span>
             <div className="flex items-center gap-1 text-[11px] text-zinc-400">
               <span className="truncate max-w-[65px]">{currentFpsLabel}</span>
-              <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
+              <ChevronRight className="w-3.5 h-3.5 text-zinc-400 studio-menu-icon" />
             </div>
           </button>
 
@@ -178,12 +184,12 @@ export function VideoContextMenu({
           <button
             type="button"
             onClick={() => setView('speed')}
-            className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl hover:bg-white/10 text-left transition-colors"
+            className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
             <span>Oynatma hızı</span>
             <div className="flex items-center gap-1 text-[11px] text-zinc-400">
               <span>{playbackSpeed === 1 ? 'Normal' : `${playbackSpeed}x`}</span>
-              <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
+              <ChevronRight className="w-3.5 h-3.5 text-zinc-400 studio-menu-icon" />
             </div>
           </button>
 
@@ -196,7 +202,7 @@ export function VideoContextMenu({
               onDownload()
               onClose()
             }}
-            className="w-full flex items-center px-2 py-1.5 rounded-xl hover:bg-white/10 text-left transition-colors"
+            className="w-full flex items-center px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
             <span>Videoyu indir</span>
           </button>
@@ -208,7 +214,7 @@ export function VideoContextMenu({
               onCopyUrl()
               onClose()
             }}
-            className="w-full flex items-center px-2 py-1.5 rounded-xl hover:bg-white/10 text-left transition-colors"
+            className="w-full flex items-center px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
             <span>Video bağlantısını kopyala</span>
           </button>
@@ -220,7 +226,7 @@ export function VideoContextMenu({
               onCopyUrlAtTime()
               onClose()
             }}
-            className="w-full flex items-center px-2 py-1.5 rounded-xl hover:bg-white/10 text-left transition-colors"
+            className="w-full flex items-center px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
             <span>Geçerli süredeki bağlantıyı kopyala</span>
           </button>
@@ -234,7 +240,7 @@ export function VideoContextMenu({
               onToggleFullscreen()
               onClose()
             }}
-            className="w-full flex items-center px-2 py-1.5 rounded-xl hover:bg-white/10 text-left transition-colors"
+            className="w-full flex items-center px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
             <span>{isFullscreen ? 'Tam ekrandan çık' : 'Tam ekran'}</span>
           </button>
@@ -247,22 +253,22 @@ export function VideoContextMenu({
           <button
             type="button"
             onClick={() => setView('main')}
-            className="w-full flex items-center gap-1.5 px-2 py-1.5 border-b border-white/10 font-medium text-zinc-200 hover:text-white transition-colors"
+            className="w-full flex items-center gap-1.5 px-2 py-1.25 border-b border-white/10 font-medium text-zinc-200 hover:text-white transition-colors studio-menu-button"
           >
-            <ChevronLeft className="w-3.5 h-3.5" />
+            <ChevronLeft className="w-3.5 h-3.5 studio-menu-icon" />
             <span>Kalite</span>
           </button>
-          <div className="max-h-48 overflow-y-auto pt-0.5 space-y-0.5">
+          <div className="max-h-36 sm:max-h-44 overflow-y-auto dark-custom-scrollbar pt-0.5 space-y-0.5">
             <button
               type="button"
               onClick={() => {
                 onSelectQuality(null)
                 onClose()
               }}
-              className="w-full flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/10 text-left transition-colors"
+              className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
             >
               <span>Otomatik</span>
-              {selectedQuality === null && <Check className="w-3.5 h-3.5 text-blue-400" />}
+              {selectedQuality === null && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
             </button>
             {qualities.map((item) => (
               <button
@@ -272,10 +278,10 @@ export function VideoContextMenu({
                   onSelectQuality(item.isOriginal ? null : item.height)
                   onClose()
                 }}
-                className="w-full flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/10 text-left transition-colors"
+                className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
               >
                 <span>{item.label}</span>
-                {selectedQuality === item.height && <Check className="w-3.5 h-3.5 text-blue-400" />}
+                {selectedQuality === item.height && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
               </button>
             ))}
           </div>
@@ -288,22 +294,22 @@ export function VideoContextMenu({
           <button
             type="button"
             onClick={() => setView('main')}
-            className="w-full flex items-center gap-1.5 px-2 py-1.5 border-b border-white/10 font-medium text-zinc-200 hover:text-white transition-colors"
+            className="w-full flex items-center gap-1.5 px-2 py-1.25 border-b border-white/10 font-medium text-zinc-200 hover:text-white transition-colors studio-menu-button"
           >
-            <ChevronLeft className="w-3.5 h-3.5" />
+            <ChevronLeft className="w-3.5 h-3.5 studio-menu-icon" />
             <span>Kare Hızı</span>
           </button>
-          <div className="max-h-48 overflow-y-auto pt-0.5 space-y-0.5">
+          <div className="max-h-36 sm:max-h-44 overflow-y-auto dark-custom-scrollbar pt-0.5 space-y-0.5">
             <button
               type="button"
               onClick={() => {
                 onSelectFps(null)
                 onClose()
               }}
-              className="w-full flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/10 text-left transition-colors"
+              className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
             >
               <span>Orijinal</span>
-              {selectedFps === null && <Check className="w-3.5 h-3.5 text-blue-400" />}
+              {selectedFps === null && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
             </button>
             {fpsList.map((item) => (
               <button
@@ -313,10 +319,10 @@ export function VideoContextMenu({
                   onSelectFps(item.isOriginal ? null : item.fps)
                   onClose()
                 }}
-                className="w-full flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/10 text-left transition-colors"
+                className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
               >
                 <span>{item.label}</span>
-                {selectedFps === item.fps && <Check className="w-3.5 h-3.5 text-blue-400" />}
+                {selectedFps === item.fps && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
               </button>
             ))}
           </div>
@@ -329,12 +335,12 @@ export function VideoContextMenu({
           <button
             type="button"
             onClick={() => setView('main')}
-            className="w-full flex items-center gap-1.5 px-2 py-1.5 border-b border-white/10 font-medium text-zinc-200 hover:text-white transition-colors"
+            className="w-full flex items-center gap-1.5 px-2 py-1.25 border-b border-white/10 font-medium text-zinc-200 hover:text-white transition-colors studio-menu-button"
           >
-            <ChevronLeft className="w-3.5 h-3.5" />
+            <ChevronLeft className="w-3.5 h-3.5 studio-menu-icon" />
             <span>Oynatma hızı</span>
           </button>
-          <div className="max-h-48 overflow-y-auto pt-0.5 space-y-0.5">
+          <div className="max-h-36 sm:max-h-44 overflow-y-auto dark-custom-scrollbar pt-0.5 space-y-0.5">
             {SPEED_OPTIONS.map((rate) => (
               <button
                 key={rate}
@@ -343,10 +349,10 @@ export function VideoContextMenu({
                   onSelectSpeed(rate)
                   onClose()
                 }}
-                className="w-full flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/10 text-left transition-colors"
+                className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
               >
                 <span>{rate === 1 ? 'Normal' : `${rate}x`}</span>
-                {playbackSpeed === rate && <Check className="w-3.5 h-3.5 text-blue-400" />}
+                {playbackSpeed === rate && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
               </button>
             ))}
           </div>

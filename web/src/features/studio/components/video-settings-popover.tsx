@@ -24,15 +24,26 @@ import {
   ChevronLeft,
   Check,
 } from 'lucide-react'
-import type { QualityItem, FpsItem } from './video-context-menu'
+
+export interface QualityOption {
+  height: number
+  label: string
+  isOriginal: boolean
+}
+
+export interface FpsOption {
+  fps: number
+  label: string
+  isOriginal: boolean
+}
 
 export interface VideoSettingsPopoverProps {
   isLooping: boolean
   showStats: boolean
   playbackSpeed: number
-  qualities: QualityItem[]
+  qualities: QualityOption[]
   selectedQuality: number | null
-  fpsList: FpsItem[]
+  fpsList: FpsOption[]
   selectedFps: number | null
   onToggleLoop: () => void
   onToggleStats: () => void
@@ -103,11 +114,11 @@ export function VideoSettingsPopover({
         <Settings className={`w-4 h-4 md:w-4.5 md:h-4.5 transition-transform duration-300 ${isOpen ? 'rotate-45' : ''}`} />
       </button>
 
-      {/* Popover: match control bar translucency, compact, no left icons */}
+      {/* Popover: match control bar translucency, compact, sleek dark scrollbar */}
       {isOpen && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className="absolute bottom-full right-0 mb-2 w-46 rounded-2xl bg-zinc-900/75 backdrop-blur-xl border border-white/10 p-1 shadow-2xl text-zinc-100 text-[11px] sm:text-xs select-none z-50 max-h-[calc(100vh-60px)] overflow-y-auto animate-in fade-in zoom-in-95 duration-150"
+          className="absolute bottom-full right-0 mb-2 w-44 rounded-lg bg-zinc-900/85 backdrop-blur-xl border border-white/10 p-1 shadow-2xl text-zinc-100 text-[11px] sm:text-xs select-none z-50 max-h-[min(260px,calc(100cqh-50px))] overflow-y-auto dark-custom-scrollbar studio-settings-popover animate-in fade-in zoom-in-95 duration-150"
         >
           {view === 'main' && (
             <div className="space-y-0.5">
@@ -115,12 +126,12 @@ export function VideoSettingsPopover({
               <button
                 type="button"
                 onClick={() => setView('quality')}
-                className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl hover:bg-white/10 text-left transition-colors"
+                className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
               >
                 <span>Kalite</span>
                 <div className="flex items-center gap-1 text-[11px] text-zinc-400">
-                  <span className="truncate max-w-[75px]">{currentQualityLabel}</span>
-                  <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
+                  <span className="truncate max-w-[70px]">{currentQualityLabel}</span>
+                  <ChevronRight className="w-3.5 h-3.5 text-zinc-400 studio-menu-icon" />
                 </div>
               </button>
 
@@ -128,12 +139,12 @@ export function VideoSettingsPopover({
               <button
                 type="button"
                 onClick={() => setView('fps')}
-                className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl hover:bg-white/10 text-left transition-colors"
+                className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
               >
                 <span>Kare Hızı</span>
                 <div className="flex items-center gap-1 text-[11px] text-zinc-400">
                   <span className="truncate max-w-[65px]">{currentFpsLabel}</span>
-                  <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
+                  <ChevronRight className="w-3.5 h-3.5 text-zinc-400 studio-menu-icon" />
                 </div>
               </button>
 
@@ -141,12 +152,12 @@ export function VideoSettingsPopover({
               <button
                 type="button"
                 onClick={() => setView('speed')}
-                className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl hover:bg-white/10 text-left transition-colors"
+                className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
               >
                 <span>Oynatma hızı</span>
                 <div className="flex items-center gap-1 text-[11px] text-zinc-400">
                   <span>{playbackSpeed === 1 ? 'Normal' : `${playbackSpeed}x`}</span>
-                  <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
+                  <ChevronRight className="w-3.5 h-3.5 text-zinc-400 studio-menu-icon" />
                 </div>
               </button>
 
@@ -155,7 +166,7 @@ export function VideoSettingsPopover({
               {/* Döngü Toggle */}
               <div
                 onClick={onToggleLoop}
-                className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl hover:bg-white/10 cursor-pointer transition-colors"
+                className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 cursor-pointer transition-colors studio-menu-button"
               >
                 <span>Döngü</span>
                 <div
@@ -170,7 +181,7 @@ export function VideoSettingsPopover({
               {/* Geliştirici Bilgisi Toggle */}
               <div
                 onClick={onToggleStats}
-                className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl hover:bg-white/10 cursor-pointer transition-colors"
+                className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 cursor-pointer transition-colors studio-menu-button"
               >
                 <span>Geliştirici bilgisi</span>
                 <div
@@ -190,22 +201,22 @@ export function VideoSettingsPopover({
               <button
                 type="button"
                 onClick={() => setView('main')}
-                className="w-full flex items-center gap-1.5 px-2 py-1.5 border-b border-white/10 font-medium text-zinc-200 hover:text-white transition-colors"
+                className="w-full flex items-center gap-1.5 px-2 py-1.25 border-b border-white/10 font-medium text-zinc-200 hover:text-white transition-colors studio-menu-button"
               >
-                <ChevronLeft className="w-3.5 h-3.5" />
+                <ChevronLeft className="w-3.5 h-3.5 studio-menu-icon" />
                 <span>Kalite</span>
               </button>
-              <div className="max-h-48 overflow-y-auto pt-0.5 space-y-0.5">
+              <div className="max-h-36 sm:max-h-44 overflow-y-auto dark-custom-scrollbar pt-0.5 space-y-0.5">
                 <button
                   type="button"
                   onClick={() => {
                     onSelectQuality(null)
                     setView('main')
                   }}
-                  className="w-full flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/10 text-left transition-colors"
+                  className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
                 >
                   <span>Otomatik</span>
-                  {selectedQuality === null && <Check className="w-3.5 h-3.5 text-blue-400" />}
+                  {selectedQuality === null && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
                 </button>
                 {qualities.map((item) => (
                   <button
@@ -215,10 +226,10 @@ export function VideoSettingsPopover({
                       onSelectQuality(item.isOriginal ? null : item.height)
                       setView('main')
                     }}
-                    className="w-full flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/10 text-left transition-colors"
+                    className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
                   >
                     <span>{item.label}</span>
-                    {selectedQuality === item.height && <Check className="w-3.5 h-3.5 text-blue-400" />}
+                    {selectedQuality === item.height && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
                   </button>
                 ))}
               </div>
@@ -231,22 +242,22 @@ export function VideoSettingsPopover({
               <button
                 type="button"
                 onClick={() => setView('main')}
-                className="w-full flex items-center gap-1.5 px-2 py-1.5 border-b border-white/10 font-medium text-zinc-200 hover:text-white transition-colors"
+                className="w-full flex items-center gap-1.5 px-2 py-1.25 border-b border-white/10 font-medium text-zinc-200 hover:text-white transition-colors studio-menu-button"
               >
-                <ChevronLeft className="w-3.5 h-3.5" />
+                <ChevronLeft className="w-3.5 h-3.5 studio-menu-icon" />
                 <span>Kare Hızı</span>
               </button>
-              <div className="max-h-48 overflow-y-auto pt-0.5 space-y-0.5">
+              <div className="max-h-36 sm:max-h-44 overflow-y-auto dark-custom-scrollbar pt-0.5 space-y-0.5">
                 <button
                   type="button"
                   onClick={() => {
                     onSelectFps(null)
                     setView('main')
                   }}
-                  className="w-full flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/10 text-left transition-colors"
+                  className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
                 >
                   <span>Orijinal</span>
-                  {selectedFps === null && <Check className="w-3.5 h-3.5 text-blue-400" />}
+                  {selectedFps === null && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
                 </button>
                 {fpsList.map((item) => (
                   <button
@@ -256,10 +267,10 @@ export function VideoSettingsPopover({
                       onSelectFps(item.isOriginal ? null : item.fps)
                       setView('main')
                     }}
-                    className="w-full flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/10 text-left transition-colors"
+                    className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
                   >
                     <span>{item.label}</span>
-                    {selectedFps === item.fps && <Check className="w-3.5 h-3.5 text-blue-400" />}
+                    {selectedFps === item.fps && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
                   </button>
                 ))}
               </div>
@@ -272,12 +283,12 @@ export function VideoSettingsPopover({
               <button
                 type="button"
                 onClick={() => setView('main')}
-                className="w-full flex items-center gap-1.5 px-2 py-1.5 border-b border-white/10 font-medium text-zinc-200 hover:text-white transition-colors"
+                className="w-full flex items-center gap-1.5 px-2 py-1.25 border-b border-white/10 font-medium text-zinc-200 hover:text-white transition-colors studio-menu-button"
               >
-                <ChevronLeft className="w-3.5 h-3.5" />
+                <ChevronLeft className="w-3.5 h-3.5 studio-menu-icon" />
                 <span>Oynatma hızı</span>
               </button>
-              <div className="max-h-48 overflow-y-auto pt-0.5 space-y-0.5">
+              <div className="max-h-36 sm:max-h-44 overflow-y-auto dark-custom-scrollbar pt-0.5 space-y-0.5">
                 {SPEED_OPTIONS.map((rate) => (
                   <button
                     key={rate}
@@ -286,10 +297,10 @@ export function VideoSettingsPopover({
                       onSelectSpeed(rate)
                       setView('main')
                     }}
-                    className="w-full flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/10 text-left transition-colors"
+                    className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
                   >
                     <span>{rate === 1 ? 'Normal' : `${rate}x`}</span>
-                    {playbackSpeed === rate && <Check className="w-3.5 h-3.5 text-blue-400" />}
+                    {playbackSpeed === rate && <Check className="w-3.5 h-3.5 text-blue-400 studio-menu-icon" />}
                   </button>
                 ))}
               </div>

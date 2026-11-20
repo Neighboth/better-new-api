@@ -127,7 +127,7 @@ export function VideoStatsDialog({
 
   return (
     <div
-      className="absolute top-2 left-2 z-50 min-w-[230px] max-w-[270px] rounded-2xl bg-zinc-900/75 backdrop-blur-xl p-2.5 text-[11px] font-mono text-zinc-100 shadow-2xl border border-white/10 select-none pointer-events-auto"
+      className="absolute top-2 left-2 z-50 min-w-[230px] max-w-[270px] rounded-lg bg-zinc-900/85 backdrop-blur-xl p-2.5 text-[11px] font-mono text-zinc-100 shadow-2xl border border-white/10 select-none pointer-events-auto dark-custom-scrollbar studio-stats-box"
       onClick={(e) => e.stopPropagation()}
     >
       <div className="flex items-center justify-between border-b border-white/10 pb-1 mb-1.5">

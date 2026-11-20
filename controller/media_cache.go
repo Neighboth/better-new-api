@@ -423,7 +423,6 @@ func transcodeAndStreamMedia(c *gin.Context, inputSource string, height int, fps
 	}
 
 	args := []string{
-		"-hide_banner",
 		"-loglevel", "error",
 	}
 
@@ -453,6 +452,7 @@ func transcodeAndStreamMedia(c *gin.Context, inputSource string, height int, fps
 	)
 
 	cmd := exec.CommandContext(c.Request.Context(), "ffmpeg", args...)
+	cmd.Stderr = os.Stderr
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create transcode pipe: " + err.Error()})

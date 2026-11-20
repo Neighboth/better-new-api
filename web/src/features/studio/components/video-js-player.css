@@ -5,6 +5,7 @@
   --media-scale: 0.75;
   overflow: hidden !important;
   border-radius: inherit;
+  position: relative !important;
 }
 
 /* In fullscreen, restore normal/larger scale so controls are appropriately sized */
@@ -50,4 +51,54 @@
   .studio-video-skin .video-controls-primary {
     right: calc(var(--media-spacing) * 2 + var(--media-control-size) + var(--media-spacing) * 2) !important;
   }
+}
+
+/* 6. Sleek dark scrollbar matching player theme */
+.dark-custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.dark-custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark-custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 9999px;
+}
+
+.dark-custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.dark-custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+/* 7. Fullscreen enhancements for Settings Popover & Context Menu */
+:is(.studio-video-skin:fullscreen, .studio-video-skin:-webkit-full-screen, .studio-video-skin:-moz-full-screen) .studio-settings-popover,
+:is(.studio-video-skin:fullscreen, .studio-video-skin:-webkit-full-screen, .studio-video-skin:-moz-full-screen) .studio-context-menu {
+  width: 14.5rem !important;
+  font-size: 0.8125rem !important; /* ~13px */
+  padding: 0.375rem !important;
+  border-radius: 0.625rem !important; /* 10px */
+}
+
+:is(.studio-video-skin:fullscreen, .studio-video-skin:-webkit-full-screen, .studio-video-skin:-moz-full-screen) .studio-menu-button {
+  padding: 0.4375rem 0.625rem !important;
+  font-size: 0.8125rem !important;
+  border-radius: 0.5rem !important;
+}
+
+:is(.studio-video-skin:fullscreen, .studio-video-skin:-webkit-full-screen, .studio-video-skin:-moz-full-screen) .studio-menu-icon {
+  width: 1rem !important;
+  height: 1rem !important;
+}
+
+:is(.studio-video-skin:fullscreen, .studio-video-skin:-webkit-full-screen, .studio-video-skin:-moz-full-screen) .studio-stats-box {
+  min-width: 18rem !important;
+  font-size: 0.75rem !important;
+  padding: 0.75rem !important;
 }
