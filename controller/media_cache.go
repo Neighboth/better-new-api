@@ -60,6 +60,7 @@ func setMediaCacheHeaders(c *gin.Context) {
 	c.Header("Cache-Control", "public, max-age=31536000, immutable, no-transform")
 	c.Header("Accept-Ranges", "bytes")
 	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Expose-Headers", "Content-Range, Content-Length, X-Transcode-Status, X-Transcode-Error")
 	c.Header("X-Accel-Buffering", "no")
 	c.Header("Content-Encoding", "identity")
 }
@@ -504,7 +505,7 @@ func transcodeMediaToFile(ctx context.Context, inputSource, outputPath string, h
 
 	var vfParts []string
 	if height > 0 {
-		vfParts = append(vfParts, fmt.Sprintf("scale=-2:%d", height))
+		vfParts = append(vfParts, fmt.Sprintf("scale=trunc(oh*a/2)*2:%d", height))
 	}
 	if fps > 0 {
 		vfParts = append(vfParts, fmt.Sprintf("fps=%d", fps))

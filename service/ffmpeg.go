@@ -217,6 +217,7 @@ func EnsureFFmpeg(ctx context.Context) (string, error) {
 		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("failed to install ffmpeg binary: %w", err)
 	}
+	_ = os.Chmod(targetPath, 0755)
 
 	common.SysLog(fmt.Sprintf("ffmpeg successfully installed to %s", targetPath))
 	cachedFFmpegPath = targetPath
