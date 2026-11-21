@@ -158,6 +158,56 @@ export function VideoJsPlayer({
     setIsEnded(false)
   }, [src])
 
+  // Hidden background video element always kept loaded for instant scrubbing previews
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const isSeekingPreviewRef = useRef(false)
+  const pendingSeekTimeRef = useRef<number | null>(null)
+  const [previewThumbnailUrl, setPreviewThumbnailUrl] = useState<string | null>(null)
+
+  // Preload background preview video
+  useEffect(() => {
+    const pv = previewVideoRef.current
+    if (pv) {
+      pv.preload = 'auto'
+      pv.src = currentSrc
+      pv.load()
+    }
+    setPreviewThumbnailUrl(null)
+  }, [currentSrc])
+
+  // Capture frame to canvas/data URL as soon as seek finishes
+  const handlePreviewSeeked = useCallback(() => {
+    isSeekingPreviewRef.current = false
+    const pv = previewVideoRef.current
+    if (pv && pv.videoWidth > 0 && pv.videoHeight > 0) {
+      try {
+        if (!previewCanvasRef.current) {
+          previewCanvasRef.current = document.createElement('canvas')
+        }
+        const canvas = previewCanvasRef.current
+        canvas.width = 160
+        canvas.height = 90
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(pv, 0, 0, canvas.width, canvas.height)
+          setPreviewThumbnailUrl(canvas.toDataURL('image/jpeg', 0.8))
+        }
+      } catch {}
+    }
+
+    // Process queued seek if mouse moved during previous seek
+    if (pendingSeekTimeRef.current !== null && pv) {
+      const nextTime = pendingSeekTimeRef.current
+      pendingSeekTimeRef.current = null
+      isSeekingPreviewRef.current = true
+      try {
+        pv.currentTime = nextTime
+      } catch {
+        isSeekingPreviewRef.current = false
+      }
+    }
+  }, [])
+
   // Hover Scrubbing Preview listener on timeline slider
   useEffect(() => {
     const container = containerRef.current
@@ -192,15 +242,25 @@ export function VideoJsPlayer({
 
       setHoverPreview({ x, bottomOffset, time })
 
-      if (previewVideoRef.current) {
-        try {
-          previewVideoRef.current.currentTime = time
-        } catch {}
+      // Dispatch non-blocking seek to preloaded video
+      const pv = previewVideoRef.current
+      if (pv && pv.readyState >= 1) {
+        if (!isSeekingPreviewRef.current) {
+          isSeekingPreviewRef.current = true
+          try {
+            pv.currentTime = time
+          } catch {
+            isSeekingPreviewRef.current = false
+          }
+        } else {
+          pendingSeekTimeRef.current = time
+        }
       }
     }
 
     const handlePointerLeave = () => {
       setHoverPreview(null)
+      pendingSeekTimeRef.current = null
     }
 
     const attach = () => {
@@ -593,6 +653,18 @@ export function VideoJsPlayer({
             onEnded={handleEnded}
           />
 
+          {/* Hidden pre-buffering video element for instantaneous scrubbing previews */}
+          <video
+            ref={previewVideoRef}
+            src={currentSrc}
+            preload="auto"
+            muted
+            playsInline
+            crossOrigin="anonymous"
+            className="hidden pointer-events-none"
+            onSeeked={handlePreviewSeeked}
+          />
+
           {/* Hover Scrubbing Preview */}
           {hoverPreview && (
             <div
@@ -602,13 +674,19 @@ export function VideoJsPlayer({
                 bottom: `${hoverPreview.bottomOffset}px`,
               }}
             >
-              <video
-                ref={previewVideoRef}
-                src={currentSrc}
-                preload="metadata"
-                muted
-                playsInline
-              />
+              <div className="relative w-[120px] h-[68px] bg-black rounded overflow-hidden flex items-center justify-center">
+                {previewThumbnailUrl ? (
+                  <img
+                    src={previewThumbnailUrl}
+                    alt=""
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-zinc-900">
+                    <span className="text-[10px] text-zinc-400">...</span>
+                  </div>
+                )}
+              </div>
               <div className="studio-timeline-preview-time">
                 {formatSeconds(hoverPreview.time)}
               </div>
