@@ -125,6 +125,10 @@ export function VideoJsPlayer({
   const [nativeFps, setNativeFps] = useState<number | undefined>(undefined)
   const [selectedQuality, setSelectedQuality] = useState<number | null>(null)
   const [selectedFps, setSelectedFps] = useState<number | null>(null)
+  const qualityRef = useRef<number | null>(null)
+  const fpsRef = useRef<number | null>(null)
+  qualityRef.current = selectedQuality
+  fpsRef.current = selectedFps
 
   // Portal target for bottom controls bar
   const [controlsPrimaryEl, setControlsPrimaryEl] = useState<HTMLElement | null>(null)
@@ -247,6 +251,8 @@ export function VideoJsPlayer({
   // Switch quality or FPS seamlessly
   const switchQualityOrFps = useCallback(
     (newHeight: number | null, newFps: number | null) => {
+      qualityRef.current = newHeight
+      fpsRef.current = newFps
       setSelectedQuality(newHeight)
       setSelectedFps(newFps)
 
@@ -261,12 +267,18 @@ export function VideoJsPlayer({
       if (video) {
         const handleRestore = () => {
           video.removeEventListener('loadeddata', handleRestore)
-          video.currentTime = currentTime
+          try {
+            if (currentTime > 0 && currentTime < (video.duration || Infinity)) {
+              video.currentTime = currentTime
+            }
+          } catch {}
           if (wasPlaying) {
             video.play().catch(() => {})
           }
         }
         video.addEventListener('loadeddata', handleRestore)
+        video.src = nextUrl
+        video.load()
       }
     },
     [src]
@@ -274,16 +286,16 @@ export function VideoJsPlayer({
 
   const handleSelectQuality = useCallback(
     (h: number | null) => {
-      switchQualityOrFps(h, selectedFps)
+      switchQualityOrFps(h, fpsRef.current)
     },
-    [selectedFps, switchQualityOrFps]
+    [switchQualityOrFps]
   )
 
   const handleSelectFps = useCallback(
     (f: number | null) => {
-      switchQualityOrFps(selectedQuality, f)
+      switchQualityOrFps(qualityRef.current, f)
     },
-    [selectedQuality, switchQualityOrFps]
+    [switchQualityOrFps]
   )
 
   const handleSelectSpeed = useCallback((s: number) => {

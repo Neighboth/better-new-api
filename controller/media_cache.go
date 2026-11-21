@@ -218,12 +218,15 @@ func GetCachedMedia(c *gin.Context) {
 			return
 		}
 
-		if err := transcodeMediaToFile(c.Request.Context(), inputPath, transcodePath, targetHeight, targetFps); err != nil {
+		transcodeCtx, transcodeCancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer transcodeCancel()
+
+		if err := transcodeMediaToFile(transcodeCtx, inputPath, transcodePath, targetHeight, targetFps); err != nil {
 			common.SysError(fmt.Sprintf("media transcode failed (%v), falling back to original media: %s", err, inputPath))
 			c.Header("X-Transcode-Status", "failed")
 			c.Header("X-Transcode-Error", err.Error())
+			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
 			// Fallback gracefully to original media so playback never fails
-			setMediaCacheHeaders(c)
 			c.File(inputPath)
 			return
 		}
