@@ -155,17 +155,17 @@ func EnsureFFmpeg(ctx context.Context) (string, error) {
 	switch runtime.GOOS {
 	case "linux":
 		if runtime.GOARCH == "arm64" {
-			downloadURL = "https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/ffmpeg-linux-arm64.gz"
+			downloadURL = "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-linux-arm64.gz"
 		} else {
-			downloadURL = "https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/ffmpeg-linux-x64.gz"
+			downloadURL = "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-linux-x64.gz"
 		}
 	case "windows":
-		downloadURL = "https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/ffmpeg-win32-x64.gz"
+		downloadURL = "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-win32-x64.gz"
 	case "darwin":
 		if runtime.GOARCH == "arm64" {
-			downloadURL = "https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/ffmpeg-darwin-arm64.gz"
+			downloadURL = "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-arm64.gz"
 		} else {
-			downloadURL = "https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/ffmpeg-darwin-x64.gz"
+			downloadURL = "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-x64.gz"
 		}
 	default:
 		return "", fmt.Errorf("no automated ffmpeg download available for OS %s", runtime.GOOS)

@@ -501,7 +501,7 @@ func transcodeMediaToFile(ctx context.Context, inputSource, outputPath string, h
 
 	var vfParts []string
 	if height > 0 {
-		vfParts = append(vfParts, fmt.Sprintf("scale=trunc(oh*a/2)*2:'min(ih,%d)'", height))
+		vfParts = append(vfParts, fmt.Sprintf("scale=-2:%d", height))
 	}
 	if fps > 0 {
 		vfParts = append(vfParts, fmt.Sprintf("fps=%d", fps))
@@ -533,10 +533,11 @@ func transcodeMediaToFile(ctx context.Context, inputSource, outputPath string, h
 	)
 
 	cmd := exec.CommandContext(ctx, ffmpegBin, args...)
-	cmd.Stderr = os.Stderr
+	var stderrBuf strings.Builder
+	cmd.Stderr = &stderrBuf
 	if err := cmd.Run(); err != nil {
 		_ = os.Remove(tempPath)
-		return err
+		return fmt.Errorf("ffmpeg execution failed: %w (stderr: %s)", err, stderrBuf.String())
 	}
 
 	if err := os.Rename(tempPath, outputPath); err != nil {

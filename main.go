@@ -184,6 +184,11 @@ func main() {
 		common.SysError(fmt.Sprintf("start pyroscope error : %v", err))
 	}
 
+	// Pre-provision standalone embedded FFmpeg binary asynchronously in background
+	go func() {
+		_, _ = service.EnsureFFmpeg(context.Background())
+	}()
+
 	// Initialize HTTP server
 	server := gin.New()
 	if err := middleware.ConfigureTrustedProxies(server); err != nil {
