@@ -30,6 +30,7 @@ import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
+import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -123,30 +124,22 @@ export function UserTicketsPage() {
   }
 
   return (
-    <div className='h-full flex-1 overflow-y-auto space-y-6 p-4 md:p-6'>
-      {/* Page Header */}
-      <div className='flex flex-wrap items-center justify-between gap-4'>
-        <div>
-          <h1 className='text-2xl font-bold tracking-tight flex items-center gap-2'>
-            <LifeBuoy className='h-6 w-6 text-primary' />
-            {t('Support Tickets')}
-          </h1>
-          <p className='text-sm text-muted-foreground'>
-            {t('Create and track your support inquiries, issues, and questions.')}
-          </p>
-        </div>
-
-        <div className='flex gap-2'>
-          {ticketConfig?.data?.live_support_enabled && (
-            <Button variant='outline' onClick={() => window.dispatchEvent(new CustomEvent('open-live-support'))}>
-              <Headphones className='mr-2 h-4 w-4' />{t('Live Support')}
-            </Button>
-          )}
-          <Button onClick={() => setCreateDialogOpen(true)}>
-            <Plus className='mr-2 h-4 w-4' />{t('New Ticket')}
+    <SectionPageLayout>
+      <SectionPageLayout.Title>
+        <span className='truncate'>{t('Support Tickets')}</span>
+      </SectionPageLayout.Title>
+      <SectionPageLayout.Actions>
+        {ticketConfig?.data?.live_support_enabled && (
+          <Button variant='outline' onClick={() => window.dispatchEvent(new CustomEvent('open-live-support'))}>
+            <Headphones className='mr-2 h-4 w-4' />{t('Live Support')}
           </Button>
-        </div>
-      </div>
+        )}
+        <Button onClick={() => setCreateDialogOpen(true)}>
+          <Plus className='mr-2 h-4 w-4' />{t('New Ticket')}
+        </Button>
+      </SectionPageLayout.Actions>
+      <SectionPageLayout.Content>
+        <div className='flex flex-col gap-6'>
 
       {/* Filters and Search Bar */}
       <Card>
@@ -299,12 +292,15 @@ export function UserTicketsPage() {
         </CardContent>
       </Card>
 
+        </div>
+      </SectionPageLayout.Content>
+
       {/* Create Ticket Dialog */}
       <CreateTicketDialog
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
         onSuccess={() => void fetchTickets()}
       />
-    </div>
+    </SectionPageLayout>
   )
 }

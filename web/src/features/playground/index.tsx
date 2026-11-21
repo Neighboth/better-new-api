@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 
-import { useMemo } from 'react'
+import { useMemo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { getPlaygroundRuntimeConfig } from './api'

@@ -99,20 +99,14 @@
   padding: 0.75rem !important;
 }
 
-/* 8. Replay state seek button separation: push 10s back more to the left and 10s forward more to the right */
-.studio-video-skin:has(.studio-replay-overlay) .video-controls-center,
-.studio-video-skin.has-replay-overlay .video-controls-center {
-  gap: calc(var(--media-spacing) * 16) !important;
-}
-
-.studio-video-skin:has(.studio-replay-overlay) .video-controls-center-seek:first-child,
-.studio-video-skin.has-replay-overlay .video-controls-center-seek:first-child {
-  transform: translateX(-24px) !important;
-}
-
-.studio-video-skin:has(.studio-replay-overlay) .video-controls-center-seek:last-child,
-.studio-video-skin.has-replay-overlay .video-controls-center-seek:last-child {
-  transform: translateX(24px) !important;
+/* 8. Replay state: hide 10s backward and forward seek buttons when ended, show again on replay */
+.studio-video-skin:has(.studio-replay-overlay) .video-controls-center-seek,
+.studio-video-skin.has-replay-overlay .video-controls-center-seek,
+.studio-video-skin:has(.studio-replay-overlay) .media-seek-backward-button,
+.studio-video-skin.has-replay-overlay .media-seek-backward-button,
+.studio-video-skin:has(.studio-replay-overlay) .media-seek-forward-button,
+.studio-video-skin.has-replay-overlay .media-seek-forward-button {
+  display: none !important;
 }
 
 /* 9. Progress bar scrubbing thumbnail preview */

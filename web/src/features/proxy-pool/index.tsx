@@ -674,12 +674,7 @@ export function ProxyPool() {
     <>
       <SectionPageLayout>
         <SectionPageLayout.Title>
-          <span className='inline-flex min-w-0 items-center gap-2'>
-            <span className='truncate'>{t('Proxy Pool')}</span>
-            <Badge variant='outline' className='shrink-0'>
-              Admin
-            </Badge>
-          </span>
+          <span className='truncate'>{t('Proxy Pool')}</span>
         </SectionPageLayout.Title>
         <SectionPageLayout.Content>
           <div className='mx-auto flex w-full max-w-6xl flex-col gap-6'>

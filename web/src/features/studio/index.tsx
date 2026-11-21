@@ -737,17 +737,6 @@ export function Studio() {
   // IndexedDB-backed object URLs for items kept in this browser (over-quota storage).
   const localOnlyUrls = useLocalOnlyUrls(items, markMediaBroken)
 
-  // Safety timeout for localOnly media: if blob loading hangs longer than 4s, mark it broken to show retry
-  useEffect(() => {
-    if (!activeItem || !activeItem.localOnly || singleVideoUrl || brokenMediaIds.has(activeItem.id)) {
-      return
-    }
-    const timer = setTimeout(() => {
-      markMediaBroken(activeItem.id)
-    }, 4000)
-    return () => clearTimeout(timer)
-  }, [activeItem, singleVideoUrl, brokenMediaIds])
-
   // Lifecycle for page reloads: if an active item has already finished and been viewed, archive it to history popup on reload
   const reloadCheckedRef = useRef(false)
   useEffect(() => {
@@ -814,6 +803,17 @@ export function Studio() {
     const urls = activeItem?.urls ?? []
     return urls.length > 0 ? urls[0] : undefined
   })()
+
+  // Safety timeout for localOnly media: if blob loading hangs longer than 4s, mark it broken to show retry
+  useEffect(() => {
+    if (!activeItem || !activeItem.localOnly || singleVideoUrl || brokenMediaIds.has(activeItem.id)) {
+      return
+    }
+    const timer = setTimeout(() => {
+      markMediaBroken(activeItem.id)
+    }, 4000)
+    return () => clearTimeout(timer)
+  }, [activeItem, singleVideoUrl, brokenMediaIds])
 
   const editModeOnly = mode === 'video' && selectedVideoModel?.edit_mode === 'only'
   const editReady = !editModeOnly || attachedMedia?.type === 'video'

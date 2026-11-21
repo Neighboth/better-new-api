@@ -143,7 +143,7 @@ export function VideoSettingsPopover({
           style={{
             maxHeight: maxAvailableHeight ? `${maxAvailableHeight}px` : undefined,
           }}
-          className="absolute bottom-full right-0 mb-2 w-52 sm:w-56 rounded-lg bg-zinc-900/85 backdrop-blur-xl border border-white/10 p-1 shadow-2xl text-zinc-100 text-[11px] sm:text-xs select-none z-50 max-h-56 overflow-y-auto dark-custom-scrollbar studio-settings-popover animate-in fade-in zoom-in-95 duration-150"
+          className="absolute bottom-full right-0 mb-2 w-52 sm:w-56 rounded-lg bg-zinc-900/85 backdrop-blur-xl border border-white/10 p-1 shadow-2xl text-zinc-100 text-[11px] sm:text-xs select-none z-50 overflow-y-auto dark-custom-scrollbar studio-settings-popover animate-in fade-in zoom-in-95 duration-150"
         >
           {view === 'main' && (
             <div className="space-y-0.5">
@@ -231,7 +231,7 @@ export function VideoSettingsPopover({
                 <ChevronLeft className="w-3.5 h-3.5 studio-menu-icon" />
                 <span className="whitespace-nowrap">{t('Quality')}</span>
               </button>
-              <div className="max-h-36 sm:max-h-44 overflow-y-auto dark-custom-scrollbar pt-0.5 space-y-0.5">
+              <div className="pt-0.5 space-y-0.5">
                 <button
                   type="button"
                   onClick={() => {
@@ -272,7 +272,7 @@ export function VideoSettingsPopover({
                 <ChevronLeft className="w-3.5 h-3.5 studio-menu-icon" />
                 <span className="whitespace-nowrap">{t('Frame Rate')}</span>
               </button>
-              <div className="max-h-36 sm:max-h-44 overflow-y-auto dark-custom-scrollbar pt-0.5 space-y-0.5">
+              <div className="pt-0.5 space-y-0.5">
                 <button
                   type="button"
                   onClick={() => {
@@ -313,7 +313,7 @@ export function VideoSettingsPopover({
                 <ChevronLeft className="w-3.5 h-3.5 studio-menu-icon" />
                 <span className="whitespace-nowrap">{t('Playback speed')}</span>
               </button>
-              <div className="max-h-36 sm:max-h-44 overflow-y-auto dark-custom-scrollbar pt-0.5 space-y-0.5">
+              <div className="pt-0.5 space-y-0.5">
                 {SPEED_OPTIONS.map((rate) => (
                   <button
                     key={rate}

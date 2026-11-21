@@ -32,6 +32,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -205,21 +206,13 @@ export function AdminTicketsPage() {
   const closedCount = tickets.filter((tk) => tk.status === 'closed').length
 
   return (
-    <div className='h-full flex-1 overflow-y-auto space-y-6 p-4 md:p-6'>
-      {/* Page Header */}
-      <div className='flex items-center justify-between'>
-        <div>
-          <h1 className='text-2xl font-bold tracking-tight flex items-center gap-2'>
-            <Headphones className='h-6 w-6 text-primary' />
-            {t('Ticket Management')}
-          </h1>
-          <p className='text-sm text-muted-foreground'>
-            {t('Manage, review, and reply to user support requests.')}
-          </p>
-        </div>
-      </div>
-
-      {/* Summary Cards */}
+    <SectionPageLayout>
+      <SectionPageLayout.Title>
+        <span className='truncate'>{t('Ticket Management')}</span>
+      </SectionPageLayout.Title>
+      <SectionPageLayout.Content>
+        <div className='flex flex-col gap-6'>
+          {/* Summary Cards */}
       <div className='grid gap-4 md:grid-cols-4'>
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
@@ -482,6 +475,8 @@ export function AdminTicketsPage() {
           )}
         </CardContent>
       </Card>
-    </div>
+        </div>
+      </SectionPageLayout.Content>
+    </SectionPageLayout>
   )
 }

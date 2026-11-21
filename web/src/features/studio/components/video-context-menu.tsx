@@ -154,7 +154,7 @@ export function VideoContextMenu({
       onClick={(e) => e.stopPropagation()}
       className={cn(
         "absolute z-50 rounded-lg bg-zinc-900/85 backdrop-blur-xl border border-white/10 p-1 shadow-2xl text-zinc-100 select-none studio-context-menu text-[11px] sm:text-xs animate-in fade-in zoom-in-95 duration-150",
-        isWide ? "is-wide w-58 sm:w-60" : "w-46",
+        isWide ? "is-wide w-58 sm:w-60" : "w-48 sm:w-52",
         maxHeight ? "overflow-y-auto dark-custom-scrollbar" : "overflow-hidden"
       )}
     >
