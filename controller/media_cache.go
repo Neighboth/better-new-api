@@ -511,7 +511,7 @@ func transcodeMediaToFile(ctx context.Context, inputSource, outputPath string, h
 		vfParts = append(vfParts, fmt.Sprintf("fps=%d", fps))
 	}
 
-	tempPath := fmt.Sprintf("%s.%s.tmp", outputPath, common.GetRandomString(6))
+	tempPath := fmt.Sprintf("%s.tmp.%s.mp4", outputPath, common.GetRandomString(6))
 
 	args := []string{
 		"-loglevel", "error",
@@ -531,6 +531,7 @@ func transcodeMediaToFile(ctx context.Context, inputSource, outputPath string, h
 		"-crf", "26",
 		"-c:a", "aac",
 		"-strict", "experimental",
+		"-f", "mp4",
 		"-movflags", "+faststart",
 		"-y",
 		tempPath,
