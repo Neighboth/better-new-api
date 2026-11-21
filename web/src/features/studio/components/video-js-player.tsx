@@ -95,13 +95,6 @@ function buildTranscodedUrl(rawUrl: string, height: number | null, fps: number |
   return url
 }
 
-function formatSeconds(sec: number): string {
-  const s = Math.max(0, Math.floor(sec))
-  const m = Math.floor(s / 60)
-  const rem = s % 60
-  return `${m.toString().padStart(2, '0')}:${rem.toString().padStart(2, '0')}`
-}
-
 export function VideoJsPlayer({
   src,
   autoPlay = false,
@@ -115,7 +108,6 @@ export function VideoJsPlayer({
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const previewVideoRef = useRef<HTMLVideoElement>(null)
 
   // Player state
   const [currentSrc, setCurrentSrc] = useState(src)
@@ -125,13 +117,6 @@ export function VideoJsPlayer({
   const [showStats, setShowStats] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
-
-  // Hover Scrubbing Preview state
-  const [hoverPreview, setHoverPreview] = useState<{
-    x: number
-    bottomOffset: number
-    time: number
-  } | null>(null)
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; maxHeight?: number; isWide?: boolean } | null>(null)
@@ -157,138 +142,6 @@ export function VideoJsPlayer({
     setSelectedFps(null)
     setIsEnded(false)
   }, [src])
-
-  // Hidden background video element always kept loaded for instant scrubbing previews
-  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null)
-  const isSeekingPreviewRef = useRef(false)
-  const pendingSeekTimeRef = useRef<number | null>(null)
-  const [previewThumbnailUrl, setPreviewThumbnailUrl] = useState<string | null>(null)
-
-  // Preload background preview video
-  useEffect(() => {
-    const pv = previewVideoRef.current
-    if (pv) {
-      pv.preload = 'auto'
-      pv.src = currentSrc
-      pv.load()
-    }
-    setPreviewThumbnailUrl(null)
-  }, [currentSrc])
-
-  // Capture frame to canvas/data URL as soon as seek finishes
-  const handlePreviewSeeked = useCallback(() => {
-    isSeekingPreviewRef.current = false
-    const pv = previewVideoRef.current
-    if (pv && pv.videoWidth > 0 && pv.videoHeight > 0) {
-      try {
-        if (!previewCanvasRef.current) {
-          previewCanvasRef.current = document.createElement('canvas')
-        }
-        const canvas = previewCanvasRef.current
-        canvas.width = 160
-        canvas.height = 90
-        const ctx = canvas.getContext('2d')
-        if (ctx) {
-          ctx.drawImage(pv, 0, 0, canvas.width, canvas.height)
-          setPreviewThumbnailUrl(canvas.toDataURL('image/jpeg', 0.8))
-        }
-      } catch {}
-    }
-
-    // Process queued seek if mouse moved during previous seek
-    if (pendingSeekTimeRef.current !== null && pv) {
-      const nextTime = pendingSeekTimeRef.current
-      pendingSeekTimeRef.current = null
-      isSeekingPreviewRef.current = true
-      try {
-        pv.currentTime = nextTime
-      } catch {
-        isSeekingPreviewRef.current = false
-      }
-    }
-  }, [])
-
-  // Hover Scrubbing Preview listener on timeline slider
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    let timeSlider: HTMLElement | null = null
-
-    const handlePointerMove = (e: PointerEvent) => {
-      const video = videoRef.current
-      if (!video || !video.duration || Number.isNaN(video.duration)) {
-        setHoverPreview(null)
-        return
-      }
-
-      const currentSlider = container.querySelector(
-        '.media-time-slider, [data-variant="time"]'
-      ) as HTMLElement | null
-      if (!currentSlider) return
-
-      const sliderRect = currentSlider.getBoundingClientRect()
-      const containerRect = container.getBoundingClientRect()
-
-      if (e.clientX < sliderRect.left || e.clientX > sliderRect.right) {
-        setHoverPreview(null)
-        return
-      }
-
-      const ratio = Math.max(0, Math.min(1, (e.clientX - sliderRect.left) / sliderRect.width))
-      const time = ratio * video.duration
-      const x = Math.max(65, Math.min(containerRect.width - 65, e.clientX - containerRect.left))
-      const bottomOffset = Math.max(48, containerRect.bottom - sliderRect.top + 6)
-
-      setHoverPreview({ x, bottomOffset, time })
-
-      // Dispatch non-blocking seek to preloaded video
-      const pv = previewVideoRef.current
-      if (pv && pv.readyState >= 1) {
-        if (!isSeekingPreviewRef.current) {
-          isSeekingPreviewRef.current = true
-          try {
-            pv.currentTime = time
-          } catch {
-            isSeekingPreviewRef.current = false
-          }
-        } else {
-          pendingSeekTimeRef.current = time
-        }
-      }
-    }
-
-    const handlePointerLeave = () => {
-      setHoverPreview(null)
-      pendingSeekTimeRef.current = null
-    }
-
-    const attach = () => {
-      const slider = container.querySelector(
-        '.media-time-slider, [data-variant="time"]'
-      ) as HTMLElement | null
-      if (slider && slider !== timeSlider) {
-        if (timeSlider) {
-          timeSlider.removeEventListener('pointermove', handlePointerMove)
-          timeSlider.removeEventListener('pointerleave', handlePointerLeave)
-        }
-        timeSlider = slider
-        timeSlider.addEventListener('pointermove', handlePointerMove)
-        timeSlider.addEventListener('pointerleave', handlePointerLeave)
-      }
-    }
-
-    attach()
-    const timer = setInterval(attach, 500)
-
-    return () => {
-      clearInterval(timer)
-      if (timeSlider) {
-        timeSlider.removeEventListener('pointermove', handlePointerMove)
-        timeSlider.removeEventListener('pointerleave', handlePointerLeave)
-      }
-    }
-  }, [])
 
   // Probe media metadata on mount/src change
   useEffect(() => {
@@ -652,46 +505,6 @@ export function VideoJsPlayer({
             onPause={() => setIsPlaying(false)}
             onEnded={handleEnded}
           />
-
-          {/* Hidden pre-buffering video element for instantaneous scrubbing previews */}
-          <video
-            ref={previewVideoRef}
-            src={currentSrc}
-            preload="auto"
-            muted
-            playsInline
-            crossOrigin="anonymous"
-            className="hidden pointer-events-none"
-            onSeeked={handlePreviewSeeked}
-          />
-
-          {/* Hover Scrubbing Preview */}
-          {hoverPreview && (
-            <div
-              className="studio-timeline-preview"
-              style={{
-                left: `${hoverPreview.x}px`,
-                bottom: `${hoverPreview.bottomOffset}px`,
-              }}
-            >
-              <div className="relative w-[120px] h-[68px] bg-black rounded overflow-hidden flex items-center justify-center">
-                {previewThumbnailUrl ? (
-                  <img
-                    src={previewThumbnailUrl}
-                    alt=""
-                    className="w-full h-full object-contain"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-zinc-900">
-                    <span className="text-[10px] text-zinc-400">...</span>
-                  </div>
-                )}
-              </div>
-              <div className="studio-timeline-preview-time">
-                {formatSeconds(hoverPreview.time)}
-              </div>
-            </div>
-          )}
 
           {/* 1. Large Central Replay Button (When ended && !isLooping) */}
           {isEnded && !isLooping && <VideoReplayOverlay onReplay={handleReplay} />}
