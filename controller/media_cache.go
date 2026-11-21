@@ -61,6 +61,7 @@ func setMediaCacheHeaders(c *gin.Context) {
 	c.Header("Accept-Ranges", "bytes")
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("X-Accel-Buffering", "no")
+	c.Header("Content-Encoding", "identity")
 }
 
 // resolveMediaSource resolves a relative URL, video proxy route, local upload or remote URL

@@ -83,40 +83,14 @@
   color-scheme: dark !important;
 }
 
-/* 7. Enhanced sizing when container is wide or in fullscreen */
+/* 7. Enhanced width when container is wide or in fullscreen (only expands width, no font/padding enlargement) */
 .studio-context-menu.is-wide {
-  width: 14.75rem !important; /* ~236px */
-  font-size: 0.8125rem !important; /* ~13px */
-  padding: 0.375rem !important;
-  border-radius: 0.625rem !important;
-}
-.studio-context-menu.is-wide .studio-menu-button {
-  padding: 0.35rem 0.5rem !important;
-  font-size: 0.8125rem !important;
-  border-radius: 0.5rem !important;
-}
-.studio-context-menu.is-wide .studio-menu-icon {
-  width: 1rem !important;
-  height: 1rem !important;
+  width: 14.5rem !important; /* ~232px */
 }
 
 :is(.studio-video-skin:fullscreen, .studio-video-skin:-webkit-full-screen, .studio-video-skin:-moz-full-screen) .studio-settings-popover,
 :is(.studio-video-skin:fullscreen, .studio-video-skin:-webkit-full-screen, .studio-video-skin:-moz-full-screen) .studio-context-menu {
-  width: 15rem !important;
-  font-size: 0.8125rem !important; /* ~13px */
-  padding: 0.375rem !important;
-  border-radius: 0.625rem !important; /* 10px */
-}
-
-:is(.studio-video-skin:fullscreen, .studio-video-skin:-webkit-full-screen, .studio-video-skin:-moz-full-screen) .studio-menu-button {
-  padding: 0.35rem 0.5rem !important;
-  font-size: 0.8125rem !important;
-  border-radius: 0.5rem !important;
-}
-
-:is(.studio-video-skin:fullscreen, .studio-video-skin:-webkit-full-screen, .studio-video-skin:-moz-full-screen) .studio-menu-icon {
-  width: 1rem !important;
-  height: 1rem !important;
+  width: 14.5rem !important;
 }
 
 :is(.studio-video-skin:fullscreen, .studio-video-skin:-webkit-full-screen, .studio-video-skin:-moz-full-screen) .studio-stats-box {

@@ -173,7 +173,7 @@ func EnsureFFmpeg(ctx context.Context) (string, error) {
 
 	common.SysLog(fmt.Sprintf("ffmpeg not found on host, downloading static binary from %s to %s...", downloadURL, targetPath))
 
-	reqCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	reqCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, downloadURL, nil)

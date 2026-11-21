@@ -106,15 +106,29 @@ export function VideoContextMenu({
     const pad = 8
     const actualHeight = el.scrollHeight
 
-    // If the menu can fit in the container, ensure it is shifted upwards so no scrollbar is needed
-    if (!maxHeight && (parentHeight - pad * 2) >= actualHeight) {
+    // Can the entire menu fit within the parent container?
+    if (parentHeight - pad * 2 >= actualHeight) {
+      // Yes! It can fit completely without scrolling.
+      // Check if it overflows the bottom edge:
       const bottomEdge = el.offsetTop + actualHeight
       if (bottomEdge > parentHeight - pad) {
+        // Shift UPWARDS so bottom fits within parentHeight - pad
         const adjustedTop = Math.max(pad, parentHeight - actualHeight - pad)
         el.style.top = `${adjustedTop}px`
       }
+      // Never constrain maxHeight and eliminate all scrollbars
+      el.style.maxHeight = ''
+      el.classList.remove('overflow-y-auto', 'dark-custom-scrollbar')
+      el.classList.add('overflow-hidden')
+    } else {
+      // Container is physically too short to show the menu (e.g. tiny 180px card).
+      // Keep within bounds and enable scrolling.
+      const available = parentHeight - el.offsetTop - pad
+      el.style.maxHeight = `${Math.max(60, available)}px`
+      el.classList.add('overflow-y-auto', 'dark-custom-scrollbar')
+      el.classList.remove('overflow-hidden')
     }
-  }, [view, maxHeight, y])
+  }, [view, y])
 
   // Clean labels without parentheses
   const currentQualityLabel =
@@ -137,8 +151,8 @@ export function VideoContextMenu({
       }}
       onClick={(e) => e.stopPropagation()}
       className={cn(
-        "absolute z-50 rounded-lg bg-zinc-900/85 backdrop-blur-xl border border-white/10 p-1 shadow-2xl text-zinc-100 select-none studio-context-menu animate-in fade-in zoom-in-95 duration-150",
-        isWide ? "is-wide w-58 sm:w-60 text-xs py-1.5" : "w-46 text-[11px] sm:text-xs",
+        "absolute z-50 rounded-lg bg-zinc-900/85 backdrop-blur-xl border border-white/10 p-1 shadow-2xl text-zinc-100 select-none studio-context-menu text-[11px] sm:text-xs animate-in fade-in zoom-in-95 duration-150",
+        isWide ? "is-wide w-58 sm:w-60" : "w-46",
         maxHeight ? "overflow-y-auto dark-custom-scrollbar" : "overflow-hidden"
       )}
     >

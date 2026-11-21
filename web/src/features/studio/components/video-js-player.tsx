@@ -402,8 +402,8 @@ export function VideoJsPlayer({
     const clickY = e.clientY - rect.top
 
     const isWide = rect.width >= 330
-    const menuWidth = isWide ? 236 : 184
-    const naturalMenuHeight = isWide ? 305 : 270
+    const menuWidth = isWide ? 232 : 184
+    const naturalMenuHeight = 250
     const pad = 8
 
     // Horizontal clamping
