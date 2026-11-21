@@ -54,28 +54,13 @@ func FindFFmpeg() string {
 		return cachedFFmpegPath
 	}
 
-	// 3. Known directory paths
+	// 3. Local app directory candidates only (self-contained within app)
 	candidates := []string{
 		exeName,
 		filepath.Join(".", exeName),
 		filepath.Join("bin", exeName),
 		filepath.Join("data", "bin", exeName),
 		filepath.Join("uploads", "bin", exeName),
-	}
-
-	if runtime.GOOS == "windows" {
-		candidates = append(candidates,
-			`C:\ffmpeg\bin\ffmpeg.exe`,
-			`C:\Program Files\ffmpeg\bin\ffmpeg.exe`,
-			`C:\ProgramData\chocolatey\bin\ffmpeg.exe`,
-		)
-	} else {
-		candidates = append(candidates,
-			"/usr/bin/ffmpeg",
-			"/usr/local/bin/ffmpeg",
-			"/data/bin/ffmpeg",
-			"/worker/binaries/ffmpeg",
-		)
 	}
 
 	for _, c := range candidates {
@@ -116,25 +101,13 @@ func FindFFprobe() string {
 		return cachedFFprobePath
 	}
 
+	// 3. Local app directory candidates only (self-contained within app)
 	candidates := []string{
 		exeName,
 		filepath.Join(".", exeName),
 		filepath.Join("bin", exeName),
 		filepath.Join("data", "bin", exeName),
 		filepath.Join("uploads", "bin", exeName),
-	}
-
-	if runtime.GOOS == "windows" {
-		candidates = append(candidates,
-			`C:\ffmpeg\bin\ffprobe.exe`,
-			`C:\Program Files\ffmpeg\bin\ffprobe.exe`,
-		)
-	} else {
-		candidates = append(candidates,
-			"/usr/bin/ffprobe",
-			"/usr/local/bin/ffprobe",
-			"/data/bin/ffprobe",
-		)
 	}
 
 	for _, c := range candidates {

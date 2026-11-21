@@ -401,9 +401,9 @@ export function VideoJsPlayer({
     const clickX = e.clientX - rect.left
     const clickY = e.clientY - rect.top
 
-    const isWide = rect.width >= 480
-    const menuWidth = isWide ? 228 : 184
-    const naturalMenuHeight = isWide ? 370 : 345
+    const isWide = rect.width >= 330
+    const menuWidth = isWide ? 236 : 184
+    const naturalMenuHeight = isWide ? 305 : 270
     const pad = 8
 
     // Horizontal clamping
@@ -415,38 +415,31 @@ export function VideoJsPlayer({
     }
 
     // Vertical positioning:
-    const spaceBelow = rect.height - clickY - pad
-    const spaceAbove = clickY - pad
+    // Can the entire menu fit within the video player (from pad to rect.height - pad)?
+    const totalAvailableHeight = rect.height - pad * 2
     let y: number
     let maxHeight: number | undefined
 
-    // 1. Does the menu fit naturally downwards from the click position?
-    if (spaceBelow >= naturalMenuHeight) {
-      y = clickY
+    if (totalAvailableHeight >= naturalMenuHeight) {
+      // 1. Container has plenty of height to display the entire menu without scrolling!
+      if (clickY + naturalMenuHeight <= rect.height - pad) {
+        // Fits downwards from the click position
+        y = clickY
+      } else {
+        // Shift upwards so it stays completely within container without scrolling
+        y = Math.max(pad, rect.height - naturalMenuHeight - pad)
+      }
       maxHeight = undefined
     } else {
-      // 2. Downwards would cause a scrollbar. Check if the container has enough total height
-      // to display the full menu without scrolling if shifted up.
-      const totalAvailableHeight = rect.height - pad * 2
-      if (totalAvailableHeight >= naturalMenuHeight) {
-        if (spaceAbove >= naturalMenuHeight) {
-          // Fits directly upwards from click
-          y = clickY - naturalMenuHeight
-        } else {
-          // Fits by shifting up so its bottom aligns nicely at (rect.height - pad)
-          y = Math.max(pad, rect.height - naturalMenuHeight - pad)
-        }
-        maxHeight = undefined
+      // 2. Container itself is physically too short to display the full menu (tiny card)
+      const spaceBelow = rect.height - clickY - pad
+      const spaceAbove = clickY - pad
+      if (spaceBelow >= spaceAbove) {
+        y = Math.max(pad, clickY)
+        maxHeight = Math.max(60, spaceBelow)
       } else {
-        // 3. Container itself is too small to display the full menu.
-        // Opens at click point with scrolling.
-        if (spaceBelow >= spaceAbove) {
-          y = Math.max(pad, clickY)
-          maxHeight = Math.max(80, spaceBelow)
-        } else {
-          maxHeight = Math.max(80, spaceAbove)
-          y = Math.max(pad, clickY - maxHeight)
-        }
+        maxHeight = Math.max(60, spaceAbove)
+        y = Math.max(pad, clickY - maxHeight)
       }
     }
 

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import { useState } from 'react'
+import { useState, useRef, useLayoutEffect } from 'react'
 import {
   ChevronRight,
   ChevronLeft,
@@ -93,6 +93,28 @@ export function VideoContextMenu({
   onClose,
 }: VideoContextMenuProps) {
   const [view, setView] = useState<'main' | 'quality' | 'fps' | 'speed'>('main')
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Dynamically ensure menu never overflows the container bottom when container is tall enough
+  useLayoutEffect(() => {
+    if (!menuRef.current) return
+    const el = menuRef.current
+    const parent = el.parentElement
+    if (!parent) return
+
+    const parentHeight = parent.clientHeight
+    const pad = 8
+    const actualHeight = el.scrollHeight
+
+    // If the menu can fit in the container, ensure it is shifted upwards so no scrollbar is needed
+    if (!maxHeight && (parentHeight - pad * 2) >= actualHeight) {
+      const bottomEdge = el.offsetTop + actualHeight
+      if (bottomEdge > parentHeight - pad) {
+        const adjustedTop = Math.max(pad, parentHeight - actualHeight - pad)
+        el.style.top = `${adjustedTop}px`
+      }
+    }
+  }, [view, maxHeight, y])
 
   // Clean labels without parentheses
   const currentQualityLabel =
@@ -107,15 +129,17 @@ export function VideoContextMenu({
 
   return (
     <div
+      ref={menuRef}
       style={{
         left: `${x}px`,
         top: `${y}px`,
-        maxHeight: maxHeight ? `${maxHeight}px` : 'calc(100% - 16px)',
+        maxHeight: maxHeight ? `${maxHeight}px` : undefined,
       }}
       onClick={(e) => e.stopPropagation()}
       className={cn(
-        "absolute z-50 rounded-lg bg-zinc-900/85 backdrop-blur-xl border border-white/10 p-1 shadow-2xl text-zinc-100 select-none dark-custom-scrollbar studio-context-menu overflow-y-auto animate-in fade-in zoom-in-95 duration-150",
-        isWide ? "w-56 sm:w-60 text-xs py-1.5" : "w-46 text-[11px] sm:text-xs"
+        "absolute z-50 rounded-lg bg-zinc-900/85 backdrop-blur-xl border border-white/10 p-1 shadow-2xl text-zinc-100 select-none studio-context-menu animate-in fade-in zoom-in-95 duration-150",
+        isWide ? "is-wide w-58 sm:w-60 text-xs py-1.5" : "w-46 text-[11px] sm:text-xs",
+        maxHeight ? "overflow-y-auto dark-custom-scrollbar" : "overflow-hidden"
       )}
     >
       {view === 'main' && (
