@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import { useState, useRef, useLayoutEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   ChevronRight,
   ChevronLeft,
@@ -92,6 +93,7 @@ export function VideoContextMenu({
   onSelectSpeed,
   onClose,
 }: VideoContextMenuProps) {
+  const { t } = useTranslation()
   const [view, setView] = useState<'main' | 'quality' | 'fps' | 'speed'>('main')
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -133,12 +135,12 @@ export function VideoContextMenu({
   // Clean labels without parentheses
   const currentQualityLabel =
     selectedQuality === null
-      ? 'Otomatik'
+      ? t('Auto')
       : `${selectedQuality}p`
 
   const currentFpsLabel =
     selectedFps === null
-      ? 'Orijinal'
+      ? t('Original')
       : `${selectedFps} FPS`
 
   return (
@@ -167,7 +169,7 @@ export function VideoContextMenu({
             }}
             className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
-            <span>{isPlaying ? 'Durdur' : 'Oynat'}</span>
+            <span className="whitespace-nowrap">{isPlaying ? t('Pause') : t('Play')}</span>
           </button>
 
           {/* 2. Loop */}
@@ -179,7 +181,7 @@ export function VideoContextMenu({
             }}
             className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
-            <span>Döngü</span>
+            <span className="whitespace-nowrap">{t('Loop')}</span>
             {isLooping && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
           </button>
 
@@ -192,7 +194,7 @@ export function VideoContextMenu({
             }}
             className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
-            <span>Geliştirici bilgisi</span>
+            <span className="whitespace-nowrap">{t('Stats for nerds')}</span>
             {showStats && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
           </button>
 
@@ -204,8 +206,8 @@ export function VideoContextMenu({
             onClick={() => setView('quality')}
             className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
-            <span>Kalite</span>
-            <div className="flex items-center gap-1 text-[11px] text-zinc-400">
+            <span className="whitespace-nowrap">{t('Quality')}</span>
+            <div className="flex items-center gap-1 text-[11px] text-zinc-400 shrink-0">
               <span className="truncate max-w-[70px]">{currentQualityLabel}</span>
               <ChevronRight className="w-3.5 h-3.5 text-zinc-400 studio-menu-icon" />
             </div>
@@ -217,8 +219,8 @@ export function VideoContextMenu({
             onClick={() => setView('fps')}
             className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
-            <span>Kare Hızı</span>
-            <div className="flex items-center gap-1 text-[11px] text-zinc-400">
+            <span className="whitespace-nowrap">{t('Frame Rate')}</span>
+            <div className="flex items-center gap-1 text-[11px] text-zinc-400 shrink-0">
               <span className="truncate max-w-[65px]">{currentFpsLabel}</span>
               <ChevronRight className="w-3.5 h-3.5 text-zinc-400 studio-menu-icon" />
             </div>
@@ -230,9 +232,9 @@ export function VideoContextMenu({
             onClick={() => setView('speed')}
             className="w-full flex items-center justify-between px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
-            <span>Oynatma hızı</span>
-            <div className="flex items-center gap-1 text-[11px] text-zinc-400">
-              <span>{playbackSpeed === 1 ? 'Normal' : `${playbackSpeed}x`}</span>
+            <span className="whitespace-nowrap">{t('Playback speed')}</span>
+            <div className="flex items-center gap-1 text-[11px] text-zinc-400 shrink-0">
+              <span>{playbackSpeed === 1 ? t('Normal') : `${playbackSpeed}x`}</span>
               <ChevronRight className="w-3.5 h-3.5 text-zinc-400 studio-menu-icon" />
             </div>
           </button>
@@ -248,7 +250,7 @@ export function VideoContextMenu({
             }}
             className="w-full flex items-center px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
-            <span>Videoyu indir</span>
+            <span className="whitespace-nowrap">{t('Download video')}</span>
           </button>
 
           {/* 8. Copy URL */}
@@ -260,7 +262,7 @@ export function VideoContextMenu({
             }}
             className="w-full flex items-center px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
-            <span>Video bağlantısını kopyala</span>
+            <span className="whitespace-nowrap">{t('Copy video URL')}</span>
           </button>
 
           {/* 9. Copy URL at current time */}
@@ -272,7 +274,7 @@ export function VideoContextMenu({
             }}
             className="w-full flex items-center px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
-            <span>Geçerli süredeki bağlantıyı kopyala</span>
+            <span className="whitespace-nowrap">{t('Copy video URL at current time')}</span>
           </button>
 
           <div className="h-px bg-white/10 my-0.5" />
@@ -286,7 +288,7 @@ export function VideoContextMenu({
             }}
             className="w-full flex items-center px-2 py-1.25 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
           >
-            <span>{isFullscreen ? 'Tam ekrandan çık' : 'Tam ekran'}</span>
+            <span className="whitespace-nowrap">{isFullscreen ? t('Exit full screen') : t('Full screen')}</span>
           </button>
         </div>
       )}
@@ -300,7 +302,7 @@ export function VideoContextMenu({
             className="w-full flex items-center gap-1.5 px-2 py-1.25 border-b border-white/10 font-medium text-zinc-200 hover:text-white transition-colors studio-menu-button"
           >
             <ChevronLeft className="w-3.5 h-3.5 studio-menu-icon" />
-            <span>Kalite</span>
+            <span className="whitespace-nowrap">{t('Quality')}</span>
           </button>
           <div className="max-h-36 sm:max-h-44 overflow-y-auto dark-custom-scrollbar pt-0.5 space-y-0.5">
             <button
@@ -311,7 +313,7 @@ export function VideoContextMenu({
               }}
               className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
             >
-              <span>Otomatik</span>
+              <span className="whitespace-nowrap">{t('Auto')}</span>
               {selectedQuality === null && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
             </button>
             {qualities.map((item) => (
@@ -324,7 +326,7 @@ export function VideoContextMenu({
                 }}
                 className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
               >
-                <span>{item.label}</span>
+                <span className="whitespace-nowrap">{item.isOriginal ? `${item.label} (${t('Original')})` : item.label}</span>
                 {selectedQuality === item.height && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
               </button>
             ))}
@@ -341,7 +343,7 @@ export function VideoContextMenu({
             className="w-full flex items-center gap-1.5 px-2 py-1.25 border-b border-white/10 font-medium text-zinc-200 hover:text-white transition-colors studio-menu-button"
           >
             <ChevronLeft className="w-3.5 h-3.5 studio-menu-icon" />
-            <span>Kare Hızı</span>
+            <span className="whitespace-nowrap">{t('Frame Rate')}</span>
           </button>
           <div className="max-h-36 sm:max-h-44 overflow-y-auto dark-custom-scrollbar pt-0.5 space-y-0.5">
             <button
@@ -352,7 +354,7 @@ export function VideoContextMenu({
               }}
               className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
             >
-              <span>Orijinal</span>
+              <span className="whitespace-nowrap">{t('Original')}</span>
               {selectedFps === null && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
             </button>
             {fpsList.map((item) => (
@@ -365,7 +367,7 @@ export function VideoContextMenu({
                 }}
                 className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
               >
-                <span>{item.label}</span>
+                <span className="whitespace-nowrap">{item.label}</span>
                 {selectedFps === item.fps && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
               </button>
             ))}
@@ -382,7 +384,7 @@ export function VideoContextMenu({
             className="w-full flex items-center gap-1.5 px-2 py-1.25 border-b border-white/10 font-medium text-zinc-200 hover:text-white transition-colors studio-menu-button"
           >
             <ChevronLeft className="w-3.5 h-3.5 studio-menu-icon" />
-            <span>Oynatma hızı</span>
+            <span className="whitespace-nowrap">{t('Playback speed')}</span>
           </button>
           <div className="max-h-36 sm:max-h-44 overflow-y-auto dark-custom-scrollbar pt-0.5 space-y-0.5">
             {SPEED_OPTIONS.map((rate) => (
@@ -395,7 +397,7 @@ export function VideoContextMenu({
                 }}
                 className="w-full flex items-center justify-between px-2 py-1 rounded-md hover:bg-white/10 text-left transition-colors studio-menu-button"
               >
-                <span>{rate === 1 ? 'Normal' : `${rate}x`}</span>
+                <span className="whitespace-nowrap">{rate === 1 ? t('Normal') : `${rate}x`}</span>
                 {playbackSpeed === rate && <Check className="w-3.5 h-3.5 text-white studio-menu-icon" />}
               </button>
             ))}

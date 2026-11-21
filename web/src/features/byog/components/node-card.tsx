@@ -35,6 +35,7 @@ import {
   Wifi,
   Zap,
 } from 'lucide-react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
@@ -83,7 +84,13 @@ export function NodeCard({
     }
   }
 
-  const nowSec = Math.floor(Date.now() / 1000)
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000))
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowSec(Math.floor(Date.now() / 1000))
+    }, 10_000)
+    return () => clearInterval(timer)
+  }, [])
   const heartbeatAge = nowSec - (node.last_heartbeat_at || 0)
   const isRecentHeartbeat = (node.last_heartbeat_at || 0) > 0 && heartbeatAge <= 120
   const isRecentCreation = (node.created_at || 0) > 0 && (nowSec - node.created_at) <= 120

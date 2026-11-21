@@ -104,46 +104,74 @@ export function TicketDetailView({
     scrollToBottom()
   }, [messages])
 
-  // WebSocket for real-time live support chat
+  // WebSocket for real-time live support chat with auto-reconnect
   useEffect(() => {
+    let unmounted = false
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let reconnectDelay = 2000
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
     const token = auth.accessToken || auth.session?.sid || ''
     const wsUrl = `${protocol}//${host}/api/ticket/ws?ticket_id=${ticketId}&token=${encodeURIComponent(token)}`
 
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
+    const connect = () => {
+      if (unmounted) return
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'subscribe', ticket_id: ticketId }))
-    }
+      ws.onopen = () => {
+        reconnectDelay = 2000
+        ws.send(JSON.stringify({ type: 'subscribe', ticket_id: ticketId }))
+      }
 
-    ws.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data)
-        if (payload.type === 'new_message' && payload.data) {
-          const newMsg = payload.data as TicketMessage
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === newMsg.id)) return prev
-            return [...prev, newMsg]
-          })
-          if (newMsg.is_admin) {
-            setTicket((prev) => (prev ? { ...prev, status: 'answered' } : prev))
-          } else {
-            setTicket((prev) => (prev ? { ...prev, status: 'open' } : prev))
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data)
+          if (payload.type === 'new_message' && payload.data) {
+            const newMsg = payload.data as TicketMessage
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === newMsg.id)) return prev
+              return [...prev, newMsg]
+            })
+            if (newMsg.is_admin) {
+              setTicket((prev) => (prev ? { ...prev, status: 'answered' } : prev))
+            } else {
+              setTicket((prev) => (prev ? { ...prev, status: 'open' } : prev))
+            }
+          } else if (payload.type === 'status_changed' && payload.data?.status) {
+            setTicket((prev) => (prev ? { ...prev, status: payload.data.status } : prev))
           }
-        } else if (payload.type === 'status_changed' && payload.data?.status) {
-          setTicket((prev) => (prev ? { ...prev, status: payload.data.status } : prev))
+        } catch {
+          /* parse error */
         }
-      } catch {
-        /* parse error */
+      }
+
+      ws.onclose = () => {
+        if (!unmounted) {
+          reconnectTimer = setTimeout(() => {
+            reconnectDelay = Math.min(reconnectDelay * 1.5, 15000)
+            connect()
+          }, reconnectDelay)
+        }
+      }
+
+      ws.onerror = () => {
+        ws.close()
       }
     }
 
+    connect()
+
     return () => {
-      ws.close()
+      unmounted = true
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (wsRef.current) {
+        wsRef.current.close()
+        wsRef.current = null
+      }
     }
-  }, [ticketId, auth.session?.sid])
+  }, [ticketId, auth.accessToken, auth.session?.sid])
 
   const handleSendReply = async () => {
     if (!replyText.trim()) return

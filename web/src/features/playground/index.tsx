@@ -131,6 +131,17 @@ export function Playground() {
     clearMessages()
   }
 
+  // Abort ongoing generation immediately when switching model or group
+  const prevModelRef = useRef(config.model)
+  useEffect(() => {
+    if (prevModelRef.current !== config.model) {
+      prevModelRef.current = config.model
+      if (isGenerating) {
+        stopGeneration()
+      }
+    }
+  }, [config.model, isGenerating, stopGeneration])
+
   const isBusy = isGenerating
 
   const { isLoadingModels } = usePlaygroundOptions({

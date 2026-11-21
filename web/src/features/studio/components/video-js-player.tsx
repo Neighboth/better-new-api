@@ -25,6 +25,7 @@ For commercial licensing, please contact support@quantumnous.com
 import '@videojs/react/video/skin.css'
 import './video-js-player.css'
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { createPortal } from 'react-dom'
 import { VideoPlayer, VideoSkin, Video } from '@videojs/react/video'
 import { cn } from '@/lib/utils'
@@ -94,6 +95,13 @@ function buildTranscodedUrl(rawUrl: string, height: number | null, fps: number |
   return url
 }
 
+function formatSeconds(sec: number): string {
+  const s = Math.max(0, Math.floor(sec))
+  const m = Math.floor(s / 60)
+  const rem = s % 60
+  return `${m.toString().padStart(2, '0')}:${rem.toString().padStart(2, '0')}`
+}
+
 export function VideoJsPlayer({
   src,
   autoPlay = false,
@@ -104,8 +112,10 @@ export function VideoJsPlayer({
   className,
   onError,
 }: VideoJsPlayerProps) {
+  const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const previewVideoRef = useRef<HTMLVideoElement>(null)
 
   // Player state
   const [currentSrc, setCurrentSrc] = useState(src)
@@ -115,6 +125,13 @@ export function VideoJsPlayer({
   const [showStats, setShowStats] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
+
+  // Hover Scrubbing Preview state
+  const [hoverPreview, setHoverPreview] = useState<{
+    x: number
+    bottomOffset: number
+    time: number
+  } | null>(null)
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; maxHeight?: number; isWide?: boolean } | null>(null)
@@ -140,6 +157,78 @@ export function VideoJsPlayer({
     setSelectedFps(null)
     setIsEnded(false)
   }, [src])
+
+  // Hover Scrubbing Preview listener on timeline slider
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    let timeSlider: HTMLElement | null = null
+
+    const handlePointerMove = (e: PointerEvent) => {
+      const video = videoRef.current
+      if (!video || !video.duration || Number.isNaN(video.duration)) {
+        setHoverPreview(null)
+        return
+      }
+
+      const currentSlider = container.querySelector(
+        '.media-time-slider, [data-variant="time"]'
+      ) as HTMLElement | null
+      if (!currentSlider) return
+
+      const sliderRect = currentSlider.getBoundingClientRect()
+      const containerRect = container.getBoundingClientRect()
+
+      if (e.clientX < sliderRect.left || e.clientX > sliderRect.right) {
+        setHoverPreview(null)
+        return
+      }
+
+      const ratio = Math.max(0, Math.min(1, (e.clientX - sliderRect.left) / sliderRect.width))
+      const time = ratio * video.duration
+      const x = Math.max(65, Math.min(containerRect.width - 65, e.clientX - containerRect.left))
+      const bottomOffset = Math.max(48, containerRect.bottom - sliderRect.top + 6)
+
+      setHoverPreview({ x, bottomOffset, time })
+
+      if (previewVideoRef.current) {
+        try {
+          previewVideoRef.current.currentTime = time
+        } catch {}
+      }
+    }
+
+    const handlePointerLeave = () => {
+      setHoverPreview(null)
+    }
+
+    const attach = () => {
+      const slider = container.querySelector(
+        '.media-time-slider, [data-variant="time"]'
+      ) as HTMLElement | null
+      if (slider && slider !== timeSlider) {
+        if (timeSlider) {
+          timeSlider.removeEventListener('pointermove', handlePointerMove)
+          timeSlider.removeEventListener('pointerleave', handlePointerLeave)
+        }
+        timeSlider = slider
+        timeSlider.addEventListener('pointermove', handlePointerMove)
+        timeSlider.addEventListener('pointerleave', handlePointerLeave)
+      }
+    }
+
+    attach()
+    const timer = setInterval(attach, 500)
+
+    return () => {
+      clearInterval(timer)
+      if (timeSlider) {
+        timeSlider.removeEventListener('pointermove', handlePointerMove)
+        timeSlider.removeEventListener('pointerleave', handlePointerLeave)
+      }
+    }
+  }, [])
 
   // Probe media metadata on mount/src change
   useEffect(() => {
@@ -415,7 +504,7 @@ export function VideoJsPlayer({
 
     const isWide = rect.width >= 330
     const menuWidth = isWide ? 232 : 184
-    const naturalMenuHeight = 250
+    const naturalMenuHeight = 325
     const pad = 8
 
     // Horizontal clamping
@@ -465,7 +554,9 @@ export function VideoJsPlayer({
       setSelectedQuality(null)
       setSelectedFps(null)
       setCurrentSrc(src)
-      toast.error('Seçilen kalitede video akışı açılamadı, orijinal kaliteye dönüldü')
+      toast.error(
+        t('Could not stream video at selected quality, reverted to original.')
+      )
       return
     }
     // Only call outer onError if the original source itself failed
@@ -479,7 +570,10 @@ export function VideoJsPlayer({
       onContextMenu={handleContextMenu}
     >
       <VideoPlayer>
-        <VideoSkin className="studio-video-skin" onContextMenu={handleContextMenu}>
+        <VideoSkin
+          className={cn('studio-video-skin', isEnded && !isLooping && 'has-replay-overlay')}
+          onContextMenu={handleContextMenu}
+        >
           <Video
             ref={videoRef}
             src={currentSrc}
@@ -498,6 +592,28 @@ export function VideoJsPlayer({
             onPause={() => setIsPlaying(false)}
             onEnded={handleEnded}
           />
+
+          {/* Hover Scrubbing Preview */}
+          {hoverPreview && (
+            <div
+              className="studio-timeline-preview"
+              style={{
+                left: `${hoverPreview.x}px`,
+                bottom: `${hoverPreview.bottomOffset}px`,
+              }}
+            >
+              <video
+                ref={previewVideoRef}
+                src={currentSrc}
+                preload="metadata"
+                muted
+                playsInline
+              />
+              <div className="studio-timeline-preview-time">
+                {formatSeconds(hoverPreview.time)}
+              </div>
+            </div>
+          )}
 
           {/* 1. Large Central Replay Button (When ended && !isLooping) */}
           {isEnded && !isLooping && <VideoReplayOverlay onReplay={handleReplay} />}

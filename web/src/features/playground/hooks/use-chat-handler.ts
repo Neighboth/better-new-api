@@ -768,6 +768,10 @@ export function useChatHandler({
     (messages: Message[]) => {
       const generation = requestGenerationRef.current + 1
       requestGenerationRef.current = generation
+      if (streamFlushTimerRef.current !== null) {
+        window.clearTimeout(streamFlushTimerRef.current)
+        streamFlushTimerRef.current = null
+      }
       abortControllerRef.current?.abort()
       abortControllerRef.current = null
       discardPendingStreamUpdates(generation)
@@ -831,6 +835,10 @@ export function useChatHandler({
 
   // Stop generation
   const stopGeneration = useCallback(() => {
+    if (streamFlushTimerRef.current !== null) {
+      window.clearTimeout(streamFlushTimerRef.current)
+      streamFlushTimerRef.current = null
+    }
     const stoppedGeneration = requestGenerationRef.current
     flushStreamUpdates(stoppedGeneration)
     const idleGeneration = stoppedGeneration + 1

@@ -148,6 +148,13 @@ export function getDefaultPaymentType(topupInfo: TopupInfo | null): string {
 }
 
 /**
+ * 32-bit signed int max quota (2,147,483,647).
+ * At standard 500,000 units per $1, max dollar topup is floor(2147483647 / 500000) = 4294.
+ * Setting a safe cap of $4,294 prevents backend int32 quota overflow.
+ */
+export const MAX_SAFE_TOPUP_AMOUNT = 4294
+
+/**
  * Get minimum topup amount from topup info
  */
 export function getMinTopupAmount(topupInfo: TopupInfo | null): number {

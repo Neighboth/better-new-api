@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
+import { useTranslation } from 'react-i18next'
 import { RotateCcw } from 'lucide-react'
 
 export interface VideoReplayOverlayProps {
@@ -24,13 +25,14 @@ export interface VideoReplayOverlayProps {
 }
 
 export function VideoReplayOverlay({ onReplay }: VideoReplayOverlayProps) {
+  const { t } = useTranslation()
   return (
     <div
       onClick={(e) => {
         e.stopPropagation()
         onReplay()
       }}
-      className="absolute inset-0 z-20 flex items-center justify-center bg-black/20 backdrop-blur-[1px] rounded-inherit overflow-hidden cursor-pointer animate-in fade-in duration-200"
+      className="absolute inset-0 z-20 flex items-center justify-center bg-black/20 backdrop-blur-[1px] rounded-inherit overflow-hidden cursor-pointer animate-in fade-in duration-200 studio-replay-overlay"
     >
       <button
         type="button"
@@ -39,7 +41,7 @@ export function VideoReplayOverlay({ onReplay }: VideoReplayOverlayProps) {
           onReplay()
         }}
         className="group relative flex items-center justify-center w-14 h-14 md:w-16 md:h-16 rounded-full bg-zinc-900/85 hover:bg-zinc-800/95 text-white border border-white/20 shadow-2xl hover:scale-110 active:scale-95 transition-all duration-200"
-        title="Yeniden Başlat"
+        title={t('Replay')}
       >
         <RotateCcw className="w-7 h-7 md:w-8 md:h-8 text-white transition-transform group-hover:-rotate-45 duration-300" />
       </button>

@@ -302,9 +302,10 @@ export function Wallet(props: WalletProps) {
 
   // Handle redemption
   const handleRedeem = async () => {
-    if (!redemptionCode) return
+    const trimmed = redemptionCode.trim()
+    if (!trimmed) return
 
-    const success = await redeemCode(redemptionCode)
+    const success = await redeemCode(trimmed)
     if (success) {
       setRedemptionCode('')
       await fetchUser()

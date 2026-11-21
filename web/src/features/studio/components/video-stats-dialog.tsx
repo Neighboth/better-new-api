@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { X } from 'lucide-react'
 
 export interface VideoStatsDialogProps {
@@ -63,6 +64,7 @@ export function VideoStatsDialog({
   isLooping,
   onClose,
 }: VideoStatsDialogProps) {
+  const { t } = useTranslation()
   const [stats, setStats] = useState<StatsState>({
     currentRes: '--',
     viewportRes: '--',
@@ -100,9 +102,9 @@ export function VideoStatsDialog({
       }
 
       // Status
-      let st = 'Oynatılıyor'
-      if (videoEl.ended) st = 'Bitti'
-      else if (videoEl.paused) st = 'Duraklatıldı'
+      let st = t('Playing')
+      if (videoEl.ended) st = t('Replay')
+      else if (videoEl.paused) st = t('Paused')
 
       // Transcode check
       const isTranscoded = src.includes('height=') || src.includes('fps=')
@@ -123,7 +125,7 @@ export function VideoStatsDialog({
     updateStats()
     const timer = setInterval(updateStats, 200)
     return () => clearInterval(timer)
-  }, [videoEl, src, nativeWidth, nativeHeight])
+  }, [videoEl, src, nativeWidth, nativeHeight, t])
 
   return (
     <div
@@ -132,13 +134,13 @@ export function VideoStatsDialog({
     >
       <div className="flex items-center justify-between border-b border-white/10 pb-1 mb-1.5">
         <span className="text-zinc-200 font-semibold tracking-wide uppercase text-[10px]">
-          Geliştirici Bilgisi
+          {t('Stats for nerds')}
         </span>
         <button
           type="button"
           onClick={onClose}
           className="text-zinc-400 hover:text-white transition-colors p-0.5 rounded-md hover:bg-white/10"
-          title="Kapat"
+          title={t('Close')}
         >
           <X className="w-3.5 h-3.5" />
         </button>
@@ -146,53 +148,53 @@ export function VideoStatsDialog({
 
       <div className="space-y-1">
         <div className="flex justify-between">
-          <span className="text-zinc-400">Çözünürlük:</span>
+          <span className="text-zinc-400">{t('Video Resolution')}:</span>
           <span className="text-zinc-100 font-medium">
             {stats.currentRes} {selectedQualityLabel ? `[${selectedQualityLabel}]` : ''}
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-zinc-400">Görünüm:</span>
+          <span className="text-zinc-400">{t('Viewport Resolution')}:</span>
           <span className="text-zinc-100">{stats.viewportRes}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-zinc-400">Kare Hızı:</span>
+          <span className="text-zinc-400">{t('Frame Rate')}:</span>
           <span className="text-zinc-100 font-medium">
             {selectedFpsLabel || (nativeFps ? `${nativeFps} FPS` : '30 FPS')}
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-zinc-400">Zaman / Süre:</span>
+          <span className="text-zinc-400">{t('Playback Time')}:</span>
           <span className="text-zinc-100">
             {stats.currentTime} / {stats.duration}
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-zinc-400">Tampon Bellek:</span>
+          <span className="text-zinc-400">Buffer:</span>
           <span className="text-emerald-400">{stats.bufferSec}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-zinc-400">Bırakılan Kare:</span>
+          <span className="text-zinc-400">{t('Dropped Frames')}:</span>
           <span className="text-zinc-100">{stats.droppedFrames}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-zinc-400">Oynatma Hızı:</span>
+          <span className="text-zinc-400">{t('Playback Speed')}:</span>
           <span className="text-zinc-100">{stats.playbackRate}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-zinc-400">Döngü Modu:</span>
+          <span className="text-zinc-400">{t('Loop')}:</span>
           <span className={isLooping ? 'text-emerald-400 font-medium' : 'text-zinc-400'}>
-            {isLooping ? 'Açık' : 'Kapalı'}
+            {isLooping ? t('Yes') : t('No')}
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-zinc-400">Oynatıcı Durumu:</span>
+          <span className="text-zinc-400">{t('Status')}:</span>
           <span className="text-zinc-100">{stats.status}</span>
         </div>
         <div className="flex justify-between pt-1 border-t border-white/10">
-          <span className="text-zinc-400">Yayın Tipi:</span>
+          <span className="text-zinc-400">Stream:</span>
           <span className={stats.isTranscoded ? 'text-amber-400' : 'text-blue-400'}>
-            {stats.isTranscoded ? 'Transcode' : 'Orijinal'}
+            {stats.isTranscoded ? 'Transcode' : t('Original')}
           </span>
         </div>
       </div>

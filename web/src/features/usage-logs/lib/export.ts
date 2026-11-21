@@ -127,12 +127,14 @@ export function toJson(rows: LogExportRow[]): string {
 /** Writes the rows as an aligned text table. */
 export function toTxt(rows: LogExportRow[]): string {
   const columns = exportColumns(rows)
-  const widths = columns.map((column) =>
-    Math.max(
-      column.length,
-      ...rows.map((row) => textValue(row[column]).length)
-    )
-  )
+  const widths = columns.map((column) => {
+    let max = column.length
+    for (const row of rows) {
+      const len = textValue(row[column]).length
+      if (len > max) max = len
+    }
+    return max
+  })
   const line = (cells: string[]) =>
     cells
       .map((cell, index) => cell.padEnd(widths[index] ?? cell.length))
@@ -140,7 +142,11 @@ export function toTxt(rows: LogExportRow[]): string {
       .trimEnd()
   const header = line(columns)
   const separator = line(widths.map((width) => '-'.repeat(width)))
-  return [header, separator, ...rows.map((row) => line(columns.map((column) => textValue(row[column]))))].join('\n')
+  const lines = [header, separator]
+  for (const row of rows) {
+    lines.push(line(columns.map((column) => textValue(row[column]))))
+  }
+  return lines.join('\n')
 }
 
 /**

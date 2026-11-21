@@ -38,6 +38,11 @@ import {
   stripImageRefs,
 } from './image-store'
 import {
+  putPlaygroundImages,
+  getPlaygroundImages,
+  clearPlaygroundImages,
+} from './playground-indexeddb'
+import {
   imageStoreSchema,
   MAX_LOADED_MESSAGE_CHARS,
   MAX_LOADED_MESSAGES_CHARS,
@@ -109,29 +114,50 @@ function trimMessages(messages: Message[]): Message[] {
   return messages.slice(-MAX_STORED_MESSAGES)
 }
 
-function readImageStore(): ImageStore {
-  try {
-    const saved = readStoredValue(STORAGE_KEYS.IMAGES)
-    if (!saved) return {}
+// In-memory cache for synchronous reads that resolves against IndexedDB
+const memoryImageStore: ImageStore = {}
 
-    return imageStoreSchema.parse(unwrapStoredValue(saved))
-  } catch {
-    localStorage.removeItem(STORAGE_KEYS.IMAGES)
-    return {}
-  }
+// Initialize from IndexedDB and migrate any legacy images from localStorage
+if (typeof window !== 'undefined') {
+  try {
+    const legacy = readStoredValue(STORAGE_KEYS.IMAGES)
+    if (legacy) {
+      const parsed = imageStoreSchema.safeParse(unwrapStoredValue(legacy))
+      if (parsed.success) {
+        Object.assign(memoryImageStore, parsed.data)
+        void putPlaygroundImages(parsed.data)
+      }
+      localStorage.removeItem(STORAGE_KEYS.IMAGES)
+    }
+  } catch {}
+
+  void getPlaygroundImages()
+    .then((imgs) => {
+      Object.assign(memoryImageStore, imgs)
+    })
+    .catch(() => {})
+}
+
+function readImageStore(): ImageStore {
+  return memoryImageStore
 }
 
 function writeImageStore(images: ImageStore): boolean {
   try {
-    if (Object.keys(images).length === 0) {
-      localStorage.removeItem(STORAGE_KEYS.IMAGES)
-      return true
+    for (const key of Object.keys(memoryImageStore)) {
+      if (!(key in images)) {
+        delete memoryImageStore[key]
+      }
     }
+    Object.assign(memoryImageStore, images)
 
-    writeStoredValue(STORAGE_KEYS.IMAGES, images)
+    if (Object.keys(images).length === 0) {
+      void clearPlaygroundImages()
+    } else {
+      void putPlaygroundImages(images)
+    }
     return true
   } catch {
-    localStorage.removeItem(STORAGE_KEYS.IMAGES)
     return false
   }
 }

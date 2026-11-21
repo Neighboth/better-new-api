@@ -121,7 +121,10 @@ function getPlayableItemUrl(item: StudioItem, localUrls: Record<string, string>)
 }
 
 /** Hydrates object URLs for items whose bytes live in this browser's IndexedDB. */
-function useLocalOnlyUrls(items: StudioItem[]): Record<string, string> {
+function useLocalOnlyUrls(
+  items: StudioItem[],
+  onMissingBlob?: (id: string) => void
+): Record<string, string> {
   const [localUrls, setLocalUrls] = useState<Record<string, string>>({})
 
   useEffect(() => {
@@ -132,7 +135,10 @@ function useLocalOnlyUrls(items: StudioItem[]): Record<string, string> {
       for (const item of pending) {
         try {
           const blob = await getStudioVideo(item.id)
-          if (!blob) continue
+          if (!blob) {
+            onMissingBlob?.(item.id)
+            continue
+          }
           const objectUrl = URL.createObjectURL(blob)
           if (cancelled) {
             URL.revokeObjectURL(objectUrl)
@@ -140,14 +146,15 @@ function useLocalOnlyUrls(items: StudioItem[]): Record<string, string> {
           }
           setLocalUrls((prev) => ({ ...prev, [item.id]: objectUrl }))
         } catch {
-          // blob missing — item stays unplayable in this browser
+          // blob missing or unreadable — notify caller so it does not hang indefinitely
+          onMissingBlob?.(item.id)
         }
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [items, localUrls])
+  }, [items, localUrls, onMissingBlob])
 
   // Drop and revoke URLs for items that disappeared from the history.
   useEffect(() => {
@@ -728,7 +735,18 @@ export function Studio() {
   } = useStudioGeneration()
 
   // IndexedDB-backed object URLs for items kept in this browser (over-quota storage).
-  const localOnlyUrls = useLocalOnlyUrls(items)
+  const localOnlyUrls = useLocalOnlyUrls(items, markMediaBroken)
+
+  // Safety timeout for localOnly media: if blob loading hangs longer than 4s, mark it broken to show retry
+  useEffect(() => {
+    if (!activeItem || !activeItem.localOnly || singleVideoUrl || brokenMediaIds.has(activeItem.id)) {
+      return
+    }
+    const timer = setTimeout(() => {
+      markMediaBroken(activeItem.id)
+    }, 4000)
+    return () => clearTimeout(timer)
+  }, [activeItem, singleVideoUrl, brokenMediaIds])
 
   // Lifecycle for page reloads: if an active item has already finished and been viewed, archive it to history popup on reload
   const reloadCheckedRef = useRef(false)

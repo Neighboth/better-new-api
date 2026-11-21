@@ -43,6 +43,7 @@ import {
   getPaymentIcon,
   getMinTopupAmount,
   calculatePresetPricing,
+  MAX_SAFE_TOPUP_AMOUNT,
 } from '../lib'
 import type {
   PaymentMethod,
@@ -124,7 +125,7 @@ export function RechargeFormCard({
 
   const handleAmountChange = (value: string) => {
     setLocalAmount(value)
-    const numValue = Number.parseInt(value) || 0
+    const numValue = Number.parseFloat(value) || 0
     if (numValue >= 0) {
       onTopupAmountChange(numValue)
     }
@@ -299,9 +300,11 @@ export function RechargeFormCard({
                   <Input
                     id='topup-amount'
                     type='number'
+                    step='any'
                     value={localAmount}
                     onChange={(e) => handleAmountChange(e.target.value)}
                     min={minTopup}
+                    max={MAX_SAFE_TOPUP_AMOUNT}
                     placeholder={t('Minimum {{amount}}', { amount: minTopup })}
                     className='h-9 text-base sm:h-10 sm:text-lg'
                   />
@@ -318,6 +321,11 @@ export function RechargeFormCard({
                     )}
                   </div>
                 </div>
+                {topupAmount > MAX_SAFE_TOPUP_AMOUNT && (
+                  <p className='text-destructive text-xs'>
+                    {t('Maximum single recharge amount is ${{max}}.', { max: MAX_SAFE_TOPUP_AMOUNT })}
+                  </p>
+                )}
               </div>
 
               <div className='space-y-2.5 sm:space-y-3'>
@@ -332,13 +340,18 @@ export function RechargeFormCard({
                       // global minimum when the method does not define one.
                       const methodMin = Number(method.min_topup) || 0
                       const minTopup = methodMin > 0 ? methodMin : getMinTopupAmount(topupInfo)
-                      const disabled = minTopup > topupAmount
-                      const disabledReason = disabled
+                      const exceedsMax = topupAmount > MAX_SAFE_TOPUP_AMOUNT
+                      const disabled = minTopup > topupAmount || exceedsMax
+                      const disabledReason = exceedsMax
+                        ? t('Maximum single recharge amount is ${{max}}.', { max: MAX_SAFE_TOPUP_AMOUNT })
+                        : disabled
                         ? t('Minimum topup amount: {{amount}}', {
                             amount: minTopup,
                           })
                         : undefined
-                      const disabledLabel = disabled
+                      const disabledLabel = exceedsMax
+                        ? `${t('Max:')} $${MAX_SAFE_TOPUP_AMOUNT}`
+                        : disabled
                         ? `${t('Minimum:')} ${minTopup}`
                         : undefined
 
@@ -428,13 +441,18 @@ export function RechargeFormCard({
                         const loadingKey = `waffo-${index}`
                         const methodKey = `${method.payMethodType ?? 'unknown'}-${method.payMethodName ?? method.name}`
                         const waffoMin = waffoMinTopup || 0
-                        const belowMin = waffoMin > topupAmount
-                        const disabledReason = belowMin
+                        const exceedsMax = topupAmount > MAX_SAFE_TOPUP_AMOUNT
+                        const belowMin = waffoMin > topupAmount || exceedsMax
+                        const disabledReason = exceedsMax
+                          ? t('Maximum single recharge amount is ${{max}}.', { max: MAX_SAFE_TOPUP_AMOUNT })
+                          : belowMin
                           ? t('Minimum topup amount: {{amount}}', {
                               amount: waffoMin,
                             })
                           : undefined
-                        const disabledLabel = belowMin
+                        const disabledLabel = exceedsMax
+                          ? `${t('Max:')} $${MAX_SAFE_TOPUP_AMOUNT}`
+                          : belowMin
                           ? `${t('Minimum:')} ${waffoMin}`
                           : undefined
 

@@ -79,6 +79,19 @@ export function CryptoPaymentDialog({
   const [historyList, setHistoryList] = useState<CryptoDepositItem[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
 
+  // Cleanup state when dialog closes
+  useEffect(() => {
+    if (!open) {
+      setTxHash('')
+      setSenderAddress('')
+      setSubmitting(false)
+      setSubmittedDeposit(null)
+      setCopiedAddress(false)
+      setCopiedRef(false)
+      setActiveTab('pay')
+    }
+  }, [open])
+
   useEffect(() => {
     if (wallets.length > 0 && !selectedWalletId) {
       setSelectedWalletId(wallets[0].id)

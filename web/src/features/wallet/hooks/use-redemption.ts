@@ -33,14 +33,15 @@ export function useRedemption() {
   const [redeeming, setRedeeming] = useState(false)
 
   const redeemCode = useCallback(async (code: string): Promise<boolean> => {
-    if (!code || code.trim() === '') {
+    const cleanCode = code ? code.trim() : ''
+    if (!cleanCode) {
       toast.error(i18next.t('Please enter a redemption code'))
       return false
     }
 
     try {
       setRedeeming(true)
-      const response = await redeemTopupCode({ key: code })
+      const response = await redeemTopupCode({ key: cleanCode })
 
       if (response.success && response.data) {
         const quotaAdded = response.data
