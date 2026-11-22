@@ -56,11 +56,14 @@ func Generate(cfg Config) string {
 	}
 
 	var pipPackages string
+	var extraPipArgs string
+	var needsTorch bool
 	var taskHandler string
 
 	switch task {
 	case "video":
-		pipPackages = `"fastapi", "uvicorn", "diffusers", "transformers", "accelerate", "imageio[ffmpeg]", "torch", "huggingface_hub"`
+		needsTorch = true
+		pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("diffusers", "diffusers"), ("transformers", "transformers"), ("accelerate", "accelerate"), ("imageio[ffmpeg]", "imageio"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub")]`
 		taskHandler = `
 import uuid
 from diffusers import DiffusionPipeline
@@ -85,7 +88,8 @@ async def generate_video(req: Request):
     return {"data": [{"url": f"{base}/outputs/{filename}"}]}
 `
 	case "image":
-		pipPackages = `"fastapi", "uvicorn", "diffusers", "transformers", "accelerate", "pillow", "torch", "huggingface_hub"`
+		needsTorch = true
+		pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("diffusers", "diffusers"), ("transformers", "transformers"), ("accelerate", "accelerate"), ("pillow", "PIL"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub")]`
 		taskHandler = `
 import uuid
 from diffusers import AutoPipelineForText2Image
@@ -107,7 +111,8 @@ async def generate_image(req: Request):
     return {"data": [{"url": f"{base}/outputs/{filename}"}]}
 `
 	case "audio":
-		pipPackages = `"fastapi", "uvicorn", "transformers", "accelerate", "scipy", "soundfile", "torch", "huggingface_hub"`
+		needsTorch = true
+		pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("transformers", "transformers"), ("accelerate", "accelerate"), ("scipy", "scipy"), ("soundfile", "soundfile"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub")]`
 		taskHandler = `
 import uuid, scipy.io.wavfile as wavfile
 from transformers import pipeline as hf_pipeline
@@ -128,7 +133,7 @@ async def generate_audio(req: Request):
     return {"url": f"{base}/outputs/{filename}", "data": [{"url": f"{base}/outputs/{filename}"}]}
 `
 	case "embeddings":
-		pipPackages = `"fastapi", "uvicorn", "sentence-transformers", "torch", "huggingface_hub"`
+		pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("sentence-transformers", "sentence_transformers"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub")]`
 		taskHandler = `
 from sentence_transformers import SentenceTransformer
 
@@ -148,38 +153,64 @@ async def create_embeddings(req: Request):
     }
 `
 	default: // text (supports both GGUF via llama-cpp-python and standard transformers)
-		pipPackages = `"fastapi", "uvicorn", "transformers", "accelerate", "torch", "huggingface_hub", "llama-cpp-python"`
-		taskHandler = `
+		isGGUF := strings.HasSuffix(strings.ToLower(strings.TrimSpace(cfg.ModelFile)), ".gguf") ||
+			strings.Contains(strings.ToLower(cfg.ModelRepo), "gguf")
+		if isGGUF {
+			pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("huggingface_hub", "huggingface_hub"), ("llama-cpp-python", "llama_cpp")]`
+			if strings.TrimSpace(cfg.Accelerator) == "" || strings.EqualFold(strings.TrimSpace(cfg.Accelerator), "CPU") {
+				extraPipArgs = `["--prefer-binary", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cpu"]`
+			} else {
+				extraPipArgs = `["--prefer-binary"]`
+			}
+			taskHandler = `
 from huggingface_hub import hf_hub_download, list_repo_files
+from llama_cpp import Llama
+
+_llm = None
+def get_llm():
+    global _llm
+    if _llm is not None:
+        return _llm
+    target_file = MODEL_FILE
+    if not target_file:
+        files = [f for f in list_repo_files(MODEL_REPO, token=HF_TOKEN or None) if f.lower().endswith(".gguf")]
+        if not files:
+            raise RuntimeError(f"No .gguf file found in {MODEL_REPO}")
+        target_file = sorted(files)[0]
+    print(f"[setup] Downloading GGUF model {MODEL_REPO}/{target_file}...", flush=True)
+    local_path = hf_hub_download(repo_id=MODEL_REPO, filename=target_file, token=HF_TOKEN or None)
+    n_gpu = -1 if os.path.exists("/dev/nvidia0") else 0
+    _llm = Llama(model_path=local_path, n_ctx=4096, n_gpu_layers=n_gpu, verbose=False)
+    return _llm
+
+@app.post("/v1/chat/completions")
+async def chat_completions(req: Request):
+    touch()
+    body = await req.json()
+    messages = body.get("messages", [])
+    max_tokens = int(body.get("max_tokens", 256))
+    return get_llm().create_chat_completion(messages=messages, max_tokens=max_tokens)
+`
+		} else {
+			needsTorch = true
+			pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("transformers", "transformers"), ("accelerate", "accelerate"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub")]`
+			taskHandler = `
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 _backend = None
 def get_backend():
     global _backend
     if _backend is not None:
         return _backend
-    is_gguf = MODEL_FILE.lower().endswith(".gguf") or "gguf" in MODEL_REPO.lower()
-    if is_gguf:
-        from llama_cpp import Llama
-        target_file = MODEL_FILE
-        if not target_file:
-            files = [f for f in list_repo_files(MODEL_REPO, token=HF_TOKEN or None) if f.lower().endswith(".gguf")]
-            if not files:
-                raise RuntimeError(f"No .gguf file found in {MODEL_REPO}")
-            target_file = sorted(files)[0]
-        local_path = hf_hub_download(repo_id=MODEL_REPO, filename=target_file, token=HF_TOKEN or None)
-        n_gpu = -1 if torch.cuda.is_available() else 0
-        llm = Llama(model_path=local_path, n_ctx=4096, n_gpu_layers=n_gpu, verbose=False)
-        _backend = ("gguf", llm)
-    else:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-        tok = AutoTokenizer.from_pretrained(MODEL_REPO, token=HF_TOKEN or None)
-        mdl = AutoModelForCausalLM.from_pretrained(
-            MODEL_REPO,
-            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            device_map="auto" if torch.cuda.is_available() else None,
-            token=HF_TOKEN or None,
-        )
-        _backend = ("transformers", (tok, mdl))
+    print(f"[setup] Loading transformers model {MODEL_REPO}...", flush=True)
+    tok = AutoTokenizer.from_pretrained(MODEL_REPO, token=HF_TOKEN or None)
+    mdl = AutoModelForCausalLM.from_pretrained(
+        MODEL_REPO,
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        device_map="auto" if torch.cuda.is_available() else None,
+        token=HF_TOKEN or None,
+    )
+    _backend = (tok, mdl)
     return _backend
 
 @app.post("/v1/chat/completions")
@@ -188,10 +219,7 @@ async def chat_completions(req: Request):
     body = await req.json()
     messages = body.get("messages", [])
     max_tokens = int(body.get("max_tokens", 256))
-    kind, engine = get_backend()
-    if kind == "gguf":
-        return engine.create_chat_completion(messages=messages, max_tokens=max_tokens)
-    tok, mdl = engine
+    tok, mdl = get_backend()
     prompt = "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in messages) + "\nassistant:"
     inputs = tok(prompt, return_tensors="pt")
     if torch.cuda.is_available():
@@ -206,10 +234,20 @@ async def chat_completions(req: Request):
         "choices": [{"index": 0, "message": {"role": "assistant", "content": generated}, "finish_reason": "stop"}],
     }
 `
+		}
+	}
+
+	if extraPipArgs == "" {
+		extraPipArgs = "[]"
+	}
+	torchImport := ""
+	if needsTorch {
+		torchImport = "import torch\n"
 	}
 
 	return fmt.Sprintf(`# Auto-generated Better-New-API %s serving script
 # Deployment: %s | Model: %s | Task: %s | Accelerator: %s
+import importlib.util
 import json
 import os
 import re
@@ -219,13 +257,6 @@ import threading
 import time
 import urllib.request
 
-subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", %s])
-
-import torch
-import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
-
 MODEL_REPO = %s
 MODEL_FILE = %s
 HF_TOKEN = %s
@@ -233,6 +264,65 @@ CALLBACK_URL = %s
 IDLE_TIMEOUT_SECONDS = %d
 OUTPUT_DIR = "/tmp/model_outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+def _report_tunnel_url(url: str):
+    with open("endpoint_url.txt", "w", encoding="utf-8") as f:
+        f.write(url)
+    print(f"[tunnel] Ready: {url}", flush=True)
+    if not CALLBACK_URL:
+        return
+    payload = json.dumps({"endpoint_url": url, "status": "running"}).encode("utf-8")
+    for _ in range(5):
+        try:
+            req = urllib.request.Request(
+                CALLBACK_URL,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if 200 <= resp.status < 300:
+                    return
+        except Exception as exc:
+            print(f"[tunnel] callback retry: {exc}", flush=True)
+        time.sleep(2)
+
+def _start_cloudflared():
+    print("[tunnel] Starting cloudflared tunnel...", flush=True)
+    if os.system("which cloudflared > /dev/null 2>&1") != 0:
+        print("[tunnel] Downloading cloudflared binary...", flush=True)
+        os.system("wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared")
+    proc = subprocess.Popen(
+        ["cloudflared", "tunnel", "--url", "http://127.0.0.1:8000"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    reported = False
+    if proc.stdout is not None:
+        for line in proc.stdout:
+            if not reported:
+                m = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line)
+                if m:
+                    reported = True
+                    _report_tunnel_url(m.group(0))
+
+threading.Thread(target=_start_cloudflared, daemon=True).start()
+
+def _ensure_packages(specs, extra_args=None):
+    missing = [pkg for pkg, mod in specs if importlib.util.find_spec(mod) is None]
+    if not missing:
+        print("[setup] All required packages already installed", flush=True)
+        return
+    print(f"[setup] Installing packages: {', '.join(missing)}", flush=True)
+    cmd = [sys.executable, "-m", "pip", "install", "-q"] + (extra_args or []) + missing
+    subprocess.check_call(cmd)
+
+_ensure_packages(%s, %s)
+
+%simport uvicorn
+from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="Better-New-API Notebook Model Server")
 app.mount("/outputs", StaticFiles(directory=OUTPUT_DIR), name="outputs")
@@ -263,48 +353,8 @@ def list_models():
     touch()
     return {"object": "list", "data": [{"id": MODEL_REPO, "object": "model"}]}
 %s
-def _report_tunnel_url(url: str):
-    with open("endpoint_url.txt", "w", encoding="utf-8") as f:
-        f.write(url)
-    print(f"[tunnel] Ready: {url}", flush=True)
-    if not CALLBACK_URL:
-        return
-    payload = json.dumps({"endpoint_url": url, "status": "running"}).encode("utf-8")
-    for _ in range(5):
-        try:
-            req = urllib.request.Request(
-                CALLBACK_URL,
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                if 200 <= resp.status < 300:
-                    return
-        except Exception as exc:
-            print(f"[tunnel] callback retry: {exc}", flush=True)
-        time.sleep(2)
-
-def _start_cloudflared():
-    if os.system("which cloudflared > /dev/null 2>&1") != 0:
-        os.system("wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared")
-    proc = subprocess.Popen(
-        ["cloudflared", "tunnel", "--url", "http://127.0.0.1:8000"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    reported = False
-    if proc.stdout is not None:
-        for line in proc.stdout:
-            if not reported:
-                m = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line)
-                if m:
-                    reported = True
-                    _report_tunnel_url(m.group(0))
-
 if __name__ == "__main__":
-    threading.Thread(target=_start_cloudflared, daemon=True).start()
+    print("[server] Starting uvicorn on port 8000...", flush=True)
     uvicorn.run(app, host="0.0.0.0", port=8000)
 `,
 		cfg.Provider,
@@ -312,12 +362,14 @@ if __name__ == "__main__":
 		cfg.ModelRepo,
 		task,
 		cfg.Accelerator,
-		pipPackages,
 		pyQuote(cfg.ModelRepo),
 		pyQuote(cfg.ModelFile),
 		pyQuote(cfg.HFToken),
 		pyQuote(cfg.CallbackURL),
 		idle,
+		pipPackages,
+		extraPipArgs,
+		torchImport,
 		pyQuote(task),
 		taskHandler,
 	)

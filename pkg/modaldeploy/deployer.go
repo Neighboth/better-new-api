@@ -36,6 +36,19 @@ func pyQuote(s string) string {
 	return `"` + s + `"`
 }
 
+func indentPythonBlock(code string, spaces int) string {
+	pad := strings.Repeat(" ", spaces)
+	lines := strings.Split(code, "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			lines[i] = pad + line
+		} else {
+			lines[i] = ""
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // BuildAppScript generates a Modal v1.x ASGI FastAPI script that downloads and
 // serves the requested Hugging Face model (including GGUF, diffusers, video, audio).
 func BuildAppScript(cfg DeployConfig) string {
@@ -84,12 +97,14 @@ func BuildAppScript(cfg DeployConfig) string {
 	}
 
 	var pipPkgs string
+	var extraPipOpts string
 	var taskCode string
 
 	switch task {
 	case "video":
 		pipPkgs = `"fastapi[standard]", "diffusers", "transformers", "accelerate", "imageio[ffmpeg]", "torch", "huggingface_hub"`
 		taskCode = `
+import torch
 from diffusers import DiffusionPipeline
 from diffusers.utils import export_to_video
 
@@ -118,6 +133,7 @@ async def gen_video(req: Request):
 	case "image":
 		pipPkgs = `"fastapi[standard]", "diffusers", "transformers", "accelerate", "pillow", "torch", "huggingface_hub"`
 		taskCode = `
+import torch
 from diffusers import AutoPipelineForText2Image
 
 _pipe = None
@@ -143,6 +159,7 @@ async def gen_image(req: Request):
 	case "audio":
 		pipPkgs = `"fastapi[standard]", "transformers", "accelerate", "scipy", "soundfile", "torch", "huggingface_hub"`
 		taskCode = `
+import torch
 import scipy.io.wavfile as wavfile
 from transformers import pipeline as hf_pipeline
 
@@ -186,39 +203,62 @@ async def embeddings(req: Request):
     return {"object": "list", "model": MODEL_REPO, "data": [{"object": "embedding", "index": i, "embedding": v} for i, v in enumerate(vecs)]}
 `
 	default: // text (supports both GGUF via llama-cpp-python and standard transformers)
-		pipPkgs = `"fastapi[standard]", "transformers", "accelerate", "torch", "huggingface_hub", "llama-cpp-python"`
-		taskCode = `
+		isGGUF := strings.HasSuffix(strings.ToLower(strings.TrimSpace(cfg.ModelFile)), ".gguf") ||
+			strings.Contains(strings.ToLower(cfg.ModelRepo), "gguf")
+		if isGGUF {
+			pipPkgs = `"fastapi[standard]", "huggingface_hub", "llama-cpp-python"`
+			if gpuArg == "None" {
+				extraPipOpts = `, extra_index_url="https://abetlen.github.io/llama-cpp-python/whl/cpu"`
+			} else {
+				extraPipOpts = `, extra_options="--prefer-binary"`
+			}
+			taskCode = `
 from huggingface_hub import hf_hub_download, list_repo_files
+from llama_cpp import Llama
+
+_llm = None
+def get_llm():
+    global _llm
+    if _llm is not None:
+        return _llm
+    target_file = MODEL_FILE
+    if not target_file:
+        files = [f for f in list_repo_files(MODEL_REPO, token=HF_TOKEN or None) if f.lower().endswith(".gguf")]
+        if not files:
+            raise RuntimeError(f"No .gguf file found in {MODEL_REPO}")
+        target_file = sorted(files)[0]
+    local_path = hf_hub_download(repo_id=MODEL_REPO, filename=target_file, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
+    n_gpu = -1 if os.path.exists("/dev/nvidia0") else 0
+    _llm = Llama(model_path=local_path, n_ctx=4096, n_gpu_layers=n_gpu, verbose=False)
+    return _llm
+
+@web_app.post("/v1/chat/completions")
+async def chat_completions(req: Request):
+    body = await req.json()
+    messages = body.get("messages", [])
+    max_tokens = int(body.get("max_tokens", 256))
+    return get_llm().create_chat_completion(messages=messages, max_tokens=max_tokens)
+`
+		} else {
+			pipPkgs = `"fastapi[standard]", "transformers", "accelerate", "torch", "huggingface_hub"`
+			taskCode = `
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 _backend = None
 def get_backend():
     global _backend
     if _backend is not None:
         return _backend
-    is_gguf = MODEL_FILE.lower().endswith(".gguf") or "gguf" in MODEL_REPO.lower()
-    if is_gguf:
-        from llama_cpp import Llama
-        target_file = MODEL_FILE
-        if not target_file:
-            files = [f for f in list_repo_files(MODEL_REPO, token=HF_TOKEN or None) if f.lower().endswith(".gguf")]
-            if not files:
-                raise RuntimeError(f"No .gguf file found in {MODEL_REPO}")
-            target_file = sorted(files)[0]
-        local_path = hf_hub_download(repo_id=MODEL_REPO, filename=target_file, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
-        n_gpu = -1 if torch.cuda.is_available() else 0
-        llm = Llama(model_path=local_path, n_ctx=4096, n_gpu_layers=n_gpu, verbose=False)
-        _backend = ("gguf", llm)
-    else:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-        tok = AutoTokenizer.from_pretrained(MODEL_REPO, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
-        mdl = AutoModelForCausalLM.from_pretrained(
-            MODEL_REPO,
-            cache_dir=CACHE_DIR,
-            token=HF_TOKEN or None,
-            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            device_map="auto" if torch.cuda.is_available() else None,
-        )
-        _backend = ("transformers", (tok, mdl))
+    tok = AutoTokenizer.from_pretrained(MODEL_REPO, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
+    mdl = AutoModelForCausalLM.from_pretrained(
+        MODEL_REPO,
+        cache_dir=CACHE_DIR,
+        token=HF_TOKEN or None,
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        device_map="auto" if torch.cuda.is_available() else None,
+    )
+    _backend = (tok, mdl)
     return _backend
 
 @web_app.post("/v1/chat/completions")
@@ -226,11 +266,7 @@ async def chat_completions(req: Request):
     body = await req.json()
     messages = body.get("messages", [])
     max_tokens = int(body.get("max_tokens", 256))
-    kind, engine = get_backend()
-    if kind == "gguf":
-        res = engine.create_chat_completion(messages=messages, max_tokens=max_tokens)
-        return res
-    tok, mdl = engine
+    tok, mdl = get_backend()
     prompt = "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in messages) + "\nassistant:"
     inputs = tok(prompt, return_tensors="pt")
     if torch.cuda.is_available():
@@ -245,6 +281,7 @@ async def chat_completions(req: Request):
         "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
     }
 `
+		}
 	}
 
 	return fmt.Sprintf(`import os
@@ -252,7 +289,7 @@ import uuid
 import modal
 
 app = modal.App(%s)
-image = modal.Image.debian_slim(python_version="3.11").pip_install(%s)
+image = modal.Image.debian_slim(python_version="3.11").pip_install(%s%s)
 volume = modal.Volume.from_name("better-new-api-models", create_if_missing=True)
 
 MODEL_REPO = %s
@@ -269,7 +306,6 @@ OUT_DIR = "/tmp/model_outputs"
 )
 @modal.asgi_app()
 def fastapi_app():
-    import torch
     from fastapi import FastAPI, Request
     from fastapi.staticfiles import StaticFiles
 
@@ -285,6 +321,7 @@ def fastapi_app():
 `,
 		pyQuote(cfg.AppName),
 		pipPkgs,
+		extraPipOpts,
 		pyQuote(cfg.ModelRepo),
 		pyQuote(cfg.ModelFile),
 		pyQuote(cfg.HFToken),
@@ -292,7 +329,7 @@ def fastapi_app():
 		gpuArg,
 		scaledownLine,
 		pyQuote(task),
-		taskCode,
+		indentPythonBlock(taskCode, 4),
 	)
 }
 

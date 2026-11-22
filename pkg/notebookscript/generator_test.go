@@ -1,6 +1,7 @@
 package notebookscript
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,10 +38,22 @@ func TestGenerateScriptsForTasks(t *testing.T) {
 		Provider:    "kaggle",
 		ModelRepo:   "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
 		TaskType:    "text",
+		Accelerator: "CPU",
 		CallbackURL: "https://example.com/api/deployments/notebooks/1/callback?token=abc",
 	})
 	assert.Contains(t, ggufScript, `llama_cpp`)
+	assert.Contains(t, ggufScript, `--prefer-binary`)
+	assert.NotContains(t, ggufScript, `import torch`)
 	assert.Contains(t, ggufScript, `endpoint_url.txt`)
 	assert.Contains(t, ggufScript, `trycloudflare\.com`)
 	assert.Contains(t, ggufScript, `CALLBACK_URL = "https://example.com/api/deployments/notebooks/1/callback?token=abc"`)
+	assert.Less(t, strings.Index(ggufScript, "threading.Thread(target=_start_cloudflared, daemon=True).start()"), strings.Index(ggufScript, "_ensure_packages("))
+
+	stdTextScript := Generate(Config{
+		Provider:  "colab",
+		ModelRepo: "Qwen/Qwen2.5-0.5B-Instruct",
+		TaskType:  "text",
+	})
+	assert.NotContains(t, stdTextScript, `llama-cpp-python`)
+	assert.Contains(t, stdTextScript, `import torch`)
 }

@@ -656,6 +656,7 @@ func provisionDeploymentAsync(p provisionParams) {
 			kernelSlug = parts[1]
 		}
 		deadline := time.Now().Add(10 * time.Minute)
+		consecutiveStatusErrs := 0
 		for time.Now().Before(deadline) {
 			if cur, dbErr := model.GetNotebookDeploymentByID(p.ID); dbErr == nil && strings.TrimSpace(cur.EndpointURL) != "" {
 				probeHealth(cur.EndpointURL)
@@ -663,9 +664,17 @@ func provisionDeploymentAsync(p provisionParams) {
 				return
 			}
 			ks, statusErr := client.GetKernelStatus(ownerSlug, kernelSlug)
-			if statusErr == nil && ks != nil {
-				st := strings.ToLower(strings.TrimSpace(ks.Status))
+			if statusErr != nil {
+				consecutiveStatusErrs++
+				if consecutiveStatusErrs >= 3 {
+					setDeploymentStatus(p.ID, "starting", fmt.Sprintf("Checking Kaggle status: %v", statusErr))
+				}
+			} else if ks != nil {
+				consecutiveStatusErrs = 0
+				st := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(ks.Status)), "kernelworkerstatus.")
 				switch st {
+				case "new_script":
+					setDeploymentStatus(p.ID, "starting", "Starting on Kaggle...")
 				case "queued":
 					setDeploymentStatus(p.ID, "starting", "Queued on Kaggle...")
 				case "running":
@@ -674,6 +683,9 @@ func provisionDeploymentAsync(p provisionParams) {
 						msg = "Running on Kaggle — set a public Server Address in System Settings to receive tunnel URL automatically"
 					}
 					setDeploymentStatus(p.ID, "downloading", msg)
+				case "cancel_requested", "cancel_acknowledged":
+					setDeploymentFailed(p.ID, "Kaggle kernel was cancelled")
+					return
 				case "error":
 					errMsg := strings.TrimSpace(ks.FailureMessage)
 					if errMsg == "" {
@@ -744,7 +756,26 @@ func provisionDeploymentAsync(p provisionParams) {
 				setDeploymentFailed(p.ID, fmt.Sprintf("Colab kernel start failed: %v", kernErr))
 				return
 			}
-			execSnippet := "import subprocess\nsubprocess.Popen(['python3', 'serve.py'], stdout=open('serve.log', 'w'), stderr=subprocess.STDOUT)\n"
+			execSnippet := `import os, subprocess, sys, threading
+script_path = next((p for p in ['serve.py', '/content/serve.py', '/serve.py'] if os.path.exists(p)), None)
+if not script_path:
+    open('serve_error.txt', 'w').write('serve.py not found in runtime')
+else:
+    script_dir = os.path.dirname(os.path.abspath(script_path)) or '.'
+    def _run():
+        log_path = os.path.join(script_dir, 'serve.log')
+        with open(log_path, 'w') as lf:
+            proc = subprocess.Popen([sys.executable, '-u', os.path.abspath(script_path)], cwd=script_dir, stdout=lf, stderr=subprocess.STDOUT)
+            rc = proc.wait()
+            if rc != 0:
+                tail = ''
+                try:
+                    tail = open(log_path).read()[-500:]
+                except Exception:
+                    pass
+                open(os.path.join(script_dir, 'serve_error.txt'), 'w').write(f'exit {rc}: {tail}')
+    threading.Thread(target=_run, daemon=True).start()
+`
 			if execErr := client.ExecuteCode(proxyURL, rt.ConnectionInfo.Token, kernelID, execSnippet); execErr != nil {
 				setDeploymentFailed(p.ID, fmt.Sprintf("Colab script execution failed: %v", execErr))
 				return
@@ -755,6 +786,10 @@ func provisionDeploymentAsync(p provisionParams) {
 				if cur, dbErr := model.GetNotebookDeploymentByID(p.ID); dbErr == nil && strings.TrimSpace(cur.EndpointURL) != "" {
 					probeHealth(cur.EndpointURL)
 					setDeploymentStatus(p.ID, "running", "Running")
+					return
+				}
+				if errText, errRead := client.ReadFile(proxyURL, rt.ConnectionInfo.Token, "serve_error.txt"); errRead == nil && strings.TrimSpace(errText) != "" {
+					setDeploymentFailed(p.ID, "Colab server error: "+strings.TrimSpace(errText))
 					return
 				}
 				if rawURL, readErr := client.ReadFile(proxyURL, rt.ConnectionInfo.Token, "endpoint_url.txt"); readErr == nil {
@@ -769,6 +804,16 @@ func provisionDeploymentAsync(p provisionParams) {
 						probeHealth(epURL)
 						setDeploymentStatus(p.ID, "running", "Running")
 						return
+					}
+				}
+				if logText, logErr := client.ReadFile(proxyURL, rt.ConnectionInfo.Token, "serve.log"); logErr == nil && strings.TrimSpace(logText) != "" {
+					lines := strings.Split(strings.TrimSpace(logText), "\n")
+					lastLine := strings.TrimSpace(lines[len(lines)-1])
+					if len(lastLine) > 140 {
+						lastLine = lastLine[len(lastLine)-140:]
+					}
+					if lastLine != "" {
+						setDeploymentStatus(p.ID, "downloading", "Colab: "+lastLine)
 					}
 				}
 				select {
@@ -869,7 +914,7 @@ func probeHealth(baseURL string) {
 	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	target := strings.TrimRight(baseURL, "/") + "/health"
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 36; i++ {
 		resp, err := client.Get(target)
 		if err == nil {
 			_ = resp.Body.Close()
