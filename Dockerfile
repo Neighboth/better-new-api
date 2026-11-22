@@ -30,7 +30,8 @@ RUN go build -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$
 FROM debian:bookworm-slim@sha256:f06537653ac770703bc45b4b113475bd402f451e85223f0f2837acbf89ab020a
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates tzdata libasan8 wget ffmpeg \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata libasan8 wget ffmpeg python3 python3-pip python3-venv \
+    && pip3 install --no-cache-dir --break-system-packages modal \
     && rm -rf /var/lib/apt/lists/* \
     && update-ca-certificates
 

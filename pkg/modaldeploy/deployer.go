@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync"
 )
 
 var modalURLRegex = regexp.MustCompile(`https://[a-zA-Z0-9._-]+\.modal\.run`)
@@ -293,26 +296,169 @@ def fastapi_app():
 	)
 }
 
-func findPythonWithModal(ctx context.Context) (string, error) {
-	candidates := []string{"python", "python3", "py"}
-	for _, bin := range candidates {
-		path, err := exec.LookPath(bin)
-		if err != nil {
-			continue
-		}
-		check := exec.CommandContext(ctx, path, "-m", "modal", "--version")
-		if err := check.Run(); err == nil {
-			return path, nil
-		}
-	}
-	return "", fmt.Errorf("python with 'modal' package not found in PATH (install via: pip install modal)")
+type modalCmd struct {
+	bin        string
+	prefixArgs []string
 }
 
-// Deploy deploys the Modal ASGI app using `python -m modal deploy` and returns
+func (m modalCmd) command(ctx context.Context, args ...string) *exec.Cmd {
+	fullArgs := append(append([]string{}, m.prefixArgs...), args...)
+	return exec.CommandContext(ctx, m.bin, fullArgs...)
+}
+
+var modalBootstrapMu sync.Mutex
+
+func modalVenvPythonPath() string {
+	base := filepath.Join(os.TempDir(), "better-new-api-modal-venv")
+	if runtime.GOOS == "windows" {
+		return filepath.Join(base, "Scripts", "python.exe")
+	}
+	return filepath.Join(base, "bin", "python")
+}
+
+func testModalCmd(ctx context.Context, cand modalCmd) bool {
+	if _, err := os.Stat(cand.bin); err != nil {
+		if _, lookErr := exec.LookPath(cand.bin); lookErr != nil {
+			return false
+		}
+	}
+	return cand.command(ctx, "--version").Run() == nil
+}
+
+func commonModalCandidates() []modalCmd {
+	var out []modalCmd
+	out = append(out, modalCmd{bin: modalVenvPythonPath(), prefixArgs: []string{"-m", "modal"}})
+	out = append(out, modalCmd{bin: "modal"})
+	for _, py := range []string{"python", "python3"} {
+		out = append(out, modalCmd{bin: py, prefixArgs: []string{"-m", "modal"}})
+	}
+	if runtime.GOOS == "windows" {
+		out = append(out, modalCmd{bin: "py", prefixArgs: []string{"-m", "modal"}})
+		out = append(out, modalCmd{bin: "py", prefixArgs: []string{"-3", "-m", "modal"}})
+		patterns := []string{}
+		if localApp := os.Getenv("LOCALAPPDATA"); localApp != "" {
+			patterns = append(patterns,
+				filepath.Join(localApp, "Programs", "Python", "Python3*", "Scripts", "modal.exe"),
+				filepath.Join(localApp, "Programs", "Python", "Python3*", "python.exe"),
+			)
+		}
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			patterns = append(patterns,
+				filepath.Join(home, "AppData", "Roaming", "Python", "Python3*", "Scripts", "modal.exe"),
+			)
+		}
+		patterns = append(patterns, `C:\Python3*\python.exe`, `C:\Python3*\Scripts\modal.exe`)
+		for _, pat := range patterns {
+			matches, _ := filepath.Glob(pat)
+			for _, m := range matches {
+				if strings.HasSuffix(strings.ToLower(m), "modal.exe") {
+					out = append(out, modalCmd{bin: m})
+				} else {
+					out = append(out, modalCmd{bin: m, prefixArgs: []string{"-m", "modal"}})
+				}
+			}
+		}
+	} else {
+		for _, p := range []string{"/usr/local/bin/modal", "/usr/bin/modal", "/opt/modal-venv/bin/modal"} {
+			out = append(out, modalCmd{bin: p})
+		}
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			out = append(out, modalCmd{bin: filepath.Join(home, ".local", "bin", "modal")})
+		}
+	}
+	return out
+}
+
+func findBasePython(ctx context.Context) (string, []string, bool) {
+	type pyTry struct {
+		bin  string
+		args []string
+	}
+	tries := []pyTry{
+		{bin: "python3"},
+		{bin: "python"},
+	}
+	if runtime.GOOS == "windows" {
+		tries = append(tries, pyTry{bin: "py", args: []string{"-3"}}, pyTry{bin: "py"})
+		if localApp := os.Getenv("LOCALAPPDATA"); localApp != "" {
+			matches, _ := filepath.Glob(filepath.Join(localApp, "Programs", "Python", "Python3*", "python.exe"))
+			for _, m := range matches {
+				tries = append(tries, pyTry{bin: m})
+			}
+		}
+	}
+	for _, t := range tries {
+		path, err := exec.LookPath(t.bin)
+		if err != nil {
+			if _, statErr := os.Stat(t.bin); statErr != nil {
+				continue
+			}
+			path = t.bin
+		}
+		checkArgs := append(append([]string{}, t.args...), "--version")
+		if exec.CommandContext(ctx, path, checkArgs...).Run() == nil {
+			return path, t.args, true
+		}
+	}
+	return "", nil, false
+}
+
+func findOrBootstrapModalCommand(ctx context.Context) (modalCmd, error) {
+	for _, cand := range commonModalCandidates() {
+		if testModalCmd(ctx, cand) {
+			return cand, nil
+		}
+	}
+
+	modalBootstrapMu.Lock()
+	defer modalBootstrapMu.Unlock()
+
+	for _, cand := range commonModalCandidates() {
+		if testModalCmd(ctx, cand) {
+			return cand, nil
+		}
+	}
+
+	pyBin, pyArgs, ok := findBasePython(ctx)
+	if !ok {
+		return modalCmd{}, fmt.Errorf("python with 'modal' package not found in PATH (install Python 3 and run: pip install modal)")
+	}
+
+	venvDir := filepath.Join(os.TempDir(), "better-new-api-modal-venv")
+	venvPy := modalVenvPythonPath()
+	venvArgs := append(append([]string{}, pyArgs...), "-m", "venv", venvDir)
+	if err := exec.CommandContext(ctx, pyBin, venvArgs...).Run(); err == nil {
+		if out, pipErr := exec.CommandContext(ctx, venvPy, "-m", "pip", "install", "--quiet", "modal").CombinedOutput(); pipErr == nil {
+			cand := modalCmd{bin: venvPy, prefixArgs: []string{"-m", "modal"}}
+			if testModalCmd(ctx, cand) {
+				return cand, nil
+			}
+		} else {
+			_ = out
+		}
+	}
+
+	// Fallback: pip install --user modal on the discovered base Python
+	userInstallArgs := append(append([]string{}, pyArgs...), "-m", "pip", "install", "--user", "--quiet", "modal")
+	if out, err := exec.CommandContext(ctx, pyBin, userInstallArgs...).CombinedOutput(); err != nil {
+		msg := strings.TrimSpace(string(out))
+		if len(msg) > 300 {
+			msg = msg[len(msg)-300:]
+		}
+		return modalCmd{}, fmt.Errorf("failed to auto-install 'modal' Python package: %v — %s", err, msg)
+	}
+	cand := modalCmd{bin: pyBin, prefixArgs: append(append([]string{}, pyArgs...), "-m", "modal")}
+	if testModalCmd(ctx, cand) {
+		return cand, nil
+	}
+	return modalCmd{}, fmt.Errorf("python with 'modal' package not found in PATH (install via: pip install modal)")
+}
+
+// Deploy deploys the Modal ASGI app using `modal deploy` and returns
 // the live *.modal.run endpoint URL.
 func Deploy(ctx context.Context, cfg DeployConfig) (string, string, error) {
 	script := BuildAppScript(cfg)
-	pyBin, err := findPythonWithModal(ctx)
+	cmdSpec, err := findOrBootstrapModalCommand(ctx)
 	if err != nil {
 		return "", script, err
 	}
@@ -330,7 +476,7 @@ func Deploy(ctx context.Context, cfg DeployConfig) (string, string, error) {
 	}
 	_ = tmpFile.Close()
 
-	cmd := exec.CommandContext(ctx, pyBin, "-m", "modal", "deploy", tmpPath)
+	cmd := cmdSpec.command(ctx, "deploy", tmpPath)
 	cmd.Env = append(os.Environ(),
 		"MODAL_TOKEN_ID="+strings.TrimSpace(cfg.TokenID),
 		"MODAL_TOKEN_SECRET="+strings.TrimSpace(cfg.TokenSecret),
@@ -358,11 +504,11 @@ func StopApp(ctx context.Context, appName, tokenID, tokenSecret string) error {
 	if strings.TrimSpace(appName) == "" || strings.TrimSpace(tokenID) == "" || strings.TrimSpace(tokenSecret) == "" {
 		return nil
 	}
-	pyBin, err := findPythonWithModal(ctx)
+	cmdSpec, err := findOrBootstrapModalCommand(ctx)
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, pyBin, "-m", "modal", "app", "stop", appName)
+	cmd := cmdSpec.command(ctx, "app", "stop", appName)
 	cmd.Env = append(os.Environ(),
 		"MODAL_TOKEN_ID="+strings.TrimSpace(tokenID),
 		"MODAL_TOKEN_SECRET="+strings.TrimSpace(tokenSecret),

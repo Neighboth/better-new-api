@@ -10,34 +10,39 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/gorilla/websocket"
 )
 
 const (
-	DefaultBaseURL = "https://colaboratory.googleapis.com/v1beta"
-	DefaultTimeout = 30 * time.Second
+	DefaultBaseURL       = "https://colaboratory.googleapis.com/v1beta"
+	DefaultTunnelBaseURL = "https://colab.research.google.com/tun/m"
+	DefaultTimeout       = 30 * time.Second
 )
 
 // AcceleratorSpec describes a Google Colab runtime accelerator option.
 type AcceleratorSpec struct {
-	ID      string `json:"id"`
-	Label   string `json:"label"`
-	Kind    string `json:"kind"` // cpu, gpu, tpu
-	Variant string `json:"variant"`
-	Shape   string `json:"shape"`
+	ID                string `json:"id"`
+	Label             string `json:"label"`
+	Kind              string `json:"kind"` // cpu, gpu, tpu
+	Variant           string `json:"variant"`
+	Shape             string `json:"shape"`
+	TunnelVariant     string `json:"-"`
+	TunnelAccelerator string `json:"-"`
+	HighMem           bool   `json:"-"`
 }
 
 // SupportedAccelerators lists the CPU, GPU, and TPU options for Google Colab.
 var SupportedAccelerators = []AcceleratorSpec{
-	{ID: "CPU", Label: "CPU (Standard)", Kind: "cpu", Variant: "VARIANT_UNSPECIFIED", Shape: "SHAPE_UNSPECIFIED"},
-	{ID: "NVIDIA_TESLA_T4", Label: "GPU: NVIDIA Tesla T4 (16GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_STANDARD"},
-	{ID: "NVIDIA_L4", Label: "GPU: NVIDIA L4 (24GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM"},
-	{ID: "NVIDIA_TESLA_A100", Label: "GPU: NVIDIA A100 (40GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM"},
-	{ID: "NVIDIA_TESLA_A100_80GB", Label: "GPU: NVIDIA A100 (80GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM"},
-	{ID: "NVIDIA_RTX_PRO_6000", Label: "GPU: NVIDIA RTX PRO 6000", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM"},
-	{ID: "NVIDIA_H100_80GB", Label: "GPU: NVIDIA H100 (80GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM"},
-	{ID: "TPU_V2_8", Label: "TPU: v2-8", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED"},
-	{ID: "TPU_V5E_1", Label: "TPU: v5e-1", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED"},
-	{ID: "TPU_V6E_1", Label: "TPU: v6e-1", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED"},
+	{ID: "CPU", Label: "CPU (Standard)", Kind: "cpu", Variant: "VARIANT_UNSPECIFIED", Shape: "SHAPE_UNSPECIFIED", TunnelVariant: "", TunnelAccelerator: ""},
+	{ID: "NVIDIA_TESLA_T4", Label: "GPU: NVIDIA Tesla T4 (16GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_STANDARD", TunnelVariant: "GPU", TunnelAccelerator: "T4"},
+	{ID: "NVIDIA_L4", Label: "GPU: NVIDIA L4 (24GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM", TunnelVariant: "GPU", TunnelAccelerator: "L4"},
+	{ID: "NVIDIA_TESLA_A100", Label: "GPU: NVIDIA A100 (40GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM", TunnelVariant: "GPU", TunnelAccelerator: "A100", HighMem: true},
+	{ID: "NVIDIA_TESLA_A100_80GB", Label: "GPU: NVIDIA A100 (80GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM", TunnelVariant: "GPU", TunnelAccelerator: "A100", HighMem: true},
+	{ID: "NVIDIA_RTX_PRO_6000", Label: "GPU: NVIDIA RTX PRO 6000", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM", TunnelVariant: "GPU", TunnelAccelerator: "G4", HighMem: true},
+	{ID: "NVIDIA_H100_80GB", Label: "GPU: NVIDIA H100 (80GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM", TunnelVariant: "GPU", TunnelAccelerator: "H100", HighMem: true},
+	{ID: "TPU_V2_8", Label: "TPU: v2-8", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED", TunnelVariant: "TPU", TunnelAccelerator: ""},
+	{ID: "TPU_V5E_1", Label: "TPU: v5e-1", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED", TunnelVariant: "TPU", TunnelAccelerator: "V5E1"},
+	{ID: "TPU_V6E_1", Label: "TPU: v6e-1", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED", TunnelVariant: "TPU", TunnelAccelerator: "V6E1"},
 }
 
 // LookupAccelerator resolves an accelerator ID to its spec, defaulting to T4.
@@ -52,16 +57,18 @@ func LookupAccelerator(id string) AcceleratorSpec {
 }
 
 type Client struct {
-	AccessToken string
-	BaseURL     string
-	HTTPClient  *http.Client
+	AccessToken   string
+	BaseURL       string
+	TunnelBaseURL string
+	HTTPClient    *http.Client
 }
 
 func NewClient(accessToken string) *Client {
 	return &Client{
-		AccessToken: strings.TrimSpace(accessToken),
-		BaseURL:     DefaultBaseURL,
-		HTTPClient:  &http.Client{Timeout: DefaultTimeout},
+		AccessToken:   strings.TrimSpace(accessToken),
+		BaseURL:       DefaultBaseURL,
+		TunnelBaseURL: DefaultTunnelBaseURL,
+		HTTPClient:    &http.Client{Timeout: DefaultTimeout},
 	}
 }
 
@@ -135,42 +142,84 @@ func (c *Client) ListRuntimeSpecs() (*RuntimeSpecsResponse, error) {
 	return &out, nil
 }
 
-// TestConnection verifies Colab OAuth credentials against the Colab Public API
-// (/runtimes) and falls back to the consumer Colab tunnel API (/tun/m/ccu-info).
-func (c *Client) TestConnection() (int, error) {
-	var listOut struct {
-		Runtimes []Runtime `json:"runtimes"`
+func stripXSSIPrefix(raw []byte) []byte {
+	trimmed := bytes.TrimSpace(raw)
+	if bytes.HasPrefix(trimmed, []byte(")]}'")) {
+		if idx := bytes.IndexByte(trimmed, '\n'); idx >= 0 {
+			return bytes.TrimSpace(trimmed[idx+1:])
+		}
+		return bytes.TrimSpace(trimmed[4:])
 	}
-	if err := c.do(http.MethodGet, "/runtimes", nil, &listOut); err == nil {
-		return len(listOut.Runtimes), nil
-	}
+	return trimmed
+}
 
-	req, err := http.NewRequest(http.MethodGet, "https://colab.research.google.com/tun/m/ccu-info?authuser=0", nil)
+func uuidToWebSafeBase64(u string) string {
+	s := strings.ReplaceAll(strings.TrimSpace(u), "-", "_")
+	for len(s) < 44 {
+		s += "."
+	}
+	return s
+}
+
+func (c *Client) doTunnel(method, fullURL, xsrfToken string, out any) error {
+	req, err := http.NewRequest(method, fullURL, nil)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.AccessToken)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Colab-Client-Agent", "colab-cli")
+	if xsrfToken != "" {
+		req.Header.Set("X-Goog-Colab-Token", xsrfToken)
+	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer resp.Body.Close()
 
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
-		return 0, err
+		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		msg := strings.TrimSpace(string(raw))
+		msg := strings.TrimSpace(string(data))
 		if len(msg) > 400 {
 			msg = msg[:400] + "..."
 		}
-		return 0, &APIError{Code: resp.StatusCode, Message: msg}
+		return &APIError{Code: resp.StatusCode, Message: msg}
 	}
-	return 1, nil
+	if out != nil {
+		cleaned := stripXSSIPrefix(data)
+		if len(cleaned) > 0 {
+			if err := common.Unmarshal(cleaned, out); err != nil {
+				return fmt.Errorf("colab: decode tunnel response: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+// TestConnection verifies Colab OAuth credentials against the consumer Colab tunnel API
+// (/tun/m/ccu-info) and falls back to the Colab Public API (/runtimes).
+func (c *Client) TestConnection() (int, error) {
+	tunnelBase := strings.TrimRight(c.TunnelBaseURL, "/")
+	if tunnelBase == "" {
+		tunnelBase = DefaultTunnelBaseURL
+	}
+	var ccuOut map[string]any
+	if err := c.doTunnel(http.MethodGet, tunnelBase+"/ccu-info?authuser=0", "", &ccuOut); err == nil {
+		return 1, nil
+	} else {
+		var listOut struct {
+			Runtimes []Runtime `json:"runtimes"`
+		}
+		if pubErr := c.do(http.MethodGet, "/runtimes", nil, &listOut); pubErr == nil {
+			return len(listOut.Runtimes), nil
+		}
+		return 0, err
+	}
 }
 
 type ConnectionInfo struct {
@@ -185,28 +234,66 @@ type Runtime struct {
 	ProxyURL       string         `json:"proxyUrl"`
 }
 
-// CreateRuntime provisions a new Colab runtime for the requested accelerator.
+type tunnelAssignResponse struct {
+	Endpoint         string `json:"endpoint"`
+	Token            string `json:"token"`
+	RuntimeProxyInfo *struct {
+		URL   string `json:"url"`
+		Token string `json:"token"`
+	} `json:"runtimeProxyInfo"`
+}
+
+// CreateRuntime provisions a Colab runtime via the consumer Colab Tunnel API (/tun/m/assign).
 func (c *Client) CreateRuntime(accelerator string) (*Runtime, error) {
 	spec := LookupAccelerator(accelerator)
-	runtimeSpec := map[string]any{
-		"variant": spec.Variant,
-		"shape":   spec.Shape,
-	}
-	if spec.Kind != "cpu" {
-		runtimeSpec["accelerator"] = spec.ID
+	tunnelBase := strings.TrimRight(c.TunnelBaseURL, "/")
+	if tunnelBase == "" {
+		tunnelBase = DefaultTunnelBaseURL
 	}
 
-	payload := map[string]any{
-		"runtime": map[string]any{
-			"runtimeSpec": runtimeSpec,
-		},
+	q := url.Values{}
+	q.Set("authuser", "0")
+	q.Set("nbh", uuidToWebSafeBase64(common.GetUUID()))
+	if spec.TunnelVariant != "" {
+		q.Set("variant", spec.TunnelVariant)
 	}
-	reqID := url.QueryEscape(common.GetUUID())
-	var out Runtime
-	if err := c.do(http.MethodPost, "/runtimes?requestId="+reqID, payload, &out); err != nil {
+	if spec.TunnelAccelerator != "" {
+		q.Set("accelerator", spec.TunnelAccelerator)
+	}
+	if spec.HighMem {
+		q.Set("shape", "hm")
+	}
+
+	assignURL := tunnelBase + "/assign?" + q.Encode()
+	var assignRes tunnelAssignResponse
+	if err := c.doTunnel(http.MethodGet, assignURL, "", &assignRes); err != nil {
 		return nil, err
 	}
-	return &out, nil
+
+	if assignRes.Endpoint == "" || assignRes.RuntimeProxyInfo == nil || assignRes.RuntimeProxyInfo.URL == "" {
+		if assignRes.Token == "" {
+			return nil, fmt.Errorf("colab: assign did not return an XSRF token")
+		}
+		var postRes tunnelAssignResponse
+		if err := c.doTunnel(http.MethodPost, assignURL, assignRes.Token, &postRes); err != nil {
+			return nil, err
+		}
+		assignRes = postRes
+	}
+
+	if assignRes.Endpoint == "" || assignRes.RuntimeProxyInfo == nil || assignRes.RuntimeProxyInfo.URL == "" {
+		return nil, fmt.Errorf("colab: assign succeeded without endpoint/runtimeProxyInfo")
+	}
+
+	return &Runtime{
+		Name:  assignRes.Endpoint,
+		State: "RUNNING",
+		ConnectionInfo: ConnectionInfo{
+			URL:   assignRes.RuntimeProxyInfo.URL,
+			Token: assignRes.RuntimeProxyInfo.Token,
+		},
+		ProxyURL: assignRes.RuntimeProxyInfo.URL,
+	}, nil
 }
 
 // GetRuntime retrieves runtime state and connectionInfo (proxy URL & token).
@@ -219,9 +306,30 @@ func (c *Client) GetRuntime(name string) (*Runtime, error) {
 	return &out, nil
 }
 
-// DeleteRuntime terminates a Colab runtime.
+// DeleteRuntime terminates a Colab runtime via tunnel unassign or Public API DELETE.
 func (c *Client) DeleteRuntime(name string) error {
-	path := "/" + strings.TrimLeft(name, "/")
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return nil
+	}
+	if !strings.Contains(trimmed, "/") {
+		tunnelBase := strings.TrimRight(c.TunnelBaseURL, "/")
+		if tunnelBase == "" {
+			tunnelBase = DefaultTunnelBaseURL
+		}
+		unassignURL := fmt.Sprintf("%s/unassign/%s?authuser=0", tunnelBase, url.PathEscape(trimmed))
+		var getRes struct {
+			Token string `json:"token"`
+		}
+		if err := c.doTunnel(http.MethodGet, unassignURL, "", &getRes); err != nil {
+			return err
+		}
+		if getRes.Token == "" {
+			return nil
+		}
+		return c.doTunnel(http.MethodPost, unassignURL, getRes.Token, nil)
+	}
+	path := "/" + strings.TrimLeft(trimmed, "/")
 	return c.do(http.MethodDelete, path, nil, nil)
 }
 
@@ -287,4 +395,113 @@ func (c *Client) StartKernel(proxyURL, proxyToken string) (string, error) {
 	}
 	_ = common.Unmarshal(raw, &kernel)
 	return kernel.ID, nil
+}
+
+// ExecuteCode runs Python code in an active Jupyter kernel over WebSocket channels.
+func (c *Client) ExecuteCode(proxyURL, proxyToken, kernelID, code string) error {
+	if strings.TrimSpace(proxyURL) == "" || strings.TrimSpace(kernelID) == "" {
+		return fmt.Errorf("colab: proxyURL and kernelID are required")
+	}
+	wsBase := strings.TrimRight(proxyURL, "/")
+	if strings.HasPrefix(wsBase, "https://") {
+		wsBase = "wss://" + strings.TrimPrefix(wsBase, "https://")
+	} else if strings.HasPrefix(wsBase, "http://") {
+		wsBase = "ws://" + strings.TrimPrefix(wsBase, "http://")
+	}
+	wsURL := fmt.Sprintf("%s/api/kernels/%s/channels", wsBase, url.PathEscape(kernelID))
+
+	headers := http.Header{}
+	if proxyToken != "" {
+		headers.Set("X-Colab-Runtime-Proxy-Token", proxyToken)
+	}
+	dialer := websocket.Dialer{HandshakeTimeout: 15 * time.Second}
+	conn, _, err := dialer.Dial(wsURL, headers)
+	if err != nil {
+		return fmt.Errorf("colab: websocket dial failed: %w", err)
+	}
+	defer conn.Close()
+
+	msgID := common.GetUUID()
+	sessionID := common.GetUUID()
+	reqMsg := map[string]any{
+		"header": map[string]any{
+			"msg_id":   msgID,
+			"username": "colab",
+			"session":  sessionID,
+			"msg_type": "execute_request",
+			"version":  "5.3",
+		},
+		"parent_header": map[string]any{},
+		"metadata":      map[string]any{},
+		"content": map[string]any{
+			"code":             code,
+			"silent":           false,
+			"store_history":    false,
+			"user_expressions": map[string]any{},
+			"allow_stdin":      false,
+		},
+		"channel": "shell",
+	}
+	payload, err := common.Marshal(reqMsg)
+	if err != nil {
+		return err
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		return fmt.Errorf("colab: write execute_request: %w", err)
+	}
+
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	for {
+		_, msgBytes, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+		var env struct {
+			MsgType string `json:"msg_type"`
+			Parent  struct {
+				MsgID string `json:"msg_id"`
+			} `json:"parent_header"`
+			Content struct {
+				ExecutionState string `json:"execution_state"`
+			} `json:"content"`
+		}
+		if common.Unmarshal(msgBytes, &env) == nil && env.Parent.MsgID == msgID {
+			if env.MsgType == "execute_reply" || (env.MsgType == "status" && env.Content.ExecutionState == "idle") {
+				break
+			}
+		}
+	}
+	return nil
+}
+
+// ReadFile reads a text file from the runtime's Jupyter contents API.
+func (c *Client) ReadFile(proxyURL, proxyToken, filePath string) (string, error) {
+	target := strings.TrimRight(proxyURL, "/") + "/api/contents/" + strings.TrimLeft(filePath, "/") + "?content=1"
+	req, err := http.NewRequest(http.MethodGet, target, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/json")
+	if proxyToken != "" {
+		req.Header.Set("X-Colab-Runtime-Proxy-Token", proxyToken)
+	}
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", &APIError{Code: resp.StatusCode, Message: strings.TrimSpace(string(raw))}
+	}
+	var out struct {
+		Content string `json:"content"`
+	}
+	if err := common.Unmarshal(raw, &out); err != nil {
+		return "", err
+	}
+	return out.Content, nil
 }

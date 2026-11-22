@@ -568,6 +568,9 @@ func SetApiRouter(router *gin.Engine) {
 			resellerRoute.DELETE("/redemptions/:id", controller.ResellerDeleteRedemption)
 		}
 
+		// Public deployment callback (authenticated via per-deployment callback token)
+		apiRouter.POST("/deployments/notebooks/:id/callback", controller.NotebookDeploymentCallback)
+
 		// Deployments (model deployment management)
 		deploymentsRoute := apiRouter.Group("/deployments")
 		deploymentsRoute.Use(middleware.AdminAuth())

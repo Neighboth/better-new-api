@@ -32,4 +32,15 @@ func TestGenerateScriptsForTasks(t *testing.T) {
 	videoScript := Generate(Config{ModelRepo: "Wan-AI/Wan2.1", TaskType: "video"})
 	assert.Contains(t, videoScript, "/v1/videos/generations")
 	assert.Contains(t, videoScript, "export_to_video")
+
+	ggufScript := Generate(Config{
+		Provider:    "kaggle",
+		ModelRepo:   "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+		TaskType:    "text",
+		CallbackURL: "https://example.com/api/deployments/notebooks/1/callback?token=abc",
+	})
+	assert.Contains(t, ggufScript, `llama_cpp`)
+	assert.Contains(t, ggufScript, `endpoint_url.txt`)
+	assert.Contains(t, ggufScript, `trycloudflare\.com`)
+	assert.Contains(t, ggufScript, `CALLBACK_URL = "https://example.com/api/deployments/notebooks/1/callback?token=abc"`)
 }

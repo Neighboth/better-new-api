@@ -20,6 +20,7 @@ type NotebookDeployment struct {
 	RemoteID           string `json:"remote_id" gorm:"type:varchar(256)"`
 	RemoteURL          string `json:"remote_url" gorm:"type:text"`
 	EndpointURL        string `json:"endpoint_url" gorm:"type:text"`
+	CallbackToken      string `json:"-" gorm:"type:varchar(64)"`
 	Script             string `json:"script" gorm:"type:text"`
 	ErrorMessage       string `json:"error_message" gorm:"type:text"`
 	CreatedTime        int64  `json:"created_time" gorm:"bigint;index"`

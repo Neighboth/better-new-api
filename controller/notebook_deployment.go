@@ -3,10 +3,12 @@ package controller
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/modaldeploy"
 	"github.com/QuantumNous/new-api/pkg/notebookscript"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -334,6 +337,68 @@ func setDeploymentFailed(id int, errMsg string) {
 	})
 }
 
+func buildDeploymentCallbackURL(c *gin.Context, id int, token string) string {
+	base := strings.TrimSpace(system_setting.ServerAddress)
+	if base == "" && c != nil && c.Request != nil && c.Request.Host != "" {
+		scheme := "http"
+		if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
+			scheme = "https"
+		}
+		base = scheme + "://" + c.Request.Host
+	}
+	parsed, err := url.Parse(base)
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "" || host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
+		return ""
+	}
+	return strings.TrimRight(base, "/") + fmt.Sprintf("/api/deployments/notebooks/%d/callback?token=%s", id, url.QueryEscape(token))
+}
+
+func NotebookDeploymentCallback(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid deployment id"})
+		return
+	}
+	var req struct {
+		Token       string `json:"token"`
+		EndpointURL string `json:"endpoint_url"`
+		Status      string `json:"status"`
+	}
+	rawBody, _ := c.GetRawData()
+	if len(bytes.TrimSpace(rawBody)) > 0 {
+		_ = common.Unmarshal(rawBody, &req)
+	}
+	tok := strings.TrimSpace(c.Query("token"))
+	if tok == "" {
+		tok = strings.TrimSpace(req.Token)
+	}
+	item, err := model.GetNotebookDeploymentByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "deployment not found"})
+		return
+	}
+	if tok == "" || item.CallbackToken == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(item.CallbackToken)) != 1 {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "invalid callback token"})
+		return
+	}
+	epURL := strings.TrimSpace(req.EndpointURL)
+	if !strings.HasPrefix(epURL, "http://") && !strings.HasPrefix(epURL, "https://") {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "valid endpoint_url is required"})
+		return
+	}
+	_ = model.UpdateNotebookDeploymentFields(id, map[string]any{
+		"endpoint_url":   epURL,
+		"status":         "running",
+		"status_message": "Running",
+		"updated_time":   time.Now().Unix(),
+	})
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 func CreateNotebookDeployment(c *gin.Context) {
 	var req struct {
 		Provider             string   `json:"provider"`
@@ -417,18 +482,7 @@ func CreateNotebookDeployment(c *gin.Context) {
 	}
 	candidates := buildAcceleratorCandidates(accelerator, req.FallbackAccelerators)
 	fallbacksJSON, _ := common.Marshal(req.FallbackAccelerators)
-
-	script := notebookscript.Generate(notebookscript.Config{
-		Provider:             provider,
-		DeploymentName:       req.Name,
-		ModelRepo:            req.ModelRepo,
-		ModelFile:            strings.TrimSpace(req.ModelFile),
-		TaskType:             taskType,
-		Accelerator:          accelerator,
-		FallbackAccelerators: req.FallbackAccelerators,
-		IdleTimeoutSeconds:   idleTimeout,
-		HFToken:              strings.TrimSpace(req.HFToken),
-	})
+	callbackToken := common.GetUUID()
 
 	now := time.Now().Unix()
 	item := &model.NotebookDeployment{
@@ -442,7 +496,7 @@ func CreateNotebookDeployment(c *gin.Context) {
 		IdleTimeoutSeconds:   idleTimeout,
 		Status:               "provisioning",
 		StatusMessage:        "Initializing deployment...",
-		Script:               script,
+		CallbackToken:        callbackToken,
 		CreatedTime:          now,
 		UpdatedTime:          now,
 	}
@@ -451,6 +505,24 @@ func CreateNotebookDeployment(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+
+	callbackURL := buildDeploymentCallbackURL(c, item.Id, callbackToken)
+	script := notebookscript.Generate(notebookscript.Config{
+		Provider:             provider,
+		DeploymentName:       req.Name,
+		ModelRepo:            req.ModelRepo,
+		ModelFile:            strings.TrimSpace(req.ModelFile),
+		TaskType:             taskType,
+		Accelerator:          accelerator,
+		FallbackAccelerators: req.FallbackAccelerators,
+		IdleTimeoutSeconds:   idleTimeout,
+		HFToken:              strings.TrimSpace(req.HFToken),
+		CallbackURL:          callbackURL,
+	})
+	item.Script = script
+	_ = model.UpdateNotebookDeploymentFields(item.Id, map[string]any{
+		"script": script,
+	})
 
 	go provisionDeploymentAsync(provisionParams{
 		ID:                 item.Id,
@@ -464,6 +536,7 @@ func CreateNotebookDeployment(c *gin.Context) {
 		Candidates:         candidates,
 		IdleTimeoutSeconds: idleTimeout,
 		HFToken:            strings.TrimSpace(req.HFToken),
+		CallbackURL:        callbackURL,
 		Script:             script,
 		ModalTokenID:       modalTokenID,
 		ModalTokenSecret:   modalTokenSecret,
@@ -489,6 +562,7 @@ type provisionParams struct {
 	Candidates         []string
 	IdleTimeoutSeconds int
 	HFToken            string
+	CallbackURL        string
 	Script             string
 	ModalTokenID       string
 	ModalTokenSecret   string
@@ -571,10 +645,58 @@ func provisionDeploymentAsync(p provisionParams) {
 			"remote_id":      remoteID,
 			"remote_url":     pushed.URL,
 			"status":         "starting",
-			"status_message": "Kernel queued/running on Kaggle...",
+			"status_message": "Queued on Kaggle...",
 			"updated_time":   time.Now().Unix(),
 		})
-		setDeploymentStatus(p.ID, "running", "Running on Kaggle")
+
+		ownerSlug := p.KaggleUser
+		kernelSlug := sanitizeSlug(p.Name)
+		if parts := strings.SplitN(remoteID, "/", 2); len(parts) == 2 {
+			ownerSlug = parts[0]
+			kernelSlug = parts[1]
+		}
+		deadline := time.Now().Add(10 * time.Minute)
+		for time.Now().Before(deadline) {
+			if cur, dbErr := model.GetNotebookDeploymentByID(p.ID); dbErr == nil && strings.TrimSpace(cur.EndpointURL) != "" {
+				probeHealth(cur.EndpointURL)
+				setDeploymentStatus(p.ID, "running", "Running")
+				return
+			}
+			ks, statusErr := client.GetKernelStatus(ownerSlug, kernelSlug)
+			if statusErr == nil && ks != nil {
+				st := strings.ToLower(strings.TrimSpace(ks.Status))
+				switch st {
+				case "queued":
+					setDeploymentStatus(p.ID, "starting", "Queued on Kaggle...")
+				case "running":
+					msg := "Running on Kaggle — installing dependencies & waiting for tunnel URL..."
+					if p.CallbackURL == "" {
+						msg = "Running on Kaggle — set a public Server Address in System Settings to receive tunnel URL automatically"
+					}
+					setDeploymentStatus(p.ID, "downloading", msg)
+				case "error":
+					errMsg := strings.TrimSpace(ks.FailureMessage)
+					if errMsg == "" {
+						errMsg = "Kaggle kernel failed during execution"
+					}
+					setDeploymentFailed(p.ID, errMsg)
+					return
+				case "complete":
+					if cur, dbErr := model.GetNotebookDeploymentByID(p.ID); dbErr == nil && strings.TrimSpace(cur.EndpointURL) != "" {
+						probeHealth(cur.EndpointURL)
+						setDeploymentStatus(p.ID, "running", "Running")
+						return
+					}
+					setDeploymentFailed(p.ID, "Kaggle kernel completed without reporting an endpoint URL")
+					return
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(8 * time.Second):
+			}
+		}
 
 	case "colab":
 		setDeploymentStatus(p.ID, "starting", "Provisioning Google Colab runtime...")
@@ -604,19 +726,61 @@ func provisionDeploymentAsync(p provisionParams) {
 		if proxyURL == "" {
 			proxyURL = strings.TrimSpace(rt.ProxyURL)
 		}
-		if proxyURL != "" {
-			setDeploymentStatus(p.ID, "downloading", "Uploading model server & starting Colab kernel...")
-			_ = client.UploadFile(proxyURL, rt.ConnectionInfo.Token, "serve.py", p.Script)
-			_, _ = client.StartKernel(proxyURL, rt.ConnectionInfo.Token)
-		}
 		_ = model.UpdateNotebookDeploymentFields(p.ID, map[string]any{
 			"accelerator":    chosenAcc,
 			"remote_id":      rt.Name,
 			"remote_url":     proxyURL,
-			"status":         "running",
-			"status_message": "Running on Google Colab",
+			"status":         "downloading",
+			"status_message": "Uploading model server & starting Colab kernel...",
 			"updated_time":   time.Now().Unix(),
 		})
+		if proxyURL != "" {
+			if upErr := client.UploadFile(proxyURL, rt.ConnectionInfo.Token, "serve.py", p.Script); upErr != nil {
+				setDeploymentFailed(p.ID, fmt.Sprintf("Colab script upload failed: %v", upErr))
+				return
+			}
+			kernelID, kernErr := client.StartKernel(proxyURL, rt.ConnectionInfo.Token)
+			if kernErr != nil {
+				setDeploymentFailed(p.ID, fmt.Sprintf("Colab kernel start failed: %v", kernErr))
+				return
+			}
+			execSnippet := "import subprocess\nsubprocess.Popen(['python3', 'serve.py'], stdout=open('serve.log', 'w'), stderr=subprocess.STDOUT)\n"
+			if execErr := client.ExecuteCode(proxyURL, rt.ConnectionInfo.Token, kernelID, execSnippet); execErr != nil {
+				setDeploymentFailed(p.ID, fmt.Sprintf("Colab script execution failed: %v", execErr))
+				return
+			}
+			setDeploymentStatus(p.ID, "downloading", "Installing dependencies & starting tunnel on Google Colab...")
+			deadline := time.Now().Add(10 * time.Minute)
+			for time.Now().Before(deadline) {
+				if cur, dbErr := model.GetNotebookDeploymentByID(p.ID); dbErr == nil && strings.TrimSpace(cur.EndpointURL) != "" {
+					probeHealth(cur.EndpointURL)
+					setDeploymentStatus(p.ID, "running", "Running")
+					return
+				}
+				if rawURL, readErr := client.ReadFile(proxyURL, rt.ConnectionInfo.Token, "endpoint_url.txt"); readErr == nil {
+					epURL := strings.TrimSpace(rawURL)
+					if strings.HasPrefix(epURL, "http://") || strings.HasPrefix(epURL, "https://") {
+						_ = model.UpdateNotebookDeploymentFields(p.ID, map[string]any{
+							"endpoint_url":   epURL,
+							"status":         "starting",
+							"status_message": "Warming up Colab endpoint...",
+							"updated_time":   time.Now().Unix(),
+						})
+						probeHealth(epURL)
+						setDeploymentStatus(p.ID, "running", "Running")
+						return
+					}
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(5 * time.Second):
+				}
+			}
+			setDeploymentFailed(p.ID, "Timed out waiting for Google Colab tunnel URL")
+			return
+		}
+		setDeploymentStatus(p.ID, "running", "Running on Google Colab")
 
 	case "huggingface":
 		setDeploymentStatus(p.ID, "downloading", "Creating Hugging Face Inference Endpoint...")

@@ -1,6 +1,7 @@
 package modaldeploy
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,4 +30,17 @@ func TestBuildAppScriptModal(t *testing.T) {
 	})
 	assert.Contains(t, cpuOnly, `gpu=None`)
 	assert.NotContains(t, cpuOnly, `scaledown_window`)
+}
+
+func TestModalCmdConstruction(t *testing.T) {
+	ctx := context.Background()
+	direct := modalCmd{bin: "modal"}
+	c1 := direct.command(ctx, "deploy", "app.py")
+	assert.Equal(t, []string{"modal", "deploy", "app.py"}, c1.Args)
+
+	pyMod := modalCmd{bin: "py", prefixArgs: []string{"-3", "-m", "modal"}}
+	c2 := pyMod.command(ctx, "app", "stop", "demo")
+	assert.Equal(t, []string{"py", "-3", "-m", "modal", "app", "stop", "demo"}, c2.Args)
+
+	assert.NotEmpty(t, commonModalCandidates())
 }
