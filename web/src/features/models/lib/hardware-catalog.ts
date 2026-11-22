@@ -13,6 +13,137 @@ export interface HardwareOption {
   kind: 'cpu' | 'gpu' | 'tpu'
 }
 
+export interface ProviderTierOption {
+  id: string
+  label: string
+  description: string
+  allowedHardwareIds: string[] | null // null = all
+}
+
+export const PROVIDER_TIERS: Record<DeploymentProviderId, ProviderTierOption[]> =
+  {
+    modal: [
+      {
+        id: 'free_no_card',
+        label: 'Free (No Credit Card)',
+        description: 'CPU only — add a payment method on Modal to unlock GPUs',
+        allowedHardwareIds: ['CPU'],
+      },
+      {
+        id: 'starter_paid',
+        label: 'Starter / Paid (Card Added)',
+        description: 'All Modal GPUs (T4..B300) + CPU',
+        allowedHardwareIds: null,
+      },
+    ],
+    colab: [
+      {
+        id: 'free',
+        label: 'Free',
+        description: 'CPU and Tesla T4 (subject to availability)',
+        allowedHardwareIds: ['CPU', 'NVIDIA_TESLA_T4'],
+      },
+      {
+        id: 'google_ai_pro',
+        label: 'Google AI Pro',
+        description: 'CPU, Tesla T4 GPU, and TPU v5e-1',
+        allowedHardwareIds: ['CPU', 'NVIDIA_TESLA_T4', 'TPU_V5E_1'],
+      },
+      {
+        id: 'colab_pro',
+        label: 'Colab Pro / Pay-As-You-Go',
+        description: 'CPU, T4, L4, A100 (40GB), TPU v2-8 & v5e-1',
+        allowedHardwareIds: [
+          'CPU',
+          'NVIDIA_TESLA_T4',
+          'NVIDIA_L4',
+          'NVIDIA_TESLA_A100',
+          'TPU_V2_8',
+          'TPU_V5E_1',
+        ],
+      },
+      {
+        id: 'google_ai_ultra',
+        label: 'Colab Pro+ / Google AI Ultra',
+        description: 'All GPUs (incl. H100 / A100 80GB / RTX PRO 6000) & TPUs',
+        allowedHardwareIds: null,
+      },
+    ],
+    kaggle: [
+      {
+        id: 'unverified',
+        label: 'Unverified (CPU Only)',
+        description: 'Phone verification required on Kaggle for GPUs & TPUs',
+        allowedHardwareIds: ['CPU'],
+      },
+      {
+        id: 'verified_free',
+        label: 'Verified Free (30h GPU / 20h TPU)',
+        description: 'CPU, T4 x2, P100, TPU v3-8 & v5e-8',
+        allowedHardwareIds: [
+          'CPU',
+          'NvidiaTeslaT4',
+          'NvidiaP100',
+          'TpuV38',
+          'TpuV5E8',
+        ],
+      },
+      {
+        id: 'cloud_linked',
+        label: 'Extended / GCP Linked',
+        description: 'All Kaggle GPUs (incl. L4) & TPUs (incl. v6e-8)',
+        allowedHardwareIds: null,
+      },
+    ],
+    huggingface: [
+      {
+        id: 'standard',
+        label: 'Standard',
+        description: 'All Hugging Face Inference Endpoint hardware',
+        allowedHardwareIds: null,
+      },
+    ],
+    runpod: [
+      {
+        id: 'standard',
+        label: 'Standard',
+        description: 'All RunPod GPUs & CPU',
+        allowedHardwareIds: null,
+      },
+    ],
+    hostinger: [
+      {
+        id: 'standard',
+        label: 'Standard',
+        description: 'All Hostinger GPU & KVM plans',
+        allowedHardwareIds: null,
+      },
+    ],
+    ionet: [
+      {
+        id: 'standard',
+        label: 'Standard',
+        description: 'All io.net GPUs & CPU clusters',
+        allowedHardwareIds: null,
+      },
+    ],
+  }
+
+export function getHardwareForTier(
+  provider: DeploymentProviderId,
+  tier?: string
+): HardwareOption[] {
+  const all = PROVIDER_HARDWARE_CATALOG[provider] ?? []
+  const tiers = PROVIDER_TIERS[provider] ?? []
+  const matched =
+    tiers.find((t) => t.id === tier) ?? tiers[tiers.length - 1] ?? null
+  if (!matched || matched.allowedHardwareIds === null) {
+    return all
+  }
+  const allowed = new Set(matched.allowedHardwareIds)
+  return all.filter((hw) => allowed.has(hw.id))
+}
+
 export const PROVIDER_LABELS: Record<DeploymentProviderId, string> = {
   modal: 'Modal',
   colab: 'Google Colab',

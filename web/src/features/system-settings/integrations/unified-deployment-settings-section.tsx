@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { CheckCircle2, Loader2, LogOut, Wand2, XCircle } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm, type UseFormReturn } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -34,13 +34,19 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
-import { testDeploymentConnectionWithKey } from '@/features/models/api'
+import {
+  getDeploymentAccounts,
+  testDeploymentConnectionWithKey,
+  type DeploymentAccountSummary,
+} from '@/features/models/api'
+import type { DeploymentProviderId } from '@/features/models/lib/hardware-catalog'
 import { api } from '@/lib/api'
 
 import { SettingsForm, SettingsFormGrid } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
+import { ProviderAccountsManager } from './provider-accounts-manager'
 
 const schema = z.object({
   // Global dispatch priority
@@ -347,6 +353,27 @@ export function UnifiedDeploymentSettingsSection({
     ok: boolean | null
     error: string | null
   }>({ loading: false, ok: null, error: null })
+
+  const [accountsByProvider, setAccountsByProvider] = useState<
+    Record<string, DeploymentAccountSummary[]>
+  >({})
+
+  useEffect(() => {
+    void getDeploymentAccounts()
+      .then((res) => {
+        if (res?.success && res.data) {
+          setAccountsByProvider(res.data)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const handleAccountsUpdated = (
+    p: DeploymentProviderId,
+    next: DeploymentAccountSummary[]
+  ) => {
+    setAccountsByProvider((prev) => ({ ...prev, [p]: next }))
+  }
 
   const handleStartColabOAuth = async () => {
     try {
@@ -884,6 +911,11 @@ export function UnifiedDeploymentSettingsSection({
                   )}
                 />
                 <IdleSleepField form={form} name='ionetIdleTimeoutSeconds' />
+                <ProviderAccountsManager
+                  provider='ionet'
+                  initialAccounts={accountsByProvider.ionet ?? []}
+                  onAccountsUpdated={handleAccountsUpdated}
+                />
               </CardContent>
             )}
           </Card>
@@ -987,6 +1019,11 @@ export function UnifiedDeploymentSettingsSection({
                 />
 
                 <IdleSleepField form={form} name='modalIdleTimeoutSeconds' />
+                <ProviderAccountsManager
+                  provider='modal'
+                  initialAccounts={accountsByProvider.modal ?? []}
+                  onAccountsUpdated={handleAccountsUpdated}
+                />
               </CardContent>
             )}
           </Card>
@@ -1097,6 +1134,11 @@ export function UnifiedDeploymentSettingsSection({
                 </SettingsFormGrid>
 
                 <IdleSleepField form={form} name='hfIdleTimeoutSeconds' />
+                <ProviderAccountsManager
+                  provider='huggingface'
+                  initialAccounts={accountsByProvider.huggingface ?? []}
+                  onAccountsUpdated={handleAccountsUpdated}
+                />
               </CardContent>
             )}
           </Card>
@@ -1188,6 +1230,11 @@ export function UnifiedDeploymentSettingsSection({
                   form={form}
                   name='hostingerIdleTimeoutSeconds'
                 />
+                <ProviderAccountsManager
+                  provider='hostinger'
+                  initialAccounts={accountsByProvider.hostinger ?? []}
+                  onAccountsUpdated={handleAccountsUpdated}
+                />
               </CardContent>
             )}
           </Card>
@@ -1276,6 +1323,11 @@ export function UnifiedDeploymentSettingsSection({
                   )}
                 />
                 <IdleSleepField form={form} name='runpodIdleTimeoutSeconds' />
+                <ProviderAccountsManager
+                  provider='runpod'
+                  initialAccounts={accountsByProvider.runpod ?? []}
+                  onAccountsUpdated={handleAccountsUpdated}
+                />
               </CardContent>
             )}
           </Card>
@@ -1465,6 +1517,11 @@ export function UnifiedDeploymentSettingsSection({
                 </SettingsFormGrid>
 
                 <IdleSleepField form={form} name='colabIdleTimeoutSeconds' />
+                <ProviderAccountsManager
+                  provider='colab'
+                  initialAccounts={accountsByProvider.colab ?? []}
+                  onAccountsUpdated={handleAccountsUpdated}
+                />
               </CardContent>
             )}
           </Card>
@@ -1577,6 +1634,11 @@ export function UnifiedDeploymentSettingsSection({
                 </SettingsFormGrid>
 
                 <IdleSleepField form={form} name='kaggleIdleTimeoutSeconds' />
+                <ProviderAccountsManager
+                  provider='kaggle'
+                  initialAccounts={accountsByProvider.kaggle ?? []}
+                  onAccountsUpdated={handleAccountsUpdated}
+                />
               </CardContent>
             )}
           </Card>

@@ -3,7 +3,16 @@ package notebookscript
 import (
 	"fmt"
 	"strings"
+
+	"github.com/QuantumNous/new-api/common"
 )
+
+// ModelFileSpec describes an individual weight/component file for multi-file models.
+type ModelFileSpec struct {
+	Repo string `json:"repo,omitempty"`
+	File string `json:"file"`
+	Role string `json:"role,omitempty"` // main | text_encoder | text_encoder_2 | vae | unet | lora | extra
+}
 
 // Config holds parameters for generating a Colab/Kaggle model serving script.
 type Config struct {
@@ -11,12 +20,14 @@ type Config struct {
 	DeploymentName       string
 	ModelRepo            string
 	ModelFile            string
+	ModelFiles           []ModelFileSpec
 	TaskType             string // text, image, video, audio, embeddings
 	Accelerator          string
 	FallbackAccelerators []string
 	IdleTimeoutSeconds   int
 	HFToken              string
 	CallbackURL          string
+	ShutdownToken        string
 }
 
 // NormalizeTaskType maps arbitrary/HF pipeline_tag values into supported task types.
@@ -55,6 +66,13 @@ func Generate(cfg Config) string {
 		return generateModalScript(cfg, task, idle)
 	}
 
+	modelFilesJSON := "[]"
+	if len(cfg.ModelFiles) > 0 {
+		if b, err := common.Marshal(cfg.ModelFiles); err == nil {
+			modelFilesJSON = string(b)
+		}
+	}
+
 	var pipPackages string
 	var extraPipArgs string
 	var needsTorch bool
@@ -63,13 +81,38 @@ func Generate(cfg Config) string {
 	switch task {
 	case "video":
 		needsTorch = true
-		pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("diffusers", "diffusers"), ("transformers", "transformers"), ("accelerate", "accelerate"), ("imageio[ffmpeg]", "imageio"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub")]`
+		pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("diffusers", "diffusers"), ("transformers", "transformers"), ("accelerate", "accelerate"), ("imageio[ffmpeg]", "imageio"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub"), ("safetensors", "safetensors"), ("omegaconf", "omegaconf")]`
 		taskHandler = `
 import uuid
 from diffusers import DiffusionPipeline
+from huggingface_hub import hf_hub_download, list_repo_files
 from diffusers.utils import export_to_video
 
-pipe = DiffusionPipeline.from_pretrained(MODEL_REPO, torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32, token=HF_TOKEN or None)
+_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+_entries = json.loads(MODEL_FILES_JSON) if MODEL_FILES_JSON else []
+_main_entry = next((e for e in _entries if (e.get("role") or "main") == "main" and e.get("file")), None)
+_explicit_file = (_main_entry.get("file") if _main_entry else "") or MODEL_FILE
+_explicit_repo = (_main_entry.get("repo") if _main_entry else "") or MODEL_REPO
+_repo_files = list_repo_files(MODEL_REPO, token=HF_TOKEN or None)
+if "model_index.json" in _repo_files and not _explicit_file.lower().endswith((".safetensors", ".ckpt")):
+    pipe = DiffusionPipeline.from_pretrained(MODEL_REPO, torch_dtype=_dtype, token=HF_TOKEN or None)
+else:
+    _target = _explicit_file or next((f for f in sorted(_repo_files) if f.lower().endswith((".safetensors", ".ckpt"))), "")
+    if not _target:
+        raise RuntimeError(f"No model_index.json or .safetensors/.ckpt file found in {MODEL_REPO}")
+    _ckpt = hf_hub_download(repo_id=_explicit_repo, filename=_target, token=HF_TOKEN or None)
+    pipe = DiffusionPipeline.from_single_file(_ckpt, torch_dtype=_dtype)
+for _entry in _entries:
+    _role = (_entry.get("role") or "extra").lower()
+    _fn = _entry.get("file") or ""
+    if not _fn or _role == "main":
+        continue
+    _lp = hf_hub_download(repo_id=_entry.get("repo") or MODEL_REPO, filename=_fn, token=HF_TOKEN or None)
+    if _role == "lora" and hasattr(pipe, "load_lora_weights"):
+        pipe.load_lora_weights(_lp)
+    elif _role == "vae" and hasattr(pipe, "vae"):
+        from diffusers import AutoencoderKL
+        pipe.vae = AutoencoderKL.from_single_file(_lp, torch_dtype=_dtype)
 if torch.cuda.is_available():
     pipe = pipe.to("cuda")
 
@@ -89,12 +132,51 @@ async def generate_video(req: Request):
 `
 	case "image":
 		needsTorch = true
-		pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("diffusers", "diffusers"), ("transformers", "transformers"), ("accelerate", "accelerate"), ("pillow", "PIL"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub")]`
+		pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("diffusers", "diffusers"), ("transformers", "transformers"), ("accelerate", "accelerate"), ("pillow", "PIL"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub"), ("safetensors", "safetensors"), ("omegaconf", "omegaconf")]`
 		taskHandler = `
 import uuid
 from diffusers import AutoPipelineForText2Image
+from huggingface_hub import hf_hub_download, list_repo_files
 
-pipe = AutoPipelineForText2Image.from_pretrained(MODEL_REPO, torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32, token=HF_TOKEN or None)
+_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+_entries = json.loads(MODEL_FILES_JSON) if MODEL_FILES_JSON else []
+_main_entry = next((e for e in _entries if (e.get("role") or "main") == "main" and e.get("file")), None)
+_explicit_file = (_main_entry.get("file") if _main_entry else "") or MODEL_FILE
+_explicit_repo = (_main_entry.get("repo") if _main_entry else "") or MODEL_REPO
+_repo_files = list_repo_files(MODEL_REPO, token=HF_TOKEN or None)
+if "model_index.json" in _repo_files and not _explicit_file.lower().endswith((".safetensors", ".ckpt")):
+    pipe = AutoPipelineForText2Image.from_pretrained(MODEL_REPO, torch_dtype=_dtype, token=HF_TOKEN or None)
+else:
+    _target = _explicit_file or next((f for f in sorted(_repo_files) if f.lower().endswith((".safetensors", ".ckpt"))), "")
+    if not _target:
+        raise RuntimeError(f"No model_index.json or .safetensors/.ckpt file found in {MODEL_REPO}")
+    _ckpt = hf_hub_download(repo_id=_explicit_repo, filename=_target, token=HF_TOKEN or None)
+    from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, DiffusionPipeline
+    pipe = None
+    _errs = []
+    for _cls in (StableDiffusionPipeline, StableDiffusionXLPipeline, DiffusionPipeline):
+        try:
+            pipe = _cls.from_single_file(_ckpt, torch_dtype=_dtype)
+            break
+        except Exception as _exc:
+            _errs.append(f"{_cls.__name__}: {_exc}")
+    if pipe is None:
+        raise RuntimeError("Failed to load single-file image checkpoint: " + " | ".join(_errs))
+for _entry in _entries:
+    _role = (_entry.get("role") or "extra").lower()
+    _fn = _entry.get("file") or ""
+    if not _fn or _role == "main":
+        continue
+    _lp = hf_hub_download(repo_id=_entry.get("repo") or MODEL_REPO, filename=_fn, token=HF_TOKEN or None)
+    if _role == "vae" and hasattr(pipe, "vae"):
+        from diffusers import AutoencoderKL
+        pipe.vae = AutoencoderKL.from_single_file(_lp, torch_dtype=_dtype)
+    elif _role == "lora" and hasattr(pipe, "load_lora_weights"):
+        pipe.load_lora_weights(_lp)
+    elif _role in ("text_encoder", "text_encoder_2", "unet") and hasattr(pipe, _role):
+        from safetensors.torch import load_file
+        _sd = load_file(_lp) if _lp.lower().endswith(".safetensors") else torch.load(_lp, map_location="cpu")
+        getattr(pipe, _role).load_state_dict(_sd, strict=False)
 if torch.cuda.is_available():
     pipe = pipe.to("cuda")
 
@@ -171,14 +253,21 @@ def get_llm():
     global _llm
     if _llm is not None:
         return _llm
-    target_file = MODEL_FILE
+    entries = json.loads(MODEL_FILES_JSON) if MODEL_FILES_JSON else []
+    main_entry = next((e for e in entries if (e.get("role") or "main") == "main" and e.get("file")), None)
+    target_file = (main_entry.get("file") if main_entry else "") or MODEL_FILE
+    target_repo = (main_entry.get("repo") if main_entry else "") or MODEL_REPO
+    for entry in entries:
+        fn = entry.get("file") or ""
+        if fn and fn != target_file:
+            hf_hub_download(repo_id=entry.get("repo") or MODEL_REPO, filename=fn, token=HF_TOKEN or None)
     if not target_file:
         files = [f for f in list_repo_files(MODEL_REPO, token=HF_TOKEN or None) if f.lower().endswith(".gguf")]
         if not files:
             raise RuntimeError(f"No .gguf file found in {MODEL_REPO}")
         target_file = sorted(files)[0]
-    print(f"[setup] Downloading GGUF model {MODEL_REPO}/{target_file}...", flush=True)
-    local_path = hf_hub_download(repo_id=MODEL_REPO, filename=target_file, token=HF_TOKEN or None)
+    print(f"[setup] Downloading GGUF model {target_repo}/{target_file}...", flush=True)
+    local_path = hf_hub_download(repo_id=target_repo, filename=target_file, token=HF_TOKEN or None)
     n_gpu = -1 if os.path.exists("/dev/nvidia0") else 0
     _llm = Llama(model_path=local_path, n_ctx=4096, n_gpu_layers=n_gpu, verbose=False)
     return _llm
@@ -259,8 +348,10 @@ import urllib.request
 
 MODEL_REPO = %s
 MODEL_FILE = %s
+MODEL_FILES_JSON = %s
 HF_TOKEN = %s
 CALLBACK_URL = %s
+SHUTDOWN_TOKEN = %s
 IDLE_TIMEOUT_SECONDS = %d
 OUTPUT_DIR = "/tmp/model_outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -358,6 +449,15 @@ def health():
     touch()
     return {"status": "ok", "model": MODEL_REPO, "task": %s}
 
+@app.post("/_shutdown")
+async def shutdown(req: Request):
+    tok = req.query_params.get("token") or req.headers.get("X-Shutdown-Token") or ""
+    if not SHUTDOWN_TOKEN or tok != SHUTDOWN_TOKEN:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="forbidden")
+    threading.Timer(0.2, lambda: os._exit(0)).start()
+    return {"status": "shutting_down"}
+
 @app.get("/v1/models")
 def list_models():
     touch()
@@ -374,8 +474,10 @@ if __name__ == "__main__":
 		cfg.Accelerator,
 		pyQuote(cfg.ModelRepo),
 		pyQuote(cfg.ModelFile),
+		pyQuote(modelFilesJSON),
 		pyQuote(cfg.HFToken),
 		pyQuote(cfg.CallbackURL),
+		pyQuote(cfg.ShutdownToken),
 		idle,
 		pipPackages,
 		extraPipArgs,

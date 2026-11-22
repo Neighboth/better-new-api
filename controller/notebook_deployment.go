@@ -57,7 +57,7 @@ func persistColabOption(key, value string) {
 }
 
 // StartColabTokenRefresher starts a background goroutine that periodically
-// refreshes the Google Colab OAuth access token before it expires.
+// refreshes all Google Colab OAuth access tokens before they expire.
 func StartColabTokenRefresher() {
 	colabRefresherOnce.Do(func() {
 		go func() {
@@ -66,26 +66,54 @@ func StartColabTokenRefresher() {
 			for range ticker.C {
 				common.OptionMapRWMutex.RLock()
 				enabled := common.OptionMap["model_deployment.colab.enabled"] == "true"
-				refreshTok := strings.TrimSpace(common.OptionMap["model_deployment.colab.refresh_token"])
 				common.OptionMapRWMutex.RUnlock()
-				if !enabled || refreshTok == "" {
+				if !enabled {
 					continue
 				}
-				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-				_, _ = getValidColabAccessToken(ctx)
-				cancel()
+				accounts := GetProviderAccounts("colab")
+				for _, acc := range accounts {
+					if strings.TrimSpace(acc.RefreshToken) == "" {
+						continue
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+					_, _ = getValidColabAccessTokenForAccount(ctx, acc.ID)
+					cancel()
+				}
 			}
 		}()
 	})
 }
 
 func getValidColabAccessToken(ctx context.Context) (string, error) {
+	return getValidColabAccessTokenForAccount(ctx, "")
+}
+
+func getValidColabAccessTokenForAccount(ctx context.Context, accountID string) (string, error) {
 	StartColabTokenRefresher()
-	common.OptionMapRWMutex.RLock()
-	accessTok := strings.TrimSpace(common.OptionMap["model_deployment.colab.access_token"])
-	refreshTok := strings.TrimSpace(common.OptionMap["model_deployment.colab.refresh_token"])
-	expiresAtStr := strings.TrimSpace(common.OptionMap["model_deployment.colab.token_expires_at"])
-	common.OptionMapRWMutex.RUnlock()
+	accounts := GetProviderAccounts("colab")
+	idx := -1
+	targetID := strings.TrimSpace(accountID)
+	for i := range accounts {
+		if targetID != "" && accounts[i].ID == targetID {
+			idx = i
+			break
+		}
+		if targetID == "" && accounts[i].Enabled && (strings.TrimSpace(accounts[i].AccessToken) != "" || strings.TrimSpace(accounts[i].RefreshToken) != "") {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 && len(accounts) > 0 && targetID == "" {
+		idx = 0
+	}
+	if idx < 0 {
+		return "", fmt.Errorf("Google Colab OAuth credentials missing; please sign in with Google")
+	}
+
+	acc := &accounts[idx]
+	accessTok := strings.TrimSpace(acc.AccessToken)
+	refreshTok := strings.TrimSpace(acc.RefreshToken)
+	expiresAtStr := strings.TrimSpace(acc.ExpiresAt)
 
 	needsRefresh := accessTok == ""
 	if !needsRefresh && expiresAtStr != "" {
@@ -103,7 +131,7 @@ func getValidColabAccessToken(ctx context.Context) (string, error) {
 		if accessTok != "" {
 			return accessTok, nil
 		}
-		return "", fmt.Errorf("Google Colab OAuth credentials missing; please sign in with Google")
+		return "", fmt.Errorf("Google Colab OAuth credentials missing for account %s; please sign in with Google", acc.Label)
 	}
 
 	newAccess, newExp, err := service.RefreshColabToken(ctx, refreshTok)
@@ -113,8 +141,9 @@ func getValidColabAccessToken(ctx context.Context) (string, error) {
 		}
 		return "", err
 	}
-	persistColabOption("model_deployment.colab.access_token", newAccess)
-	persistColabOption("model_deployment.colab.token_expires_at", newExp.Format(time.RFC3339))
+	acc.AccessToken = newAccess
+	acc.ExpiresAt = newExp.Format(time.RFC3339)
+	_ = SaveProviderAccounts("colab", accounts)
 	return newAccess, nil
 }
 
@@ -127,10 +156,51 @@ func StartColabOAuth(c *gin.Context) {
 	common.ApiSuccess(c, flow)
 }
 
+func inferColabTierFromInfo(info *colab.AccountInfo) string {
+	if info == nil {
+		return ""
+	}
+	tierLower := strings.ToLower(info.SubscriptionTier)
+	if strings.Contains(tierLower, "ultra") || strings.Contains(tierLower, "pro+") {
+		return "google_ai_ultra"
+	}
+	hasA100OrH100 := false
+	hasL4 := false
+	hasV5e := false
+	for _, g := range info.EligibleGPUs {
+		u := strings.ToUpper(strings.TrimSpace(g))
+		if strings.Contains(u, "H100") || strings.Contains(u, "A100") {
+			hasA100OrH100 = true
+		}
+		if strings.Contains(u, "L4") {
+			hasL4 = true
+		}
+	}
+	for _, t := range info.EligibleTPUs {
+		u := strings.ToUpper(strings.TrimSpace(t))
+		if strings.Contains(u, "V5E") {
+			hasV5e = true
+		}
+	}
+	if hasA100OrH100 {
+		return "google_ai_ultra"
+	}
+	if hasL4 {
+		return "colab_pro"
+	}
+	if hasV5e {
+		return "google_ai_pro"
+	}
+	return "free"
+}
+
 func ExchangeColabOAuth(c *gin.Context) {
 	var req struct {
 		SessionID string `json:"session_id" binding:"required"`
 		Callback  string `json:"callback" binding:"required"`
+		AccountID string `json:"account_id"`
+		Label     string `json:"label"`
+		Tier      string `json:"tier"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiErrorMsg(c, err.Error())
@@ -152,33 +222,125 @@ func ExchangeColabOAuth(c *gin.Context) {
 		common.ApiErrorMsg(c, "failed to parse OAuth credentials")
 		return
 	}
-	persistColabOption("model_deployment.colab.access_token", cred.AccessToken)
-	persistColabOption("model_deployment.colab.refresh_token", cred.RefreshToken)
-	persistColabOption("model_deployment.colab.token_expires_at", cred.Expired)
-	persistColabOption("model_deployment.colab.account_email", cred.Email)
-	if cred.ProjectID != "" {
-		persistColabOption("model_deployment.colab.project_id", cred.ProjectID)
+
+	var eligibleGPUs []string
+	detectedTier := strings.TrimSpace(req.Tier)
+	if info, infoErr := newColabClient(cred.AccessToken).GetAccountInfo(); infoErr == nil && info != nil {
+		eligibleGPUs = append(eligibleGPUs, info.EligibleGPUs...)
+		eligibleGPUs = append(eligibleGPUs, info.EligibleTPUs...)
+		if detectedTier == "" {
+			detectedTier = inferColabTierFromInfo(info)
+		}
 	}
+
+	accounts := GetProviderAccounts("colab")
+	targetID := strings.TrimSpace(req.AccountID)
+	updated := false
+	for i := range accounts {
+		if (targetID != "" && accounts[i].ID == targetID) || (targetID == "" && i == 0) {
+			accounts[i].AccessToken = cred.AccessToken
+			if cred.RefreshToken != "" {
+				accounts[i].RefreshToken = cred.RefreshToken
+			}
+			accounts[i].ExpiresAt = cred.Expired
+			accounts[i].AccountEmail = cred.Email
+			if cred.ProjectID != "" {
+				accounts[i].ProjectID = cred.ProjectID
+			}
+			if len(eligibleGPUs) > 0 {
+				accounts[i].EligibleGPUs = eligibleGPUs
+			}
+			if detectedTier != "" {
+				accounts[i].Tier = detectedTier
+			}
+			accounts[i].Enabled = true
+			targetID = accounts[i].ID
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		if targetID == "" || targetID == "new" {
+			targetID = fmt.Sprintf("acc-%d", len(accounts)+1)
+		}
+		label := strings.TrimSpace(req.Label)
+		if label == "" {
+			label = fmt.Sprintf("#%d", len(accounts)+1)
+		}
+		if detectedTier == "" {
+			detectedTier = defaultTierForProvider("colab")
+		}
+		accounts = append(accounts, DeploymentAccount{
+			ID:           targetID,
+			Label:        label,
+			Tier:         detectedTier,
+			Enabled:      true,
+			AccessToken:  cred.AccessToken,
+			RefreshToken: cred.RefreshToken,
+			ExpiresAt:    cred.Expired,
+			AccountEmail: cred.Email,
+			ProjectID:    cred.ProjectID,
+			Region:       "us-central1",
+			EligibleGPUs: eligibleGPUs,
+		})
+	}
+	_ = SaveProviderAccounts("colab", accounts)
 	StartColabTokenRefresher()
 
 	common.ApiSuccess(c, gin.H{
-		"email":      cred.Email,
-		"expires_at": cred.Expired,
-		"project_id": cred.ProjectID,
+		"account_id":    targetID,
+		"email":         cred.Email,
+		"expires_at":    cred.Expired,
+		"project_id":    cred.ProjectID,
+		"eligible_gpus": eligibleGPUs,
+		"tier":          detectedTier,
+		"accounts":      SummarizeProviderAccounts("colab"),
 	})
 }
 
 func DisconnectColabOAuth(c *gin.Context) {
-	persistColabOption("model_deployment.colab.access_token", "")
-	persistColabOption("model_deployment.colab.refresh_token", "")
-	persistColabOption("model_deployment.colab.token_expires_at", "")
-	persistColabOption("model_deployment.colab.account_email", "")
-	common.ApiSuccess(c, gin.H{"disconnected": true})
+	var req struct {
+		AccountID string `json:"account_id"`
+	}
+	rawBody, _ := c.GetRawData()
+	if len(bytes.TrimSpace(rawBody)) > 0 {
+		_ = common.Unmarshal(rawBody, &req)
+	}
+	targetID := strings.TrimSpace(req.AccountID)
+	accounts := GetProviderAccounts("colab")
+	if targetID != "" {
+		for i := range accounts {
+			if accounts[i].ID == targetID {
+				accounts[i].AccessToken = ""
+				accounts[i].RefreshToken = ""
+				accounts[i].ExpiresAt = ""
+				accounts[i].AccountEmail = ""
+				accounts[i].EligibleGPUs = nil
+				break
+			}
+		}
+		_ = SaveProviderAccounts("colab", accounts)
+	} else {
+		if len(accounts) > 0 {
+			accounts[0].AccessToken = ""
+			accounts[0].RefreshToken = ""
+			accounts[0].ExpiresAt = ""
+			accounts[0].AccountEmail = ""
+			accounts[0].EligibleGPUs = nil
+			_ = SaveProviderAccounts("colab", accounts)
+		}
+		persistColabOption("model_deployment.colab.access_token", "")
+		persistColabOption("model_deployment.colab.refresh_token", "")
+		persistColabOption("model_deployment.colab.token_expires_at", "")
+		persistColabOption("model_deployment.colab.account_email", "")
+	}
+	common.ApiSuccess(c, gin.H{"disconnected": true, "accounts": SummarizeProviderAccounts("colab")})
 }
 
 func TestColabConnection(c *gin.Context) {
 	var req struct {
 		AccessToken string `json:"access_token"`
+		AccountID   string `json:"account_id"`
 	}
 	rawBody, _ := c.GetRawData()
 	if len(bytes.TrimSpace(rawBody)) > 0 {
@@ -187,29 +349,38 @@ func TestColabConnection(c *gin.Context) {
 	token := strings.TrimSpace(req.AccessToken)
 	if token == "" {
 		var err error
-		token, err = getValidColabAccessToken(c.Request.Context())
+		token, err = getValidColabAccessTokenForAccount(c.Request.Context(), req.AccountID)
 		if err != nil {
 			common.ApiErrorMsg(c, err.Error())
 			return
 		}
 	}
 
-	count, err := newColabClient(token).TestConnection()
+	client := newColabClient(token)
+	count, err := client.TestConnection()
 	if err != nil {
 		common.ApiErrorMsg(c, fmt.Sprintf("failed to connect to Google Colab: %v", err))
 		return
 	}
-	common.ApiSuccess(c, gin.H{
+	info, _ := client.GetAccountInfo()
+	res := gin.H{
 		"provider":       "colab",
 		"status":         "connected",
 		"runtimes_count": count,
-	})
+	}
+	if info != nil {
+		res["eligible_gpus"] = info.EligibleGPUs
+		res["eligible_tpus"] = info.EligibleTPUs
+		res["subscription_tier"] = info.SubscriptionTier
+	}
+	common.ApiSuccess(c, res)
 }
 
 func TestKaggleConnection(c *gin.Context) {
 	var req struct {
-		Username string `json:"username"`
-		ApiKey   string `json:"api_key"`
+		AccountID string `json:"account_id"`
+		Username  string `json:"username"`
+		ApiKey    string `json:"api_key"`
 	}
 	rawBody, _ := c.GetRawData()
 	if len(bytes.TrimSpace(rawBody)) > 0 {
@@ -218,14 +389,22 @@ func TestKaggleConnection(c *gin.Context) {
 	username := strings.TrimSpace(req.Username)
 	apiKey := strings.TrimSpace(req.ApiKey)
 
-	common.OptionMapRWMutex.RLock()
-	if username == "" {
-		username = strings.TrimSpace(common.OptionMap["model_deployment.kaggle.username"])
+	if (apiKey == "" || apiKey == maskedAccountSecret) && strings.TrimSpace(req.AccountID) != "" {
+		if acc, err := ResolveProviderAccount("kaggle", req.AccountID); err == nil && acc != nil {
+			if username == "" {
+				username = acc.Username
+			}
+			apiKey = acc.APIKey
+		}
 	}
-	if apiKey == "" {
+	if apiKey == "" || apiKey == maskedAccountSecret {
+		common.OptionMapRWMutex.RLock()
+		if username == "" {
+			username = strings.TrimSpace(common.OptionMap["model_deployment.kaggle.username"])
+		}
 		apiKey = strings.TrimSpace(common.OptionMap["model_deployment.kaggle.api_key"])
+		common.OptionMapRWMutex.RUnlock()
 	}
-	common.OptionMapRWMutex.RUnlock()
 
 	if apiKey == "" {
 		common.ApiErrorMsg(c, "Kaggle API key is required")
@@ -405,78 +584,82 @@ func NotebookDeploymentCallback(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-func CreateNotebookDeployment(c *gin.Context) {
-	var req struct {
-		Provider             string   `json:"provider"`
-		Name                 string   `json:"name"`
-		ModelRepo            string   `json:"model_repo"`
-		ModelFile            string   `json:"model_file"`
-		TaskType             string   `json:"task_type"`
-		Accelerator          string   `json:"accelerator"`
-		FallbackAccelerators []string `json:"fallback_accelerators"`
-		HFToken              string   `json:"hf_token"`
-	}
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
-		common.ApiErrorMsg(c, "invalid request payload")
-		return
-	}
+type createDeploymentRequest struct {
+	Provider             string                         `json:"provider"`
+	AccountID            string                         `json:"account_id"`
+	Name                 string                         `json:"name"`
+	ModelRepo            string                         `json:"model_repo"`
+	ModelFile            string                         `json:"model_file"`
+	ModelFiles           []notebookscript.ModelFileSpec `json:"model_files"`
+	TaskType             string                         `json:"task_type"`
+	Accelerator          string                         `json:"accelerator"`
+	FallbackAccelerators []string                       `json:"fallback_accelerators"`
+	Group                string                         `json:"group"`
+	Priority             int64                          `json:"priority"`
+	Weight               uint                           `json:"weight"`
+	Enabled              int                            `json:"enabled"`
+	HFToken              string                         `json:"hf_token"`
+}
 
+func createSingleNotebookDeployment(c *gin.Context, req createDeploymentRequest) (*model.NotebookDeployment, error) {
 	provider := strings.TrimSpace(strings.ToLower(req.Provider))
 	if !isValidDeploymentProvider(provider) {
-		common.ApiErrorMsg(c, "unsupported deployment provider")
-		return
+		return nil, fmt.Errorf("unsupported deployment provider")
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	req.ModelRepo = strings.TrimSpace(req.ModelRepo)
 	if req.Name == "" || req.ModelRepo == "" {
-		common.ApiErrorMsg(c, "name and model_repo are required")
-		return
+		return nil, fmt.Errorf("name and model_repo are required")
 	}
 
-	// Validate provider credentials upfront before creating DB record
 	common.OptionMapRWMutex.RLock()
 	modalEnabled := common.OptionMap["model_deployment.modal.enabled"] == "true"
-	modalTokenID := strings.TrimSpace(common.OptionMap["model_deployment.modal.token_id"])
-	modalTokenSecret := strings.TrimSpace(common.OptionMap["model_deployment.modal.token_secret"])
 	modalVolPath := strings.TrimSpace(common.OptionMap["model_deployment.modal.shared_volume_path"])
-
 	kaggleEnabled := common.OptionMap["model_deployment.kaggle.enabled"] == "true"
-	kaggleUser := strings.TrimSpace(common.OptionMap["model_deployment.kaggle.username"])
-	kaggleKey := strings.TrimSpace(common.OptionMap["model_deployment.kaggle.api_key"])
-
 	colabEnabled := common.OptionMap["model_deployment.colab.enabled"] == "true"
 	hfEnabled := common.OptionMap["model_deployment.huggingface.enabled"] == "true"
-	hfGlobalToken := strings.TrimSpace(common.OptionMap["model_deployment.huggingface.token"])
-	if hfGlobalToken == "" {
-		hfGlobalToken = strings.TrimSpace(common.OptionMap["model_deployment.huggingface.api_key"])
-	}
-	hfDefaultOrg := strings.TrimSpace(common.OptionMap["model_deployment.huggingface.org"])
 	common.OptionMapRWMutex.RUnlock()
+
+	var modalTokenID, modalTokenSecret string
+	var kaggleUser, kaggleKey string
+	var hfGlobalToken, hfDefaultOrg string
+	var accountID, accountLabel string
+
+	if acc, accErr := ResolveProviderAccount(provider, req.AccountID); accErr == nil && acc != nil {
+		accountID = acc.ID
+		accountLabel = acc.Label
+		switch provider {
+		case "modal":
+			modalTokenID = strings.TrimSpace(acc.TokenID)
+			modalTokenSecret = strings.TrimSpace(acc.TokenSecret)
+		case "kaggle":
+			kaggleUser = strings.TrimSpace(acc.Username)
+			kaggleKey = strings.TrimSpace(acc.APIKey)
+		case "huggingface":
+			hfGlobalToken = strings.TrimSpace(acc.Token)
+			hfDefaultOrg = strings.TrimSpace(acc.Org)
+		}
+	}
 
 	switch provider {
 	case "modal":
 		if !modalEnabled || modalTokenID == "" || modalTokenSecret == "" {
-			common.ApiErrorMsg(c, "Modal deployment is not enabled or Token ID / Token Secret is missing in System Settings")
-			return
+			return nil, fmt.Errorf("Modal deployment is not enabled or Token ID / Token Secret is missing in System Settings")
 		}
 	case "kaggle":
 		if !kaggleEnabled || kaggleKey == "" || kaggleUser == "" {
-			common.ApiErrorMsg(c, "Kaggle deployment is not enabled or Username / API Key is missing in System Settings")
-			return
+			return nil, fmt.Errorf("Kaggle deployment is not enabled or Username / API Key is missing in System Settings")
 		}
 	case "colab":
 		if !colabEnabled {
-			common.ApiErrorMsg(c, "Google Colab deployment is not enabled in System Settings")
-			return
+			return nil, fmt.Errorf("Google Colab deployment is not enabled in System Settings")
 		}
-		if _, err := getValidColabAccessToken(c.Request.Context()); err != nil {
-			common.ApiErrorMsg(c, err.Error())
-			return
+		if _, err := getValidColabAccessTokenForAccount(c.Request.Context(), accountID); err != nil {
+			return nil, err
 		}
 	case "huggingface":
 		if !hfEnabled || hfGlobalToken == "" {
-			common.ApiErrorMsg(c, "Hugging Face deployment is not enabled or token is missing in System Settings")
-			return
+			return nil, fmt.Errorf("Hugging Face deployment is not enabled or token is missing in System Settings")
 		}
 	}
 
@@ -488,17 +671,42 @@ func CreateNotebookDeployment(c *gin.Context) {
 	}
 	candidates := buildAcceleratorCandidates(accelerator, req.FallbackAccelerators)
 	fallbacksJSON, _ := common.Marshal(req.FallbackAccelerators)
+	modelFilesJSON := ""
+	if len(req.ModelFiles) > 0 {
+		if b, err := common.Marshal(req.ModelFiles); err == nil {
+			modelFilesJSON = string(b)
+		}
+	}
+	groupStr := strings.TrimSpace(req.Group)
+	if groupStr == "" {
+		groupStr = "default"
+	}
+	weight := req.Weight
+	if weight == 0 {
+		weight = 1
+	}
+	enabled := req.Enabled
+	if enabled != 2 {
+		enabled = 1
+	}
 	callbackToken := common.GetUUID()
 
 	now := time.Now().Unix()
 	item := &model.NotebookDeployment{
 		Provider:             provider,
+		AccountID:            accountID,
+		AccountLabel:         accountLabel,
 		Name:                 req.Name,
 		ModelRepo:            req.ModelRepo,
 		ModelFile:            strings.TrimSpace(req.ModelFile),
+		ModelFiles:           modelFilesJSON,
 		TaskType:             taskType,
 		Accelerator:          accelerator,
 		FallbackAccelerators: string(fallbacksJSON),
+		Group:                groupStr,
+		Priority:             req.Priority,
+		Weight:               weight,
+		Enabled:              enabled,
 		IdleTimeoutSeconds:   idleTimeout,
 		Status:               "provisioning",
 		StatusMessage:        "Initializing deployment...",
@@ -508,8 +716,7 @@ func CreateNotebookDeployment(c *gin.Context) {
 	}
 
 	if err := model.CreateNotebookDeployment(item); err != nil {
-		common.ApiError(c, err)
-		return
+		return nil, err
 	}
 
 	callbackURL := buildDeploymentCallbackURL(c, item.Id, callbackToken)
@@ -518,24 +725,37 @@ func CreateNotebookDeployment(c *gin.Context) {
 		DeploymentName:       req.Name,
 		ModelRepo:            req.ModelRepo,
 		ModelFile:            strings.TrimSpace(req.ModelFile),
+		ModelFiles:           req.ModelFiles,
 		TaskType:             taskType,
 		Accelerator:          accelerator,
 		FallbackAccelerators: req.FallbackAccelerators,
 		IdleTimeoutSeconds:   idleTimeout,
 		HFToken:              strings.TrimSpace(req.HFToken),
 		CallbackURL:          callbackURL,
+		ShutdownToken:        callbackToken,
 	})
 	item.Script = script
 	_ = model.UpdateNotebookDeploymentFields(item.Id, map[string]any{
 		"script": script,
 	})
 
+	modalFiles := make([]modaldeploy.ModelFileSpec, 0, len(req.ModelFiles))
+	for _, mf := range req.ModelFiles {
+		modalFiles = append(modalFiles, modaldeploy.ModelFileSpec{
+			Repo: mf.Repo,
+			File: mf.File,
+			Role: mf.Role,
+		})
+	}
+
 	go provisionDeploymentAsync(provisionParams{
 		ID:                 item.Id,
 		Provider:           provider,
+		AccountID:          accountID,
 		Name:               req.Name,
 		ModelRepo:          req.ModelRepo,
 		ModelFile:          strings.TrimSpace(req.ModelFile),
+		ModelFiles:         modalFiles,
 		TaskType:           taskType,
 		PrimaryAccelerator: accelerator,
 		Fallbacks:          req.FallbackAccelerators,
@@ -553,15 +773,59 @@ func CreateNotebookDeployment(c *gin.Context) {
 		HFDefaultOrg:       hfDefaultOrg,
 	})
 
+	return item, nil
+}
+
+func CreateNotebookDeployment(c *gin.Context) {
+	var req createDeploymentRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		common.ApiErrorMsg(c, "invalid request payload")
+		return
+	}
+	item, err := createSingleNotebookDeployment(c, req)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
 	common.ApiSuccess(c, item)
+}
+
+func CreateNotebookDeploymentsBatch(c *gin.Context) {
+	var req struct {
+		Items []createDeploymentRequest `json:"items"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil || len(req.Items) == 0 {
+		common.ApiErrorMsg(c, "invalid batch deployment payload")
+		return
+	}
+	created := make([]*model.NotebookDeployment, 0, len(req.Items))
+	var errs []string
+	for _, itemReq := range req.Items {
+		item, err := createSingleNotebookDeployment(c, itemReq)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", itemReq.ModelRepo, err))
+			continue
+		}
+		created = append(created, item)
+	}
+	if len(created) == 0 && len(errs) > 0 {
+		common.ApiErrorMsg(c, strings.Join(errs, "; "))
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"created": created,
+		"errors":  errs,
+	})
 }
 
 type provisionParams struct {
 	ID                 int
 	Provider           string
+	AccountID          string
 	Name               string
 	ModelRepo          string
 	ModelFile          string
+	ModelFiles         []modaldeploy.ModelFileSpec
 	TaskType           string
 	PrimaryAccelerator string
 	Fallbacks          []string
@@ -591,6 +855,7 @@ func provisionDeploymentAsync(p provisionParams) {
 			AppName:              appName,
 			ModelRepo:            p.ModelRepo,
 			ModelFile:            p.ModelFile,
+			ModelFiles:           p.ModelFiles,
 			TaskType:             p.TaskType,
 			Accelerator:          p.PrimaryAccelerator,
 			FallbackAccelerators: p.Fallbacks,
@@ -675,6 +940,7 @@ func provisionDeploymentAsync(p provisionParams) {
 			}
 		}
 		deadline := time.Now().Add(10 * time.Minute)
+		queuedSince := time.Now()
 		consecutiveStatusErrs := 0
 		for time.Now().Before(deadline) {
 			if cur, dbErr := model.GetNotebookDeploymentByID(p.ID); dbErr == nil && strings.TrimSpace(cur.EndpointURL) != "" {
@@ -706,7 +972,11 @@ func provisionDeploymentAsync(p provisionParams) {
 				case "new_script":
 					setDeploymentStatus(p.ID, "starting", "Starting on Kaggle...")
 				case "queued":
-					setDeploymentStatus(p.ID, "starting", "Queued on Kaggle...")
+					if time.Since(queuedSince) > 90*time.Second {
+						setDeploymentStatus(p.ID, "starting", "Queued on Kaggle (waiting for free GPU/TPU slot — ensure no other Kaggle session is running or switch to CPU/another account)")
+					} else {
+						setDeploymentStatus(p.ID, "starting", "Queued on Kaggle...")
+					}
 				case "running":
 					msg := "Running on Kaggle — installing dependencies & waiting for tunnel URL..."
 					if p.CallbackURL == "" {
@@ -745,7 +1015,7 @@ func provisionDeploymentAsync(p provisionParams) {
 
 	case "colab":
 		setDeploymentStatus(p.ID, "starting", "Provisioning Google Colab runtime...")
-		tok, err := getValidColabAccessToken(ctx)
+		tok, err := getValidColabAccessTokenForAccount(ctx, p.AccountID)
 		if err != nil {
 			setDeploymentFailed(p.ID, err.Error())
 			return
@@ -984,18 +1254,50 @@ func UpdateNotebookDeployment(c *gin.Context) {
 		return
 	}
 	var req struct {
-		EndpointURL string `json:"endpoint_url"`
-		Status      string `json:"status"`
+		EndpointURL *string `json:"endpoint_url"`
+		Status      *string `json:"status"`
+		Group       *string `json:"group"`
+		Priority    *int64  `json:"priority"`
+		Weight      *uint   `json:"weight"`
+		Enabled     *int    `json:"enabled"`
 	}
 	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
 		common.ApiErrorMsg(c, "invalid request payload")
 		return
 	}
-	if u := strings.TrimSpace(req.EndpointURL); u != "" {
-		item.EndpointURL = u
+	if req.EndpointURL != nil {
+		if u := strings.TrimSpace(*req.EndpointURL); u != "" {
+			item.EndpointURL = u
+		}
 	}
-	if st := strings.TrimSpace(req.Status); st != "" {
-		item.Status = st
+	if req.Status != nil {
+		if st := strings.TrimSpace(*req.Status); st != "" {
+			item.Status = st
+		}
+	}
+	if req.Group != nil {
+		g := strings.TrimSpace(*req.Group)
+		if g == "" {
+			g = "default"
+		}
+		item.Group = g
+	}
+	if req.Priority != nil {
+		item.Priority = *req.Priority
+	}
+	if req.Weight != nil {
+		w := *req.Weight
+		if w == 0 {
+			w = 1
+		}
+		item.Weight = w
+	}
+	if req.Enabled != nil {
+		if *req.Enabled == 2 {
+			item.Enabled = 2
+		} else {
+			item.Enabled = 1
+		}
 	}
 	item.UpdatedTime = time.Now().Unix()
 	if err := model.UpdateNotebookDeployment(item); err != nil {
@@ -1017,44 +1319,74 @@ func DeleteNotebookDeployment(c *gin.Context) {
 		return
 	}
 
-	if item.RemoteID != "" {
-		common.OptionMapRWMutex.RLock()
-		kaggleUser := strings.TrimSpace(common.OptionMap["model_deployment.kaggle.username"])
-		kaggleKey := strings.TrimSpace(common.OptionMap["model_deployment.kaggle.api_key"])
-		hfToken := strings.TrimSpace(common.OptionMap["model_deployment.huggingface.token"])
-		modalTokenID := strings.TrimSpace(common.OptionMap["model_deployment.modal.token_id"])
-		modalTokenSecret := strings.TrimSpace(common.OptionMap["model_deployment.modal.token_secret"])
-		common.OptionMapRWMutex.RUnlock()
+	bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-		switch item.Provider {
-		case "modal":
-			_ = modaldeploy.StopApp(c.Request.Context(), item.RemoteID, modalTokenID, modalTokenSecret)
-		case "colab":
-			if colabToken, tokErr := getValidColabAccessToken(c.Request.Context()); tokErr == nil && colabToken != "" {
-				_ = newColabClient(colabToken).DeleteRuntime(item.RemoteID)
-			}
-		case "kaggle":
-			if kaggleKey != "" {
-				parts := strings.SplitN(item.RemoteID, "/", 2)
-				if len(parts) == 2 {
-					_ = newKaggleClient(kaggleUser, kaggleKey).DeleteKernel(parts[0], parts[1])
-				}
-			}
-		case "huggingface":
-			if hfToken != "" {
-				parts := strings.SplitN(item.RemoteID, "/", 2)
-				if len(parts) == 2 {
-					_ = hfendpoints.NewClient(hfToken).DeleteEndpoint(parts[0], parts[1])
-				}
+	var remoteStopErr error
+	// Best-effort graceful shutdown of serve.py on Kaggle/Colab so GPU/TPU slot is freed immediately.
+	if (item.Provider == "kaggle" || item.Provider == "colab") && strings.TrimSpace(item.EndpointURL) != "" && strings.TrimSpace(item.CallbackToken) != "" {
+		shutdownURL := strings.TrimRight(strings.TrimSpace(item.EndpointURL), "/") + "/_shutdown?token=" + url.QueryEscape(item.CallbackToken)
+		if req, reqErr := http.NewRequestWithContext(bgCtx, http.MethodPost, shutdownURL, nil); reqErr == nil {
+			httpClient := &http.Client{Timeout: 5 * time.Second}
+			if resp, doErr := httpClient.Do(req); doErr == nil {
+				_ = resp.Body.Close()
 			}
 		}
+	}
+
+	acc, _ := ResolveProviderAccount(item.Provider, item.AccountID)
+	switch item.Provider {
+	case "modal":
+		var modalTokenID, modalTokenSecret string
+		if acc != nil {
+			modalTokenID = acc.TokenID
+			modalTokenSecret = acc.TokenSecret
+		}
+		appName := strings.TrimSpace(item.RemoteID)
+		if appName == "" {
+			appName = sanitizeSlug(item.Name)
+		}
+		if modalTokenID != "" && modalTokenSecret != "" && appName != "" {
+			remoteStopErr = modaldeploy.StopApp(bgCtx, appName, modalTokenID, modalTokenSecret)
+		}
+	case "colab":
+		if item.RemoteID != "" {
+			if colabToken, tokErr := getValidColabAccessTokenForAccount(bgCtx, item.AccountID); tokErr == nil && colabToken != "" {
+				remoteStopErr = newColabClient(colabToken).DeleteRuntime(item.RemoteID)
+			} else if tokErr != nil {
+				remoteStopErr = tokErr
+			}
+		}
+	case "kaggle":
+		if item.RemoteID != "" && acc != nil && acc.APIKey != "" {
+			cleaned := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(item.RemoteID), "/"), "code/")
+			parts := strings.SplitN(cleaned, "/", 2)
+			if len(parts) == 2 {
+				remoteStopErr = newKaggleClient(acc.Username, acc.APIKey).DeleteKernel(parts[0], parts[1])
+			}
+		}
+	case "huggingface":
+		if item.RemoteID != "" && acc != nil && acc.Token != "" {
+			parts := strings.SplitN(item.RemoteID, "/", 2)
+			if len(parts) == 2 {
+				remoteStopErr = hfendpoints.NewClient(acc.Token).DeleteEndpoint(parts[0], parts[1])
+			}
+		}
+	}
+
+	if remoteStopErr != nil {
+		common.SysError(fmt.Sprintf("DeleteNotebookDeployment remote cleanup failed for #%d (%s): %v", item.Id, item.Provider, remoteStopErr))
 	}
 
 	if err := model.DeleteNotebookDeployment(id); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"deleted": true})
+	res := gin.H{"deleted": true}
+	if remoteStopErr != nil {
+		res["remote_stop_warning"] = remoteStopErr.Error()
+	}
+	common.ApiSuccess(c, res)
 }
 
 func TestNotebookDeployment(c *gin.Context) {
@@ -1204,24 +1536,39 @@ func executeModelTest(baseURL, modelRepo, rawTask, prompt, bearerToken string) (
 	if !strings.HasSuffix(base, endpointPath) {
 		target = base + endpointPath
 	}
-	httpReq, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(rawBody))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if bearerToken != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+bearerToken)
-	}
+	var resp *http.Response
+	var respBytes []byte
+	var reqErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		httpReq, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(rawBody))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		if bearerToken != "" {
+			httpReq.Header.Set("Authorization", "Bearer "+bearerToken)
+		}
 
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("model test request failed: %w", err)
+		resp, reqErr = client.Do(httpReq)
+		if reqErr == nil {
+			respBytes, reqErr = io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+			_ = resp.Body.Close()
+			if reqErr == nil && resp.StatusCode != http.StatusBadGateway && resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != http.StatusGatewayTimeout {
+				break
+			}
+			if resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusGatewayTimeout {
+				reqErr = fmt.Errorf("model endpoint returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(respBytes)))
+			}
+		}
+		if attempt < 2 {
+			time.Sleep(2 * time.Second)
+		}
 	}
-	defer resp.Body.Close()
-
-	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read model test response: %w", err)
+	if reqErr != nil && resp == nil {
+		return nil, fmt.Errorf("model test request failed: %w", reqErr)
+	}
+	if reqErr != nil && len(respBytes) == 0 {
+		return nil, fmt.Errorf("failed to read model test response: %w", reqErr)
 	}
 	latency := time.Since(start).Milliseconds()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

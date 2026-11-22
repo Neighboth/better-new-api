@@ -224,6 +224,73 @@ func GetPricing(c *gin.Context) {
 		}
 	}
 
+	// Append enabled & running Model Deployments so they appear on Model Square
+	if deployments, depErr := model.ListNotebookDeployments(""); depErr == nil && len(deployments) > 0 {
+		seenDepModels := make(map[string]bool)
+		for _, item := range pricing {
+			seenDepModels[item.ModelName] = true
+		}
+		for _, dep := range deployments {
+			if dep.Enabled == 2 || !strings.EqualFold(dep.Status, "running") || strings.TrimSpace(dep.EndpointURL) == "" {
+				continue
+			}
+			modelID := strings.TrimSpace(dep.ModelRepo)
+			if modelID == "" {
+				continue
+			}
+			var depGroups []string
+			groupAllowed := len(usableGroup) == 0
+			rawGroup := strings.TrimSpace(dep.Group)
+			if rawGroup == "" {
+				rawGroup = "default"
+			}
+			for _, g := range strings.Split(rawGroup, ",") {
+				g = strings.TrimSpace(g)
+				if g == "" {
+					continue
+				}
+				depGroups = append(depGroups, g)
+				if g == "all" {
+					groupAllowed = true
+				} else if _, ok := usableGroup[g]; ok {
+					groupAllowed = true
+				}
+			}
+			if !groupAllowed {
+				continue
+			}
+			if seenDepModels[modelID] {
+				continue
+			}
+			seenDepModels[modelID] = true
+
+			epTypes := []constant.EndpointType{constant.EndpointTypeOpenAI}
+			switch strings.ToLower(strings.TrimSpace(dep.TaskType)) {
+			case "image":
+				epTypes = []constant.EndpointType{constant.EndpointTypeImageGeneration}
+			case "video":
+				epTypes = []constant.EndpointType{constant.EndpointTypeOpenAIVideo}
+			case "audio":
+				epTypes = []constant.EndpointType{constant.EndpointTypeAudioSpeech}
+			case "embeddings":
+				epTypes = []constant.EndpointType{constant.EndpointTypeEmbeddings}
+			}
+
+			pricing = append(pricing, model.Pricing{
+				ModelName:              modelID,
+				Description:            fmt.Sprintf("%s (%s — %s)", modelID, dep.Provider, dep.Accelerator),
+				Icon:                   dep.Provider,
+				Tags:                   dep.Provider,
+				QuotaType:              0,
+				ModelRatio:             1.0,
+				OwnerBy:                dep.Provider,
+				CompletionRatio:        1.0,
+				EnableGroup:            depGroups,
+				SupportedEndpointTypes: epTypes,
+			})
+		}
+	}
+
 	// The virtual model of the Auto Model feature. It is appended after the
 	// filter of the groups on purpose: it belongs to every group, it carries no
 	// price and the request is billed as the model the router chose.

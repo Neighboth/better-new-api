@@ -71,11 +71,15 @@ export function HfModelPickerDialog({
   open,
   onOpenChange,
   onSelect,
+  multiSelect = false,
+  onSelectMultiple,
   initialQuery = 'qwen2.5',
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSelect: (picked: HfPickedModel) => void
+  multiSelect?: boolean
+  onSelectMultiple?: (picked: HfPickedModel[]) => void
   initialQuery?: string
 }) {
   const { t } = useTranslation()
@@ -87,6 +91,25 @@ export function HfModelPickerDialog({
   const [loadingFiles, setLoadingFiles] = useState(false)
   const [files, setFiles] = useState<HfFileResult[]>([])
   const [gatedWarning, setGatedWarning] = useState('')
+  const [selectedItems, setSelectedItems] = useState<HfPickedModel[]>([])
+
+  function pickedKey(p: HfPickedModel) {
+    return `${p.repoId}::${p.filename ?? ''}`
+  }
+
+  function isPicked(p: HfPickedModel) {
+    const key = pickedKey(p)
+    return selectedItems.some((item) => pickedKey(item) === key)
+  }
+
+  function toggleMultiItem(item: HfPickedModel) {
+    const key = pickedKey(item)
+    setSelectedItems((prev) =>
+      prev.some((x) => pickedKey(x) === key)
+        ? prev.filter((x) => pickedKey(x) !== key)
+        : [...prev, item]
+    )
+  }
 
   async function searchHf(query?: string) {
     const q = (query ?? searchQuery).trim()
@@ -146,12 +169,17 @@ export function HfModelPickerDialog({
       )
       return
     }
-    onSelect({
+    const picked: HfPickedModel = {
       repoId: repo.id,
       pipelineTag: repo.pipeline_tag,
       parameterSize: repo.parameter_size,
       taskType: mapPipelineTagToTask(repo.pipeline_tag),
-    })
+    }
+    if (multiSelect) {
+      toggleMultiItem(picked)
+      return
+    }
+    onSelect(picked)
     onOpenChange(false)
   }
 
@@ -163,14 +191,19 @@ export function HfModelPickerDialog({
       )
       return
     }
-    onSelect({
+    const picked: HfPickedModel = {
       repoId: selectedRepo.id,
       filename: file.filename,
       downloadUrl: file.download_url,
       pipelineTag: selectedRepo.pipeline_tag,
       parameterSize: selectedRepo.parameter_size,
       taskType: mapPipelineTagToTask(selectedRepo.pipeline_tag),
-    })
+    }
+    if (multiSelect) {
+      toggleMultiItem(picked)
+      return
+    }
+    onSelect(picked)
     onOpenChange(false)
   }
 
@@ -282,7 +315,15 @@ export function HfModelPickerDialog({
                         <Button
                           type='button'
                           size='sm'
-                          variant='secondary'
+                          variant={
+                            multiSelect &&
+                            isPicked({
+                              repoId: repo.id,
+                              taskType: mapPipelineTagToTask(repo.pipeline_tag),
+                            })
+                              ? 'default'
+                              : 'secondary'
+                          }
                           className='h-7 text-[11px] shrink-0 gap-1'
                           onClick={(e) => {
                             e.stopPropagation()
@@ -290,7 +331,13 @@ export function HfModelPickerDialog({
                           }}
                         >
                           <Check className='h-3 w-3' />
-                          {t('Use Repo')}
+                          {multiSelect &&
+                          isPicked({
+                            repoId: repo.id,
+                            taskType: mapPipelineTagToTask(repo.pipeline_tag),
+                          })
+                            ? t('Selected')
+                            : t('Use Repo')}
                         </Button>
                       </div>
                       <div className='flex flex-wrap items-center gap-2 text-muted-foreground text-[11px]'>
@@ -422,11 +469,39 @@ export function HfModelPickerDialog({
                       <Button
                         type='button'
                         size='sm'
+                        variant={
+                          multiSelect &&
+                          isPicked({
+                            repoId: selectedRepo.id,
+                            filename: file.filename,
+                            taskType: mapPipelineTagToTask(
+                              selectedRepo.pipeline_tag
+                            ),
+                          })
+                            ? 'secondary'
+                            : 'default'
+                        }
                         className='w-full text-xs h-8 gap-1.5 font-medium'
                         onClick={() => handleSelectFile(file)}
                       >
-                        <Download className='h-3.5 w-3.5' />
-                        {t('Select This Model')}
+                        {multiSelect &&
+                        isPicked({
+                          repoId: selectedRepo.id,
+                          filename: file.filename,
+                          taskType: mapPipelineTagToTask(
+                            selectedRepo.pipeline_tag
+                          ),
+                        }) ? (
+                          <>
+                            <Check className='h-3.5 w-3.5' />
+                            {t('Selected')}
+                          </>
+                        ) : (
+                          <>
+                            <Download className='h-3.5 w-3.5' />
+                            {t('Select This Model')}
+                          </>
+                        )}
                       </Button>
                     </div>
                   ))
@@ -436,7 +511,12 @@ export function HfModelPickerDialog({
           </div>
         </div>
 
-        <DialogFooter className='pt-2 border-t'>
+        <DialogFooter className='pt-2 border-t flex items-center justify-between gap-2'>
+          {multiSelect ? (
+            <div className='text-xs text-muted-foreground mr-auto'>
+              {t('Selected models')}: <strong>{selectedItems.length}</strong>
+            </div>
+          ) : null}
           <Button
             type='button'
             variant='outline'
@@ -444,6 +524,20 @@ export function HfModelPickerDialog({
           >
             {t('Close')}
           </Button>
+          {multiSelect && (
+            <Button
+              type='button'
+              disabled={selectedItems.length === 0}
+              onClick={() => {
+                onSelectMultiple?.(selectedItems)
+                setSelectedItems([])
+                onOpenChange(false)
+              }}
+            >
+              <Check className='h-4 w-4 mr-1.5' />
+              {t('Add Selected ({{count}})', { count: selectedItems.length })}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

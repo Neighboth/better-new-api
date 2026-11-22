@@ -156,6 +156,11 @@ func Distribute() func(c *gin.Context) {
 					return
 				}
 
+				if service.ShouldPreferDeployments() && service.TryHandleDeploymentRelay(c, modelRequest.Model, usingGroup) {
+					c.Abort()
+					return
+				}
+
 				if channel == nil {
 					blockedChannels := []int{}
 					if refSet := operation_setting.GetReferralSetting(); refSet != nil && len(refSet.ExcludedChannelIds) > 0 {
@@ -174,6 +179,10 @@ func Distribute() func(c *gin.Context) {
 						BlockedChannelIds: blockedChannels,
 					})
 					if err != nil {
+						if service.TryHandleDeploymentRelay(c, modelRequest.Model, usingGroup) {
+							c.Abort()
+							return
+						}
 						showGroup := usingGroup
 						if usingGroup == "auto" {
 							showGroup = fmt.Sprintf("auto(%s)", selectGroup)
@@ -188,6 +197,10 @@ func Distribute() func(c *gin.Context) {
 						return
 					}
 					if channel == nil {
+						if service.TryHandleDeploymentRelay(c, modelRequest.Model, usingGroup) {
+							c.Abort()
+							return
+						}
 						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model}), types.ErrorCodeModelNotFound)
 						return
 					}

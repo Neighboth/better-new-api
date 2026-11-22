@@ -18,7 +18,11 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { getDeploymentSettings, testDeploymentConnection } from '../api'
+import {
+  getDeploymentSettings,
+  testDeploymentConnection,
+  type DeploymentAccountSummary,
+} from '../api'
 import {
   parseDeploymentProviders,
   type DeploymentProviderStatus,
@@ -47,22 +51,32 @@ export function useModelDeploymentSettings() {
     ok: null,
     error: null,
   })
+  const [providerAccounts, setProviderAccounts] = useState<
+    Record<string, DeploymentAccountSummary[]>
+  >({})
   const initialLoadRef = useRef(true)
 
   // Parallel fetch: settings + connection test (when enabled).
   // Always live-tests io.net: a fake key must fail loudly instead of
   // passing on a stale cached result.
-  const fetchAll = useCallback(async () => {
-    setLoading(true)
-    setLoadingPhase('settings')
+  const fetchAll = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent)
+    if (!silent) {
+      setLoading(true)
+      setLoadingPhase('settings')
+    }
 
     try {
       // Step 1: Fetch settings first (usually fast)
-      // Backend returns { providers: [{provider, enabled, configured, can_connect}] }
+      // Backend returns { providers: [{provider, enabled, configured, can_connect}], accounts: {...} }
       const response = (await getDeploymentSettings()) as unknown as {
         data?: {
           providers?: DeploymentProviderStatus[]
+          accounts?: Record<string, DeploymentAccountSummary[]>
         }
+      }
+      if (response?.data?.accounts) {
+        setProviderAccounts(response.data.accounts)
       }
       const {
         ionetEnabled,
@@ -90,7 +104,7 @@ export function useModelDeploymentSettings() {
         // Not enabled, done
         setConnectionState({ loading: false, ok: null, error: null })
         setLoadingPhase('done')
-        setLoading(false)
+        if (!silent) setLoading(false)
         return
       }
 
@@ -100,12 +114,14 @@ export function useModelDeploymentSettings() {
       if (!ionetEnabled) {
         setConnectionState({ loading: false, ok: true, error: null })
         setLoadingPhase('done')
-        setLoading(false)
+        if (!silent) setLoading(false)
         return
       }
       // Test connection live.
-      setLoadingPhase('connection')
-      setConnectionState({ loading: true, ok: null, error: null })
+      if (!silent) {
+        setLoadingPhase('connection')
+        setConnectionState({ loading: true, ok: null, error: null })
+      }
 
       try {
         const connResponse = await testDeploymentConnection()
@@ -122,10 +138,12 @@ export function useModelDeploymentSettings() {
       }
     } catch {
       // Settings fetch failed, use defaults
-      setConnectionState({ loading: false, ok: null, error: null })
+      if (!silent) {
+        setConnectionState({ loading: false, ok: null, error: null })
+      }
     } finally {
       setLoadingPhase('done')
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [])
 
@@ -194,11 +212,10 @@ export function useModelDeploymentSettings() {
     return fetchAll()
   }, [fetchAll])
 
-  // Refresh on window focus (useful after saving settings in another page).
-  // Intentionally live: settings may have changed since the last check.
+  // Refresh silently on window focus so open drawers/dialogs and table state are preserved.
   useEffect(() => {
     const handler = () => {
-      fetchAll()
+      void fetchAll({ silent: true })
     }
     window.addEventListener('focus', handler)
     return () => window.removeEventListener('focus', handler)
@@ -208,6 +225,7 @@ export function useModelDeploymentSettings() {
     loading,
     loadingPhase,
     settings,
+    providerAccounts,
     isIoNetEnabled,
     isModalEnabled,
     isHfEnabled,

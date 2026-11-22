@@ -299,6 +299,54 @@ func ListModels(c *gin.Context, modelType int) {
 		}
 	}
 
+	// Inject enabled & running Model Deployments
+	if deployments, depErr := model.ListNotebookDeployments(""); depErr == nil && len(deployments) > 0 {
+		existingDepIds := make(map[string]bool, len(userOpenAiModels))
+		for _, m := range userOpenAiModels {
+			existingDepIds[m.Id] = true
+		}
+		for _, dep := range deployments {
+			if dep.Enabled == 2 || !strings.EqualFold(dep.Status, "running") || strings.TrimSpace(dep.EndpointURL) == "" {
+				continue
+			}
+			modelID := strings.TrimSpace(dep.ModelRepo)
+			if modelID == "" || existingDepIds[modelID] {
+				continue
+			}
+			groupAllowed := len(ownerGroups) == 0
+			depGroup := strings.TrimSpace(dep.Group)
+			if depGroup == "" {
+				depGroup = "default"
+			}
+			for _, g := range strings.Split(depGroup, ",") {
+				g = strings.TrimSpace(g)
+				if g == "all" {
+					groupAllowed = true
+					break
+				}
+				for _, og := range ownerGroups {
+					if strings.EqualFold(g, og) || og == "auto" {
+						groupAllowed = true
+						break
+					}
+				}
+				if groupAllowed {
+					break
+				}
+			}
+			if !groupAllowed {
+				continue
+			}
+			userOpenAiModels = append(userOpenAiModels, dto.OpenAIModels{
+				Id:      modelID,
+				Object:  "model",
+				Created: int(dep.CreatedTime),
+				OwnedBy: dep.Provider,
+			})
+			existingDepIds[modelID] = true
+		}
+	}
+
 	switch modelType {
 	case constant.ChannelTypeAnthropic:
 		useranthropicModels := make([]dto.AnthropicModel, len(userOpenAiModels))

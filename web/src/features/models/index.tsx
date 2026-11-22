@@ -64,6 +64,7 @@ function ModelsContent() {
     loadingPhase,
     isAnyEnabled,
     enabledProviders,
+    providerAccounts,
     connectionLoading,
     connectionOk,
     connectionError,
@@ -121,6 +122,7 @@ function ModelsContent() {
               ) : !deploymentLoading && isAnyEnabled ? (
                 <UnifiedDeploymentsPanel
                   enabledProviders={enabledProviders}
+                  providerAccounts={providerAccounts}
                   createOpen={createDeploymentOpen}
                   onCreateOpenChange={setCreateDeploymentOpen}
                 />
@@ -136,6 +138,7 @@ function ModelsContent() {
                 >
                   <UnifiedDeploymentsPanel
                     enabledProviders={enabledProviders}
+                    providerAccounts={providerAccounts}
                     createOpen={createDeploymentOpen}
                     onCreateOpenChange={setCreateDeploymentOpen}
                   />

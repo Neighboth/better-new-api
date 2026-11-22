@@ -689,15 +689,62 @@ export async function checkClusterNameAvailability(name: string): Promise<{
   return res.data
 }
 
+export interface ModelFileSpec {
+  repo?: string
+  file: string
+  role?: 'main' | 'text_encoder' | 'text_encoder_2' | 'vae' | 'unet' | 'lora' | 'extra'
+}
+
+export interface DeploymentAccountSummary {
+  id: string
+  index: number
+  label: string
+  tier: string
+  enabled: boolean
+  configured: boolean
+  email?: string
+  username?: string
+  org?: string
+  project_id?: string
+  region?: string
+  eligible_gpus?: string[]
+  has_token_id?: boolean
+  has_token_secret?: boolean
+  has_api_key?: boolean
+  has_token?: boolean
+}
+
+export interface DeploymentAccountInput {
+  id: string
+  label: string
+  tier: string
+  enabled: boolean
+  token_id?: string
+  token_secret?: string
+  username?: string
+  api_key?: string
+  token?: string
+  org?: string
+  project_id?: string
+  region?: string
+}
+
 export interface NotebookDeploymentItem {
   id: number
   provider: string
+  account_id?: string
+  account_label?: string
   name: string
   model_repo: string
   model_file?: string
+  model_files?: string
   task_type: 'text' | 'image' | 'video' | 'audio' | 'embeddings'
   accelerator: string
   fallback_accelerators?: string
+  group?: string
+  priority?: number
+  weight?: number
+  enabled?: number
   idle_timeout_seconds: number
   status: string
   status_message?: string
@@ -731,16 +778,26 @@ export async function listNotebookDeployments(
   return res.data
 }
 
-export async function createNotebookDeployment(payload: {
+export interface CreateNotebookDeploymentPayload {
   provider: string
+  account_id?: string
   name: string
   model_repo: string
   model_file?: string
+  model_files?: ModelFileSpec[]
   task_type: string
   accelerator: string
   fallback_accelerators?: string[]
+  group?: string
+  priority?: number
+  weight?: number
+  enabled?: number
   hf_token?: string
-}): Promise<{
+}
+
+export async function createNotebookDeployment(
+  payload: CreateNotebookDeploymentPayload
+): Promise<{
   success: boolean
   message?: string
   data?: NotebookDeploymentItem
@@ -749,9 +806,27 @@ export async function createNotebookDeployment(payload: {
   return res.data
 }
 
+export async function createNotebookDeploymentsBatch(
+  items: CreateNotebookDeploymentPayload[]
+): Promise<{
+  success: boolean
+  message?: string
+  data?: { created: NotebookDeploymentItem[]; errors?: string[] }
+}> {
+  const res = await api.post('/api/deployments/notebooks/batch', { items })
+  return res.data
+}
+
 export async function updateNotebookDeployment(
   id: number,
-  payload: { endpoint_url?: string; status?: string }
+  payload: {
+    endpoint_url?: string
+    status?: string
+    group?: string
+    priority?: number
+    weight?: number
+    enabled?: number
+  }
 ): Promise<{
   success: boolean
   message?: string
@@ -764,8 +839,32 @@ export async function updateNotebookDeployment(
 export async function deleteNotebookDeployment(id: number): Promise<{
   success: boolean
   message?: string
+  data?: { deleted?: boolean; remote_stop_warning?: string }
 }> {
   const res = await api.delete(`/api/deployments/notebooks/${id}`)
+  return res.data
+}
+
+export async function getDeploymentAccounts(): Promise<{
+  success: boolean
+  message?: string
+  data?: Record<string, DeploymentAccountSummary[]>
+}> {
+  const res = await api.get('/api/deployments/accounts')
+  return res.data
+}
+
+export async function updateProviderAccounts(
+  provider: string,
+  accounts: DeploymentAccountInput[]
+): Promise<{
+  success: boolean
+  message?: string
+  data?: DeploymentAccountSummary[]
+}> {
+  const res = await api.put(`/api/deployments/accounts/${provider}`, {
+    accounts,
+  })
   return res.data
 }
 

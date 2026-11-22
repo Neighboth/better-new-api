@@ -576,6 +576,8 @@ func SetApiRouter(router *gin.Engine) {
 		deploymentsRoute.Use(middleware.AdminAuth())
 		{
 			deploymentsRoute.GET("/settings", controller.GetModelDeploymentSettings)
+			deploymentsRoute.GET("/accounts", controller.GetAllDeploymentAccounts)
+			deploymentsRoute.PUT("/accounts/:provider", controller.UpdateProviderAccounts)
 			deploymentsRoute.POST("/settings/test-connection", controller.TestIoNetConnection)
 			deploymentsRoute.POST("/huggingface/test-connection", controller.TestHuggingFaceConnection)
 			deploymentsRoute.POST("/hostinger/test-connection", controller.TestHostingerConnection)
@@ -589,6 +591,7 @@ func SetApiRouter(router *gin.Engine) {
 			deploymentsRoute.GET("/hf/files", controller.GetHuggingFaceModelFiles)
 			deploymentsRoute.GET("/notebooks", controller.ListNotebookDeployments)
 			deploymentsRoute.POST("/notebooks", controller.CreateNotebookDeployment)
+			deploymentsRoute.POST("/notebooks/batch", controller.CreateNotebookDeploymentsBatch)
 			deploymentsRoute.GET("/notebooks/:id", controller.GetNotebookDeployment)
 			deploymentsRoute.PUT("/notebooks/:id", controller.UpdateNotebookDeployment)
 			deploymentsRoute.DELETE("/notebooks/:id", controller.DeleteNotebookDeployment)

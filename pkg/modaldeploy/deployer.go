@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
 var (
@@ -27,10 +29,17 @@ func extractModalURL(output string) string {
 	return modalURLRegex.FindString(unwrapped)
 }
 
+type ModelFileSpec struct {
+	Repo string `json:"repo,omitempty"`
+	File string `json:"file"`
+	Role string `json:"role,omitempty"` // main | text_encoder | text_encoder_2 | vae | unet | lora | extra
+}
+
 type DeployConfig struct {
 	AppName              string
 	ModelRepo            string
 	ModelFile            string
+	ModelFiles           []ModelFileSpec
 	TaskType             string // text, image, video, audio, embeddings
 	Accelerator          string
 	FallbackAccelerators []string
@@ -109,6 +118,13 @@ func BuildAppScript(cfg DeployConfig) string {
 		volPath = "/vol/models"
 	}
 
+	modelFilesJSON := "[]"
+	if len(cfg.ModelFiles) > 0 {
+		if b, err := common.Marshal(cfg.ModelFiles); err == nil {
+			modelFilesJSON = string(b)
+		}
+	}
+
 	var pipPkgs string
 	var extraPipOpts string
 	var aptChain string
@@ -116,17 +132,47 @@ func BuildAppScript(cfg DeployConfig) string {
 
 	switch task {
 	case "video":
-		pipPkgs = `"fastapi[standard]", "diffusers", "transformers", "accelerate", "imageio[ffmpeg]", "torch", "huggingface_hub"`
+		pipPkgs = `"fastapi[standard]", "diffusers", "transformers", "accelerate", "imageio[ffmpeg]", "torch", "huggingface_hub", "safetensors", "omegaconf"`
 		taskCode = `
+import json
 import torch
 from diffusers import DiffusionPipeline
+from huggingface_hub import hf_hub_download, list_repo_files
 from diffusers.utils import export_to_video
 
 _pipe = None
 def get_pipe():
     nonlocal _pipe
     if _pipe is None:
-        _pipe = DiffusionPipeline.from_pretrained(MODEL_REPO, cache_dir=CACHE_DIR, token=HF_TOKEN or None, torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32)
+        dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+        entries = json.loads(MODEL_FILES_JSON) if MODEL_FILES_JSON else []
+        main_entry = next((e for e in entries if (e.get("role") or "main") == "main" and e.get("file")), None)
+        explicit_file = (main_entry.get("file") if main_entry else "") or MODEL_FILE
+        explicit_repo = (main_entry.get("repo") if main_entry else "") or MODEL_REPO
+        repo_files = list_repo_files(MODEL_REPO, token=HF_TOKEN or None)
+        has_index = "model_index.json" in repo_files
+        if has_index and not explicit_file.lower().endswith((".safetensors", ".ckpt")):
+            _pipe = DiffusionPipeline.from_pretrained(MODEL_REPO, cache_dir=CACHE_DIR, token=HF_TOKEN or None, torch_dtype=dtype)
+        else:
+            target = explicit_file
+            if not target:
+                cands = [f for f in repo_files if f.lower().endswith((".safetensors", ".ckpt"))]
+                if not cands:
+                    raise RuntimeError(f"No model_index.json or .safetensors/.ckpt file found in {MODEL_REPO}")
+                target = sorted(cands)[0]
+            local_ckpt = hf_hub_download(repo_id=explicit_repo, filename=target, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
+            _pipe = DiffusionPipeline.from_single_file(local_ckpt, torch_dtype=dtype)
+        for entry in entries:
+            role = (entry.get("role") or "extra").lower()
+            fn = entry.get("file") or ""
+            if not fn or role == "main":
+                continue
+            lp = hf_hub_download(repo_id=entry.get("repo") or MODEL_REPO, filename=fn, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
+            if role == "lora" and hasattr(_pipe, "load_lora_weights"):
+                _pipe.load_lora_weights(lp)
+            elif role == "vae" and hasattr(_pipe, "vae"):
+                from diffusers import AutoencoderKL
+                _pipe.vae = AutoencoderKL.from_single_file(lp, torch_dtype=dtype)
         if torch.cuda.is_available():
             _pipe = _pipe.to("cuda")
     return _pipe
@@ -145,16 +191,59 @@ async def gen_video(req: Request):
     return {"data": [{"url": f"{base}/outputs/{fn}"}]}
 `
 	case "image":
-		pipPkgs = `"fastapi[standard]", "diffusers", "transformers", "accelerate", "pillow", "torch", "huggingface_hub"`
+		pipPkgs = `"fastapi[standard]", "diffusers", "transformers", "accelerate", "pillow", "torch", "huggingface_hub", "safetensors", "omegaconf"`
 		taskCode = `
+import json
 import torch
 from diffusers import AutoPipelineForText2Image
+from huggingface_hub import hf_hub_download, list_repo_files
 
 _pipe = None
 def get_pipe():
     nonlocal _pipe
     if _pipe is None:
-        _pipe = AutoPipelineForText2Image.from_pretrained(MODEL_REPO, cache_dir=CACHE_DIR, token=HF_TOKEN or None, torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32)
+        dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+        entries = json.loads(MODEL_FILES_JSON) if MODEL_FILES_JSON else []
+        main_entry = next((e for e in entries if (e.get("role") or "main") == "main" and e.get("file")), None)
+        explicit_file = (main_entry.get("file") if main_entry else "") or MODEL_FILE
+        explicit_repo = (main_entry.get("repo") if main_entry else "") or MODEL_REPO
+        repo_files = list_repo_files(MODEL_REPO, token=HF_TOKEN or None)
+        has_index = "model_index.json" in repo_files
+        if has_index and not explicit_file.lower().endswith((".safetensors", ".ckpt")):
+            _pipe = AutoPipelineForText2Image.from_pretrained(MODEL_REPO, cache_dir=CACHE_DIR, token=HF_TOKEN or None, torch_dtype=dtype)
+        else:
+            target = explicit_file
+            if not target:
+                cands = [f for f in repo_files if f.lower().endswith((".safetensors", ".ckpt"))]
+                if not cands:
+                    raise RuntimeError(f"No model_index.json or .safetensors/.ckpt file found in {MODEL_REPO}")
+                target = sorted(cands)[0]
+            local_ckpt = hf_hub_download(repo_id=explicit_repo, filename=target, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
+            from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, DiffusionPipeline
+            errs = []
+            for cls in (StableDiffusionPipeline, StableDiffusionXLPipeline, DiffusionPipeline):
+                try:
+                    _pipe = cls.from_single_file(local_ckpt, torch_dtype=dtype)
+                    break
+                except Exception as exc:
+                    errs.append(f"{cls.__name__}: {exc}")
+            if _pipe is None:
+                raise RuntimeError("Failed to load single-file image checkpoint: " + " | ".join(errs))
+        for entry in entries:
+            role = (entry.get("role") or "extra").lower()
+            fn = entry.get("file") or ""
+            if not fn or role == "main":
+                continue
+            lp = hf_hub_download(repo_id=entry.get("repo") or MODEL_REPO, filename=fn, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
+            if role == "vae" and hasattr(_pipe, "vae"):
+                from diffusers import AutoencoderKL
+                _pipe.vae = AutoencoderKL.from_single_file(lp, torch_dtype=dtype)
+            elif role == "lora" and hasattr(_pipe, "load_lora_weights"):
+                _pipe.load_lora_weights(lp)
+            elif role in ("text_encoder", "text_encoder_2", "unet") and hasattr(_pipe, role):
+                from safetensors.torch import load_file
+                sd = load_file(lp) if lp.lower().endswith(".safetensors") else torch.load(lp, map_location="cpu")
+                getattr(_pipe, role).load_state_dict(sd, strict=False)
         if torch.cuda.is_available():
             _pipe = _pipe.to("cuda")
     return _pipe
@@ -228,6 +317,7 @@ async def embeddings(req: Request):
 				extraPipOpts = `, extra_options="--prefer-binary"`
 			}
 			taskCode = `
+import json
 from huggingface_hub import hf_hub_download, list_repo_files
 from llama_cpp import Llama
 
@@ -236,13 +326,20 @@ def get_llm():
     nonlocal _llm
     if _llm is not None:
         return _llm
-    target_file = MODEL_FILE
+    entries = json.loads(MODEL_FILES_JSON) if MODEL_FILES_JSON else []
+    main_entry = next((e for e in entries if (e.get("role") or "main") == "main" and e.get("file")), None)
+    target_file = (main_entry.get("file") if main_entry else "") or MODEL_FILE
+    target_repo = (main_entry.get("repo") if main_entry else "") or MODEL_REPO
+    for entry in entries:
+        fn = entry.get("file") or ""
+        if fn and fn != target_file:
+            hf_hub_download(repo_id=entry.get("repo") or MODEL_REPO, filename=fn, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
     if not target_file:
         files = [f for f in list_repo_files(MODEL_REPO, token=HF_TOKEN or None) if f.lower().endswith(".gguf")]
         if not files:
             raise RuntimeError(f"No .gguf file found in {MODEL_REPO}")
         target_file = sorted(files)[0]
-    local_path = hf_hub_download(repo_id=MODEL_REPO, filename=target_file, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
+    local_path = hf_hub_download(repo_id=target_repo, filename=target_file, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
     n_gpu = -1 if os.path.exists("/dev/nvidia0") else 0
     _llm = Llama(model_path=local_path, n_ctx=4096, n_gpu_layers=n_gpu, verbose=False)
     return _llm
@@ -309,6 +406,7 @@ volume = modal.Volume.from_name("better-new-api-models", create_if_missing=True)
 
 MODEL_REPO = %s
 MODEL_FILE = %s
+MODEL_FILES_JSON = %s
 HF_TOKEN = %s
 CACHE_DIR = %s
 OUT_DIR = "/tmp/model_outputs"
@@ -345,6 +443,7 @@ def fastapi_app():
 		extraPipOpts,
 		pyQuote(cfg.ModelRepo),
 		pyQuote(cfg.ModelFile),
+		pyQuote(modelFilesJSON),
 		pyQuote(cfg.HFToken),
 		pyQuote(volPath),
 		gpuArg,
@@ -584,19 +683,70 @@ func Deploy(ctx context.Context, cfg DeployConfig) (string, string, error) {
 	return match, script, nil
 }
 
-// StopApp stops a deployed Modal app (best effort).
+// StopApp stops a deployed Modal app, falling back to `modal app list --json` to resolve the app ID if needed.
 func StopApp(ctx context.Context, appName, tokenID, tokenSecret string) error {
-	if strings.TrimSpace(appName) == "" || strings.TrimSpace(tokenID) == "" || strings.TrimSpace(tokenSecret) == "" {
+	trimmed := strings.TrimSpace(appName)
+	if trimmed == "" || strings.TrimSpace(tokenID) == "" || strings.TrimSpace(tokenSecret) == "" {
 		return nil
 	}
 	cmdSpec, err := findOrBootstrapModalCommand(ctx)
 	if err != nil {
 		return err
 	}
-	cmd := cmdSpec.command(ctx, "app", "stop", appName)
-	cmd.Env = append(os.Environ(),
+	env := append(os.Environ(),
 		"MODAL_TOKEN_ID="+strings.TrimSpace(tokenID),
 		"MODAL_TOKEN_SECRET="+strings.TrimSpace(tokenSecret),
+		"PYTHONIOENCODING=utf-8",
+		"COLUMNS=500",
+		"NO_COLOR=1",
+		"FORCE_COLOR=0",
+		"TERM=dumb",
 	)
-	return cmd.Run()
+	cmd := cmdSpec.command(ctx, "app", "stop", trimmed)
+	cmd.Env = env
+	outBytes, stopErr := cmd.CombinedOutput()
+	if stopErr == nil {
+		return nil
+	}
+
+	// Fallback: inspect `modal app list --json` for matching App ID / Description and stop by App ID.
+	listCmd := cmdSpec.command(ctx, "app", "list", "--json")
+	listCmd.Env = env
+	if listOut, listErr := listCmd.CombinedOutput(); listErr == nil {
+		var apps []map[string]any
+		if common.Unmarshal(listOut, &apps) == nil {
+			var stoppedAny bool
+			for _, app := range apps {
+				desc, _ := app["Description"].(string)
+				name, _ := app["Name"].(string)
+				appID, _ := app["App ID"].(string)
+				if appID == "" {
+					appID, _ = app["app_id"].(string)
+				}
+				state, _ := app["State"].(string)
+				if strings.EqualFold(state, "stopped") {
+					continue
+				}
+				if appID != "" && (strings.EqualFold(desc, trimmed) || strings.EqualFold(name, trimmed) || strings.EqualFold(appID, trimmed)) {
+					stopByID := cmdSpec.command(ctx, "app", "stop", appID)
+					stopByID.Env = env
+					if stopByID.Run() == nil {
+						stoppedAny = true
+					}
+				}
+			}
+			if stoppedAny {
+				return nil
+			}
+		}
+	}
+
+	msg := strings.TrimSpace(string(outBytes))
+	if len(msg) > 400 {
+		msg = msg[len(msg)-400:]
+	}
+	if strings.Contains(strings.ToLower(msg), "not found") || strings.Contains(strings.ToLower(msg), "no app") {
+		return nil
+	}
+	return fmt.Errorf("modal app stop failed: %v — %s", stopErr, msg)
 }

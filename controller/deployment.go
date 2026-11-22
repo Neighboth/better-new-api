@@ -57,9 +57,43 @@ func GetModelDeploymentSettings(c *gin.Context) {
 	hasKaggleKey := strings.TrimSpace(common.OptionMap["model_deployment.kaggle.api_key"]) != ""
 	common.OptionMapRWMutex.RUnlock()
 
+	ionetAccounts := SummarizeProviderAccounts("ionet")
+	modalAccounts := SummarizeProviderAccounts("modal")
+	hfAccounts := SummarizeProviderAccounts("huggingface")
+	hostingerAccounts := SummarizeProviderAccounts("hostinger")
+	runpodAccounts := SummarizeProviderAccounts("runpod")
+	colabAccounts := SummarizeProviderAccounts("colab")
+	kaggleAccounts := SummarizeProviderAccounts("kaggle")
+
+	anyAccountConfigured := func(accs []DeploymentAccountSummary) bool {
+		for _, a := range accs {
+			if a.Configured {
+				return true
+			}
+		}
+		return false
+	}
+
+	hasAPIKey = hasAPIKey || anyAccountConfigured(ionetAccounts)
+	hasModalAPIKey = hasModalAPIKey || anyAccountConfigured(modalAccounts)
+	hasHFKey = hasHFKey || anyAccountConfigured(hfAccounts)
+	hasHostingerKey = hasHostingerKey || anyAccountConfigured(hostingerAccounts)
+	hasRunpodKey = hasRunpodKey || anyAccountConfigured(runpodAccounts)
+	hasColabKey = hasColabKey || anyAccountConfigured(colabAccounts)
+	hasKaggleKey = hasKaggleKey || anyAccountConfigured(kaggleAccounts)
+
 	common.ApiSuccess(c, gin.H{
 		"priority":    globalPriority,
 		"colab_email": colabEmail,
+		"accounts": gin.H{
+			"ionet":       ionetAccounts,
+			"modal":       modalAccounts,
+			"huggingface": hfAccounts,
+			"hostinger":   hostingerAccounts,
+			"runpod":      runpodAccounts,
+			"colab":       colabAccounts,
+			"kaggle":      kaggleAccounts,
+		},
 		"providers": []gin.H{
 			{
 				"provider":    "io.net",

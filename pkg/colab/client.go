@@ -2,8 +2,10 @@ package colab
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -162,44 +164,117 @@ func uuidToWebSafeBase64(u string) string {
 	return s
 }
 
-func (c *Client) doTunnel(method, fullURL, xsrfToken string, out any) error {
-	req, err := http.NewRequest(method, fullURL, nil)
-	if err != nil {
-		return err
+func isTransientNetErr(err error) bool {
+	if err == nil {
+		return false
 	}
-	req.Header.Set("Authorization", "Bearer "+c.AccessToken)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Colab-Client-Agent", "colab-cli")
-	if xsrfToken != "" {
-		req.Header.Set("X-Goog-Colab-Token", xsrfToken)
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == http.StatusBadGateway ||
+			apiErr.Code == http.StatusServiceUnavailable ||
+			apiErr.Code == http.StatusGatewayTimeout
 	}
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return err
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
 	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	if err != nil {
-		return err
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		msg := strings.TrimSpace(string(data))
-		if len(msg) > 400 {
-			msg = msg[:400] + "..."
+	lower := strings.ToLower(err.Error())
+	for _, needle := range []string{
+		"connection reset",
+		"broken pipe",
+		"forcibly closed",
+		"tls handshake timeout",
+		"eof",
+		"connection refused",
+		"use of closed network connection",
+	} {
+		if strings.Contains(lower, needle) {
+			return true
 		}
-		return &APIError{Code: resp.StatusCode, Message: msg}
 	}
-	if out != nil {
-		cleaned := stripXSSIPrefix(data)
-		if len(cleaned) > 0 {
-			if err := common.Unmarshal(cleaned, out); err != nil {
-				return fmt.Errorf("colab: decode tunnel response: %w", err)
+	return false
+}
+
+func doWithRetry(fn func() error) error {
+	var err error
+	backoff := time.Second
+	for attempt := 0; attempt < 4; attempt++ {
+		err = fn()
+		if err == nil || !isTransientNetErr(err) {
+			return err
+		}
+		if attempt < 3 {
+			time.Sleep(backoff)
+			backoff *= 2
+		}
+	}
+	return err
+}
+
+func (c *Client) doTunnel(method, fullURL, xsrfToken string, out any) error {
+	return doWithRetry(func() error {
+		req, err := http.NewRequest(method, fullURL, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+c.AccessToken)
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Colab-Client-Agent", "colab-cli")
+		if xsrfToken != "" {
+			req.Header.Set("X-Goog-Colab-Token", xsrfToken)
+		}
+
+		resp, err := c.HTTPClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		data, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		if err != nil {
+			return err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			msg := strings.TrimSpace(string(data))
+			if len(msg) > 400 {
+				msg = msg[:400] + "..."
+			}
+			return &APIError{Code: resp.StatusCode, Message: msg}
+		}
+		if out != nil {
+			cleaned := stripXSSIPrefix(data)
+			if len(cleaned) > 0 {
+				if err := common.Unmarshal(cleaned, out); err != nil {
+					return fmt.Errorf("colab: decode tunnel response: %w", err)
+				}
 			}
 		}
+		return nil
+	})
+}
+
+// AccountInfo describes eligible accelerators and balance from /tun/m/ccu-info.
+type AccountInfo struct {
+	EligibleGPUs     []string `json:"eligibleGpus"`
+	EligibleTPUs     []string `json:"eligibleTpus"`
+	SubscriptionTier string   `json:"subscriptionTier"`
+	CurrentBalance   float64  `json:"currentBalance"`
+}
+
+// GetAccountInfo fetches eligible GPUs/TPUs and tier info from Colab's ccu-info endpoint.
+func (c *Client) GetAccountInfo() (*AccountInfo, error) {
+	tunnelBase := strings.TrimRight(c.TunnelBaseURL, "/")
+	if tunnelBase == "" {
+		tunnelBase = DefaultTunnelBaseURL
 	}
-	return nil
+	var info AccountInfo
+	if err := c.doTunnel(http.MethodGet, tunnelBase+"/ccu-info?authuser=0", "", &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
 }
 
 // TestConnection verifies Colab OAuth credentials against the consumer Colab tunnel API
@@ -345,26 +420,28 @@ func (c *Client) UploadFile(proxyURL, proxyToken, filePath, content string) erro
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPut, target, bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Colab-Client-Agent", "colab-cli")
-	if proxyToken != "" {
-		req.Header.Set("X-Colab-Runtime-Proxy-Token", proxyToken)
-	}
+	return doWithRetry(func() error {
+		req, err := http.NewRequest(http.MethodPut, target, bytes.NewReader(payload))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Colab-Client-Agent", "colab-cli")
+		if proxyToken != "" {
+			req.Header.Set("X-Colab-Runtime-Proxy-Token", proxyToken)
+		}
 
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		return &APIError{Code: resp.StatusCode, Message: string(raw)}
-	}
-	return nil
+		resp, err := c.HTTPClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			return &APIError{Code: resp.StatusCode, Message: string(raw)}
+		}
+		return nil
+	})
 }
 
 // StartKernel starts a Python Jupyter kernel on the Colab runtime.
@@ -374,30 +451,35 @@ func (c *Client) StartKernel(proxyURL, proxyToken string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(payload))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Colab-Client-Agent", "colab-cli")
-	if proxyToken != "" {
-		req.Header.Set("X-Colab-Runtime-Proxy-Token", proxyToken)
-	}
+	var kernelID string
+	err = doWithRetry(func() error {
+		req, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(payload))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Colab-Client-Agent", "colab-cli")
+		if proxyToken != "" {
+			req.Header.Set("X-Colab-Runtime-Proxy-Token", proxyToken)
+		}
 
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", &APIError{Code: resp.StatusCode, Message: string(raw)}
-	}
-	var kernel struct {
-		ID string `json:"id"`
-	}
-	_ = common.Unmarshal(raw, &kernel)
-	return kernel.ID, nil
+		resp, err := c.HTTPClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return &APIError{Code: resp.StatusCode, Message: string(raw)}
+		}
+		var kernel struct {
+			ID string `json:"id"`
+		}
+		_ = common.Unmarshal(raw, &kernel)
+		kernelID = kernel.ID
+		return nil
+	})
+	return kernelID, err
 }
 
 // ExecuteCode runs Python code in an active Jupyter kernel over WebSocket channels.
@@ -405,6 +487,12 @@ func (c *Client) ExecuteCode(proxyURL, proxyToken, kernelID, code string) error 
 	if strings.TrimSpace(proxyURL) == "" || strings.TrimSpace(kernelID) == "" {
 		return fmt.Errorf("colab: proxyURL and kernelID are required")
 	}
+	return doWithRetry(func() error {
+		return c.executeCodeOnce(proxyURL, proxyToken, kernelID, code)
+	})
+}
+
+func (c *Client) executeCodeOnce(proxyURL, proxyToken, kernelID, code string) error {
 	wsBase := strings.TrimRight(proxyURL, "/")
 	if strings.HasPrefix(wsBase, "https://") {
 		wsBase = "wss://" + strings.TrimPrefix(wsBase, "https://")
@@ -512,32 +600,37 @@ func (c *Client) ExecuteCode(proxyURL, proxyToken, kernelID, code string) error 
 // ReadFile reads a text file from the runtime's Jupyter contents API.
 func (c *Client) ReadFile(proxyURL, proxyToken, filePath string) (string, error) {
 	target := strings.TrimRight(proxyURL, "/") + "/api/contents/" + strings.TrimLeft(filePath, "/") + "?content=1"
-	req, err := http.NewRequest(http.MethodGet, target, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Colab-Client-Agent", "colab-cli")
-	if proxyToken != "" {
-		req.Header.Set("X-Colab-Runtime-Proxy-Token", proxyToken)
-	}
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return "", err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", &APIError{Code: resp.StatusCode, Message: strings.TrimSpace(string(raw))}
-	}
-	var out struct {
-		Content string `json:"content"`
-	}
-	if err := common.Unmarshal(raw, &out); err != nil {
-		return "", err
-	}
-	return out.Content, nil
+	var content string
+	err := doWithRetry(func() error {
+		req, err := http.NewRequest(http.MethodGet, target, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Colab-Client-Agent", "colab-cli")
+		if proxyToken != "" {
+			req.Header.Set("X-Colab-Runtime-Proxy-Token", proxyToken)
+		}
+		resp, err := c.HTTPClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if err != nil {
+			return err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return &APIError{Code: resp.StatusCode, Message: strings.TrimSpace(string(raw))}
+		}
+		var out struct {
+			Content string `json:"content"`
+		}
+		if err := common.Unmarshal(raw, &out); err != nil {
+			return err
+		}
+		content = out.Content
+		return nil
+	})
+	return content, err
 }
