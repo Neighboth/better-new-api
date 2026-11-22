@@ -350,6 +350,7 @@ func (c *Client) UploadFile(proxyURL, proxyToken, filePath, content string) erro
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Colab-Client-Agent", "colab-cli")
 	if proxyToken != "" {
 		req.Header.Set("X-Colab-Runtime-Proxy-Token", proxyToken)
 	}
@@ -378,6 +379,7 @@ func (c *Client) StartKernel(proxyURL, proxyToken string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Colab-Client-Agent", "colab-cli")
 	if proxyToken != "" {
 		req.Header.Set("X-Colab-Runtime-Proxy-Token", proxyToken)
 	}
@@ -409,9 +411,12 @@ func (c *Client) ExecuteCode(proxyURL, proxyToken, kernelID, code string) error 
 	} else if strings.HasPrefix(wsBase, "http://") {
 		wsBase = "ws://" + strings.TrimPrefix(wsBase, "http://")
 	}
-	wsURL := fmt.Sprintf("%s/api/kernels/%s/channels", wsBase, url.PathEscape(kernelID))
+	sessionID := uuid.New().String()
+	msgID := uuid.New().String()
+	wsURL := fmt.Sprintf("%s/api/kernels/%s/channels?session_id=%s", wsBase, url.PathEscape(kernelID), url.QueryEscape(sessionID))
 
 	headers := http.Header{}
+	headers.Set("X-Colab-Client-Agent", "colab-cli")
 	if proxyToken != "" {
 		headers.Set("X-Colab-Runtime-Proxy-Token", proxyToken)
 	}
@@ -422,13 +427,12 @@ func (c *Client) ExecuteCode(proxyURL, proxyToken, kernelID, code string) error 
 	}
 	defer conn.Close()
 
-	msgID := common.GetUUID()
-	sessionID := common.GetUUID()
 	reqMsg := map[string]any{
 		"header": map[string]any{
 			"msg_id":   msgID,
 			"username": "colab",
 			"session":  sessionID,
+			"date":     time.Now().UTC().Format(time.RFC3339),
 			"msg_type": "execute_request",
 			"version":  "5.3",
 		},
@@ -441,6 +445,7 @@ func (c *Client) ExecuteCode(proxyURL, proxyToken, kernelID, code string) error 
 			"user_expressions": map[string]any{},
 			"allow_stdin":      false,
 		},
+		"buffers": []any{},
 		"channel": "shell",
 	}
 	payload, err := common.Marshal(reqMsg)
@@ -451,10 +456,14 @@ func (c *Client) ExecuteCode(proxyURL, proxyToken, kernelID, code string) error 
 		return fmt.Errorf("colab: write execute_request: %w", err)
 	}
 
-	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	var gotReply, gotIdle bool
+	var execErrText string
+	var readErr error
 	for {
 		_, msgBytes, err := conn.ReadMessage()
 		if err != nil {
+			readErr = err
 			break
 		}
 		var env struct {
@@ -463,14 +472,39 @@ func (c *Client) ExecuteCode(proxyURL, proxyToken, kernelID, code string) error 
 				MsgID string `json:"msg_id"`
 			} `json:"parent_header"`
 			Content struct {
+				Status         string `json:"status"`
 				ExecutionState string `json:"execution_state"`
+				EName          string `json:"ename"`
+				EValue         string `json:"evalue"`
 			} `json:"content"`
 		}
 		if common.Unmarshal(msgBytes, &env) == nil && env.Parent.MsgID == msgID {
-			if env.MsgType == "execute_reply" || (env.MsgType == "status" && env.Content.ExecutionState == "idle") {
+			switch env.MsgType {
+			case "error":
+				execErrText = strings.TrimSpace(env.Content.EName + ": " + env.Content.EValue)
+			case "execute_reply":
+				gotReply = true
+				if env.Content.Status == "error" && execErrText == "" {
+					execErrText = strings.TrimSpace(env.Content.EName + ": " + env.Content.EValue)
+				}
+			case "status":
+				if env.Content.ExecutionState == "idle" {
+					gotIdle = true
+				}
+			}
+			if gotReply || gotIdle {
 				break
 			}
 		}
+	}
+	if execErrText != "" {
+		return fmt.Errorf("colab: kernel execution error: %s", execErrText)
+	}
+	if !gotReply && !gotIdle {
+		if readErr != nil {
+			return fmt.Errorf("colab: kernel execution did not confirm completion: %w", readErr)
+		}
+		return fmt.Errorf("colab: kernel execution did not confirm completion")
 	}
 	return nil
 }
@@ -483,6 +517,7 @@ func (c *Client) ReadFile(proxyURL, proxyToken, filePath string) (string, error)
 		return "", err
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Colab-Client-Agent", "colab-cli")
 	if proxyToken != "" {
 		req.Header.Set("X-Colab-Runtime-Proxy-Token", proxyToken)
 	}

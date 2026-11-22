@@ -75,11 +75,15 @@ func TestBuildAppScriptNoTopLevelMLImports(t *testing.T) {
 			}
 		}
 		assert.Contains(t, script, "    @web_app.post(")
+		assert.NotContains(t, script, "global _")
+		assert.Contains(t, script, "nonlocal _")
+		assert.Contains(t, script, "exception_handler(Exception)")
 	}
 
 	ggufScript := BuildAppScript(cases[1])
 	assert.NotContains(t, ggufScript, "import torch")
 	assert.Contains(t, ggufScript, "extra_index_url=")
+	assert.Contains(t, ggufScript, `.apt_install("libgomp1")`)
 
 	textScript := BuildAppScript(cases[0])
 	assert.NotContains(t, textScript, "llama-cpp-python")

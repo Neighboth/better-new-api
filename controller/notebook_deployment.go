@@ -660,9 +660,19 @@ func provisionDeploymentAsync(p provisionParams) {
 
 		ownerSlug := p.KaggleUser
 		kernelSlug := sanitizeSlug(p.Name)
-		if parts := strings.SplitN(remoteID, "/", 2); len(parts) == 2 {
+		cleanedRef := strings.TrimPrefix(strings.TrimSpace(remoteID), "/")
+		cleanedRef = strings.TrimPrefix(cleanedRef, "code/")
+		if parts := strings.SplitN(cleanedRef, "/", 2); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
 			ownerSlug = parts[0]
 			kernelSlug = parts[1]
+		} else if pushed.URL != "" {
+			if u, uErr := url.Parse(pushed.URL); uErr == nil {
+				uPath := strings.TrimPrefix(strings.TrimPrefix(u.Path, "/"), "code/")
+				if parts := strings.SplitN(uPath, "/", 2); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+					ownerSlug = parts[0]
+					kernelSlug = parts[1]
+				}
+			}
 		}
 		deadline := time.Now().Add(10 * time.Minute)
 		consecutiveStatusErrs := 0
@@ -677,9 +687,17 @@ func provisionDeploymentAsync(p provisionParams) {
 			}
 			ks, statusErr := client.GetKernelStatus(ownerSlug, kernelSlug)
 			if statusErr != nil {
-				consecutiveStatusErrs++
-				if consecutiveStatusErrs >= 3 {
-					setDeploymentStatus(p.ID, "starting", fmt.Sprintf("Checking Kaggle status: %v", statusErr))
+				if strings.Contains(statusErr.Error(), "HTTP 403") {
+					msg := "Running on Kaggle — waiting for tunnel URL callback..."
+					if p.CallbackURL == "" {
+						msg = "Running on Kaggle — set a public Server Address in System Settings to receive tunnel URL automatically"
+					}
+					setDeploymentStatus(p.ID, "downloading", msg)
+				} else {
+					consecutiveStatusErrs++
+					if consecutiveStatusErrs >= 3 {
+						setDeploymentStatus(p.ID, "starting", fmt.Sprintf("Checking Kaggle status: %v", statusErr))
+					}
 				}
 			} else if ks != nil {
 				consecutiveStatusErrs = 0
@@ -771,29 +789,35 @@ func provisionDeploymentAsync(p provisionParams) {
 				setDeploymentFailed(p.ID, fmt.Sprintf("Colab kernel start failed: %v", kernErr))
 				return
 			}
-			execSnippet := `import os, subprocess, sys, threading
+			execSnippet := `import os, subprocess, sys
 script_path = next((p for p in ['serve.py', '/content/serve.py', '/serve.py'] if os.path.exists(p)), None)
 if not script_path:
     open('serve_error.txt', 'w').write('serve.py not found in runtime')
 else:
     script_dir = os.path.dirname(os.path.abspath(script_path)) or '.'
-    def _run():
-        log_path = os.path.join(script_dir, 'serve.log')
-        with open(log_path, 'w') as lf:
-            proc = subprocess.Popen([sys.executable, '-u', os.path.abspath(script_path)], cwd=script_dir, stdout=lf, stderr=subprocess.STDOUT)
-            rc = proc.wait()
-            if rc != 0:
-                tail = ''
-                try:
-                    tail = open(log_path).read()[-500:]
-                except Exception:
-                    pass
-                open(os.path.join(script_dir, 'serve_error.txt'), 'w').write(f'exit {rc}: {tail}')
-    threading.Thread(target=_run, daemon=True).start()
+    log_path = os.path.join(script_dir, 'serve.log')
+    with open(log_path, 'w') as lf:
+        lf.write('[boot] Starting serve.py...\n')
+    runner = (
+        f"import os, subprocess, sys\n"
+        f"log_path = {log_path!r}\n"
+        f"with open(log_path, 'a') as lf:\n"
+        f"    rc = subprocess.call([sys.executable, '-u', {os.path.abspath(script_path)!r}], cwd={script_dir!r}, stdout=lf, stderr=subprocess.STDOUT)\n"
+        f"if rc != 0:\n"
+        f"    tail = open(log_path).read()[-500:] if os.path.exists(log_path) else ''\n"
+        f"    open({os.path.join(script_dir, 'serve_error.txt')!r}, 'w').write(f'exit {{rc}}: {{tail}}')\n"
+    )
+    subprocess.Popen([sys.executable, '-c', runner], cwd=script_dir, start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 `
 			if execErr := client.ExecuteCode(proxyURL, rt.ConnectionInfo.Token, kernelID, execSnippet); execErr != nil {
 				setDeploymentFailed(p.ID, fmt.Sprintf("Colab script execution failed: %v", execErr))
 				return
+			}
+			readColabFile := func(name string) (string, error) {
+				if content, err := client.ReadFile(proxyURL, rt.ConnectionInfo.Token, name); err == nil {
+					return content, nil
+				}
+				return client.ReadFile(proxyURL, rt.ConnectionInfo.Token, "content/"+strings.TrimLeft(name, "/"))
 			}
 			setDeploymentStatus(p.ID, "downloading", "Installing dependencies & starting tunnel on Google Colab...")
 			deadline := time.Now().Add(10 * time.Minute)
@@ -806,11 +830,11 @@ else:
 					setDeploymentStatus(p.ID, "running", "Running")
 					return
 				}
-				if errText, errRead := client.ReadFile(proxyURL, rt.ConnectionInfo.Token, "serve_error.txt"); errRead == nil && strings.TrimSpace(errText) != "" {
+				if errText, errRead := readColabFile("serve_error.txt"); errRead == nil && strings.TrimSpace(errText) != "" {
 					setDeploymentFailed(p.ID, "Colab server error: "+strings.TrimSpace(errText))
 					return
 				}
-				if rawURL, readErr := client.ReadFile(proxyURL, rt.ConnectionInfo.Token, "endpoint_url.txt"); readErr == nil {
+				if rawURL, readErr := readColabFile("endpoint_url.txt"); readErr == nil {
 					epURL := strings.TrimSpace(rawURL)
 					if strings.HasPrefix(epURL, "http://") || strings.HasPrefix(epURL, "https://") {
 						_ = model.UpdateNotebookDeploymentFields(p.ID, map[string]any{
@@ -827,7 +851,7 @@ else:
 						return
 					}
 				}
-				if logText, logErr := client.ReadFile(proxyURL, rt.ConnectionInfo.Token, "serve.log"); logErr == nil && strings.TrimSpace(logText) != "" {
+				if logText, logErr := readColabFile("serve.log"); logErr == nil && strings.TrimSpace(logText) != "" {
 					lines := strings.Split(strings.TrimSpace(logText), "\n")
 					lastLine := strings.TrimSpace(lines[len(lines)-1])
 					if len(lastLine) > 140 {

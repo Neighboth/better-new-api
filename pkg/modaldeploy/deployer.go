@@ -111,6 +111,7 @@ func BuildAppScript(cfg DeployConfig) string {
 
 	var pipPkgs string
 	var extraPipOpts string
+	var aptChain string
 	var taskCode string
 
 	switch task {
@@ -123,7 +124,7 @@ from diffusers.utils import export_to_video
 
 _pipe = None
 def get_pipe():
-    global _pipe
+    nonlocal _pipe
     if _pipe is None:
         _pipe = DiffusionPipeline.from_pretrained(MODEL_REPO, cache_dir=CACHE_DIR, token=HF_TOKEN or None, torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32)
         if torch.cuda.is_available():
@@ -151,7 +152,7 @@ from diffusers import AutoPipelineForText2Image
 
 _pipe = None
 def get_pipe():
-    global _pipe
+    nonlocal _pipe
     if _pipe is None:
         _pipe = AutoPipelineForText2Image.from_pretrained(MODEL_REPO, cache_dir=CACHE_DIR, token=HF_TOKEN or None, torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32)
         if torch.cuda.is_available():
@@ -178,7 +179,7 @@ from transformers import pipeline as hf_pipeline
 
 _pipe = None
 def get_pipe():
-    global _pipe
+    nonlocal _pipe
     if _pipe is None:
         _pipe = hf_pipeline("text-to-audio", model=MODEL_REPO, device=0 if torch.cuda.is_available() else -1, token=HF_TOKEN or None)
     return _pipe
@@ -202,7 +203,7 @@ from sentence_transformers import SentenceTransformer
 
 _model = None
 def get_model():
-    global _model
+    nonlocal _model
     if _model is None:
         _model = SentenceTransformer(MODEL_REPO, cache_folder=CACHE_DIR, token=HF_TOKEN or None)
     return _model
@@ -219,6 +220,7 @@ async def embeddings(req: Request):
 		isGGUF := strings.HasSuffix(strings.ToLower(strings.TrimSpace(cfg.ModelFile)), ".gguf") ||
 			strings.Contains(strings.ToLower(cfg.ModelRepo), "gguf")
 		if isGGUF {
+			aptChain = `.apt_install("libgomp1")`
 			pipPkgs = `"fastapi[standard]", "huggingface_hub", "llama-cpp-python"`
 			if gpuArg == "None" {
 				extraPipOpts = `, extra_index_url="https://abetlen.github.io/llama-cpp-python/whl/cpu"`
@@ -231,7 +233,7 @@ from llama_cpp import Llama
 
 _llm = None
 def get_llm():
-    global _llm
+    nonlocal _llm
     if _llm is not None:
         return _llm
     target_file = MODEL_FILE
@@ -260,7 +262,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 _backend = None
 def get_backend():
-    global _backend
+    nonlocal _backend
     if _backend is not None:
         return _backend
     tok = AutoTokenizer.from_pretrained(MODEL_REPO, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
@@ -302,7 +304,7 @@ import uuid
 import modal
 
 app = modal.App(%s)
-image = modal.Image.debian_slim(python_version="3.11").pip_install(%s%s)
+image = modal.Image.debian_slim(python_version="3.11")%s.pip_install(%s%s)
 volume = modal.Volume.from_name("better-new-api-models", create_if_missing=True)
 
 MODEL_REPO = %s
@@ -320,11 +322,16 @@ OUT_DIR = "/tmp/model_outputs"
 @modal.asgi_app()
 def fastapi_app():
     from fastapi import FastAPI, Request
+    from fastapi.responses import JSONResponse
     from fastapi.staticfiles import StaticFiles
 
     os.makedirs(OUT_DIR, exist_ok=True)
     web_app = FastAPI(title="Better-New-API Modal Server")
     web_app.mount("/outputs", StaticFiles(directory=OUT_DIR), name="outputs")
+
+    @web_app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception):
+        return JSONResponse(status_code=500, content={"error": f"{type(exc).__name__}: {exc}"})
 
     @web_app.get("/health")
     def health():
@@ -333,6 +340,7 @@ def fastapi_app():
     return web_app
 `,
 		pyQuote(cfg.AppName),
+		aptChain,
 		pipPkgs,
 		extraPipOpts,
 		pyQuote(cfg.ModelRepo),
