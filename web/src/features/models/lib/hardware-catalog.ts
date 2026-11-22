@@ -26,13 +26,13 @@ export const PROVIDER_TIERS: Record<DeploymentProviderId, ProviderTierOption[]> 
       {
         id: 'free_no_card',
         label: 'Free (No Credit Card)',
-        description: 'CPU only — add a payment method on Modal to unlock GPUs',
+        description: 'CPU only. Add a payment method on Modal to unlock GPUs.',
         allowedHardwareIds: ['CPU'],
       },
       {
         id: 'starter_paid',
         label: 'Starter / Paid (Card Added)',
-        description: 'All Modal GPUs (T4..B300) + CPU',
+        description: 'All Modal GPUs (T4 to B300) + CPU',
         allowedHardwareIds: null,
       },
     ],
@@ -40,14 +40,14 @@ export const PROVIDER_TIERS: Record<DeploymentProviderId, ProviderTierOption[]> 
       {
         id: 'free',
         label: 'Free',
-        description: 'CPU and Tesla T4 (subject to availability)',
-        allowedHardwareIds: ['CPU', 'NVIDIA_TESLA_T4'],
+        description: 'CPU, Tesla T4, and TPUs (subject to availability)',
+        allowedHardwareIds: ['CPU', 'NVIDIA_TESLA_T4', 'TPU_V2_8', 'TPU_V5E_1'],
       },
       {
         id: 'google_ai_pro',
         label: 'Google AI Pro',
-        description: 'CPU, Tesla T4 GPU, and TPU v5e-1',
-        allowedHardwareIds: ['CPU', 'NVIDIA_TESLA_T4', 'TPU_V5E_1'],
+        description: 'CPU, Tesla T4 GPU, and TPUs (v2-8, v5e-1)',
+        allowedHardwareIds: ['CPU', 'NVIDIA_TESLA_T4', 'TPU_V2_8', 'TPU_V5E_1'],
       },
       {
         id: 'colab_pro',
@@ -131,7 +131,8 @@ export const PROVIDER_TIERS: Record<DeploymentProviderId, ProviderTierOption[]> 
 
 export function getHardwareForTier(
   provider: DeploymentProviderId,
-  tier?: string
+  tier?: string,
+  eligibleGpus?: string[]
 ): HardwareOption[] {
   const all = PROVIDER_HARDWARE_CATALOG[provider] ?? []
   const tiers = PROVIDER_TIERS[provider] ?? []
@@ -141,6 +142,19 @@ export function getHardwareForTier(
     return all
   }
   const allowed = new Set(matched.allowedHardwareIds)
+  if (eligibleGpus && eligibleGpus.length > 0) {
+    const upperEligible = eligibleGpus.map((g) => g.toUpperCase())
+    for (const hw of all) {
+      const hwUpper = hw.id.toUpperCase()
+      if (
+        upperEligible.some(
+          (eg) => hwUpper.includes(eg) || eg.includes(hwUpper)
+        )
+      ) {
+        allowed.add(hw.id)
+      }
+    }
+  }
   return all.filter((hw) => allowed.has(hw.id))
 }
 

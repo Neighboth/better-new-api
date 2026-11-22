@@ -593,6 +593,7 @@ func SetApiRouter(router *gin.Engine) {
 			deploymentsRoute.POST("/notebooks", controller.CreateNotebookDeployment)
 			deploymentsRoute.POST("/notebooks/batch", controller.CreateNotebookDeploymentsBatch)
 			deploymentsRoute.GET("/notebooks/:id", controller.GetNotebookDeployment)
+			deploymentsRoute.GET("/notebooks/:id/logs", controller.GetNotebookDeploymentLogs)
 			deploymentsRoute.PUT("/notebooks/:id", controller.UpdateNotebookDeployment)
 			deploymentsRoute.DELETE("/notebooks/:id", controller.DeleteNotebookDeployment)
 			deploymentsRoute.POST("/notebooks/:id/test", controller.TestNotebookDeployment)

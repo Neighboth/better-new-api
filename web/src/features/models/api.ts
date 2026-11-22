@@ -752,6 +752,7 @@ export interface NotebookDeploymentItem {
   remote_url?: string
   endpoint_url?: string
   script?: string
+  logs?: string
   error_message?: string
   created_time: number
   updated_time: number
@@ -842,6 +843,20 @@ export async function deleteNotebookDeployment(id: number): Promise<{
   data?: { deleted?: boolean; remote_stop_warning?: string }
 }> {
   const res = await api.delete(`/api/deployments/notebooks/${id}`)
+  return res.data
+}
+
+export async function getNotebookDeploymentLogs(id: number): Promise<{
+  success: boolean
+  message?: string
+  data?: {
+    status: string
+    status_message?: string
+    error_message?: string
+    logs: string
+  }
+}> {
+  const res = await api.get(`/api/deployments/notebooks/${id}/logs`)
   return res.data
 }
 

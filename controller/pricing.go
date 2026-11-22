@@ -278,7 +278,7 @@ func GetPricing(c *gin.Context) {
 
 			pricing = append(pricing, model.Pricing{
 				ModelName:              modelID,
-				Description:            fmt.Sprintf("%s (%s — %s)", modelID, dep.Provider, dep.Accelerator),
+				Description:            fmt.Sprintf("%s (%s - %s)", modelID, dep.Provider, dep.Accelerator),
 				Icon:                   dep.Provider,
 				Tags:                   dep.Provider,
 				QuotaType:              0,

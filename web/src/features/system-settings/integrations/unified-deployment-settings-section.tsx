@@ -804,8 +804,16 @@ export function UnifiedDeploymentSettingsSection({
                   onValueChange={field.onChange}
                 >
                   <FormControl>
-                    <SelectTrigger>
-                      <SelectValue />
+                    <SelectTrigger className='w-full'>
+                      <SelectValue>
+                        {(field.value ?? 'deployments_first') === 'channels_first'
+                          ? t(
+                              'Channels First (Prefer configured channels, fallback to deployments)'
+                            )
+                          : t(
+                              'Deployments First (Prefer deployments, fallback to channels)'
+                            )}
+                      </SelectValue>
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>

@@ -161,7 +161,20 @@ def get_pipe():
                     raise RuntimeError(f"No model_index.json or .safetensors/.ckpt file found in {MODEL_REPO}")
                 target = sorted(cands)[0]
             local_ckpt = hf_hub_download(repo_id=explicit_repo, filename=target, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
-            _pipe = DiffusionPipeline.from_single_file(local_ckpt, torch_dtype=dtype)
+            from diffusers import StableVideoDiffusionPipeline
+            _pipe = None
+            _v_errs = []
+            for _cls_name in ("StableVideoDiffusionPipeline", "CogVideoXPipeline", "WanPipeline"):
+                try:
+                    import diffusers as _diff
+                    _cls = getattr(_diff, _cls_name, None)
+                    if _cls is not None and hasattr(_cls, "from_single_file"):
+                        _pipe = _cls.from_single_file(local_ckpt, torch_dtype=dtype)
+                        break
+                except Exception as _exc:
+                    _v_errs.append(f"{_cls_name}: {_exc}")
+            if _pipe is None:
+                raise RuntimeError("Failed to load single-file video checkpoint: " + " | ".join(_v_errs))
         for entry in entries:
             role = (entry.get("role") or "extra").lower()
             fn = entry.get("file") or ""
@@ -219,14 +232,50 @@ def get_pipe():
                     raise RuntimeError(f"No model_index.json or .safetensors/.ckpt file found in {MODEL_REPO}")
                 target = sorted(cands)[0]
             local_ckpt = hf_hub_download(repo_id=explicit_repo, filename=target, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
-            from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, DiffusionPipeline
+            from diffusers import AutoencoderKL, StableDiffusionPipeline, StableDiffusionXLPipeline
+            from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer
             errs = []
-            for cls in (StableDiffusionPipeline, StableDiffusionXLPipeline, DiffusionPipeline):
+            try:
+                _pipe = StableDiffusionPipeline.from_single_file(local_ckpt, torch_dtype=dtype)
+            except Exception as exc:
+                msg = str(exc)
+                errs.append(f"StableDiffusionPipeline: {msg}")
+                if "CLIPTextModel" in msg or "text_encoder" in msg or "AutoencoderKL" in msg or "vae" in msg:
+                    try:
+                        kw = {}
+                        if "CLIPTextModel" in msg or "text_encoder" in msg:
+                            kw["text_encoder"] = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14", cache_dir=CACHE_DIR, torch_dtype=dtype)
+                            kw["tokenizer"] = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14", cache_dir=CACHE_DIR)
+                        if "AutoencoderKL" in msg or "vae" in msg:
+                            kw["vae"] = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse", cache_dir=CACHE_DIR, torch_dtype=dtype)
+                        _pipe = StableDiffusionPipeline.from_single_file(local_ckpt, torch_dtype=dtype, **kw)
+                    except Exception as exc2:
+                        errs.append(f"StableDiffusionPipeline+fallback: {exc2}")
+            if _pipe is None:
                 try:
-                    _pipe = cls.from_single_file(local_ckpt, torch_dtype=dtype)
-                    break
+                    _pipe = StableDiffusionXLPipeline.from_single_file(local_ckpt, torch_dtype=dtype)
                 except Exception as exc:
-                    errs.append(f"{cls.__name__}: {exc}")
+                    msg = str(exc)
+                    errs.append(f"StableDiffusionXLPipeline: {msg}")
+                    if "CLIPTextModel" in msg or "text_encoder" in msg:
+                        try:
+                            kw = {
+                                "text_encoder": CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14", cache_dir=CACHE_DIR, torch_dtype=dtype),
+                                "tokenizer": CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14", cache_dir=CACHE_DIR),
+                                "text_encoder_2": CLIPTextModelWithProjection.from_pretrained("laion/CLIP-ViT-bigG-14-laion2B-39B-b160k", cache_dir=CACHE_DIR, torch_dtype=dtype),
+                                "tokenizer_2": CLIPTokenizer.from_pretrained("laion/CLIP-ViT-bigG-14-laion2B-39B-b160k", cache_dir=CACHE_DIR),
+                            }
+                            _pipe = StableDiffusionXLPipeline.from_single_file(local_ckpt, torch_dtype=dtype, **kw)
+                        except Exception as exc2:
+                            errs.append(f"StableDiffusionXLPipeline+fallback: {exc2}")
+            if _pipe is None:
+                try:
+                    import diffusers as _diff
+                    _flux_cls = getattr(_diff, "FluxPipeline", None)
+                    if _flux_cls is not None and hasattr(_flux_cls, "from_single_file"):
+                        _pipe = _flux_cls.from_single_file(local_ckpt, torch_dtype=dtype)
+                except Exception as exc:
+                    errs.append(f"FluxPipeline: {exc}")
             if _pipe is None:
                 raise RuntimeError("Failed to load single-file image checkpoint: " + " | ".join(errs))
         for entry in entries:
@@ -602,7 +651,7 @@ func findOrBootstrapModalCommand(ctx context.Context) (modalCmd, error) {
 		if len(msg) > 300 {
 			msg = msg[len(msg)-300:]
 		}
-		return modalCmd{}, fmt.Errorf("failed to auto-install 'modal' Python package: %v — %s", err, msg)
+		return modalCmd{}, fmt.Errorf("failed to auto-install 'modal' Python package: %v: %s", err, msg)
 	}
 	cand := modalCmd{bin: pyBin, prefixArgs: append(append([]string{}, pyArgs...), "-m", "modal")}
 	if testModalCmd(ctx, cand) {
@@ -650,7 +699,7 @@ func Deploy(ctx context.Context, cfg DeployConfig) (string, string, error) {
 		if len(msg) > 600 {
 			msg = msg[len(msg)-600:]
 		}
-		return "", script, fmt.Errorf("modal deploy failed: %v — %s", err, msg)
+		return "", script, fmt.Errorf("modal deploy failed: %v: %s", err, msg)
 	}
 
 	match := extractModalURL(outText)
@@ -748,5 +797,5 @@ func StopApp(ctx context.Context, appName, tokenID, tokenSecret string) error {
 	if strings.Contains(strings.ToLower(msg), "not found") || strings.Contains(strings.ToLower(msg), "no app") {
 		return nil
 	}
-	return fmt.Errorf("modal app stop failed: %v — %s", stopErr, msg)
+	return fmt.Errorf("modal app stop failed: %v: %s", stopErr, msg)
 }

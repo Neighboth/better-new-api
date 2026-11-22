@@ -447,8 +447,10 @@ export function ProviderAccountsManager({
                         updateField(acc.id, { tier: v ?? defaultTier })
                       }
                     >
-                      <SelectTrigger className='h-8 text-xs'>
-                        <SelectValue />
+                      <SelectTrigger className='h-8 w-full text-xs'>
+                        <SelectValue>
+                          {tierMeta ? t(tierMeta.label) : acc.tier}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {tiers.map((tier) => (

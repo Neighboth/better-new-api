@@ -447,6 +447,63 @@ func GetNotebookDeployment(c *gin.Context) {
 	common.ApiSuccess(c, item)
 }
 
+func GetNotebookDeploymentLogs(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "invalid deployment id")
+		return
+	}
+	item, err := model.GetNotebookDeploymentByID(id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	combinedLogs := strings.TrimSpace(item.Logs)
+
+	// Live log fetch from Colab runtime serve.log if proxy URL & token are available
+	if item.Provider == "colab" && strings.TrimSpace(item.RemoteURL) != "" && strings.TrimSpace(item.ProxyToken) != "" {
+		if tok, tokErr := getValidColabAccessTokenForAccount(c.Request.Context(), item.AccountID); tokErr == nil && tok != "" {
+			client := newColabClient(tok)
+			if rawLog, readErr := client.ReadFile(item.RemoteURL, item.ProxyToken, "serve.log"); readErr == nil && strings.TrimSpace(rawLog) != "" {
+				combinedLogs = strings.TrimSpace(rawLog)
+			} else if rawLog, readErr := client.ReadFile(item.RemoteURL, item.ProxyToken, "content/serve.log"); readErr == nil && strings.TrimSpace(rawLog) != "" {
+				combinedLogs = strings.TrimSpace(rawLog)
+			}
+		}
+	}
+
+	// Live log fetch from running serve.py /_logs endpoint (Kaggle / Colab)
+	if strings.TrimSpace(item.EndpointURL) != "" && strings.TrimSpace(item.CallbackToken) != "" && (item.Provider == "kaggle" || item.Provider == "colab") {
+		logsURL := strings.TrimRight(strings.TrimSpace(item.EndpointURL), "/") + "/_logs?token=" + url.QueryEscape(item.CallbackToken)
+		httpClient := &http.Client{Timeout: 4 * time.Second}
+		if resp, reqErr := httpClient.Get(logsURL); reqErr == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				var out struct {
+					Logs string `json:"logs"`
+				}
+				if rawBytes, rErr := io.ReadAll(io.LimitReader(resp.Body, 64*1024)); rErr == nil {
+					if common.Unmarshal(rawBytes, &out) == nil && strings.TrimSpace(out.Logs) != "" {
+						if combinedLogs != "" {
+							combinedLogs = combinedLogs + "\n--- Runtime Output ---\n" + strings.TrimSpace(out.Logs)
+						} else {
+							combinedLogs = strings.TrimSpace(out.Logs)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	common.ApiSuccess(c, gin.H{
+		"status":         item.Status,
+		"status_message": item.StatusMessage,
+		"error_message":  item.ErrorMessage,
+		"logs":           combinedLogs,
+	})
+}
+
 var slugSanitizerRe = regexp.MustCompile(`[^a-z0-9-]+`)
 
 func sanitizeSlug(name string) string {
@@ -499,12 +556,40 @@ func buildAcceleratorCandidates(primary string, fallbacks []string) []string {
 	return out
 }
 
+var deploymentLogMu sync.Mutex
+
+func appendDeploymentLog(id int, line string) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return
+	}
+	deploymentLogMu.Lock()
+	defer deploymentLogMu.Unlock()
+	item, err := model.GetNotebookDeploymentByID(id)
+	if err != nil {
+		return
+	}
+	ts := time.Now().Format("15:04:05")
+	next := item.Logs
+	if next != "" && !strings.HasSuffix(next, "\n") {
+		next += "\n"
+	}
+	next += ts + " " + line + "\n"
+	if len(next) > 16384 {
+		next = next[len(next)-16384:]
+	}
+	_ = model.UpdateNotebookDeploymentFields(id, map[string]any{
+		"logs": next,
+	})
+}
+
 func setDeploymentStatus(id int, status, message string) {
 	_ = model.UpdateNotebookDeploymentFields(id, map[string]any{
 		"status":         status,
 		"status_message": message,
 		"updated_time":   time.Now().Unix(),
 	})
+	appendDeploymentLog(id, "["+status+"] "+message)
 }
 
 func setDeploymentFailed(id int, errMsg string) {
@@ -514,6 +599,7 @@ func setDeploymentFailed(id int, errMsg string) {
 		"error_message":  errMsg,
 		"updated_time":   time.Now().Unix(),
 	})
+	appendDeploymentLog(id, "[failed] "+errMsg)
 }
 
 func buildDeploymentCallbackURL(c *gin.Context, id int, token string) string {
@@ -546,6 +632,7 @@ func NotebookDeploymentCallback(c *gin.Context) {
 		Token       string `json:"token"`
 		EndpointURL string `json:"endpoint_url"`
 		Status      string `json:"status"`
+		Log         string `json:"log"`
 	}
 	rawBody, _ := c.GetRawData()
 	if len(bytes.TrimSpace(rawBody)) > 0 {
@@ -564,13 +651,26 @@ func NotebookDeploymentCallback(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "invalid callback token"})
 		return
 	}
+	if logMsg := strings.TrimSpace(req.Log); logMsg != "" {
+		appendDeploymentLog(id, logMsg)
+		if item.Status != "running" && item.Status != "failed" {
+			_ = model.UpdateNotebookDeploymentFields(id, map[string]any{
+				"status_message": logMsg,
+				"updated_time":   time.Now().Unix(),
+			})
+		}
+		if strings.TrimSpace(req.EndpointURL) == "" {
+			c.JSON(http.StatusOK, gin.H{"success": true})
+			return
+		}
+	}
 	epURL := strings.TrimSpace(req.EndpointURL)
 	if !strings.HasPrefix(epURL, "http://") && !strings.HasPrefix(epURL, "https://") {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "valid endpoint_url is required"})
 		return
 	}
 	nextStatus := "starting"
-	nextMsg := "Tunnel connected — verifying model server health..."
+	nextMsg := "Tunnel connected, verifying model server health..."
 	if item.Status == "running" {
 		nextStatus = "running"
 		nextMsg = "Running"
@@ -581,6 +681,7 @@ func NotebookDeploymentCallback(c *gin.Context) {
 		"status_message": nextMsg,
 		"updated_time":   time.Now().Unix(),
 	})
+	appendDeploymentLog(id, "[tunnel] "+epURL)
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
@@ -954,9 +1055,9 @@ func provisionDeploymentAsync(p provisionParams) {
 			ks, statusErr := client.GetKernelStatus(ownerSlug, kernelSlug)
 			if statusErr != nil {
 				if strings.Contains(statusErr.Error(), "HTTP 403") {
-					msg := "Running on Kaggle — waiting for tunnel URL callback..."
+					msg := "Running on Kaggle, waiting for tunnel URL callback..."
 					if p.CallbackURL == "" {
-						msg = "Running on Kaggle — set a public Server Address in System Settings to receive tunnel URL automatically"
+						msg = "Running on Kaggle: set a public Server Address in System Settings to receive tunnel URL automatically"
 					}
 					setDeploymentStatus(p.ID, "downloading", msg)
 				} else {
@@ -973,14 +1074,14 @@ func provisionDeploymentAsync(p provisionParams) {
 					setDeploymentStatus(p.ID, "starting", "Starting on Kaggle...")
 				case "queued":
 					if time.Since(queuedSince) > 90*time.Second {
-						setDeploymentStatus(p.ID, "starting", "Queued on Kaggle (waiting for free GPU/TPU slot — ensure no other Kaggle session is running or switch to CPU/another account)")
+						setDeploymentStatus(p.ID, "starting", "Queued on Kaggle (waiting for free GPU/TPU slot; ensure no other Kaggle session is running or switch to CPU/another account)")
 					} else {
 						setDeploymentStatus(p.ID, "starting", "Queued on Kaggle...")
 					}
 				case "running":
-					msg := "Running on Kaggle — installing dependencies & waiting for tunnel URL..."
+					msg := "Running on Kaggle, installing dependencies & waiting for tunnel URL..."
 					if p.CallbackURL == "" {
-						msg = "Running on Kaggle — set a public Server Address in System Settings to receive tunnel URL automatically"
+						msg = "Running on Kaggle: set a public Server Address in System Settings to receive tunnel URL automatically"
 					}
 					setDeploymentStatus(p.ID, "downloading", msg)
 				case "cancel_requested", "cancel_acknowledged":
@@ -1045,6 +1146,7 @@ func provisionDeploymentAsync(p provisionParams) {
 			"accelerator":    chosenAcc,
 			"remote_id":      rt.Name,
 			"remote_url":     proxyURL,
+			"proxy_token":    rt.ConnectionInfo.Token,
 			"status":         "downloading",
 			"status_message": "Uploading model server & starting Colab kernel...",
 			"updated_time":   time.Now().Unix(),
@@ -1122,6 +1224,9 @@ else:
 					}
 				}
 				if logText, logErr := readColabFile("serve.log"); logErr == nil && strings.TrimSpace(logText) != "" {
+					_ = model.UpdateNotebookDeploymentFields(p.ID, map[string]any{
+						"logs": strings.TrimSpace(logText),
+					})
 					lines := strings.Split(strings.TrimSpace(logText), "\n")
 					lastLine := strings.TrimSpace(lines[len(lines)-1])
 					if len(lastLine) > 140 {
