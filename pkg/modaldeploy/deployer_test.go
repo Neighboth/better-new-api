@@ -84,3 +84,19 @@ func TestBuildAppScriptNoTopLevelMLImports(t *testing.T) {
 	textScript := BuildAppScript(cases[0])
 	assert.NotContains(t, textScript, "llama-cpp-python")
 }
+
+func TestExtractModalURL(t *testing.T) {
+	assert.Equal(t,
+		"https://my-ws--qwen-gguf-fastapi-app.modal.run",
+		extractModalURL("Created web function fastapi_app => https://my-ws--qwen-gguf-fastapi-app.modal.run\n"),
+	)
+	assert.Equal(t,
+		"https://my-ws--qwen-gguf-fastapi-app.modal.run",
+		extractModalURL("\x1b[32mhttps://my-ws--qwen-gguf-fastapi-app.modal.run\x1b[0m"),
+	)
+	wrapped := "├── Created web function fastapi_app =>\n│   https://my-ws--very-long-model-name-\n│   fastapi-app.modal.run\n"
+	assert.Equal(t,
+		"https://my-ws--very-long-model-name-fastapi-app.modal.run",
+		extractModalURL(wrapped),
+	)
+}

@@ -12,7 +12,20 @@ import (
 	"sync"
 )
 
-var modalURLRegex = regexp.MustCompile(`https://[a-zA-Z0-9._-]+\.modal\.run`)
+var (
+	modalURLRegex   = regexp.MustCompile(`https://[a-zA-Z0-9._-]+\.modal\.run`)
+	ansiEscapeRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+	lineWrapRegex   = regexp.MustCompile(`\r?\n[ \t│]*`)
+)
+
+func extractModalURL(output string) string {
+	clean := ansiEscapeRegex.ReplaceAllString(output, "")
+	if m := modalURLRegex.FindString(clean); m != "" {
+		return m
+	}
+	unwrapped := lineWrapRegex.ReplaceAllString(clean, "")
+	return modalURLRegex.FindString(unwrapped)
+}
 
 type DeployConfig struct {
 	AppName              string
@@ -518,6 +531,10 @@ func Deploy(ctx context.Context, cfg DeployConfig) (string, string, error) {
 		"MODAL_TOKEN_ID="+strings.TrimSpace(cfg.TokenID),
 		"MODAL_TOKEN_SECRET="+strings.TrimSpace(cfg.TokenSecret),
 		"PYTHONIOENCODING=utf-8",
+		"COLUMNS=500",
+		"NO_COLOR=1",
+		"FORCE_COLOR=0",
+		"TERM=dumb",
 	)
 	outBytes, err := cmd.CombinedOutput()
 	outText := string(outBytes)
@@ -529,9 +546,32 @@ func Deploy(ctx context.Context, cfg DeployConfig) (string, string, error) {
 		return "", script, fmt.Errorf("modal deploy failed: %v — %s", err, msg)
 	}
 
-	match := modalURLRegex.FindString(outText)
+	match := extractModalURL(outText)
 	if match == "" {
-		return "", script, fmt.Errorf("modal deploy succeeded but no *.modal.run URL found in output")
+		// Fallback: query Modal SDK directly for the deployed web endpoint URL.
+		pySnippet := fmt.Sprintf("import modal; print(modal.Function.from_name(%s, 'fastapi_app').get_web_url() or '')", pyQuote(cfg.AppName))
+		var lookupCmd *exec.Cmd
+		if len(cmdSpec.prefixArgs) >= 2 && cmdSpec.prefixArgs[len(cmdSpec.prefixArgs)-2] == "-m" {
+			baseArgs := append([]string{}, cmdSpec.prefixArgs[:len(cmdSpec.prefixArgs)-2]...)
+			baseArgs = append(baseArgs, "-c", pySnippet)
+			lookupCmd = exec.CommandContext(ctx, cmdSpec.bin, baseArgs...)
+		} else if pyBin, pyArgs, ok := findBasePython(ctx); ok {
+			baseArgs := append(append([]string{}, pyArgs...), "-c", pySnippet)
+			lookupCmd = exec.CommandContext(ctx, pyBin, baseArgs...)
+		}
+		if lookupCmd != nil {
+			lookupCmd.Env = cmd.Env
+			if urlOut, lookupErr := lookupCmd.CombinedOutput(); lookupErr == nil {
+				match = extractModalURL(string(urlOut))
+			}
+		}
+	}
+	if match == "" {
+		tail := strings.TrimSpace(outText)
+		if len(tail) > 400 {
+			tail = tail[len(tail)-400:]
+		}
+		return "", script, fmt.Errorf("modal deploy succeeded but no *.modal.run URL found in output: %s", tail)
 	}
 	return match, script, nil
 }

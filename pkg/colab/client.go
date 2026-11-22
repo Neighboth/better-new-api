@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -253,7 +254,7 @@ func (c *Client) CreateRuntime(accelerator string) (*Runtime, error) {
 
 	q := url.Values{}
 	q.Set("authuser", "0")
-	q.Set("nbh", uuidToWebSafeBase64(common.GetUUID()))
+	q.Set("nbh", uuidToWebSafeBase64(uuid.New().String()))
 	if spec.TunnelVariant != "" {
 		q.Set("variant", spec.TunnelVariant)
 	}

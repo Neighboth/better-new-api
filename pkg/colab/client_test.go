@@ -26,6 +26,7 @@ func TestColabClientLifecycle(t *testing.T) {
 			assert.Equal(t, "Bearer test-oauth-token", r.Header.Get("Authorization"))
 			assert.Equal(t, "GPU", r.URL.Query().Get("variant"))
 			assert.Equal(t, "L4", r.URL.Query().Get("accelerator"))
+			assert.Regexp(t, `^[0-9a-f]{8}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{12}\.{8}$`, r.URL.Query().Get("nbh"))
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(")]}'\n" + `{"token":"xsrf-assign-1"}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/assign":

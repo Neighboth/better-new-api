@@ -266,6 +266,16 @@ OUTPUT_DIR = "/tmp/model_outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def _report_tunnel_url(url: str):
+    print(f"[tunnel] Tunnel allocated ({url}), waiting for local server on :8000...", flush=True)
+    deadline = time.time() + 600
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=3) as resp:
+                if 200 <= resp.status < 300:
+                    break
+        except Exception:
+            pass
+        time.sleep(2)
     with open("endpoint_url.txt", "w", encoding="utf-8") as f:
         f.write(url)
     print(f"[tunnel] Ready: {url}", flush=True)

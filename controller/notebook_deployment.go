@@ -390,10 +390,16 @@ func NotebookDeploymentCallback(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "valid endpoint_url is required"})
 		return
 	}
+	nextStatus := "starting"
+	nextMsg := "Tunnel connected — verifying model server health..."
+	if item.Status == "running" {
+		nextStatus = "running"
+		nextMsg = "Running"
+	}
 	_ = model.UpdateNotebookDeploymentFields(id, map[string]any{
 		"endpoint_url":   epURL,
-		"status":         "running",
-		"status_message": "Running",
+		"status":         nextStatus,
+		"status_message": nextMsg,
 		"updated_time":   time.Now().Unix(),
 	})
 	c.JSON(http.StatusOK, gin.H{"success": true})
@@ -607,7 +613,10 @@ func provisionDeploymentAsync(p provisionParams) {
 			"status_message": "Warming up Modal endpoint...",
 			"updated_time":   time.Now().Unix(),
 		})
-		probeHealth(endpointURL)
+		if !probeHealth(endpointURL) {
+			setDeploymentFailed(p.ID, "Endpoint health check failed (server did not respond with HTTP 200 on /health)")
+			return
+		}
 		setDeploymentStatus(p.ID, "running", "Running")
 
 	case "kaggle":
@@ -659,7 +668,10 @@ func provisionDeploymentAsync(p provisionParams) {
 		consecutiveStatusErrs := 0
 		for time.Now().Before(deadline) {
 			if cur, dbErr := model.GetNotebookDeploymentByID(p.ID); dbErr == nil && strings.TrimSpace(cur.EndpointURL) != "" {
-				probeHealth(cur.EndpointURL)
+				if !probeHealth(cur.EndpointURL) {
+					setDeploymentFailed(p.ID, "Endpoint health check failed (server did not respond with HTTP 200 on /health)")
+					return
+				}
 				setDeploymentStatus(p.ID, "running", "Running")
 				return
 			}
@@ -695,7 +707,10 @@ func provisionDeploymentAsync(p provisionParams) {
 					return
 				case "complete":
 					if cur, dbErr := model.GetNotebookDeploymentByID(p.ID); dbErr == nil && strings.TrimSpace(cur.EndpointURL) != "" {
-						probeHealth(cur.EndpointURL)
+						if !probeHealth(cur.EndpointURL) {
+							setDeploymentFailed(p.ID, "Endpoint health check failed (server did not respond with HTTP 200 on /health)")
+							return
+						}
 						setDeploymentStatus(p.ID, "running", "Running")
 						return
 					}
@@ -784,7 +799,10 @@ else:
 			deadline := time.Now().Add(10 * time.Minute)
 			for time.Now().Before(deadline) {
 				if cur, dbErr := model.GetNotebookDeploymentByID(p.ID); dbErr == nil && strings.TrimSpace(cur.EndpointURL) != "" {
-					probeHealth(cur.EndpointURL)
+					if !probeHealth(cur.EndpointURL) {
+						setDeploymentFailed(p.ID, "Endpoint health check failed (server did not respond with HTTP 200 on /health)")
+						return
+					}
 					setDeploymentStatus(p.ID, "running", "Running")
 					return
 				}
@@ -801,7 +819,10 @@ else:
 							"status_message": "Warming up Colab endpoint...",
 							"updated_time":   time.Now().Unix(),
 						})
-						probeHealth(epURL)
+						if !probeHealth(epURL) {
+							setDeploymentFailed(p.ID, "Endpoint health check failed (server did not respond with HTTP 200 on /health)")
+							return
+						}
 						setDeploymentStatus(p.ID, "running", "Running")
 						return
 					}
@@ -908,9 +929,9 @@ else:
 	}
 }
 
-func probeHealth(baseURL string) {
+func probeHealth(baseURL string) bool {
 	if strings.TrimSpace(baseURL) == "" {
-		return
+		return false
 	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	target := strings.TrimRight(baseURL, "/") + "/health"
@@ -919,11 +940,12 @@ func probeHealth(baseURL string) {
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				return
+				return true
 			}
 		}
 		time.Sleep(5 * time.Second)
 	}
+	return false
 }
 
 func UpdateNotebookDeployment(c *gin.Context) {
