@@ -29,12 +29,12 @@ type AcceleratorSpec struct {
 // SupportedAccelerators lists the CPU, GPU, and TPU options for Google Colab.
 var SupportedAccelerators = []AcceleratorSpec{
 	{ID: "CPU", Label: "CPU (Standard)", Kind: "cpu", Variant: "VARIANT_UNSPECIFIED", Shape: "SHAPE_UNSPECIFIED"},
-	{ID: "NVIDIA_TESLA_T4", Label: "GPU: NVIDIA Tesla T4 (16GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_UNSPECIFIED"},
-	{ID: "NVIDIA_L4", Label: "GPU: NVIDIA L4 (24GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGH_MEM"},
-	{ID: "NVIDIA_TESLA_A100", Label: "GPU: NVIDIA A100 (40GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGH_MEM"},
-	{ID: "NVIDIA_TESLA_A100_80GB", Label: "GPU: NVIDIA A100 (80GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGH_MEM"},
-	{ID: "NVIDIA_RTX_PRO_6000", Label: "GPU: NVIDIA RTX PRO 6000", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGH_MEM"},
-	{ID: "NVIDIA_H100_80GB", Label: "GPU: NVIDIA H100 (80GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGH_MEM"},
+	{ID: "NVIDIA_TESLA_T4", Label: "GPU: NVIDIA Tesla T4 (16GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_STANDARD"},
+	{ID: "NVIDIA_L4", Label: "GPU: NVIDIA L4 (24GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM"},
+	{ID: "NVIDIA_TESLA_A100", Label: "GPU: NVIDIA A100 (40GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM"},
+	{ID: "NVIDIA_TESLA_A100_80GB", Label: "GPU: NVIDIA A100 (80GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM"},
+	{ID: "NVIDIA_RTX_PRO_6000", Label: "GPU: NVIDIA RTX PRO 6000", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM"},
+	{ID: "NVIDIA_H100_80GB", Label: "GPU: NVIDIA H100 (80GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM"},
 	{ID: "TPU_V2_8", Label: "TPU: v2-8", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED"},
 	{ID: "TPU_V5E_1", Label: "TPU: v5e-1", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED"},
 	{ID: "TPU_V6E_1", Label: "TPU: v6e-1", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED"},
@@ -92,6 +92,7 @@ func (c *Client) do(method, path string, body any, out any) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+c.AccessToken)
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Colab-Client-Agent", "colab-cli")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -132,6 +133,44 @@ func (c *Client) ListRuntimeSpecs() (*RuntimeSpecsResponse, error) {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// TestConnection verifies Colab OAuth credentials against the Colab Public API
+// (/runtimes) and falls back to the consumer Colab tunnel API (/tun/m/ccu-info).
+func (c *Client) TestConnection() (int, error) {
+	var listOut struct {
+		Runtimes []Runtime `json:"runtimes"`
+	}
+	if err := c.do(http.MethodGet, "/runtimes", nil, &listOut); err == nil {
+		return len(listOut.Runtimes), nil
+	}
+
+	req, err := http.NewRequest(http.MethodGet, "https://colab.research.google.com/tun/m/ccu-info?authuser=0", nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.AccessToken)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Colab-Client-Agent", "colab-cli")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return 0, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg := strings.TrimSpace(string(raw))
+		if len(msg) > 400 {
+			msg = msg[:400] + "..."
+		}
+		return 0, &APIError{Code: resp.StatusCode, Message: msg}
+	}
+	return 1, nil
 }
 
 type ConnectionInfo struct {

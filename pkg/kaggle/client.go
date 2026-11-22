@@ -132,7 +132,7 @@ func (c *Client) do(method, path string, body any, out any) error {
 // TestConnection verifies Kaggle credentials by listing the user's kernels.
 func (c *Client) TestConnection() ([]map[string]any, error) {
 	var out []map[string]any
-	if err := c.do(http.MethodGet, "/kernels/list?group=mine&pageSize=1", nil, &out); err != nil {
+	if err := c.do(http.MethodGet, "/kernels/list?group=profile&pageSize=1", nil, &out); err != nil {
 		return nil, err
 	}
 	return out, nil

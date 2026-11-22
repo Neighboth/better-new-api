@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/colab"
 	"github.com/QuantumNous/new-api/pkg/hfendpoints"
 	"github.com/QuantumNous/new-api/pkg/kaggle"
+	"github.com/QuantumNous/new-api/pkg/modaldeploy"
 	"github.com/QuantumNous/new-api/pkg/notebookscript"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -190,15 +191,15 @@ func TestColabConnection(c *gin.Context) {
 		}
 	}
 
-	specs, err := newColabClient(token).ListRuntimeSpecs()
+	count, err := newColabClient(token).TestConnection()
 	if err != nil {
 		common.ApiErrorMsg(c, fmt.Sprintf("failed to connect to Google Colab: %v", err))
 		return
 	}
 	common.ApiSuccess(c, gin.H{
-		"provider":    "colab",
-		"status":      "connected",
-		"specs_count": len(specs.RuntimeSpecs),
+		"provider":       "colab",
+		"status":         "connected",
+		"runtimes_count": count,
 	})
 }
 
@@ -316,6 +317,23 @@ func buildAcceleratorCandidates(primary string, fallbacks []string) []string {
 	return out
 }
 
+func setDeploymentStatus(id int, status, message string) {
+	_ = model.UpdateNotebookDeploymentFields(id, map[string]any{
+		"status":         status,
+		"status_message": message,
+		"updated_time":   time.Now().Unix(),
+	})
+}
+
+func setDeploymentFailed(id int, errMsg string) {
+	_ = model.UpdateNotebookDeploymentFields(id, map[string]any{
+		"status":         "failed",
+		"status_message": errMsg,
+		"error_message":  errMsg,
+		"updated_time":   time.Now().Unix(),
+	})
+}
+
 func CreateNotebookDeployment(c *gin.Context) {
 	var req struct {
 		Provider             string   `json:"provider"`
@@ -325,7 +343,6 @@ func CreateNotebookDeployment(c *gin.Context) {
 		TaskType             string   `json:"task_type"`
 		Accelerator          string   `json:"accelerator"`
 		FallbackAccelerators []string `json:"fallback_accelerators"`
-		EndpointURL          string   `json:"endpoint_url"`
 		HFToken              string   `json:"hf_token"`
 	}
 	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
@@ -345,9 +362,55 @@ func CreateNotebookDeployment(c *gin.Context) {
 		return
 	}
 
+	// Validate provider credentials upfront before creating DB record
+	common.OptionMapRWMutex.RLock()
+	modalEnabled := common.OptionMap["model_deployment.modal.enabled"] == "true"
+	modalTokenID := strings.TrimSpace(common.OptionMap["model_deployment.modal.token_id"])
+	modalTokenSecret := strings.TrimSpace(common.OptionMap["model_deployment.modal.token_secret"])
+	modalVolPath := strings.TrimSpace(common.OptionMap["model_deployment.modal.shared_volume_path"])
+
+	kaggleEnabled := common.OptionMap["model_deployment.kaggle.enabled"] == "true"
+	kaggleUser := strings.TrimSpace(common.OptionMap["model_deployment.kaggle.username"])
+	kaggleKey := strings.TrimSpace(common.OptionMap["model_deployment.kaggle.api_key"])
+
+	colabEnabled := common.OptionMap["model_deployment.colab.enabled"] == "true"
+	hfEnabled := common.OptionMap["model_deployment.huggingface.enabled"] == "true"
+	hfGlobalToken := strings.TrimSpace(common.OptionMap["model_deployment.huggingface.token"])
+	if hfGlobalToken == "" {
+		hfGlobalToken = strings.TrimSpace(common.OptionMap["model_deployment.huggingface.api_key"])
+	}
+	hfDefaultOrg := strings.TrimSpace(common.OptionMap["model_deployment.huggingface.org"])
+	common.OptionMapRWMutex.RUnlock()
+
+	switch provider {
+	case "modal":
+		if !modalEnabled || modalTokenID == "" || modalTokenSecret == "" {
+			common.ApiErrorMsg(c, "Modal deployment is not enabled or Token ID / Token Secret is missing in System Settings")
+			return
+		}
+	case "kaggle":
+		if !kaggleEnabled || kaggleKey == "" || kaggleUser == "" {
+			common.ApiErrorMsg(c, "Kaggle deployment is not enabled or Username / API Key is missing in System Settings")
+			return
+		}
+	case "colab":
+		if !colabEnabled {
+			common.ApiErrorMsg(c, "Google Colab deployment is not enabled in System Settings")
+			return
+		}
+		if _, err := getValidColabAccessToken(c.Request.Context()); err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+	case "huggingface":
+		if !hfEnabled || hfGlobalToken == "" {
+			common.ApiErrorMsg(c, "Hugging Face deployment is not enabled or token is missing in System Settings")
+			return
+		}
+	}
+
 	taskType := notebookscript.NormalizeTaskType(req.TaskType)
 	idleTimeout := getProviderIdleTimeoutSeconds(provider)
-
 	accelerator := strings.TrimSpace(req.Accelerator)
 	if accelerator == "" {
 		accelerator = "CPU"
@@ -377,120 +440,210 @@ func CreateNotebookDeployment(c *gin.Context) {
 		Accelerator:          accelerator,
 		FallbackAccelerators: string(fallbacksJSON),
 		IdleTimeoutSeconds:   idleTimeout,
-		Status:               "running",
-		EndpointURL:          strings.TrimSpace(req.EndpointURL),
+		Status:               "provisioning",
+		StatusMessage:        "Initializing deployment...",
 		Script:               script,
 		CreatedTime:          now,
 		UpdatedTime:          now,
 	}
 
-	switch provider {
+	if err := model.CreateNotebookDeployment(item); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	go provisionDeploymentAsync(provisionParams{
+		ID:                 item.Id,
+		Provider:           provider,
+		Name:               req.Name,
+		ModelRepo:          req.ModelRepo,
+		ModelFile:          strings.TrimSpace(req.ModelFile),
+		TaskType:           taskType,
+		PrimaryAccelerator: accelerator,
+		Fallbacks:          req.FallbackAccelerators,
+		Candidates:         candidates,
+		IdleTimeoutSeconds: idleTimeout,
+		HFToken:            strings.TrimSpace(req.HFToken),
+		Script:             script,
+		ModalTokenID:       modalTokenID,
+		ModalTokenSecret:   modalTokenSecret,
+		ModalVolPath:       modalVolPath,
+		KaggleUser:         kaggleUser,
+		KaggleKey:          kaggleKey,
+		HFGlobalToken:      hfGlobalToken,
+		HFDefaultOrg:       hfDefaultOrg,
+	})
+
+	common.ApiSuccess(c, item)
+}
+
+type provisionParams struct {
+	ID                 int
+	Provider           string
+	Name               string
+	ModelRepo          string
+	ModelFile          string
+	TaskType           string
+	PrimaryAccelerator string
+	Fallbacks          []string
+	Candidates         []string
+	IdleTimeoutSeconds int
+	HFToken            string
+	Script             string
+	ModalTokenID       string
+	ModalTokenSecret   string
+	ModalVolPath       string
+	KaggleUser         string
+	KaggleKey          string
+	HFGlobalToken      string
+	HFDefaultOrg       string
+}
+
+func provisionDeploymentAsync(p provisionParams) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	switch p.Provider {
+	case "modal":
+		setDeploymentStatus(p.ID, "downloading", "Deploying container & downloading model on Modal...")
+		appName := sanitizeSlug(p.Name)
+		endpointURL, modalScript, err := modaldeploy.Deploy(ctx, modaldeploy.DeployConfig{
+			AppName:              appName,
+			ModelRepo:            p.ModelRepo,
+			ModelFile:            p.ModelFile,
+			TaskType:             p.TaskType,
+			Accelerator:          p.PrimaryAccelerator,
+			FallbackAccelerators: p.Fallbacks,
+			IdleTimeoutSeconds:   p.IdleTimeoutSeconds,
+			TokenID:              p.ModalTokenID,
+			TokenSecret:          p.ModalTokenSecret,
+			HFToken:              p.HFToken,
+			SharedVolumePath:     p.ModalVolPath,
+		})
+		if err != nil {
+			setDeploymentFailed(p.ID, err.Error())
+			return
+		}
+		_ = model.UpdateNotebookDeploymentFields(p.ID, map[string]any{
+			"remote_id":      appName,
+			"remote_url":     endpointURL,
+			"endpoint_url":   endpointURL,
+			"script":         modalScript,
+			"status":         "starting",
+			"status_message": "Warming up Modal endpoint...",
+			"updated_time":   time.Now().Unix(),
+		})
+		probeHealth(endpointURL)
+		setDeploymentStatus(p.ID, "running", "Running")
+
 	case "kaggle":
-		common.OptionMapRWMutex.RLock()
-		kaggleEnabled := common.OptionMap["model_deployment.kaggle.enabled"] == "true"
-		kaggleUser := strings.TrimSpace(common.OptionMap["model_deployment.kaggle.username"])
-		kaggleKey := strings.TrimSpace(common.OptionMap["model_deployment.kaggle.api_key"])
-		common.OptionMapRWMutex.RUnlock()
-		if !kaggleEnabled || kaggleKey == "" {
-			common.ApiErrorMsg(c, "Kaggle deployment is not enabled or API key is missing")
-			return
-		}
-		if kaggleUser == "" {
-			common.ApiErrorMsg(c, "Kaggle username is required in System Settings")
-			return
-		}
-		slug := kaggleUser + "/" + sanitizeSlug(req.Name)
-		client := newKaggleClient(kaggleUser, kaggleKey)
-		var lastErr error
+		setDeploymentStatus(p.ID, "downloading", "Pushing kernel to Kaggle...")
+		slug := p.KaggleUser + "/" + sanitizeSlug(p.Name)
+		client := newKaggleClient(p.KaggleUser, p.KaggleKey)
 		var pushed *kaggle.PushKernelResponse
-		for _, cand := range candidates {
-			p, err := client.PushKernel(kaggle.PushKernelRequest{
+		var chosenAcc string
+		var lastErr error
+		for _, cand := range p.Candidates {
+			res, err := client.PushKernel(kaggle.PushKernelRequest{
 				Slug:        slug,
-				Title:       req.Name,
-				ScriptText:  script,
+				Title:       p.Name,
+				ScriptText:  p.Script,
 				Accelerator: cand,
 				IsPrivate:   true,
 			})
 			if err == nil {
-				pushed = p
-				item.Accelerator = cand
+				pushed = res
+				chosenAcc = cand
 				break
 			}
 			lastErr = err
 		}
 		if pushed == nil {
-			common.ApiErrorMsg(c, fmt.Sprintf("failed to push Kaggle kernel (tried %v): %v", candidates, lastErr))
+			setDeploymentFailed(p.ID, fmt.Sprintf("Kaggle push failed (tried %v): %v", p.Candidates, lastErr))
 			return
 		}
-		item.RemoteID = pushed.Ref
-		if item.RemoteID == "" {
-			item.RemoteID = slug
+		remoteID := pushed.Ref
+		if remoteID == "" {
+			remoteID = slug
 		}
-		item.RemoteURL = pushed.URL
+		_ = model.UpdateNotebookDeploymentFields(p.ID, map[string]any{
+			"accelerator":    chosenAcc,
+			"remote_id":      remoteID,
+			"remote_url":     pushed.URL,
+			"status":         "starting",
+			"status_message": "Kernel queued/running on Kaggle...",
+			"updated_time":   time.Now().Unix(),
+		})
+		setDeploymentStatus(p.ID, "running", "Running on Kaggle")
 
 	case "colab":
-		common.OptionMapRWMutex.RLock()
-		colabEnabled := common.OptionMap["model_deployment.colab.enabled"] == "true"
-		common.OptionMapRWMutex.RUnlock()
-		if !colabEnabled {
-			common.ApiErrorMsg(c, "Google Colab deployment is not enabled")
-			return
-		}
-		colabToken, err := getValidColabAccessToken(c.Request.Context())
+		setDeploymentStatus(p.ID, "starting", "Provisioning Google Colab runtime...")
+		tok, err := getValidColabAccessToken(ctx)
 		if err != nil {
-			common.ApiErrorMsg(c, err.Error())
+			setDeploymentFailed(p.ID, err.Error())
 			return
 		}
-		client := newColabClient(colabToken)
-		var lastErr error
+		client := newColabClient(tok)
 		var rt *colab.Runtime
-		for _, cand := range candidates {
+		var chosenAcc string
+		var lastErr error
+		for _, cand := range p.Candidates {
 			r, err := client.CreateRuntime(cand)
 			if err == nil {
 				rt = r
-				item.Accelerator = cand
+				chosenAcc = cand
 				break
 			}
 			lastErr = err
 		}
 		if rt == nil {
-			common.ApiErrorMsg(c, fmt.Sprintf("failed to provision Google Colab runtime (tried %v): %v", candidates, lastErr))
+			setDeploymentFailed(p.ID, fmt.Sprintf("Google Colab provisioning failed (tried %v): %v", p.Candidates, lastErr))
 			return
 		}
-		item.RemoteID = rt.Name
 		proxyURL := strings.TrimSpace(rt.ConnectionInfo.URL)
 		if proxyURL == "" {
 			proxyURL = strings.TrimSpace(rt.ProxyURL)
 		}
-		item.RemoteURL = proxyURL
 		if proxyURL != "" {
-			_ = client.UploadFile(proxyURL, rt.ConnectionInfo.Token, "serve.py", script)
+			setDeploymentStatus(p.ID, "downloading", "Uploading model server & starting Colab kernel...")
+			_ = client.UploadFile(proxyURL, rt.ConnectionInfo.Token, "serve.py", p.Script)
 			_, _ = client.StartKernel(proxyURL, rt.ConnectionInfo.Token)
 		}
+		_ = model.UpdateNotebookDeploymentFields(p.ID, map[string]any{
+			"accelerator":    chosenAcc,
+			"remote_id":      rt.Name,
+			"remote_url":     proxyURL,
+			"status":         "running",
+			"status_message": "Running on Google Colab",
+			"updated_time":   time.Now().Unix(),
+		})
 
 	case "huggingface":
-		hfToken, ok := getHfToken(c)
-		if !ok {
-			return
+		setDeploymentStatus(p.ID, "downloading", "Creating Hugging Face Inference Endpoint...")
+		ns := p.HFDefaultOrg
+		if ns == "" {
+			if resolved, err := hfWhoamiName(p.HFGlobalToken); err == nil {
+				ns = resolved
+			}
 		}
-		ns, err := hfResolveNamespace(c, hfToken, "")
-		if err != nil {
-			common.ApiErrorMsg(c, err.Error())
+		if ns == "" {
+			setDeploymentFailed(p.ID, "Hugging Face organization/username could not be resolved")
 			return
 		}
 		scaleToZeroMin := 0
-		if idleTimeout > 0 {
-			scaleToZeroMin = (idleTimeout + 59) / 60
+		if p.IdleTimeoutSeconds > 0 {
+			scaleToZeroMin = (p.IdleTimeoutSeconds + 59) / 60
 		}
-		client := hfendpoints.NewClient(hfToken)
-		var lastErr error
+		client := hfendpoints.NewClient(p.HFGlobalToken)
 		var ep *hfendpoints.Endpoint
-		for _, cand := range candidates {
+		var chosenAcc string
+		var lastErr error
+		for _, cand := range p.Candidates {
 			created, err := client.CreateEndpoint(hfendpoints.CreateEndpointRequest{
-				Name:                      sanitizeSlug(req.Name),
+				Name:                      sanitizeSlug(p.Name),
 				Namespace:                 ns,
-				Repository:                req.ModelRepo,
-				Task:                      taskType,
+				Repository:                p.ModelRepo,
+				Task:                      p.TaskType,
 				Hardware:                  cand,
 				Region:                    "us-east-1",
 				Protected:                 true,
@@ -498,31 +651,70 @@ func CreateNotebookDeployment(c *gin.Context) {
 			})
 			if err == nil {
 				ep = created
-				item.Accelerator = cand
+				chosenAcc = cand
 				break
 			}
 			lastErr = err
 		}
 		if ep == nil {
-			common.ApiErrorMsg(c, fmt.Sprintf("failed to create Hugging Face endpoint (tried %v): %v", candidates, lastErr))
+			setDeploymentFailed(p.ID, fmt.Sprintf("Hugging Face endpoint creation failed (tried %v): %v", p.Candidates, lastErr))
 			return
 		}
-		item.RemoteID = ep.Namespace + "/" + ep.Name
-		item.RemoteURL = ep.Status.URL
-		if item.EndpointURL == "" {
-			item.EndpointURL = ep.Status.URL
+		_ = model.UpdateNotebookDeploymentFields(p.ID, map[string]any{
+			"accelerator":    chosenAcc,
+			"remote_id":      ep.Namespace + "/" + ep.Name,
+			"remote_url":     ep.Status.URL,
+			"endpoint_url":   ep.Status.URL,
+			"status":         "starting",
+			"status_message": "Building Hugging Face container...",
+			"updated_time":   time.Now().Unix(),
+		})
+		// Poll briefly for URL if not immediately returned
+		for i := 0; i < 20; i++ {
+			time.Sleep(6 * time.Second)
+			latest, err := client.GetEndpoint(ns, ep.Name)
+			if err != nil {
+				continue
+			}
+			st := strings.ToLower(latest.Status.State)
+			if latest.Status.URL != "" && strings.Contains(st, "run") {
+				_ = model.UpdateNotebookDeploymentFields(p.ID, map[string]any{
+					"remote_url":     latest.Status.URL,
+					"endpoint_url":   latest.Status.URL,
+					"status":         "running",
+					"status_message": "Running",
+					"updated_time":   time.Now().Unix(),
+				})
+				return
+			}
+			if strings.Contains(st, "fail") || strings.Contains(st, "error") {
+				setDeploymentFailed(p.ID, latest.Status.Message)
+				return
+			}
 		}
+		setDeploymentStatus(p.ID, "running", "Provisioned on Hugging Face")
 
 	default:
-		// modal, ionet, hostinger, runpod: store deployment record + generated script
-		item.Status = "configured"
+		setDeploymentStatus(p.ID, "running", "Configured")
 	}
+}
 
-	if err := model.CreateNotebookDeployment(item); err != nil {
-		common.ApiError(c, err)
+func probeHealth(baseURL string) {
+	if strings.TrimSpace(baseURL) == "" {
 		return
 	}
-	common.ApiSuccess(c, item)
+	client := &http.Client{Timeout: 10 * time.Second}
+	target := strings.TrimRight(baseURL, "/") + "/health"
+	for i := 0; i < 6; i++ {
+		resp, err := client.Get(target)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				return
+			}
+		}
+		time.Sleep(5 * time.Second)
+	}
 }
 
 func UpdateNotebookDeployment(c *gin.Context) {
@@ -575,9 +767,13 @@ func DeleteNotebookDeployment(c *gin.Context) {
 		kaggleUser := strings.TrimSpace(common.OptionMap["model_deployment.kaggle.username"])
 		kaggleKey := strings.TrimSpace(common.OptionMap["model_deployment.kaggle.api_key"])
 		hfToken := strings.TrimSpace(common.OptionMap["model_deployment.huggingface.token"])
+		modalTokenID := strings.TrimSpace(common.OptionMap["model_deployment.modal.token_id"])
+		modalTokenSecret := strings.TrimSpace(common.OptionMap["model_deployment.modal.token_secret"])
 		common.OptionMapRWMutex.RUnlock()
 
 		switch item.Provider {
+		case "modal":
+			_ = modaldeploy.StopApp(c.Request.Context(), item.RemoteID, modalTokenID, modalTokenSecret)
 		case "colab":
 			if colabToken, tokErr := getValidColabAccessToken(c.Request.Context()); tokErr == nil && colabToken != "" {
 				_ = newColabClient(colabToken).DeleteRuntime(item.RemoteID)
@@ -618,20 +814,20 @@ func TestNotebookDeployment(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Prompt      string `json:"prompt"`
-		EndpointURL string `json:"endpoint_url"`
+		Prompt string `json:"prompt"`
 	}
 	rawBody, _ := c.GetRawData()
 	if len(bytes.TrimSpace(rawBody)) > 0 {
 		_ = common.Unmarshal(rawBody, &req)
 	}
 
-	targetURL := strings.TrimSpace(req.EndpointURL)
+	targetURL := strings.TrimSpace(item.EndpointURL)
 	if targetURL == "" {
-		targetURL = strings.TrimSpace(item.EndpointURL)
-	}
-	if targetURL == "" {
-		common.ApiErrorMsg(c, "endpoint_url is not configured for this deployment yet")
+		if item.ErrorMessage != "" {
+			common.ApiErrorMsg(c, fmt.Sprintf("deployment failed: %s", item.ErrorMessage))
+		} else {
+			common.ApiErrorMsg(c, fmt.Sprintf("deployment is currently %s (%s); endpoint is not ready yet", item.Status, item.StatusMessage))
+		}
 		return
 	}
 
@@ -640,7 +836,18 @@ func TestNotebookDeployment(c *gin.Context) {
 		prompt = "Hello! Reply briefly."
 	}
 
+	prevStatus := item.Status
+	prevMsg := item.StatusMessage
+	setDeploymentStatus(item.Id, "testing", "Testing model...")
 	result, testErr := executeModelTest(targetURL, item.ModelRepo, item.TaskType, prompt, "")
+	if prevStatus == "" || prevStatus == "testing" {
+		prevStatus = "running"
+	}
+	if prevMsg == "" || prevMsg == "Testing model..." {
+		prevMsg = "Running"
+	}
+	setDeploymentStatus(item.Id, prevStatus, prevMsg)
+
 	if testErr != nil {
 		common.ApiErrorMsg(c, testErr.Error())
 		return
@@ -705,7 +912,7 @@ func executeModelTest(baseURL, modelRepo, rawTask, prompt, bearerToken string) (
 	task := notebookscript.NormalizeTaskType(rawTask)
 	base := strings.TrimRight(baseURL, "/")
 	start := time.Now()
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: 120 * time.Second}
 
 	var endpointPath string
 	var payload any

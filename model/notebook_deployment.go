@@ -16,6 +16,7 @@ type NotebookDeployment struct {
 	FallbackAccelerators string `json:"fallback_accelerators" gorm:"type:text"` // JSON array of fallback accelerators
 	IdleTimeoutSeconds   int    `json:"idle_timeout_seconds" gorm:"default:300"`
 	Status             string `json:"status" gorm:"type:varchar(32);not null"`
+	StatusMessage      string `json:"status_message" gorm:"type:text"`
 	RemoteID           string `json:"remote_id" gorm:"type:varchar(256)"`
 	RemoteURL          string `json:"remote_url" gorm:"type:text"`
 	EndpointURL        string `json:"endpoint_url" gorm:"type:text"`
@@ -49,6 +50,10 @@ func CreateNotebookDeployment(item *NotebookDeployment) error {
 
 func UpdateNotebookDeployment(item *NotebookDeployment) error {
 	return DB.Save(item).Error
+}
+
+func UpdateNotebookDeploymentFields(id int, fields map[string]any) error {
+	return DB.Model(&NotebookDeployment{}).Where("id = ?", id).Updates(fields).Error
 }
 
 func DeleteNotebookDeployment(id int) error {

@@ -700,6 +700,7 @@ export interface NotebookDeploymentItem {
   fallback_accelerators?: string
   idle_timeout_seconds: number
   status: string
+  status_message?: string
   remote_id?: string
   remote_url?: string
   endpoint_url?: string
@@ -738,7 +739,6 @@ export async function createNotebookDeployment(payload: {
   task_type: string
   accelerator: string
   fallback_accelerators?: string[]
-  endpoint_url?: string
   hf_token?: string
 }): Promise<{
   success: boolean

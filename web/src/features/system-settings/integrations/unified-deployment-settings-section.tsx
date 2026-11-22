@@ -32,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { testDeploymentConnectionWithKey } from '@/features/models/api'
 import { api } from '@/lib/api'
@@ -764,52 +765,46 @@ export function UnifiedDeploymentSettingsSection({
     <SettingsSection title={t('Model Deployment Settings')}>
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
-          {/* Global Dispatch Priority Card */}
-          <Card className='border border-border/70 shadow-sm'>
-            <CardHeader className='pb-3'>
-              <CardTitle className='text-base font-semibold'>
-                {t('Dispatch Priority')}
-              </CardTitle>
-              <CardDescription className='text-xs mt-1'>
-                {t(
-                  'Global routing preference between Model Deployments and upstream API channels.'
-                )}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className='pt-0'>
-              <FormField
-                control={form.control}
-                name='priority'
-                render={({ field }) => (
-                  <FormItem>
-                    <Select
-                      value={field.value ?? 'deployments_first'}
-                      onValueChange={field.onChange}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value='deployments_first'>
-                          {t(
-                            'Deployments First (Prefer deployments, fallback to channels)'
-                          )}
-                        </SelectItem>
-                        <SelectItem value='channels_first'>
-                          {t(
-                            'Channels First (Prefer configured channels, fallback to deployments)'
-                          )}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </CardContent>
-          </Card>
+          {/* Global Dispatch Priority (borderless, matches other System Settings pages) */}
+          <FormField
+            control={form.control}
+            name='priority'
+            render={({ field }) => (
+              <FormItem data-settings-form-span='full'>
+                <FormLabel>{t('Dispatch Priority')}</FormLabel>
+                <Select
+                  value={field.value ?? 'deployments_first'}
+                  onValueChange={field.onChange}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value='deployments_first'>
+                      {t(
+                        'Deployments First (Prefer deployments, fallback to channels)'
+                      )}
+                    </SelectItem>
+                    <SelectItem value='channels_first'>
+                      {t(
+                        'Channels First (Prefer configured channels, fallback to deployments)'
+                      )}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormDescription>
+                  {t(
+                    'Global routing preference between Model Deployments and upstream API channels.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <Separator data-settings-form-span='full' />
 
           {/* io.net */}
           <Card className='border border-border/70 shadow-sm'>
